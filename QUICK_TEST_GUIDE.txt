@@ -1,0 +1,119 @@
+╔══════════════════════════════════════════════════════════════╗
+║          🧪 QUICK TEST REFERENCE CARD                        ║
+╚══════════════════════════════════════════════════════════════╝
+
+📱 LOGIN CREDENTIALS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Email:    owner@sobhana.com
+Password: password123
+
+
+🔍 TEST SCENARIOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─ TEST 1: Add Referral Doctor ────────────────────────────────┐
+│                                                               │
+│  1. Go to: Manage Referral Doctors                          │
+│  2. Click: "Add Doctor"                                      │
+│  3. Type phone: 9876543230                                   │
+│                                                               │
+│  ✅ Expected: Yellow alert appears                           │
+│     "⚠️ Clinic Doctor Found"                                │
+│     "Dr. Meera Sharma (CD-00001) - General Medicine"        │
+│     [Link to this doctor] button                            │
+│                                                               │
+│  4. Click: "Link to this doctor"                            │
+│                                                               │
+│  ✅ Expected:                                                │
+│     • Name fills: "Dr. Meera Sharma"                        │
+│     • Green checkmark: "✓ Linked"                           │
+│     • Toast: "Linked to clinic doctor CD-00001"             │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
+
+
+┌─ TEST 2: Add Clinic Doctor ──────────────────────────────────┐
+│                                                               │
+│  1. Go to: Manage Clinic Doctors                            │
+│  2. Click: "Add Doctor"                                      │
+│  3. Type phone: 9876543220                                   │
+│                                                               │
+│  ✅ Expected: Yellow alert appears                           │
+│     "⚠️ Referral Doctor Found"                              │
+│     "Dr. Sharma (RD-00001) - 10% commission"                │
+│     [Link to this doctor] button                            │
+│                                                               │
+│  4. Click: "Link to this doctor"                            │
+│                                                               │
+│  ✅ Expected:                                                │
+│     • Name fills: "Dr. Sharma"                              │
+│     • Green checkmark: "✓ Linked"                           │
+│     • Toast: "Linked to referral doctor RD-00001"           │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
+
+
+📊 ALL TEST PHONE NUMBERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+REFERRAL DOCTORS (use these in Clinic Doctor form):
+  • 9876543220 → Dr. Sharma (RD-00001) - 10%
+  • 9876543221 → Dr. Mehra (RD-00002) - 12%
+
+CLINIC DOCTORS (use these in Referral Doctor form):
+  • 9876543230 → Dr. Meera Sharma (CD-00001) - General Medicine
+  • 9876543231 → Dr. Ravi Kumar (CD-00002) - Pediatrics
+
+NEW/UNIQUE (no alert should appear):
+  • 9999999999 → Should work normally, no alert
+
+
+🔧 DEBUGGING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Open DevTools: F12 or Cmd+Option+I (Mac)
+2. Go to Console tab - check for errors
+3. Go to Network tab - look for:
+   → GET /api/doctors/search-by-contact?phone=...
+   → Status should be 200
+   → Response should show doctor data
+
+4. Verify logged in:
+   → In Console: localStorage.getItem('token')
+   → Should show a token, not null
+
+5. Check servers:
+   → Backend: http://localhost:3000/health
+   → Frontend: http://localhost:8080
+
+
+⚡ VISUAL INDICATORS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🟡 Yellow Alert Box    = Doctor found in other category
+🔗 Link Button        = Click to auto-fill and link
+✅ Green Checkmark    = Successfully linked
+📱 Toast Notification = Appears bottom-right corner
+⚠️ Warning Icon       = Part of the alert display
+
+
+💡 TIPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• Alert appears AFTER typing 10 digits
+• Must be logged in to work
+• Both servers must be running
+• Check browser console if nothing happens
+• Toast notifications appear for 3-5 seconds
+
+
+🌐 URLS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Frontend:  http://localhost:8080
+Backend:   http://localhost:3000
+Health:    http://localhost:3000/health
+
+╔══════════════════════════════════════════════════════════════╗
+║  Ready to test! Open http://localhost:8080 and login        ║
+╚══════════════════════════════════════════════════════════════╝
