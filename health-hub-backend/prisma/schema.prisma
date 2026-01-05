@@ -1,0 +1,553 @@
+// This is the Prisma schema for Sobhana Health Hub
+// Phase-1: Multi-branch diagnostic center + polyclinic with integrated payout engine
+//
+// ARCHITECTURAL RULES (FROZEN):
+// 1. Visit is the single anchor for all medical data (patient, branch, domain, status)
+// 2. All branch-scoped data must include branchId with unique compound constraints
+// 3. Patient is global; all identifiers go through PatientIdentifier (extensible)
+// 4. Doctor access is explicit via ReferralDoctor_Visit table (not implicit referralDoctorId)
+// 5. Finalized reports are immutable (enforced via ReportStatus enum + status checks)
+// 6. All enums are explicit (not strings) to prevent silent inconsistencies
+// 7. AuditLog is insert-only (no updates, no deletes) - append-only event stream
+// 8. Payout derived per test order (not per visit total)
+// 9. SMS delivery via Gupshup (not WhatsApp in Phase-1)
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ============================================================================
+// ENUMS (Explicit to prevent silent inconsistencies)
+// ============================================================================
+
+enum UserRole {
+  staff
+  doctor
+  owner
+  admin
+}
+
+enum VisitDomain {
+  DIAGNOSTICS
+  CLINIC
+}
+
+enum VisitStatus {
+  DRAFT
+  WAITING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum PaymentType {
+  CASH
+  ONLINE
+  CHEQUE
+}
+
+enum ReportStatus {
+  DRAFT//why??
+  FINALIZED
+}
+
+enum TestResultFlag {
+  NORMAL
+  HIGH
+  LOW
+}
+
+enum ClinicVisitType {
+  OP      // Outpatient
+  IP      // Inpatient
+}
+
+enum IdentifierType {
+  PHONE
+  EMAIL
+  AADHAR
+  OTHER
+}
+
+enum AuditActionType {
+  CREATE
+  UPDATE
+  DELETE
+  FINALIZE
+  PAYOUT_DERIVE
+  PAYOUT_PAID
+}
+
+enum Gender {
+  M
+  F
+  O
+}
+
+enum SMSDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  RETRY
+}
+
+// ============================================================================
+// NUMBER SEQUENCE (For auto-generating P-00001, RD-00001, D-MPR-00001, etc.)
+// ============================================================================
+
+/// NumberSequence: Thread-safe counter for generating sequential numbers
+/// Must be updated within database transaction to prevent race conditions
+model NumberSequence {
+  id        String   @id // e.g., "patient", "referralDoctor", "clinicDoctor", "diagnostic-MPR", "clinic-KPY"
+  prefix    String   // e.g., "P", "RD", "CD", "D-MPR", "C-KPY"
+  lastValue Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@index([prefix])
+}
+
+// ============================================================================
+// GLOBAL DATA (Not branch-scoped)
+// ============================================================================
+
+/// Patient is globally searchable and immutable once created.
+/// All contact details go through PatientIdentifier for auditability.
+model Patient {
+  id            String   @id @default(cuid())
+  patientNumber String   @unique // P-00001, P-00002, etc. (user-facing)
+  name          String
+  age           Int
+  gender        Gender
+  address       String?
+  createdAt     DateTime @default(now())
+
+  /// Extensible identifiers (phone, email, Aadhar, etc.)
+  identifiers PatientIdentifier[]
+  
+  /// All visits across all branches
+  visits      Visit[]
+
+  @@index([createdAt])
+}
+
+/// PatientIdentifier: Extensible identity model
+/// Supports phone, email, Aadhar, and future identifier types.
+/// Multiple identifiers per patient, one primary per type.
+model PatientIdentifier {
+  id        String         @id @default(cuid())
+  patientId String
+  type      IdentifierType//?
+  value     String
+  isPrimary Boolean        @default(false)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@unique([type, value])
+  @@index([patientId])
+  @@index([type, value])
+}
+
+/// ReferralDoctor: Registered doctors who refer patients (typically external practitioners)
+/// Base commission % can be overridden per test.
+model ReferralDoctor {
+  id                 String   @id @default(cuid())
+  doctorNumber       String   @unique // RD-00001, RD-00002, etc. (user-facing)
+  name               String
+  phone              String?
+  email              String?
+  commissionPercent  Float    @default(10.0) // 0-100, can be overridden per test
+  clinicDoctorId     String?  // Link if this person is also a clinic doctor
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  /// Referrals to visits (explicit access control)
+  referrals ReferralDoctor_Visit[]
+
+  /// Payout ledger
+  payoutLedger DoctorPayoutLedger[]
+
+  @@index([isActive])
+  @@index([createdAt])
+}
+
+/// ClinicDoctor: In-house doctors (letterhead, registration, specialty)
+/// Used only for clinic visits, not for referral commission.
+model ClinicDoctor {
+  id                   String   @id @default(cuid())
+  doctorNumber         String   @unique // CD-00001, CD-00002, etc. (user-facing)
+  name                 String
+  qualification        String   // MBBS, MD (Gen Med), etc.
+  specialty            String   // General Medicine, Pediatrics, etc.
+  registrationNumber   String   @unique
+  phone                String?
+  email                String?
+  letterheadNote       String?
+  referralDoctorId     String?  // Link if this person is also a referral doctor
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  /// Clinic visits (not referral-based)
+  clinicVisits ClinicVisit[]
+
+  @@index([isActive])
+  @@index([createdAt])
+}
+
+/// LabTest: Diagnostic tests offered at the center
+/// Price fixed globally, can be overridden per visit if needed.
+model LabTest {
+  id              String   @id @default(cuid())
+  name            String
+  code            String   @unique
+  priceInPaise    Int      // Must be > 0
+  referenceMin    Float?
+  referenceMax    Float?
+  referenceUnit   String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  /// Test orders in visits
+  testOrders TestOrder[]
+
+  @@index([isActive])
+  @@index([code])
+  @@index([createdAt])
+}
+
+/// Branch: Physical location where visits occur
+model Branch {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique // MPR, KPY, etc.
+  address   String?
+  phone     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Users with this as active branch
+  users User[]
+
+  /// All data for this branch
+  visits           Visit[]
+  referrals        ReferralDoctor_Visit[]
+  bills            Bill[]
+  payoutLedger     DoctorPayoutLedger[]
+  auditLogs        AuditLog[]
+
+  @@index([isActive])
+  @@index([code])
+  @@index([createdAt])
+}
+
+/// User: Staff, doctor, owner
+model User {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  passwordHash    String   // bcrypt hash
+  name            String
+  phone           String?
+  role            UserRole
+  activeBranchId  String
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  activeBranch Branch @relation(fields: [activeBranchId], references: [id], onDelete: Restrict)
+
+  @@index([role])
+  @@index([activeBranchId])
+  @@index([isActive])
+}
+
+// ============================================================================
+// BRANCH-SCOPED DATA (All anchored on Visit)
+// ============================================================================
+
+/// Visit: Single anchor for all medical data
+/// All tests, results, bills, clinic data references this.
+/// branchId + billNumber is unique per branch (auto-generated sequence).
+model Visit {
+  id              String      @id @default(cuid())
+  branchId        String
+  patientId       String
+  domain          VisitDomain // DIAGNOSTICS | CLINIC
+  status          VisitStatus @default(DRAFT)
+  billNumber      String      // Format: D-{BRANCH_CODE}-{SEQ} or C-{BRANCH_CODE}-{SEQ}
+  totalAmountInPaise Int      // Sum of bill items
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // Relations
+  branch   Branch  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  patient  Patient @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  /// Explicit referrals (for diagnostics)
+  referrals ReferralDoctor_Visit[]
+
+  /// Bill (one per visit)
+  bill   Bill?
+
+  /// Diagnostics data (if domain = DIAGNOSTICS)
+  testOrders TestOrder[]
+  report     DiagnosticReport?
+
+  /// Clinic data (if domain = CLINIC)
+  clinicVisit ClinicVisit?
+
+  @@unique([branchId, billNumber])
+  @@index([branchId])
+  @@index([patientId])
+  @@index([domain])
+  @@index([status])
+  @@index([createdAt])
+}
+
+/// Referral: Explicit doctor access control
+/// Links referral doctor to visit (many-to-one for future multi-referral support).
+/// MUST exist for doctor to see visit.
+model ReferralDoctor_Visit {
+  id               String   @id @default(cuid())
+  visitId          String
+  referralDoctorId String
+  branchId         String
+  createdAt        DateTime @default(now())
+
+  visit           Visit           @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  referralDoctor  ReferralDoctor  @relation(fields: [referralDoctorId], references: [id], onDelete: Cascade)
+  branch          Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([visitId, referralDoctorId])
+  @@index([referralDoctorId])
+  @@index([branchId])
+}
+
+/// Bill: Single bill per visit (financial anchor)
+model Bill {
+  id                  String        @id @default(cuid())
+  visitId             String        @unique
+  billNumber          String        // Duplicated for direct queries; should match Visit.billNumber
+  branchId            String
+  totalAmountInPaise  Int
+  paymentType         PaymentType   @default(CASH)
+  paymentStatus       PaymentStatus @default(PENDING)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  visit  Visit   @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  branch Branch  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@unique([branchId, billNumber])
+  @@index([billNumber])
+  @@index([paymentStatus])
+  @@index([createdAt])
+}
+
+/// TestOrder: Individual test in a diagnostic visit
+/// Supports per-test commission override (null = use referral doctor's base %).
+model TestOrder {
+  id                             String   @id @default(cuid())
+  visitId                        String
+  testId                         String
+  branchId                       String
+  priceInPaise                   Int      // Snapshot of test price at order time
+  referralCommissionPercentage   Float    // 0-100, overridable per test
+  createdAt                      DateTime @default(now())
+
+  visit Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  test  LabTest  @relation(fields: [testId], references: [id], onDelete: Restrict)
+
+  /// Results for this test
+  testResults TestResult[]
+
+  @@index([visitId])
+  @@index([testId])
+  @@index([branchId])
+}
+
+/// DiagnosticReport: Container for report versions
+model DiagnosticReport {
+  id          String   @id @default(cuid())
+  visitId     String   @unique
+  branchId    String
+  createdAt   DateTime @default(now())
+
+  visit Visit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+
+  /// Versions (DRAFT → FINALIZED, immutable after finalized)
+  versions ReportVersion[]
+
+  @@index([visitId])
+  @@index([branchId])
+}
+
+/// ReportVersion: Versioned report (immutable once FINALIZED)
+/// CONSTRAINT: Once status = FINALIZED, this row must not be updated.
+/// Enforce via code: check status before any update.
+model ReportVersion {
+  id          String       @id @default(cuid())
+  reportId    String
+  versionNum  Int
+  status      ReportStatus @default(DRAFT) // DRAFT | FINALIZED
+  finalizedAt DateTime?    // Set when FINALIZED
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt // Allowed only before FINALIZED
+
+  report DiagnosticReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  /// Test results for this version
+  testResults TestResult[]
+
+  @@unique([reportId, versionNum])
+  @@index([status])
+  @@index([finalizedAt])
+}
+
+/// TestResult: Individual test result in a report version
+/// IMMUTABLE once report is finalized.
+model TestResult {
+  id              String         @id @default(cuid())
+  testOrderId     String
+  reportVersionId String
+  value           Float?         // Numeric result (can be null)
+  flag            TestResultFlag? // NORMAL | HIGH | LOW
+  notes           String?
+  createdAt       DateTime       @default(now())
+
+  testOrder      TestOrder      @relation(fields: [testOrderId], references: [id], onDelete: Cascade)
+  reportVersion  ReportVersion  @relation(fields: [reportVersionId], references: [id], onDelete: Cascade)
+
+  @@index([testOrderId])
+  @@index([reportVersionId])
+}
+
+/// ClinicVisit: Clinic-specific data (references Visit)
+/// NOTE: ClinicVisit.status = queue state (WAITING/IN_PROGRESS/COMPLETED)
+///       Visit.status = overall lifecycle (DRAFT/WAITING/IN_PROGRESS/COMPLETED/CANCELLED)
+model ClinicVisit {
+  id                     String         @id @default(cuid())
+  visitId                String         @unique
+  clinicDoctorId         String
+  visitType              ClinicVisitType
+  hospitalWard           String?
+  consultationFeeInPaise Int
+  status                 VisitStatus    @default(WAITING) // Queue state: WAITING | IN_PROGRESS | COMPLETED
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+
+  visit        Visit       @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  clinicDoctor ClinicDoctor @relation(fields: [clinicDoctorId], references: [id], onDelete: Restrict)
+
+  @@index([visitId])
+  @@index([clinicDoctorId])
+  @@index([status])
+}
+
+// ============================================================================
+// PAYOUT SYSTEM
+// ============================================================================
+
+/// DoctorPayoutRule: Configuration for payout derivation (future use)
+model DoctorPayoutRule {
+  id                String   @id @default(cuid())
+  referralDoctorId  String
+  baseCommissionPercent Float @default(10.0)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([referralDoctorId])
+}
+
+/// DoctorPayoutLedger: Immutable payout snapshot
+/// RULE: Once paidAt is set, row is immutable.
+/// DERIVATION: Sum of (test price × commission %) for all finalized tests in period.
+model DoctorPayoutLedger {
+  id                    String   @id @default(cuid())
+  referralDoctorId      String
+  branchId              String
+  periodStartDate       DateTime
+  periodEndDate         DateTime
+  derivedAmountInPaise  Int      // Fully derived, not manual
+  derivedAt             DateTime // When calculation was done
+  reviewedAt            DateTime? // When reviewed by owner
+  paidAt                DateTime? // When marked paid (immutable after)
+  paymentReferenceId    String?  // Cheque #, transaction ID, etc.
+  notes                 String?
+  createdAt             DateTime @default(now())
+
+  referralDoctor ReferralDoctor @relation(fields: [referralDoctorId], references: [id], onDelete: Restrict)
+  branch         Branch         @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@unique([referralDoctorId, branchId, periodStartDate, periodEndDate])
+  @@index([referralDoctorId])
+  @@index([branchId])
+  @@index([paidAt])
+}
+
+// ============================================================================
+// AUDIT LOG (APPEND-ONLY EVENT STREAM)
+// ============================================================================
+
+/// AuditLog: Immutable append-only record of all critical actions
+/// RULE: Insert only. No updates. No deletes.
+/// ENFORCEMENT: Declare as insert-only in code; never update/delete.
+model AuditLog {
+  id          String              @id @default(cuid())
+  branchId    String
+  actionType  AuditActionType
+  entityType  String              // Visit, TestOrder, ReportVersion, etc.
+  entityId    String
+  userId      String?
+  oldValues   String?             // JSON string (if applicable)
+  newValues   String?             // JSON string (if applicable)
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime            @default(now())
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@index([branchId])
+  @@index([actionType])
+  @@index([entityType])
+  @@index([entityId])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// SMS DELIVERY (Gupshup integration)
+// ============================================================================
+
+/// SMSDelivery: Track report delivery via Gupshup SMS
+model SMSDelivery {
+  id              String             @id @default(cuid())
+  reportVersionId String
+  patientPhone    String
+  messageId       String?            // Gupshup message ID
+  status          SMSDeliveryStatus  @default(PENDING)
+  failureReason   String?
+  sentAt          DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([reportVersionId])
+  @@index([status])
+  @@index([sentAt])
+}

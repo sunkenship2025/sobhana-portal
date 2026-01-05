@@ -1,0 +1,183 @@
+╔══════════════════════════════════════════════════════════════╗
+║    📊 DATABASE VIEWER & ENHANCED SEARCH GUIDE                ║
+╚══════════════════════════════════════════════════════════════╝
+
+1️⃣  DATABASE VIEWER (PRISMA STUDIO)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🌐 URL: http://localhost:5555
+
+✨ Features:
+  • View all tables and data
+  • Edit records directly
+  • Filter and search
+  • Add new records
+  • Delete records
+
+📋 Available Tables:
+  • Branch - Your clinic branches
+  • User - Admin, staff, owner accounts
+  • ReferralDoctor - External doctors with commission
+  • ClinicDoctor - Your consulting doctors
+  • Patient - Patient records
+  • And more...
+
+
+2️⃣  ENHANCED CROSS-REFERENCE FEATURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🆕 NOW SEARCHES BY NAME AND PHONE!
+
+┌─ Adding Referral Doctor ─────────────────────────────────────┐
+│                                                               │
+│  TYPE IN NAME FIELD: "Meera" or "meera sharma"              │
+│                                                               │
+│  ✅ If clinic doctor exists:                                 │
+│     🟡 Yellow Alert: "Clinic Doctor Found"                   │
+│        Dr. Meera Sharma (CD-00001) - General Medicine        │
+│        [Link to this doctor] button                          │
+│                                                               │
+│  CLICK "Link to this doctor"                                 │
+│  ✅ Auto-fills:                                              │
+│     • Name: Dr. Meera Sharma                                 │
+│     • Phone: 9876543230                                      │
+│     • Green checkmark: "✓ Linked"                            │
+│     • You just add commission %                              │
+│                                                               │
+│  OR TYPE IN PHONE FIELD: "9876543230"                        │
+│     Same yellow alert appears!                               │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
+
+
+┌─ Adding Clinic Doctor ───────────────────────────────────────┐
+│                                                               │
+│  TYPE IN NAME FIELD: "Sharma" or "dr sharma"                │
+│                                                               │
+│  ✅ If referral doctor exists:                               │
+│     🟡 Yellow Alert: "Referral Doctor Found"                 │
+│        Dr. Sharma (RD-00001) - 10% commission                │
+│        [Link to this doctor] button                          │
+│                                                               │
+│  CLICK "Link to this doctor"                                 │
+│  ✅ Auto-fills:                                              │
+│     • Name: Dr. Sharma                                       │
+│     • Phone: 9876543220                                      │
+│     • Green checkmark: "✓ Linked"                            │
+│     • You add other details (qualification, specialty, etc)  │
+│                                                               │
+│  OR TYPE IN PHONE FIELD: "9876543220"                        │
+│     Same yellow alert appears!                               │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
+
+
+3️⃣  HOW IT WORKS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 Name Search:
+   • Starts searching after 3 characters
+   • Case-insensitive
+   • Searches across the other doctor type
+
+🔢 Phone Search:
+   • Starts searching after 10 digits
+   • Checks for duplicates
+
+🔗 Link Button:
+   • Auto-fills name + phone
+   • Creates database link
+   • Shows green checkmark
+   • Prevents duplicates
+
+
+4️⃣  TEST SCENARIOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ Scenario 1: Add Meera Sharma as Referral Doctor
+   1. Go to: Manage Referral Doctors → Add Doctor
+   2. Type in Name: "meera" or "meera sharma"
+   3. See yellow alert with clinic doctor info
+   4. Click "Link to this doctor"
+   5. Name and phone auto-fill!
+   6. Add commission % (e.g., 15)
+   7. Click Add Doctor
+   8. ✅ Dr. Meera is now in both systems (linked)
+
+✅ Scenario 2: Add Dr. Sharma as Clinic Doctor
+   1. Go to: Manage Clinic Doctors → Add Doctor
+   2. Type in Name: "sharma"
+   3. See yellow alert with referral doctor info
+   4. Click "Link to this doctor"
+   5. Name and phone auto-fill!
+   6. Add qualification, specialty, etc.
+   7. Click Add Doctor
+   8. ✅ Dr. Sharma is now in both systems (linked)
+
+✅ Scenario 3: Search by Phone
+   - Same as above but type phone number instead
+   - Works with both 9876543220, 9876543230, etc.
+
+
+5️⃣  VIEWING THE DATA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Open Prisma Studio: http://localhost:5555
+
+To see linked doctors:
+1. Click "ReferralDoctor" table
+2. Look for "clinicDoctorId" column
+   - If filled = linked to a clinic doctor
+   - Click the ID to view the clinic doctor
+
+3. Click "ClinicDoctor" table
+4. Look for "referralDoctorId" column
+   - If filled = linked to a referral doctor
+   - Click the ID to view the referral doctor
+
+
+6️⃣  BENEFITS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ No duplicate doctors
+✅ Faster data entry
+✅ Consistent information
+✅ Auto-linked records
+✅ Search by name OR phone
+✅ Real-time detection
+
+
+7️⃣  EXAMPLE WORKFLOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+You have Dr. Meera working at your clinic.
+She also refers patients to you.
+
+OLD WAY (Manual):
+  1. Add as clinic doctor
+  2. Add as referral doctor (duplicate data)
+  3. No connection between them
+
+NEW WAY (Automatic):
+  1. Add as clinic doctor (with full details)
+  2. When adding as referral:
+     → Type "meera"
+     → Alert shows clinic info
+     → Click "Link"
+     → Name + phone auto-fill
+     → Just add commission %
+  3. ✅ Both records linked in database!
+
+
+8️⃣  KEYBOARD SHORTCUTS (PRISMA STUDIO)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Cmd/Ctrl + K  →  Quick search
+Cmd/Ctrl + F  →  Filter current table
+Cmd/Ctrl + N  →  New record
+Cmd/Ctrl + S  →  Save changes
+
+
+╔══════════════════════════════════════════════════════════════╗
+║  🎉 Ready to test! Type a name or phone to see the magic!   ║
+╚══════════════════════════════════════════════════════════════╝
