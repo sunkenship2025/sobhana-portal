@@ -96,6 +96,11 @@ enum Gender {
   O
 }
 
+enum PayoutDoctorType {
+  REFERRAL
+  CLINIC
+}
+
 enum SMSDeliveryStatus {
   PENDING
   SENT
@@ -203,7 +208,8 @@ model ClinicDoctor {
   updatedAt            DateTime @updatedAt
 
   /// Clinic visits (not referral-based)
-  clinicVisits ClinicVisit[]
+  clinicVisits  ClinicVisit[]
+  payoutLedger  DoctorPayoutLedger[]
 
   @@index([isActive])
   @@index([createdAt])
@@ -478,26 +484,34 @@ model DoctorPayoutRule {
 
 /// DoctorPayoutLedger: Immutable payout snapshot
 /// RULE: Once paidAt is set, row is immutable.
-/// DERIVATION: Sum of (test price × commission %) for all finalized tests in period.
+/// DERIVATION: 
+///   - REFERRAL: Sum of (test price × commission %) for all finalized tests in period
+///   - CLINIC: Sum of consultation fees for all completed visits in period
 model DoctorPayoutLedger {
-  id                    String   @id @default(cuid())
-  referralDoctorId      String
+  id                    String           @id @default(cuid())
+  doctorType            PayoutDoctorType // REFERRAL | CLINIC
+  referralDoctorId      String?          // Set when doctorType = REFERRAL
+  clinicDoctorId        String?          // Set when doctorType = CLINIC
   branchId              String
   periodStartDate       DateTime
   periodEndDate         DateTime
-  derivedAmountInPaise  Int      // Fully derived, not manual
-  derivedAt             DateTime // When calculation was done
-  reviewedAt            DateTime? // When reviewed by owner
-  paidAt                DateTime? // When marked paid (immutable after)
-  paymentReferenceId    String?  // Cheque #, transaction ID, etc.
+  derivedAmountInPaise  Int              // Fully derived, not manual
+  derivedAt             DateTime         // When calculation was done
+  reviewedAt            DateTime?        // When reviewed by owner
+  paidAt                DateTime?        // When marked paid (immutable after)
+  paymentMethod         PaymentType?     // Cash, Online, Cheque
+  paymentReferenceId    String?          // Cheque #, transaction ID, etc.
   notes                 String?
-  createdAt             DateTime @default(now())
+  createdAt             DateTime         @default(now())
 
-  referralDoctor ReferralDoctor @relation(fields: [referralDoctorId], references: [id], onDelete: Restrict)
-  branch         Branch         @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  referralDoctor ReferralDoctor? @relation(fields: [referralDoctorId], references: [id], onDelete: Restrict)
+  clinicDoctor   ClinicDoctor?   @relation(fields: [clinicDoctorId], references: [id], onDelete: Restrict)
+  branch         Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
 
-  @@unique([referralDoctorId, branchId, periodStartDate, periodEndDate])
+  @@unique([doctorType, referralDoctorId, clinicDoctorId, branchId, periodStartDate, periodEndDate])
+  @@index([doctorType])
   @@index([referralDoctorId])
+  @@index([clinicDoctorId])
   @@index([branchId])
   @@index([paidAt])
 }

@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import { generateClinicBillNumber } from '../services/numberService';
+import { logAction } from '../services/auditService';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -232,6 +233,16 @@ router.post('/', async (req: AuthRequest, res) => {
         },
       });
 
+      // Audit log for visit creation
+      await logAction({
+        userId: req.user?.id!,
+        actionType: 'CREATE',
+        entityType: 'VISIT',
+        entityId: visit.id,
+        branchId: req.branchId!,
+        newValues: { domain: 'CLINIC', billNumber, patientId, doctorId, visitType },
+      });
+
       return visit;
     });
 
@@ -287,6 +298,24 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       });
     }
 
+    // Validate state transitions
+    if (status && existing.status !== status) {
+      const validTransitions: Record<string, string[]> = {
+        WAITING: ['IN_PROGRESS', 'CANCELLED'],
+        IN_PROGRESS: ['COMPLETED', 'CANCELLED'],
+        COMPLETED: [], // Terminal state
+        CANCELLED: [], // Terminal state
+      };
+
+      const allowedStates = validTransitions[existing.status] || [];
+      if (!allowedStates.includes(status)) {
+        return res.status(400).json({
+          error: 'INVALID_TRANSITION',
+          message: `Cannot transition from ${existing.status} to ${status}`,
+        });
+      }
+    }
+
     // Update visit
     const updated = await prisma.$transaction(async (tx) => {
       if (status) {
@@ -294,6 +323,17 @@ router.patch('/:id', async (req: AuthRequest, res) => {
         await tx.visit.update({
           where: { id },
           data: { status },
+        });
+
+        // Audit log for status change
+        await logAction({
+          userId: req.user?.id!,
+          actionType: 'UPDATE',
+          entityType: 'VISIT',
+          entityId: id,
+          branchId: req.branchId!,
+          oldValues: { status: existing.status },
+          newValues: { status: status },
         });
 
         if (existing.clinicVisit) {

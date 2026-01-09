@@ -47,7 +47,29 @@ export const branchContextMiddleware = async (
     }
 
     // Inject branch context
-    req.branchId = user.activeBranchId;
+    // Priority: x-branch-id header (for branch switching) > user.activeBranchId (default)
+    const requestedBranchId = req.headers['x-branch-id'] as string;
+    
+    if (requestedBranchId) {
+      // Verify the requested branch exists
+      const branch = await prisma.branch.findUnique({
+        where: { id: requestedBranchId },
+        select: { id: true, isActive: true }
+      });
+
+      if (!branch || !branch.isActive) {
+        res.status(400).json({
+          error: 'INVALID_BRANCH',
+          message: 'Requested branch not found or inactive'
+        });
+        return;
+      }
+
+      req.branchId = requestedBranchId;
+    } else {
+      req.branchId = user.activeBranchId;
+    }
+    
     req.user.role = user.role;
 
     next();

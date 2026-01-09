@@ -7,20 +7,20 @@ import type { Branch } from '@/types';
 // ============================================
 const SAMPLE_BRANCHES: Branch[] = [
   {
-    id: 'branch-1',
+    id: 'cmjzumgap00003zwljoqlubsn',
     name: 'Sobhana – Madhapur',
     code: 'MPR',
-    address: '123 Madhapur Main Road, Hyderabad',
-    phone: '040-12345678',
+    address: '123 Tech Street, Madhapur, Hyderabad',
+    phone: '9876543200',
     isActive: true,
     createdAt: new Date(),
   },
   {
-    id: 'branch-2',
+    id: 'cmjzumgaw00013zwl3tnr4yyn',
     name: 'Sobhana – Kukatpally',
     code: 'KPY',
-    address: '456 Kukatpally Housing Board, Hyderabad',
-    phone: '040-87654321',
+    address: '456 KPHB Road, Kukatpally, Hyderabad',
+    phone: '9876543201',
     isActive: true,
     createdAt: new Date(),
   },
@@ -53,7 +53,7 @@ export const useBranchStore = create<BranchState>()(
   persist(
     (set, get) => ({
       branches: SAMPLE_BRANCHES,
-      activeBranchId: 'branch-1', // Default to first branch
+      activeBranchId: 'cmjzumgap00003zwljoqlubsn', // Default to Madhapur
       
       getActiveBranch: () => {
         const { branches, activeBranchId } = get();

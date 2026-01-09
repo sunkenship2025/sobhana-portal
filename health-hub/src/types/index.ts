@@ -242,3 +242,42 @@ export interface ClinicVisitView {
   referralDoctor?: ReferralDoctor;   // Denormalized for display
   clinicDoctor?: ClinicDoctor;
 }
+
+// ============================================
+// PAYOUT TYPES
+// ============================================
+export type PayoutDoctorType = 'REFERRAL' | 'CLINIC';
+export type PaymentType = 'CASH' | 'ONLINE' | 'CHEQUE';
+
+export interface PayoutLineItem {
+  visitId: string;
+  billNumber: string;
+  patientName: string;
+  date: string;
+  testOrFee: string;
+  amountInPaise: number;
+  commissionPercentage?: number;
+  derivedCommissionInPaise: number;
+}
+
+export interface PayoutSummary {
+  id: string;
+  doctorType: PayoutDoctorType;
+  doctorId: string;
+  doctorName: string;
+  branchId: string;
+  branchName: string;
+  periodStartDate: string;
+  periodEndDate: string;
+  derivedAmountInPaise: number;
+  derivedAt: string;
+  paidAt: string | null;
+  paymentMethod: PaymentType | null;
+}
+
+export interface PayoutDetail extends PayoutSummary {
+  paymentReferenceId: string | null;
+  notes: string | null;
+  reviewedAt: string | null;
+  lineItems: PayoutLineItem[];
+}

@@ -19,6 +19,8 @@ import OwnerDashboard from "./pages/owner/OwnerDashboard";
 import ManageDoctors from "./pages/owner/ManageDoctors";
 import ManageClinicDoctors from "./pages/owner/ManageClinicDoctors";
 import ManageTests from "./pages/owner/ManageTests";
+import PayoutsList from "./pages/owner/PayoutsList";
+import PayoutDetail from "./pages/owner/PayoutDetail";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -101,6 +103,16 @@ function AppRoutes() {
       <Route path="/owner/tests" element={
         <ProtectedRoute allowedRoles={['staff', 'owner']}>
           <ManageTests />
+        </ProtectedRoute>
+      } />
+      <Route path="/owner/payouts" element={
+        <ProtectedRoute allowedRoles={['owner', 'staff']}>
+          <PayoutsList />
+        </ProtectedRoute>
+      } />
+      <Route path="/owner/payouts/:id" element={
+        <ProtectedRoute allowedRoles={['owner', 'staff']}>
+          <PayoutDetail />
         </ProtectedRoute>
       } />
       

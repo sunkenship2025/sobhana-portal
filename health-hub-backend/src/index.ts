@@ -16,6 +16,7 @@ import doctorSearchRoutes from './routes/doctors';
 import labTestRoutes from './routes/labTests';
 import diagnosticVisitRoutes from './routes/diagnosticVisits';
 import clinicVisitRoutes from './routes/clinicVisits';
+import payoutRoutes from './routes/payouts';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -42,6 +43,7 @@ app.use('/api/clinic-doctors', clinicDoctorRoutes);
 app.use('/api/lab-tests', labTestRoutes);
 app.use('/api/visits/diagnostic', diagnosticVisitRoutes);
 app.use('/api/visits/clinic', clinicVisitRoutes);
+app.use('/api/payouts', payoutRoutes);
 
 // Global error handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
