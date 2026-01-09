@@ -70,6 +70,7 @@ const navItems: NavItem[] = [
       { label: 'Referral Doctors', href: '/owner/doctors' },
       { label: 'Clinic Doctors', href: '/owner/clinic-doctors' },
       { label: 'Manage Tests', href: '/owner/tests' },
+      { label: 'Payouts', href: '/owner/payouts' },
     ]
   },
 ];

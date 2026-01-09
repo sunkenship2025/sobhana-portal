@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import { generateDiagnosticBillNumber } from '../services/numberService';
+import { logAction } from '../services/auditService';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -328,6 +329,16 @@ router.post('/', async (req: AuthRequest, res) => {
           versionNum: 1,
           status: 'DRAFT',
         },
+      });
+
+      // Audit log for visit creation
+      await logAction({
+        userId: req.user?.id!,
+        actionType: 'CREATE',
+        entityType: 'VISIT',
+        entityId: visit.id,
+        branchId: req.branchId!,
+        newValues: { domain: 'DIAGNOSTICS', billNumber, patientId, totalAmountInPaise },
       });
 
       return visit;
