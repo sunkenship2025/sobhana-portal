@@ -7,7 +7,7 @@ import type { Branch } from '@/types';
 // ============================================
 const SAMPLE_BRANCHES: Branch[] = [
   {
-    id: 'cmjzumgap00003zwljoqlubsn',
+    id: 'cmk2mcc2r00001d9esaynov48',
     name: 'Sobhana – Madhapur',
     code: 'MPR',
     address: '123 Tech Street, Madhapur, Hyderabad',
@@ -16,7 +16,7 @@ const SAMPLE_BRANCHES: Branch[] = [
     createdAt: new Date(),
   },
   {
-    id: 'cmjzumgaw00013zwl3tnr4yyn',
+    id: 'cmk2mcc3100011d9epecdj53v',
     name: 'Sobhana – Kukatpally',
     code: 'KPY',
     address: '456 KPHB Road, Kukatpally, Hyderabad',
