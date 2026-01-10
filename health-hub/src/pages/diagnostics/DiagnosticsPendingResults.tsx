@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -6,39 +6,92 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useAppStore } from '@/store/appStore';
 import { useBranchStore } from '@/store/branchStore';
+import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { Clock, Search } from 'lucide-react';
+import { Clock, Search, Loader2 } from 'lucide-react';
 
 const DiagnosticsPendingResults = () => {
   const navigate = useNavigate();
-  const { getPendingDiagnosticVisits, getPatientById, getTestOrdersByVisitId } = useAppStore();
   const { activeBranchId } = useBranchStore();
+  const { token } = useAuthStore();
   const [dateFilter, setDateFilter] = useState('today');
   const [search, setSearch] = useState('');
+  const [pendingVisits, setPendingVisits] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const pendingVisits = getPendingDiagnosticVisits();
+  // Fetch pending visits from API (DRAFT and WAITING status)
+  useEffect(() => {
+    const fetchPendingVisits = async () => {
+      try {
+        setLoading(true);
+        // Fetch DRAFT visits (no results entered yet) and WAITING visits (results saved but not finalized)
+        const [draftRes, waitingRes] = await Promise.all([
+          fetch('http://localhost:3000/api/visits/diagnostic?status=DRAFT', {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'X-Branch-Id': activeBranchId
+            }
+          }),
+          fetch('http://localhost:3000/api/visits/diagnostic?status=WAITING', {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'X-Branch-Id': activeBranchId
+            }
+          })
+        ]);
 
-  // Filter by active branch and build view data
+        const draftData = draftRes.ok ? await draftRes.json() : [];
+        const waitingData = waitingRes.ok ? await waitingRes.json() : [];
+        
+        // Combine and sort by createdAt
+        const combined = [...draftData, ...waitingData].sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        setPendingVisits(combined);
+      } catch (error) {
+        console.error('Failed to fetch pending visits:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (token && activeBranchId) {
+      fetchPendingVisits();
+    }
+  }, [token, activeBranchId]);
+
+  // Build view data from API response
   const visitsWithDetails = useMemo(() => {
     return pendingVisits
       .filter((visit) => visit.branchId === activeBranchId) // Branch-scoped
       .map((visit) => ({
         visit,
-        patient: getPatientById(visit.patientId),
-        testOrders: getTestOrdersByVisitId(visit.id),
+        patient: visit.patient, // API response includes patient data
+        testOrders: visit.testOrders || [], // API response includes test orders
       }));
-  }, [pendingVisits, activeBranchId, getPatientById, getTestOrdersByVisitId]);
+  }, [pendingVisits, activeBranchId]);
 
   const filteredVisits = visitsWithDetails.filter(({ patient, visit }) => {
-    if (!search || !patient) return true;
+    if (!search) return true;
+    const searchLower = search.toLowerCase();
+    const phone = patient?.identifiers?.find((id: any) => id.type === 'PHONE')?.value || '';
     return (
-      patient.phone.includes(search) ||
-      patient.name.toLowerCase().includes(search.toLowerCase()) ||
-      visit.billNumber.toLowerCase().includes(search.toLowerCase())
+      phone.includes(search) ||
+      patient?.name.toLowerCase().includes(searchLower) ||
+      visit.billNumber.toLowerCase().includes(searchLower)
     );
   });
+
+  if (loading) {
+    return (
+      <AppLayout context="diagnostics">
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout context="diagnostics">

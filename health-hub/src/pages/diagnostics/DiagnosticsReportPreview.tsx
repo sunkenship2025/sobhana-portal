@@ -1,13 +1,14 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { useAppStore } from '@/store/appStore';
+import { useBranchStore } from '@/store/branchStore';
+import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { FlagBadge } from '@/components/ui/flag-badge';
 import { toast } from 'sonner';
-import { AlertTriangle, ArrowLeft, CheckCircle2, Lock, Printer, MessageCircle } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, Lock, Printer, MessageCircle, Loader2 } from 'lucide-react';
 import { ReportPrint } from '@/components/print/ReportPrint';
 import {
   AlertDialog,
@@ -28,16 +29,99 @@ import {
   TableRow,
 } from '@/components/ui/table';
 
+interface TestResult {
+  id: string;
+  testId: string;
+  testName?: string;
+  testCode?: string;
+  value: number | null;
+  flag: string | null;
+  notes?: string;
+}
+
+interface Visit {
+  id: string;
+  billNumber: string;
+  status: string;
+  createdAt: string;
+  patient: {
+    name: string;
+    age: number;
+    gender: string;
+    identifiers?: Array<{ type: string; value: string }>;
+  };
+  testOrders: Array<{
+    id: string;
+    testId: string;
+    testName: string;
+    testCode: string;
+    referenceRange: { min: number; max: number; unit: string };
+  }>;
+  referralDoctor?: { name: string } | null;
+  report?: {
+    id: string;
+    currentVersion?: {
+      id: string;
+      status: string;
+      testResults?: TestResult[];
+    };
+  };
+}
+
 const DiagnosticsReportPreview = () => {
   const { visitId } = useParams();
   const navigate = useNavigate();
-  const { getDiagnosticVisitView, updateDiagnosticVisit, updateReportVersion } = useAppStore();
+  const { activeBranchId } = useBranchStore();
+  const { token } = useAuthStore();
+  
+  const [visit, setVisit] = useState<Visit | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [finalizing, setFinalizing] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
-  const visitView = visitId ? getDiagnosticVisitView(visitId) : undefined;
+  // Fetch visit from API
+  useEffect(() => {
+    const fetchVisit = async () => {
+      if (!visitId || !token || !activeBranchId) return;
+      
+      try {
+        setLoading(true);
+        const response = await fetch(`http://localhost:3000/api/visits/diagnostic/${visitId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'X-Branch-Id': activeBranchId
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setVisit(data);
+        } else {
+          toast.error('Failed to load visit');
+        }
+      } catch (error) {
+        console.error('Failed to fetch visit:', error);
+        toast.error('Failed to load visit');
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  if (!visitView) {
+    fetchVisit();
+  }, [visitId, token, activeBranchId]);
+
+  if (loading) {
+    return (
+      <AppLayout context="diagnostics">
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (!visit) {
     return (
       <AppLayout context="diagnostics">
         <div className="text-center py-12">
@@ -50,30 +134,70 @@ const DiagnosticsReportPreview = () => {
     );
   }
 
-  const { visit, patient, referralDoctor, results, currentReportVersion } = visitView;
+  const { patient, testOrders, referralDoctor } = visit;
+  // Get test results from the latest version (versions are ordered by versionNum desc)
+  const latestVersion = (visit.report as any)?.versions?.[0];
+  const testResults = latestVersion?.testResults || [];
+  
+  // Build results with test info
+  const results = testResults.map((result: any) => {
+    const order = testOrders.find(o => o.testId === result.testId);
+    return {
+      ...result,
+      testName: order?.testName || result.testName || 'Unknown Test',
+      testCode: order?.testCode || result.testCode || '',
+      referenceRange: order?.referenceRange || { min: 0, max: 0, unit: '' }
+    };
+  });
   
   const hasAbnormalValues = results.some((r) => r.flag === 'HIGH' || r.flag === 'LOW');
-  const isFinalized = visit.status === 'FINALIZED';
+  const isFinalized = visit.status === 'COMPLETED';
 
-  const handleFinalize = () => {
-    // Update visit status (immutable after this)
-    updateDiagnosticVisit(visit.id, { status: 'FINALIZED' });
-    
-    // Update report version status
-    if (currentReportVersion) {
-      updateReportVersion(currentReportVersion.id, { 
-        status: 'FINALIZED',
-        finalizedAt: new Date(),
+  const handleFinalize = async () => {
+    setFinalizing(true);
+    try {
+      const response = await fetch(`http://localhost:3000/api/visits/diagnostic/${visitId}/finalize`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Branch-Id': activeBranchId,
+          'Content-Type': 'application/json'
+        }
       });
+
+      if (response.ok) {
+        toast.success('Report finalized successfully');
+        setShowConfirm(false);
+        
+        // Refresh visit data
+        const refreshResponse = await fetch(`http://localhost:3000/api/visits/diagnostic/${visitId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'X-Branch-Id': activeBranchId
+          }
+        });
+        if (refreshResponse.ok) {
+          const refreshData = await refreshResponse.json();
+          setVisit(refreshData);
+        }
+        
+        // Auto-send WhatsApp message to patient
+        const phone = patient.identifiers?.find(id => id.type === 'PHONE')?.value;
+        if (phone) {
+          const message = `🔬 Lab Report Ready!\n\nDear ${patient.name},\n\nYour lab report (Bill #: ${visit.billNumber}) is now ready.\n\nPlease visit the clinic to collect your report.\n\nThank you for choosing Sobhana Diagnostics.`;
+          const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+          window.open(url, '_blank');
+        }
+      } else {
+        const errorData = await response.json();
+        toast.error(errorData.message || 'Failed to finalize report');
+      }
+    } catch (error) {
+      console.error('Failed to finalize:', error);
+      toast.error('Failed to finalize report');
+    } finally {
+      setFinalizing(false);
     }
-    
-    toast.success('Report finalized successfully');
-    setShowConfirm(false);
-    
-    // Auto-send WhatsApp message to patient
-    const message = `🔬 Lab Report Ready!\n\nDear ${patient.name},\n\nYour lab report (Bill #: ${visit.billNumber}) is now ready.\n\nPlease visit the clinic to collect your report.\n\nThank you for choosing MedCare.`;
-    const url = `https://wa.me/${patient.phone}?text=${encodeURIComponent(message)}`;
-    window.open(url, '_blank');
   };
 
   const handlePrint = () => {
@@ -81,9 +205,12 @@ const DiagnosticsReportPreview = () => {
   };
 
   const handleWhatsApp = () => {
-    const message = `Lab Report Ready\n\nPatient: ${patient.name}\nBill #: ${visit.billNumber}\n\nPlease visit the clinic to collect your report.`;
-    const url = `https://wa.me/${patient.phone}?text=${encodeURIComponent(message)}`;
-    window.open(url, '_blank');
+    const phone = patient.identifiers?.find(id => id.type === 'PHONE')?.value;
+    if (phone) {
+      const message = `Lab Report Ready\n\nPatient: ${patient.name}\nBill #: ${visit.billNumber}\n\nPlease visit the clinic to collect your report.`;
+      const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+      window.open(url, '_blank');
+    }
   };
 
   return (
@@ -168,7 +295,7 @@ const DiagnosticsReportPreview = () => {
                         : '—'}
                     </TableCell>
                     <TableCell className="text-right">
-                      <FlagBadge flag={result.flag} />
+                      <FlagBadge flag={result.flag as 'HIGH' | 'LOW' | 'NORMAL' | null} />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -225,8 +352,9 @@ const DiagnosticsReportPreview = () => {
       </div>
 
       {/* Print Content - Only this prints */}
+      {/* TODO: Update ReportPrint to work with API data */}
       <div ref={printRef} className="hidden print:block">
-        <ReportPrint visitView={visitView} />
+        {/* ReportPrint component needs visit data in visitView format */}
       </div>
 
       {/* Finalize Confirmation */}
@@ -245,9 +373,13 @@ const DiagnosticsReportPreview = () => {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleFinalize}>
-              <Lock className="mr-2 h-4 w-4" />
-              Finalize Report
+            <AlertDialogAction onClick={handleFinalize} disabled={finalizing}>
+              {finalizing ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Lock className="mr-2 h-4 w-4" />
+              )}
+              {finalizing ? 'Finalizing...' : 'Finalize Report'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

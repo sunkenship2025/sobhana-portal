@@ -5,10 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useAppStore } from '@/store/appStore';
+import { useBranchStore } from '@/store/branchStore';
+import { useAuthStore } from '@/store/authStore';
 import { FlagBadge } from '@/components/ui/flag-badge';
 import { toast } from 'sonner';
-import { AlertTriangle, Save } from 'lucide-react';
+import { AlertTriangle, Save, Loader2 } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,40 +20,112 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import type { TestResult, ReportVersion, Report } from '@/types';
+
+interface TestOrder {
+  id: string;
+  testId: string;
+  testName: string;
+  testCode: string;
+  price: number;
+  referenceRange: {
+    min: number;
+    max: number;
+    unit: string;
+  };
+}
+
+interface Visit {
+  id: string;
+  billNumber: string;
+  status: string;
+  patient: {
+    name: string;
+    age: number;
+    gender: string;
+  };
+  testOrders: TestOrder[];
+  report?: {
+    id: string;
+    currentVersion?: {
+      id: string;
+      status: string;
+      testResults?: Array<{
+        testId: string;
+        value: number;
+        flag: string;
+      }>;
+    };
+  };
+}
 
 const DiagnosticsResultEntry = () => {
   const { visitId } = useParams();
   const navigate = useNavigate();
-  const { 
-    getDiagnosticVisitView,
-    updateDiagnosticVisit,
-    addReport,
-    addReportVersion,
-    addTestResults,
-    updateTestResults,
-    getReportByVisitId,
-    getCurrentReportVersion,
-  } = useAppStore();
-
-  const visitView = visitId ? getDiagnosticVisitView(visitId) : undefined;
+  const { activeBranchId } = useBranchStore();
+  const { token } = useAuthStore();
+  
+  const [visit, setVisit] = useState<Visit | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [results, setResults] = useState<Record<string, string>>({});
   const [showWarning, setShowWarning] = useState(false);
   const [extremeValues, setExtremeValues] = useState<string[]>([]);
 
+  // Fetch visit from API
   useEffect(() => {
-    if (visitView && visitView.results.length > 0) {
-      const initialResults: Record<string, string> = {};
-      visitView.results.forEach((r) => {
-        if (r.value !== null) {
-          initialResults[r.testOrderId] = r.value.toString();
+    const fetchVisit = async () => {
+      if (!visitId || !token || !activeBranchId) return;
+      
+      try {
+        setLoading(true);
+        const response = await fetch(`http://localhost:3000/api/visits/diagnostic/${visitId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'X-Branch-Id': activeBranchId
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setVisit(data);
+          
+          // Initialize results from existing test results if any
+          if (data.report?.currentVersion?.testResults) {
+            const initialResults: Record<string, string> = {};
+            data.report.currentVersion.testResults.forEach((r: any) => {
+              // Map testId to testOrderId
+              const order = data.testOrders.find((o: any) => o.testId === r.testId);
+              if (order && r.value !== null) {
+                initialResults[order.id] = r.value.toString();
+              }
+            });
+            setResults(initialResults);
+          }
+        } else {
+          toast.error('Failed to load visit');
         }
-      });
-      setResults(initialResults);
-    }
-  }, [visitView]);
+      } catch (error) {
+        console.error('Failed to fetch visit:', error);
+        toast.error('Failed to load visit');
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  if (!visitView || !visitId) {
+    fetchVisit();
+  }, [visitId, token, activeBranchId]);
+
+  if (loading) {
+    return (
+      <AppLayout context="diagnostics">
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (!visit || !visitId) {
     return (
       <AppLayout context="diagnostics">
         <div className="text-center py-12">
@@ -65,7 +138,7 @@ const DiagnosticsResultEntry = () => {
     );
   }
 
-  const { visit, patient, testOrders } = visitView;
+  const { patient, testOrders } = visit;
 
   const computeFlag = (value: number, min: number, max: number): 'NORMAL' | 'HIGH' | 'LOW' | null => {
     if (min === 0 && max === 0) return null;
@@ -104,67 +177,55 @@ const DiagnosticsResultEntry = () => {
     saveResults();
   };
 
-  const saveResults = () => {
-    // Get or create report
-    let report = getReportByVisitId(visitId);
-    let reportVersion = report ? getCurrentReportVersion(visitId) : undefined;
+  const saveResults = async () => {
+    setSaving(true);
     
-    if (!report) {
-      const reportId = `r-${visitId}`;
-      const reportVersionId = `rv-${visitId}-1`;
-      
-      report = {
-        id: reportId,
-        visitId,
-        currentVersionId: reportVersionId,
-        createdAt: new Date(),
-      };
-      
-      reportVersion = {
-        id: reportVersionId,
-        reportId,
-        versionNumber: 1,
-        status: 'DRAFT' as const,
-        finalizedAt: null,
-        createdAt: new Date(),
-      };
-      
-      addReport(report);
-      addReportVersion(reportVersion);
+    try {
+      // Prepare results array for API
+      const resultsArray = testOrders
+        .filter((order) => results[order.id])
+        .map((order) => {
+          const valueStr = results[order.id];
+          const value = parseFloat(valueStr);
+          const flag = computeFlag(value, order.referenceRange.min, order.referenceRange.max);
+          
+          return {
+            testId: order.testId,
+            value,
+            flag: flag || 'NORMAL',
+            notes: ''
+          };
+        });
+
+      if (resultsArray.length === 0) {
+        toast.error('Please enter at least one test result');
+        setSaving(false);
+        return;
+      }
+
+      const response = await fetch(`http://localhost:3000/api/visits/diagnostic/${visitId}/results`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Branch-Id': activeBranchId,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ results: resultsArray })
+      });
+
+      if (response.ok) {
+        toast.success('Results saved as draft');
+        navigate(`/diagnostics/preview/${visitId}`);
+      } else {
+        const errorData = await response.json();
+        toast.error(errorData.message || 'Failed to save results');
+      }
+    } catch (error) {
+      console.error('Failed to save results:', error);
+      toast.error('Failed to save results');
+    } finally {
+      setSaving(false);
     }
-
-    // Create test results
-    const testResults: TestResult[] = testOrders.map((order) => {
-      const valueStr = results[order.id];
-      const value = valueStr ? parseFloat(valueStr) : null;
-      const flag = value !== null 
-        ? computeFlag(value, order.referenceRange.min, order.referenceRange.max)
-        : null;
-
-      return {
-        id: `tr-${order.id}`,
-        testOrderId: order.id,
-        reportVersionId: reportVersion!.id,
-        testName: order.testName,
-        testCode: order.testCode,
-        value,
-        referenceRange: order.referenceRange,
-        flag,
-      };
-    });
-
-    // Add or update results
-    if (visitView.results.length > 0) {
-      updateTestResults(testResults);
-    } else {
-      addTestResults(testResults);
-    }
-
-    // Update visit status
-    updateDiagnosticVisit(visit.id, { status: 'DRAFT' });
-    
-    toast.success('Results saved as draft');
-    navigate(`/diagnostics/preview/${visit.id}`);
   };
 
   const handleConfirmSave = () => {
@@ -246,9 +307,13 @@ const DiagnosticsResultEntry = () => {
               );
             })}
 
-            <Button className="w-full" size="lg" onClick={handleSaveDraft}>
-              <Save className="mr-2 h-4 w-4" />
-              Save Draft
+            <Button className="w-full" size="lg" onClick={handleSaveDraft} disabled={saving}>
+              {saving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
+              {saving ? 'Saving...' : 'Save Draft'}
             </Button>
           </CardContent>
         </Card>

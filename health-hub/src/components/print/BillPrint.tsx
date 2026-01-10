@@ -69,14 +69,14 @@ export const BillPrint = ({ visitView }: BillPrintProps) => {
                   {order.referralCommissionPercent !== undefined ? `${order.referralCommissionPercent}%` : '—'}
                 </td>
               )}
-              <td className="border border-black p-2 text-right">{order.price.toLocaleString()}</td>
+              <td className="border border-black p-2 text-right">{(order.priceInPaise / 100).toLocaleString()}</td>
             </tr>
           ))}
         </tbody>
         <tfoot>
           <tr className="font-bold">
-            <td colSpan={2} className="border border-black p-2 text-right">Total:</td>
-            <td className="border border-black p-2 text-right">₹{visit.totalAmount.toLocaleString()}</td>
+            <td colSpan={hasReferralCommission ? 3 : 2} className="border border-black p-2 text-right">Total:</td>
+            <td className="border border-black p-2 text-right">₹{(visit.totalAmountInPaise / 100).toLocaleString()}</td>
           </tr>
         </tfoot>
       </table>

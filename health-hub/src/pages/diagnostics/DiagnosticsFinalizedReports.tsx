@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,34 +8,65 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAppStore } from '@/store/appStore';
 import { useBranchStore } from '@/store/branchStore';
+import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { CheckCircle2, Search, Eye, Printer, MessageCircle } from 'lucide-react';
+import { CheckCircle2, Search, Eye, Printer, MessageCircle, Loader2 } from 'lucide-react';
 
 const DiagnosticsFinalizedReports = () => {
   const navigate = useNavigate();
-  const { getFinalizedDiagnosticVisits, getPatientById, getTestOrdersByVisitId } = useAppStore();
+  const { getPatientById, getTestOrdersByVisitId } = useAppStore();
   const { activeBranchId } = useBranchStore();
+  const { token } = useAuthStore();
   const [dateFilter, setDateFilter] = useState('today');
   const [search, setSearch] = useState('');
+  const [finalizedVisits, setFinalizedVisits] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const finalizedVisits = getFinalizedDiagnosticVisits();
+  // Fetch finalized visits from API
+  useEffect(() => {
+    const fetchFinalizedVisits = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch('http://localhost:3000/api/visits/diagnostic?status=COMPLETED', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'X-Branch-Id': activeBranchId
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setFinalizedVisits(data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch finalized visits:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  // Filter by active branch and build view data
+    if (token && activeBranchId) {
+      fetchFinalizedVisits();
+    }
+  }, [token, activeBranchId]);
+
+  // Build view data from API response
   const visitsWithDetails = useMemo(() => {
     return finalizedVisits
       .filter((visit) => visit.branchId === activeBranchId) // Branch-scoped
       .map((visit) => ({
         visit,
-        patient: getPatientById(visit.patientId),
-        testOrders: getTestOrdersByVisitId(visit.id),
+        patient: visit.patient, // API response includes patient data
+        testOrders: visit.testOrders || [], // API response includes test orders
       }));
-  }, [finalizedVisits, activeBranchId, getPatientById, getTestOrdersByVisitId]);
+  }, [finalizedVisits, activeBranchId]);
 
   const filteredVisits = visitsWithDetails.filter(({ patient, visit }) => {
     if (!search) return true;
     const searchLower = search.toLowerCase();
+    const phone = patient?.identifiers?.find((id: any) => id.type === 'PHONE')?.value || '';
     return (
-      patient?.phone.includes(search) ||
+      phone.includes(search) ||
       patient?.name.toLowerCase().includes(searchLower) ||
       visit.billNumber.toLowerCase().includes(searchLower)
     );
@@ -46,6 +77,16 @@ const DiagnosticsFinalizedReports = () => {
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
   };
+
+  if (loading) {
+    return (
+      <AppLayout context="diagnostics">
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout context="diagnostics">
