@@ -11,10 +11,30 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, FileText, ChevronRight, User, Lock } from 'lucide-react';
+import { ArrowLeft, FileText, ChevronRight, User, Lock, IndianRupee, Printer } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import type { Patient360View, VisitTimelineItem, VisitDomain } from '@/types';
+import { toast } from 'sonner';
+
+/**
+ * PATIENT 360 — CANONICAL PATIENT VIEW (Phase-1)
+ * 
+ * Entry Points:
+ * 1. Branch Patient Table (future) - Lists patients with activity in current branch
+ * 2. Global Search (/clinic/patient-search) - Search by phone/name across all branches
+ * 
+ * This screen shows:
+ * - Complete medical and financial history across ALL branches
+ * - Read-only view of all visits, bills, and reports
+ * - Global patient identity (immutable)
+ * - Visit timeline with branch-scoped operations
+ * 
+ * Security:
+ * - Patient 360 ignores branch filters for viewing history
+ * - Report links only shown for FINALIZED diagnostics reports
+ * - No editing allowed (read-only view)
+ */
 
 const API_BASE = 'http://localhost:3000/api';
 
@@ -78,9 +98,44 @@ interface VisitDetailDrawerProps {
 }
 
 function VisitDetailDrawer({ visit, open, onClose }: VisitDetailDrawerProps) {
+  const { token } = useAuthStore();
+  
   if (!visit) return null;
 
   const isDiagnostic = visit.domain === 'DIAGNOSTICS';
+
+  const handleViewSecureReport = async () => {
+    if (!visit.reportVersionId) return;
+    
+    try {
+      // Generate secure token for report access
+      const response = await fetch(`${API_BASE}/reports/generate-token`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reportVersionId: visit.reportVersionId }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate report token');
+      }
+      
+      const { token: reportToken } = await response.json();
+      
+      // Open report in new tab with secure token
+      window.open(`/report/view?token=${reportToken}`, '_blank');
+    } catch (error) {
+      console.error('Failed to generate report token:', error);
+      toast.error('Failed to open report. Please try again.');
+    }
+  };
+
+  const handlePrintBill = () => {
+    // Open bill print page in new tab
+    window.open(`/bill/print/${visit.domain}/${visit.id}`, '_blank');
+  };
 
   return (
     <Sheet open={open} onOpenChange={onClose}>
@@ -102,17 +157,14 @@ function VisitDetailDrawer({ visit, open, onClose }: VisitDetailDrawerProps) {
                 ? 'Diagnostic Visit'
                 : `Clinic Visit — ${visit.visitType}`}
             </h3>
-            <p className="text-sm text-muted-foreground">
-              Branch: {visit.branchName}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Date: {formatDate(visit.createdAt)}
-            </p>
-            {!isDiagnostic && visit.doctorName && (
-              <p className="text-sm text-muted-foreground">
-                Doctor: {visit.doctorName}
-              </p>
-            )}
+            <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+              <p>Branch: <span className="text-foreground font-medium">{visit.branchName}</span></p>
+              <p>Date: <span className="text-foreground">{formatDate(visit.createdAt)}</span></p>
+              <p>Bill Number: <span className="text-foreground font-mono">{visit.billNumber}</span></p>
+              {!isDiagnostic && visit.doctorName && (
+                <p>Doctor: <span className="text-foreground">{visit.doctorName}</span></p>
+              )}
+            </div>
           </div>
 
           <Separator />
@@ -123,15 +175,15 @@ function VisitDetailDrawer({ visit, open, onClose }: VisitDetailDrawerProps) {
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Amount</span>
-                <span className="font-medium">{formatCurrency(visit.totalAmountInPaise)}</span>
+                <span className="font-semibold">{formatCurrency(visit.totalAmountInPaise)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Payment</span>
+                <span className="text-muted-foreground">Payment Method</span>
                 <span>{visit.paymentType}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Status</span>
-                <span className={visit.paymentStatus === 'PAID' ? 'text-green-600' : 'text-amber-600'}>
+                <span className="text-muted-foreground">Payment Status</span>
+                <span className={visit.paymentStatus === 'PAID' ? 'text-green-600 font-medium' : 'text-amber-600 font-medium'}>
                   {visit.paymentStatus}
                 </span>
               </div>
@@ -144,21 +196,47 @@ function VisitDetailDrawer({ visit, open, onClose }: VisitDetailDrawerProps) {
               <Separator />
               <div>
                 <h4 className="font-medium mb-3">Report Status</h4>
-                <p className={`text-sm ${getStatusColor(visit.reportStatus || visit.status)}`}>
+                <p className={`text-sm font-medium ${getStatusColor(visit.reportStatus || visit.status)}`}>
                   {visit.reportStatus === 'FINALIZED'
-                    ? 'Report Finalized'
+                    ? '✓ Report Finalized'
                     : visit.reportStatus === 'DRAFT'
-                    ? 'Results Pending'
-                    : 'No Report'}
+                    ? '⏳ Results Pending'
+                    : '— No Report Available'}
                 </p>
                 {visit.finalizedAt && (
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <p className="text-xs text-muted-foreground mt-2">
                     Finalized on {formatDate(visit.finalizedAt)}
                   </p>
+                )}
+                {visit.reportStatus === 'FINALIZED' && visit.reportVersionId && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleViewSecureReport}
+                    className="mt-3 w-full"
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    Open Report in New Tab
+                  </Button>
                 )}
               </div>
             </>
           )}
+
+          <Separator />
+
+          {/* Print Bill Button */}
+          <div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePrintBill}
+              className="w-full"
+            >
+              <Printer className="h-4 w-4 mr-2" />
+              Print Bill
+            </Button>
+          </div>
 
           <Separator />
 
@@ -211,10 +289,30 @@ export default function Patient360() {
     setDrawerOpen(true);
   };
 
-  const handleViewReport = (reportVersionId: string) => {
-    // Navigate to report preview in read-only mode
-    // The report preview page should detect this is from Patient 360 and enforce read-only
-    window.open(`/diagnostics/preview/${reportVersionId}?readonly=true`, '_blank');
+  const handleViewReport = async (reportVersionId: string) => {
+    try {
+      // Generate secure token for report access
+      const response = await fetch(`${API_BASE}/reports/generate-token`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reportVersionId }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate report token');
+      }
+      
+      const { token: reportToken } = await response.json();
+      
+      // Open report in new tab with secure token
+      window.open(`/report/view?token=${reportToken}`, '_blank');
+    } catch (error) {
+      console.error('Failed to generate report token:', error);
+      toast.error('Failed to open report. Please try again.');
+    }
   };
 
   if (isLoading) {
@@ -315,6 +413,58 @@ export default function Patient360() {
           </CardContent>
         </Card>
 
+        {/* Financial Summary (Read-Only) */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <IndianRupee className="h-5 w-5" />
+                Financial Summary
+              </CardTitle>
+              <Badge variant="outline" className="text-xs">
+                Read-Only
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Total Diagnostics</p>
+                <p className="text-xl font-semibold">
+                  {formatCurrency(
+                    visitTimeline
+                      .filter(v => v.domain === 'DIAGNOSTICS')
+                      .reduce((sum, v) => sum + v.totalAmountInPaise, 0)
+                  )}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Total Clinic</p>
+                <p className="text-xl font-semibold">
+                  {formatCurrency(
+                    visitTimeline
+                      .filter(v => v.domain === 'CLINIC')
+                      .reduce((sum, v) => sum + v.totalAmountInPaise, 0)
+                  )}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Lifetime Total</p>
+                <p className="text-xl font-semibold text-primary">
+                  {formatCurrency(
+                    visitTimeline.reduce((sum, v) => sum + v.totalAmountInPaise, 0)
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 pt-4 border-t">
+              <p className="text-xs text-muted-foreground">
+                ⚠️ All financial changes happen via visits/bills. This is informational only.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Visit Timeline */}
         <div>
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -340,96 +490,87 @@ export default function Patient360() {
                 return (
                   <Card key={visit.visitId} className="overflow-hidden">
                     <CardContent className="p-4">
-                      <div className="flex items-start justify-between gap-4">
-                        {/* Left: Visit Info */}
-                        <div className="flex-1 min-w-0">
+                      <div className="grid grid-cols-[auto_1fr_auto] gap-4 items-start">
+                        {/* Date Column */}
+                        <div className="text-sm font-medium min-w-[100px]">
+                          {formatDate(visit.createdAt)}
+                        </div>
+
+                        {/* Visit Details Column */}
+                        <div className="flex-1 space-y-2">
                           {/* Visit Type Header */}
                           <div className="flex items-center gap-2 flex-wrap">
                             <Badge variant={getDomainBadgeVariant(visit.domain)}>
-                              {isDiagnostic ? 'DIAGNOSTIC VISIT' : `CLINIC VISIT`}
+                              {isDiagnostic ? 'DIAGNOSTICS' : `CLINIC`}
                             </Badge>
                             {!isDiagnostic && visit.visitType && (
-                              <Badge variant="outline">{visit.visitType}</Badge>
+                              <Badge variant="outline" className="text-xs">
+                                {visit.visitType}
+                              </Badge>
                             )}
                             <span className="text-sm text-muted-foreground">
                               • {visit.branchName}
                             </span>
+                            <span className="text-xs text-muted-foreground font-mono">
+                              • {visit.billNumber}
+                            </span>
                           </div>
 
-                          {/* Date */}
-                          <p className="text-sm text-muted-foreground mt-2">
-                            {formatDate(visit.createdAt)}
-                          </p>
-
                           {/* Status / Doctor */}
-                          <div className="mt-2 space-y-1">
+                          <div className="space-y-1">
                             {isDiagnostic ? (
                               <p className={`text-sm ${getStatusColor(visit.reportStatus || visit.status)}`}>
                                 Status:{' '}
                                 {visit.reportStatus === 'FINALIZED'
                                   ? 'Report Finalized'
-                                  : 'Results Pending'}
+                                  : visit.reportStatus === 'DRAFT'
+                                  ? 'Results Pending'
+                                  : 'No Report'}
                               </p>
                             ) : (
                               visit.doctorName && (
-                                <p className="text-sm">
-                                  Doctor: {visit.doctorName}
+                                <p className="text-sm text-muted-foreground">
+                                  Doctor: <span className="text-foreground">{visit.doctorName}</span>
                                 </p>
                               )
                             )}
 
                             {/* Billing Info */}
-                            <p className="text-sm text-muted-foreground">
-                              Billing: {formatCurrency(visit.totalAmountInPaise)} ·{' '}
-                              {visit.paymentType} ·{' '}
-                              <span className={visit.paymentStatus === 'PAID' ? 'text-green-600' : 'text-amber-600'}>
+                            <p className="text-sm">
+                              <span className="font-semibold">{formatCurrency(visit.totalAmountInPaise)}</span>
+                              <span className="text-muted-foreground"> · {visit.paymentType} · </span>
+                              <span className={visit.paymentStatus === 'PAID' ? 'text-green-600 font-medium' : 'text-amber-600'}>
                                 {visit.paymentStatus}
                               </span>
                             </p>
                           </div>
                         </div>
 
-                        {/* Right: Actions */}
-                        <div className="flex flex-col gap-2 shrink-0">
-                          {canViewReport ? (
+                        {/* Actions Column */}
+                        <div className="flex flex-col gap-2 shrink-0 min-w-[140px]">
+                          {/* View Report Button - ONLY for FINALIZED diagnostics */}
+                          {canViewReport && (
                             <Button
                               variant="outline"
                               size="sm"
                               onClick={() => handleViewReport(visit.reportVersionId!)}
-                              className="text-xs"
+                              className="text-xs w-full justify-start"
                             >
-                              <FileText className="h-3 w-3 mr-1" />
-                              View Final Report
-                            </Button>
-                          ) : isDiagnostic && !visit.reportVersionId ? (
-                            <span className="text-xs text-muted-foreground italic">
-                              (no report available)
-                            </span>
-                          ) : null}
-
-                          {!isDiagnostic && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleViewVisitDetails(visit)}
-                              className="text-xs"
-                            >
-                              View Visit Details
-                              <ChevronRight className="h-3 w-3 ml-1" />
+                              <FileText className="h-3 w-3 mr-2" />
+                              View Report
                             </Button>
                           )}
 
-                          {isDiagnostic && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleViewVisitDetails(visit)}
-                              className="text-xs"
-                            >
-                              View Details
-                              <ChevronRight className="h-3 w-3 ml-1" />
-                            </Button>
-                          )}
+                          {/* View Details Button */}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleViewVisitDetails(visit)}
+                            className="text-xs w-full justify-start"
+                          >
+                            View Details
+                            <ChevronRight className="h-3 w-3 ml-auto" />
+                          </Button>
                         </div>
                       </div>
                     </CardContent>
