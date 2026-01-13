@@ -150,9 +150,14 @@ const DiagnosticsFinalizedReports = () => {
                     key={visit.id}
                     className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
                   >
-                    <div className="space-y-1">
+                    <div 
+                      className="space-y-1 flex-1 cursor-pointer"
+                      onClick={() => navigate(`/patients/${patient?.id}`)}
+                    >
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold">{patient?.name || 'Unknown'}</span>
+                        <span className="font-semibold hover:text-primary transition-colors">
+                          {patient?.name || 'Unknown'}
+                        </span>
                         <span className="text-muted-foreground">
                           | {patient?.age} | {patient?.gender}
                         </span>
