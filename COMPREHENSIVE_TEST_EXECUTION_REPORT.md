@@ -56,6 +56,25 @@ All test evidence stored in: `test-screenshots/`
 
 ## Detailed Test Results
 
+---
+
+## Recent Bug Fixes and Verifications
+
+- **JIRA-01 (TR-06):** Database-level immutability for FINALIZED diagnostic reports — PASSED (migration + trigger verified).
+- **JIRA-02 (CQ-01):** Allow direct transition `WAITING -> COMPLETED` for clinic visits — PASSED (verified via Chrome DevTools MCP; example bill C-KPY-00006).
+- **JIRA-03 (CL-01):** Create `DoctorPayoutLedger` entry when clinic visit completes — PASSED (ledger entry observed in Prisma Studio).
+- **JIRA-04 (CBX-02):** Cross-branch data isolation and Patient 360 readiness — PASSED (dual-mode implemented: branch-scoped lists and cross-branch patient queries; verified that queries without `patientId` return only current branch visits and queries with `patientId` return visits across branches and domains).
+- **JIRA-06 (CV-01):** Visit type immutable after creation — PASSED (PATCH with different visitType returns 403 IMMUTABLE_FIELD).
+- **JIRA-07 (CQ-02):** No cancellation after IN_PROGRESS — PASSED (PATCH status=CANCELLED on IN_PROGRESS visit returns 400 INVALID_TRANSITION).
+- **JIRA-08 (RD-01):** Doctor deactivation via PATCH isActive — PASSED (PATCH isActive=false returns 200, doctor marked inactive).
+- **JIRA-09 (BP-01):** Clinic bill print endpoint — NOT A BUG (frontend already has `ClinicPrescriptionPrint.tsx` component + `window.print()` — no backend endpoint needed).
+- **JIRA-10 (DC-01):** Finalize concurrency race condition — FIXED (atomic conditional update with `updateMany WHERE status=DRAFT`; returns 409 CONFLICT if already finalized).
+- **JIRA-11 (PD-01):** Payout derivation API — ALREADY EXISTS (`POST /api/payouts/derive` endpoint was already implemented; verified working with 201 response).
+- **JIRA-12 (AL-01):** Audit log retrieval API — IMPLEMENTED (`GET /api/audit-logs` endpoint created with query filters: entityType, entityId, actionType, userId, limit, offset; owner-only access).
+- **JIRA-15 (BI-01):** Bill immutability enforcement — IMPLEMENTED (PostgreSQL trigger `enforce_bill_immutability` prevents any UPDATE to Bill table; tested via direct SQL — returns "Bills are immutable once created").
+
+---
+
 ### TEST AUTH-04: Expired Token Browser Behavior
 **MCP Label:** Recommended  
 **Severity:** 1 (Critical)  

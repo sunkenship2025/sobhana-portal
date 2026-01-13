@@ -86,11 +86,11 @@ router.get('/', async (req: AuthRequest, res) => {
 router.patch('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { name, phone, email, commissionPercent } = req.body;
+    const { name, phone, email, commissionPercent, isActive } = req.body;
 
     const updated = await doctorService.updateReferralDoctor(
       id,
-      { name, phone, email, commissionPercent },
+      { name, phone, email, commissionPercent, isActive },
       req.branchId!,
       req.user?.id
     );
