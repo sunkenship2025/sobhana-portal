@@ -23,9 +23,55 @@ const app = express();
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3000;
 
-// Security middleware
-app.use(helmet());
-app.use(cors());
+// Security middleware - relaxed for development
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginOpenerPolicy: { policy: "unsafe-none" },
+  contentSecurityPolicy: false, // Disable CSP in development
+}));
+
+// CORS - Universal browser support (Chrome, Arc, Safari, Firefox, Edge)
+const corsOptions: cors.CorsOptions = {
+  origin: (_origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, curl)
+    // Allow all localhost variants and any origin in development
+    callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization', 
+    'X-Branch-Id',
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'Cache-Control',
+    'Pragma',
+  ],
+  exposedHeaders: ['Content-Length', 'X-Request-Id', 'Date'],
+  maxAge: 0, // Don't cache preflight requests
+  preflightContinue: false,
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+
+// Handle preflight for all routes explicitly
+app.options('*', cors(corsOptions));
+
+// Disable ALL caching for API responses (fixes Arc, Safari, aggressive caching)
+app.use((_req, res, next) => {
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+    'Pragma': 'no-cache',
+    'Expires': '0',
+    'Surrogate-Control': 'no-store',
+    'Vary': 'Origin, Accept-Encoding',
+  });
+  next();
+});
+
 app.use(express.json());
 
 // Health check (no auth required)

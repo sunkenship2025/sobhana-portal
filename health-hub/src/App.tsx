@@ -7,7 +7,6 @@ import { useAuthStore } from "./store/authStore";
 import { ProtectedRoute } from "./components/layout/ProtectedRoute";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
-import Patient360 from "./pages/Patient360";
 import DiagnosticsNewVisit from "./pages/diagnostics/DiagnosticsNewVisit";
 import DiagnosticsPendingResults from "./pages/diagnostics/DiagnosticsPendingResults";
 import DiagnosticsFinalizedReports from "./pages/diagnostics/DiagnosticsFinalizedReports";
@@ -15,6 +14,8 @@ import DiagnosticsResultEntry from "./pages/diagnostics/DiagnosticsResultEntry";
 import DiagnosticsReportPreview from "./pages/diagnostics/DiagnosticsReportPreview";
 import ClinicNewVisit from "./pages/clinic/ClinicNewVisit";
 import ClinicVisitQueue from "./pages/clinic/ClinicVisitQueue";
+import GlobalPatientSearch from "./pages/clinic/GlobalPatientSearch";
+import Patient360 from "./pages/clinic/Patient360";
 import DoctorDashboard from "./pages/doctor/DoctorDashboard";
 import OwnerDashboard from "./pages/owner/OwnerDashboard";
 import ManageDoctors from "./pages/owner/ManageDoctors";
@@ -42,14 +43,6 @@ function AppRoutes() {
           <Dashboard />
         </ProtectedRoute>
       } />
-      
-      {/* Patient 360 - Canonical Patient View */}
-      <Route path="/patients/:patientId" element={
-        <ProtectedRoute allowedRoles={['staff', 'owner', 'doctor']}>
-          <Patient360 />
-        </ProtectedRoute>
-      } />
-      
       <Route path="/diagnostics/new" element={
         <ProtectedRoute allowedRoles={['staff', 'owner']}>
           <DiagnosticsNewVisit />
@@ -83,6 +76,16 @@ function AppRoutes() {
       <Route path="/clinic/queue" element={
         <ProtectedRoute allowedRoles={['staff', 'owner']}>
           <ClinicVisitQueue />
+        </ProtectedRoute>
+      } />
+      <Route path="/clinic/patient-search" element={
+        <ProtectedRoute allowedRoles={['staff', 'owner']}>
+          <GlobalPatientSearch />
+        </ProtectedRoute>
+      } />
+      <Route path="/clinic/patient-360/:patientId" element={
+        <ProtectedRoute allowedRoles={['staff', 'owner']}>
+          <Patient360 />
         </ProtectedRoute>
       } />
       
