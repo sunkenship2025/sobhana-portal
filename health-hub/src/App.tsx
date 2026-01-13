@@ -7,6 +7,7 @@ import { useAuthStore } from "./store/authStore";
 import { ProtectedRoute } from "./components/layout/ProtectedRoute";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
+import Patient360 from "./pages/Patient360";
 import DiagnosticsNewVisit from "./pages/diagnostics/DiagnosticsNewVisit";
 import DiagnosticsPendingResults from "./pages/diagnostics/DiagnosticsPendingResults";
 import DiagnosticsFinalizedReports from "./pages/diagnostics/DiagnosticsFinalizedReports";
@@ -41,6 +42,14 @@ function AppRoutes() {
           <Dashboard />
         </ProtectedRoute>
       } />
+      
+      {/* Patient 360 - Canonical Patient View */}
+      <Route path="/patients/:patientId" element={
+        <ProtectedRoute allowedRoles={['staff', 'owner', 'doctor']}>
+          <Patient360 />
+        </ProtectedRoute>
+      } />
+      
       <Route path="/diagnostics/new" element={
         <ProtectedRoute allowedRoles={['staff', 'owner']}>
           <DiagnosticsNewVisit />
