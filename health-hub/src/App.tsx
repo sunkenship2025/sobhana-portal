@@ -23,6 +23,8 @@ import ManageClinicDoctors from "./pages/owner/ManageClinicDoctors";
 import ManageTests from "./pages/owner/ManageTests";
 import PayoutsList from "./pages/owner/PayoutsList";
 import PayoutDetail from "./pages/owner/PayoutDetail";
+import BillPrintPage from "./pages/BillPrintPage";
+import ReportViewPage from "./pages/ReportViewPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -125,6 +127,14 @@ function AppRoutes() {
       <Route path="/owner/payouts/:id" element={
         <ProtectedRoute allowedRoles={['owner', 'staff']}>
           <PayoutDetail />
+        </ProtectedRoute>
+      } />
+      
+      {/* Public routes for secure document access */}
+      <Route path="/report/view" element={<ReportViewPage />} />
+      <Route path="/bill/print/:domain/:visitId" element={
+        <ProtectedRoute allowedRoles={['staff', 'owner']}>
+          <BillPrintPage />
         </ProtectedRoute>
       } />
       

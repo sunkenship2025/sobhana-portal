@@ -18,6 +18,8 @@ import diagnosticVisitRoutes from './routes/diagnosticVisits';
 import clinicVisitRoutes from './routes/clinicVisits';
 import payoutRoutes from './routes/payouts';
 import auditLogRoutes from './routes/auditLogs';
+import reportRoutes from './routes/reports';
+import billRoutes from './routes/bills';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -82,6 +84,9 @@ app.get('/health', (_req, res) => {
 // Auth routes (no branch context required)
 app.use('/api/auth', authRoutes);
 
+// Report viewing routes (token-based, no auth required)
+app.use('/api/reports', reportRoutes);
+
 // Protected routes (auth + branch context required)
 app.use('/api/patients', patientRoutes);
 app.use('/api/doctors', doctorSearchRoutes); // Cross-search endpoint
@@ -92,6 +97,7 @@ app.use('/api/visits/diagnostic', diagnosticVisitRoutes);
 app.use('/api/visits/clinic', clinicVisitRoutes);
 app.use('/api/payouts', payoutRoutes);
 app.use('/api/audit-logs', auditLogRoutes);
+app.use('/api/bills', billRoutes);
 
 // Global error handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
