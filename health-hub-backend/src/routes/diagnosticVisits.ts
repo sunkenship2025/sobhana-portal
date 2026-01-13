@@ -12,15 +12,25 @@ const prisma = new PrismaClient();
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
 
-// GET /api/visits/diagnostic - List all diagnostic visits for current branch
+// GET /api/visits/diagnostic - List diagnostic visits
+// When patientId is provided: Returns ALL visits for that patient across ALL branches (Patient 360 view)
+// When patientId is omitted: Returns visits for current branch only (daily operations)
 router.get('/', async (req: AuthRequest, res) => {
   try {
-    const { status } = req.query;
+    const { status, patientId } = req.query;
 
     const where: any = {
-      branchId: req.branchId,
       domain: 'DIAGNOSTICS',
     };
+
+    // Patient 360 view: Show all visits across branches for specific patient
+    // Branch-scoped view: Show only visits in current branch
+    if (patientId) {
+      where.patientId = patientId;
+      // NOTE: No branchId filter when querying by patientId (cross-branch patient history)
+    } else {
+      where.branchId = req.branchId; // Branch-scoped for list queries
+    }
 
     if (status) {
       where.status = status;
@@ -569,24 +579,42 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
       });
     }
 
-    // Finalize report version and update visit status
+    // JIRA-10: Atomic conditional update to prevent race conditions
+    // Only finalize if status is still DRAFT (updateMany returns count=0 if condition not met)
     await prisma.$transaction(async (tx) => {
-      await tx.reportVersion.update({
-        where: { id: draftVersion.id },
+      const updated = await tx.reportVersion.updateMany({
+        where: { 
+          id: draftVersion.id,
+          status: 'DRAFT'  // Only update if still DRAFT
+        },
         data: {
           status: 'FINALIZED',
           finalizedAt: new Date(),
         },
       });
 
+      // If no rows updated, another request already finalized
+      if (updated.count === 0) {
+        throw new Error('ALREADY_FINALIZED');
+      }
+
       await tx.visit.update({
         where: { id },
         data: { status: 'COMPLETED' },
       });
+
+      return updated;
     });
 
     return res.json({ success: true, status: 'COMPLETED' });
   } catch (err: any) {
+    // JIRA-10: Handle race condition gracefully
+    if (err.message === 'ALREADY_FINALIZED') {
+      return res.status(409).json({
+        error: 'CONFLICT',
+        message: 'Report was already finalized by another request',
+      });
+    }
     console.error('Finalize report error:', err);
     return res.status(500).json({
       error: 'INTERNAL_ERROR',

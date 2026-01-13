@@ -12,15 +12,25 @@ const prisma = new PrismaClient();
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
 
-// GET /api/visits/clinic - List all clinic visits for current branch
+// GET /api/visits/clinic - List clinic visits
+// When patientId is provided: Returns ALL visits for that patient across ALL branches (Patient 360 view)
+// When patientId is omitted: Returns visits for current branch only (daily operations)
 router.get('/', async (req: AuthRequest, res) => {
   try {
-    const { status, doctorId } = req.query;
+    const { status, doctorId, patientId } = req.query;
 
     const where: any = {
-      branchId: req.branchId,
       domain: 'CLINIC',
     };
+
+    // Patient 360 view: Show all visits across branches for specific patient
+    // Branch-scoped view: Show only visits in current branch
+    if (patientId) {
+      where.patientId = patientId;
+      // NOTE: No branchId filter when querying by patientId (cross-branch patient history)
+    } else {
+      where.branchId = req.branchId; // Branch-scoped for list queries
+    }
 
     if (status) {
       where.clinicVisit = { status };
@@ -298,11 +308,19 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       });
     }
 
-    // Validate state transitions
+    // JIRA-06: Block visitType mutation after creation
+    if (req.body.visitType && req.body.visitType !== existing.clinicVisit?.visitType) {
+      return res.status(403).json({
+        error: 'IMMUTABLE_FIELD',
+        message: 'Visit type cannot be changed after creation',
+      });
+    }
+
+    // Validate state transitions 
     if (status && existing.status !== status) {
       const validTransitions: Record<string, string[]> = {
-        WAITING: ['IN_PROGRESS', 'CANCELLED'],
-        IN_PROGRESS: ['COMPLETED', 'CANCELLED'],
+        WAITING: ['IN_PROGRESS', 'COMPLETED', 'CANCELLED'], // Allow direct WAITING → COMPLETED
+        IN_PROGRESS: ['COMPLETED'], // JIRA-07: No cancellation after consultation started
         COMPLETED: [], // Terminal state
         CANCELLED: [], // Terminal state
       };
@@ -341,6 +359,26 @@ router.patch('/:id', async (req: AuthRequest, res) => {
             where: { id: existing.clinicVisit.id },
             data: { status },
           });
+
+          // Create ledger entry when visit is completed
+          if (status === 'COMPLETED' && existing.status !== 'COMPLETED') {
+            const visitDate = new Date();
+            const startOfDay = new Date(visitDate.setHours(0, 0, 0, 0));
+            const endOfDay = new Date(visitDate.setHours(23, 59, 59, 999));
+            
+            await tx.doctorPayoutLedger.create({
+              data: {
+                branchId: existing.branchId,
+                doctorType: 'CLINIC',
+                clinicDoctorId: existing.clinicVisit.clinicDoctorId,
+                periodStartDate: startOfDay,
+                periodEndDate: endOfDay,
+                derivedAmountInPaise: existing.totalAmountInPaise || 0,
+                derivedAt: new Date(),
+                notes: `Clinic consultation - ${existing.billNumber}`,
+              },
+            });
+          }
         }
       }
 

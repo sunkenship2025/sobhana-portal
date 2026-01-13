@@ -87,6 +87,7 @@ export async function updateReferralDoctor(
     phone?: string;
     email?: string;
     commissionPercent?: number;
+    isActive?: boolean;
   },
   branchId: string,
   userId?: string
