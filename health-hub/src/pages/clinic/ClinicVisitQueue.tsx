@@ -1,5 +1,4 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -19,7 +18,6 @@ import {
 import type { ClinicVisitView } from '@/types';
 
 const ClinicVisitQueue = () => {
-  const navigate = useNavigate();
   const { clinicVisits, clinicDoctors, getPatientById, getClinicDoctorById } = useAppStore();
   const { activeBranchId } = useBranchStore();
   const [visitTypeFilter, setVisitTypeFilter] = useState('all');
@@ -51,8 +49,9 @@ const ClinicVisitQueue = () => {
     // Search filter
     if (search) {
       const searchLower = search.toLowerCase();
+      const phone = patient.identifiers.find(i => i.type === 'PHONE')?.value || '';
       return (
-        patient.phone.includes(search) ||
+        phone.includes(search) ||
         visit.billNumber.toLowerCase().includes(searchLower) ||
         patient.name.toLowerCase().includes(searchLower)
       );
@@ -152,14 +151,9 @@ const ClinicVisitQueue = () => {
                     key={visit.id}
                     className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
                   >
-                    <div 
-                      className="space-y-1 flex-1 cursor-pointer"
-                      onClick={() => navigate(`/patients/${patient.id}`)}
-                    >
+                    <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold hover:text-primary transition-colors">
-                          {patient.name}
-                        </span>
+                        <span className="font-semibold">{patient.name}</span>
                         <span className="text-xs px-2 py-0.5 rounded bg-muted font-medium">
                           {visit.visitType}
                         </span>
@@ -234,7 +228,7 @@ const ClinicVisitQueue = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm text-muted-foreground">Consultation Fee</p>
-                  <p className="font-bold">₹{selectedVisitView.visit.consultationFee}</p>
+                  <p className="font-bold">₹{(selectedVisitView.visit.consultationFeeInPaise / 100).toLocaleString()}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Payment</p>

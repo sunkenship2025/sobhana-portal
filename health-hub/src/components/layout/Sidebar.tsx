@@ -8,7 +8,9 @@ import {
   Building2,
   ChevronDown,
   LogOut,
-  Microscope
+  Microscope,
+  Search,
+  User
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -35,6 +37,12 @@ const navItems: NavItem[] = [
     roles: ['staff', 'owner'],
   },
   { 
+    label: 'Patient 360', 
+    icon: User, 
+    href: '/clinic/patient-search',
+    roles: ['staff', 'owner'],
+  },
+  { 
     label: 'Diagnostics', 
     icon: FlaskConical, 
     href: '/diagnostics',
@@ -52,7 +60,7 @@ const navItems: NavItem[] = [
     roles: ['staff', 'owner'],
     subItems: [
       { label: 'New Visit', href: '/clinic/new' },
-      { label: 'Visit Queue', href: '/clinic/queue' },
+      { label: 'OP / IP Queue', href: '/clinic/queue' },
     ]
   },
   { 
@@ -87,7 +95,7 @@ export function Sidebar() {
 
   // Filter nav items based on user role
   const filteredNavItems = navItems.filter((item) => 
-    user && item.roles.includes(user.role)
+    user ? item.roles.includes(user.role) : false
   );
   
   return (

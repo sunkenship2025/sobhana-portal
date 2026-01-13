@@ -244,10 +244,55 @@ export interface ClinicVisitView {
 }
 
 // ============================================
+// PATIENT 360 TYPES (Read-Only Global View)
+// ============================================
+
+// Visit timeline item for Patient 360 display
+export interface VisitTimelineItem {
+  visitId: string;
+  domain: VisitDomain;
+  billNumber: string;
+  branchId: string;
+  branchName: string;
+  visitType?: VisitType;             // Only for CLINIC domain
+  status: string;                     // DiagnosticVisitStatus or ClinicVisitStatus
+  doctorName?: string;               // Clinic doctor name (for clinic visits)
+  totalAmountInPaise: number;
+  paymentType: PaymentType;
+  paymentStatus: PaymentStatus;
+  createdAt: Date;
+  // Diagnostic specific
+  reportStatus?: ReportVersionStatus; // DRAFT | FINALIZED (only if report exists)
+  reportVersionId?: string;           // For "View Report" link
+  finalizedAt?: Date | null;
+}
+
+// Complete Patient 360 view (backend-assembled)
+export interface Patient360View {
+  patient: Patient;
+  visitTimeline: VisitTimelineItem[];
+  totalVisits: number;
+  branches: { id: string; name: string }[]; // Branches with activity
+}
+
+// Search result with history snapshot
+export interface PatientSearchResult {
+  patient: Patient;
+  historySnapshot: {
+    visitId: string;
+    domain: VisitDomain;
+    branchName: string;
+    visitType?: VisitType;
+    createdAt: Date;
+  }[];
+  totalVisits: number;
+}
+
+// ============================================
 // PAYOUT TYPES
 // ============================================
 export type PayoutDoctorType = 'REFERRAL' | 'CLINIC';
-export type PaymentType = 'CASH' | 'ONLINE' | 'CHEQUE';
+// PaymentType is defined above in VISIT section
 
 export interface PayoutLineItem {
   visitId: string;
@@ -280,184 +325,4 @@ export interface PayoutDetail extends PayoutSummary {
   notes: string | null;
   reviewedAt: string | null;
   lineItems: PayoutLineItem[];
-}
-
-// ============================================
-// PATIENT 360 TYPES (Read-Only Aggregation View)
-// ============================================
-
-/**
- * Visit timeline item for Patient 360 - represents a single visit row
- * This is the anchor entity in the timeline
- */
-export interface VisitTimelineItem {
-  visitId: string;
-  domain: VisitDomain;
-  branchId: string;
-  branchName: string;
-  branchCode: string;
-  billNumber: string;
-  visitDate: string; // ISO date
-  status: string; // DiagnosticVisitStatus or ClinicVisitStatus
-  totalAmountInPaise: number;
-  paymentStatus: PaymentStatus;
-  paymentType: PaymentType;
-  
-  // Domain-specific fields
-  visitType?: VisitType; // OP/IP for clinic visits only
-  
-  // Report info (diagnostics only)
-  hasReport: boolean;
-  reportFinalized: boolean;
-  reportFinalizedAt?: string;
-  
-  // Referral info
-  referralDoctorId?: string;
-  referralDoctorName?: string;
-  
-  // Clinic doctor info (clinic visits only)
-  clinicDoctorId?: string;
-  clinicDoctorName?: string;
-}
-
-/**
- * Diagnostic visit detail for the side drawer
- */
-export interface DiagnosticVisitDetail {
-  visitId: string;
-  branchName: string;
-  billNumber: string;
-  visitDate: string;
-  status: DiagnosticVisitStatus;
-  totalAmountInPaise: number;
-  paymentStatus: PaymentStatus;
-  paymentType: PaymentType;
-  
-  // Referral
-  referralDoctor?: {
-    id: string;
-    name: string;
-    phone?: string;
-  };
-  
-  // Tests ordered
-  testOrders: {
-    id: string;
-    testName: string;
-    testCode: string;
-    priceInPaise: number;
-    referenceRange: {
-      min: number;
-      max: number;
-      unit: string;
-    };
-  }[];
-  
-  // Results (if report exists)
-  results?: {
-    testOrderId: string;
-    testName: string;
-    testCode: string;
-    value: number | null;
-    flag: 'NORMAL' | 'HIGH' | 'LOW' | null;
-    referenceRange: {
-      min: number;
-      max: number;
-      unit: string;
-    };
-  }[];
-  
-  // Report info
-  report?: {
-    id: string;
-    currentVersionId: string | null;
-    versionNumber: number;
-    status: ReportVersionStatus;
-    finalizedAt: string | null;
-  };
-}
-
-/**
- * Clinic visit detail for the side drawer
- */
-export interface ClinicVisitDetail {
-  visitId: string;
-  branchName: string;
-  billNumber: string;
-  visitDate: string;
-  visitType: VisitType;
-  status: ClinicVisitStatus;
-  consultationFeeInPaise: number;
-  paymentStatus: PaymentStatus;
-  paymentType: PaymentType;
-  hospitalWard?: string;
-  
-  // Clinic doctor
-  clinicDoctor: {
-    id: string;
-    name: string;
-    qualification: string;
-    specialty: string;
-    registrationNumber: string;
-    phone?: string;
-  };
-  
-  // Referral (if any)
-  referralDoctor?: {
-    id: string;
-    name: string;
-    phone?: string;
-  };
-}
-
-/**
- * Financial summary for Patient 360
- */
-export interface PatientFinancialSummary {
-  totalDiagnosticsBilledInPaise: number;
-  totalClinicBilledInPaise: number;
-  totalPaidInPaise: number;
-  totalPendingInPaise: number;
-  visitCount: {
-    diagnostics: number;
-    clinic: number;
-    total: number;
-  };
-}
-
-/**
- * Complete Patient 360 view - single API response
- * This is the canonical patient view
- */
-export interface Patient360View {
-  // Patient identity (global, immutable)
-  patient: {
-    id: string;
-    patientNumber: string;
-    name: string;
-    age: number;
-    gender: Gender;
-    address?: string;
-    primaryPhone?: string;
-    identifiers: {
-      type: IdentifierType;
-      value: string;
-      isPrimary: boolean;
-    }[];
-    createdAt: string;
-  };
-  
-  // Visit timeline (all branches, all domains, newest first)
-  visits: VisitTimelineItem[];
-  
-  // Financial summary (read-only aggregation)
-  financialSummary: PatientFinancialSummary;
-  
-  // Metadata
-  lastVisitDate?: string;
-  branchesVisited: {
-    id: string;
-    name: string;
-    code: string;
-  }[];
 }

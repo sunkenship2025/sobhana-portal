@@ -100,6 +100,8 @@ export async function searchPatients(query: {
 }) {
   const limit = query.limit || 20;
 
+  let patients: any[] = [];
+
   // Search by identifier (phone/email)
   if (query.phone || query.email) {
     const identifierType = query.phone ? 'PHONE' : 'EMAIL';
@@ -120,11 +122,11 @@ export async function searchPatients(query: {
             visits: {
               include: {
                 branch: {
-                  select: { name: true, code: true }
+                  select: { id: true, name: true, code: true }
                 }
               },
               orderBy: { createdAt: 'desc' },
-              take: 5 // Last 5 visits
+              take: 5 // Last 5 visits for history snapshot
             }
           }
         }
@@ -132,12 +134,10 @@ export async function searchPatients(query: {
       take: limit
     });
 
-    return identifiers.map(id => id.patient);
-  }
-
-  // Search by name
-  if (query.name) {
-    const patients = await prisma.patient.findMany({
+    patients = identifiers.map(id => id.patient);
+  } else if (query.name) {
+    // Search by name
+    patients = await prisma.patient.findMany({
       where: {
         name: {
           contains: query.name,
@@ -149,7 +149,7 @@ export async function searchPatients(query: {
         visits: {
           include: {
             branch: {
-              select: { name: true, code: true }
+              select: { id: true, name: true, code: true }
             }
           },
           orderBy: { createdAt: 'desc' },
@@ -158,11 +158,31 @@ export async function searchPatients(query: {
       },
       take: limit
     });
-
-    return patients;
+  } else {
+    throw new ValidationError('Provide phone, email, or name to search');
   }
 
-  throw new ValidationError('Provide phone, email, or name to search');
+  // Transform to search result format with history snapshot
+  return patients.map((patient: any) => ({
+    patient: {
+      id: patient.id,
+      patientNumber: patient.patientNumber,
+      name: patient.name,
+      age: patient.age,
+      gender: patient.gender,
+      address: patient.address,
+      identifiers: patient.identifiers,
+      createdAt: patient.createdAt
+    },
+    historySnapshot: patient.visits.slice(0, 3).map((visit: any) => ({
+      visitId: visit.id,
+      domain: visit.domain,
+      branchName: visit.branch?.name || 'Unknown',
+      visitType: visit.visitType,
+      createdAt: visit.createdAt
+    })),
+    totalVisits: patient.visits.length
+  }));
 }
 
 export async function getPatientById(patientId: string) {
@@ -182,4 +202,108 @@ export async function getPatientById(patientId: string) {
   });
 
   return patient;
+}
+
+/**
+ * Patient 360 View - Complete read-only global view of patient history
+ * This is the single source of truth for patient information across all branches
+ */
+export async function getPatient360View(patientId: string) {
+  // Fetch patient with all visits and related data
+  const patient = await prisma.patient.findUnique({
+    where: { id: patientId },
+    include: {
+      identifiers: true,
+      visits: {
+        include: {
+          branch: {
+            select: { id: true, name: true, code: true }
+          },
+          bill: {
+            select: { paymentType: true, paymentStatus: true }
+          },
+          report: {
+            include: {
+              versions: {
+                orderBy: { versionNum: 'desc' },
+                take: 1
+              }
+            }
+          },
+          clinicVisit: {
+            include: {
+              clinicDoctor: {
+                select: { name: true }
+              }
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      }
+    }
+  });
+
+  if (!patient) {
+    return null;
+  }
+
+  // Collect unique branches where patient has activity
+  const branchMap = new Map<string, { id: string; name: string }>();
+  
+  // Build visit timeline with proper typing
+  const visitTimeline = patient.visits.map((visit: any) => {
+    // Track branches
+    if (visit.branch) {
+      branchMap.set(visit.branch.id, {
+        id: visit.branch.id,
+        name: visit.branch.name
+      });
+    }
+
+    // Base timeline item
+    const timelineItem: any = {
+      visitId: visit.id,
+      domain: visit.domain,
+      billNumber: visit.billNumber,
+      branchId: visit.branchId,
+      branchName: visit.branch?.name || 'Unknown',
+      status: visit.status,
+      totalAmountInPaise: visit.totalAmountInPaise,
+      paymentType: visit.bill?.paymentType || 'CASH',
+      paymentStatus: visit.bill?.paymentStatus || 'PENDING',
+      createdAt: visit.createdAt
+    };
+
+    // Clinic-specific fields
+    if (visit.domain === 'CLINIC' && visit.clinicVisit) {
+      timelineItem.visitType = visit.clinicVisit.visitType;
+      timelineItem.doctorName = visit.clinicVisit.clinicDoctor?.name;
+    }
+
+    // Diagnostic-specific fields - report status
+    if (visit.domain === 'DIAGNOSTICS' && visit.report?.versions?.length > 0) {
+      const latestVersion = visit.report.versions[0];
+      timelineItem.reportStatus = latestVersion.status;
+      timelineItem.reportVersionId = latestVersion.id;
+      timelineItem.finalizedAt = latestVersion.finalizedAt;
+    }
+
+    return timelineItem;
+  });
+
+  return {
+    patient: {
+      id: patient.id,
+      patientNumber: patient.patientNumber,
+      name: patient.name,
+      age: patient.age,
+      gender: patient.gender,
+      address: patient.address,
+      identifiers: patient.identifiers,
+      createdAt: patient.createdAt
+    },
+    visitTimeline,
+    totalVisits: patient.visits.length,
+    branches: Array.from(branchMap.values())
+  };
 }
