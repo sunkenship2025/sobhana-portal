@@ -14,7 +14,7 @@ interface ReportData {
     finalizedAt: string | null;
     testResults: Array<{
       id: string;
-      testId: string;
+      testOrderId: string;
       value: number | null;
       flag: string | null;
       notes: string | null;
@@ -194,7 +194,7 @@ export default function ReportViewPage() {
             </thead>
             <tbody>
               {testOrders.map((test) => {
-                const result = reportVersion.testResults.find((r) => r.testId === test.testId);
+                const result = reportVersion.testResults.find((r) => r.testOrderId === test.id);
                 const hasFlag = result?.flag && result.flag !== 'NORMAL';
 
                 return (

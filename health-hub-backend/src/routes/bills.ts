@@ -45,7 +45,7 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
         },
         clinicVisit: {
           include: {
-            doctor: true,
+            clinicDoctor: true,
           },
         },
       },
@@ -61,7 +61,21 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
     const phone = visit.patient.identifiers.find((id) => id.type === 'PHONE')?.value || '';
 
     // Transform data for printing
-    const billData = {
+    const billData: {
+      visit: any;
+      patient: any;
+      branch: any;
+      payment: any;
+      doctor: any;
+      referralDoctor: any;
+      items: Array<{
+        id: string;
+        name: string;
+        code: string;
+        price: number;
+        referralCommissionPercent?: number;
+      }>;
+    } = {
       visit: {
         id: visit.id,
         billNumber: visit.billNumber,
@@ -85,10 +99,10 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
         type: visit.bill?.paymentType || 'CASH',
         status: visit.bill?.paymentStatus || 'PENDING',
       },
-      doctor: visit.clinicVisit?.doctor
+      doctor: visit.clinicVisit?.clinicDoctor
         ? {
-            name: visit.clinicVisit.doctor.name,
-            qualification: visit.clinicVisit.doctor.qualification,
+            name: visit.clinicVisit.clinicDoctor.name,
+            qualification: visit.clinicVisit.clinicDoctor.qualification,
           }
         : null,
       referralDoctor: visit.referrals[0]?.referralDoctor
@@ -106,7 +120,7 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
         name: order.test.name,
         code: order.test.code,
         price: order.priceInPaise / 100,
-        referralCommissionPercent: order.referralCommissionPercent,
+        referralCommissionPercent: order.referralCommissionPercentage,
       }));
     } else {
       // For clinic, items are consultation fees
