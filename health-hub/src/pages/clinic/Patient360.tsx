@@ -134,7 +134,7 @@ function VisitDetailDrawer({ visit, open, onClose }: VisitDetailDrawerProps) {
 
   const handlePrintBill = () => {
     // Open bill print page in new tab
-    window.open(`/bill/print/${visit.domain}/${visit.id}`, '_blank');
+    window.open(`/bill/print/${visit.domain}/${visit.visitId}`, '_blank');
   };
 
   return (
