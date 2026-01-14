@@ -151,8 +151,8 @@ router.get('/view', async (req, res) => {
         finalizedAt: reportVersion.finalizedAt,
         testResults: reportVersion.testResults.map((tr) => ({
           id: tr.id,
-          testId: tr.testId,
-          value: tr.valueNumeric,
+          testOrderId: tr.testOrderId,
+          value: tr.value,
           flag: tr.flag,
           notes: tr.notes,
         })),
@@ -177,9 +177,9 @@ router.get('/view', async (req, res) => {
         testName: order.test.name,
         testCode: order.test.code,
         referenceRange: {
-          min: order.test.refRangeMin,
-          max: order.test.refRangeMax,
-          unit: order.test.unit,
+          min: order.test.referenceMin || 0,
+          max: order.test.referenceMax || 0,
+          unit: order.test.referenceUnit || '',
         },
       })),
       referralDoctor: visit.referrals[0]?.referralDoctor
