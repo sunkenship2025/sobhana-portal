@@ -7,27 +7,47 @@ async function main() {
   console.log('🌱 Starting database seed...');
 
   // Create branches
-  const madhapur = await prisma.branch.create({
+  const chintal = await prisma.branch.create({
     data: {
-      name: 'Sobhana - Madhapur',
-      code: 'MPR',
-      address: '123 Tech Street, Madhapur, Hyderabad',
+      name: 'Sobhana - Chintal',
+      code: 'CNT',
+      address: 'Chintal, Hyderabad',
       phone: '9876543200',
       isActive: true
     }
   });
 
-  const kukatpally = await prisma.branch.create({
+  const idpl = await prisma.branch.create({
     data: {
-      name: 'Sobhana - Kukatpally',
-      code: 'KPY',
-      address: '456 KPHB Road, Kukatpally, Hyderabad',
+      name: 'IDPL (Kidcare)',
+      code: 'IDPL',
+      address: 'IDPL, Hyderabad',
       phone: '9876543201',
       isActive: true
     }
   });
 
-  console.log(`✅ Created branches: ${madhapur.code}, ${kukatpally.code}`);
+  const jagathgirigutta = await prisma.branch.create({
+    data: {
+      name: 'Jagathgiri Gutta (Kidcare)',
+      code: 'JGG',
+      address: 'Jagathgiri Gutta, Hyderabad',
+      phone: '9876543202',
+      isActive: true
+    }
+  });
+
+  const balanagar = await prisma.branch.create({
+    data: {
+      name: 'Sobhana - Balanagar',
+      code: 'BLN',
+      address: 'Balanagar, Hyderabad',
+      phone: '9876543203',
+      isActive: true
+    }
+  });
+
+  console.log(`✅ Created branches: ${chintal.code}, ${idpl.code}, ${jagathgirigutta.code}, ${balanagar.code}`);
 
   // Create users
   const hashedPassword = await bcrypt.hash('password123', 10);
@@ -39,7 +59,7 @@ async function main() {
       name: 'System Admin',
       phone: '9876543210',
       role: 'admin',
-      activeBranchId: madhapur.id,
+      activeBranchId: chintal.id,
       isActive: true
     }
   });
@@ -51,7 +71,7 @@ async function main() {
       name: 'Rajesh Kumar',
       phone: '9876543211',
       role: 'staff',
-      activeBranchId: madhapur.id,
+      activeBranchId: chintal.id,
       isActive: true
     }
   });
@@ -63,7 +83,7 @@ async function main() {
       name: 'Sobhana Owner',
       phone: '9876543212',
       role: 'owner',
-      activeBranchId: madhapur.id,
+      activeBranchId: chintal.id,
       isActive: true
     }
   });
