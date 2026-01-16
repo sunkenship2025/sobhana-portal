@@ -2,29 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Branch } from '@/types';
 
-// ============================================
-// SAMPLE BRANCHES
-// ============================================
-const SAMPLE_BRANCHES: Branch[] = [
-  {
-    id: 'cmk2mcc2r00001d9esaynov48',
-    name: 'Sobhana – Madhapur',
-    code: 'MPR',
-    address: '123 Tech Street, Madhapur, Hyderabad',
-    phone: '9876543200',
-    isActive: true,
-    createdAt: new Date(),
-  },
-  {
-    id: 'cmk2mcc3100011d9epecdj53v',
-    name: 'Sobhana – Kukatpally',
-    code: 'KPY',
-    address: '456 KPHB Road, Kukatpally, Hyderabad',
-    phone: '9876543201',
-    isActive: true,
-    createdAt: new Date(),
-  },
-];
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
 // ============================================
 // BRANCH STORE INTERFACE
@@ -32,6 +10,7 @@ const SAMPLE_BRANCHES: Branch[] = [
 interface BranchState {
   branches: Branch[];
   activeBranchId: string | null;
+  isLoading: boolean;
   
   // Getters
   getActiveBranch: () => Branch | undefined;
@@ -40,6 +19,10 @@ interface BranchState {
   
   // Setters
   setActiveBranch: (branchId: string) => void;
+  setBranches: (branches: Branch[]) => void;
+  
+  // Actions
+  fetchBranches: () => Promise<void>;
   
   // CRUD
   addBranch: (branch: Branch) => void;
@@ -52,8 +35,9 @@ interface BranchState {
 export const useBranchStore = create<BranchState>()(
   persist(
     (set, get) => ({
-      branches: SAMPLE_BRANCHES,
-      activeBranchId: 'cmjzumgap00003zwljoqlubsn', // Default to Madhapur
+      branches: [],
+      activeBranchId: null,
+      isLoading: false,
       
       getActiveBranch: () => {
         const { branches, activeBranchId } = get();
@@ -72,6 +56,35 @@ export const useBranchStore = create<BranchState>()(
       
       setActiveBranch: (branchId) => {
         set({ activeBranchId: branchId });
+      },
+      
+      setBranches: (branches) => {
+        set({ branches });
+      },
+      
+      fetchBranches: async () => {
+        const token = localStorage.getItem('authToken');
+        if (!token) return;
+        
+        set({ isLoading: true });
+        try {
+          const response = await fetch(`${API_BASE}/api/branches`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+          
+          if (response.ok) {
+            const branches = await response.json();
+            set({ branches, isLoading: false });
+          } else {
+            console.error('Failed to fetch branches:', response.statusText);
+            set({ isLoading: false });
+          }
+        } catch (error) {
+          console.error('Error fetching branches:', error);
+          set({ isLoading: false });
+        }
       },
       
       addBranch: (branch) => {

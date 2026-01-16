@@ -9,6 +9,7 @@ dotenv.config();
 
 // Routes
 import authRoutes from './routes/auth';
+import branchRoutes from './routes/branches';
 import patientRoutes from './routes/patients';
 import referralDoctorRoutes from './routes/referralDoctors';
 import clinicDoctorRoutes from './routes/clinicDoctors';
@@ -86,6 +87,9 @@ app.use('/api/auth', authRoutes);
 
 // Report viewing routes (token-based, no auth required)
 app.use('/api/reports', reportRoutes);
+
+// Branches route (auth required)
+app.use('/api/branches', branchRoutes);
 
 // Protected routes (auth + branch context required)
 app.use('/api/patients', patientRoutes);

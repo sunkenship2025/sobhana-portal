@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { useBranchStore } from './branchStore';
 
 export type UserRole = 'doctor' | 'owner' | 'staff';
 
@@ -47,7 +48,22 @@ export const useAuthStore = create<AuthState>()(
               name: data.user.name,
               role: data.user.role as UserRole
             };
+            
+            // Store auth data
             set({ user, token: data.token, isAuthenticated: true });
+            
+            // Store token in localStorage for API calls
+            localStorage.setItem('authToken', data.token);
+            
+            // Fetch branches and set active branch
+            const branchStore = useBranchStore.getState();
+            await branchStore.fetchBranches();
+            
+            // Set active branch from user data if available
+            if (data.user.activeBranch && data.user.activeBranch.id) {
+              branchStore.setActiveBranch(data.user.activeBranch.id);
+            }
+            
             return { success: true };
           } else {
             return { success: false, error: data.message || 'Login failed' };

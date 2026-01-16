@@ -150,10 +150,11 @@ model Patient {
 /// PatientIdentifier: Extensible identity model
 /// Supports phone, email, Aadhar, and future identifier types.
 /// Multiple identifiers per patient, one primary per type.
+/// Note: Multiple patients can share the same identifier (e.g., family members with same phone)
 model PatientIdentifier {
   id        String         @id @default(cuid())
   patientId String
-  type      IdentifierType//?
+  type      IdentifierType
   value     String
   isPrimary Boolean        @default(false)
   createdAt DateTime       @default(now())
@@ -161,7 +162,6 @@ model PatientIdentifier {
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
-  @@unique([type, value])
   @@index([patientId])
   @@index([type, value])
 }

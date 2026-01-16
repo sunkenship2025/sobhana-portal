@@ -11,7 +11,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { toast } from 'sonner';
-import type { Patient, PaymentType, DiagnosticVisitView, TestOrder, LabTest, ReferralDoctor } from '@/types';
+import type { Patient, PatientSearchResult, PaymentType, DiagnosticVisitView, TestOrder, LabTest, ReferralDoctor } from '@/types';
 import { Search, UserPlus, CheckCircle2, Printer } from 'lucide-react';
 import { BillPrint } from '@/components/print/BillPrint';
 import {
@@ -36,7 +36,7 @@ const DiagnosticsNewVisit = () => {
 
   const [phone, setPhone] = useState('');
   const [billSearch, setBillSearch] = useState('');
-  const [matchingPatients, setMatchingPatients] = useState<Patient[]>([]);
+  const [matchingPatients, setMatchingPatients] = useState<PatientSearchResult[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [showNewPatientForm, setShowNewPatientForm] = useState(false);
   const [selectedTests, setSelectedTests] = useState<string[]>([]);
@@ -137,8 +137,8 @@ const DiagnosticsNewVisit = () => {
     setSelectedPatient(null);
   };
 
-  const handleSelectPatient = (patient: Patient) => {
-    setSelectedPatient(patient);
+  const handleSelectPatient = (result: PatientSearchResult) => {
+    setSelectedPatient(result.patient);
     setShowNewPatientForm(false);
   };
 
@@ -415,25 +415,25 @@ const DiagnosticsNewVisit = () => {
               <RadioGroup 
                 value={selectedPatient?.id || ''} 
                 onValueChange={(id) => {
-                  const patient = matchingPatients.find((p) => p.id === id);
-                  if (patient) handleSelectPatient(patient);
+                  const result = matchingPatients.find((r) => r.patient.id === id);
+                  if (result) handleSelectPatient(result);
                 }}
               >
-                {matchingPatients.map((patient) => (
+                {matchingPatients.map((result) => (
                   <div
-                    key={patient.id}
+                    key={result.patient.id}
                     className={`flex items-center space-x-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                      selectedPatient?.id === patient.id 
+                      selectedPatient?.id === result.patient.id 
                         ? 'border-primary bg-accent' 
                         : 'border-border hover:bg-muted'
                     }`}
-                    onClick={() => handleSelectPatient(patient)}
+                    onClick={() => handleSelectPatient(result)}
                   >
-                    <RadioGroupItem value={patient.id} id={patient.id} />
-                    <Label htmlFor={patient.id} className="flex-1 cursor-pointer">
-                      <span className="font-medium">{patient.name}</span>
+                    <RadioGroupItem value={result.patient.id} id={result.patient.id} />
+                    <Label htmlFor={result.patient.id} className="flex-1 cursor-pointer">
+                      <span className="font-medium">{result.patient.name}</span>
                       <span className="text-muted-foreground ml-2">
-                        | {patient.age} | {patient.gender}
+                        | {result.patient.age} | {result.patient.gender}
                       </span>
                     </Label>
                   </div>

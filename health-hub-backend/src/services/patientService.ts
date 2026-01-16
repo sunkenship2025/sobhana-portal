@@ -1,7 +1,7 @@
 import { PrismaClient, IdentifierType } from '@prisma/client';
 import { generatePatientNumber } from './numberService';
 import { logAction } from './auditService';
-import { ValidationError, ConflictError } from '../utils/errors';
+import { ValidationError } from '../utils/errors';
 
 const prisma = new PrismaClient();
 
@@ -25,24 +25,8 @@ export async function createPatient(input: CreatePatientInput) {
     throw new ValidationError('At least one identifier (phone/email) is required');
   }
 
-  // Check for duplicate identifiers
-  for (const identifier of input.identifiers) {
-    const existing = await prisma.patientIdentifier.findUnique({
-      where: {
-        type_value: {
-          type: identifier.type,
-          value: identifier.value
-        }
-      },
-      include: { patient: true }
-    });
-
-    if (existing) {
-      throw new ConflictError(
-        `A patient with ${identifier.type} ${identifier.value} already exists: ${existing.patient.name} (${existing.patient.patientNumber})`
-      );
-    }
-  }
+  // Note: Multiple patients can share the same phone number (e.g., family members)
+  // So we don't check for duplicate identifiers
 
   // Validate one primary per type
   const typeCount: Record<string, number> = {};
@@ -63,7 +47,7 @@ export async function createPatient(input: CreatePatientInput) {
     const newPatient = await tx.patient.create({
       data: {
         patientNumber,
-        name: input.name,
+        name: input.name.toUpperCase(), // Medical standard: names in all caps
         age: input.age,
         gender: input.gender,
         address: input.address,
