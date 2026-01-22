@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { generateReportToken, verifyReportToken } from '../services/tokenService';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { logAction } from '../services/auditService';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -47,6 +48,22 @@ router.post('/generate-token', authMiddleware, async (req: AuthRequest, res) => 
 
     const patientId = reportVersion.report.visit.patientId;
     const token = generateReportToken(reportVersionId, patientId);
+
+    // Audit log: Report token generation
+    await logAction({
+      branchId: reportVersion.report.visit.branchId,
+      actionType: 'UPDATE',
+      entityType: 'ReportAccess',
+      entityId: reportVersionId,
+      userId: req.user?.id,
+      newValues: {
+        action: 'TOKEN_GENERATED',
+        reportVersionId,
+        patientId,
+      },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     return res.json({ token });
   } catch (error) {
@@ -142,6 +159,23 @@ router.get('/view', async (req, res) => {
     // Transform to frontend format
     const visit = reportVersion.report.visit;
     const phone = visit.patient.identifiers.find((id) => id.type === 'PHONE')?.value || '';
+
+    // Audit log: Report viewed (public access via token)
+    await logAction({
+      branchId: visit.branchId,
+      actionType: 'UPDATE',
+      entityType: 'ReportAccess',
+      entityId: reportVersion.id,
+      userId: null, // Public access via token
+      newValues: {
+        action: 'REPORT_VIEWED',
+        reportVersionId: reportVersion.id,
+        patientId: visit.patientId,
+        accessMethod: 'TOKEN',
+      },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     const reportData = {
       reportVersion: {
