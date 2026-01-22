@@ -349,6 +349,8 @@ router.post('/', async (req: AuthRequest, res) => {
         entityId: visit.id,
         branchId: req.branchId!,
         newValues: { domain: 'DIAGNOSTICS', billNumber, patientId, totalAmountInPaise },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
       });
 
       return visit;
@@ -604,6 +606,26 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
       });
 
       return updated;
+    });
+
+    // Audit log: Report finalization (CRITICAL)
+    await logAction({
+      branchId: req.branchId!,
+      actionType: 'FINALIZE',
+      entityType: 'Report',
+      entityId: draftVersion.id,
+      userId: req.userId!,
+      oldValues: {
+        status: 'DRAFT',
+      },
+      newValues: {
+        status: 'FINALIZED',
+        reportVersionId: draftVersion.id,
+        visitId: visit.id,
+        finalizedAt: new Date().toISOString(),
+      },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
     });
 
     return res.json({ success: true, status: 'COMPLETED' });

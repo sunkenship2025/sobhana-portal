@@ -17,7 +17,7 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    const result = await authService.login(email, password);
+    const result = await authService.login(email, password, req.ip, req.get('user-agent'));
 
     return res.json(result);
   } catch (err: any) {

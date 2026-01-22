@@ -298,6 +298,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       },
       include: {
         clinicVisit: true,
+        bill: true,
       },
     });
 
@@ -352,6 +353,8 @@ router.patch('/:id', async (req: AuthRequest, res) => {
           branchId: req.branchId!,
           oldValues: { status: existing.status },
           newValues: { status: status },
+          ipAddress: req.ip,
+          userAgent: req.get('user-agent'),
         });
 
         if (existing.clinicVisit) {
@@ -383,12 +386,33 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       }
 
       if (paymentStatus || paymentType) {
+        const oldPaymentData = {
+          paymentStatus: existing.bill?.paymentStatus,
+          paymentType: existing.bill?.paymentType,
+        };
+
         await tx.bill.updateMany({
           where: { visitId: id },
           data: {
             ...(paymentStatus && { paymentStatus }),
             ...(paymentType && { paymentType }),
           },
+        });
+
+        // Audit log for payment status change
+        await logAction({
+          userId: req.user?.id!,
+          actionType: 'UPDATE',
+          entityType: 'BILL',
+          entityId: id,
+          branchId: req.branchId!,
+          oldValues: oldPaymentData,
+          newValues: {
+            ...(paymentStatus && { paymentStatus }),
+            ...(paymentType && { paymentType }),
+          },
+          ipAddress: req.ip,
+          userAgent: req.get('user-agent'),
         });
       }
 
