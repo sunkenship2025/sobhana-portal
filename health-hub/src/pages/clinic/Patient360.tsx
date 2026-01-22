@@ -16,6 +16,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import type { Patient360View, VisitTimelineItem, VisitDomain } from '@/types';
 import { toast } from 'sonner';
+import { PatientEditDialog } from '@/components/patient360/PatientEditDialog';
 
 /**
  * PATIENT 360 — CANONICAL PATIENT VIEW (Phase-1)
@@ -372,14 +373,21 @@ export default function Patient360() {
           </span>
         </div>
 
-        {/* Patient Identity Card (Sticky / Immutable) */}
+        {/* Patient Identity Card (Editable) */}
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-xl">Patient Identity</CardTitle>
-              <Badge variant="outline" className="text-xs">
-                {patient.patientNumber}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <PatientEditDialog
+                  patient={patient}
+                  token={token}
+                  onSuccess={() => loadPatient360(patientId)}
+                />
+                <Badge variant="outline" className="text-xs">
+                  {patient.patientNumber}
+                </Badge>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
