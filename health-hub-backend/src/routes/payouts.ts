@@ -4,6 +4,7 @@ import { requireRole } from '../middleware/rbac';
 import { branchContextMiddleware } from '../middleware/branch';
 import { PayoutDoctorType, PaymentType } from '@prisma/client';
 import * as payoutService from '../services/payoutService';
+import { logAction } from '../services/auditService';
 
 const router = Router();
 
@@ -132,6 +133,28 @@ router.post('/derive', requireRole('owner'), async (req: AuthRequest, res) => {
       startDate,
       endDate
     );
+
+    // Audit log: Payout derivation
+    if (result.isNew) {
+      await logAction({
+        branchId: req.branchId!,
+        actionType: 'PAYOUT_DERIVE',
+        entityType: 'Payout',
+        entityId: result.payout.id,
+        userId: req.userId!,
+        newValues: {
+          payoutId: result.payout.id,
+          doctorType,
+          doctorId,
+          periodStart: periodStartDate,
+          periodEnd: periodEndDate,
+          totalAmount: result.payout.totalAmountInPaise / 100,
+          lineItemCount: result.payout.lineItems?.length || 0,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+    }
 
     return res.status(result.isNew ? 201 : 200).json({
       data: result.payout,
@@ -276,6 +299,28 @@ router.post('/:id/mark-paid', requireRole('owner', 'staff'), async (req: AuthReq
       paymentReferenceId,
       notes
     );
+
+    // Audit log: Payout marked as paid
+    await logAction({
+      branchId: req.branchId!,
+      actionType: 'PAYOUT_PAID',
+      entityType: 'Payout',
+      entityId: id,
+      userId: req.userId!,
+      oldValues: {
+        isPaid: false,
+      },
+      newValues: {
+        isPaid: true,
+        paymentMethod,
+        paymentReferenceId,
+        notes,
+        paidAt: new Date().toISOString(),
+        totalAmount: payout.totalAmountInPaise / 100,
+      },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     return res.json({
       data: payout,
