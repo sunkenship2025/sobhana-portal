@@ -7,7 +7,7 @@ export interface AuditLogInput {
   actionType: AuditActionType;
   entityType: string;
   entityId: string;
-  userId?: string;
+  userId?: string | null;
   oldValues?: any;
   newValues?: any;
   ipAddress?: string;

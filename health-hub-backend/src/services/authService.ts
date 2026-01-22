@@ -2,10 +2,11 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { ValidationError, UnauthorizedError } from '../utils/errors';
+import { logAction } from './auditService';
 
 const prisma = new PrismaClient();
 
-export async function login(email: string, password: string) {
+export async function login(email: string, password: string, ipAddress?: string, userAgent?: string) {
   // Find user
   const user = await prisma.user.findUnique({
     where: { email },
@@ -15,10 +16,44 @@ export async function login(email: string, password: string) {
   });
 
   if (!user) {
+    // Audit log: Failed login attempt
+    // Use a system branch ID for failed auth events (get first branch as fallback)
+    const systemBranch = await prisma.branch.findFirst();
+    if (systemBranch) {
+      await logAction({
+        branchId: systemBranch.id,
+        actionType: 'UPDATE',
+        entityType: 'AuthEvent',
+        entityId: 'LOGIN_FAILED',
+        userId: null,
+        newValues: {
+          action: 'LOGIN_FAILED',
+          email,
+          reason: 'USER_NOT_FOUND',
+        },
+        ipAddress,
+        userAgent,
+      });
+    }
     throw new UnauthorizedError('Invalid credentials');
   }
 
   if (!user.isActive) {
+    // Audit log: Failed login (account disabled)
+    await logAction({
+      branchId: user.activeBranchId,
+      actionType: 'UPDATE',
+      entityType: 'AuthEvent',
+      entityId: user.id,
+      userId: user.id,
+      newValues: {
+        action: 'LOGIN_FAILED',
+        email,
+        reason: 'ACCOUNT_DISABLED',
+      },
+      ipAddress,
+      userAgent,
+    });
     throw new UnauthorizedError('Account is disabled');
   }
 
@@ -26,6 +61,21 @@ export async function login(email: string, password: string) {
   const isValidPassword = await bcrypt.compare(password, user.passwordHash);
 
   if (!isValidPassword) {
+    // Audit log: Failed login (wrong password)
+    await logAction({
+      branchId: user.activeBranchId,
+      actionType: 'UPDATE',
+      entityType: 'AuthEvent',
+      entityId: user.id,
+      userId: user.id,
+      newValues: {
+        action: 'LOGIN_FAILED',
+        email,
+        reason: 'INVALID_PASSWORD',
+      },
+      ipAddress,
+      userAgent,
+    });
     throw new UnauthorizedError('Invalid credentials');
   }
 
@@ -39,6 +89,22 @@ export async function login(email: string, password: string) {
     process.env.JWT_SECRET!,
     { expiresIn: '7d' }
   );
+
+  // Audit log: Successful login
+  await logAction({
+    branchId: user.activeBranchId,
+    actionType: 'UPDATE',
+    entityType: 'AuthEvent',
+    entityId: user.id,
+    userId: user.id,
+    newValues: {
+      action: 'LOGIN_SUCCESS',
+      email: user.email,
+      role: user.role,
+    },
+    ipAddress,
+    userAgent,
+  });
 
   return {
     token,
