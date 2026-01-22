@@ -124,4 +124,60 @@ router.get('/:id/360', async (req: AuthRequest, res) => {
   }
 });
 
+// PATCH /api/patients/:id - Update patient details
+// SHP-14 (E2-13a): Immediate edit with mandatory reason for identity fields
+router.patch('/:id', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { name, age, gender, address, phone, email, changeReason } = req.body;
+
+    const updatedPatient = await patientService.updatePatient({
+      patientId: id,
+      updates: {
+        name,
+        age,
+        gender,
+        address,
+        phone,
+        email
+      },
+      changeReason,
+      userId: req.user?.id!,
+      userRole: req.user?.role!,
+      branchId: req.branchId!
+    });
+
+    return res.json(updatedPatient);
+  } catch (err: any) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({
+        error: err.error,
+        message: err.message
+      });
+    }
+    console.error('Update patient error:', err);
+    return res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: 'Failed to update patient'
+    });
+  }
+});
+
+// GET /api/patients/:id/change-history - Get patient change history
+router.get('/:id/change-history', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+
+    const changeHistory = await patientService.getPatientChangeHistory(id);
+
+    return res.json(changeHistory);
+  } catch (err: any) {
+    console.error('Get patient change history error:', err);
+    return res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: 'Failed to get patient change history'
+    });
+  }
+});
+
 export default router;

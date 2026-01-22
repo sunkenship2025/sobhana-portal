@@ -614,7 +614,7 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
       actionType: 'FINALIZE',
       entityType: 'Report',
       entityId: draftVersion.id,
-      userId: req.userId!,
+      userId: req.user?.id!,
       oldValues: {
         status: 'DRAFT',
       },
