@@ -133,11 +133,16 @@ export async function searchPatients(query: {
     const identifierType = query.phone ? 'PHONE' : 'EMAIL';
     const identifierValue = query.phone || query.email!;
 
+    // Validate phone number - must be exactly 10 digits
+    if (query.phone && identifierValue.length !== 10) {
+      throw new ValidationError('Phone number must be exactly 10 digits');
+    }
+
     const identifiers = await prisma.patientIdentifier.findMany({
       where: {
         type: identifierType,
         value: {
-          contains: identifierValue,
+          equals: identifierValue,
           mode: 'insensitive'
         }
       },
