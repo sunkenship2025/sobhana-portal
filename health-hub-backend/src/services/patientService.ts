@@ -1,4 +1,4 @@
-import { PrismaClient, IdentifierType } from '@prisma/client';
+import { PrismaClient, IdentifierType, PatientChangeType } from '@prisma/client';
 import { generatePatientNumber } from './numberService';
 import { logAction } from './auditService';
 import { ValidationError } from '../utils/errors';
@@ -337,4 +337,221 @@ export async function getPatient360View(patientId: string) {
     totalVisits: patient.visits.length,
     branches: Array.from(branchMap.values())
   };
+}
+
+// ============================================================================
+// SHP-14 (E2-13a): Patient Editing with Mandatory Reason for Identity Fields
+// ============================================================================
+
+// Identity fields that require change reason for staff
+const IDENTITY_FIELDS = ['name', 'age', 'gender', 'phone', 'email'];
+
+export interface UpdatePatientInput {
+  patientId: string;
+  updates: {
+    name?: string;
+    age?: number;
+    gender?: 'M' | 'F' | 'O';
+    address?: string;
+    phone?: string; // Primary phone
+    email?: string; // Primary email
+  };
+  changeReason?: string;
+  userId: string;
+  userRole: string; // staff, admin, owner
+  branchId: string; // For audit log
+}
+
+export async function updatePatient(input: UpdatePatientInput) {
+  const { patientId, updates, changeReason, userId, userRole, branchId } = input;
+
+  // Fetch existing patient
+  const existingPatient = await prisma.patient.findUnique({
+    where: { id: patientId },
+    include: {
+      identifiers: true
+    }
+  });
+
+  if (!existingPatient) {
+    throw new ValidationError('Patient not found');
+  }
+
+  // Build map of current values
+  const currentPhone = existingPatient.identifiers.find(
+    id => id.type === 'PHONE' && id.isPrimary
+  )?.value;
+  const currentEmail = existingPatient.identifiers.find(
+    id => id.type === 'EMAIL' && id.isPrimary
+  )?.value;
+
+  const currentValues: Record<string, any> = {
+    name: existingPatient.name,
+    age: existingPatient.age,
+    gender: existingPatient.gender,
+    address: existingPatient.address,
+    phone: currentPhone,
+    email: currentEmail
+  };
+
+  // Detect changes
+  const changedFields: Array<{
+    field: string;
+    oldValue: any;
+    newValue: any;
+    changeType: PatientChangeType;
+  }> = [];
+
+  for (const [field, newValue] of Object.entries(updates)) {
+    if (newValue === undefined) continue;
+
+    const oldValue = currentValues[field];
+
+    // Skip if no actual change (critical check!)
+    if (oldValue === newValue) continue;
+
+    const changeType = IDENTITY_FIELDS.includes(field) 
+      ? PatientChangeType.IDENTITY 
+      : PatientChangeType.NON_IDENTITY;
+
+    changedFields.push({
+      field,
+      oldValue: oldValue ? String(oldValue) : null,
+      newValue: String(newValue),
+      changeType
+    });
+  }
+
+  // If no changes, return existing patient
+  if (changedFields.length === 0) {
+    return existingPatient;
+  }
+
+  // Validate changeReason requirement
+  const identityChanges = changedFields.filter(c => c.changeType === PatientChangeType.IDENTITY);
+  
+  if (identityChanges.length > 0) {
+    // Staff: reason is MANDATORY
+    if (userRole === 'staff' && !changeReason) {
+      throw new ValidationError(
+        'Change reason is required for identity field changes (staff role)'
+      );
+    }
+    // Admin/Owner: reason is optional but still logged if provided
+  }
+
+  // Generate request ID to group related changes
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+  // Update patient atomically in transaction
+  const updatedPatient = await prisma.$transaction(async (tx) => {
+    // Log all changes to PatientChangeLog
+    for (const change of changedFields) {
+      await tx.patientChangeLog.create({
+        data: {
+          patientId,
+          fieldName: change.field,
+          oldValue: change.oldValue,
+          newValue: change.newValue,
+          changeType: change.changeType,
+          changeReason: changeReason || null,
+          changedBy: userId,
+          changedRole: userRole,
+          requestId
+        }
+      });
+    }
+
+    // Update Patient table fields
+    const patientUpdates: any = {};
+    if (updates.name !== undefined) patientUpdates.name = updates.name.toUpperCase();
+    if (updates.age !== undefined) patientUpdates.age = updates.age;
+    if (updates.gender !== undefined) patientUpdates.gender = updates.gender;
+    if (updates.address !== undefined) patientUpdates.address = updates.address;
+
+    // Update patient main fields
+    const updated = await tx.patient.update({
+      where: { id: patientId },
+      data: patientUpdates,
+      include: {
+        identifiers: true
+      }
+    });
+
+    // Update identifiers if changed
+    if (updates.phone !== undefined && updates.phone !== currentPhone) {
+      // Update or create primary phone
+      const existingPhone = existingPatient.identifiers.find(
+        id => id.type === 'PHONE' && id.isPrimary
+      );
+
+      if (existingPhone) {
+        await tx.patientIdentifier.update({
+          where: { id: existingPhone.id },
+          data: { value: updates.phone }
+        });
+      } else {
+        await tx.patientIdentifier.create({
+          data: {
+            patientId,
+            type: 'PHONE',
+            value: updates.phone,
+            isPrimary: true
+          }
+        });
+      }
+    }
+
+    if (updates.email !== undefined && updates.email !== currentEmail) {
+      // Update or create primary email
+      const existingEmail = existingPatient.identifiers.find(
+        id => id.type === 'EMAIL' && id.isPrimary
+      );
+
+      if (existingEmail) {
+        await tx.patientIdentifier.update({
+          where: { id: existingEmail.id },
+          data: { value: updates.email }
+        });
+      } else {
+        await tx.patientIdentifier.create({
+          data: {
+            patientId,
+            type: 'EMAIL',
+            value: updates.email,
+            isPrimary: true
+          }
+        });
+      }
+    }
+
+    return updated;
+  });
+
+  // Audit log for high-level patient update action
+  await logAction({
+    branchId,
+    actionType: 'UPDATE',
+    entityType: 'Patient',
+    entityId: patientId,
+    userId,
+    oldValues: { changedFields: changedFields.map(c => c.field) },
+    newValues: { 
+      requestId,
+      changeCount: changedFields.length,
+      identityChangeCount: identityChanges.length,
+      reason: changeReason || 'N/A'
+    }
+  });
+
+  return updatedPatient;
+}
+
+export async function getPatientChangeHistory(patientId: string) {
+  const changeLogs = await prisma.patientChangeLog.findMany({
+    where: { patientId },
+    orderBy: { createdAt: 'desc' }
+  });
+
+  return changeLogs;
 }
