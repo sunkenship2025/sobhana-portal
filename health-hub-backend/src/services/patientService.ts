@@ -25,9 +25,6 @@ export async function createPatient(input: CreatePatientInput) {
     throw new ValidationError('At least one identifier (phone/email) is required');
   }
 
-  // Note: Multiple patients can share the same phone number (e.g., family members)
-  // So we don't check for duplicate identifiers
-
   // Validate one primary per type
   const typeCount: Record<string, number> = {};
   for (const id of input.identifiers) {
@@ -39,6 +36,51 @@ export async function createPatient(input: CreatePatientInput) {
     }
   }
 
+  // SHP-1: Enforce global patient uniqueness
+  // Check if a patient with the same primary phone already exists
+  const primaryPhone = input.identifiers.find(id => id.type === 'PHONE' && id.isPrimary);
+  
+  if (primaryPhone) {
+    // Find all patients with this phone number
+    const existingIdentifiers = await prisma.patientIdentifier.findMany({
+      where: {
+        type: 'PHONE',
+        value: primaryPhone.value
+      },
+      include: {
+        patient: {
+          include: {
+            identifiers: true
+          }
+        }
+      }
+    });
+
+    // Check if any existing patient matches name AND gender
+    // (Same person, not family member)
+    const normalizedInputName = input.name.toUpperCase().trim();
+    
+    for (const existingId of existingIdentifiers) {
+      const existingPatient = existingId.patient;
+      const normalizedExistingName = existingPatient.name.toUpperCase().trim();
+      
+      // Consider it the same patient if:
+      // 1. Exact name match AND same gender
+      // 2. OR age within ±1 year (account for birthday timing)
+      const nameMatch = normalizedExistingName === normalizedInputName;
+      const genderMatch = existingPatient.gender === input.gender;
+      const ageClose = Math.abs(existingPatient.age - input.age) <= 1;
+      
+      if (nameMatch && genderMatch && ageClose) {
+        // Same patient found - return existing patient instead of creating duplicate
+        return existingPatient;
+      }
+    }
+  }
+  
+  // No duplicate found - proceed with creating new patient
+  // (Either no matching phone, or different family member)
+  
   // Generate patient number
   const patientNumber = await generatePatientNumber();
 

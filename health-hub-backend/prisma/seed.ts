@@ -194,7 +194,67 @@ async function main() {
     }
   });
 
-  console.log(`✅ Created lab tests: ${cbc.code}, ${thyroid.code}, ${lipid.code}`);
+  const bloodSugar = await prisma.labTest.create({
+    data: {
+      name: 'Blood Sugar (Fasting)',
+      code: 'FBS',
+      priceInPaise: 10000, // ₹100
+      referenceMin: 70,
+      referenceMax: 100,
+      referenceUnit: 'mg/dL',
+      isActive: true
+    }
+  });
+
+  const hemoglobin = await prisma.labTest.create({
+    data: {
+      name: 'Hemoglobin',
+      code: 'HB',
+      priceInPaise: 8000, // ₹80
+      referenceMin: 12,
+      referenceMax: 16,
+      referenceUnit: 'g/dL',
+      isActive: true
+    }
+  });
+
+  const urineRoutine = await prisma.labTest.create({
+    data: {
+      name: 'Urine Routine',
+      code: 'URINE',
+      priceInPaise: 15000, // ₹150
+      referenceMin: 0,
+      referenceMax: 0,
+      referenceUnit: '',
+      isActive: true
+    }
+  });
+
+  const liverFunction = await prisma.labTest.create({
+    data: {
+      name: 'Liver Function Test',
+      code: 'LFT',
+      priceInPaise: 55000, // ₹550
+      referenceMin: 0,
+      referenceMax: 0,
+      referenceUnit: '',
+      isActive: true
+    }
+  });
+
+  const kidneyFunction = await prisma.labTest.create({
+    data: {
+      name: 'Kidney Function Test',
+      code: 'KFT',
+      priceInPaise: 50000, // ₹500
+      referenceMin: 0,
+      referenceMax: 0,
+      referenceUnit: '',
+      isActive: true
+    }
+  });
+
+  console.log(`✅ Created lab tests: ${cbc.code}, ${thyroid.code}, ${lipid.code}, ${bloodSugar.code}, ${hemoglobin.code}, ${urineRoutine.code}, ${liverFunction.code}, ${kidneyFunction.code}`);
 
   console.log('\\n🎉 Seed complete!');
   console.log('\\n📝 Login credentials:');
