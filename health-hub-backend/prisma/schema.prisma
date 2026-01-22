@@ -144,6 +144,9 @@ model Patient {
   /// All visits across all branches
   visits      Visit[]
 
+  /// Patient change history (identity field tracking)
+  changeLogs  PatientChangeLog[]
+
   @@index([createdAt])
 }
 
@@ -543,6 +546,40 @@ model AuditLog {
   @@index([entityType])
   @@index([entityId])
   @@index([createdAt])
+}
+
+// ============================================================================
+// PATIENT CHANGE LOG (Identity Field Tracking)
+// ============================================================================
+
+/// PatientChangeLog: Immutable record of all patient field changes
+/// RULE: Insert only. No updates. No deletes.
+/// PURPOSE: Track identity field changes with mandatory reasons (staff)
+model PatientChangeLog {
+  id            String   @id @default(cuid())
+  patientId     String
+  fieldName     String
+  oldValue      String?
+  newValue      String?
+  changeType    PatientChangeType  // IDENTITY or NON_IDENTITY
+  changeReason  String?            // Mandatory for IDENTITY changes by staff
+  changedBy     String             // User ID
+  changedRole   String             // staff, admin, owner
+  requestId     String?            // Optional: group multiple field changes
+  createdAt     DateTime @default(now())
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  @@index([patientId])
+  @@index([changeType])
+  @@index([changedBy])
+  @@index([createdAt])
+  @@index([requestId])
+}
+
+enum PatientChangeType {
+  IDENTITY
+  NON_IDENTITY
 }
 
 // ============================================================================
