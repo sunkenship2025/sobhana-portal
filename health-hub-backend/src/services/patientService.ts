@@ -2,6 +2,7 @@ import { PrismaClient, IdentifierType, PatientChangeType } from '@prisma/client'
 import { generatePatientNumber } from './numberService';
 import { logAction } from './auditService';
 import { ValidationError } from '../utils/errors';
+import * as patientMatching from './patientMatchingService';
 
 const prisma = new PrismaClient();
 
@@ -36,37 +37,23 @@ export async function createPatient(input: CreatePatientInput) {
     }
   }
 
-  // SHP-1: Enforce global patient uniqueness
+  // E2-02 & SHP-1: Use centralized matching service for duplicate detection
   // Check if a patient with the same primary phone already exists
   const primaryPhone = input.identifiers.find(id => id.type === 'PHONE' && id.isPrimary);
   
   if (primaryPhone) {
-    // Find all patients with this phone number
-    const existingIdentifiers = await prisma.patientIdentifier.findMany({
-      where: {
-        type: 'PHONE',
-        value: primaryPhone.value
-      },
-      include: {
-        patient: {
-          include: {
-            identifiers: true
-          }
-        }
-      }
+    // Use centralized matching service to find existing patients
+    const existingCheck = await patientMatching.checkPatientExists({
+      phone: primaryPhone.value
     });
 
-    // Check if any existing patient matches name AND gender
-    // (Same person, not family member)
-    const normalizedInputName = input.name.toUpperCase().trim();
-    
-    for (const existingId of existingIdentifiers) {
-      const existingPatient = existingId.patient;
+    if (existingCheck.exists) {
+      const existingPatient = existingCheck.patient;
+      
+      // Check if it's the same person (not just same phone/family member)
+      const normalizedInputName = input.name.toUpperCase().trim();
       const normalizedExistingName = existingPatient.name.toUpperCase().trim();
       
-      // Consider it the same patient if:
-      // 1. Exact name match AND same gender
-      // 2. OR age within ±1 year (account for birthday timing)
       const nameMatch = normalizedExistingName === normalizedInputName;
       const genderMatch = existingPatient.gender === input.gender;
       const ageClose = Math.abs(existingPatient.age - input.age) <= 1;
@@ -75,11 +62,11 @@ export async function createPatient(input: CreatePatientInput) {
         // Same patient found - return existing patient instead of creating duplicate
         return existingPatient;
       }
+      // Different family member with same phone - proceed with creation
     }
   }
   
   // No duplicate found - proceed with creating new patient
-  // (Either no matching phone, or different family member)
   
   // Generate patient number
   const patientNumber = await generatePatientNumber();
@@ -118,6 +105,14 @@ export async function createPatient(input: CreatePatientInput) {
   return patient;
 }
 
+/**
+ * E2-02: Search patients using centralized matching strategy
+ * 
+ * Priority:
+ * 1. Phone (primary, exact match)
+ * 2. Email (primary, exact match)
+ * 3. Name (secondary, fuzzy match)
+ */
 export async function searchPatients(query: {
   phone?: string;
   email?: string;
@@ -126,72 +121,23 @@ export async function searchPatients(query: {
 }) {
   const limit = query.limit || 20;
 
-  let patients: any[] = [];
-
-  // Search by identifier (phone/email)
-  if (query.phone || query.email) {
-    const identifierType = query.phone ? 'PHONE' : 'EMAIL';
-    const identifierValue = query.phone || query.email!;
-
-    // Validate phone number - must be exactly 10 digits
-    if (query.phone && identifierValue.length !== 10) {
-      throw new ValidationError('Phone number must be exactly 10 digits');
+  // Use centralized patient matching service (E2-02)
+  const matches = await patientMatching.findPatientsByIdentifier(
+    {
+      phone: query.phone,
+      email: query.email,
+      name: query.name
+    },
+    {
+      limit,
+      includeVisitHistory: true,
+      strictMode: false // Allow fuzzy name matching
     }
+  );
 
-    const identifiers = await prisma.patientIdentifier.findMany({
-      where: {
-        type: identifierType,
-        value: {
-          equals: identifierValue,
-          mode: 'insensitive'
-        }
-      },
-      include: {
-        patient: {
-          include: {
-            identifiers: true,
-            visits: {
-              include: {
-                branch: {
-                  select: { id: true, name: true, code: true }
-                }
-              },
-              orderBy: { createdAt: 'desc' },
-              take: 5 // Last 5 visits for history snapshot
-            }
-          }
-        }
-      },
-      take: limit
-    });
-
-    patients = identifiers.map(id => id.patient);
-  } else if (query.name) {
-    // Search by name
-    patients = await prisma.patient.findMany({
-      where: {
-        name: {
-          contains: query.name,
-          mode: 'insensitive'
-        }
-      },
-      include: {
-        identifiers: true,
-        visits: {
-          include: {
-            branch: {
-              select: { id: true, name: true, code: true }
-            }
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 5
-        }
-      },
-      take: limit
-    });
-  } else {
-    throw new ValidationError('Provide phone, email, or name to search');
-  }
+  // Return just the patient data (without match metadata)
+  // Frontend doesn't need to know about match scores/confidence
+  const patients = matches.map(match => match.patient);
 
   // Transform to search result format with history snapshot
   return patients.map((patient: any) => ({
