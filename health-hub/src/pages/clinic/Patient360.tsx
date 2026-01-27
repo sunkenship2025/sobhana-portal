@@ -402,7 +402,7 @@ export default function Patient360() {
                 {primaryPhone && (
                   <p>
                     <span className="text-muted-foreground">Phone:</span>{' '}
-                    {primaryPhone.slice(0, 5)}XXXXX
+                    {primaryPhone}
                   </p>
                 )}
                 {patient.address && (
