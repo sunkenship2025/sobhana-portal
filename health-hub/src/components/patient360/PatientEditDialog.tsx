@@ -20,6 +20,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { Pencil } from 'lucide-react';
+import { validatePatientForm, type ValidationErrors } from '@/lib/validation';
 
 const API_BASE = 'http://localhost:3000/api';
 
@@ -64,6 +65,9 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
     email: primaryEmail,
     address: patient.address || '',
   });
+  
+  // E2-10: Validation errors
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
 
   // Check if any identity fields changed
   const identityFieldsChanged = () => {
@@ -78,6 +82,24 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // E2-10: Validate form data
+    const errors = validatePatientForm({
+      name: formData.name,
+      age: formData.age,
+      gender: formData.gender,
+      phone: formData.phone,
+      email: formData.email,
+      address: formData.address,
+    });
+
+    if (Object.keys(errors).length > 0) {
+      setValidationErrors(errors);
+      toast.error('Please fix validation errors', {
+        description: Object.values(errors).join(', '),
+      });
+      return;
+    }
 
     // Validate: if identity fields changed, reason is required
     if (identityFieldsChanged() && !formData.changeReason.trim()) {
@@ -182,9 +204,18 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
               <Input
                 id="name"
                 value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, name: e.target.value });
+                  if (validationErrors.name) {
+                    setValidationErrors({ ...validationErrors, name: undefined });
+                  }
+                }}
+                className={validationErrors.name ? 'border-red-500' : ''}
                 required
               />
+              {validationErrors.name && (
+                <p className="text-sm text-red-500">{validationErrors.name}</p>
+              )}
             </div>
 
             {/* Age and Gender */}
@@ -199,9 +230,18 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
                   min="0"
                   max="150"
                   value={formData.age}
-                  onChange={(e) => setFormData({ ...formData, age: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, age: e.target.value });
+                    if (validationErrors.age) {
+                      setValidationErrors({ ...validationErrors, age: undefined });
+                    }
+                  }}
+                  className={validationErrors.age ? 'border-red-500' : ''}
                   required
                 />
+                {validationErrors.age && (
+                  <p className="text-sm text-red-500">{validationErrors.age}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -210,9 +250,14 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
                 </Label>
                 <Select
                   value={formData.gender}
-                  onValueChange={(value) => setFormData({ ...formData, gender: value })}
+                  onValueChange={(value) => {
+                    setFormData({ ...formData, gender: value });
+                    if (validationErrors.gender) {
+                      setValidationErrors({ ...validationErrors, gender: undefined });
+                    }
+                  }}
                 >
-                  <SelectTrigger id="gender">
+                  <SelectTrigger id="gender" className={validationErrors.gender ? 'border-red-500' : ''}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -235,10 +280,19 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
                 pattern="[0-9]{10}"
                 maxLength={10}
                 value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value.replace(/\D/g, '') })}
+                onChange={(e) => {
+                  setFormData({ ...formData, phone: e.target.value.replace(/\D/g, '') });
+                  if (validationErrors.phone) {
+                    setValidationErrors({ ...validationErrors, phone: undefined });
+                  }
+                }}
+                className={validationErrors.phone ? 'border-red-500' : ''}
                 placeholder="10-digit mobile number"
                 required
               />
+              {validationErrors.phone && (
+                <p className="text-sm text-red-500">{validationErrors.phone}</p>
+              )}
             </div>
 
             {/* Email */}
@@ -248,9 +302,18 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
                 id="email"
                 type="email"
                 value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, email: e.target.value });
+                  if (validationErrors.email) {
+                    setValidationErrors({ ...validationErrors, email: undefined });
+                  }
+                }}
+                className={validationErrors.email ? 'border-red-500' : ''}
                 placeholder="patient@example.com"
               />
+              {validationErrors.email && (
+                <p className="text-sm text-red-500">{validationErrors.email}</p>
+              )}
             </div>
 
             {/* Address */}
@@ -259,10 +322,19 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
               <Textarea
                 id="address"
                 value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, address: e.target.value });
+                  if (validationErrors.address) {
+                    setValidationErrors({ ...validationErrors, address: undefined });
+                  }
+                }}
+                className={validationErrors.address ? 'border-red-500' : ''}
                 rows={2}
                 placeholder="Patient address"
               />
+              {validationErrors.address && (
+                <p className="text-sm text-red-500">{validationErrors.address}</p>
+              )}
             </div>
 
             {/* Change Reason - shown if identity fields changed */}

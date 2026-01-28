@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import type { Patient, PatientSearchResult, PaymentType, DiagnosticVisitView, TestOrder, LabTest, ReferralDoctor } from '@/types';
 import { Search, UserPlus, CheckCircle2, Printer } from 'lucide-react';
 import { BillPrint } from '@/components/print/BillPrint';
+import { validatePatientForm, type ValidationErrors } from '@/lib/validation';
 import {
   Select,
   SelectContent,
@@ -52,6 +53,9 @@ const DiagnosticsNewVisit = () => {
     age: '',
     gender: 'M' as 'M' | 'F' | 'O',
   });
+  
+  // E2-10: Validation errors
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
 
   // Fetch lab tests and referral doctors from API
   useEffect(() => {
@@ -100,7 +104,10 @@ const DiagnosticsNewVisit = () => {
         });
         if (res.ok) {
           const results = await res.json();
-          setMatchingPatients(results);
+          // Backend returns { patient: {...}, historySnapshot: [...] }
+          // Extract just the patient objects
+          const patients = results.map((r: any) => r.patient);
+          setMatchingPatients(patients);
           setSelectedPatient(null);
           setShowNewPatientForm(false);
         }
@@ -122,7 +129,10 @@ const DiagnosticsNewVisit = () => {
         });
         if (res.ok) {
           const results = await res.json();
-          setMatchingPatients(results);
+          // Backend returns { patient: {...}, historySnapshot: [...] }
+          // Extract just the patient objects
+          const patients = results.map((r: any) => r.patient);
+          setMatchingPatients(patients);
         }
       } catch (error) {
         console.error('Search failed:', error);
@@ -172,6 +182,20 @@ const DiagnosticsNewVisit = () => {
 
     // Create new patient if needed
     if (showNewPatientForm && !selectedPatient) {
+      // E2-10: Validate patient form
+      const errors = validatePatientForm({
+        name: newPatient.name,
+        age: newPatient.age,
+        gender: newPatient.gender,
+        phone,
+      });
+
+      if (Object.keys(errors).length > 0) {
+        setValidationErrors(errors);
+        toast.error('Please fix validation errors before submitting');
+        return;
+      }
+
       if (!newPatient.name || !newPatient.age) {
         toast.error('Please fill in all patient details');
         return;
@@ -512,8 +536,17 @@ const DiagnosticsNewVisit = () => {
                     id="name"
                     placeholder="Full name"
                     value={newPatient.name}
-                    onChange={(e) => setNewPatient({ ...newPatient, name: e.target.value })}
+                    onChange={(e) => {
+                      setNewPatient({ ...newPatient, name: e.target.value });
+                      if (validationErrors.name) {
+                        setValidationErrors({ ...validationErrors, name: undefined });
+                      }
+                    }}
+                    className={validationErrors.name ? 'border-red-500' : ''}
                   />
+                  {validationErrors.name && (
+                    <p className="text-sm text-red-500">{validationErrors.name}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="age">Age *</Label>
@@ -522,14 +555,28 @@ const DiagnosticsNewVisit = () => {
                     type="number"
                     placeholder="Age"
                     value={newPatient.age}
-                    onChange={(e) => setNewPatient({ ...newPatient, age: e.target.value })}
+                    onChange={(e) => {
+                      setNewPatient({ ...newPatient, age: e.target.value });
+                      if (validationErrors.age) {
+                        setValidationErrors({ ...validationErrors, age: undefined });
+                      }
+                    }}
+                    className={validationErrors.age ? 'border-red-500' : ''}
                   />
+                  {validationErrors.age && (
+                    <p className="text-sm text-red-500">{validationErrors.age}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>Gender *</Label>
                   <RadioGroup
                     value={newPatient.gender}
-                    onValueChange={(v) => setNewPatient({ ...newPatient, gender: v as 'M' | 'F' | 'O' })}
+                    onValueChange={(v) => {
+                      setNewPatient({ ...newPatient, gender: v as 'M' | 'F' | 'O' });
+                      if (validationErrors.gender) {
+                        setValidationErrors({ ...validationErrors, gender: undefined });
+                      }
+                    }}
                     className="flex gap-4"
                   >
                     {['M', 'F', 'O'].map((g) => (
@@ -539,8 +586,18 @@ const DiagnosticsNewVisit = () => {
                       </div>
                     ))}
                   </RadioGroup>
+                  {validationErrors.gender && (
+                    <p className="text-sm text-red-500">{validationErrors.gender}</p>
+                  )}
                 </div>
               </div>
+              
+              {/* Phone validation error */}
+              {validationErrors.phone && (
+                <div className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-md p-3">
+                  <strong>Phone:</strong> {validationErrors.phone}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
