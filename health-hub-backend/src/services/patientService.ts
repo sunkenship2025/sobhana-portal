@@ -3,8 +3,19 @@ import { generatePatientNumber } from './numberService';
 import { logAction } from './auditService';
 import { ValidationError } from '../utils/errors';
 import * as patientMatching from './patientMatchingService';
+import crypto from 'crypto';
 
 const prisma = new PrismaClient();
+
+/**
+ * E2-16: Convert string to 32-bit signed integer for PostgreSQL advisory lock
+ * Uses first 4 bytes of SHA-256 hash to ensure consistent lock ID for same input
+ */
+function stringToLockId(input: string): number {
+  const hash = crypto.createHash('sha256').update(input).digest();
+  // Read first 4 bytes as signed 32-bit integer (PostgreSQL bigint range)
+  return hash.readInt32BE(0);
+}
 
 export interface CreatePatientInput {
   name: string;
@@ -37,42 +48,50 @@ export async function createPatient(input: CreatePatientInput) {
     }
   }
 
-  // E2-02 & SHP-1: Use centralized matching service for duplicate detection
-  // Check if a patient with the same primary phone already exists
+  // E2-02 & E2-16: Use advisory lock to prevent concurrent duplicate patient creation
   const primaryPhone = input.identifiers.find(id => id.type === 'PHONE' && id.isPrimary);
   
-  if (primaryPhone) {
-    // Use centralized matching service to find existing patients
-    const existingCheck = await patientMatching.checkPatientExists({
-      phone: primaryPhone.value
-    });
-
-    if (existingCheck.exists) {
-      const existingPatient = existingCheck.patient;
-      
-      // Check if it's the same person (not just same phone/family member)
-      const normalizedInputName = input.name.toUpperCase().trim();
-      const normalizedExistingName = existingPatient.name.toUpperCase().trim();
-      
-      const nameMatch = normalizedExistingName === normalizedInputName;
-      const genderMatch = existingPatient.gender === input.gender;
-      const ageClose = Math.abs(existingPatient.age - input.age) <= 1;
-      
-      if (nameMatch && genderMatch && ageClose) {
-        // Same patient found - return existing patient instead of creating duplicate
-        return existingPatient;
-      }
-      // Different family member with same phone - proceed with creation
-    }
-  }
-  
-  // No duplicate found - proceed with creating new patient
-  
-  // Generate patient number
-  const patientNumber = await generatePatientNumber();
-
-  // Create patient with identifiers in transaction
+  // Wrap duplicate check and creation in transaction with advisory lock
   const patient = await prisma.$transaction(async (tx) => {
+    // E2-16: Acquire advisory lock on phone number before checking duplicates
+    // This ensures only one request can check+create for this phone at a time
+    if (primaryPhone) {
+      const lockId = stringToLockId(primaryPhone.value);
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockId})`;
+      // Lock automatically released when transaction commits/rolls back
+    }
+
+    // E2-02 & SHP-1: Use centralized matching service for duplicate detection
+    // Now protected by advisory lock - no race condition possible
+    if (primaryPhone) {
+      const existingCheck = await patientMatching.checkPatientExists({
+        phone: primaryPhone.value
+      });
+
+      if (existingCheck.exists) {
+        const existingPatient = existingCheck.patient;
+        
+        // Check if it's the same person (not just same phone/family member)
+        const normalizedInputName = input.name.toUpperCase().trim();
+        const normalizedExistingName = existingPatient.name.toUpperCase().trim();
+        
+        const nameMatch = normalizedExistingName === normalizedInputName;
+        const genderMatch = existingPatient.gender === input.gender;
+        const ageClose = Math.abs(existingPatient.age - input.age) <= 1;
+        
+        if (nameMatch && genderMatch && ageClose) {
+          // Same patient found - return existing patient instead of creating duplicate
+          return existingPatient;
+        }
+        // Different family member with same phone - proceed with creation
+      }
+    }
+    
+    // No duplicate found - proceed with creating new patient
+    // Generate patient number
+    const patientNumber = await generatePatientNumber();
+
+    // Create patient with identifiers
     const newPatient = await tx.patient.create({
       data: {
         patientNumber,
