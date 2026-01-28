@@ -136,10 +136,56 @@ const ClinicNewVisit = () => {
           }),
         });
         
-        if (!res.ok) {
+        if (res.status === 409) {
+          // E2-03: Potential duplicate detected
+          const errorData = await res.json();
+          const duplicateInfo = JSON.parse(errorData.message);
+          const existing = duplicateInfo.existingPatient;
+          
+          const userConfirm = window.confirm(
+            `⚠️ Potential Duplicate Detected\n\n` +
+            `Existing Patient: ${existing.patientNumber}\n` +
+            `Name: ${existing.name}\n` +
+            `Age: ${existing.age}, Gender: ${existing.gender}\n` +
+            `Phone: ${existing.phone}\n\n` +
+            `This looks like the same person. Do you want to:\n` +
+            `• Click OK to USE EXISTING patient\n` +
+            `• Click Cancel to CREATE NEW patient anyway`
+          );
+          
+          if (userConfirm) {
+            // Use existing patient
+            patient = { id: existing.id, patientNumber: existing.patientNumber, name: existing.name, age: existing.age, gender: existing.gender };
+            toast.success(`Using existing patient ${existing.patientNumber}`);
+          } else {
+            // User wants to force create duplicate - retry with forceDuplicate flag
+            const retryRes = await fetch('http://localhost:3000/api/patients', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'X-Branch-Id': activeBranch.id,
+              },
+              body: JSON.stringify({
+                name: newPatient.name,
+                age: parseInt(newPatient.age),
+                gender: newPatient.gender,
+                identifiers: [{ type: 'PHONE', value: phone, isPrimary: true }],
+                forceDuplicate: true, // E2-03: Explicit user confirmation
+              }),
+            });
+            
+            if (!retryRes.ok) {
+              throw new Error('Failed to create patient');
+            }
+            patient = await retryRes.json();
+            toast.success('Created new patient record');
+          }
+        } else if (!res.ok) {
           throw new Error('Failed to create patient');
+        } else {
+          patient = await res.json();
         }
-        patient = await res.json();
       } catch (error) {
         toast.error('Failed to create patient');
         return;
