@@ -1,7 +1,7 @@
 import { PrismaClient, IdentifierType, PatientChangeType } from '@prisma/client';
 import { generatePatientNumber } from './numberService';
 import { logAction } from './auditService';
-import { ValidationError } from '../utils/errors';
+import { ValidationError, ConflictError } from '../utils/errors';
 import * as patientMatching from './patientMatchingService';
 import crypto from 'crypto';
 
@@ -29,6 +29,7 @@ export interface CreatePatientInput {
   }[];
   branchId: string; // For audit log only
   userId?: string; // For audit log
+  forceDuplicate?: boolean; // E2-03: Explicit user confirmation to create duplicate
 }
 
 export async function createPatient(input: CreatePatientInput) {
@@ -62,8 +63,8 @@ export async function createPatient(input: CreatePatientInput) {
     }
 
     // E2-02 & SHP-1: Use centralized matching service for duplicate detection
-    // Now protected by advisory lock - no race condition possible
-    if (primaryPhone) {
+    // E2-03: Never auto-merge - throw error if potential duplicate found
+    if (primaryPhone && !input.forceDuplicate) {
       const existingCheck = await patientMatching.checkPatientExists({
         phone: primaryPhone.value
       });
@@ -80,8 +81,22 @@ export async function createPatient(input: CreatePatientInput) {
         const ageClose = Math.abs(existingPatient.age - input.age) <= 1;
         
         if (nameMatch && genderMatch && ageClose) {
-          // Same patient found - return existing patient instead of creating duplicate
-          return existingPatient;
+          // E2-03: Potential duplicate detected - DO NOT auto-merge
+          // Frontend must handle this and let user decide (confirm duplicate or create new)
+          throw new ConflictError(
+            JSON.stringify({
+              error: 'POTENTIAL_DUPLICATE',
+              message: 'A patient with similar details already exists',
+              existingPatient: {
+                id: existingPatient.id,
+                patientNumber: existingPatient.patientNumber,
+                name: existingPatient.name,
+                age: existingPatient.age,
+                gender: existingPatient.gender,
+                phone: primaryPhone.value
+              }
+            })
+          );
         }
         // Different family member with same phone - proceed with creation
       }
