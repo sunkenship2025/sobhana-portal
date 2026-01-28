@@ -3,6 +3,7 @@ import { generatePatientNumber } from './numberService';
 import { logAction } from './auditService';
 import { ValidationError, ConflictError } from '../utils/errors';
 import * as patientMatching from './patientMatchingService';
+import { validatePatientDemographics, validateAddress } from '../utils/validation';
 import crypto from 'crypto';
 
 const prisma = new PrismaClient();
@@ -33,6 +34,27 @@ export interface CreatePatientInput {
 }
 
 export async function createPatient(input: CreatePatientInput) {
+  // E2-10: Validate demographic fields
+  const validationResult = validatePatientDemographics({
+    name: input.name,
+    age: input.age,
+    gender: input.gender,
+    identifiers: input.identifiers,
+  });
+
+  if (!validationResult.valid) {
+    const errorMessages = Object.entries(validationResult.errors)
+      .map(([field, message]) => `${field}: ${message}`)
+      .join('; ');
+    throw new ValidationError(errorMessages);
+  }
+
+  // Validate address
+  const addressError = validateAddress(input.address);
+  if (addressError) {
+    throw new ValidationError(addressError);
+  }
+
   // Validation
   if (!input.identifiers || input.identifiers.length === 0) {
     throw new ValidationError('At least one identifier (phone/email) is required');
@@ -344,6 +366,57 @@ export interface UpdatePatientInput {
 
 export async function updatePatient(input: UpdatePatientInput) {
   const { patientId, updates, changeReason, userId, userRole, branchId } = input;
+
+  // E2-10: Validate demographic fields if they are being updated
+  if (updates.name !== undefined || updates.age !== undefined || updates.gender !== undefined) {
+    const validationInput = {
+      name: updates.name ?? '', // Use empty string as fallback for validation
+      age: updates.age ?? 0,
+      gender: updates.gender ?? 'M',
+    };
+    
+    const validationResult = validatePatientDemographics(validationInput);
+    if (!validationResult.valid) {
+      const errorMessages = Object.entries(validationResult.errors)
+        .map(([field, message]) => `${field}: ${message}`)
+        .join('; ');
+      throw new ValidationError(errorMessages);
+    }
+  }
+
+  // Validate address if being updated
+  if (updates.address !== undefined) {
+    const addressError = validateAddress(updates.address);
+    if (addressError) {
+      throw new ValidationError(addressError);
+    }
+  }
+
+  // Validate phone if being updated
+  if (updates.phone !== undefined) {
+    const validationResult = validatePatientDemographics({
+      name: 'temp', // Not validating name
+      age: 0, // Not validating age
+      gender: 'M', // Not validating gender
+      identifiers: [{ type: 'PHONE', value: updates.phone }],
+    });
+    if (!validationResult.valid && validationResult.errors.phone) {
+      throw new ValidationError(validationResult.errors.phone);
+    }
+  }
+
+  // Validate email if being updated
+  if (updates.email !== undefined && updates.email) {
+    const validationResult = validatePatientDemographics({
+      name: 'temp',
+      age: 0,
+      gender: 'M',
+      identifiers: [{ type: 'EMAIL', value: updates.email }],
+    });
+    if (!validationResult.valid && validationResult.errors.email) {
+      throw new ValidationError(validationResult.errors.email);
+    }
+  }
 
   // Fetch existing patient
   const existingPatient = await prisma.patient.findUnique({
