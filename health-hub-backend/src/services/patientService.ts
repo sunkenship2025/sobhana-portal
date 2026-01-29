@@ -1,14 +1,27 @@
 import { PrismaClient, IdentifierType, PatientChangeType } from '@prisma/client';
 import { generatePatientNumber } from './numberService';
 import { logAction } from './auditService';
-import { ValidationError } from '../utils/errors';
+import { ValidationError, ConflictError } from '../utils/errors';
 import * as patientMatching from './patientMatchingService';
+import { validatePatientDemographics, validateAddress, calculateYOBFromAge, calculateAgeFromDOB, getPatientAge } from '../utils/validation';
+import crypto from 'crypto';
 
 const prisma = new PrismaClient();
 
+/**
+ * E2-16: Convert string to 32-bit signed integer for PostgreSQL advisory lock
+ * Uses first 4 bytes of SHA-256 hash to ensure consistent lock ID for same input
+ */
+function stringToLockId(input: string): number {
+  const hash = crypto.createHash('sha256').update(input).digest();
+  // Read first 4 bytes as signed 32-bit integer (PostgreSQL bigint range)
+  return hash.readInt32BE(0);
+}
+
 export interface CreatePatientInput {
   name: string;
-  age: number;
+  age?: number; // E2-09: Optional - used to calculate YOB if DOB not provided
+  dateOfBirth?: Date; // E2-09: Optional - exact DOB if known
   gender: 'M' | 'F' | 'O';
   address?: string;
   identifiers: {
@@ -18,9 +31,45 @@ export interface CreatePatientInput {
   }[];
   branchId: string; // For audit log only
   userId?: string; // For audit log
+  forceDuplicate?: boolean; // E2-03: Explicit user confirmation to create duplicate
 }
 
 export async function createPatient(input: CreatePatientInput) {
+  // E2-09: Calculate yearOfBirth from DOB or age FIRST (needed for validation)
+  let yearOfBirth: number;
+  let dateOfBirth: Date | null = null;
+  
+  if (input.dateOfBirth) {
+    dateOfBirth = input.dateOfBirth;
+    yearOfBirth = input.dateOfBirth.getFullYear();
+  } else if (input.age !== undefined) {
+    yearOfBirth = calculateYOBFromAge(input.age);
+  } else {
+    throw new ValidationError('Either age or dateOfBirth must be provided');
+  }
+
+  // E2-10: Validate demographic fields
+  const validationResult = validatePatientDemographics({
+    name: input.name,
+    age: input.age,
+    dateOfBirth: input.dateOfBirth,
+    gender: input.gender,
+    identifiers: input.identifiers,
+  });
+
+  if (!validationResult.valid) {
+    const errorMessages = Object.entries(validationResult.errors)
+      .map(([field, message]) => `${field}: ${message}`)
+      .join('; ');
+    throw new ValidationError(errorMessages);
+  }
+
+  // Validate address
+  const addressError = validateAddress(input.address);
+  if (addressError) {
+    throw new ValidationError(addressError);
+  }
+
   // Validation
   if (!input.identifiers || input.identifiers.length === 0) {
     throw new ValidationError('At least one identifier (phone/email) is required');
@@ -37,47 +86,74 @@ export async function createPatient(input: CreatePatientInput) {
     }
   }
 
-  // E2-02 & SHP-1: Use centralized matching service for duplicate detection
-  // Check if a patient with the same primary phone already exists
+  // E2-02 & E2-16: Use advisory lock to prevent concurrent duplicate patient creation
   const primaryPhone = input.identifiers.find(id => id.type === 'PHONE' && id.isPrimary);
   
-  if (primaryPhone) {
-    // Use centralized matching service to find existing patients
-    const existingCheck = await patientMatching.checkPatientExists({
-      phone: primaryPhone.value
-    });
-
-    if (existingCheck.exists) {
-      const existingPatient = existingCheck.patient;
-      
-      // Check if it's the same person (not just same phone/family member)
-      const normalizedInputName = input.name.toUpperCase().trim();
-      const normalizedExistingName = existingPatient.name.toUpperCase().trim();
-      
-      const nameMatch = normalizedExistingName === normalizedInputName;
-      const genderMatch = existingPatient.gender === input.gender;
-      const ageClose = Math.abs(existingPatient.age - input.age) <= 1;
-      
-      if (nameMatch && genderMatch && ageClose) {
-        // Same patient found - return existing patient instead of creating duplicate
-        return existingPatient;
-      }
-      // Different family member with same phone - proceed with creation
-    }
-  }
-  
-  // No duplicate found - proceed with creating new patient
-  
-  // Generate patient number
-  const patientNumber = await generatePatientNumber();
-
-  // Create patient with identifiers in transaction
+  // Wrap duplicate check and creation in transaction with advisory lock
   const patient = await prisma.$transaction(async (tx) => {
+    // E2-16: Acquire advisory lock on phone number before checking duplicates
+    // This ensures only one request can check+create for this phone at a time
+    if (primaryPhone) {
+      const lockId = stringToLockId(primaryPhone.value);
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockId})`;
+      // Lock automatically released when transaction commits/rolls back
+    }
+
+    // E2-02 & SHP-1: Use centralized matching service for duplicate detection
+    // E2-03: Never auto-merge - throw error if potential duplicate found
+    if (primaryPhone && !input.forceDuplicate) {
+      const existingCheck = await patientMatching.checkPatientExists({
+        phone: primaryPhone.value
+      });
+
+      if (existingCheck.exists) {
+        const existingPatient = existingCheck.patient;
+        
+        // Check if it's the same person (not just same phone/family member)
+        const normalizedInputName = input.name.toUpperCase().trim();
+        const normalizedExistingName = existingPatient.name.toUpperCase().trim();
+        
+        const nameMatch = normalizedExistingName === normalizedInputName;
+        const genderMatch = existingPatient.gender === input.gender;
+        
+        // E2-09: Calculate current age from YOB/DOB for comparison
+        const existingAge = getPatientAge(existingPatient.dateOfBirth, existingPatient.yearOfBirth);
+        const inputAge = input.age || (input.dateOfBirth ? calculateAgeFromDOB(input.dateOfBirth) : 0);
+        const ageClose = Math.abs(existingAge - inputAge) <= 1;
+        
+        if (nameMatch && genderMatch && ageClose) {
+          // E2-03: Potential duplicate detected - DO NOT auto-merge
+          // Frontend must handle this and let user decide (confirm duplicate or create new)
+          throw new ConflictError(
+            JSON.stringify({
+              error: 'POTENTIAL_DUPLICATE',
+              message: 'A patient with similar details already exists',
+              existingPatient: {
+                id: existingPatient.id,
+                patientNumber: existingPatient.patientNumber,
+                name: existingPatient.name,
+                age: existingAge, // E2-09: Use calculated age
+                gender: existingPatient.gender,
+                phone: primaryPhone.value
+              }
+            })
+          );
+        }
+        // Different family member with same phone - proceed with creation
+      }
+    }
+    
+    // No duplicate found - proceed with creating new patient
+    // Generate patient number
+    const patientNumber = await generatePatientNumber();
+
+    // Create patient with identifiers
     const newPatient = await tx.patient.create({
       data: {
         patientNumber,
         name: input.name.toUpperCase(), // Medical standard: names in all caps
-        age: input.age,
+        yearOfBirth, // E2-09: Required - derived from age or DOB
+        dateOfBirth, // E2-09: Optional - exact DOB if provided
         gender: input.gender,
         address: input.address,
         identifiers: {
@@ -145,7 +221,9 @@ export async function searchPatients(query: {
       id: patient.id,
       patientNumber: patient.patientNumber,
       name: patient.name,
-      age: patient.age,
+      age: getPatientAge(patient.dateOfBirth, patient.yearOfBirth), // E2-09: Calculate current age
+      dateOfBirth: patient.dateOfBirth, // E2-09: Include DOB in response
+      yearOfBirth: patient.yearOfBirth, // E2-09: Include YOB in response
       gender: patient.gender,
       address: patient.address,
       identifiers: patient.identifiers,
@@ -273,7 +351,9 @@ export async function getPatient360View(patientId: string) {
       id: patient.id,
       patientNumber: patient.patientNumber,
       name: patient.name,
-      age: patient.age,
+      age: getPatientAge(patient.dateOfBirth, patient.yearOfBirth), // E2-09: Calculate current age
+      dateOfBirth: patient.dateOfBirth, // E2-09: Include DOB
+      yearOfBirth: patient.yearOfBirth, // E2-09: Include YOB
       gender: patient.gender,
       address: patient.address,
       identifiers: patient.identifiers,
@@ -296,7 +376,8 @@ export interface UpdatePatientInput {
   patientId: string;
   updates: {
     name?: string;
-    age?: number;
+    age?: number; // E2-09: Optional - will be converted to YOB
+    dateOfBirth?: Date; // E2-09: Optional - exact DOB if provided
     gender?: 'M' | 'F' | 'O';
     address?: string;
     phone?: string; // Primary phone
@@ -310,6 +391,57 @@ export interface UpdatePatientInput {
 
 export async function updatePatient(input: UpdatePatientInput) {
   const { patientId, updates, changeReason, userId, userRole, branchId } = input;
+
+  // E2-10: Validate demographic fields if they are being updated
+  if (updates.name !== undefined || updates.age !== undefined || updates.gender !== undefined) {
+    const validationInput = {
+      name: updates.name ?? '', // Use empty string as fallback for validation
+      age: updates.age ?? 0,
+      gender: updates.gender ?? 'M',
+    };
+    
+    const validationResult = validatePatientDemographics(validationInput);
+    if (!validationResult.valid) {
+      const errorMessages = Object.entries(validationResult.errors)
+        .map(([field, message]) => `${field}: ${message}`)
+        .join('; ');
+      throw new ValidationError(errorMessages);
+    }
+  }
+
+  // Validate address if being updated
+  if (updates.address !== undefined) {
+    const addressError = validateAddress(updates.address);
+    if (addressError) {
+      throw new ValidationError(addressError);
+    }
+  }
+
+  // Validate phone if being updated
+  if (updates.phone !== undefined) {
+    const validationResult = validatePatientDemographics({
+      name: 'temp', // Not validating name
+      age: 0, // Not validating age
+      gender: 'M', // Not validating gender
+      identifiers: [{ type: 'PHONE', value: updates.phone }],
+    });
+    if (!validationResult.valid && validationResult.errors.phone) {
+      throw new ValidationError(validationResult.errors.phone);
+    }
+  }
+
+  // Validate email if being updated
+  if (updates.email !== undefined && updates.email) {
+    const validationResult = validatePatientDemographics({
+      name: 'temp',
+      age: 0,
+      gender: 'M',
+      identifiers: [{ type: 'EMAIL', value: updates.email }],
+    });
+    if (!validationResult.valid && validationResult.errors.email) {
+      throw new ValidationError(validationResult.errors.email);
+    }
+  }
 
   // Fetch existing patient
   const existingPatient = await prisma.patient.findUnique({
@@ -333,7 +465,9 @@ export async function updatePatient(input: UpdatePatientInput) {
 
   const currentValues: Record<string, any> = {
     name: existingPatient.name,
-    age: existingPatient.age,
+    age: getPatientAge(existingPatient.dateOfBirth, existingPatient.yearOfBirth), // E2-09: Calculate current age
+    yearOfBirth: existingPatient.yearOfBirth, // E2-09: Track YOB
+    dateOfBirth: existingPatient.dateOfBirth, // E2-09: Track DOB
     gender: existingPatient.gender,
     address: existingPatient.address,
     phone: currentPhone,
@@ -411,7 +545,14 @@ export async function updatePatient(input: UpdatePatientInput) {
     // Update Patient table fields
     const patientUpdates: any = {};
     if (updates.name !== undefined) patientUpdates.name = updates.name.toUpperCase();
-    if (updates.age !== undefined) patientUpdates.age = updates.age;
+    
+    // E2-09: Handle age update - convert to YOB
+    if (updates.age !== undefined) {
+      patientUpdates.yearOfBirth = calculateYOBFromAge(updates.age);
+      // If age is updated, clear DOB since we only have approximate age now
+      patientUpdates.dateOfBirth = null;
+    }
+    
     if (updates.gender !== undefined) patientUpdates.gender = updates.gender;
     if (updates.address !== undefined) patientUpdates.address = updates.address;
 
