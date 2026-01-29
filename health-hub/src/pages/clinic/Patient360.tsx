@@ -397,6 +397,15 @@ export default function Patient360() {
                 <p className="text-muted-foreground">
                   {patient.age} years | {patient.gender === 'M' ? 'Male' : patient.gender === 'F' ? 'Female' : 'Other'}
                 </p>
+                {patient.dateOfBirth && (
+                  <p className="text-sm text-muted-foreground">
+                    DOB: {new Date(patient.dateOfBirth).toLocaleDateString('en-IN', { 
+                      day: '2-digit', 
+                      month: 'short', 
+                      year: 'numeric' 
+                    })}
+                  </p>
+                )}
               </div>
               <div className="space-y-1 text-sm">
                 {primaryPhone && (

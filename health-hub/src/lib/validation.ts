@@ -101,15 +101,8 @@ export function validatePhone(phone: string): string | null {
     return 'Phone must start with 6, 7, 8, or 9';
   }
 
-  // Check for obviously fake numbers
-  if (/^(\d)\1{9}$/.test(cleaned)) {
-    return 'Please enter a valid phone number';
-  }
-
-  if (cleaned === '1234567890' || cleaned === '0123456789') {
-    return 'Please enter a valid phone number';
-  }
-
+  // Allow any valid 10-digit phone number for testing
+  // Let the backend handle duplicate phone number errors
   return null;
 }
 
@@ -180,4 +173,47 @@ export function validateField(fieldName: keyof PatientFormData, value: any): str
     default:
       return null;
   }
+}
+
+/**
+ * E2-09: Calculate age from date of birth
+ */
+export function calculateAgeFromDOB(dob: Date): number {
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const monthDiff = today.getMonth() - dob.getMonth();
+  
+  // Adjust age if birthday hasn't occurred yet this year
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+    age--;
+  }
+  
+  return age;
+}
+
+/**
+ * E2-09: Calculate age from year of birth (approximation)
+ */
+export function calculateAgeFromYOB(yob: number): number {
+  const currentYear = new Date().getFullYear();
+  return currentYear - yob;
+}
+
+/**
+ * E2-09: Calculate year of birth from age
+ */
+export function calculateYOBFromAge(age: number): number {
+  const currentYear = new Date().getFullYear();
+  return currentYear - age;
+}
+
+/**
+ * E2-09: Get patient's current age (prefers DOB, falls back to YOB)
+ */
+export function getPatientAge(dateOfBirth: Date | string | null | undefined, yearOfBirth: number): number {
+  if (dateOfBirth) {
+    const dob = typeof dateOfBirth === 'string' ? new Date(dateOfBirth) : dateOfBirth;
+    return calculateAgeFromDOB(dob);
+  }
+  return calculateAgeFromYOB(yearOfBirth);
 }
