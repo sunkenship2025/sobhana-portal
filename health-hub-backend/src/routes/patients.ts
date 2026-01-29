@@ -12,19 +12,20 @@ router.use(branchContextMiddleware);
 // POST /api/patients - Create new patient
 router.post('/', async (req: AuthRequest, res) => {
   try {
-    const { name, age, gender, address, identifiers } = req.body;
+    const { name, age, dateOfBirth, gender, address, identifiers } = req.body;
 
-    // Validation
-    if (!name || !age || !gender || !identifiers) {
+    // E2-09: Validation - require either age or dateOfBirth
+    if (!name || (!age && !dateOfBirth) || !gender || !identifiers) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'Name, age, gender, and identifiers are required'
+        message: 'Name, age or dateOfBirth, gender, and identifiers are required'
       });
     }
 
     const patient = await patientService.createPatient({
       name,
       age,
+      dateOfBirth: dateOfBirth ? new Date(dateOfBirth + 'T00:00:00.000Z') : undefined, // E2-09: Parse as UTC midnight to avoid timezone issues
       gender,
       address,
       identifiers,

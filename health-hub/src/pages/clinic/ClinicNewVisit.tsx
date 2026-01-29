@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import type { Patient, PaymentType, VisitType, ClinicVisitView, ClinicDoctor } from '@/types';
 import { Search, UserPlus, CheckCircle2, Printer } from 'lucide-react';
 import { ClinicPrescriptionPrint } from '@/components/print/ClinicPrescriptionPrint';
+import { validatePatientForm, type ValidationErrors } from '@/lib/validation';
 
 const ClinicNewVisit = () => {
   const navigate = useNavigate();
@@ -42,8 +43,12 @@ const ClinicNewVisit = () => {
   const [newPatient, setNewPatient] = useState({
     name: '',
     age: '',
+    dateOfBirth: '', // E2-09: Optional DOB field
     gender: 'M' as 'M' | 'F' | 'O',
   });
+  
+  // E2-10: Validation errors
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
 
   // Fetch clinic doctors from API
   useEffect(() => {
@@ -85,7 +90,10 @@ const ClinicNewVisit = () => {
         });
         if (res.ok) {
           const results = await res.json();
-          setMatchingPatients(results);
+          // Backend returns { patient: {...}, historySnapshot: [...] }
+          // Extract just the patient objects
+          const patients = results.map((r: any) => r.patient);
+          setMatchingPatients(patients);
         }
       } catch (error) {
         console.error('Search failed:', error);
@@ -115,7 +123,21 @@ const ClinicNewVisit = () => {
 
     // Create new patient if needed
     if (showNewPatientForm && !selectedPatient) {
-      if (!newPatient.name || !newPatient.age) {
+      // E2-10: Validate patient form
+      const errors = validatePatientForm({
+        name: newPatient.name,
+        age: newPatient.age,
+        gender: newPatient.gender,
+        phone,
+      });
+
+      if (Object.keys(errors).length > 0) {
+        setValidationErrors(errors);
+        toast.error('Please fix validation errors before submitting');
+        return;
+      }
+
+      if (!newPatient.name || (!newPatient.age && !newPatient.dateOfBirth)) { // E2-09: Accept either age or DOB
         toast.error('Please fill in all patient details');
         return;
       }
@@ -130,16 +152,64 @@ const ClinicNewVisit = () => {
           },
           body: JSON.stringify({
             name: newPatient.name,
-            age: parseInt(newPatient.age),
+            age: newPatient.age ? parseInt(newPatient.age) : undefined, // E2-09: Age optional if DOB provided
+            dateOfBirth: newPatient.dateOfBirth ? newPatient.dateOfBirth.split('T')[0] : undefined, // E2-09: Send date-only (YYYY-MM-DD)
             gender: newPatient.gender,
             identifiers: [{ type: 'PHONE', value: phone, isPrimary: true }],
           }),
         });
         
-        if (!res.ok) {
+        if (res.status === 409) {
+          // E2-03: Potential duplicate detected
+          const errorData = await res.json();
+          const duplicateInfo = JSON.parse(errorData.message);
+          const existing = duplicateInfo.existingPatient;
+          
+          const userConfirm = window.confirm(
+            `⚠️ Potential Duplicate Detected\n\n` +
+            `Existing Patient: ${existing.patientNumber}\n` +
+            `Name: ${existing.name}\n` +
+            `Age: ${existing.age}, Gender: ${existing.gender}\n` +
+            `Phone: ${existing.phone}\n\n` +
+            `This looks like the same person. Do you want to:\n` +
+            `• Click OK to USE EXISTING patient\n` +
+            `• Click Cancel to CREATE NEW patient anyway`
+          );
+          
+          if (userConfirm) {
+            // Use existing patient
+            patient = { id: existing.id, patientNumber: existing.patientNumber, name: existing.name, age: existing.age, gender: existing.gender };
+            toast.success(`Using existing patient ${existing.patientNumber}`);
+          } else {
+            // User wants to force create duplicate - retry with forceDuplicate flag
+            const retryRes = await fetch('http://localhost:3000/api/patients', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'X-Branch-Id': activeBranch.id,
+              },
+              body: JSON.stringify({
+                name: newPatient.name,
+                age: newPatient.age ? parseInt(newPatient.age) : undefined, // E2-09: Age optional if DOB provided
+                dateOfBirth: newPatient.dateOfBirth || undefined, // E2-09: DOB if provided
+                gender: newPatient.gender,
+                identifiers: [{ type: 'PHONE', value: phone, isPrimary: true }],
+                forceDuplicate: true, // E2-03: Explicit user confirmation
+              }),
+            });
+            
+            if (!retryRes.ok) {
+              throw new Error('Failed to create patient');
+            }
+            patient = await retryRes.json();
+            toast.success('Created new patient record');
+          }
+        } else if (!res.ok) {
           throw new Error('Failed to create patient');
+        } else {
+          patient = await res.json();
         }
-        patient = await res.json();
       } catch (error) {
         toast.error('Failed to create patient');
         return;
@@ -265,6 +335,8 @@ const ClinicNewVisit = () => {
                     setHospitalWard('');
                     setShowNewPatientForm(false);
                     setConsultationFee('500');
+                    setNewPatient({ name: '', age: '', dateOfBirth: '', gender: 'M' }); // E2-09: Reset form
+                    setValidationErrors({});
                   }}>
                     Create Another Visit
                   </Button>
@@ -379,8 +451,43 @@ const ClinicNewVisit = () => {
                     id="name"
                     placeholder="Full name"
                     value={newPatient.name}
-                    onChange={(e) => setNewPatient({ ...newPatient, name: e.target.value })}
+                    onChange={(e) => {
+                      setNewPatient({ ...newPatient, name: e.target.value });
+                      // Clear error when user types
+                      if (validationErrors.name) {
+                        setValidationErrors({ ...validationErrors, name: undefined });
+                      }
+                    }}
+                    className={validationErrors.name ? 'border-red-500' : ''}
                   />
+                  {validationErrors.name && (
+                    <p className="text-sm text-red-500">{validationErrors.name}</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="dateOfBirth">Date of Birth (Optional)</Label>
+                  <Input
+                    id="dateOfBirth"
+                    type="date"
+                    value={newPatient.dateOfBirth}
+                    onChange={(e) => {
+                      const dob = e.target.value;
+                      setNewPatient({ ...newPatient, dateOfBirth: dob });
+                      
+                      // E2-09: Auto-calculate age from DOB
+                      if (dob) {
+                        const dobDate = new Date(dob);
+                        const today = new Date();
+                        let calculatedAge = today.getFullYear() - dobDate.getFullYear();
+                        const monthDiff = today.getMonth() - dobDate.getMonth();
+                        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dobDate.getDate())) {
+                          calculatedAge--;
+                        }
+                        setNewPatient({ ...newPatient, dateOfBirth: dob, age: calculatedAge.toString() });
+                      }
+                    }}
+                  />
+                  <p className="text-xs text-gray-500">If DOB is entered, age will be calculated automatically</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="age">Age *</Label>
@@ -389,14 +496,30 @@ const ClinicNewVisit = () => {
                     type="number"
                     placeholder="Age"
                     value={newPatient.age}
-                    onChange={(e) => setNewPatient({ ...newPatient, age: e.target.value })}
+                    onChange={(e) => {
+                      setNewPatient({ ...newPatient, age: e.target.value });
+                      // Clear error when user types
+                      if (validationErrors.age) {
+                        setValidationErrors({ ...validationErrors, age: undefined });
+                      }
+                    }}
+                    className={validationErrors.age ? 'border-red-500' : ''}
                   />
+                  {validationErrors.age && (
+                    <p className="text-sm text-red-500">{validationErrors.age}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>Gender *</Label>
                   <RadioGroup
                     value={newPatient.gender}
-                    onValueChange={(v) => setNewPatient({ ...newPatient, gender: v as 'M' | 'F' | 'O' })}
+                    onValueChange={(v) => {
+                      setNewPatient({ ...newPatient, gender: v as 'M' | 'F' | 'O' });
+                      // Clear error when user selects
+                      if (validationErrors.gender) {
+                        setValidationErrors({ ...validationErrors, gender: undefined });
+                      }
+                    }}
                     className="flex gap-4"
                   >
                     {['M', 'F', 'O'].map((g) => (
@@ -406,8 +529,18 @@ const ClinicNewVisit = () => {
                       </div>
                     ))}
                   </RadioGroup>
+                  {validationErrors.gender && (
+                    <p className="text-sm text-red-500">{validationErrors.gender}</p>
+                  )}
                 </div>
               </div>
+              
+              {/* Phone validation error */}
+              {validationErrors.phone && (
+                <div className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-md p-3">
+                  <strong>Phone:</strong> {validationErrors.phone}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

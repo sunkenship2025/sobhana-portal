@@ -130,13 +130,14 @@ model NumberSequence {
 /// Patient is globally searchable and immutable once created.
 /// All contact details go through PatientIdentifier for auditability.
 model Patient {
-  id            String   @id @default(cuid())
-  patientNumber String   @unique // P-00001, P-00002, etc. (user-facing)
+  id            String    @id @default(cuid())
+  patientNumber String    @unique // P-00001, P-00002, etc. (user-facing)
   name          String
-  age           Int
+  yearOfBirth   Int       // E2-09: Required - calculated from age or DOB
+  dateOfBirth   DateTime? // E2-09: Optional - if user knows exact DOB
   gender        Gender
   address       String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
 
   /// Extensible identifiers (phone, email, Aadhar, etc.)
   identifiers PatientIdentifier[]
