@@ -51,6 +51,7 @@ const DiagnosticsNewVisit = () => {
   const [newPatient, setNewPatient] = useState({
     name: '',
     age: '',
+    dateOfBirth: '', // E2-09: Optional DOB field
     gender: 'M' as 'M' | 'F' | 'O',
   });
   
@@ -196,7 +197,7 @@ const DiagnosticsNewVisit = () => {
         return;
       }
 
-      if (!newPatient.name || !newPatient.age) {
+      if (!newPatient.name || (!newPatient.age && !newPatient.dateOfBirth)) { // E2-09: Accept either age or DOB
         toast.error('Please fill in all patient details');
         return;
       }
@@ -211,7 +212,8 @@ const DiagnosticsNewVisit = () => {
           },
           body: JSON.stringify({
             name: newPatient.name,
-            age: parseInt(newPatient.age),
+            age: newPatient.age ? parseInt(newPatient.age) : undefined, // E2-09: Age optional if DOB provided
+            dateOfBirth: newPatient.dateOfBirth ? newPatient.dateOfBirth.split('T')[0] : undefined, // E2-09: Send date-only (YYYY-MM-DD)
             gender: newPatient.gender,
             identifiers: [{ type: 'PHONE', value: phone, isPrimary: true }],
           }),
@@ -249,7 +251,8 @@ const DiagnosticsNewVisit = () => {
               },
               body: JSON.stringify({
                 name: newPatient.name,
-                age: parseInt(newPatient.age),
+                age: newPatient.age ? parseInt(newPatient.age) : undefined, // E2-09: Age optional if DOB provided
+                dateOfBirth: newPatient.dateOfBirth ? newPatient.dateOfBirth.split('T')[0] : undefined, // E2-09: Send date-only (YYYY-MM-DD)
                 gender: newPatient.gender,
                 identifiers: [{ type: 'PHONE', value: phone, isPrimary: true }],
                 forceDuplicate: true, // E2-03: Explicit user confirmation
@@ -412,6 +415,8 @@ const DiagnosticsNewVisit = () => {
                     setShowNewPatientForm(false);
                     setSelectedDoctorId('');
                     setReferralOverrides({});
+                    setNewPatient({ name: '', age: '', dateOfBirth: '', gender: 'M' }); // E2-09: Reset form
+                    setValidationErrors({});
                   }}>
                     Create Another Visit
                   </Button>
@@ -547,6 +552,31 @@ const DiagnosticsNewVisit = () => {
                   {validationErrors.name && (
                     <p className="text-sm text-red-500">{validationErrors.name}</p>
                   )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="dateOfBirth">Date of Birth (Optional)</Label>
+                  <Input
+                    id="dateOfBirth"
+                    type="date"
+                    value={newPatient.dateOfBirth}
+                    onChange={(e) => {
+                      const dob = e.target.value;
+                      setNewPatient({ ...newPatient, dateOfBirth: dob });
+                      
+                      // E2-09: Auto-calculate age from DOB
+                      if (dob) {
+                        const dobDate = new Date(dob);
+                        const today = new Date();
+                        let calculatedAge = today.getFullYear() - dobDate.getFullYear();
+                        const monthDiff = today.getMonth() - dobDate.getMonth();
+                        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dobDate.getDate())) {
+                          calculatedAge--;
+                        }
+                        setNewPatient({ ...newPatient, dateOfBirth: dob, age: calculatedAge.toString() });
+                      }
+                    }}
+                  />
+                  <p className="text-xs text-gray-500">If DOB is entered, age will be calculated automatically</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="age">Age *</Label>

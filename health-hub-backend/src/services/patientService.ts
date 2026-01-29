@@ -3,7 +3,7 @@ import { generatePatientNumber } from './numberService';
 import { logAction } from './auditService';
 import { ValidationError, ConflictError } from '../utils/errors';
 import * as patientMatching from './patientMatchingService';
-import { validatePatientDemographics, validateAddress } from '../utils/validation';
+import { validatePatientDemographics, validateAddress, calculateYOBFromAge, calculateAgeFromDOB, getPatientAge } from '../utils/validation';
 import crypto from 'crypto';
 
 const prisma = new PrismaClient();
@@ -20,7 +20,8 @@ function stringToLockId(input: string): number {
 
 export interface CreatePatientInput {
   name: string;
-  age: number;
+  age?: number; // E2-09: Optional - used to calculate YOB if DOB not provided
+  dateOfBirth?: Date; // E2-09: Optional - exact DOB if known
   gender: 'M' | 'F' | 'O';
   address?: string;
   identifiers: {
@@ -34,10 +35,24 @@ export interface CreatePatientInput {
 }
 
 export async function createPatient(input: CreatePatientInput) {
+  // E2-09: Calculate yearOfBirth from DOB or age FIRST (needed for validation)
+  let yearOfBirth: number;
+  let dateOfBirth: Date | null = null;
+  
+  if (input.dateOfBirth) {
+    dateOfBirth = input.dateOfBirth;
+    yearOfBirth = input.dateOfBirth.getFullYear();
+  } else if (input.age !== undefined) {
+    yearOfBirth = calculateYOBFromAge(input.age);
+  } else {
+    throw new ValidationError('Either age or dateOfBirth must be provided');
+  }
+
   // E2-10: Validate demographic fields
   const validationResult = validatePatientDemographics({
     name: input.name,
     age: input.age,
+    dateOfBirth: input.dateOfBirth,
     gender: input.gender,
     identifiers: input.identifiers,
   });
@@ -100,7 +115,11 @@ export async function createPatient(input: CreatePatientInput) {
         
         const nameMatch = normalizedExistingName === normalizedInputName;
         const genderMatch = existingPatient.gender === input.gender;
-        const ageClose = Math.abs(existingPatient.age - input.age) <= 1;
+        
+        // E2-09: Calculate current age from YOB/DOB for comparison
+        const existingAge = getPatientAge(existingPatient.dateOfBirth, existingPatient.yearOfBirth);
+        const inputAge = input.age || (input.dateOfBirth ? calculateAgeFromDOB(input.dateOfBirth) : 0);
+        const ageClose = Math.abs(existingAge - inputAge) <= 1;
         
         if (nameMatch && genderMatch && ageClose) {
           // E2-03: Potential duplicate detected - DO NOT auto-merge
@@ -113,7 +132,7 @@ export async function createPatient(input: CreatePatientInput) {
                 id: existingPatient.id,
                 patientNumber: existingPatient.patientNumber,
                 name: existingPatient.name,
-                age: existingPatient.age,
+                age: existingAge, // E2-09: Use calculated age
                 gender: existingPatient.gender,
                 phone: primaryPhone.value
               }
@@ -133,7 +152,8 @@ export async function createPatient(input: CreatePatientInput) {
       data: {
         patientNumber,
         name: input.name.toUpperCase(), // Medical standard: names in all caps
-        age: input.age,
+        yearOfBirth, // E2-09: Required - derived from age or DOB
+        dateOfBirth, // E2-09: Optional - exact DOB if provided
         gender: input.gender,
         address: input.address,
         identifiers: {
@@ -201,7 +221,9 @@ export async function searchPatients(query: {
       id: patient.id,
       patientNumber: patient.patientNumber,
       name: patient.name,
-      age: patient.age,
+      age: getPatientAge(patient.dateOfBirth, patient.yearOfBirth), // E2-09: Calculate current age
+      dateOfBirth: patient.dateOfBirth, // E2-09: Include DOB in response
+      yearOfBirth: patient.yearOfBirth, // E2-09: Include YOB in response
       gender: patient.gender,
       address: patient.address,
       identifiers: patient.identifiers,
@@ -329,7 +351,9 @@ export async function getPatient360View(patientId: string) {
       id: patient.id,
       patientNumber: patient.patientNumber,
       name: patient.name,
-      age: patient.age,
+      age: getPatientAge(patient.dateOfBirth, patient.yearOfBirth), // E2-09: Calculate current age
+      dateOfBirth: patient.dateOfBirth, // E2-09: Include DOB
+      yearOfBirth: patient.yearOfBirth, // E2-09: Include YOB
       gender: patient.gender,
       address: patient.address,
       identifiers: patient.identifiers,
@@ -352,7 +376,8 @@ export interface UpdatePatientInput {
   patientId: string;
   updates: {
     name?: string;
-    age?: number;
+    age?: number; // E2-09: Optional - will be converted to YOB
+    dateOfBirth?: Date; // E2-09: Optional - exact DOB if provided
     gender?: 'M' | 'F' | 'O';
     address?: string;
     phone?: string; // Primary phone
@@ -440,7 +465,9 @@ export async function updatePatient(input: UpdatePatientInput) {
 
   const currentValues: Record<string, any> = {
     name: existingPatient.name,
-    age: existingPatient.age,
+    age: getPatientAge(existingPatient.dateOfBirth, existingPatient.yearOfBirth), // E2-09: Calculate current age
+    yearOfBirth: existingPatient.yearOfBirth, // E2-09: Track YOB
+    dateOfBirth: existingPatient.dateOfBirth, // E2-09: Track DOB
     gender: existingPatient.gender,
     address: existingPatient.address,
     phone: currentPhone,
@@ -518,7 +545,14 @@ export async function updatePatient(input: UpdatePatientInput) {
     // Update Patient table fields
     const patientUpdates: any = {};
     if (updates.name !== undefined) patientUpdates.name = updates.name.toUpperCase();
-    if (updates.age !== undefined) patientUpdates.age = updates.age;
+    
+    // E2-09: Handle age update - convert to YOB
+    if (updates.age !== undefined) {
+      patientUpdates.yearOfBirth = calculateYOBFromAge(updates.age);
+      // If age is updated, clear DOB since we only have approximate age now
+      patientUpdates.dateOfBirth = null;
+    }
+    
     if (updates.gender !== undefined) patientUpdates.gender = updates.gender;
     if (updates.address !== undefined) patientUpdates.address = updates.address;
 
