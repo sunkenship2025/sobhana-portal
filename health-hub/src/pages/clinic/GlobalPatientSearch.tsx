@@ -46,11 +46,6 @@ function formatDate(date: Date): string {
   });
 }
 
-function maskPhone(phone: string): string {
-  if (phone.length < 5) return phone;
-  return phone.slice(0, 5) + 'XXXXX';
-}
-
 export default function GlobalPatientSearch() {
   const navigate = useNavigate();
   const [searchType, setSearchType] = useState<'phone' | 'name'>('phone');
@@ -191,9 +186,7 @@ export default function GlobalPatientSearch() {
                     </CardTitle>
                     <p className="text-sm text-muted-foreground mt-1">
                       Phone:{' '}
-                      {maskPhone(
-                        result.patient.identifiers.find((i) => i.type === 'PHONE')?.value || 'N/A'
-                      )}
+                      {result.patient.identifiers.find((i) => i.type === 'PHONE')?.value || 'N/A'}
                     </p>
                   </div>
                   <Badge variant="outline" className="text-xs">

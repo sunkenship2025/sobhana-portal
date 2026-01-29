@@ -201,7 +201,9 @@ router.get('/view', async (req, res) => {
       },
       patient: {
         name: visit.patient.name,
-        age: visit.patient.age,
+        age: visit.patient.dateOfBirth 
+          ? Math.floor((Date.now() - new Date(visit.patient.dateOfBirth).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+          : new Date().getFullYear() - visit.patient.yearOfBirth, // E2-09: Calculate age from DOB or YOB
         gender: visit.patient.gender,
         phone,
       },
