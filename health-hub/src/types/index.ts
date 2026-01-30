@@ -93,15 +93,16 @@ export interface LabTest {
 
 // ============================================
 // TEST ORDER (links Visit to ordered tests)
+// E3-03: Test metadata is snapshotted at order time
 // ============================================
 export interface TestOrder {
   id: string;
   visitId: string;
   testId: string;
-  testName: string;
-  testCode: string;
-  priceInPaise: number;
-  referenceRange: {
+  testName: string;       // Snapshotted test name at order time
+  testCode: string;       // Snapshotted test code at order time
+  priceInPaise: number;   // Snapshotted price at order time
+  referenceRange: {       // Snapshotted reference range at order time
     min: number;
     max: number;
     unit: string;
