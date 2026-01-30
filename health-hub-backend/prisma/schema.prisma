@@ -372,6 +372,7 @@ model Bill {
 
 /// TestOrder: Individual test in a diagnostic visit
 /// Supports per-test commission override (null = use referral doctor's base %).
+/// E3-03: Test metadata is snapshotted at order time for immutability.
 model TestOrder {
   id                             String   @id @default(cuid())
   visitId                        String
@@ -380,6 +381,13 @@ model TestOrder {
   priceInPaise                   Int      // Snapshot of test price at order time
   referralCommissionPercentage   Float    // 0-100, overridable per test
   createdAt                      DateTime @default(now())
+
+  // E3-03: Test metadata snapshot (frozen at order time)
+  testNameSnapshot               String   // Test name at time of order
+  testCodeSnapshot               String   // Test code at time of order
+  referenceMinSnapshot           Float?   // Reference min at time of order
+  referenceMaxSnapshot           Float?   // Reference max at time of order
+  referenceUnitSnapshot          String?  // Reference unit at time of order
 
   visit Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
   test  LabTest  @relation(fields: [testId], references: [id], onDelete: Restrict)
@@ -390,6 +398,7 @@ model TestOrder {
   @@index([visitId])
   @@index([testId])
   @@index([branchId])
+  @@index([branchId, createdAt])
 }
 
 /// DiagnosticReport: Container for report versions
