@@ -85,13 +85,14 @@ router.get('/', async (req: AuthRequest, res) => {
         id: to.id,
         visitId: to.visitId,
         testId: to.testId,
-        testName: to.test.name,
-        testCode: to.test.code,
+        // E3-03: Use snapshotted metadata (fallback to live data for backward compatibility)
+        testName: to.testNameSnapshot || to.test.name,
+        testCode: to.testCodeSnapshot || to.test.code,
         price: to.priceInPaise / 100,
         referenceRange: {
-          min: to.test.referenceMin || 0,
-          max: to.test.referenceMax || 0,
-          unit: to.test.referenceUnit || '',
+          min: to.referenceMinSnapshot ?? to.test.referenceMin ?? 0,
+          max: to.referenceMaxSnapshot ?? to.test.referenceMax ?? 0,
+          unit: to.referenceUnitSnapshot || to.test.referenceUnit || '',
         },
       })),
       report: v.report
@@ -181,13 +182,14 @@ router.get('/:id', async (req: AuthRequest, res) => {
         id: to.id,
         visitId: to.visitId,
         testId: to.testId,
-        testName: to.test.name,
-        testCode: to.test.code,
+        // E3-03: Use snapshotted metadata (fallback to live data for backward compatibility)
+        testName: to.testNameSnapshot || to.test.name,
+        testCode: to.testCodeSnapshot || to.test.code,
         price: to.priceInPaise / 100,
         referenceRange: {
-          min: to.test.referenceMin || 0,
-          max: to.test.referenceMax || 0,
-          unit: to.test.referenceUnit || '',
+          min: to.referenceMinSnapshot ?? to.test.referenceMin ?? 0,
+          max: to.referenceMaxSnapshot ?? to.test.referenceMax ?? 0,
+          unit: to.referenceUnitSnapshot || to.test.referenceUnit || '',
         },
         results: to.testResults,
       })),
@@ -314,7 +316,7 @@ router.post('/', async (req: AuthRequest, res) => {
         });
       }
 
-      // Create test orders
+      // Create test orders with metadata snapshot (E3-03)
       await tx.testOrder.createMany({
         data: tests.map((test) => ({
           visitId: visit.id,
@@ -322,6 +324,12 @@ router.post('/', async (req: AuthRequest, res) => {
           branchId: req.branchId!,
           priceInPaise: test.priceInPaise,
           referralCommissionPercentage: commissionPercent,
+          // E3-03: Snapshot test metadata at order time
+          testNameSnapshot: test.name,
+          testCodeSnapshot: test.code,
+          referenceMinSnapshot: test.referenceMin,
+          referenceMaxSnapshot: test.referenceMax,
+          referenceUnitSnapshot: test.referenceUnit,
         })),
       });
 
@@ -442,6 +450,286 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     return res.status(500).json({
       error: 'INTERNAL_ERROR',
       message: 'Failed to update diagnostic visit',
+    });
+  }
+});
+
+// POST /api/visits/diagnostic/:id/tests - Add tests to existing visit (E3-03)
+// Tests can only be added before report finalization
+router.post('/:id/tests', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { testIds } = req.body;
+
+    // Validation
+    if (!testIds || !Array.isArray(testIds) || testIds.length === 0) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'At least one test ID is required',
+      });
+    }
+
+    // Get visit with report status
+    const visit = await prisma.visit.findFirst({
+      where: {
+        id,
+        branchId: req.branchId,
+        domain: 'DIAGNOSTICS',
+      },
+      include: {
+        referrals: {
+          include: {
+            referralDoctor: true,
+          },
+        },
+        testOrders: true,
+        report: {
+          include: {
+            versions: {
+              where: { status: 'FINALIZED' },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+
+    if (!visit) {
+      return res.status(404).json({
+        error: 'NOT_FOUND',
+        message: 'Diagnostic visit not found',
+      });
+    }
+
+    // E3-03: Check if report is finalized - cannot add tests after finalization
+    const hasFinalized = visit.report?.versions && visit.report.versions.length > 0;
+    if (hasFinalized) {
+      return res.status(400).json({
+        error: 'REPORT_FINALIZED',
+        message: 'Cannot add tests after report has been finalized',
+      });
+    }
+
+    // Check if any requested tests are already ordered
+    const existingTestIds = visit.testOrders.map((to) => to.testId);
+    const duplicateTests = testIds.filter((id: string) => existingTestIds.includes(id));
+    if (duplicateTests.length > 0) {
+      return res.status(400).json({
+        error: 'DUPLICATE_TESTS',
+        message: 'Some tests are already ordered for this visit',
+        duplicateTestIds: duplicateTests,
+      });
+    }
+
+    // Get tests with prices
+    const tests = await prisma.labTest.findMany({
+      where: { id: { in: testIds }, isActive: true },
+    });
+
+    if (tests.length !== testIds.length) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'One or more tests not found or inactive',
+      });
+    }
+
+    // Get referral commission if applicable
+    let commissionPercent = 0;
+    if (visit.referrals.length > 0 && visit.referrals[0].referralDoctor) {
+      commissionPercent = visit.referrals[0].referralDoctor.commissionPercent;
+    }
+
+    // Calculate additional amount
+    const additionalAmountInPaise = tests.reduce((sum, t) => sum + t.priceInPaise, 0);
+    const newTotalAmountInPaise = visit.totalAmountInPaise + additionalAmountInPaise;
+
+    // Create test orders with metadata snapshot in a transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Create test orders with snapshotted metadata (E3-03)
+      await tx.testOrder.createMany({
+        data: tests.map((test) => ({
+          visitId: visit.id,
+          testId: test.id,
+          branchId: req.branchId!,
+          priceInPaise: test.priceInPaise,
+          referralCommissionPercentage: commissionPercent,
+          testNameSnapshot: test.name,
+          testCodeSnapshot: test.code,
+          referenceMinSnapshot: test.referenceMin,
+          referenceMaxSnapshot: test.referenceMax,
+          referenceUnitSnapshot: test.referenceUnit,
+        })),
+      });
+
+      // Update visit total
+      await tx.visit.update({
+        where: { id },
+        data: { totalAmountInPaise: newTotalAmountInPaise },
+      });
+
+      // Update bill total
+      await tx.bill.updateMany({
+        where: { visitId: id },
+        data: { totalAmountInPaise: newTotalAmountInPaise },
+      });
+
+      return tx.visit.findUnique({
+        where: { id },
+        include: {
+          testOrders: {
+            include: { test: true },
+          },
+          bill: true,
+        },
+      });
+    });
+
+    // Audit log for test addition
+    await logAction({
+      userId: req.user?.id!,
+      actionType: 'UPDATE',
+      entityType: 'VISIT',
+      entityId: id,
+      branchId: req.branchId!,
+      oldValues: { testCount: existingTestIds.length, totalAmountInPaise: visit.totalAmountInPaise },
+      newValues: { 
+        testCount: result!.testOrders.length, 
+        totalAmountInPaise: newTotalAmountInPaise,
+        addedTestIds: testIds,
+      },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+
+    return res.status(201).json({
+      message: 'Tests added successfully',
+      addedCount: tests.length,
+      newTotal: newTotalAmountInPaise / 100,
+      testOrders: result!.testOrders.map((to) => ({
+        id: to.id,
+        testId: to.testId,
+        testName: to.testNameSnapshot || to.test.name,
+        testCode: to.testCodeSnapshot || to.test.code,
+        price: to.priceInPaise / 100,
+      })),
+    });
+  } catch (err: any) {
+    console.error('Add tests to visit error:', err);
+    return res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: 'Failed to add tests to visit',
+    });
+  }
+});
+
+// DELETE /api/visits/diagnostic/:id/tests/:testOrderId - Remove test from visit (E3-03)
+// Tests can only be removed before report finalization
+router.delete('/:id/tests/:testOrderId', async (req: AuthRequest, res) => {
+  try {
+    const { id, testOrderId } = req.params;
+
+    // Get visit with report status
+    const visit = await prisma.visit.findFirst({
+      where: {
+        id,
+        branchId: req.branchId,
+        domain: 'DIAGNOSTICS',
+      },
+      include: {
+        testOrders: true,
+        report: {
+          include: {
+            versions: {
+              where: { status: 'FINALIZED' },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+
+    if (!visit) {
+      return res.status(404).json({
+        error: 'NOT_FOUND',
+        message: 'Diagnostic visit not found',
+      });
+    }
+
+    // E3-03: Check if report is finalized
+    const hasFinalized = visit.report?.versions && visit.report.versions.length > 0;
+    if (hasFinalized) {
+      return res.status(400).json({
+        error: 'REPORT_FINALIZED',
+        message: 'Cannot remove tests after report has been finalized',
+      });
+    }
+
+    // Find the test order to remove
+    const testOrder = visit.testOrders.find((to) => to.id === testOrderId);
+    if (!testOrder) {
+      return res.status(404).json({
+        error: 'NOT_FOUND',
+        message: 'Test order not found',
+      });
+    }
+
+    // Must have at least one test remaining
+    if (visit.testOrders.length <= 1) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'Cannot remove the last test from a visit',
+      });
+    }
+
+    // Calculate new total
+    const newTotalAmountInPaise = visit.totalAmountInPaise - testOrder.priceInPaise;
+
+    // Remove test order in a transaction
+    await prisma.$transaction(async (tx) => {
+      // Delete the test order
+      await tx.testOrder.delete({
+        where: { id: testOrderId },
+      });
+
+      // Update visit total
+      await tx.visit.update({
+        where: { id },
+        data: { totalAmountInPaise: newTotalAmountInPaise },
+      });
+
+      // Update bill total
+      await tx.bill.updateMany({
+        where: { visitId: id },
+        data: { totalAmountInPaise: newTotalAmountInPaise },
+      });
+    });
+
+    // Audit log for test removal
+    await logAction({
+      userId: req.user?.id!,
+      actionType: 'UPDATE',
+      entityType: 'VISIT',
+      entityId: id,
+      branchId: req.branchId!,
+      oldValues: { testCount: visit.testOrders.length, totalAmountInPaise: visit.totalAmountInPaise },
+      newValues: { 
+        testCount: visit.testOrders.length - 1, 
+        totalAmountInPaise: newTotalAmountInPaise,
+        removedTestOrderId: testOrderId,
+      },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+
+    return res.json({
+      message: 'Test removed successfully',
+      newTotal: newTotalAmountInPaise / 100,
+    });
+  } catch (err: any) {
+    console.error('Remove test from visit error:', err);
+    return res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: 'Failed to remove test from visit',
     });
   }
 });
