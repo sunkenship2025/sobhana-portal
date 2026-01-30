@@ -140,8 +140,9 @@ const DiagnosticsReportPreview = () => {
   const testResults = latestVersion?.testResults || [];
   
   // Build results with test info
+  // E3-03: Match results by testOrderId (not testId) since test results are linked to test orders
   const results = testResults.map((result: any) => {
-    const order = testOrders.find(o => o.testId === result.testId);
+    const order = testOrders.find(o => o.id === result.testOrderId);
     return {
       ...result,
       testName: order?.testName || result.testName || 'Unknown Test',
