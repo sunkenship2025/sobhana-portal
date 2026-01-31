@@ -1,13 +1,30 @@
 -- JIRA-15: Bill Immutability Enforcement
--- Prevents any updates to Bill records once created (payment workflows are finalized at creation)
--- Bills should be cancelled/refunded via new records, not modifications
+-- Prevents modification of bill IDENTITY fields (billNumber, branchId, visitId)
+-- Allows updates to: paymentStatus, paymentType, totalAmountInPaise (before report finalization)
+-- After report finalization, totalAmountInPaise also becomes immutable
 
--- Create function to block Bill updates
-CREATE OR REPLACE FUNCTION prevent_bill_update()
+-- Create function to protect bill identity fields
+CREATE OR REPLACE FUNCTION prevent_bill_identity_update()
 RETURNS TRIGGER AS $$
 BEGIN
-  RAISE EXCEPTION 'Bills are immutable once created. Create a refund or adjustment record instead.';
-  RETURN NULL;
+  -- Block changes to identity fields (these should NEVER change after bill creation)
+  IF OLD."billNumber" IS DISTINCT FROM NEW."billNumber" THEN
+    RAISE EXCEPTION 'Cannot modify bill number. Bill numbers are immutable once assigned.';
+  END IF;
+  
+  IF OLD."branchId" IS DISTINCT FROM NEW."branchId" THEN
+    RAISE EXCEPTION 'Cannot modify bill branch. Branch assignment is immutable.';
+  END IF;
+  
+  IF OLD."visitId" IS DISTINCT FROM NEW."visitId" THEN
+    RAISE EXCEPTION 'Cannot modify bill visit association. Visit link is immutable.';
+  END IF;
+  
+  -- Allow updates to paymentStatus, paymentType, totalAmountInPaise
+  -- Note: totalAmountInPaise changes are allowed until report finalization
+  -- (enforced at application level based on report status)
+  
+  RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -17,12 +34,7 @@ DROP TRIGGER IF EXISTS enforce_bill_immutability ON "Bill";
 CREATE TRIGGER enforce_bill_immutability
 BEFORE UPDATE ON "Bill"
 FOR EACH ROW
-EXECUTE FUNCTION prevent_bill_update();
+EXECUTE FUNCTION prevent_bill_identity_update();
 
 -- Note: DELETE is still allowed for cascading deletes when Visit is deleted
--- If you also want to prevent deletes, uncomment the following:
--- CREATE TRIGGER prevent_bill_delete
--- BEFORE DELETE ON "Bill"
--- FOR EACH ROW
--- WHEN (OLD.id IS NOT NULL)
--- EXECUTE FUNCTION prevent_bill_update();
+-- Full bill deletion is handled by visit lifecycle, not individual bill deletion
