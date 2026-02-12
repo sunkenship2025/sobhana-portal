@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "./store/authStore";
+import { useEffect } from "react";
 import { ProtectedRoute } from "./components/layout/ProtectedRoute";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -30,7 +31,20 @@ import NotFound from "./pages/NotFound";
 const queryClient = new QueryClient();
 
 function AppRoutes() {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, checkTokenExpiration } = useAuthStore();
+
+  // Check token expiration on app load and periodically
+  useEffect(() => {
+    // Check immediately on load
+    checkTokenExpiration();
+    
+    // Check every 60 seconds
+    const interval = setInterval(() => {
+      checkTokenExpiration();
+    }, 60000);
+    
+    return () => clearInterval(interval);
+  }, [checkTokenExpiration]);
 
   return (
     <Routes>

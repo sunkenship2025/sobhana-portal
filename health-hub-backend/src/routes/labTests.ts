@@ -14,8 +14,20 @@ router.use(branchContextMiddleware);
 router.get('/', async (req: AuthRequest, res) => {
   try {
     const includeInactive = req.query.includeInactive === 'true';
+    const includeSubTests = req.query.includeSubTests === 'true';
+    
+    const whereClause: any = {};
+    if (!includeInactive) {
+      whereClause.isActive = true;
+    }
+    // By default, only return top-level tests (panels and standalone tests)
+    // Sub-tests are fetched as part of their parent panel
+    if (!includeSubTests) {
+      whereClause.parentTestId = null;
+    }
+    
     const tests = await prisma.labTest.findMany({
-      where: includeInactive ? {} : { isActive: true },
+      where: whereClause,
       orderBy: { name: 'asc' }
     });
     
@@ -25,6 +37,7 @@ router.get('/', async (req: AuthRequest, res) => {
       name: test.name,
       code: test.code,
       priceInPaise: test.priceInPaise, // Keep in paise for frontend
+      isPanel: test.isPanel,
       referenceRange: {
         min: test.referenceMin || 0,
         max: test.referenceMax || 0,

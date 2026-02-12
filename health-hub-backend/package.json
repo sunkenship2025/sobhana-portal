@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "type": "commonjs",
   "scripts": {
-    "dev": "nodemon --exec ts-node src/index.ts",
+    "dev": "nodemon --exec 'ts-node --transpile-only' src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "db:push": "prisma db push",
@@ -27,6 +27,7 @@
   "license": "MIT",
   "dependencies": {
     "@prisma/client": "^5.7.0",
+    "@types/puppeteer": "^7.0.4",
     "axios": "^1.6.2",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
@@ -36,6 +37,7 @@
     "jsonwebtoken": "^9.0.2",
     "nanoid": "^5.1.6",
     "prisma": "^5.7.0",
+    "puppeteer": "^24.37.1",
     "uuid": "^9.0.1"
   },
   "devDependencies": {

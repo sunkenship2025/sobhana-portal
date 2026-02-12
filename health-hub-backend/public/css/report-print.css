@@ -1,0 +1,301 @@
+/**
+ * E3-10: Report Print CSS
+ * 
+ * Used for: Physical printing on pre-printed letterhead paper.
+ * Header and footer are HIDDEN — they already exist on the paper.
+ * 
+ * CRITICAL MEASUREMENTS (from actual Sobhana letterhead):
+ * - Header (pre-printed): 3.2 cm = 32mm
+ * - Footer (pre-printed): 1.55 cm = 15.5mm
+ * - Left/Right margins: 15mm
+ */
+
+/* ============================================================================
+   PAGE SETUP (CRITICAL — DO NOT CHANGE)
+   ============================================================================ */
+
+@page {
+  size: A4;
+  margin-top: 32mm;
+  margin-bottom: 15.5mm;
+  margin-left: 15mm;
+  margin-right: 15mm;
+}
+
+/* ============================================================================
+   CSS VARIABLES
+   ============================================================================ */
+
+:root {
+  --font-primary: 'Times New Roman', Times, serif;
+  --color-text: #000000;
+  --color-text-light: #333333;
+  --color-border: #000000;
+  --spacing-xs: 2pt;
+  --spacing-sm: 4pt;
+  --spacing-md: 8pt;
+  --spacing-lg: 12pt;
+}
+
+/* ============================================================================
+   BASE STYLES
+   ============================================================================ */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body.report-body {
+  font-family: var(--font-primary);
+  font-size: 10pt;
+  line-height: 1.3;
+  color: var(--color-text);
+  background: white;
+}
+
+.report-page { width: 100%; }
+.report-content { width: 100%; }
+
+/* ============================================================================
+   HIDDEN ELEMENTS (Pre-printed on letterhead)
+   ============================================================================ */
+
+.header,
+.footer,
+.action-buttons,
+.qr-section,
+.no-print {
+  display: none !important;
+}
+
+/* ============================================================================
+   PATIENT INFORMATION
+   ============================================================================ */
+
+.patient-info {
+  border: 1pt solid var(--color-border);
+  padding: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.info-grid { display: table; width: 100%; }
+
+.info-item {
+  display: inline-block;
+  width: 48%;
+  padding: var(--spacing-xs);
+  font-size: 9pt;
+}
+
+.info-item .label { font-weight: bold; }
+.info-item .value { font-weight: normal; }
+
+/* ============================================================================
+   DEPARTMENT SECTIONS
+   ============================================================================ */
+
+.department {
+  margin-bottom: var(--spacing-lg);
+  page-break-inside: avoid;
+}
+
+.department-header {
+  font-size: 11pt;
+  font-weight: bold;
+  border-bottom: 1pt solid var(--color-border);
+  padding-bottom: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+  text-transform: uppercase;
+}
+
+/* ============================================================================
+   PANELS
+   ============================================================================ */
+
+.panel {
+  margin-bottom: var(--spacing-md);
+  page-break-inside: avoid;
+}
+
+.panel-title {
+  font-size: 10pt;
+  font-weight: bold;
+  margin-bottom: var(--spacing-xs);
+  padding: var(--spacing-xs);
+  background: #f0f0f0;
+  border-left: 2pt solid var(--color-border);
+}
+
+/* ============================================================================
+   RESULTS TABLES
+   ============================================================================ */
+
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: var(--spacing-sm);
+  font-size: 9pt;
+}
+
+.results-table th {
+  background: #e0e0e0;
+  font-weight: bold;
+  text-align: left;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: 8pt;
+  text-transform: uppercase;
+  border: 0.5pt solid var(--color-border);
+}
+
+.results-table td {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 0.5pt solid var(--color-border);
+  vertical-align: top;
+}
+
+.col-test { width: 40%; }
+.col-value { width: 15%; text-align: center; }
+.col-unit { width: 15%; }
+.col-reference { width: 30%; }
+
+.test-name { font-weight: normal; }
+.method-text { font-size: 8pt; font-style: italic; margin-top: 1pt; }
+.indent-1 .test-name { padding-left: var(--spacing-md); }
+
+.test-value { font-weight: bold; text-align: center; }
+.test-value.value-normal { color: #1a8a3f; }
+.test-value.value-warning { color: #b87000; font-weight: bold; }
+.test-value.value-critical { color: #cc0000; font-weight: bold; }
+
+.section-header td {
+  background: #f5f5f5;
+  border-top: 1pt solid var(--color-border);
+  padding-top: var(--spacing-sm);
+}
+
+.smear-comment {
+  font-style: italic;
+  padding: var(--spacing-sm) !important;
+  line-height: 1.4;
+}
+
+/* ============================================================================
+   WIDAL TABLE
+   ============================================================================ */
+
+.widal-table { width: 60%; margin: 0 auto var(--spacing-sm); }
+.widal-table .col-antigen { width: 60%; }
+.widal-table .col-titre { width: 40%; text-align: center; }
+.widal-note { text-align: center; font-size: 8pt; margin-bottom: var(--spacing-sm); }
+
+/* ============================================================================
+   INTERPRETATION BLOCK
+   ============================================================================ */
+
+.interpretation-block {
+  border: 0.5pt solid var(--color-border);
+  padding: var(--spacing-sm);
+  margin-top: var(--spacing-xs);
+  background: #fafafa;
+}
+
+.interpretation-block strong { display: block; margin-bottom: var(--spacing-xs); font-size: 9pt; }
+.interpretation-block p { line-height: 1.4; font-size: 9pt; }
+
+/* ============================================================================
+   TEXT-ONLY RESULTS
+   ============================================================================ */
+
+.text-only-result {
+  padding: var(--spacing-sm);
+  border: 0.5pt solid var(--color-border);
+  margin-bottom: var(--spacing-sm);
+}
+
+/* ============================================================================
+   REPORT NOTE
+   ============================================================================ */
+
+.report-note {
+  font-size: 8pt;
+  text-align: center;
+  padding: var(--spacing-sm);
+  border-top: 0.5pt dashed var(--color-border);
+  margin-top: var(--spacing-md);
+}
+
+/* ============================================================================
+   SIGNATURES
+   ============================================================================ */
+
+.signatures-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-md);
+}
+
+.signatures-left {
+  display: flex;
+  gap: 20pt;
+}
+
+.signatures-right {
+  text-align: center;
+}
+
+.signature-block {
+  text-align: center;
+  min-width: 100pt;
+}
+
+.lab-incharge-block { min-width: 100pt; }
+.lab-incharge-line {
+  width: 100%;
+  height: 35pt;
+  border-bottom: 0.5pt solid #000;
+  margin-bottom: 3pt;
+}
+.lab-incharge-label {
+  font-size: 9pt;
+  font-weight: bold;
+}
+
+.signature-image { height: 40pt; width: auto; margin-bottom: var(--spacing-xs); }
+.doctor-name { font-weight: bold; font-size: 10pt; }
+.doctor-degrees { font-size: 8pt; }
+.doctor-designation { font-size: 8pt; }
+.doctor-reg { font-size: 7pt; }
+.lab-incharge { font-size: 8pt; font-weight: bold; margin-top: var(--spacing-xs); }
+
+/* ============================================================================
+   END OF REPORT
+   ============================================================================ */
+
+/* QR code for print — visible on physical letterhead too */
+.print-qr {
+  display: flex !important;
+  align-items: center;
+  gap: 6pt;
+  justify-content: flex-end;
+  margin-top: 8pt;
+}
+.print-qr-img { width: 50pt; height: 50pt; }
+.print-qr-text { font-size: 7pt; color: #666; }
+
+.end-of-report {
+  text-align: center;
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-sm);
+}
+
+.end-line { border: none; border-top: 0.5pt solid var(--color-border); margin-bottom: var(--spacing-xs); }
+.end-text { font-size: 9pt; letter-spacing: 1pt; }
+
+/* ============================================================================
+   PAGE BREAKS
+   ============================================================================ */
+
+.department { page-break-inside: avoid; }
+.panel { page-break-inside: avoid; }
+.signatures-section { page-break-inside: avoid; }
+.department:not(:first-child) { page-break-before: auto; }

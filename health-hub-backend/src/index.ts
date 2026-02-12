@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import path from 'path';
 import { PrismaClient } from '@prisma/client';
 
 // Load environment variables
@@ -20,7 +21,11 @@ import clinicVisitRoutes from './routes/clinicVisits';
 import payoutRoutes from './routes/payouts';
 import auditLogRoutes from './routes/auditLogs';
 import reportRoutes from './routes/reports';
+import reportAccessRoutes from './routes/reportAccess';
 import billRoutes from './routes/bills';
+
+// PDF Service warmup
+import { warmupPdfService, closeBrowser } from './services/pdfGenerationService';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -77,6 +82,11 @@ app.use((_req, res, next) => {
 
 app.use(express.json());
 
+// Static files for reports (CSS, images, fonts)
+app.use('/css', express.static(path.join(__dirname, '../public/css')));
+app.use('/images', express.static(path.join(__dirname, '../public/images')));
+app.use('/fonts', express.static(path.join(__dirname, '../public/fonts')));
+
 // Health check (no auth required)
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -84,6 +94,10 @@ app.get('/health', (_req, res) => {
 
 // Auth routes (no branch context required)
 app.use('/api/auth', authRoutes);
+
+// Report viewing routes (token-based, no auth required) - PUBLIC ROUTE
+// Short URL: /r/:token for easy sharing
+app.use('/r', reportAccessRoutes);
 
 // Report viewing routes (token-based, no auth required)
 app.use('/api/reports', reportRoutes);
@@ -113,21 +127,27 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🔐 Auth endpoint: http://localhost:${PORT}/api/auth/login`);
+  console.log(`📄 Report access: http://localhost:${PORT}/r/:token`);
+  
+  // Warmup PDF service for faster first generation
+  await warmupPdfService();
 });
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
-  console.log('\\n🛑 Shutting down gracefully...');
+  console.log('\n🛑 Shutting down gracefully...');
+  await closeBrowser();
   await prisma.$disconnect();
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
-  console.log('\\n🛑 Shutting down gracefully...');
+  console.log('\n🛑 Shutting down gracefully...');
+  await closeBrowser();
   await prisma.$disconnect();
   process.exit(0);
 });

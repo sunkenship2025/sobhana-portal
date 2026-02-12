@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Checkbox } from '@/components/ui/checkbox';
+import { TestSelector } from '@/components/diagnostics/TestSelector';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -639,28 +639,24 @@ const DiagnosticsNewVisit = () => {
               <CardTitle>Select Tests</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-3 md:grid-cols-2">
-                {labTests.map((test) => (
-                  <div
-                    key={test.id}
-                    className={`flex items-center space-x-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                      selectedTests.includes(test.id) 
-                        ? 'border-primary bg-accent' 
-                        : 'border-border hover:bg-muted'
-                    }`}
-                    onClick={() => handleTestToggle(test.id)}
-                  >
-                    <Checkbox
-                      checked={selectedTests.includes(test.id)}
-                      onCheckedChange={() => handleTestToggle(test.id)}
-                    />
-                    <div className="flex-1">
-                      <p className="font-medium">{test.name}</p>
-                      <p className="text-sm text-muted-foreground">₹{test.priceInPaise ? (test.priceInPaise / 100).toFixed(2) : '0.00'}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <TestSelector
+                tests={labTests}
+                selectedTestIds={selectedTests}
+                onSelectionChange={(testIds) => {
+                  // Update selected tests
+                  setSelectedTests(testIds);
+                  // Clean up referral overrides for removed tests
+                  const removedTestIds = selectedTests.filter(id => !testIds.includes(id));
+                  if (removedTestIds.length > 0) {
+                    setReferralOverrides(prev => {
+                      const updated = { ...prev };
+                      removedTestIds.forEach(id => delete updated[id]);
+                      return updated;
+                    });
+                  }
+                }}
+                disabled={isSubmitting}
+              />
             </CardContent>
           </Card>
         )}

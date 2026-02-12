@@ -88,6 +88,7 @@ enum AuditActionType {
   FINALIZE
   PAYOUT_DERIVE
   PAYOUT_PAID
+  REPORT_ACCESS
 }
 
 enum Gender {
@@ -106,6 +107,15 @@ enum SMSDeliveryStatus {
   SENT
   FAILED
   RETRY
+}
+
+// E3-10: Panel layout types for report rendering
+enum PanelLayoutType {
+  STANDARD_TABLE        // Simple test name | value | unit | reference table
+  CBP                   // Composite: main table + differential + peripheral smear
+  WIDAL                 // Dilution format with multiple antigens
+  INTERPRETATION_SINGLE // Single test with interpretation block
+  TEXT_ONLY             // Text block (peripheral smear comment, MP result)
 }
 
 // ============================================================================
@@ -225,20 +235,38 @@ model LabTest {
   id              String   @id @default(cuid())
   name            String
   code            String   @unique
-  priceInPaise    Int      // Must be > 0
+  priceInPaise    Int      // Must be > 0, 0 for sub-tests
   referenceMin    Float?
   referenceMax    Float?
   referenceUnit   String?
+  referenceText   String?  // For text-based ranges like "Negative", "Non-reactive"
   isActive        Boolean  @default(true)
+  displayOrder    Int      @default(0) // Order within parent panel
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  // Panel hierarchy: panels have children, sub-tests have parent
+  parentTestId    String?  // NULL = standalone/panel, set = sub-test
+  parentTest      LabTest?  @relation("TestHierarchy", fields: [parentTestId], references: [id])
+  childTests      LabTest[] @relation("TestHierarchy")
+  
+  // Is this a panel (has children) or individual test?
+  isPanel         Boolean  @default(false)
+
   /// Test orders in visits
   testOrders TestOrder[]
+  
+  /// Test results (for sub-tests within panels)
+  testResults TestResult[]
+  
+  // E3-10: Panel and interpretation relations
+  panelItems      PanelTestItem[]
+  interpretations InterpretationTemplate[]
 
   @@index([isActive])
   @@index([code])
   @@index([createdAt])
+  @@index([parentTestId])
 }
 
 /// Branch: Physical location where visits occur
@@ -429,10 +457,21 @@ model ReportVersion {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt // Allowed only before FINALIZED
 
+  // E3-10: Snapshot fields (frozen at finalization, NULL while DRAFT)
+  panelsSnapshot          Json?  // Panel layout + test groupings
+  signaturesSnapshot      Json?  // Signing doctor details + images
+  patientSnapshot         Json?  // Patient demographics at finalization
+  visitSnapshot           Json?  // Visit metadata at finalization
+  interpretationsSnapshot Json?  // Resolved interpretation texts
+
   report DiagnosticReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
 
   /// Test results for this version
-  testResults TestResult[]
+  testResults  TestResult[]
+  
+  // E3-10: Access control
+  accessTokens ReportAccessToken[]
+  accessLogs   ReportAccessLog[]
 
   @@unique([reportId, versionNum])
   @@index([status])
@@ -444,6 +483,7 @@ model ReportVersion {
 model TestResult {
   id              String         @id @default(cuid())
   testOrderId     String
+  testId          String         // The actual test (can be sub-test of ordered panel)
   reportVersionId String
   value           Float?         // Numeric result (can be null)
   flag            TestResultFlag? // NORMAL | HIGH | LOW
@@ -451,9 +491,11 @@ model TestResult {
   createdAt       DateTime       @default(now())
 
   testOrder      TestOrder      @relation(fields: [testOrderId], references: [id], onDelete: Cascade)
+  test           LabTest        @relation(fields: [testId], references: [id], onDelete: Restrict)
   reportVersion  ReportVersion  @relation(fields: [reportVersionId], references: [id], onDelete: Cascade)
 
   @@index([testOrderId])
+  @@index([testId])
   @@index([reportVersionId])
 }
 
@@ -611,4 +653,164 @@ model SMSDelivery {
   @@index([reportVersionId])
   @@index([status])
   @@index([sentAt])
+}
+
+// ============================================================================
+// E3-10: REPORT RENDERING ENGINE
+// ============================================================================
+
+/// Department: Groups panels for section headers on reports
+/// e.g., "DEPARTMENT OF HAEMATOLOGY", "DEPARTMENT OF BIOCHEMISTRY"
+model Department {
+  id               String   @id @default(cuid())
+  name             String   @unique  // e.g., "HAEMATOLOGY", "BIOCHEMISTRY"
+  reportHeaderText String            // e.g., "DEPARTMENT OF HAEMATOLOGY"
+  displayOrder     Int      @default(0)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  panels       PanelDefinition[]
+  signingRules SigningRule[]
+
+  @@index([displayOrder])
+  @@index([isActive])
+}
+
+/// PanelDefinition: Configurable report sections
+/// Each panel has a layout type that determines how tests are rendered
+model PanelDefinition {
+  id               String          @id @default(cuid())
+  name             String          @unique  // e.g., "LFT", "CBP", "WIDAL"
+  displayName      String                   // e.g., "LIVER FUNCTION TEST"
+  departmentId     String
+  layoutType       PanelLayoutType          // Determines rendering strategy
+  displayOrder     Int             @default(0)
+  showMethodColumn Boolean         @default(false)
+  isActive         Boolean         @default(true)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  department Department      @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  testItems  PanelTestItem[]
+
+  @@index([departmentId])
+  @@index([displayOrder])
+  @@index([isActive])
+}
+
+/// PanelTestItem: Tests within a panel, with display rules
+/// Controls order, formatting, and method display per test
+model PanelTestItem {
+  id           String   @id @default(cuid())
+  panelId      String
+  testId       String
+  displayOrder Int      @default(0)
+  showMethod   Boolean  @default(false)
+  methodText   String?                    // e.g., "Method: ECLIA"
+  indentLevel  Int      @default(0)       // 0=main, 1=sub-test
+  isBold       Boolean  @default(false)
+  isItalic     Boolean  @default(false)
+  subGroup     String?                    // e.g., "MAIN", "DIFFERENTIAL", "SMEAR" for CBP layout
+  createdAt    DateTime @default(now())
+
+  panel PanelDefinition @relation(fields: [panelId], references: [id], onDelete: Cascade)
+  test  LabTest         @relation(fields: [testId], references: [id], onDelete: Restrict)
+
+  @@unique([panelId, testId])
+  @@index([panelId])
+  @@index([testId])
+}
+
+/// SigningDoctor: Doctors who sign diagnostic reports
+/// Stores credentials and signature image reference
+model SigningDoctor {
+  id                 String   @id @default(cuid())
+  name               String
+  degrees            String            // e.g., "MBBS, MD (Pathology)"
+  designation        String            // e.g., "Consultant Pathologist"
+  registrationNumber String?           // Medical council registration
+  signatureImagePath String            // Path to signature PNG in storage
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  signingRules SigningRule[]
+
+  @@index([isActive])
+}
+
+/// SigningRule: Which doctor signs which department
+/// Multiple signers allowed per department
+model SigningRule {
+  id                  String   @id @default(cuid())
+  departmentId        String
+  signingDoctorId     String
+  showLabInchargeNote Boolean  @default(false)  // Show "Lab Incharge" text
+  displayOrder        Int      @default(0)      // Multiple signers order
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+
+  department    Department    @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  signingDoctor SigningDoctor @relation(fields: [signingDoctorId], references: [id], onDelete: Restrict)
+
+  @@unique([departmentId, signingDoctorId])
+  @@index([departmentId])
+  @@index([signingDoctorId])
+}
+
+/// InterpretationTemplate: Range-based interpretation text
+/// Matched against test value to generate interpretation on report
+model InterpretationTemplate {
+  id                 String   @id @default(cuid())
+  testId             String
+  minValue           Float?            // NULL = no lower bound
+  maxValue           Float?            // NULL = no upper bound
+  interpretationText String            // The interpretation text
+  displayOrder       Int      @default(0)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  test LabTest @relation(fields: [testId], references: [id], onDelete: Restrict)
+
+  @@index([testId])
+  @@index([isActive])
+}
+
+/// ReportAccessToken: Secure patient access links
+/// Token maps to specific finalized ReportVersion
+model ReportAccessToken {
+  id              String    @id @default(cuid())
+  token           String    @unique  // Cryptographically random
+  reportVersionId String
+  expiresAt       DateTime?          // NULL = never expires
+  accessCount     Int       @default(0)
+  lastAccessedAt  DateTime?
+  lastAccessedIp  String?
+  createdAt       DateTime  @default(now())
+
+  reportVersion ReportVersion @relation(fields: [reportVersionId], references: [id], onDelete: Cascade)
+
+  @@index([reportVersionId])
+  @@index([expiresAt])
+}
+
+/// ReportAccessLog: Audit trail for report views/downloads
+/// Append-only log of all access events
+model ReportAccessLog {
+  id              String   @id @default(cuid())
+  reportVersionId String
+  accessType      String            // 'VIEW', 'DOWNLOAD', 'PRINT'
+  accessedVia     String            // 'TOKEN', 'STAFF_PORTAL', 'DIRECT'
+  ipAddress       String?
+  userAgent       String?
+  userId          String?           // Staff user if authenticated
+  createdAt       DateTime @default(now())
+
+  reportVersion ReportVersion @relation(fields: [reportVersionId], references: [id], onDelete: Cascade)
+
+  @@index([reportVersionId])
+  @@index([accessType])
+  @@index([createdAt])
 }

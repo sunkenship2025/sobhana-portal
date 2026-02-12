@@ -9,7 +9,7 @@ import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
 import { FlagBadge } from '@/components/ui/flag-badge';
 import { toast } from 'sonner';
-import { AlertTriangle, Save, Loader2 } from 'lucide-react';
+import { AlertTriangle, Save, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,6 +20,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { cn } from '@/lib/utils';
+
+interface ReferenceRange {
+  min: number;
+  max: number;
+  unit: string;
+  text?: string;
+}
+
+interface ChildTest {
+  id: string;
+  name: string;
+  code: string;
+  displayOrder: number;
+  referenceRange: ReferenceRange;
+}
 
 interface TestOrder {
   id: string;
@@ -27,11 +43,9 @@ interface TestOrder {
   testName: string;
   testCode: string;
   price: number;
-  referenceRange: {
-    min: number;
-    max: number;
-    unit: string;
-  };
+  isPanel: boolean;
+  referenceRange: ReferenceRange;
+  childTests: ChildTest[];
 }
 
 interface Visit {
@@ -40,13 +54,13 @@ interface Visit {
   status: string;
   patient: {
     name: string;
-    age: number;
+    yearOfBirth?: number;
     gender: string;
   };
   testOrders: TestOrder[];
   report?: {
     id: string;
-    currentVersion?: {
+    versions?: Array<{
       id: string;
       status: string;
       testResults?: Array<{
@@ -54,7 +68,7 @@ interface Visit {
         value: number;
         flag: string;
       }>;
-    };
+    }>;
   };
 }
 
@@ -63,19 +77,20 @@ const DiagnosticsResultEntry = () => {
   const navigate = useNavigate();
   const { activeBranchId } = useBranchStore();
   const { token } = useAuthStore();
-  
+
   const [visit, setVisit] = useState<Visit | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [results, setResults] = useState<Record<string, string>>({});
   const [showWarning, setShowWarning] = useState(false);
   const [extremeValues, setExtremeValues] = useState<string[]>([]);
+  const [expandedPanels, setExpandedPanels] = useState<Record<string, boolean>>({});
 
   // Fetch visit from API
   useEffect(() => {
     const fetchVisit = async () => {
       if (!visitId || !token || !activeBranchId) return;
-      
+
       try {
         setLoading(true);
         const response = await fetch(`http://localhost:3000/api/visits/diagnostic/${visitId}`, {
@@ -84,19 +99,27 @@ const DiagnosticsResultEntry = () => {
             'X-Branch-Id': activeBranchId
           }
         });
-        
+
         if (response.ok) {
           const data = await response.json();
           setVisit(data);
-          
+
+          // Auto-expand all panels
+          const panelExpansion: Record<string, boolean> = {};
+          data.testOrders.forEach((order: TestOrder) => {
+            if (order.isPanel) {
+              panelExpansion[order.id] = true;
+            }
+          });
+          setExpandedPanels(panelExpansion);
+
           // Initialize results from existing test results if any
-          if (data.report?.currentVersion?.testResults) {
+          if (data.report?.versions?.[0]?.testResults) {
             const initialResults: Record<string, string> = {};
-            data.report.currentVersion.testResults.forEach((r: any) => {
-              // Map testId to testOrderId
-              const order = data.testOrders.find((o: any) => o.testId === r.testId);
-              if (order && r.value !== null) {
-                initialResults[order.id] = r.value.toString();
+            const latestVersion = data.report.versions[0];
+            latestVersion.testResults.forEach((r: any) => {
+              if (r.value !== null) {
+                initialResults[r.testId] = r.value.toString();
               }
             });
             setResults(initialResults);
@@ -139,31 +162,66 @@ const DiagnosticsResultEntry = () => {
   }
 
   const { patient, testOrders } = visit;
+  const currentYear = new Date().getFullYear();
+  const age = patient.yearOfBirth ? currentYear - patient.yearOfBirth : null;
 
   const computeFlag = (value: number, min: number, max: number): 'NORMAL' | 'HIGH' | 'LOW' | null => {
     if (min === 0 && max === 0) return null;
-    if (value < min) return 'LOW';
-    if (value > max) return 'HIGH';
+    if (min > 0 && value < min) return 'LOW';
+    if (max > 0 && value > max) return 'HIGH';
     return 'NORMAL';
   };
 
-  const handleValueChange = (testOrderId: string, value: string) => {
+  const handleValueChange = (testId: string, value: string) => {
     setResults((prev) => ({
       ...prev,
-      [testOrderId]: value,
+      [testId]: value,
     }));
   };
 
-  const handleSaveDraft = () => {
-    // Check for extreme values first
-    const extreme: string[] = [];
+  const togglePanel = (orderId: string) => {
+    setExpandedPanels((prev) => ({
+      ...prev,
+      [orderId]: !prev[orderId],
+    }));
+  };
+
+  const getAllTestsForValidation = (): Array<{ testId: string; code: string; min: number; max: number }> => {
+    const allTests: Array<{ testId: string; code: string; min: number; max: number }> = [];
+
     testOrders.forEach((order) => {
-      const valueStr = results[order.id];
+      if (order.isPanel && order.childTests && order.childTests.length > 0) {
+        order.childTests.forEach((child) => {
+          allTests.push({
+            testId: child.id,
+            code: child.code,
+            min: child.referenceRange.min,
+            max: child.referenceRange.max,
+          });
+        });
+      } else {
+        allTests.push({
+          testId: order.testId,
+          code: order.testCode,
+          min: order.referenceRange.min,
+          max: order.referenceRange.max,
+        });
+      }
+    });
+
+    return allTests;
+  };
+
+  const handleSaveDraft = () => {
+    const allTests = getAllTestsForValidation();
+    const extreme: string[] = [];
+
+    allTests.forEach((test) => {
+      const valueStr = results[test.testId];
       const value = valueStr ? parseFloat(valueStr) : null;
-      if (value !== null && order.referenceRange.max > 0) {
-        const { min, max } = order.referenceRange;
-        if (value > max * 2 || value < min / 2) {
-          extreme.push(order.testCode);
+      if (value !== null && test.max > 0) {
+        if (value > test.max * 2 || (test.min > 0 && value < test.min / 2)) {
+          extreme.push(test.code);
         }
       }
     });
@@ -179,18 +237,18 @@ const DiagnosticsResultEntry = () => {
 
   const saveResults = async () => {
     setSaving(true);
-    
+
     try {
-      // Prepare results array for API
-      const resultsArray = testOrders
-        .filter((order) => results[order.id])
-        .map((order) => {
-          const valueStr = results[order.id];
+      const allTests = getAllTestsForValidation();
+      const resultsArray = allTests
+        .filter((test) => results[test.testId])
+        .map((test) => {
+          const valueStr = results[test.testId];
           const value = parseFloat(valueStr);
-          const flag = computeFlag(value, order.referenceRange.min, order.referenceRange.max);
-          
+          const flag = computeFlag(value, test.min, test.max);
+
           return {
-            testId: order.testId,
+            testId: test.testId,
             value,
             flag: flag || 'NORMAL',
             notes: ''
@@ -233,9 +291,85 @@ const DiagnosticsResultEntry = () => {
     saveResults();
   };
 
+  const renderTestInput = (
+    testId: string,
+    testName: string,
+    testCode: string,
+    referenceRange: ReferenceRange,
+    isSubTest: boolean = false
+  ) => {
+    const valueStr = results[testId] || '';
+    const value = valueStr ? parseFloat(valueStr) : null;
+    const flag = value !== null
+      ? computeFlag(value, referenceRange.min, referenceRange.max)
+      : null;
+
+    const hasNumericRange = referenceRange.min > 0 || referenceRange.max > 0;
+
+    return (
+      <div
+        key={testId}
+        className={cn(
+          'grid gap-4 items-center py-3 border-b last:border-0',
+          isSubTest ? 'grid-cols-[1fr_120px_180px_80px] pl-4' : 'grid-cols-[1fr_120px_180px_80px]'
+        )}
+      >
+        <div>
+          <Label className={cn('font-medium', isSubTest ? 'text-sm' : 'text-base')}>
+            {testName}
+          </Label>
+          <span className="text-xs text-muted-foreground ml-2">({testCode})</span>
+        </div>
+
+        <div>
+          <Input
+            type={hasNumericRange ? 'number' : 'text'}
+            step="0.01"
+            placeholder="Value"
+            value={valueStr}
+            onChange={(e) => handleValueChange(testId, e.target.value)}
+            className="text-center"
+          />
+        </div>
+
+        <div className="text-sm text-muted-foreground text-center">
+          {referenceRange.text ? (
+            referenceRange.text
+          ) : hasNumericRange ? (
+            `${referenceRange.min || ''} – ${referenceRange.max || ''} ${referenceRange.unit}`
+          ) : (
+            '—'
+          )}
+        </div>
+
+        <div className="flex justify-center">
+          {flag ? (
+            <FlagBadge flag={flag} />
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const countFilledResults = (order: TestOrder): number => {
+    if (order.isPanel && order.childTests && order.childTests.length > 0) {
+      return order.childTests.filter((child) => results[child.id]).length;
+    }
+    return results[order.testId] ? 1 : 0;
+  };
+
+  const getTotalTests = (order: TestOrder): number => {
+    if (order.isPanel && order.childTests && order.childTests.length > 0) {
+      return order.childTests.length;
+    }
+    return 1;
+  };
+
   return (
     <AppLayout context="diagnostics">
-      <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
+      <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
         {/* Visit Summary - Pinned */}
         <Card className="border-primary/20 bg-accent/30">
           <CardContent className="pt-6">
@@ -243,11 +377,12 @@ const DiagnosticsResultEntry = () => {
               <div>
                 <h2 className="text-xl font-bold">{patient.name}</h2>
                 <p className="text-muted-foreground">
-                  {patient.age} | {patient.gender}
+                  {age ? `${age} yrs` : ''} | {patient.gender}
                 </p>
               </div>
               <div className="text-right">
                 <p className="font-mono font-bold">{visit.billNumber}</p>
+                <p className="text-sm text-muted-foreground">{testOrders.length} test(s) ordered</p>
               </div>
             </div>
           </CardContent>
@@ -256,64 +391,83 @@ const DiagnosticsResultEntry = () => {
         {/* Test Results */}
         <Card>
           <CardHeader>
-            <CardTitle>Test Results</CardTitle>
+            <CardTitle>Enter Test Results</CardTitle>
+            <div className="grid grid-cols-[1fr_120px_180px_80px] gap-4 text-xs text-muted-foreground uppercase tracking-wide pt-4 border-b pb-2">
+              <div>Test Name</div>
+              <div className="text-center">Value</div>
+              <div className="text-center">Reference Range</div>
+              <div className="text-center">Flag</div>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-4 pt-0">
             {testOrders.map((order) => {
-              const valueStr = results[order.id] || '';
-              const value = valueStr ? parseFloat(valueStr) : null;
-              const flag = value !== null
-                ? computeFlag(value, order.referenceRange.min, order.referenceRange.max)
-                : null;
+              const isPanel = order.isPanel && order.childTests && order.childTests.length > 0;
+              const isExpanded = expandedPanels[order.id] ?? false;
+              const filled = countFilledResults(order);
+              const total = getTotalTests(order);
 
               return (
-                <div key={order.id} className="space-y-2 p-4 rounded-lg border bg-card">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-base font-semibold">{order.testName}</Label>
-                    {flag && <FlagBadge flag={flag} />}
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Value</Label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        placeholder="Enter value"
-                        value={valueStr}
-                        onChange={(e) => handleValueChange(order.id, e.target.value)}
-                        className="text-lg"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Reference Range</Label>
-                      <div className="h-10 flex items-center text-muted-foreground">
-                        {order.referenceRange.min > 0 || order.referenceRange.max > 0
-                          ? `${order.referenceRange.min} – ${order.referenceRange.max} ${order.referenceRange.unit}`
-                          : 'N/A'}
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Flag</Label>
-                      <div className="h-10 flex items-center">
-                        {flag ? (
-                          <FlagBadge flag={flag} className="text-sm" />
+                <div key={order.id} className="border rounded-lg overflow-hidden">
+                  {isPanel ? (
+                    <>
+                      {/* Panel Header */}
+                      <button
+                        onClick={() => togglePanel(order.id)}
+                        className="w-full flex items-center justify-between p-4 bg-muted/50 hover:bg-muted/70 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="font-semibold text-lg">{order.testName}</span>
+                          <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
+                            {order.childTests.length} parameters
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            ({filled}/{total} filled)
+                          </span>
+                        </div>
+                        {isExpanded ? (
+                          <ChevronUp className="h-5 w-5 text-muted-foreground" />
                         ) : (
-                          <span className="text-muted-foreground">—</span>
+                          <ChevronDown className="h-5 w-5 text-muted-foreground" />
                         )}
-                      </div>
+                      </button>
+
+                      {/* Panel Sub-tests */}
+                      {isExpanded && (
+                        <div className="p-4 bg-card">
+                          {order.childTests.map((child) =>
+                            renderTestInput(
+                              child.id,
+                              child.name,
+                              child.code,
+                              child.referenceRange,
+                              true
+                            )
+                          )}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="p-4">
+                      {renderTestInput(
+                        order.testId,
+                        order.testName,
+                        order.testCode,
+                        order.referenceRange,
+                        false
+                      )}
                     </div>
-                  </div>
+                  )}
                 </div>
               );
             })}
 
-            <Button className="w-full" size="lg" onClick={handleSaveDraft} disabled={saving}>
+            <Button className="w-full mt-6" size="lg" onClick={handleSaveDraft} disabled={saving}>
               {saving ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <Save className="mr-2 h-4 w-4" />
               )}
-              {saving ? 'Saving...' : 'Save Draft'}
+              {saving ? 'Saving...' : 'Save Draft & Preview Report'}
             </Button>
           </CardContent>
         </Card>

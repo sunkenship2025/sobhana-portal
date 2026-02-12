@@ -7,30 +7,53 @@
 [33m[nodemon] watching path(s): *.*[39m
 [33m[nodemon] watching extensions: ts,json[39m
 [32m[nodemon] starting `ts-node src/index.ts`[39m
-Debugger listening on ws://127.0.0.1:51962/863a6cf4-8782-4c94-9727-999073750de5
+Debugger listening on ws://127.0.0.1:62941/90991224-d15c-4ad7-ab04-9aafa615944a
 For help, see: https://nodejs.org/en/docs/inspector
 Debugger attached.
-🚀 Server running on http://localhost:3000
-📊 Health check: http://localhost:3000/health
-🔐 Auth endpoint: http://localhost:3000/api/auth/login
-[32m[nodemon] restarting due to changes...[39m
-[32m[nodemon] starting `ts-node src/index.ts`[39m
-Debugger listening on ws://127.0.0.1:51969/cbfa70c6-f8e5-482a-8079-6d1fa331d482
-For help, see: https://nodejs.org/en/docs/inspector
-Debugger attached.
-node:events:486
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:859
+    return new TSError(diagnosticText, diagnosticCodes, diagnostics);
+           ^
+TSError: ⨯ Unable to compile TypeScript:
+src/routes/reportAccess.ts(21,7): error TS6133: 'prisma' is declared but its value is never read.
+src/routes/reportAccess.ts(27,23): error TS7030: Not all code paths return a value.
+src/routes/reportAccess.ts(80,27): error TS7030: Not all code paths return a value.
+src/routes/reportAccess.ts(111,42): error TS2339: Property 'visitNumber' does not exist on type 'VisitSnapshot'.
+src/routes/reportAccess.ts(129,36): error TS7030: Not all code paths return a value.
+src/routes/reportAccess.ts(160,42): error TS2339: Property 'visitNumber' does not exist on type 'VisitSnapshot'.
+src/routes/reportAccess.ts(178,31): error TS7030: Not all code paths return a value.
+
+    at createTSError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:859:12)
+    at reportTSError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:863:19)
+    at getOutput (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:1077:36)
+    at Object.compile (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:1433:41)
+    at Module.m._compile (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:1617:30)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1416:10)
+    at Object.require.extensions.<computed> [as .ts] (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:1621:12)
+    at Module.load (node:internal/modules/cjs/loader:1208:32)
+    at Function.Module._load (node:internal/modules/cjs/loader:1024:12)
+    at Module.require (node:internal/modules/cjs/loader:1233:19) {
+  diagnosticCodes: [
+    6133, 7030,
+    7030, 2339,
+    7030, 2339,
+    7030
+  ]
+}
+Waiting for the debugger to disconnect...
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+node:events:497
       throw er; // Unhandled 'error' event
       ^
 
 Error: read EIO
-    at TTY.onStreamRead (node:internal/stream_base_commons:216:20)
+    at TTY.onStreamRead (node:internal/stream_base_commons:218:20)
 Emitted 'error' event on ReadStream instance at:
-    at emitErrorNT (node:internal/streams/destroy:170:8)
-    at emitErrorCloseNT (node:internal/streams/destroy:129:3)
-    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+    at emitErrorNT (node:internal/streams/destroy:169:8)
+    at emitErrorCloseNT (node:internal/streams/destroy:128:3)
+    at process.processTicksAndRejections (node:internal/process/task_queues:82:21) {
   errno: -5,
   code: 'EIO',
   syscall: 'read'
 }
 
-Node.js v25.2.1
+Node.js v20.14.0
