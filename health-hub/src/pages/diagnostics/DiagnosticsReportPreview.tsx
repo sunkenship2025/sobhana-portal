@@ -78,6 +78,7 @@ const DiagnosticsReportPreview = () => {
   const [loading, setLoading] = useState(true);
   const [finalizing, setFinalizing] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [reportToken, setReportToken] = useState<string | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
   // Fetch visit from API
@@ -97,6 +98,12 @@ const DiagnosticsReportPreview = () => {
         if (response.ok) {
           const data = await response.json();
           setVisit(data);
+          
+          // E3-10: Check if report is finalized and has an access token
+          const latestVersion = data.report?.versions?.[0];
+          if (latestVersion?.status === 'FINALIZED' && latestVersion?.accessToken) {
+            setReportToken(latestVersion.accessToken);
+          }
         } else {
           toast.error('Failed to load visit');
         }
@@ -139,17 +146,25 @@ const DiagnosticsReportPreview = () => {
   const latestVersion = (visit.report as any)?.versions?.[0];
   const testResults = latestVersion?.testResults || [];
   
-  // Build results with test info
-  // E3-03: Match results by testOrderId (not testId) since test results are linked to test orders
-  const results = testResults.map((result: any) => {
-    const order = testOrders.find(o => o.id === result.testOrderId);
+  // Group results by parent test order for proper display
+  // Each result now includes testName, testCode, and referenceRange from the backend
+  const groupedResults = testOrders.map((order: any) => {
+    // Find all results that belong to this test order (parent or sub-tests)
+    const orderResults = testResults.filter((r: any) => r.testOrderId === order.id);
     return {
-      ...result,
-      testName: order?.testName || result.testName || 'Unknown Test',
-      testCode: order?.testCode || result.testCode || '',
-      referenceRange: order?.referenceRange || { min: 0, max: 0, unit: '' }
+      order,
+      results: orderResults.map((result: any) => ({
+        ...result,
+        // testName, testCode, referenceRange are now provided by backend
+        testName: result.testName || 'Unknown Test',
+        testCode: result.testCode || '',
+        referenceRange: result.referenceRange || { min: 0, max: 0, unit: '' }
+      }))
     };
-  });
+  }).filter((g: any) => g.results.length > 0);
+
+  // Flatten for backward compatibility
+  const results = groupedResults.flatMap((g: any) => g.results);
   
   const hasAbnormalValues = results.some((r) => r.flag === 'HIGH' || r.flag === 'LOW');
   const isFinalized = visit.status === 'COMPLETED';
@@ -167,7 +182,16 @@ const DiagnosticsReportPreview = () => {
       });
 
       if (response.ok) {
-        toast.success('Report finalized successfully');
+        const data = await response.json();
+        const newReportToken = data.reportToken;
+        
+        if (newReportToken) {
+          setReportToken(newReportToken);
+          toast.success('Report finalized successfully');
+        } else {
+          toast.warning('Report finalized but access link generation failed');
+        }
+        
         setShowConfirm(false);
         
         // Refresh visit data
@@ -182,10 +206,11 @@ const DiagnosticsReportPreview = () => {
           setVisit(refreshData);
         }
         
-        // Auto-send WhatsApp message to patient
+        // Auto-send WhatsApp message with secure report link
         const phone = patient.identifiers?.find(id => id.type === 'PHONE')?.value;
-        if (phone) {
-          const message = `🔬 Lab Report Ready!\n\nDear ${patient.name},\n\nYour lab report (Bill #: ${visit.billNumber}) is now ready.\n\nPlease visit the clinic to collect your report.\n\nThank you for choosing Sobhana Diagnostics.`;
+        if (phone && newReportToken) {
+          const reportUrl = `${window.location.origin}/r/${newReportToken}`;
+          const message = `🔬 Lab Report Ready!\n\nDear ${patient.name},\n\nYour lab report (Bill #: ${visit.billNumber}) is now ready.\n\nView your report: ${reportUrl}\n\nThank you for choosing Sobhana Diagnostics.`;
           const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
           window.open(url, '_blank');
         }
@@ -202,21 +227,34 @@ const DiagnosticsReportPreview = () => {
   };
 
   const handlePrint = () => {
-    window.print();
+    if (reportToken) {
+      // Open the backend-rendered report page which has proper print CSS
+      window.open(`/r/${reportToken}`, '_blank');
+    } else {
+      toast.error('Report token not available. Please finalize the report first.');
+    }
   };
 
   const handleWhatsApp = () => {
     const phone = patient.identifiers?.find(id => id.type === 'PHONE')?.value;
     if (phone) {
-      const message = `Lab Report Ready\n\nPatient: ${patient.name}\nBill #: ${visit.billNumber}\n\nPlease visit the clinic to collect your report.`;
-      const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-      window.open(url, '_blank');
+      if (reportToken) {
+        const reportUrl = `${window.location.origin}/r/${reportToken}`;
+        const message = `🔬 Lab Report Ready\n\nPatient: ${patient.name}\nBill #: ${visit.billNumber}\n\nView Report: ${reportUrl}\n\nThank you for choosing Sobhana Diagnostics.`;
+        const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+        window.open(url, '_blank');
+      } else {
+        const message = `Lab Report Ready\n\nPatient: ${patient.name}\nBill #: ${visit.billNumber}\n\nPlease visit the clinic to collect your report.`;
+        const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+        window.open(url, '_blank');
+      }
     }
   };
 
   return (
     <AppLayout context="diagnostics">
-      <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
+      {/* Screen Content - Hidden when printing */}
+      <div className="max-w-3xl mx-auto space-y-6 animate-fade-in no-print">
         {/* Header with Status */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -336,26 +374,30 @@ const DiagnosticsReportPreview = () => {
 
         {/* Finalized Notice */}
         {isFinalized && (
-          <Card className="bg-success/5 border-success/30">
+          <Card className="bg-success/5 border-success/30 no-print">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
                 <CheckCircle2 className="h-8 w-8 text-success" />
-                <div>
+                <div className="flex-1">
                   <p className="font-semibold">Report Finalized</p>
                   <p className="text-sm text-muted-foreground">
                     This report is now locked and cannot be edited.
                   </p>
+                  {reportToken && (
+                    <a 
+                      href={`/r/${reportToken}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-primary hover:underline mt-1 inline-block"
+                    >
+                      View Official Report →
+                    </a>
+                  )}
                 </div>
               </div>
             </CardContent>
           </Card>
         )}
-      </div>
-
-      {/* Print Content - Only this prints */}
-      {/* TODO: Update ReportPrint to work with API data */}
-      <div ref={printRef} className="hidden print:block">
-        {/* ReportPrint component needs visit data in visitView format */}
       </div>
 
       {/* Finalize Confirmation */}
