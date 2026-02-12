@@ -17,14 +17,49 @@ interface AuthState {
   isAuthenticated: boolean;
   login: (email: string, password: string, role: UserRole) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
+  checkTokenExpiration: () => boolean;
+}
+
+// Helper to decode JWT and check expiration
+function isTokenExpired(token: string | null): boolean {
+  if (!token) return true;
+  
+  try {
+    // JWT is base64 encoded: header.payload.signature
+    const payload = token.split('.')[1];
+    if (!payload) return true;
+    
+    const decoded = JSON.parse(atob(payload));
+    const exp = decoded.exp;
+    
+    if (!exp) return true;
+    
+    // exp is in seconds, Date.now() is in milliseconds
+    // Add 60 second buffer to avoid edge cases
+    return Date.now() >= (exp * 1000) - 60000;
+  } catch {
+    return true;
+  }
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       user: null,
       token: null,
       isAuthenticated: false,
+      
+      // Check if token is expired and logout if so
+      checkTokenExpiration: () => {
+        const { token, isAuthenticated, logout } = get();
+        if (isAuthenticated && isTokenExpired(token)) {
+          console.log('Token expired, logging out...');
+          logout();
+          return false; // Token was expired
+        }
+        return isAuthenticated; // Return true if still valid
+      },
+      
       login: async (email: string, password: string, role: UserRole) => {
         // Simple validation
         if (!email || !password) {

@@ -139,8 +139,18 @@ router.get('/:id', async (req: AuthRequest, res) => {
         },
         testOrders: {
           include: {
-            test: true,
-            testResults: true,
+            test: {
+              include: {
+                childTests: {
+                  orderBy: { displayOrder: 'asc' },
+                },
+              },
+            },
+            testResults: {
+              include: {
+                test: true, // Include test info for each result
+              },
+            },
           },
         },
         bill: true,
@@ -148,7 +158,16 @@ router.get('/:id', async (req: AuthRequest, res) => {
           include: {
             versions: {
               include: {
-                testResults: true,
+                testResults: {
+                  include: {
+                    test: true, // Include test info for each result
+                  },
+                },
+                accessTokens: {
+                  take: 1, // Only need the first/current token
+                  orderBy: { createdAt: 'desc' },
+                  select: { token: true },
+                },
               },
               orderBy: { versionNum: 'desc' },
             },
@@ -186,22 +205,58 @@ router.get('/:id', async (req: AuthRequest, res) => {
         testName: to.testNameSnapshot || to.test.name,
         testCode: to.testCodeSnapshot || to.test.code,
         price: to.priceInPaise / 100,
+        isPanel: to.test.isPanel,
         referenceRange: {
           min: to.referenceMinSnapshot ?? to.test.referenceMin ?? 0,
           max: to.referenceMaxSnapshot ?? to.test.referenceMax ?? 0,
           unit: to.referenceUnitSnapshot || to.test.referenceUnit || '',
+          text: to.test.referenceText || '',
         },
-        results: to.testResults,
+        // Include child tests for panels
+        childTests: to.test.isPanel ? to.test.childTests.map((ct: any) => ({
+          id: ct.id,
+          name: ct.name,
+          code: ct.code,
+          displayOrder: ct.displayOrder,
+          referenceRange: {
+            min: ct.referenceMin ?? 0,
+            max: ct.referenceMax ?? 0,
+            unit: ct.referenceUnit || '',
+            text: ct.referenceText || '',
+          },
+        })) : [],
+        results: to.testResults.map((tr: any) => ({
+          ...tr,
+          testName: tr.test?.name || '',
+          testCode: tr.test?.code || '',
+          referenceRange: {
+            min: tr.test?.referenceMin ?? 0,
+            max: tr.test?.referenceMax ?? 0,
+            unit: tr.test?.referenceUnit || '',
+            text: tr.test?.referenceText || '',
+          },
+        })),
       })),
       report: visit.report
         ? {
             id: visit.report.id,
-            versions: visit.report.versions.map((v) => ({
+            versions: visit.report.versions.map((v: any) => ({
               id: v.id,
               versionNumber: v.versionNum,
               status: v.status,
               finalizedAt: v.finalizedAt,
-              testResults: v.testResults,
+              accessToken: v.accessTokens?.[0]?.token || null, // Include token for finalized reports
+              testResults: v.testResults.map((tr: any) => ({
+                ...tr,
+                testName: tr.test?.name || '',
+                testCode: tr.test?.code || '',
+                referenceRange: {
+                  min: tr.test?.referenceMin ?? 0,
+                  max: tr.test?.referenceMax ?? 0,
+                  unit: tr.test?.referenceUnit || '',
+                  text: tr.test?.referenceText || '',
+                },
+              })),
             })),
           }
         : null,
@@ -747,7 +802,7 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
       });
     }
 
-    // Get visit with report
+    // Get visit with report and test orders with their test (including children for panels)
     const visit = await prisma.visit.findFirst({
       where: {
         id,
@@ -764,7 +819,15 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
             },
           },
         },
-        testOrders: true,
+        testOrders: {
+          include: {
+            test: {
+              include: {
+                childTests: true, // Include child tests for panels
+              },
+            },
+          },
+        },
       },
     });
 
@@ -783,16 +846,33 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
       });
     }
 
+    // Build a map: testId -> testOrderId (includes sub-tests)
+    const testToOrderMap = new Map<string, string>();
+    for (const testOrder of visit.testOrders) {
+      // Map the ordered test itself
+      testToOrderMap.set(testOrder.testId, testOrder.id);
+      // For panels, also map all child tests to the parent order
+      if (testOrder.test.isPanel && testOrder.test.childTests) {
+        for (const childTest of testOrder.test.childTests) {
+          testToOrderMap.set(childTest.id, testOrder.id);
+        }
+      }
+    }
+
     // Upsert test results
     await prisma.$transaction(async (tx) => {
       for (const result of results) {
-        const testOrder = visit.testOrders.find((to) => to.testId === result.testId);
-        if (!testOrder) continue;
+        const testOrderId = testToOrderMap.get(result.testId);
+        if (!testOrderId) {
+          console.warn(`No test order found for testId: ${result.testId}`);
+          continue;
+        }
 
-        // Delete existing result if any
+        // Delete existing result for this specific testId (not just testOrderId)
         await tx.testResult.deleteMany({
           where: {
-            testOrderId: testOrder.id,
+            testOrderId,
+            testId: result.testId,
             reportVersionId: draftVersion.id,
           },
         });
@@ -801,7 +881,8 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
         if (result.value !== null && result.value !== undefined) {
           await tx.testResult.create({
             data: {
-              testOrderId: testOrder.id,
+              testOrderId,
+              testId: result.testId, // Store the actual test ID (can be sub-test)
               reportVersionId: draftVersion.id,
               value: parseFloat(result.value),
               flag: result.flag || null,
@@ -869,6 +950,8 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
       });
     }
 
+    let accessToken: string | null = null;
+
     // JIRA-10: Atomic conditional update to prevent race conditions
     // Only finalize if status is still DRAFT (updateMany returns count=0 if condition not met)
     await prisma.$transaction(async (tx) => {
@@ -896,6 +979,24 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
       return updated;
     });
 
+    // E3-10: Create snapshot and access token after successful finalization
+    try {
+      const { createReportSnapshot, saveReportSnapshot } = await import('../services/reportSnapshotService');
+      const { createAccessToken } = await import('../services/reportAccessService');
+
+      // Create immutable snapshot
+      const snapshot = await createReportSnapshot(draftVersion.id);
+      await saveReportSnapshot(draftVersion.id, snapshot);
+
+      // Create access token for report URL
+      accessToken = await createAccessToken(draftVersion.id);
+
+      console.log(`📄 Report ${draftVersion.id} finalized with token: ${accessToken}`);
+    } catch (snapshotErr) {
+      // Log but don't fail - snapshot can be recreated later
+      console.error('Failed to create snapshot/token (non-critical):', snapshotErr);
+    }
+
     // Audit log: Report finalization (CRITICAL)
     await logAction({
       branchId: req.branchId!,
@@ -911,12 +1012,17 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
         reportVersionId: draftVersion.id,
         visitId: visit.id,
         finalizedAt: new Date().toISOString(),
+        accessToken: accessToken || undefined,
       },
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
     });
 
-    return res.json({ success: true, status: 'COMPLETED' });
+    return res.json({ 
+      success: true, 
+      status: 'COMPLETED',
+      reportToken: accessToken, // Return token for immediate use
+    });
   } catch (err: any) {
     // JIRA-10: Handle race condition gracefully
     if (err.message === 'ALREADY_FINALIZED') {
