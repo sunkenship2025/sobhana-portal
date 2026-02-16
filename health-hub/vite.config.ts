@@ -9,8 +9,8 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
     proxy: {
-      // Proxy report access routes to backend
-      '/r': {
+      // Proxy report PDF download routes to backend
+      '/reports': {
         target: 'http://localhost:3000',
         changeOrigin: true,
       },

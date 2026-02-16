@@ -66,10 +66,13 @@ body.report-body {
   box-shadow: 0 2px 20px rgba(0, 0, 0, 0.15);
   min-height: 297mm;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .report-content {
   padding: 20px 28px 20px 28px;
+  flex: 1;
 }
 
 /* ============================================================================
@@ -81,21 +84,16 @@ body.report-body {
   padding: 0;
 }
 
-.header-top-row {
+.header-logo-row {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  padding: 10px 20px 6px 20px;
-}
-
-.header-logo-row {
-  text-align: left;
+  align-items: center;
+  padding: 10px 20px 4px 20px;
 }
 
 .header-logo {
-  max-width: 200px;
   width: auto;
-  height: auto;
+  height: 55px;
 }
 
 /* QR code in header top-right */
@@ -123,16 +121,20 @@ body.report-body {
   display: none;
 }
 
-/* Blue stripe band — matches the horizontal lines on the physical paper */
+/* Blue stripe band — 3 distinct lines matching the physical letterhead */
 .header-stripe-band {
   height: 10px;
   background: repeating-linear-gradient(
     to bottom,
     var(--color-primary) 0px,
-    var(--color-primary) 3.5px,
-    white 3.5px,
-    white 6.5px,
-    var(--color-primary) 6.5px,
+    var(--color-primary) 2px,
+    white 2px,
+    white 4px,
+    var(--color-primary) 4px,
+    var(--color-primary) 6px,
+    white 6px,
+    white 8px,
+    var(--color-primary) 8px,
     var(--color-primary) 10px
   );
   margin: 0;
@@ -141,7 +143,7 @@ body.report-body {
 /* Red REPORT badge — centered below stripes */
 .report-badge-row {
   text-align: center;
-  padding: 6px 0 10px 0;
+  padding: 3px 0 6px 0;
 }
 
 .report-badge {
@@ -149,9 +151,9 @@ body.report-body {
   background: #b22222;
   color: white;
   font-weight: bold;
-  font-size: 10pt;
-  letter-spacing: 4px;
-  padding: 5px 28px;
+  font-size: 9pt;
+  letter-spacing: 3px;
+  padding: 4px 22px;
   text-transform: uppercase;
 }
 
@@ -388,12 +390,12 @@ body.report-body {
 }
 
 .signatures-left {
-  display: flex;
-  gap: 40px;
+  text-align: center;
 }
 
 .signatures-right {
-  text-align: center;
+  display: flex;
+  gap: 40px;
 }
 
 .signature-block {
@@ -451,22 +453,30 @@ body.report-body {
    ============================================================================ */
 
 .footer {
-  border-top: 2px solid #cc2222;
-  padding: 8px 24px;
+  margin-top: auto;
   font-size: 7.5pt;
   color: #333;
+}
+
+.footer-stripe {
+  height: 2px;
+  background: #cc2222;
+}
+
+.footer-content {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  padding: 6px 24px 8px;
 }
 
 .footer-left { max-width: 48%; }
-.footer-left .note-text { font-weight: bold; margin-bottom: 1px; }
-.footer-left .partial-text { font-weight: bold; text-transform: uppercase; font-size: 7pt; }
+.footer-left .note-text { font-weight: bold; margin-bottom: 1px; font-size: 7pt; }
+.footer-left .partial-text { font-weight: bold; text-transform: uppercase; font-size: 6.5pt; }
 
 .footer-right { text-align: right; max-width: 52%; }
-.footer-right .address-text { font-weight: 500; margin-bottom: 1px; }
-.footer-right .phone-text { font-weight: 600; }
+.footer-right .address-text { font-weight: 500; margin-bottom: 1px; font-size: 7pt; }
+.footer-right .phone-text { font-weight: 600; font-size: 7.5pt; }
 
 /* ============================================================================
    ACTION BUTTONS (Screen Only — hidden during print)
@@ -504,17 +514,18 @@ body.report-body {
    RESPONSIVE (Mobile-friendly for WhatsApp links)
    ============================================================================ */
 
-@media (max-width: 768px) {
+@media (max-width: 480px) {
   body.report-body { background: white; }
   
   .report-page { box-shadow: none; margin: 0; min-height: auto; }
+  .header-logo { height: 35px; }
   .report-content { padding: 12px 14px; }
   .info-grid { grid-template-columns: 1fr; }
   .signatures-section { flex-direction: column; gap: 24px; }
   .signatures-left { flex-wrap: wrap; justify-content: center; gap: 20px; }
-  .signatures-right { align-self: center; }
+  .signatures-right { flex-wrap: wrap; justify-content: center; gap: 20px; }
   .action-buttons { bottom: 10px; right: 10px; }
-  .footer { flex-direction: column; gap: 6px; }
+  .footer-content { flex-direction: column; gap: 6px; }
   .footer-left, .footer-right { max-width: 100%; text-align: center; }
 }
 

@@ -347,10 +347,12 @@ export interface RenderOptions {
   reportToken?: string;
   hideActions?: boolean;
   includePdfStyles?: boolean;
+  /** Pre-generated QR code as base64 data URI (avoids external API dependency) */
+  qrDataUrl?: string;
 }
 
 export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOptions): string {
-  const { mode, baseUrl = '', reportToken = '', hideActions = false, includePdfStyles = false } = options;
+  const { mode, baseUrl = '', reportToken = '', includePdfStyles = false, qrDataUrl = '' } = options;
   
   // Render departments and panels
   const departmentSections = snapshot.departments.map(dept => {
@@ -370,7 +372,7 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
     .filter(sig => !sig.showLabInchargeNote || sig.signatureImagePath) // show doctors with actual signatures
     .map(sig => `
     <div class="signature-block">
-      <img src="${escapeHtml(sig.signatureImagePath)}" alt="Signature" class="signature-image" onerror="this.style.display='none'" />
+      <img src="${baseUrl}${escapeHtml(sig.signatureImagePath)}" alt="Signature" class="signature-image" onerror="this.style.display='none'" />
       <div class="doctor-name">${escapeHtml(sig.doctorName)}</div>
       <div class="doctor-degrees">${escapeHtml(sig.degrees)}</div>
       <div class="doctor-designation">${escapeHtml(sig.designation)}</div>
@@ -378,8 +380,8 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
     </div>
   `).join('');
 
-  // QR code URL (for digital reports)
-  const qrUrl = reportToken ? `${baseUrl}/r/${reportToken}` : '';
+  // Use pre-generated QR data URI if provided, otherwise skip QR
+  const qrImgSrc = qrDataUrl || '';
 
   // Decide which CSS to include
   const cssLink = includePdfStyles 
@@ -416,14 +418,12 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
 
     <!-- HEADER — Replicates Sobhana pre-printed letterhead (hidden in print) -->
     <header class="header">
-      <div class="header-top-row">
-        <div class="header-logo-row">
-          <img src="/images/sobhana-logo-cropped.png" alt="Sobhana Diagnostic Centre" class="header-logo" />
-        </div>
-        ${qrUrl ? `
+      <div class="header-logo-row">
+        <img src="${baseUrl}/images/sobhana-logo-cropped.png" alt="Sobhana Diagnostic Centre" class="header-logo" />
+        ${qrImgSrc ? `
         <div class="header-qr no-print">
-          <img src="https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(qrUrl)}" alt="QR" class="header-qr-img" />
-          <div class="header-qr-text">Scan for<br>online report</div>
+          <img src="${qrImgSrc}" alt="QR" class="header-qr-img" />
+          <div class="header-qr-text">Scan to<br>download</div>
         </div>
         ` : ''}
       </div>
@@ -486,21 +486,21 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
       <!-- Signature Section -->
       <section class="signatures-section">
         <div class="signatures-left">
-          ${signatureBlocks}
-        </div>
-        <div class="signatures-right">
           <div class="signature-block lab-incharge-block">
             <div class="lab-incharge-line"></div>
             <div class="lab-incharge-label">Lab Incharge</div>
           </div>
         </div>
+        <div class="signatures-right">
+          ${signatureBlocks}
+        </div>
       </section>
 
       <!-- QR for print mode (hidden on screen, visible in print) -->
-      ${qrUrl ? `
+      ${qrImgSrc ? `
       <div class="print-qr">
-        <img src="https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(qrUrl)}" alt="QR" class="print-qr-img" />
-        <div class="print-qr-text">Scan for online report</div>
+        <img src="${qrImgSrc}" alt="QR" class="print-qr-img" />
+        <div class="print-qr-text">Scan to download report</div>
       </div>
       ` : ''}
 
@@ -514,25 +514,22 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
 
     <!-- FOOTER — Replicates Sobhana pre-printed letterhead footer (hidden in print) -->
     <footer class="footer">
-      <div class="footer-left">
-        <div class="note-text">Note : This report is subject to the terms and conditions overleaf</div>
-        <div class="partial-text">Partial reproduction of this report is not permitted.</div>
-      </div>
-      <div class="footer-right">
-        <div class="address-text">Balanagar : # 3-67, Sobhana Complex, Balanagar, Hyderabad-500042.</div>
-        <div class="phone-text">Ph : 040 2377 2929, 4016 3301</div>
+      <div class="footer-stripe"></div>
+      <div class="footer-content">
+        <div class="footer-left">
+          <div class="note-text">Note : This report is subject to the terms and conditions overleaf.</div>
+          <div class="partial-text">Partial reproduction of this report is not permitted.</div>
+        </div>
+        <div class="footer-right">
+          <div class="address-text">Balanagar : # 3-67, Sobhana Complex, Balanagar, Hyderabad-500042.</div>
+          <div class="phone-text">Ph : 040-2377 2929, 4016 3301</div>
+        </div>
       </div>
     </footer>
 
   </div>
 
-  <!-- Action Buttons (Screen mode only) -->
-  ${mode === 'screen' && !hideActions ? `
-  <div class="action-buttons no-print">
-    <button onclick="window.print()" class="btn btn-print">🖨️ Print</button>
-    <a href="${baseUrl}/r/${reportToken}/pdf" class="btn btn-download">⬇️ Download PDF</a>
-  </div>
-  ` : ''}
+
 
 </body>
 </html>`;

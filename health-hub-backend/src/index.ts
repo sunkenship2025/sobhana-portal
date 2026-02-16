@@ -21,7 +21,7 @@ import clinicVisitRoutes from './routes/clinicVisits';
 import payoutRoutes from './routes/payouts';
 import auditLogRoutes from './routes/auditLogs';
 import reportRoutes from './routes/reports';
-import reportAccessRoutes from './routes/reportAccess';
+import reportDownloadRoutes from './routes/reportDownload';
 import billRoutes from './routes/bills';
 
 // PDF Service warmup
@@ -95,11 +95,11 @@ app.get('/health', (_req, res) => {
 // Auth routes (no branch context required)
 app.use('/api/auth', authRoutes);
 
-// Report viewing routes (token-based, no auth required) - PUBLIC ROUTE
-// Short URL: /r/:token for easy sharing
-app.use('/r', reportAccessRoutes);
+// Report PDF download (token-based, no auth required) - PUBLIC ROUTE
+// Direct PDF download: /reports/:token
+app.use('/reports', reportDownloadRoutes);
 
-// Report viewing routes (token-based, no auth required)
+// Legacy report API (JWT-based, for clinic/Patient360)
 app.use('/api/reports', reportRoutes);
 
 // Branches route (auth required)
@@ -131,7 +131,7 @@ app.listen(PORT, async () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🔐 Auth endpoint: http://localhost:${PORT}/api/auth/login`);
-  console.log(`📄 Report access: http://localhost:${PORT}/r/:token`);
+  console.log(`📄 Report download: http://localhost:${PORT}/reports/:token`);
   
   // Warmup PDF service for faster first generation
   await warmupPdfService();

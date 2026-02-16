@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +8,7 @@ import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { FlagBadge } from '@/components/ui/flag-badge';
 import { toast } from 'sonner';
-import { AlertTriangle, ArrowLeft, CheckCircle2, Lock, Printer, MessageCircle, Loader2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, Lock, Printer, MessageCircle, Loader2, Eye, X } from 'lucide-react';
 import { ReportPrint } from '@/components/print/ReportPrint';
 import {
   AlertDialog,
@@ -79,7 +79,9 @@ const DiagnosticsReportPreview = () => {
   const [finalizing, setFinalizing] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [reportToken, setReportToken] = useState<string | null>(null);
-  const printRef = useRef<HTMLDivElement>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   // Fetch visit from API
   useEffect(() => {
@@ -209,8 +211,8 @@ const DiagnosticsReportPreview = () => {
         // Auto-send WhatsApp message with secure report link
         const phone = patient.identifiers?.find(id => id.type === 'PHONE')?.value;
         if (phone && newReportToken) {
-          const reportUrl = `${window.location.origin}/r/${newReportToken}`;
-          const message = `🔬 Lab Report Ready!\n\nDear ${patient.name},\n\nYour lab report (Bill #: ${visit.billNumber}) is now ready.\n\nView your report: ${reportUrl}\n\nThank you for choosing Sobhana Diagnostics.`;
+          const reportUrl = `${window.location.origin}/reports/${newReportToken}`;
+          const message = `🔬 Lab Report Ready!\n\nDear ${patient.name},\n\nYour lab report (Bill #: ${visit.billNumber}) is now ready.\n\nDownload your report: ${reportUrl}\n\nThank you for choosing Sobhana Diagnostics.`;
           const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
           window.open(url, '_blank');
         }
@@ -228,8 +230,13 @@ const DiagnosticsReportPreview = () => {
 
   const handlePrint = () => {
     if (reportToken) {
-      // Open the backend-rendered report page which has proper print CSS
-      window.open(`/r/${reportToken}`, '_blank');
+      // Open the report HTML in a new window and trigger browser print dialog
+      const printWindow = window.open(`/reports/${reportToken}/view`, '_blank');
+      if (printWindow) {
+        printWindow.addEventListener('load', () => {
+          setTimeout(() => printWindow.print(), 500);
+        });
+      }
     } else {
       toast.error('Report token not available. Please finalize the report first.');
     }
@@ -239,8 +246,8 @@ const DiagnosticsReportPreview = () => {
     const phone = patient.identifiers?.find(id => id.type === 'PHONE')?.value;
     if (phone) {
       if (reportToken) {
-        const reportUrl = `${window.location.origin}/r/${reportToken}`;
-        const message = `🔬 Lab Report Ready\n\nPatient: ${patient.name}\nBill #: ${visit.billNumber}\n\nView Report: ${reportUrl}\n\nThank you for choosing Sobhana Diagnostics.`;
+        const reportUrl = `${window.location.origin}/reports/${reportToken}`;
+        const message = `🔬 Lab Report Ready\n\nPatient: ${patient.name}\nBill #: ${visit.billNumber}\n\nDownload Report: ${reportUrl}\n\nThank you for choosing Sobhana Diagnostics.`;
         const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
         window.open(url, '_blank');
       } else {
@@ -248,6 +255,32 @@ const DiagnosticsReportPreview = () => {
         const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
         window.open(url, '_blank');
       }
+    }
+  };
+
+  const handlePreviewReport = async () => {
+    setPreviewLoading(true);
+    try {
+      const response = await fetch(`http://localhost:3000/api/visits/diagnostic/${visitId}/preview-report`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Branch-Id': activeBranchId
+        }
+      });
+
+      if (response.ok) {
+        const html = await response.text();
+        setPreviewHtml(html);
+        setShowPreview(true);
+      } else {
+        const err = await response.json().catch(() => ({}));
+        toast.error(err.message || 'Failed to generate report preview');
+      }
+    } catch (error) {
+      console.error('Preview failed:', error);
+      toast.error('Failed to generate report preview');
+    } finally {
+      setPreviewLoading(false);
     }
   };
 
@@ -356,14 +389,25 @@ const DiagnosticsReportPreview = () => {
           <div className="flex gap-3">
             <Button 
               variant="outline" 
-              className="flex-1"
               onClick={() => navigate(`/diagnostics/results/${visit.id}`)}
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back to Edit
             </Button>
             <Button 
+              variant="secondary"
               className="flex-1"
+              onClick={handlePreviewReport}
+              disabled={previewLoading}
+            >
+              {previewLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Eye className="mr-2 h-4 w-4" />
+              )}
+              {previewLoading ? 'Generating...' : 'Preview Actual Report'}
+            </Button>
+            <Button 
               onClick={() => setShowConfirm(true)}
             >
               <CheckCircle2 className="mr-2 h-4 w-4" />
@@ -385,12 +429,12 @@ const DiagnosticsReportPreview = () => {
                   </p>
                   {reportToken && (
                     <a 
-                      href={`/r/${reportToken}`}
+                      href={`/reports/${reportToken}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-sm text-primary hover:underline mt-1 inline-block"
                     >
-                      View Official Report →
+                      Download Report →
                     </a>
                   )}
                 </div>
@@ -399,6 +443,52 @@ const DiagnosticsReportPreview = () => {
           </Card>
         )}
       </div>
+
+      {/* Full-Screen Report Preview Modal */}
+      {showPreview && previewHtml && (
+        <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col">
+          {/* Modal Header */}
+          <div className="flex items-center justify-between px-6 py-3 border-b bg-background">
+            <div className="flex items-center gap-3">
+              <Eye className="h-5 w-5 text-primary" />
+              <div>
+                <h2 className="font-semibold text-lg">Report Preview</h2>
+                <p className="text-xs text-muted-foreground">This is how the final PDF will look to the patient. No data has been saved.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => {
+                  setShowPreview(false);
+                  setShowConfirm(true);
+                }}
+              >
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                Looks Good — Finalize
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowPreview(false)}
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+          </div>
+          {/* Iframe with Report HTML */}
+          <div className="flex-1 overflow-hidden bg-muted p-4">
+            <iframe
+              srcDoc={previewHtml}
+              className="w-full h-full rounded-lg shadow-xl border bg-white mx-auto"
+              style={{ maxWidth: '900px', display: 'block', margin: '0 auto' }}
+              title="Report Preview"
+              sandbox="allow-same-origin"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Finalize Confirmation */}
       <AlertDialog open={showConfirm} onOpenChange={setShowConfirm}>
