@@ -118,10 +118,17 @@
 
 /* Print Styles */
 @media print {
+  /* Hide everything by default */
   body * {
     visibility: hidden;
   }
   
+  /* Hide elements with no-print class completely */
+  .no-print {
+    display: none !important;
+  }
+  
+  /* Show print content */
   .print-content,
   .print-content * {
     visibility: visible;
@@ -132,6 +139,8 @@
     left: 0;
     top: 0;
     width: 100%;
+    background: white !important;
+    color: black !important;
   }
 }
 

@@ -1,0 +1,377 @@
+/**
+ * E3-17 Test: Verify PATCH endpoint audit logging and userRole capture
+ * 
+ * Tests both fixes:
+ * 1. PATCH endpoint status updates are now audited
+ * 2. userRole is captured as a snapshot in AuditLog
+ */
+
+const axios = require('axios');
+const { PrismaClient } = require('@prisma/client');
+
+const prisma = new PrismaClient();
+const BASE_URL = 'http://localhost:3000';
+
+// Test credentials
+const STAFF_CREDS = { email: 'staff@sobhana.com', password: 'password123' };
+const ADMIN_CREDS = { email: 'admin@sobhana.com', password: 'password123' };
+
+let staffToken, adminToken, branchId, patientId, testId;
+
+async function login(credentials) {
+  const response = await axios.post(`${BASE_URL}/api/auth/login`, credentials);
+  return response.data.token;
+}
+
+async function setupTestData() {
+  console.log('\n=== SETUP: Creating test data ===');
+  
+  // Get branch (CNT from seed)
+  const branch = await prisma.branch.findFirst({
+    where: { code: 'CNT' }
+  });
+  branchId = branch.id;
+  console.log(`✓ Using branch: ${branch.name} (${branchId})`);
+  
+  // Create a test patient
+  const patient = await prisma.patient.create({
+    data: {
+      patientNumber: 'TEST-' + Date.now(),
+      name: 'Test Patient for E3-17',
+      yearOfBirth: 1990,
+      gender: 'M',
+    }
+  });
+  patientId = patient.id;
+  console.log(`✓ Created patient: ${patient.name} (${patientId})`);
+  
+  // Get a test ID
+  const test = await prisma.labTest.findFirst();
+  testId = test.id;
+  console.log(`✓ Using test: ${test.name} (${testId})`);
+}
+
+async function testPatchAuditLogging() {
+  console.log('\n=== TEST 1: PATCH Endpoint Audit Logging ===');
+  
+  try {
+    // Create a diagnostic visit (STAFF role)
+    console.log('\n1. Creating diagnostic visit as STAFF...');
+    const createResponse = await axios.post(
+      `${BASE_URL}/api/visits/diagnostic`,
+      {
+        patientId,
+        testIds: [testId], // Need at least one test
+        paymentType: 'CASH',
+      },
+      {
+        headers: { Authorization: `Bearer ${staffToken}` }
+      }
+    );
+    const visitId = createResponse.data.id;
+    console.log(`✓ Created visit: ${visitId}`);
+    
+    // Check CREATE audit log
+    const createAudit = await prisma.auditLog.findFirst({
+      where: {
+        entityType: 'VISIT',
+        entityId: visitId,
+        actionType: 'CREATE'
+      }
+    });
+    
+    if (!createAudit) {
+      console.error('✗ CREATE audit log not found');
+      return false;
+    }
+    console.log(`✓ CREATE audit logged with role: ${createAudit.userRole || 'NULL'}`);
+    
+    // Wait a moment for timestamp difference
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // PATCH: Update visit status (STAFF role)
+    console.log('\n2. Updating visit status to IN_PROGRESS as STAFF...');
+    await axios.patch(
+      `${BASE_URL}/api/visits/diagnostic/${visitId}`,
+      { status: 'IN_PROGRESS' },
+      {
+        headers: { Authorization: `Bearer ${staffToken}` }
+      }
+    );
+    console.log('✓ Status updated to IN_PROGRESS');
+    
+    // Check UPDATE audit log from PATCH
+    const patchAudit = await prisma.auditLog.findFirst({
+      where: {
+        entityType: 'VISIT',
+        entityId: visitId,
+        actionType: 'UPDATE',
+        createdAt: { gt: createAudit.createdAt } // After CREATE
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    
+    if (!patchAudit) {
+      console.error('✗ PATCH UPDATE audit log not found');
+      return false;
+    }
+    
+    console.log(`✓ PATCH UPDATE audit logged`);
+    
+    // Verify oldValues and newValues
+    const oldValues = JSON.parse(patchAudit.oldValues || '{}');
+    const newValues = JSON.parse(patchAudit.newValues || '{}');
+    
+    console.log(`  Old status: ${oldValues.status}`);
+    console.log(`  New status: ${newValues.status}`);
+    
+    if (oldValues.status !== 'WAITING' && oldValues.status !== 'DRAFT') {
+      console.error(`✗ Expected oldValues.status to be WAITING or DRAFT, got: ${oldValues.status}`);
+      return false;
+    }
+    
+    if (newValues.status !== 'IN_PROGRESS') {
+      console.error(`✗ Expected newValues.status to be IN_PROGRESS, got: ${newValues.status}`);
+      return false;
+    }
+    
+    console.log('✓ Old/new values captured correctly');
+    
+    // Wait a moment for timestamp difference
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // PATCH: Update payment status (ADMIN role)
+    console.log('\n3. Updating payment status to PAID as ADMIN...');
+    await axios.patch(
+      `${BASE_URL}/api/visits/diagnostic/${visitId}`,
+      { paymentStatus: 'PAID' },
+      {
+        headers: { Authorization: `Bearer ${adminToken}` }
+      }
+    );
+    console.log('✓ Payment status updated to PAID');
+    
+    // Check second UPDATE audit log
+    const paymentAudit = await prisma.auditLog.findFirst({
+      where: {
+        entityType: 'VISIT',
+        entityId: visitId,
+        actionType: 'UPDATE',
+        createdAt: { gt: patchAudit.createdAt } // After first PATCH
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    
+    if (!paymentAudit) {
+      console.error('✗ Payment UPDATE audit log not found');
+      return false;
+    }
+    
+    console.log(`✓ Payment UPDATE audit logged`);
+    
+    const paymentOldValues = JSON.parse(paymentAudit.oldValues || '{}');
+    const paymentNewValues = JSON.parse(paymentAudit.newValues || '{}');
+    
+    console.log(`  Old paymentStatus: ${paymentOldValues.paymentStatus}`);
+    console.log(`  New paymentStatus: ${paymentNewValues.paymentStatus}`);
+    
+    if (paymentNewValues.paymentStatus !== 'PAID') {
+      console.error(`✗ Expected paymentStatus to be PAID, got: ${paymentNewValues.paymentStatus}`);
+      return false;
+    }
+    
+    console.log('✓ Payment update captured correctly');
+    
+    console.log('\n✅ TEST 1 PASSED: PATCH endpoint audit logging works');
+    return true;
+    
+  } catch (error) {
+    console.error('✗ TEST 1 FAILED:', error.response?.data || error.message);
+    return false;
+  }
+}
+
+async function testUserRoleCapture() {
+  console.log('\n=== TEST 2: User Role Snapshot Capture ===');
+  
+  try {
+    // Create a visit as STAFF
+    console.log('\n1. Creating visit as STAFF user...');
+    const createResponse = await axios.post(
+      `${BASE_URL}/api/visits/diagnostic`,
+      {
+        patientId,
+        testIds: [testId],
+        paymentType: 'INSURANCE',
+      },
+      {
+        headers: { Authorization: `Bearer ${staffToken}` }
+      }
+    );
+    const visitId = createResponse.data.id;
+    console.log(`✓ Created visit: ${visitId}`);
+    
+    // Check audit log has userRole
+    const staffAudit = await prisma.auditLog.findFirst({
+      where: {
+        entityType: 'VISIT',
+        entityId: visitId,
+        actionType: 'CREATE'
+      }
+    });
+    
+    if (!staffAudit) {
+      console.error('✗ Audit log not found');
+      return false;
+    }
+    
+    console.log(`✓ Audit log found`);
+    console.log(`  userId: ${staffAudit.userId}`);
+    console.log(`  userRole: ${staffAudit.userRole || 'NULL'}`);
+    
+    if (!staffAudit.userRole) {
+      console.error('✗ userRole is NULL - not captured');
+      return false;
+    }
+    
+    if (staffAudit.userRole !== 'staff') {
+      console.error(`✗ Expected role 'staff', got: ${staffAudit.userRole}`);
+      return false;
+    }
+    
+    console.log('✓ STAFF role captured correctly');
+    
+    // Wait a moment
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Update visit as ADMIN
+    console.log('\n2. Updating visit as ADMIN user...');
+    await axios.patch(
+      `${BASE_URL}/api/visits/diagnostic/${visitId}`,
+      { status: 'COMPLETED' },
+      {
+        headers: { Authorization: `Bearer ${adminToken}` }
+      }
+    );
+    console.log('✓ Status updated to COMPLETED');
+    
+    // Check admin's audit log
+    const adminAudit = await prisma.auditLog.findFirst({
+      where: {
+        entityType: 'VISIT',
+        entityId: visitId,
+        actionType: 'UPDATE',
+        createdAt: { gt: staffAudit.createdAt }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    
+    if (!adminAudit) {
+      console.error('✗ Admin audit log not found');
+      return false;
+    }
+    
+    console.log(`✓ Admin audit log found`);
+    console.log(`  userId: ${adminAudit.userId}`);
+    console.log(`  userRole: ${adminAudit.userRole || 'NULL'}`);
+    
+    if (!adminAudit.userRole) {
+      console.error('✗ userRole is NULL - not captured');
+      return false;
+    }
+    
+    if (adminAudit.userRole !== 'admin') {
+      console.error(`✗ Expected role 'admin', got: ${adminAudit.userRole}`);
+      return false;
+    }
+    
+    console.log('✓ ADMIN role captured correctly');
+    
+    // Verify immutability - check that we have both snapshots
+    console.log('\n3. Verifying role immutability...');
+    const allAudits = await prisma.auditLog.findMany({
+      where: {
+        entityType: 'VISIT',
+        entityId: visitId
+      },
+      orderBy: { createdAt: 'asc' }
+    });
+    
+    console.log(`✓ Found ${allAudits.length} audit logs for this visit:`);
+    allAudits.forEach((audit, idx) => {
+      console.log(`  ${idx + 1}. ${audit.actionType} by ${audit.userRole || 'NULL'} at ${audit.createdAt.toISOString()}`);
+    });
+    
+    // Verify we have different roles in history
+    const roles = allAudits.map(a => a.userRole).filter(Boolean);
+    const uniqueRoles = [...new Set(roles)];
+    
+    if (uniqueRoles.length < 2) {
+      console.error('✗ Expected at least 2 different roles in audit history');
+      return false;
+    }
+    
+    console.log(`✓ Multiple roles captured: ${uniqueRoles.join(', ')}`);
+    console.log('✓ Role snapshots are immutable - each action preserves the role at that time');
+    
+    console.log('\n✅ TEST 2 PASSED: User role snapshot capture works');
+    return true;
+    
+  } catch (error) {
+    console.error('✗ TEST 2 FAILED:', error.response?.data || error.message);
+    return false;
+  }
+}
+
+async function cleanup() {
+  console.log('\n=== Cleanup ===');
+  await prisma.$disconnect();
+  console.log('✓ Database connection closed');
+}
+
+async function runTests() {
+  console.log('╔═══════════════════════════════════════════════════════════╗');
+  console.log('║  E3-17 Verification: PATCH Audit + Role Snapshot Tests   ║');
+  console.log('╚═══════════════════════════════════════════════════════════╝');
+  
+  try {
+    // Login
+    console.log('\n=== Authentication ===');
+    staffToken = await login(STAFF_CREDS);
+    console.log('✓ Logged in as STAFF');
+    adminToken = await login(ADMIN_CREDS);
+    console.log('✓ Logged in as ADMIN');
+    
+    // Setup
+    await setupTestData();
+    
+    // Run tests
+    const test1Pass = await testPatchAuditLogging();
+    const test2Pass = await testUserRoleCapture();
+    
+    // Summary
+    console.log('\n╔═══════════════════════════════════════════════════════════╗');
+    console.log('║                      TEST SUMMARY                         ║');
+    console.log('╚═══════════════════════════════════════════════════════════╝');
+    console.log(`\nTest 1 (PATCH Audit Logging):     ${test1Pass ? '✅ PASSED' : '❌ FAILED'}`);
+    console.log(`Test 2 (Role Snapshot Capture):   ${test2Pass ? '✅ PASSED' : '❌ FAILED'}`);
+    
+    if (test1Pass && test2Pass) {
+      console.log('\n🎉 ALL TESTS PASSED! Both E3-17 fixes verified.');
+      console.log('\n✓ Fix 1: PATCH endpoint now logs status/payment updates');
+      console.log('✓ Fix 2: userRole is captured as immutable snapshot in AuditLog');
+    } else {
+      console.log('\n❌ SOME TESTS FAILED - see details above');
+      process.exit(1);
+    }
+    
+  } catch (error) {
+    console.error('\n💥 Test execution error:', error.message);
+    process.exit(1);
+  } finally {
+    await cleanup();
+  }
+}
+
+// Run tests
+runTests();
