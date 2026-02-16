@@ -267,6 +267,7 @@ export interface VisitTimelineItem {
   // Diagnostic specific
   reportStatus?: ReportVersionStatus; // DRAFT | FINALIZED (only if report exists)
   reportVersionId?: string;           // For "View Report" link
+  reportAccessToken?: string;         // DB access token for PDF download
   finalizedAt?: Date | null;
 }
 

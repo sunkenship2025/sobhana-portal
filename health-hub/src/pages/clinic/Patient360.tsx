@@ -11,7 +11,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, FileText, ChevronRight, User, Lock, IndianRupee, Printer } from 'lucide-react';
+import { ArrowLeft, FileText, ChevronRight, User, Lock, IndianRupee, Printer, MessageCircle, Eye, X, Loader2, Download } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import type { Patient360View, VisitTimelineItem, VisitDomain } from '@/types';
@@ -96,41 +96,52 @@ interface VisitDetailDrawerProps {
   visit: VisitTimelineItem | null;
   open: boolean;
   onClose: () => void;
+  patientPhone?: string;
+  patientName?: string;
+  onPreviewReport?: (token: string) => void;
 }
 
-function VisitDetailDrawer({ visit, open, onClose }: VisitDetailDrawerProps) {
+function VisitDetailDrawer({ visit, open, onClose, patientPhone, patientName, onPreviewReport }: VisitDetailDrawerProps) {
   const { token } = useAuthStore();
   
   if (!visit) return null;
 
   const isDiagnostic = visit.domain === 'DIAGNOSTICS';
 
-  const handleViewSecureReport = async () => {
-    if (!visit.reportVersionId) return;
-    
-    try {
-      // Generate secure token for report access
-      const response = await fetch(`${API_BASE}/reports/generate-token`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ reportVersionId: visit.reportVersionId }),
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to generate report token');
-      }
-      
-      const { token: reportToken } = await response.json();
-      
-      // Open report in new tab with secure token
-      window.open(`/report/view?token=${reportToken}`, '_blank');
-    } catch (error) {
-      console.error('Failed to generate report token:', error);
-      toast.error('Failed to open report. Please try again.');
+  const handlePreviewReport = () => {
+    if (!visit.reportAccessToken) {
+      toast.error('Report not available.');
+      return;
     }
+    onPreviewReport?.(visit.reportAccessToken);
+  };
+
+  const handlePrintReport = () => {
+    if (!visit.reportAccessToken) {
+      toast.error('Report not available.');
+      return;
+    }
+    const printWindow = window.open(`/reports/${visit.reportAccessToken}/view`, '_blank');
+    if (printWindow) {
+      printWindow.addEventListener('load', () => {
+        setTimeout(() => printWindow.print(), 500);
+      });
+    }
+  };
+
+  const handleWhatsAppReport = () => {
+    if (!patientPhone) {
+      toast.error('No phone number available for this patient.');
+      return;
+    }
+    if (!visit.reportAccessToken) {
+      toast.error('Report link not available.');
+      return;
+    }
+    const reportUrl = `${window.location.origin}/reports/${visit.reportAccessToken}`;
+    const message = `🔬 Lab Report Ready!\n\nDear ${patientName || 'Patient'},\n\nYour lab report (Bill #: ${visit.billNumber}) is ready.\n\nDownload your report: ${reportUrl}\n\nThank you for choosing Sobhana Diagnostics.`;
+    const url = `https://wa.me/${patientPhone}?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
   };
 
   const handlePrintBill = () => {
@@ -209,16 +220,38 @@ function VisitDetailDrawer({ visit, open, onClose }: VisitDetailDrawerProps) {
                     Finalized on {formatDate(visit.finalizedAt)}
                   </p>
                 )}
-                {visit.reportStatus === 'FINALIZED' && visit.reportVersionId && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleViewSecureReport}
-                    className="mt-3 w-full"
-                  >
-                    <FileText className="h-4 w-4 mr-2" />
-                    Open Report in New Tab
-                  </Button>
+                {visit.reportStatus === 'FINALIZED' && visit.reportAccessToken && (
+                  <div className="mt-3 space-y-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handlePreviewReport}
+                      className="w-full"
+                    >
+                      <Eye className="h-4 w-4 mr-2" />
+                      Preview Report
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handlePrintReport}
+                      className="w-full"
+                    >
+                      <Printer className="h-4 w-4 mr-2" />
+                      Print Report
+                    </Button>
+                    {patientPhone && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleWhatsAppReport}
+                        className="w-full text-green-600 hover:text-green-700 hover:bg-green-50"
+                      >
+                        <MessageCircle className="h-4 w-4 mr-2" />
+                        Send on WhatsApp
+                      </Button>
+                    )}
+                  </div>
                 )}
               </div>
             </>
@@ -266,6 +299,9 @@ export default function Patient360() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedVisit, setSelectedVisit] = useState<VisitTimelineItem | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     if (patientId) {
@@ -290,29 +326,22 @@ export default function Patient360() {
     setDrawerOpen(true);
   };
 
-  const handleViewReport = async (reportVersionId: string) => {
+  const handlePreviewReport = async (reportAccessToken: string) => {
+    setPreviewLoading(true);
     try {
-      // Generate secure token for report access
-      const response = await fetch(`${API_BASE}/reports/generate-token`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ reportVersionId }),
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to generate report token');
+      const response = await fetch(`/reports/${reportAccessToken}/view`);
+      if (response.ok) {
+        const html = await response.text();
+        setPreviewHtml(html);
+        setShowPreview(true);
+      } else {
+        toast.error('Failed to load report preview');
       }
-      
-      const { token: reportToken } = await response.json();
-      
-      // Open report in new tab with secure token
-      window.open(`/report/view?token=${reportToken}`, '_blank');
     } catch (error) {
-      console.error('Failed to generate report token:', error);
-      toast.error('Failed to open report. Please try again.');
+      console.error('Preview failed:', error);
+      toast.error('Failed to load report preview');
+    } finally {
+      setPreviewLoading(false);
     }
   };
 
@@ -502,7 +531,7 @@ export default function Patient360() {
               {visitTimeline.map((visit) => {
                 const isDiagnostic = visit.domain === 'DIAGNOSTICS';
                 const canViewReport =
-                  isDiagnostic && visit.reportStatus === 'FINALIZED' && visit.reportVersionId;
+                  isDiagnostic && visit.reportStatus === 'FINALIZED' && visit.reportAccessToken;
 
                 return (
                   <Card key={visit.visitId} className="overflow-hidden">
@@ -565,16 +594,21 @@ export default function Patient360() {
 
                         {/* Actions Column */}
                         <div className="flex flex-col gap-2 shrink-0 min-w-[140px]">
-                          {/* View Report Button - ONLY for FINALIZED diagnostics */}
+                          {/* Preview Report Button - ONLY for FINALIZED diagnostics */}
                           {canViewReport && (
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => handleViewReport(visit.reportVersionId!)}
+                              onClick={() => handlePreviewReport(visit.reportAccessToken!)}
+                              disabled={previewLoading}
                               className="text-xs w-full justify-start"
                             >
-                              <FileText className="h-3 w-3 mr-2" />
-                              View Report
+                              {previewLoading ? (
+                                <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                              ) : (
+                                <Eye className="h-3 w-3 mr-2" />
+                              )}
+                              {previewLoading ? 'Loading...' : 'View Report'}
                             </Button>
                           )}
 
@@ -615,7 +649,66 @@ export default function Patient360() {
           setDrawerOpen(false);
           setSelectedVisit(null);
         }}
+        patientPhone={primaryPhone}
+        patientName={patient.name}
+        onPreviewReport={(token) => {
+          setDrawerOpen(false);
+          handlePreviewReport(token);
+        }}
       />
+
+      {/* Full-Screen Report Preview Modal */}
+      {showPreview && previewHtml && (
+        <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col">
+          {/* Modal Header */}
+          <div className="flex items-center justify-between px-6 py-3 border-b bg-background">
+            <div className="flex items-center gap-3">
+              <Eye className="h-5 w-5 text-primary" />
+              <div>
+                <h2 className="font-semibold text-lg">Report Preview</h2>
+                <p className="text-xs text-muted-foreground">Finalized report — read-only view</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {primaryPhone && selectedVisit?.reportAccessToken && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const reportUrl = `${window.location.origin}/reports/${selectedVisit.reportAccessToken}`;
+                    const message = `🔬 Lab Report Ready!\n\nDear ${patient.name},\n\nYour lab report (Bill #: ${selectedVisit.billNumber}) is ready.\n\nDownload your report: ${reportUrl}\n\nThank you for choosing Sobhana Diagnostics.`;
+                    window.open(`https://wa.me/${primaryPhone}?text=${encodeURIComponent(message)}`, '_blank');
+                  }}
+                  className="text-green-600 hover:text-green-700"
+                >
+                  <MessageCircle className="h-4 w-4 mr-2" />
+                  WhatsApp
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  setShowPreview(false);
+                  setPreviewHtml(null);
+                }}
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+          </div>
+          {/* Iframe with Report HTML */}
+          <div className="flex-1 overflow-hidden bg-muted p-4">
+            <iframe
+              srcDoc={previewHtml}
+              className="w-full h-full rounded-lg shadow-xl border bg-white mx-auto"
+              style={{ maxWidth: '900px', display: 'block', margin: '0 auto' }}
+              title="Report Preview"
+              sandbox="allow-same-origin"
+            />
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }
