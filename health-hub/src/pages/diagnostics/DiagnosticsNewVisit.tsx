@@ -105,10 +105,7 @@ const DiagnosticsNewVisit = () => {
         });
         if (res.ok) {
           const results = await res.json();
-          // Backend returns { patient: {...}, historySnapshot: [...] }
-          // Extract just the patient objects
-          const patients = results.map((r: any) => r.patient);
-          setMatchingPatients(patients);
+          setMatchingPatients(results);
           setSelectedPatient(null);
           setShowNewPatientForm(false);
         }
@@ -130,10 +127,7 @@ const DiagnosticsNewVisit = () => {
         });
         if (res.ok) {
           const results = await res.json();
-          // Backend returns { patient: {...}, historySnapshot: [...] }
-          // Extract just the patient objects
-          const patients = results.map((r: any) => r.patient);
-          setMatchingPatients(patients);
+          setMatchingPatients(results);
         }
       } catch (error) {
         console.error('Search failed:', error);

@@ -366,6 +366,242 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
 }
 
 /**
+ * Builds an ephemeral (non-persisted) snapshot from live draft data.
+ * Used for staff preview before finalization — same rendering pipeline,
+ * but nothing is saved and no finalization status is required.
+ */
+export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSnapshot> {
+  // Find the visit's report and its latest version (DRAFT)
+  const visit = await prisma.visit.findUnique({
+    where: { id: visitId },
+    include: {
+      patient: {
+        include: {
+          identifiers: {
+            where: { type: 'PHONE', isPrimary: true },
+            take: 1,
+          },
+        },
+      },
+      branch: true,
+      referrals: {
+        include: { referralDoctor: true },
+        take: 1,
+      },
+      report: {
+        include: {
+          versions: {
+            orderBy: { versionNum: 'desc' },
+            take: 1,
+            include: {
+              testResults: {
+                include: {
+                  test: {
+                    include: {
+                      panelItems: {
+                        include: {
+                          panel: {
+                            include: { department: true },
+                          },
+                        },
+                      },
+                      interpretations: {
+                        where: { isActive: true },
+                        orderBy: { displayOrder: 'asc' },
+                      },
+                    },
+                  },
+                  testOrder: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!visit) {
+    throw new Error(`Visit ${visitId} not found`);
+  }
+
+  const reportVersion = visit.report?.versions?.[0];
+  if (!reportVersion) {
+    throw new Error(`No report version found for visit ${visitId}`);
+  }
+
+  if (reportVersion.testResults.length === 0) {
+    throw new Error('No test results entered yet');
+  }
+
+  const patient = visit.patient;
+
+  // Build panel snapshots — same logic as createReportSnapshot
+  const panelMap = new Map<string, { panel: any; results: any[] }>();
+
+  for (const result of reportVersion.testResults) {
+    const test = result.test;
+
+    for (const panelItem of test.panelItems) {
+      const panel = panelItem.panel;
+      const key = panel.id;
+
+      if (!panelMap.has(key)) {
+        panelMap.set(key, { panel, results: [] });
+      }
+
+      let interpretationText: string | null = null;
+      if (result.value !== null && test.interpretations.length > 0) {
+        for (const interp of test.interpretations) {
+          const minOk = interp.minValue === null || result.value >= interp.minValue;
+          const maxOk = interp.maxValue === null || result.value < interp.maxValue;
+          if (minOk && maxOk) {
+            interpretationText = interp.interpretationText;
+            break;
+          }
+        }
+      }
+
+      panelMap.get(key)!.results.push({
+        testId: test.id,
+        testCode: test.code,
+        testName: test.name,
+        value: result.value,
+        flag: result.flag,
+        notes: result.notes,
+        referenceMin: test.referenceMin,
+        referenceMax: test.referenceMax,
+        referenceUnit: test.referenceUnit,
+        methodText: panelItem.methodText,
+        displayOrder: panelItem.displayOrder,
+        indentLevel: panelItem.indentLevel,
+        subGroup: panelItem.subGroup,
+        interpretationText,
+      });
+    }
+  }
+
+  // Group panels by department
+  const departmentMap = new Map<string, DepartmentSnapshot>();
+
+  for (const [_panelId, { panel, results }] of panelMap) {
+    const dept = panel.department;
+    const deptId = dept.id;
+
+    if (!departmentMap.has(deptId)) {
+      departmentMap.set(deptId, {
+        departmentId: deptId,
+        departmentName: dept.name,
+        departmentHeaderText: dept.reportHeaderText,
+        displayOrder: dept.displayOrder,
+        panels: [],
+      });
+    }
+
+    results.sort((a: any, b: any) => a.displayOrder - b.displayOrder);
+
+    let interpretationHtml: string | undefined;
+    if (panel.layoutType === 'INTERPRETATION_SINGLE') {
+      const interpretations = results
+        .filter((r: any) => r.interpretationText)
+        .map((r: any) => r.interpretationText);
+      if (interpretations.length > 0) {
+        interpretationHtml = interpretations.join('\n\n');
+      }
+    }
+
+    departmentMap.get(deptId)!.panels.push({
+      panelId: panel.id,
+      panelName: panel.name,
+      displayName: panel.displayName,
+      layoutType: panel.layoutType,
+      displayOrder: panel.displayOrder,
+      departmentId: deptId,
+      departmentName: dept.name,
+      departmentHeaderText: dept.reportHeaderText,
+      tests: results,
+      interpretationHtml,
+    });
+  }
+
+  const departments = Array.from(departmentMap.values())
+    .sort((a, b) => a.displayOrder - b.displayOrder);
+
+  for (const dept of departments) {
+    dept.panels.sort((a, b) => a.displayOrder - b.displayOrder);
+  }
+
+  // Build signature snapshots
+  const reportDeptIds = new Set(departments.map(d => d.departmentId));
+  const signingRules = await prisma.signingRule.findMany({
+    where: {
+      departmentId: { in: Array.from(reportDeptIds) },
+      isActive: true,
+    },
+    include: { signingDoctor: true },
+    orderBy: { displayOrder: 'asc' },
+  });
+
+  const signatureMap = new Map<string, SignatureSnapshot>();
+  for (const rule of signingRules) {
+    const doc = rule.signingDoctor;
+    if (!signatureMap.has(doc.id)) {
+      signatureMap.set(doc.id, {
+        doctorId: doc.id,
+        doctorName: doc.name,
+        degrees: doc.degrees,
+        designation: doc.designation,
+        registrationNumber: doc.registrationNumber,
+        signatureImagePath: doc.signatureImagePath,
+        showLabInchargeNote: rule.showLabInchargeNote,
+        displayOrder: rule.displayOrder,
+      });
+    }
+  }
+
+  const signatures = Array.from(signatureMap.values())
+    .sort((a, b) => a.displayOrder - b.displayOrder);
+
+  // Build patient snapshot
+  const currentYear = new Date().getFullYear();
+  const age = currentYear - patient.yearOfBirth;
+
+  const patientSnapshot: PatientSnapshot = {
+    patientId: patient.id,
+    patientNumber: patient.patientNumber,
+    name: patient.name,
+    gender: patient.gender,
+    yearOfBirth: patient.yearOfBirth,
+    dateOfBirth: patient.dateOfBirth?.toISOString() || null,
+    age,
+    phone: patient.identifiers[0]?.value || null,
+    address: patient.address,
+  };
+
+  // Build visit snapshot — use current time as placeholder for finalizedAt
+  const visitSnapshot: VisitSnapshot = {
+    visitId: visit.id,
+    billNumber: visit.billNumber,
+    branchId: visit.branchId,
+    branchName: visit.branch.name,
+    branchCode: visit.branch.code,
+    referralDoctorName: visit.referrals[0]?.referralDoctor.name || null,
+    createdAt: visit.createdAt.toISOString(),
+    finalizedAt: new Date().toISOString(),
+  };
+
+  return {
+    snapshotVersion: 1,
+    reportVersionId: reportVersion.id,
+    versionNum: reportVersion.versionNum,
+    departments,
+    signatures,
+    patient: patientSnapshot,
+    visit: visitSnapshot,
+  };
+}
+
+/**
  * Saves the snapshot to the ReportVersion record.
  * Called during finalization.
  */

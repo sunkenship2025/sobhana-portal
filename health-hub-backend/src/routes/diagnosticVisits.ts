@@ -60,6 +60,13 @@ router.get('/', async (req: AuthRequest, res) => {
             versions: {
               orderBy: { versionNum: 'desc' },
               take: 1,
+              include: {
+                accessTokens: {
+                  take: 1,
+                  orderBy: { createdAt: 'desc' },
+                  select: { token: true },
+                },
+              },
             },
           },
         },
@@ -79,6 +86,7 @@ router.get('/', async (req: AuthRequest, res) => {
       totalAmount: v.totalAmountInPaise / 100,
       paymentType: v.bill?.paymentType || 'CASH',
       paymentStatus: v.bill?.paymentStatus || 'PENDING',
+      reportToken: (v.report?.versions?.[0] as any)?.accessTokens?.[0]?.token || null,
       referralDoctorId: v.referrals[0]?.referralDoctorId || null,
       referralDoctor: v.referrals[0]?.referralDoctor || null,
       testOrders: v.testOrders.map((to) => ({
@@ -907,6 +915,45 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
     return res.status(500).json({
       error: 'INTERNAL_ERROR',
       message: 'Failed to save test results',
+    });
+  }
+});
+
+// GET /api/visits/diagnostic/:id/preview-report - Generate ephemeral HTML preview of the report
+// Staff can see the actual branded report layout BEFORE finalizing (nothing is saved)
+router.get('/:id/preview-report', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verify the visit belongs to this branch
+    const visit = await prisma.visit.findFirst({
+      where: { id, branchId: req.branchId, domain: 'DIAGNOSTICS' },
+      select: { id: true, status: true },
+    });
+
+    if (!visit) {
+      return res.status(404).json({ error: 'Visit not found' });
+    }
+
+    // Build ephemeral snapshot from live data (no persistence)
+    const { buildEphemeralSnapshot } = await import('../services/reportSnapshotService');
+    const snapshot = await buildEphemeralSnapshot(id);
+
+    // Render HTML using the same renderer as the PDF pipeline
+    const { renderReportHtml } = await import('../services/reportRendererService');
+    const html = renderReportHtml(snapshot, {
+      mode: 'screen',
+      baseUrl: `${req.protocol}://${req.get('host')}`,
+    });
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    return res.send(html);
+  } catch (err: any) {
+    console.error('Preview report error:', err);
+    return res.status(500).json({
+      error: 'PREVIEW_FAILED',
+      message: err.message || 'Failed to generate report preview',
     });
   }
 });
