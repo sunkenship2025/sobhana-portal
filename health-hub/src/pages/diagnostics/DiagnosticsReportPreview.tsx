@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +8,7 @@ import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { FlagBadge } from '@/components/ui/flag-badge';
 import { toast } from 'sonner';
-import { AlertTriangle, ArrowLeft, CheckCircle2, Lock, Printer, MessageCircle, Loader2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, Lock, Printer, MessageCircle, Loader2, Eye, X } from 'lucide-react';
 import { ReportPrint } from '@/components/print/ReportPrint';
 import {
   AlertDialog,
@@ -78,7 +78,10 @@ const DiagnosticsReportPreview = () => {
   const [loading, setLoading] = useState(true);
   const [finalizing, setFinalizing] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const printRef = useRef<HTMLDivElement>(null);
+  const [reportToken, setReportToken] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   // Fetch visit from API
   useEffect(() => {
@@ -97,6 +100,12 @@ const DiagnosticsReportPreview = () => {
         if (response.ok) {
           const data = await response.json();
           setVisit(data);
+          
+          // E3-10: Check if report is finalized and has an access token
+          const latestVersion = data.report?.versions?.[0];
+          if (latestVersion?.status === 'FINALIZED' && latestVersion?.accessToken) {
+            setReportToken(latestVersion.accessToken);
+          }
         } else {
           toast.error('Failed to load visit');
         }
@@ -139,17 +148,25 @@ const DiagnosticsReportPreview = () => {
   const latestVersion = (visit.report as any)?.versions?.[0];
   const testResults = latestVersion?.testResults || [];
   
-  // Build results with test info
-  // E3-03: Match results by testOrderId (not testId) since test results are linked to test orders
-  const results = testResults.map((result: any) => {
-    const order = testOrders.find(o => o.id === result.testOrderId);
+  // Group results by parent test order for proper display
+  // Each result now includes testName, testCode, and referenceRange from the backend
+  const groupedResults = testOrders.map((order: any) => {
+    // Find all results that belong to this test order (parent or sub-tests)
+    const orderResults = testResults.filter((r: any) => r.testOrderId === order.id);
     return {
-      ...result,
-      testName: order?.testName || result.testName || 'Unknown Test',
-      testCode: order?.testCode || result.testCode || '',
-      referenceRange: order?.referenceRange || { min: 0, max: 0, unit: '' }
+      order,
+      results: orderResults.map((result: any) => ({
+        ...result,
+        // testName, testCode, referenceRange are now provided by backend
+        testName: result.testName || 'Unknown Test',
+        testCode: result.testCode || '',
+        referenceRange: result.referenceRange || { min: 0, max: 0, unit: '' }
+      }))
     };
-  });
+  }).filter((g: any) => g.results.length > 0);
+
+  // Flatten for backward compatibility
+  const results = groupedResults.flatMap((g: any) => g.results);
   
   const hasAbnormalValues = results.some((r) => r.flag === 'HIGH' || r.flag === 'LOW');
   const isFinalized = visit.status === 'COMPLETED';
@@ -167,7 +184,16 @@ const DiagnosticsReportPreview = () => {
       });
 
       if (response.ok) {
-        toast.success('Report finalized successfully');
+        const data = await response.json();
+        const newReportToken = data.reportToken;
+        
+        if (newReportToken) {
+          setReportToken(newReportToken);
+          toast.success('Report finalized successfully');
+        } else {
+          toast.warning('Report finalized but access link generation failed');
+        }
+        
         setShowConfirm(false);
         
         // Refresh visit data
@@ -182,10 +208,11 @@ const DiagnosticsReportPreview = () => {
           setVisit(refreshData);
         }
         
-        // Auto-send WhatsApp message to patient
+        // Auto-send WhatsApp message with secure report link
         const phone = patient.identifiers?.find(id => id.type === 'PHONE')?.value;
-        if (phone) {
-          const message = `🔬 Lab Report Ready!\n\nDear ${patient.name},\n\nYour lab report (Bill #: ${visit.billNumber}) is now ready.\n\nPlease visit the clinic to collect your report.\n\nThank you for choosing Sobhana Diagnostics.`;
+        if (phone && newReportToken) {
+          const reportUrl = `${window.location.origin}/reports/${newReportToken}`;
+          const message = `🔬 Lab Report Ready!\n\nDear ${patient.name},\n\nYour lab report (Bill #: ${visit.billNumber}) is now ready.\n\nDownload your report: ${reportUrl}\n\nThank you for choosing Sobhana Diagnostics.`;
           const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
           window.open(url, '_blank');
         }
@@ -202,21 +229,65 @@ const DiagnosticsReportPreview = () => {
   };
 
   const handlePrint = () => {
-    window.print();
+    if (reportToken) {
+      // Open the report HTML in a new window and trigger browser print dialog
+      const printWindow = window.open(`/reports/${reportToken}/view`, '_blank');
+      if (printWindow) {
+        printWindow.addEventListener('load', () => {
+          setTimeout(() => printWindow.print(), 500);
+        });
+      }
+    } else {
+      toast.error('Report token not available. Please finalize the report first.');
+    }
   };
 
   const handleWhatsApp = () => {
     const phone = patient.identifiers?.find(id => id.type === 'PHONE')?.value;
     if (phone) {
-      const message = `Lab Report Ready\n\nPatient: ${patient.name}\nBill #: ${visit.billNumber}\n\nPlease visit the clinic to collect your report.`;
-      const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-      window.open(url, '_blank');
+      if (reportToken) {
+        const reportUrl = `${window.location.origin}/reports/${reportToken}`;
+        const message = `🔬 Lab Report Ready\n\nPatient: ${patient.name}\nBill #: ${visit.billNumber}\n\nDownload Report: ${reportUrl}\n\nThank you for choosing Sobhana Diagnostics.`;
+        const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+        window.open(url, '_blank');
+      } else {
+        const message = `Lab Report Ready\n\nPatient: ${patient.name}\nBill #: ${visit.billNumber}\n\nPlease visit the clinic to collect your report.`;
+        const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+        window.open(url, '_blank');
+      }
+    }
+  };
+
+  const handlePreviewReport = async () => {
+    setPreviewLoading(true);
+    try {
+      const response = await fetch(`http://localhost:3000/api/visits/diagnostic/${visitId}/preview-report`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Branch-Id': activeBranchId
+        }
+      });
+
+      if (response.ok) {
+        const html = await response.text();
+        setPreviewHtml(html);
+        setShowPreview(true);
+      } else {
+        const err = await response.json().catch(() => ({}));
+        toast.error(err.message || 'Failed to generate report preview');
+      }
+    } catch (error) {
+      console.error('Preview failed:', error);
+      toast.error('Failed to generate report preview');
+    } finally {
+      setPreviewLoading(false);
     }
   };
 
   return (
     <AppLayout context="diagnostics">
-      <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
+      {/* Screen Content - Hidden when printing */}
+      <div className="max-w-3xl mx-auto space-y-6 animate-fade-in no-print">
         {/* Header with Status */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -318,14 +389,25 @@ const DiagnosticsReportPreview = () => {
           <div className="flex gap-3">
             <Button 
               variant="outline" 
-              className="flex-1"
               onClick={() => navigate(`/diagnostics/results/${visit.id}`)}
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back to Edit
             </Button>
             <Button 
+              variant="secondary"
               className="flex-1"
+              onClick={handlePreviewReport}
+              disabled={previewLoading}
+            >
+              {previewLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Eye className="mr-2 h-4 w-4" />
+              )}
+              {previewLoading ? 'Generating...' : 'Preview Actual Report'}
+            </Button>
+            <Button 
               onClick={() => setShowConfirm(true)}
             >
               <CheckCircle2 className="mr-2 h-4 w-4" />
@@ -336,15 +418,25 @@ const DiagnosticsReportPreview = () => {
 
         {/* Finalized Notice */}
         {isFinalized && (
-          <Card className="bg-success/5 border-success/30">
+          <Card className="bg-success/5 border-success/30 no-print">
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
                 <CheckCircle2 className="h-8 w-8 text-success" />
-                <div>
+                <div className="flex-1">
                   <p className="font-semibold">Report Finalized</p>
                   <p className="text-sm text-muted-foreground">
                     This report is now locked and cannot be edited.
                   </p>
+                  {reportToken && (
+                    <a 
+                      href={`/reports/${reportToken}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-primary hover:underline mt-1 inline-block"
+                    >
+                      Download Report →
+                    </a>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -352,11 +444,51 @@ const DiagnosticsReportPreview = () => {
         )}
       </div>
 
-      {/* Print Content - Only this prints */}
-      {/* TODO: Update ReportPrint to work with API data */}
-      <div ref={printRef} className="hidden print:block">
-        {/* ReportPrint component needs visit data in visitView format */}
-      </div>
+      {/* Full-Screen Report Preview Modal */}
+      {showPreview && previewHtml && (
+        <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col">
+          {/* Modal Header */}
+          <div className="flex items-center justify-between px-6 py-3 border-b bg-background">
+            <div className="flex items-center gap-3">
+              <Eye className="h-5 w-5 text-primary" />
+              <div>
+                <h2 className="font-semibold text-lg">Report Preview</h2>
+                <p className="text-xs text-muted-foreground">This is how the final PDF will look to the patient. No data has been saved.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => {
+                  setShowPreview(false);
+                  setShowConfirm(true);
+                }}
+              >
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                Looks Good — Finalize
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowPreview(false)}
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+          </div>
+          {/* Iframe with Report HTML */}
+          <div className="flex-1 overflow-hidden bg-muted p-4">
+            <iframe
+              srcDoc={previewHtml}
+              className="w-full h-full rounded-lg shadow-xl border bg-white mx-auto"
+              style={{ maxWidth: '900px', display: 'block', margin: '0 auto' }}
+              title="Report Preview"
+              sandbox="allow-same-origin"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Finalize Confirmation */}
       <AlertDialog open={showConfirm} onOpenChange={setShowConfirm}>
