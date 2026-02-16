@@ -72,10 +72,17 @@ const DiagnosticsFinalizedReports = () => {
     );
   });
 
-  const handleWhatsApp = (phone: string, name: string, billNumber: string) => {
-    const message = `Lab Report Ready\n\nPatient: ${name}\nBill #: ${billNumber}\n\nPlease visit the clinic to collect your report.`;
-    const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-    window.open(url, '_blank');
+  const handleWhatsApp = (phone: string, name: string, billNumber: string, reportToken?: string) => {
+    if (reportToken) {
+      const reportUrl = `${window.location.origin}/reports/${reportToken}`;
+      const message = `🔬 Lab Report Ready\n\nPatient: ${name}\nBill #: ${billNumber}\n\nDownload Report: ${reportUrl}\n\nThank you for choosing Sobhana Diagnostics.`;
+      const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+      window.open(url, '_blank');
+    } else {
+      const message = `Lab Report Ready\n\nPatient: ${name}\nBill #: ${billNumber}\n\nPlease visit the clinic to collect your report.`;
+      const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+      window.open(url, '_blank');
+    }
   };
 
   if (loading) {
@@ -187,7 +194,7 @@ const DiagnosticsFinalizedReports = () => {
                       <Button 
                         variant="outline" 
                         size="icon"
-                        onClick={() => patient && handleWhatsApp(patient.phone, patient.name, visit.billNumber)}
+                        onClick={() => patient && handleWhatsApp(patient.phone, patient.name, visit.billNumber, visit.reportToken)}
                         title="Send via WhatsApp"
                       >
                         <MessageCircle className="h-4 w-4" />
