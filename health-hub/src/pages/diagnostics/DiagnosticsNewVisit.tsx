@@ -239,7 +239,7 @@ const DiagnosticsNewVisit = () => {
           
           if (userConfirm) {
             // Use existing patient
-            patient = { id: existing.id, patientNumber: existing.patientNumber, name: existing.name, age: existing.age, gender: existing.gender };
+            patient = { id: existing.id, patientNumber: existing.patientNumber, name: existing.name, age: existing.age, yearOfBirth: existing.yearOfBirth, gender: existing.gender, identifiers: existing.identifiers || [], createdAt: existing.createdAt || new Date() };
             toast.success(`Using existing patient ${existing.patientNumber}`);
           } else {
             // User wants to force create duplicate - retry with forceDuplicate flag
@@ -443,7 +443,7 @@ const DiagnosticsNewVisit = () => {
                     setShowNewPatientForm(false);
                     setSelectedDoctorId('');
                     setReferralOverrides({});
-                    setNewPatient({ name: '', age: '', dateOfBirth: '', gender: 'M' }); // E2-09: Reset form
+                    setNewPatient({ name: '', age: '', dateOfBirth: '', gender: 'M', whatsappOptIn: false }); // E2-09: Reset form
                     setValidationErrors({});
                   }}>
                     Create Another Visit
