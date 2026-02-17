@@ -32,6 +32,7 @@ export interface CreatePatientInput {
   branchId: string; // For audit log only
   userId?: string; // For audit log
   forceDuplicate?: boolean; // E2-03: Explicit user confirmation to create duplicate
+  whatsappOptIn?: boolean; // WhatsApp notification consent
 }
 
 export async function createPatient(input: CreatePatientInput) {
@@ -156,6 +157,11 @@ export async function createPatient(input: CreatePatientInput) {
         dateOfBirth, // E2-09: Optional - exact DOB if provided
         gender: input.gender,
         address: input.address,
+        whatsappOptIn: input.whatsappOptIn ?? false,
+        ...(input.whatsappOptIn ? {
+          whatsappOptInAt: new Date(),
+          whatsappOptInSource: 'PATIENT_REGISTRATION_FORM',
+        } : {}),
         identifiers: {
           create: input.identifiers
         }
@@ -227,6 +233,7 @@ export async function searchPatients(query: {
       gender: patient.gender,
       address: patient.address,
       identifiers: patient.identifiers,
+      whatsappOptIn: patient.whatsappOptIn,
       createdAt: patient.createdAt
     },
     historySnapshot: patient.visits.slice(0, 3).map((visit: any) => ({
@@ -365,6 +372,8 @@ export async function getPatient360View(patientId: string) {
       gender: patient.gender,
       address: patient.address,
       identifiers: patient.identifiers,
+      whatsappOptIn: patient.whatsappOptIn,
+      whatsappOptInAt: patient.whatsappOptInAt,
       createdAt: patient.createdAt
     },
     visitTimeline,
@@ -390,6 +399,7 @@ export interface UpdatePatientInput {
     address?: string;
     phone?: string; // Primary phone
     email?: string; // Primary email
+    whatsappOptIn?: boolean; // WhatsApp notification consent
   };
   changeReason?: string;
   userId: string;
@@ -563,6 +573,11 @@ export async function updatePatient(input: UpdatePatientInput) {
     
     if (updates.gender !== undefined) patientUpdates.gender = updates.gender;
     if (updates.address !== undefined) patientUpdates.address = updates.address;
+    if (updates.whatsappOptIn !== undefined) {
+      patientUpdates.whatsappOptIn = updates.whatsappOptIn;
+      patientUpdates.whatsappOptInAt = updates.whatsappOptIn ? new Date() : null;
+      patientUpdates.whatsappOptInSource = updates.whatsappOptIn ? 'STAFF_UPDATE' : null;
+    }
 
     // Update patient main fields
     const updated = await tx.patient.update({

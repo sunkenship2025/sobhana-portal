@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { API_BASE } from '@/lib/api';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,6 +11,7 @@ import { useAppStore } from '@/store/appStore';
 import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { toast } from 'sonner';
 import { CheckCircle2, Search, Eye, Printer, MessageCircle, Loader2 } from 'lucide-react';
 
 const DiagnosticsFinalizedReports = () => {
@@ -27,7 +29,7 @@ const DiagnosticsFinalizedReports = () => {
     const fetchFinalizedVisits = async () => {
       try {
         setLoading(true);
-        const response = await fetch('http://localhost:3000/api/visits/diagnostic?status=COMPLETED', {
+        const response = await fetch(`${API_BASE}/visits/diagnostic?status=COMPLETED`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'X-Branch-Id': activeBranchId
@@ -72,16 +74,24 @@ const DiagnosticsFinalizedReports = () => {
     );
   });
 
-  const handleWhatsApp = (phone: string, name: string, billNumber: string, reportToken?: string) => {
-    if (reportToken) {
-      const reportUrl = `${window.location.origin}/reports/${reportToken}`;
-      const message = `🔬 Lab Report Ready\n\nPatient: ${name}\nBill #: ${billNumber}\n\nDownload Report: ${reportUrl}\n\nThank you for choosing Sobhana Diagnostics.`;
-      const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-      window.open(url, '_blank');
-    } else {
-      const message = `Lab Report Ready\n\nPatient: ${name}\nBill #: ${billNumber}\n\nPlease visit the clinic to collect your report.`;
-      const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-      window.open(url, '_blank');
+  const handleWhatsApp = async (visitId: string) => {
+    try {
+      const response = await fetch(`${API_BASE}/messages/${visitId}/send-report`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-Branch-Id': activeBranchId,
+        },
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        toast.success('Report notification sent via WhatsApp');
+      } else {
+        toast.error(data.error || 'Failed to send WhatsApp notification');
+      }
+    } catch (error) {
+      toast.error('Failed to send WhatsApp notification');
     }
   };
 
@@ -194,7 +204,7 @@ const DiagnosticsFinalizedReports = () => {
                       <Button 
                         variant="outline" 
                         size="icon"
-                        onClick={() => patient && handleWhatsApp(patient.phone, patient.name, visit.billNumber, visit.reportToken)}
+                        onClick={() => handleWhatsApp(visit.id)}
                         title="Send via WhatsApp"
                       >
                         <MessageCircle className="h-4 w-4" />

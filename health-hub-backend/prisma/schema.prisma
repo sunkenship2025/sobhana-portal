@@ -10,11 +10,12 @@
 // 6. All enums are explicit (not strings) to prevent silent inconsistencies
 // 7. AuditLog is insert-only (no updates, no deletes) - append-only event stream
 // 8. Payout derived per test order (not per visit total)
-// 9. SMS delivery via Gupshup (not WhatsApp in Phase-1)
+// 9. Message delivery via WhatsApp Cloud API (with opt-in consent tracking)
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 generator client {
@@ -102,11 +103,25 @@ enum PayoutDoctorType {
   CLINIC
 }
 
-enum SMSDeliveryStatus {
+enum MessageStatus {
   PENDING
   SENT
+  DELIVERED
+  READ
   FAILED
-  RETRY
+}
+
+enum MessageChannel {
+  WHATSAPP
+  SMS
+}
+
+enum MessageContextType {
+  REPORT
+  BILL
+  REMINDER
+  CAMPAIGN
+  PAYMENT
 }
 
 // E3-10: Panel layout types for report rendering
@@ -149,6 +164,11 @@ model Patient {
   address       String?
   createdAt     DateTime  @default(now())
 
+  // WhatsApp notification consent
+  whatsappOptIn       Boolean   @default(false)
+  whatsappOptInAt     DateTime?
+  whatsappOptInSource String?   // PATIENT_REGISTRATION_FORM, STAFF_MANUAL_SEND, POST_FINALIZE_AUTO
+
   /// Extensible identifiers (phone, email, Aadhar, etc.)
   identifiers PatientIdentifier[]
   
@@ -157,6 +177,9 @@ model Patient {
 
   /// Patient change history (identity field tracking)
   changeLogs  PatientChangeLog[]
+
+  /// Message delivery history
+  messages    MessageLog[]
 
   @@index([createdAt])
 }
@@ -635,24 +658,36 @@ enum PatientChangeType {
 }
 
 // ============================================================================
-// SMS DELIVERY (Gupshup integration)
+// MESSAGE DELIVERY (WhatsApp Cloud API + SMS fallback)
 // ============================================================================
 
-/// SMSDelivery: Track report delivery via Gupshup SMS
-model SMSDelivery {
+/// MessageLog: Track all outbound messages (WhatsApp, SMS)
+/// Generic enough for reports, bills, reminders, campaigns — contextType + contextId
+model MessageLog {
   id              String             @id @default(cuid())
-  reportVersionId String
-  patientPhone    String
-  messageId       String?            // Gupshup message ID
-  status          SMSDeliveryStatus  @default(PENDING)
+  patientId       String
+  phone           String
+  channel         MessageChannel     // WHATSAPP | SMS
+  templateName    String             // e.g., lab_report_ready, bill_receipt
+  templateParams  Json?              // Template variable values
+  waMessageId     String?            // WhatsApp Cloud API message ID
+  status          MessageStatus      @default(PENDING)
   failureReason   String?
   sentAt          DateTime?
+  deliveredAt     DateTime?
+  readAt          DateTime?
+  contextType     MessageContextType // REPORT | BILL | REMINDER | CAMPAIGN | PAYMENT
+  contextId       String             // visitId, billId, etc.
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 
-  @@index([reportVersionId])
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  @@index([patientId])
+  @@index([waMessageId])
+  @@index([contextType, contextId])
   @@index([status])
-  @@index([sentAt])
+  @@index([createdAt])
 }
 
 // ============================================================================

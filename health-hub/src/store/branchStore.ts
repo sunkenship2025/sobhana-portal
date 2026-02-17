@@ -1,8 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Branch } from '@/types';
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+import { API_BASE } from '@/lib/api';
 
 // ============================================
 // BRANCH STORE INTERFACE
@@ -68,7 +67,7 @@ export const useBranchStore = create<BranchState>()(
         
         set({ isLoading: true });
         try {
-          const response = await fetch(`${API_BASE}/api/branches`, {
+          const response = await fetch(`${API_BASE}/branches`, {
             headers: {
               'Authorization': `Bearer ${token}`,
             },
