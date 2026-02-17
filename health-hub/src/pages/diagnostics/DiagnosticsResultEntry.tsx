@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_BASE } from '@/lib/api';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -93,7 +94,7 @@ const DiagnosticsResultEntry = () => {
 
       try {
         setLoading(true);
-        const response = await fetch(`http://localhost:3000/api/visits/diagnostic/${visitId}`, {
+        const response = await fetch(`${API_BASE}/visits/diagnostic/${visitId}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'X-Branch-Id': activeBranchId
@@ -261,7 +262,7 @@ const DiagnosticsResultEntry = () => {
         return;
       }
 
-      const response = await fetch(`http://localhost:3000/api/visits/diagnostic/${visitId}/results`, {
+      const response = await fetch(`${API_BASE}/visits/diagnostic/${visitId}/results`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

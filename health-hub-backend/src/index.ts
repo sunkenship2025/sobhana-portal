@@ -23,6 +23,8 @@ import auditLogRoutes from './routes/auditLogs';
 import reportRoutes from './routes/reports';
 import reportDownloadRoutes from './routes/reportDownload';
 import billRoutes from './routes/bills';
+import webhookRoutes from './routes/webhooks';
+import messageRoutes from './routes/messages';
 
 // PDF Service warmup
 import { warmupPdfService, closeBrowser } from './services/pdfGenerationService';
@@ -38,12 +40,22 @@ app.use(helmet({
   contentSecurityPolicy: false, // Disable CSP in development
 }));
 
-// CORS - Universal browser support (Chrome, Arc, Safari, Firefox, Edge)
+// CORS - Production-safe origin whitelist
+const allowedOrigins = process.env.FRONTEND_URL
+  ? process.env.FRONTEND_URL.split(',').map(s => s.trim())
+  : [];
+
 const corsOptions: cors.CorsOptions = {
-  origin: (_origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, curl)
-    // Allow all localhost variants and any origin in development
-    callback(null, true);
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, curl, server-to-server)
+    if (!origin) return callback(null, true);
+    // In development (no FRONTEND_URL set), allow all origins
+    if (allowedOrigins.length === 0) return callback(null, true);
+    // In production, check whitelist
+    if (allowedOrigins.some(allowed => origin === allowed || origin.endsWith('.vercel.app'))) {
+      return callback(null, true);
+    }
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
@@ -91,6 +103,9 @@ app.use('/fonts', express.static(path.join(__dirname, '../public/fonts')));
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+app.get('/healthz', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
 // Auth routes (no branch context required)
 app.use('/api/auth', authRoutes);
@@ -98,6 +113,9 @@ app.use('/api/auth', authRoutes);
 // Report PDF download (token-based, no auth required) - PUBLIC ROUTE
 // Direct PDF download: /reports/:token
 app.use('/reports', reportDownloadRoutes);
+
+// WhatsApp webhook (public, no auth) - Meta delivery receipts
+app.use('/webhooks/whatsapp', webhookRoutes);
 
 // Legacy report API (JWT-based, for clinic/Patient360)
 app.use('/api/reports', reportRoutes);
@@ -116,6 +134,7 @@ app.use('/api/visits/clinic', clinicVisitRoutes);
 app.use('/api/payouts', payoutRoutes);
 app.use('/api/audit-logs', auditLogRoutes);
 app.use('/api/bills', billRoutes);
+app.use('/api/messages', messageRoutes);
 
 // Global error handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -132,6 +151,7 @@ app.listen(PORT, async () => {
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🔐 Auth endpoint: http://localhost:${PORT}/api/auth/login`);
   console.log(`📄 Report download: http://localhost:${PORT}/reports/:token`);
+  console.log(`📱 WhatsApp webhook: http://localhost:${PORT}/webhooks/whatsapp`);
   
   // Warmup PDF service for faster first generation
   await warmupPdfService();

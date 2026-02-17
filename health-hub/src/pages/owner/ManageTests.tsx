@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_BASE } from '@/lib/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -39,7 +40,7 @@ const ManageTests = () => {
   const fetchLabTests = async () => {
     if (!token) return;
     try {
-      const res = await fetch('http://localhost:3000/api/lab-tests', {
+      const res = await fetch(`${API_BASE}/lab-tests`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -98,7 +99,7 @@ const ManageTests = () => {
     try {
       if (editingId) {
         // Update existing test via API
-        const res = await fetch(`http://localhost:3000/api/lab-tests/${editingId}`, {
+        const res = await fetch(`${API_BASE}/lab-tests/${editingId}`, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
@@ -116,7 +117,7 @@ const ManageTests = () => {
         toast.success('Test updated');
       } else {
         // Create new test via API
-        const res = await fetch('http://localhost:3000/api/lab-tests', {
+        const res = await fetch(`${API_BASE}/lab-tests`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -159,7 +160,7 @@ const ManageTests = () => {
   const handleDelete = async () => {
     if (deleteId) {
       try {
-        const res = await fetch(`http://localhost:3000/api/lab-tests/${deleteId}`, {
+        const res = await fetch(`${API_BASE}/lab-tests/${deleteId}`, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${token}` }
         });
