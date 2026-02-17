@@ -49,3 +49,7 @@ bun.lockb
 *.db
 *.sqlite
 *.sqlite3
+
+# AI agent config
+.agent/
+.agents/

@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
+import { API_BASE } from '@/lib/api';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,9 +13,10 @@ import { useBranchStore } from '@/store/branchStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { toast } from 'sonner';
 import type { Patient, PaymentType, VisitType, ClinicVisitView, ClinicDoctor } from '@/types';
-import { Search, UserPlus, CheckCircle2, Printer } from 'lucide-react';
+import { Search, UserPlus, CheckCircle2, Printer, MessageCircle } from 'lucide-react';
 import { ClinicPrescriptionPrint } from '@/components/print/ClinicPrescriptionPrint';
 import { validatePatientForm, type ValidationErrors } from '@/lib/validation';
+import { Checkbox } from '@/components/ui/checkbox';
 
 const ClinicNewVisit = () => {
   const navigate = useNavigate();
@@ -45,7 +47,9 @@ const ClinicNewVisit = () => {
     age: '',
     dateOfBirth: '', // E2-09: Optional DOB field
     gender: 'M' as 'M' | 'F' | 'O',
+    whatsappOptIn: true, // Default: opted in for WhatsApp notifications
   });
+  const [whatsappOptIn, setWhatsappOptIn] = useState(true); // For existing patients
   
   // E2-10: Validation errors
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
@@ -56,7 +60,7 @@ const ClinicNewVisit = () => {
       if (!token || !activeBranch) return;
       
       try {
-        const res = await fetch('http://localhost:3000/api/clinic-doctors', {
+        const res = await fetch(`${API_BASE}/clinic-doctors`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'X-Branch-Id': activeBranch.id,
@@ -82,7 +86,7 @@ const ClinicNewVisit = () => {
     setPhone(value);
     if (value.length === 10 && token && activeBranch) {
       try {
-        const res = await fetch(`http://localhost:3000/api/patients/search?phone=${value}`, {
+        const res = await fetch(`${API_BASE}/patients/search?phone=${value}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'X-Branch-Id': activeBranch.id,
@@ -111,6 +115,8 @@ const ClinicNewVisit = () => {
   const handleSelectPatient = (patient: Patient) => {
     setSelectedPatient(patient);
     setShowNewPatientForm(false);
+    // Auto-check WhatsApp opt-in if patient already opted in
+    setWhatsappOptIn((patient as any).whatsappOptIn ?? true);
   };
 
   const handleSubmit = async () => {
@@ -143,7 +149,7 @@ const ClinicNewVisit = () => {
       }
       
       try {
-        const res = await fetch('http://localhost:3000/api/patients', {
+        const res = await fetch(`${API_BASE}/patients`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -156,6 +162,7 @@ const ClinicNewVisit = () => {
             dateOfBirth: newPatient.dateOfBirth ? newPatient.dateOfBirth.split('T')[0] : undefined, // E2-09: Send date-only (YYYY-MM-DD)
             gender: newPatient.gender,
             identifiers: [{ type: 'PHONE', value: phone, isPrimary: true }],
+            whatsappOptIn: newPatient.whatsappOptIn,
           }),
         });
         
@@ -182,7 +189,7 @@ const ClinicNewVisit = () => {
             toast.success(`Using existing patient ${existing.patientNumber}`);
           } else {
             // User wants to force create duplicate - retry with forceDuplicate flag
-            const retryRes = await fetch('http://localhost:3000/api/patients', {
+            const retryRes = await fetch(`${API_BASE}/patients`, {
               method: 'POST',
               headers: {
                 'Authorization': `Bearer ${token}`,
@@ -195,6 +202,7 @@ const ClinicNewVisit = () => {
                 dateOfBirth: newPatient.dateOfBirth || undefined, // E2-09: DOB if provided
                 gender: newPatient.gender,
                 identifiers: [{ type: 'PHONE', value: phone, isPrimary: true }],
+                whatsappOptIn: newPatient.whatsappOptIn,
                 forceDuplicate: true, // E2-03: Explicit user confirmation
               }),
             });
@@ -236,7 +244,7 @@ const ClinicNewVisit = () => {
 
     try {
       // Create clinic visit via API
-      const res = await fetch('http://localhost:3000/api/visits/clinic', {
+      const res = await fetch(`${API_BASE}/visits/clinic`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -284,6 +292,32 @@ const ClinicNewVisit = () => {
       };
 
       toast.success('Visit created successfully!');
+
+      // Show WhatsApp notification toast
+      const patientPhone = selectedPatient?.identifiers?.find((i: any) => i.type === 'PHONE')?.value || phone;
+      const optedIn = showNewPatientForm ? newPatient.whatsappOptIn : whatsappOptIn;
+      if (patientPhone && optedIn) {
+        // Auto opt-in for existing patient if checked
+        if (selectedPatient && !showNewPatientForm && whatsappOptIn) {
+          try {
+            await fetch(`${API_BASE}/patients/${patient!.id}`, {
+              method: 'PATCH',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ whatsappOptIn: true }),
+            });
+          } catch (_) { /* non-blocking */ }
+        }
+        setTimeout(() => {
+          toast('📱 Bill confirmation will be sent via WhatsApp', {
+            description: `To ${patientPhone}`,
+            duration: 4000,
+          });
+        }, 500);
+      }
+
       setSuccessData({ visitView });
     } catch (error: any) {
       toast.error(error.message || 'Failed to create visit');
@@ -335,8 +369,9 @@ const ClinicNewVisit = () => {
                     setHospitalWard('');
                     setShowNewPatientForm(false);
                     setConsultationFee('500');
-                    setNewPatient({ name: '', age: '', dateOfBirth: '', gender: 'M' }); // E2-09: Reset form
+                    setNewPatient({ name: '', age: '', dateOfBirth: '', gender: 'M', whatsappOptIn: true }); // E2-09: Reset form
                     setValidationErrors({});
+                    setWhatsappOptIn(true);
                   }}>
                     Create Another Visit
                   </Button>
@@ -541,6 +576,21 @@ const ClinicNewVisit = () => {
                   <strong>Phone:</strong> {validationErrors.phone}
                 </div>
               )}
+
+              {/* WhatsApp opt-in */}
+              <div className="flex items-center space-x-3 bg-green-50 border border-green-200 rounded-md p-3">
+                <Checkbox
+                  id="clinicWhatsappOptIn"
+                  checked={newPatient.whatsappOptIn}
+                  onCheckedChange={(checked) =>
+                    setNewPatient({ ...newPatient, whatsappOptIn: checked === true })
+                  }
+                />
+                <Label htmlFor="clinicWhatsappOptIn" className="flex items-center gap-2 text-sm cursor-pointer">
+                  <MessageCircle className="h-4 w-4 text-green-600" />
+                  Send reports & bill confirmations via WhatsApp
+                </Label>
+              </div>
             </CardContent>
           </Card>
         )}
@@ -639,6 +689,21 @@ const ClinicNewVisit = () => {
                   </div>
                 </RadioGroup>
               </div>
+
+              {/* WhatsApp opt-in for existing patients */}
+              {selectedPatient && !showNewPatientForm && (
+                <div className="flex items-center space-x-3 bg-green-50 border border-green-200 rounded-md p-3">
+                  <Checkbox
+                    id="existingPatientWhatsappOptIn"
+                    checked={whatsappOptIn}
+                    onCheckedChange={(checked) => setWhatsappOptIn(checked === true)}
+                  />
+                  <Label htmlFor="existingPatientWhatsappOptIn" className="flex items-center gap-2 text-sm cursor-pointer">
+                    <MessageCircle className="h-4 w-4 text-green-600" />
+                    Send bill confirmation via WhatsApp
+                  </Label>
+                </div>
+              )}
 
               <Button 
                 className="w-full" 

@@ -9,8 +9,7 @@ import { Search, Phone, User, Eye } from 'lucide-react';
 import { apiRequest } from '@/lib/utils';
 import { useBranchStore } from '@/store/branchStore';
 import type { PatientSearchResult, VisitDomain } from '@/types';
-
-const API_BASE = 'http://localhost:3000/api';
+import { API_BASE } from '@/lib/api';
 
 // API call for patient search
 const searchPatients = async (

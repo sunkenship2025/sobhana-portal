@@ -19,10 +19,10 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Pencil } from 'lucide-react';
+import { Pencil, MessageCircle } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
 import { validatePatientForm, type ValidationErrors } from '@/lib/validation';
-
-const API_BASE = 'http://localhost:3000/api';
+import { API_BASE } from '@/lib/api';
 
 // Identity fields that require a reason
 const IDENTITY_FIELDS = ['name', 'age', 'gender', 'phone', 'email'];
@@ -34,6 +34,7 @@ interface PatientEditDialogProps {
     age: number;
     gender: string;
     address?: string | null;
+    whatsappOptIn?: boolean;
     identifiers: Array<{ type: string; value: string }>;
   };
   token: string | null;
@@ -54,6 +55,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
     phone: primaryPhone,
     email: primaryEmail,
     address: patient.address || '',
+    whatsappOptIn: patient.whatsappOptIn ?? false,
     changeReason: '',
   });
 
@@ -129,6 +131,11 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
         updatePayload.email = formData.email || null;
       }
 
+      // Handle WhatsApp opt-in change
+      if (formData.whatsappOptIn !== (patient.whatsappOptIn ?? false)) {
+        updatePayload.whatsappOptIn = formData.whatsappOptIn;
+      }
+
       // Add changeReason if provided
       if (formData.changeReason.trim()) {
         updatePayload.changeReason = formData.changeReason.trim();
@@ -173,6 +180,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
         phone: primaryPhone,
         email: primaryEmail,
         address: patient.address || '',
+        whatsappOptIn: patient.whatsappOptIn ?? false,
         changeReason: '',
       });
     }
@@ -335,6 +343,21 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
               {validationErrors.address && (
                 <p className="text-sm text-red-500">{validationErrors.address}</p>
               )}
+            </div>
+
+            {/* WhatsApp Preference */}
+            <div className="flex items-center space-x-3 bg-green-50 border border-green-200 rounded-md p-3">
+              <Checkbox
+                id="editWhatsappOptIn"
+                checked={formData.whatsappOptIn}
+                onCheckedChange={(checked) =>
+                  setFormData({ ...formData, whatsappOptIn: checked === true })
+                }
+              />
+              <Label htmlFor="editWhatsappOptIn" className="flex items-center gap-2 text-sm cursor-pointer">
+                <MessageCircle className="h-4 w-4 text-green-600" />
+                Send reports & bill confirmations via WhatsApp
+              </Label>
             </div>
 
             {/* Change Reason - shown if identity fields changed */}

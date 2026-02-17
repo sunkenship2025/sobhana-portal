@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_BASE } from '@/lib/api';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -42,7 +43,7 @@ const ManageClinicDoctors = () => {
   const fetchClinicDoctors = async () => {
     if (!token) return;
     try {
-      const res = await fetch('http://localhost:3000/api/clinic-doctors', {
+      const res = await fetch(`${API_BASE}/clinic-doctors`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -72,7 +73,7 @@ const ManageClinicDoctors = () => {
   const checkExistingDoctor = async (phone: string) => {
     if (phone.length >= 10 && token) {
       try {
-        const res = await fetch(`http://localhost:3000/api/doctors/search-by-contact?phone=${phone}`, {
+        const res = await fetch(`${API_BASE}/doctors/search-by-contact?phone=${phone}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         const data = await res.json();
@@ -97,7 +98,7 @@ const ManageClinicDoctors = () => {
     if (name.length >= 3 && token) {
       try {
         // Search referral doctors by name
-        const res = await fetch(`http://localhost:3000/api/referral-doctors`, {
+        const res = await fetch(`${API_BASE}/referral-doctors`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         const referralDoctors = await res.json();
@@ -180,7 +181,7 @@ const ManageClinicDoctors = () => {
     try {
       if (editingId) {
         // Update existing doctor via API
-        const res = await fetch(`http://localhost:3000/api/clinic-doctors/${editingId}`, {
+        const res = await fetch(`${API_BASE}/clinic-doctors/${editingId}`, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
@@ -198,7 +199,7 @@ const ManageClinicDoctors = () => {
         toast.success('Doctor updated');
       } else {
         // Create new doctor via API
-        const res = await fetch('http://localhost:3000/api/clinic-doctors', {
+        const res = await fetch(`${API_BASE}/clinic-doctors`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -241,7 +242,7 @@ const ManageClinicDoctors = () => {
   const handleDelete = async () => {
     if (deleteId) {
       try {
-        const res = await fetch(`http://localhost:3000/api/clinic-doctors/${deleteId}`, {
+        const res = await fetch(`${API_BASE}/clinic-doctors/${deleteId}`, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${token}` }
         });

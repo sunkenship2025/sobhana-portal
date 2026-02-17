@@ -438,6 +438,13 @@ router.post('/', async (req: AuthRequest, res) => {
       },
     });
 
+    // Fire-and-forget: Send bill confirmation via WhatsApp (non-blocking)
+    import('../services/notificationService').then(({ sendBillConfirmation }) => {
+      sendBillConfirmation(result.id).catch((err) =>
+        console.error('[Notification] Bill notification failed (non-blocking):', err.message)
+      );
+    });
+
     return res.status(201).json({
       id: completeVisit!.id,
       billNumber: completeVisit!.billNumber,
@@ -1063,6 +1070,13 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
       },
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
+    });
+
+    // Fire-and-forget: Send report-ready notification via WhatsApp (non-blocking)
+    import('../services/notificationService').then(({ sendReportReady }) => {
+      sendReportReady(visit.id).catch((err) =>
+        console.error('[Notification] Report notification failed (non-blocking):', err.message)
+      );
     });
 
     return res.json({ 

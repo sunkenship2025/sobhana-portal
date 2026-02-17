@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_BASE } from '@/lib/api';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -90,7 +91,7 @@ const DiagnosticsReportPreview = () => {
       
       try {
         setLoading(true);
-        const response = await fetch(`http://localhost:3000/api/visits/diagnostic/${visitId}`, {
+        const response = await fetch(`${API_BASE}/visits/diagnostic/${visitId}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'X-Branch-Id': activeBranchId
@@ -174,7 +175,7 @@ const DiagnosticsReportPreview = () => {
   const handleFinalize = async () => {
     setFinalizing(true);
     try {
-      const response = await fetch(`http://localhost:3000/api/visits/diagnostic/${visitId}/finalize`, {
+      const response = await fetch(`${API_BASE}/visits/diagnostic/${visitId}/finalize`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -197,7 +198,7 @@ const DiagnosticsReportPreview = () => {
         setShowConfirm(false);
         
         // Refresh visit data
-        const refreshResponse = await fetch(`http://localhost:3000/api/visits/diagnostic/${visitId}`, {
+        const refreshResponse = await fetch(`${API_BASE}/visits/diagnostic/${visitId}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'X-Branch-Id': activeBranchId
@@ -208,13 +209,11 @@ const DiagnosticsReportPreview = () => {
           setVisit(refreshData);
         }
         
-        // Auto-send WhatsApp message with secure report link
+        // WhatsApp notification is sent automatically by the backend on finalize
+        // Just inform the staff
         const phone = patient.identifiers?.find(id => id.type === 'PHONE')?.value;
-        if (phone && newReportToken) {
-          const reportUrl = `${window.location.origin}/reports/${newReportToken}`;
-          const message = `🔬 Lab Report Ready!\n\nDear ${patient.name},\n\nYour lab report (Bill #: ${visit.billNumber}) is now ready.\n\nDownload your report: ${reportUrl}\n\nThank you for choosing Sobhana Diagnostics.`;
-          const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-          window.open(url, '_blank');
+        if (phone) {
+          toast.success('Report finalized — WhatsApp notification will be sent automatically');
         }
       } else {
         const errorData = await response.json();
@@ -242,26 +241,31 @@ const DiagnosticsReportPreview = () => {
     }
   };
 
-  const handleWhatsApp = () => {
-    const phone = patient.identifiers?.find(id => id.type === 'PHONE')?.value;
-    if (phone) {
-      if (reportToken) {
-        const reportUrl = `${window.location.origin}/reports/${reportToken}`;
-        const message = `🔬 Lab Report Ready\n\nPatient: ${patient.name}\nBill #: ${visit.billNumber}\n\nDownload Report: ${reportUrl}\n\nThank you for choosing Sobhana Diagnostics.`;
-        const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-        window.open(url, '_blank');
+  const handleWhatsApp = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/messages/${visitId}/send-report`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-Branch-Id': activeBranchId,
+        },
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        toast.success('Report notification sent via WhatsApp');
       } else {
-        const message = `Lab Report Ready\n\nPatient: ${patient.name}\nBill #: ${visit.billNumber}\n\nPlease visit the clinic to collect your report.`;
-        const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-        window.open(url, '_blank');
+        toast.error(data.error || 'Failed to send WhatsApp notification');
       }
+    } catch (error) {
+      toast.error('Failed to send WhatsApp notification');
     }
   };
 
   const handlePreviewReport = async () => {
     setPreviewLoading(true);
     try {
-      const response = await fetch(`http://localhost:3000/api/visits/diagnostic/${visitId}/preview-report`, {
+      const response = await fetch(`${API_BASE}/visits/diagnostic/${visitId}/preview-report`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'X-Branch-Id': activeBranchId

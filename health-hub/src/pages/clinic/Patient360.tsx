@@ -37,7 +37,7 @@ import { PatientEditDialog } from '@/components/patient360/PatientEditDialog';
  * - No editing allowed (read-only view)
  */
 
-const API_BASE = 'http://localhost:3000/api';
+import { API_BASE } from '@/lib/api';
 
 // API call for Patient 360 data
 const fetchPatient360 = async (
@@ -129,19 +129,30 @@ function VisitDetailDrawer({ visit, open, onClose, patientPhone, patientName, on
     }
   };
 
-  const handleWhatsAppReport = () => {
-    if (!patientPhone) {
-      toast.error('No phone number available for this patient.');
-      return;
-    }
+  const handleWhatsAppReport = async () => {
     if (!visit.reportAccessToken) {
       toast.error('Report link not available.');
       return;
     }
-    const reportUrl = `${window.location.origin}/reports/${visit.reportAccessToken}`;
-    const message = `🔬 Lab Report Ready!\n\nDear ${patientName || 'Patient'},\n\nYour lab report (Bill #: ${visit.billNumber}) is ready.\n\nDownload your report: ${reportUrl}\n\nThank you for choosing Sobhana Diagnostics.`;
-    const url = `https://wa.me/${patientPhone}?text=${encodeURIComponent(message)}`;
-    window.open(url, '_blank');
+    try {
+      const branchId = useBranchStore.getState().activeBranchId;
+      const response = await fetch(`${API_BASE}/messages/${visit.visitId}/send-report`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-Branch-Id': branchId,
+        },
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        toast.success('Report notification sent via WhatsApp');
+      } else {
+        toast.error(data.error || 'Failed to send WhatsApp notification');
+      }
+    } catch (error) {
+      toast.error('Failed to send WhatsApp notification');
+    }
   };
 
   const handlePrintBill = () => {
@@ -295,6 +306,7 @@ export default function Patient360() {
   const { patientId } = useParams<{ patientId: string }>();
   const navigate = useNavigate();
   const { token } = useAuthStore();
+  const { activeBranchId } = useBranchStore();
   const [patient360, setPatient360] = useState<Patient360View | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedVisit, setSelectedVisit] = useState<VisitTimelineItem | null>(null);
@@ -674,10 +686,25 @@ export default function Patient360() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    const reportUrl = `${window.location.origin}/reports/${selectedVisit.reportAccessToken}`;
-                    const message = `🔬 Lab Report Ready!\n\nDear ${patient.name},\n\nYour lab report (Bill #: ${selectedVisit.billNumber}) is ready.\n\nDownload your report: ${reportUrl}\n\nThank you for choosing Sobhana Diagnostics.`;
-                    window.open(`https://wa.me/${primaryPhone}?text=${encodeURIComponent(message)}`, '_blank');
+                  onClick={async () => {
+                    try {
+                      const response = await fetch(`${API_BASE}/messages/${selectedVisit.visitId}/send-report`, {
+                        method: 'POST',
+                        headers: {
+                          'Authorization': `Bearer ${token}`,
+                          'Content-Type': 'application/json',
+                          'X-Branch-Id': activeBranchId,
+                        },
+                      });
+                      const data = await response.json();
+                      if (response.ok && data.success) {
+                        toast.success('Report notification sent via WhatsApp');
+                      } else {
+                        toast.error(data.error || 'Failed to send WhatsApp notification');
+                      }
+                    } catch (error) {
+                      toast.error('Failed to send WhatsApp notification');
+                    }
                   }}
                   className="text-green-600 hover:text-green-700"
                 >
