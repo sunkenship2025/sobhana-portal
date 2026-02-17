@@ -3,8 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Loader2, AlertTriangle, CheckCircle2, Lock, Printer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-
-const API_BASE = 'http://localhost:3000/api';
+import { API_BASE } from '@/lib/api';
 
 interface ReportData {
   reportVersion: {
