@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { API_BASE } from '@/lib/api';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,13 +28,13 @@ const DiagnosticsPendingResults = () => {
         setLoading(true);
         // Fetch DRAFT visits (no results entered yet) and WAITING visits (results saved but not finalized)
         const [draftRes, waitingRes] = await Promise.all([
-          fetch('http://localhost:3000/api/visits/diagnostic?status=DRAFT', {
+          fetch(`${API_BASE}/visits/diagnostic?status=DRAFT`, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'X-Branch-Id': activeBranchId
             }
           }),
-          fetch('http://localhost:3000/api/visits/diagnostic?status=WAITING', {
+          fetch(`${API_BASE}/visits/diagnostic?status=WAITING`, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'X-Branch-Id': activeBranchId

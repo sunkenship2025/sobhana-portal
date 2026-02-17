@@ -3,8 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-
-const API_BASE = 'http://localhost:3000/api';
+import { API_BASE } from '@/lib/api';
 
 interface BillData {
   visit: {

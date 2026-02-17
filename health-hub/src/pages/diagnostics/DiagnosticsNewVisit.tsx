@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
+import { API_BASE } from '@/lib/api';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { TestSelector } from '@/components/diagnostics/TestSelector';
 import { useAuthStore } from '@/store/authStore';
@@ -12,7 +14,7 @@ import { useBranchStore } from '@/store/branchStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { toast } from 'sonner';
 import type { Patient, PatientSearchResult, PaymentType, DiagnosticVisitView, TestOrder, LabTest, ReferralDoctor } from '@/types';
-import { Search, UserPlus, CheckCircle2, Printer } from 'lucide-react';
+import { Search, UserPlus, CheckCircle2, Printer, MessageCircle } from 'lucide-react';
 import { BillPrint } from '@/components/print/BillPrint';
 import { validatePatientForm, type ValidationErrors } from '@/lib/validation';
 import {
@@ -46,6 +48,7 @@ const DiagnosticsNewVisit = () => {
   const [referralOverrides, setReferralOverrides] = useState<Record<string, string>>({});
   const [successData, setSuccessData] = useState<{ visitView: DiagnosticVisitView } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [whatsappOptIn, setWhatsappOptIn] = useState(true); // For existing patients
 
   // New patient form
   const [newPatient, setNewPatient] = useState({
@@ -53,6 +56,7 @@ const DiagnosticsNewVisit = () => {
     age: '',
     dateOfBirth: '', // E2-09: Optional DOB field
     gender: 'M' as 'M' | 'F' | 'O',
+    whatsappOptIn: true, // Default: opted in for WhatsApp notifications
   });
   
   // E2-10: Validation errors
@@ -71,8 +75,8 @@ const DiagnosticsNewVisit = () => {
         };
 
         const [testsRes, doctorsRes] = await Promise.all([
-          fetch('http://localhost:3000/api/lab-tests', { headers }),
-          fetch('http://localhost:3000/api/referral-doctors', { headers }),
+          fetch(`${API_BASE}/lab-tests`, { headers }),
+          fetch(`${API_BASE}/referral-doctors`, { headers }),
         ]);
 
         if (testsRes.ok) {
@@ -97,7 +101,7 @@ const DiagnosticsNewVisit = () => {
   const handleSearch = async () => {
     if (phone.length >= 10 && token && activeBranch) {
       try {
-        const res = await fetch(`http://localhost:3000/api/patients/search?phone=${phone}`, {
+        const res = await fetch(`${API_BASE}/patients/search?phone=${phone}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'X-Branch-Id': activeBranch.id,
@@ -119,7 +123,7 @@ const DiagnosticsNewVisit = () => {
     setPhone(value);
     if (value.length === 10 && token && activeBranch) {
       try {
-        const res = await fetch(`http://localhost:3000/api/patients/search?phone=${value}`, {
+        const res = await fetch(`${API_BASE}/patients/search?phone=${value}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'X-Branch-Id': activeBranch.id,
@@ -145,6 +149,8 @@ const DiagnosticsNewVisit = () => {
   const handleSelectPatient = (result: PatientSearchResult) => {
     setSelectedPatient(result.patient);
     setShowNewPatientForm(false);
+    // Auto-check WhatsApp opt-in if patient already opted in
+    setWhatsappOptIn((result.patient as any).whatsappOptIn ?? true);
   };
 
   const handleTestToggle = (testId: string) => {
@@ -197,7 +203,7 @@ const DiagnosticsNewVisit = () => {
       }
       
       try {
-        const res = await fetch('http://localhost:3000/api/patients', {
+        const res = await fetch(`${API_BASE}/patients`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -210,6 +216,7 @@ const DiagnosticsNewVisit = () => {
             dateOfBirth: newPatient.dateOfBirth ? newPatient.dateOfBirth.split('T')[0] : undefined, // E2-09: Send date-only (YYYY-MM-DD)
             gender: newPatient.gender,
             identifiers: [{ type: 'PHONE', value: phone, isPrimary: true }],
+            whatsappOptIn: newPatient.whatsappOptIn,
           }),
         });
         
@@ -236,7 +243,7 @@ const DiagnosticsNewVisit = () => {
             toast.success(`Using existing patient ${existing.patientNumber}`);
           } else {
             // User wants to force create duplicate - retry with forceDuplicate flag
-            const retryRes = await fetch('http://localhost:3000/api/patients', {
+            const retryRes = await fetch(`${API_BASE}/patients`, {
               method: 'POST',
               headers: {
                 'Authorization': `Bearer ${token}`,
@@ -249,6 +256,7 @@ const DiagnosticsNewVisit = () => {
                 dateOfBirth: newPatient.dateOfBirth ? newPatient.dateOfBirth.split('T')[0] : undefined, // E2-09: Send date-only (YYYY-MM-DD)
                 gender: newPatient.gender,
                 identifiers: [{ type: 'PHONE', value: phone, isPrimary: true }],
+                whatsappOptIn: newPatient.whatsappOptIn,
                 forceDuplicate: true, // E2-03: Explicit user confirmation
               }),
             });
@@ -284,7 +292,7 @@ const DiagnosticsNewVisit = () => {
 
     try {
       // Create diagnostic visit via API
-      const res = await fetch('http://localhost:3000/api/visits/diagnostic', {
+      const res = await fetch(`${API_BASE}/visits/diagnostic`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -352,6 +360,32 @@ const DiagnosticsNewVisit = () => {
       };
 
       toast.success('Visit created successfully!');
+
+      // Show WhatsApp notification toast
+      const patientPhone = selectedPatient?.identifiers?.find((i: any) => i.type === 'PHONE')?.value || phone;
+      const optedIn = showNewPatientForm ? newPatient.whatsappOptIn : whatsappOptIn;
+      if (patientPhone && optedIn) {
+        // Auto opt-in for existing patient if checked
+        if (selectedPatient && !showNewPatientForm && whatsappOptIn) {
+          try {
+            await fetch(`${API_BASE}/patients/${patient!.id}`, {
+              method: 'PATCH',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ whatsappOptIn: true }),
+            });
+          } catch (_) { /* non-blocking */ }
+        }
+        setTimeout(() => {
+          toast('\ud83d\udcf1 Bill confirmation will be sent via WhatsApp', {
+            description: `To ${patientPhone}`,
+            duration: 4000,
+          });
+        }, 500);
+      }
+
       setSuccessData({ visitView });
     } catch (error: any) {
       toast.error(error.message || 'Failed to create visit');
@@ -622,6 +656,21 @@ const DiagnosticsNewVisit = () => {
                   <strong>Phone:</strong> {validationErrors.phone}
                 </div>
               )}
+
+              {/* WhatsApp opt-in */}
+              <div className="flex items-center space-x-3 bg-green-50 border border-green-200 rounded-md p-3">
+                <Checkbox
+                  id="whatsappOptIn"
+                  checked={newPatient.whatsappOptIn}
+                  onCheckedChange={(checked) =>
+                    setNewPatient({ ...newPatient, whatsappOptIn: checked === true })
+                  }
+                />
+                <Label htmlFor="whatsappOptIn" className="flex items-center gap-2 text-sm cursor-pointer">
+                  <MessageCircle className="h-4 w-4 text-green-600" />
+                  Send reports & bill confirmations via WhatsApp
+                </Label>
+              </div>
             </CardContent>
           </Card>
         )}
@@ -751,6 +800,21 @@ const DiagnosticsNewVisit = () => {
                   </div>
                 </RadioGroup>
               </div>
+
+              {/* WhatsApp opt-in for existing patients */}
+              {selectedPatient && !showNewPatientForm && (
+                <div className="flex items-center space-x-3 bg-green-50 border border-green-200 rounded-md p-3">
+                  <Checkbox
+                    id="existingDiagWhatsappOptIn"
+                    checked={whatsappOptIn}
+                    onCheckedChange={(checked) => setWhatsappOptIn(checked === true)}
+                  />
+                  <Label htmlFor="existingDiagWhatsappOptIn" className="flex items-center gap-2 text-sm cursor-pointer">
+                    <MessageCircle className="h-4 w-4 text-green-600" />
+                    Send bill confirmation & reports via WhatsApp
+                  </Label>
+                </div>
+              )}
 
               <Button 
                 className="w-full" 
