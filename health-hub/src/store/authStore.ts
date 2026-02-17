@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { useBranchStore } from './branchStore';
+import { API_BASE } from '@/lib/api';
 
 export type UserRole = 'doctor' | 'owner' | 'staff';
 
@@ -68,7 +69,7 @@ export const useAuthStore = create<AuthState>()(
         
         try {
           // Call real backend API
-          const response = await fetch('http://localhost:3000/api/auth/login', {
+          const response = await fetch(`${API_BASE}/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password })

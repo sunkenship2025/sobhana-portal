@@ -12,7 +12,7 @@ router.use(branchContextMiddleware);
 // POST /api/patients - Create new patient
 router.post('/', async (req: AuthRequest, res) => {
   try {
-    const { name, age, dateOfBirth, gender, address, identifiers } = req.body;
+    const { name, age, dateOfBirth, gender, address, identifiers, whatsappOptIn } = req.body;
 
     // E2-09: Validation - require either age or dateOfBirth
     if (!name || (!age && !dateOfBirth) || !gender || !identifiers) {
@@ -30,7 +30,8 @@ router.post('/', async (req: AuthRequest, res) => {
       address,
       identifiers,
       branchId: req.branchId!,
-      userId: req.user?.id
+      userId: req.user?.id,
+      whatsappOptIn: whatsappOptIn ?? false,
     });
 
     return res.status(201).json(patient);
@@ -130,7 +131,7 @@ router.get('/:id/360', async (req: AuthRequest, res) => {
 router.patch('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { name, age, gender, address, phone, email, changeReason } = req.body;
+    const { name, age, gender, address, phone, email, whatsappOptIn, changeReason } = req.body;
 
     const updatedPatient = await patientService.updatePatient({
       patientId: id,
@@ -140,7 +141,8 @@ router.patch('/:id', async (req: AuthRequest, res) => {
         gender,
         address,
         phone,
-        email
+        email,
+        whatsappOptIn,
       },
       changeReason,
       userId: req.user?.id!,

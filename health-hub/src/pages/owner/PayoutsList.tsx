@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { API_BASE } from '@/lib/api';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -102,7 +103,7 @@ const PayoutsList = () => {
     if (!token) return;
     setLoading(true);
     try {
-      let url = 'http://localhost:3000/api/payouts';
+      let url = `${API_BASE}/payouts`;
       const params = new URLSearchParams();
       if (doctorTypeFilter !== 'all') {
         params.append('doctorType', doctorTypeFilter);
@@ -137,10 +138,10 @@ const PayoutsList = () => {
     if (!token) return;
     try {
       const [refRes, clinicRes] = await Promise.all([
-        fetch('http://localhost:3000/api/payouts/doctors/referral', {
+        fetch(`${API_BASE}/payouts/doctors/referral`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        fetch('http://localhost:3000/api/payouts/doctors/clinic', {
+        fetch(`${API_BASE}/payouts/doctors/clinic`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);
@@ -233,7 +234,7 @@ const PayoutsList = () => {
     try {
       const { startDate, endDate } = getPeriodDates();
 
-      const res = await fetch('http://localhost:3000/api/payouts/derive', {
+      const res = await fetch(`${API_BASE}/payouts/derive`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
