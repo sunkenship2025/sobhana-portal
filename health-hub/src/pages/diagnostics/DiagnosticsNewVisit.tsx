@@ -38,6 +38,7 @@ const DiagnosticsNewVisit = () => {
   const [diagnosticCenters, setDiagnosticCenters] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCenterId, setSelectedCenterId] = useState<string>('');
+  const [referralType, setReferralType] = useState<string>('SELF');
 
   const [phone, setPhone] = useState('');
   const [billSearch, setBillSearch] = useState('');
@@ -310,6 +311,14 @@ const DiagnosticsNewVisit = () => {
           patientId: patient.id,
           referralDoctorId: selectedDoctorId || null,
           diagnosticCenterId: selectedCenterId || null,
+          referralType: selectedCenterId ? referralType : undefined,
+          referralOverrides: selectedDoctorId
+            ? Object.fromEntries(
+                Object.entries(referralOverrides)
+                  .filter(([, v]) => v !== '')
+                  .map(([k, v]) => [k, parseFloat(v)])
+              )
+            : undefined,
           testIds: selectedTests,
           paymentType,
           paymentStatus: 'PAID',
@@ -451,6 +460,8 @@ const DiagnosticsNewVisit = () => {
                     setShowNewPatientForm(false);
                     setSelectedDoctorId('');
                     setReferralOverrides({});
+                    setSelectedCenterId('');
+                    setReferralType('SELF');
                     setNewPatient({ name: '', age: '', dateOfBirth: '', gender: 'M', whatsappOptIn: false }); // E2-09: Reset form
                     setValidationErrors({});
                   }}>
@@ -735,10 +746,31 @@ const DiagnosticsNewVisit = () => {
                 </SelectContent>
               </Select>
               {selectedCenterId && (
-                <Button variant="ghost" size="sm" className="mt-2 text-muted-foreground"
-                  onClick={() => setSelectedCenterId('')}>
-                  Clear selection
-                </Button>
+                <div className="space-y-3 mt-3">
+                  <Label>Referral Direction</Label>
+                  <RadioGroup
+                    value={referralType}
+                    onValueChange={setReferralType}
+                    className="flex gap-4"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="SELF" id="ref-self" />
+                      <Label htmlFor="ref-self">Self</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="REFERRED_TO" id="ref-to" />
+                      <Label htmlFor="ref-to">Referred To</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="REFERRED_FROM" id="ref-from" />
+                      <Label htmlFor="ref-from">Referred From</Label>
+                    </div>
+                  </RadioGroup>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground"
+                    onClick={() => { setSelectedCenterId(''); setReferralType('SELF'); }}>
+                    Clear selection
+                  </Button>
+                </div>
               )}
             </CardContent>
           </Card>

@@ -295,6 +295,9 @@ router.post('/', async (req: AuthRequest, res) => {
     const {
       patientId,
       referralDoctorId,
+      diagnosticCenterId,
+      referralType,
+      referralOverrides,
       testIds,
       paymentType,
       paymentStatus,
@@ -386,14 +389,28 @@ router.post('/', async (req: AuthRequest, res) => {
         });
       }
 
+      // Create diagnostic center referral if specified
+      if (diagnosticCenterId) {
+        await tx.diagnosticCenter_Visit.create({
+          data: {
+            visitId: visit.id,
+            diagnosticCenterId,
+            referralType: referralType || 'SELF',
+            branchId: req.branchId!,
+          },
+        });
+      }
+
       // Create test orders with metadata snapshot (E3-03)
+      // Use per-test referral overrides if provided, else fall back to doctor's global rate
+      const overrides: Record<string, number> = referralOverrides || {};
       await tx.testOrder.createMany({
         data: tests.map((test) => ({
           visitId: visit.id,
           testId: test.id,
           branchId: req.branchId!,
           priceInPaise: test.priceInPaise,
-          referralCommissionPercentage: commissionPercent,
+          referralCommissionPercentage: overrides[test.id] ?? commissionPercent,
           // E3-03: Snapshot test metadata at order time
           testNameSnapshot: test.name,
           testCodeSnapshot: test.code,
