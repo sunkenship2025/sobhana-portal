@@ -79,7 +79,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
       where: { id: req.params.id },
       include: {
         department: { select: { id: true, name: true } },
-        ageRanges: { orderBy: { minAgeYears: 'asc' } },
+        ageRanges: { orderBy: { minAgeDays: 'asc' } },
         derivedParameter: true,
         stockRequirements: {
           include: { stockItem: { select: { id: true, name: true, unit: true } } },
@@ -271,7 +271,7 @@ router.get('/:id/age-ranges', async (req: AuthRequest, res) => {
   try {
     const ranges = await prisma.testAgeRange.findMany({
       where: { testId: req.params.id },
-      orderBy: [{ minAgeYears: 'asc' }, { gender: 'asc' }]
+      orderBy: [{ minAgeDays: 'asc' }, { gender: 'asc' }]
     });
     return res.json(ranges);
   } catch (err: any) {
@@ -284,7 +284,7 @@ router.get('/:id/age-ranges', async (req: AuthRequest, res) => {
 router.post('/:id/age-ranges', async (req: AuthRequest, res) => {
   try {
     const testId = req.params.id;
-    const { minAgeYears, maxAgeYears, gender, referenceMin, referenceMax, referenceUnit, referenceText } = req.body;
+    const { minAgeDays, maxAgeDays, gender, referenceMin, referenceMax, referenceUnit, referenceText } = req.body;
 
     // Verify test exists
     const test = await prisma.labTest.findUnique({ where: { id: testId } });
@@ -295,8 +295,8 @@ router.post('/:id/age-ranges', async (req: AuthRequest, res) => {
     const range = await prisma.testAgeRange.create({
       data: {
         testId,
-        minAgeYears: minAgeYears ?? null,
-        maxAgeYears: maxAgeYears ?? null,
+        minAgeDays: minAgeDays ?? null,
+        maxAgeDays: maxAgeDays ?? null,
         gender: gender || null,
         referenceMin: referenceMin ?? null,
         referenceMax: referenceMax ?? null,
@@ -321,7 +321,7 @@ router.post('/:id/age-ranges', async (req: AuthRequest, res) => {
 router.patch('/:id/age-ranges/:rangeId', async (req: AuthRequest, res) => {
   try {
     const { rangeId } = req.params;
-    const { minAgeYears, maxAgeYears, gender, referenceMin, referenceMax, referenceUnit, referenceText } = req.body;
+    const { minAgeDays, maxAgeDays, gender, referenceMin, referenceMax, referenceUnit, referenceText } = req.body;
 
     const existing = await prisma.testAgeRange.findUnique({ where: { id: rangeId } });
     if (!existing || existing.testId !== req.params.id) {
@@ -329,8 +329,8 @@ router.patch('/:id/age-ranges/:rangeId', async (req: AuthRequest, res) => {
     }
 
     const updateData: any = {};
-    if (minAgeYears !== undefined) updateData.minAgeYears = minAgeYears;
-    if (maxAgeYears !== undefined) updateData.maxAgeYears = maxAgeYears;
+    if (minAgeDays !== undefined) updateData.minAgeDays = minAgeDays;
+    if (maxAgeDays !== undefined) updateData.maxAgeDays = maxAgeDays;
     if (gender !== undefined) updateData.gender = gender || null;
     if (referenceMin !== undefined) updateData.referenceMin = referenceMin;
     if (referenceMax !== undefined) updateData.referenceMax = referenceMax;

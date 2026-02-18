@@ -766,14 +766,20 @@ async function main() {
 
   // =========================================================================
   // 4. TEST AGE RANGES (gender/age-specific reference overrides)
+  //    Stored in DAYS for newborn/infant precision.
+  //    Helpers: D=days, M=months(~30d), Y=years(~365d)
   // =========================================================================
+
+  const D = 1;
+  const M = 30;   // 1 month ≈ 30 days
+  const Y = 365;  // 1 year ≈ 365 days
 
   // Idempotent helper: delete all existing ranges for a test, then re-create
   async function setAgeRanges(
     testCode: string,
     ranges: {
-      minAgeYears?: number | null;
-      maxAgeYears?: number | null;
+      minAgeDays?: number | null;
+      maxAgeDays?: number | null;
       gender?: 'M' | 'F' | 'O' | null;
       referenceMin?: number | null;
       referenceMax?: number | null;
@@ -786,17 +792,16 @@ async function main() {
       console.warn(`    WARN: test code "${testCode}" not found for age ranges -- skipping`);
       return;
     }
-    // Delete existing, then re-create (total replacement = idempotent)
     await prisma.testAgeRange.deleteMany({ where: { testId } });
     if (ranges.length > 0) {
       await prisma.testAgeRange.createMany({
         data: ranges.map(r => ({
           testId,
-          minAgeYears:  r.minAgeYears  ?? null,
-          maxAgeYears:  r.maxAgeYears  ?? null,
-          gender:       r.gender       ?? null,
-          referenceMin: r.referenceMin ?? null,
-          referenceMax: r.referenceMax ?? null,
+          minAgeDays:    r.minAgeDays  ?? null,
+          maxAgeDays:    r.maxAgeDays  ?? null,
+          gender:        r.gender      ?? null,
+          referenceMin:  r.referenceMin ?? null,
+          referenceMax:  r.referenceMax ?? null,
           referenceUnit: r.referenceUnit ?? null,
           referenceText: r.referenceText ?? null,
         })),
@@ -804,50 +809,134 @@ async function main() {
     }
   }
 
-  // Haemoglobin: Male 13-17 g/dL, Female 12-16 g/dL, Child (0-12) 11-15.5 g/dL
+  // --- Haemoglobin (HGB) — newborn through adult ---
   await setAgeRanges('HGB', [
-    { gender: 'M', minAgeYears: 13, maxAgeYears: null, referenceMin: 13.0, referenceMax: 17.0, referenceUnit: 'g/dL' },
-    { gender: 'F', minAgeYears: 13, maxAgeYears: null, referenceMin: 12.0, referenceMax: 16.0, referenceUnit: 'g/dL' },
-    { gender: null, minAgeYears: 0, maxAgeYears: 12,   referenceMin: 11.0, referenceMax: 15.5, referenceUnit: 'g/dL' },
+    { minAgeDays: 0,      maxAgeDays: 1*D,    referenceMin: 14.0, referenceMax: 24.0, referenceUnit: 'g/dL' },
+    { minAgeDays: 2*D,    maxAgeDays: 7*D,    referenceMin: 13.5, referenceMax: 21.5, referenceUnit: 'g/dL' },
+    { minAgeDays: 8*D,    maxAgeDays: 1*M,    referenceMin: 10.0, referenceMax: 18.0, referenceUnit: 'g/dL' },
+    { minAgeDays: 1*M+1,  maxAgeDays: 6*M,    referenceMin: 9.5,  referenceMax: 14.0, referenceUnit: 'g/dL' },
+    { minAgeDays: 6*M+1,  maxAgeDays: 2*Y,    referenceMin: 10.5, referenceMax: 13.5, referenceUnit: 'g/dL' },
+    { minAgeDays: 2*Y+1,  maxAgeDays: 12*Y,   referenceMin: 11.0, referenceMax: 15.5, referenceUnit: 'g/dL' },
+    { gender: 'M', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 13.0, referenceMax: 17.0, referenceUnit: 'g/dL' },
+    { gender: 'F', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 12.0, referenceMax: 16.0, referenceUnit: 'g/dL' },
   ]);
 
-  // Creatinine: Male 0.7-1.3, Female 0.6-1.1
+  // --- WBC — newborn through adult ---
+  await setAgeRanges('WBC', [
+    { minAgeDays: 0,      maxAgeDays: 1*D,    referenceMin: 9000,  referenceMax: 30000, referenceUnit: '/cumm' },
+    { minAgeDays: 2*D,    maxAgeDays: 7*D,    referenceMin: 5000,  referenceMax: 21000, referenceUnit: '/cumm' },
+    { minAgeDays: 8*D,    maxAgeDays: 1*Y,    referenceMin: 5000,  referenceMax: 19500, referenceUnit: '/cumm' },
+    { minAgeDays: 1*Y+1,  maxAgeDays: 3*Y,    referenceMin: 6000,  referenceMax: 17500, referenceUnit: '/cumm' },
+    { minAgeDays: 3*Y+1,  maxAgeDays: 6*Y,    referenceMin: 5500,  referenceMax: 15500, referenceUnit: '/cumm' },
+    { minAgeDays: 6*Y+1,  maxAgeDays: 12*Y,   referenceMin: 4500,  referenceMax: 13500, referenceUnit: '/cumm' },
+    { minAgeDays: 13*Y,   maxAgeDays: null,    referenceMin: 4000,  referenceMax: 11000, referenceUnit: '/cumm' },
+  ]);
+
+  // --- PLT (Platelet) — newborn through adult ---
+  await setAgeRanges('PLT', [
+    { minAgeDays: 0,      maxAgeDays: 1*M,   referenceMin: 100000, referenceMax: 450000, referenceUnit: '/cumm' },
+    { minAgeDays: 1*M+1,  maxAgeDays: 12*Y,  referenceMin: 150000, referenceMax: 450000, referenceUnit: '/cumm' },
+    { minAgeDays: 13*Y,   maxAgeDays: null,   referenceMin: 150000, referenceMax: 400000, referenceUnit: '/cumm' },
+  ]);
+
+  // --- RBC — newborn through adult ---
+  await setAgeRanges('RBC', [
+    { minAgeDays: 0,      maxAgeDays: 1*D,    referenceMin: 4.0, referenceMax: 6.6, referenceUnit: 'mill/cumm' },
+    { minAgeDays: 2*D,    maxAgeDays: 1*M,    referenceMin: 3.9, referenceMax: 5.9, referenceUnit: 'mill/cumm' },
+    { minAgeDays: 1*M+1,  maxAgeDays: 6*M,    referenceMin: 3.0, referenceMax: 5.4, referenceUnit: 'mill/cumm' },
+    { minAgeDays: 6*M+1,  maxAgeDays: 12*Y,   referenceMin: 3.8, referenceMax: 5.5, referenceUnit: 'mill/cumm' },
+    { gender: 'M', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 4.5, referenceMax: 5.5, referenceUnit: 'mill/cumm' },
+    { gender: 'F', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 3.8, referenceMax: 5.0, referenceUnit: 'mill/cumm' },
+  ]);
+
+  // --- Total Bilirubin (TBIL) — neonatal ranges are critical ---
+  await setAgeRanges('TBIL', [
+    { minAgeDays: 0,      maxAgeDays: 1*D,    referenceMin: 0.0, referenceMax: 6.0,  referenceUnit: 'mg/dL' },
+    { minAgeDays: 2*D,    maxAgeDays: 2*D,    referenceMin: 0.0, referenceMax: 8.0,  referenceUnit: 'mg/dL' },
+    { minAgeDays: 3*D,    maxAgeDays: 5*D,    referenceMin: 0.0, referenceMax: 12.0, referenceUnit: 'mg/dL' },
+    { minAgeDays: 6*D,    maxAgeDays: 1*M,    referenceMin: 0.0, referenceMax: 1.5,  referenceUnit: 'mg/dL' },
+    { minAgeDays: 1*M+1,  maxAgeDays: null,   referenceMin: 0.1, referenceMax: 1.2,  referenceUnit: 'mg/dL' },
+  ]);
+
+  // --- TSH — neonatal screening ranges ---
+  await setAgeRanges('TSH', [
+    { minAgeDays: 0,      maxAgeDays: 5*D,   referenceMin: 1.0,  referenceMax: 39.0, referenceUnit: 'uIU/mL' },
+    { minAgeDays: 6*D,    maxAgeDays: 3*M,   referenceMin: 0.6,  referenceMax: 10.0, referenceUnit: 'uIU/mL' },
+    { minAgeDays: 3*M+1,  maxAgeDays: 1*Y,   referenceMin: 0.4,  referenceMax: 7.0,  referenceUnit: 'uIU/mL' },
+    { minAgeDays: 1*Y+1,  maxAgeDays: 5*Y,   referenceMin: 0.4,  referenceMax: 6.0,  referenceUnit: 'uIU/mL' },
+    { minAgeDays: 5*Y+1,  maxAgeDays: 14*Y,  referenceMin: 0.4,  referenceMax: 5.0,  referenceUnit: 'uIU/mL' },
+    { minAgeDays: 15*Y,   maxAgeDays: null,   referenceMin: 0.27, referenceMax: 4.2,  referenceUnit: 'uIU/mL' },
+  ]);
+
+  // --- Creatinine (CREAT) — newborn through adult ---
   await setAgeRanges('CREAT', [
-    { gender: 'M', referenceMin: 0.7, referenceMax: 1.3, referenceUnit: 'mg/dL' },
-    { gender: 'F', referenceMin: 0.6, referenceMax: 1.1, referenceUnit: 'mg/dL' },
+    { minAgeDays: 0,      maxAgeDays: 1*M,   referenceMin: 0.3, referenceMax: 1.0, referenceUnit: 'mg/dL' },
+    { minAgeDays: 1*M+1,  maxAgeDays: 12*Y,  referenceMin: 0.3, referenceMax: 0.7, referenceUnit: 'mg/dL' },
+    { gender: 'M', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 0.7, referenceMax: 1.3, referenceUnit: 'mg/dL' },
+    { gender: 'F', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 0.6, referenceMax: 1.1, referenceUnit: 'mg/dL' },
   ]);
 
-  // ALP: Child (0-17) 150-420, Adult (18+) 44-147
+  // --- ALP — child vs adult ---
   await setAgeRanges('ALP', [
-    { minAgeYears: 0,  maxAgeYears: 17,   referenceMin: 150, referenceMax: 420, referenceUnit: 'U/L' },
-    { minAgeYears: 18, maxAgeYears: null,  referenceMin: 44,  referenceMax: 147, referenceUnit: 'U/L' },
+    { minAgeDays: 0,      maxAgeDays: 17*Y,  referenceMin: 150, referenceMax: 420, referenceUnit: 'U/L' },
+    { minAgeDays: 18*Y,   maxAgeDays: null,   referenceMin: 44,  referenceMax: 147, referenceUnit: 'U/L' },
   ]);
 
-  // ESR: Male 0-15, Female 0-20
+  // --- ESR — child, adult M/F ---
   await setAgeRanges('ESR', [
-    { gender: 'M', referenceMin: 0, referenceMax: 15, referenceUnit: 'mm/hr' },
-    { gender: 'F', referenceMin: 0, referenceMax: 20, referenceUnit: 'mm/hr' },
+    { minAgeDays: 0,      maxAgeDays: 12*Y,  referenceMin: 0, referenceMax: 10, referenceUnit: 'mm/hr' },
+    { gender: 'M', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 0, referenceMax: 15, referenceUnit: 'mm/hr' },
+    { gender: 'F', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 0, referenceMax: 20, referenceUnit: 'mm/hr' },
   ]);
 
-  // Ferritin: Male 30-400, Female 12-150
+  // --- Ferritin — newborn, infant, child, adult M/F ---
   await setAgeRanges('FERR', [
-    { gender: 'M', referenceMin: 30, referenceMax: 400, referenceUnit: 'ng/mL' },
-    { gender: 'F', referenceMin: 12, referenceMax: 150, referenceUnit: 'ng/mL' },
+    { minAgeDays: 0,      maxAgeDays: 1*M,   referenceMin: 25,  referenceMax: 200, referenceUnit: 'ng/mL' },
+    { minAgeDays: 1*M+1,  maxAgeDays: 1*Y,   referenceMin: 200, referenceMax: 600, referenceUnit: 'ng/mL' },
+    { minAgeDays: 1*Y+1,  maxAgeDays: 5*Y,   referenceMin: 6,   referenceMax: 24,  referenceUnit: 'ng/mL' },
+    { minAgeDays: 5*Y+1,  maxAgeDays: 15*Y,  referenceMin: 7,   referenceMax: 140, referenceUnit: 'ng/mL' },
+    { gender: 'M', minAgeDays: 16*Y, maxAgeDays: null, referenceMin: 30,  referenceMax: 400, referenceUnit: 'ng/mL' },
+    { gender: 'F', minAgeDays: 16*Y, maxAgeDays: null, referenceMin: 12,  referenceMax: 150, referenceUnit: 'ng/mL' },
   ]);
 
-  // Uric Acid: Male 3.5-7.2, Female 2.6-6.0
+  // --- Uric Acid: Male vs Female ---
   await setAgeRanges('UA', [
-    { gender: 'M', referenceMin: 3.5, referenceMax: 7.2, referenceUnit: 'mg/dL' },
-    { gender: 'F', referenceMin: 2.6, referenceMax: 6.0, referenceUnit: 'mg/dL' },
+    { minAgeDays: 0,      maxAgeDays: 12*Y,  referenceMin: 2.0, referenceMax: 5.5, referenceUnit: 'mg/dL' },
+    { gender: 'M', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 3.5, referenceMax: 7.2, referenceUnit: 'mg/dL' },
+    { gender: 'F', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 2.6, referenceMax: 6.0, referenceUnit: 'mg/dL' },
   ]);
 
-  // Iron: Male 65-175, Female 50-170
+  // --- Iron: Male vs Female ---
   await setAgeRanges('IRON', [
-    { gender: 'M', referenceMin: 65, referenceMax: 175, referenceUnit: 'mcg/dL' },
-    { gender: 'F', referenceMin: 50, referenceMax: 170, referenceUnit: 'mcg/dL' },
+    { minAgeDays: 0,      maxAgeDays: 12*Y,  referenceMin: 50, referenceMax: 120, referenceUnit: 'mcg/dL' },
+    { gender: 'M', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 65, referenceMax: 175, referenceUnit: 'mcg/dL' },
+    { gender: 'F', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 50, referenceMax: 170, referenceUnit: 'mcg/dL' },
   ]);
 
-  console.log('  [4/8] TestAgeRanges: 15 entries set (HGB x3, CREAT x2, ALP x2, ESR x2, FERR x2, UA x2, IRON x2)');
+  // --- Calcium (CA) — newborn, child, adult ---
+  await setAgeRanges('CA', [
+    { minAgeDays: 0,      maxAgeDays: 10*D,  referenceMin: 7.6, referenceMax: 10.4, referenceUnit: 'mg/dL' },
+    { minAgeDays: 11*D,   maxAgeDays: 2*Y,   referenceMin: 9.0, referenceMax: 11.0, referenceUnit: 'mg/dL' },
+    { minAgeDays: 2*Y+1,  maxAgeDays: 12*Y,  referenceMin: 8.8, referenceMax: 10.8, referenceUnit: 'mg/dL' },
+    { minAgeDays: 13*Y,   maxAgeDays: null,   referenceMin: 8.5, referenceMax: 10.5, referenceUnit: 'mg/dL' },
+  ]);
+
+  // --- Potassium (K) — newborn vs adult ---
+  await setAgeRanges('K', [
+    { minAgeDays: 0,      maxAgeDays: 1*M,   referenceMin: 3.7, referenceMax: 5.9, referenceUnit: 'mEq/L' },
+    { minAgeDays: 1*M+1,  maxAgeDays: 12*Y,  referenceMin: 3.4, referenceMax: 4.7, referenceUnit: 'mEq/L' },
+    { minAgeDays: 13*Y,   maxAgeDays: null,   referenceMin: 3.5, referenceMax: 5.1, referenceUnit: 'mEq/L' },
+  ]);
+
+  // --- Phosphorus (PHOS) — child vs adult ---
+  await setAgeRanges('PHOS', [
+    { minAgeDays: 0,      maxAgeDays: 1*Y,   referenceMin: 4.5, referenceMax: 6.7, referenceUnit: 'mg/dL' },
+    { minAgeDays: 1*Y+1,  maxAgeDays: 12*Y,  referenceMin: 4.5, referenceMax: 5.5, referenceUnit: 'mg/dL' },
+    { minAgeDays: 13*Y,   maxAgeDays: null,   referenceMin: 2.5, referenceMax: 4.5, referenceUnit: 'mg/dL' },
+  ]);
+
+  let totalAgeRanges = 8 + 7 + 3 + 6 + 5 + 6 + 4 + 2 + 3 + 6 + 3 + 3 + 4 + 3 + 3;
+  console.log(`  [4/8] TestAgeRanges: ${totalAgeRanges} entries set (HGB, WBC, PLT, RBC, TBIL, TSH, CREAT, ALP, ESR, FERR, UA, IRON, CA, K, PHOS)`);
 
   // =========================================================================
   // 5. DERIVED PARAMETERS
@@ -856,13 +945,15 @@ async function main() {
   const derivedParams = [
     // LFT derived
     { testCode: 'GLOB',       parameterName: 'Globulin',           formula: 'TP - ALB',                dependsOnTestCodes: ['TP', 'ALB'],            displayOrder: 1 },
-    { testCode: 'AGRATIO',    parameterName: 'A/G Ratio',          formula: 'ALB / GLOB',              dependsOnTestCodes: ['ALB', 'GLOB'],          displayOrder: 2 },
+    { testCode: 'AGRATIO',    parameterName: 'A/G Ratio',          formula: 'ALB / (TP - ALB)',        dependsOnTestCodes: ['ALB', 'TP'],            displayOrder: 2 },
     { testCode: 'IBIL',       parameterName: 'Indirect Bilirubin', formula: 'TBIL - DBIL',             dependsOnTestCodes: ['TBIL', 'DBIL'],         displayOrder: 3 },
     // Lipid derived
     { testCode: 'VLDL',       parameterName: 'VLDL Cholesterol',   formula: 'TGL / 5',                 dependsOnTestCodes: ['TGL'],                  displayOrder: 4 },
     { testCode: 'LDL',        parameterName: 'LDL Cholesterol',    formula: 'CHOL - HDL - (TGL / 5)',  dependsOnTestCodes: ['CHOL', 'HDL', 'TGL'],   displayOrder: 5 },
     { testCode: 'CHOL_HDL_R', parameterName: 'Chol/HDL Ratio',     formula: 'CHOL / HDL',              dependsOnTestCodes: ['CHOL', 'HDL'],          displayOrder: 6 },
     { testCode: 'TGL_HDL_R',  parameterName: 'TGL/HDL Ratio',      formula: 'TGL / HDL',               dependsOnTestCodes: ['TGL', 'HDL'],           displayOrder: 7 },
+    // Renal derived
+    { testCode: 'BUN',        parameterName: 'Blood Urea Nitrogen', formula: 'UREA * 0.467',           dependsOnTestCodes: ['UREA'],                 displayOrder: 8 },
   ];
 
   for (const dp of derivedParams) {
@@ -889,7 +980,7 @@ async function main() {
     });
   }
 
-  console.log(`  [5/8] DerivedParameters: ${derivedParams.length} upserted (incl. Chol/HDL & TGL/HDL ratios)`);
+  console.log(`  [5/8] DerivedParameters: ${derivedParams.length} upserted (GLOB, AGRATIO, IBIL, VLDL, LDL, CHOL/HDL, TGL/HDL, BUN)`);
 
   // =========================================================================
   // 6. INTERPRETATION TEMPLATES
@@ -1082,7 +1173,7 @@ async function main() {
   console.log(`  Individual tests:         ${allIndividualTests.length}`);
   console.log(`  Panel tests (billing):    ${panelLabTests.length}`);
   console.log(`  Panel definitions:        ${totalPanels}`);
-  console.log(`  TestAgeRanges:            15 entries`);
+  console.log(`  TestAgeRanges:            ${totalAgeRanges} entries (15 tests, incl. neonatal)`);
   console.log(`  DerivedParameters:        ${derivedParams.length}`);
   console.log(`  InterpretationTemplates:  5 tests`);
   console.log(`  SigningDoctor:            1 (Dr. Aruna)`);
