@@ -3,7 +3,7 @@ import { API_BASE } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, Search, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, ChevronDown, ChevronRight, X, FlaskConical, Calculator } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,6 +26,27 @@ import {
 interface Department {
   id: string;
   name: string;
+}
+
+interface StockRequirement {
+  id: string;
+  stockItemId: string;
+  quantityPerTest: number;
+  stockItem: { id: string; name: string; unit: string };
+}
+
+interface StockItem {
+  id: string;
+  name: string;
+  unit: string;
+}
+
+interface DerivedParam {
+  id: string;
+  parameterName: string;
+  formula: string;
+  dependsOnTestCodes: string[];
+  displayOrder: number;
 }
 
 interface LabTestItem {
@@ -97,6 +118,17 @@ export default function ManageTestsV2() {
   const [formData, setFormData] = useState(emptyForm);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
+  // Stock requirements state (for edit dialog)
+  const [stockReqs, setStockReqs] = useState<StockRequirement[]>([]);
+  const [allStockItems, setAllStockItems] = useState<StockItem[]>([]);
+  const [newStockItemId, setNewStockItemId] = useState('');
+  const [newStockQty, setNewStockQty] = useState('1');
+
+  // Derived parameter state (for edit dialog)
+  const [derivedParam, setDerivedParam] = useState<DerivedParam | null>(null);
+  const [derivedForm, setDerivedForm] = useState({ formula: '', dependsOn: '', displayOrder: '0' });
+  const [showDerivedSection, setShowDerivedSection] = useState(false);
+
   // Collapsed departments
   const [collapsedDepts, setCollapsedDepts] = useState<Set<string>>(new Set());
 
@@ -141,6 +173,167 @@ export default function ManageTestsV2() {
     fetchTests();
   }, [token, showInactive]);
 
+  // Fetch stock items list (for dropdown)
+  const fetchStockItems = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/stock`, { headers: getHeaders(token) });
+      if (res.ok) {
+        const data = await res.json();
+        setAllStockItems(data);
+      }
+    } catch (err) {
+      console.error('Error fetching stock items:', err);
+    }
+  };
+
+  // Fetch stock requirements for a test
+  const fetchStockReqs = async (testId: string) => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/lab-tests/${testId}/stock-requirements`, {
+        headers: getHeaders(token),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setStockReqs(data);
+      }
+    } catch (err) {
+      console.error('Error fetching stock requirements:', err);
+    }
+  };
+
+  // Fetch derived parameter for a test
+  const fetchDerivedParam = async (testId: string) => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/lab-tests/${testId}/derived-parameter`, {
+        headers: getHeaders(token),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDerivedParam(data);
+        setDerivedForm({
+          formula: data.formula,
+          dependsOn: data.dependsOnTestCodes.join(', '),
+          displayOrder: data.displayOrder.toString(),
+        });
+        setShowDerivedSection(true);
+      } else {
+        setDerivedParam(null);
+        setDerivedForm({ formula: '', dependsOn: '', displayOrder: '0' });
+        setShowDerivedSection(false);
+      }
+    } catch (err) {
+      setDerivedParam(null);
+      setDerivedForm({ formula: '', dependsOn: '', displayOrder: '0' });
+      setShowDerivedSection(false);
+    }
+  };
+
+  // Add stock requirement
+  const handleAddStockReq = async () => {
+    if (!editingId || !newStockItemId) return;
+    try {
+      const res = await fetch(`${API_BASE}/lab-tests/${editingId}/stock-requirements`, {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({
+          stockItemId: newStockItemId,
+          quantityPerTest: parseFloat(newStockQty) || 1,
+        }),
+      });
+      if (res.status === 409) {
+        toast.error('This stock item is already linked');
+        return;
+      }
+      if (!res.ok) {
+        toast.error('Failed to add stock requirement');
+        return;
+      }
+      const added = await res.json();
+      setStockReqs((prev) => [...prev, added]);
+      setNewStockItemId('');
+      setNewStockQty('1');
+      toast.success('Stock requirement added');
+    } catch (err) {
+      toast.error('Failed to add stock requirement');
+    }
+  };
+
+  // Remove stock requirement
+  const handleRemoveStockReq = async (reqId: string) => {
+    if (!editingId) return;
+    try {
+      const res = await fetch(`${API_BASE}/lab-tests/${editingId}/stock-requirements/${reqId}`, {
+        method: 'DELETE',
+        headers: getHeaders(token),
+      });
+      if (!res.ok) {
+        toast.error('Failed to remove stock requirement');
+        return;
+      }
+      setStockReqs((prev) => prev.filter((r) => r.id !== reqId));
+      toast.success('Stock requirement removed');
+    } catch (err) {
+      toast.error('Failed to remove stock requirement');
+    }
+  };
+
+  // Save derived parameter
+  const handleSaveDerived = async () => {
+    if (!editingId || !derivedForm.formula) {
+      toast.error('Formula is required');
+      return;
+    }
+    try {
+      const codes = derivedForm.dependsOn
+        .split(',')
+        .map((c) => c.trim().toUpperCase())
+        .filter(Boolean);
+      const res = await fetch(`${API_BASE}/lab-tests/${editingId}/derived-parameter`, {
+        method: 'PUT',
+        headers: getHeaders(token),
+        body: JSON.stringify({
+          parameterName: formData.name || 'Derived',
+          formula: derivedForm.formula,
+          dependsOnTestCodes: codes,
+          displayOrder: parseInt(derivedForm.displayOrder) || 0,
+        }),
+      });
+      if (!res.ok) {
+        toast.error('Failed to save derived parameter');
+        return;
+      }
+      const saved = await res.json();
+      setDerivedParam(saved);
+      toast.success('Derived parameter saved');
+    } catch (err) {
+      toast.error('Failed to save derived parameter');
+    }
+  };
+
+  // Delete derived parameter
+  const handleDeleteDerived = async () => {
+    if (!editingId) return;
+    try {
+      const res = await fetch(`${API_BASE}/lab-tests/${editingId}/derived-parameter`, {
+        method: 'DELETE',
+        headers: getHeaders(token),
+      });
+      if (!res.ok) {
+        toast.error('Failed to delete derived parameter');
+        return;
+      }
+      setDerivedParam(null);
+      setDerivedForm({ formula: '', dependsOn: '', displayOrder: '0' });
+      setShowDerivedSection(false);
+      toast.success('Derived parameter removed');
+    } catch (err) {
+      toast.error('Failed to delete derived parameter');
+    }
+  };
+
   // Filter tests
   const filtered = tests.filter((t) => {
     if (search) {
@@ -178,6 +371,12 @@ export default function ManageTestsV2() {
   const openCreate = () => {
     setFormData(emptyForm);
     setEditingId(null);
+    setStockReqs([]);
+    setDerivedParam(null);
+    setDerivedForm({ formula: '', dependsOn: '', displayOrder: '0' });
+    setShowDerivedSection(false);
+    setNewStockItemId('');
+    setNewStockQty('1');
     setDialogOpen(true);
   };
 
@@ -197,6 +396,12 @@ export default function ManageTestsV2() {
       refText: t.referenceRange.text || '',
     });
     setEditingId(t.id);
+    setStockReqs([]);
+    setNewStockItemId('');
+    setNewStockQty('1');
+    fetchStockItems();
+    fetchStockReqs(t.id);
+    fetchDerivedParam(t.id);
     setDialogOpen(true);
   };
 
@@ -578,6 +783,157 @@ export default function ManageTestsV2() {
                 </div>
               </div>
             </div>
+
+            {/* Stock Requirements (only in edit mode) */}
+            {editingId && (
+              <div className="border-t pt-4">
+                <Label className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
+                  <FlaskConical className="h-4 w-4" />
+                  Stock Requirements
+                </Label>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Define how much of each stock item this test consumes per run.
+                </p>
+                {stockReqs.length > 0 && (
+                  <div className="space-y-2 mb-3">
+                    {stockReqs.map((req) => (
+                      <div key={req.id} className="flex items-center gap-3 p-2 bg-muted/50 rounded-md">
+                        <span className="flex-1 text-sm font-medium">{req.stockItem.name}</span>
+                        <span className="text-sm text-muted-foreground">
+                          {req.quantityPerTest} {req.stockItem.unit}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => handleRemoveStockReq(req.id)}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1">
+                    <Select value={newStockItemId} onValueChange={setNewStockItemId}>
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Select stock item..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {allStockItems
+                          .filter((si) => !stockReqs.some((r) => r.stockItemId === si.id))
+                          .map((si) => (
+                            <SelectItem key={si.id} value={si.id}>
+                              {si.name} ({si.unit})
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="w-20">
+                    <Input
+                      type="number"
+                      min={0.1}
+                      step={0.1}
+                      value={newStockQty}
+                      onChange={(e) => setNewStockQty(e.target.value)}
+                      placeholder="Qty"
+                      className="h-9"
+                    />
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="h-9"
+                    onClick={handleAddStockReq}
+                    disabled={!newStockItemId}
+                  >
+                    <Plus className="h-3 w-3 mr-1" /> Add
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Derived Parameter (only in edit mode) */}
+            {editingId && (
+              <div className="border-t pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <Calculator className="h-4 w-4" />
+                    Derived Calculation
+                  </Label>
+                  {!showDerivedSection && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowDerivedSection(true)}
+                    >
+                      <Plus className="h-3 w-3 mr-1" /> Add Formula
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Auto-calculate this test's value from other test results using a formula.
+                </p>
+                {showDerivedSection && (
+                  <div className="space-y-3 p-3 bg-muted/30 rounded-md">
+                    <div className="space-y-2">
+                      <Label className="text-xs">Formula</Label>
+                      <Input
+                        value={derivedForm.formula}
+                        onChange={(e) => setDerivedForm({ ...derivedForm, formula: e.target.value })}
+                        placeholder="e.g. TP - ALB or CHOL / HDL"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Use test codes with +, -, *, / and parentheses. E.g. <code className="bg-muted px-1 rounded">CHOL - HDL - (TGL / 5)</code>
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label className="text-xs">Depends On (test codes)</Label>
+                        <Input
+                          value={derivedForm.dependsOn}
+                          onChange={(e) => setDerivedForm({ ...derivedForm, dependsOn: e.target.value })}
+                          placeholder="e.g. TP, ALB"
+                        />
+                        <p className="text-xs text-muted-foreground">Comma-separated test codes</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs">Display Order</Label>
+                        <Input
+                          type="number"
+                          value={derivedForm.displayOrder}
+                          onChange={(e) => setDerivedForm({ ...derivedForm, displayOrder: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      {derivedParam && (
+                        <Button variant="destructive" size="sm" onClick={handleDeleteDerived}>
+                          Remove Formula
+                        </Button>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setShowDerivedSection(false);
+                          if (!derivedParam) {
+                            setDerivedForm({ formula: '', dependsOn: '', displayOrder: '0' });
+                          }
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button size="sm" onClick={handleSaveDerived}>
+                        {derivedParam ? 'Update' : 'Save'} Formula
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
