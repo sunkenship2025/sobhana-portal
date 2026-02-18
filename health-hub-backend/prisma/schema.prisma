@@ -891,8 +891,8 @@ model ReportAccessLog {
 model TestAgeRange {
   id            String   @id @default(cuid())
   testId        String
-  minAgeYears   Int?
-  maxAgeYears   Int?
+  minAgeDays    Int?     // age stored in total days (0 = newborn). Helpers: 1y=365, 1m=30
+  maxAgeDays    Int?     // null = no upper limit
   gender        Gender?
   referenceMin  Float?
   referenceMax  Float?
@@ -903,7 +903,7 @@ model TestAgeRange {
 
   test LabTest @relation(fields: [testId], references: [id], onDelete: Cascade)
 
-  @@unique([testId, minAgeYears, maxAgeYears, gender])
+  @@unique([testId, minAgeDays, maxAgeDays, gender])
   @@index([testId])
 }
 
