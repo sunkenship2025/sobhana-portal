@@ -89,6 +89,7 @@ const PayoutsList = () => {
   // Doctors for dropdown
   const [referralDoctors, setReferralDoctors] = useState<any[]>([]);
   const [clinicDoctors, setClinicDoctors] = useState<any[]>([]);
+  const [diagnosticCenters, setDiagnosticCenters] = useState<any[]>([]);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -137,11 +138,14 @@ const PayoutsList = () => {
   const fetchDoctors = async () => {
     if (!token) return;
     try {
-      const [refRes, clinicRes] = await Promise.all([
+      const [refRes, clinicRes, dcRes] = await Promise.all([
         fetch(`${API_BASE}/payouts/doctors/referral`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
         fetch(`${API_BASE}/payouts/doctors/clinic`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch(`${API_BASE}/payouts/doctors/diagnostic-centers`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);
@@ -153,6 +157,10 @@ const PayoutsList = () => {
       if (clinicRes.ok) {
         const data = await clinicRes.json();
         setClinicDoctors(data.data || []);
+      }
+      if (dcRes.ok) {
+        const data = await dcRes.json();
+        setDiagnosticCenters(data.data || []);
       }
     } catch (err) {
       console.error('Error fetching doctors:', err);
@@ -268,7 +276,11 @@ const PayoutsList = () => {
   };
 
   // Available doctors based on selected type
-  const availableDoctors = deriveForm.doctorType === 'REFERRAL' ? referralDoctors : clinicDoctors;
+  const availableDoctors = deriveForm.doctorType === 'REFERRAL'
+    ? referralDoctors
+    : deriveForm.doctorType === 'CLINIC'
+    ? clinicDoctors
+    : diagnosticCenters;
 
   // Reset doctor selection when type changes
   useEffect(() => {
@@ -382,6 +394,7 @@ const PayoutsList = () => {
                     <SelectItem value="all">All Types</SelectItem>
                     <SelectItem value="REFERRAL">Referral Doctors</SelectItem>
                     <SelectItem value="CLINIC">Clinic Doctors</SelectItem>
+                    <SelectItem value="DIAGNOSTIC_CENTER">Diagnostic Centers</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -461,8 +474,8 @@ const PayoutsList = () => {
                       <TableRow key={payout.id}>
                         <TableCell className="font-medium">{payout.doctorName}</TableCell>
                         <TableCell>
-                          <Badge variant={payout.doctorType === 'REFERRAL' ? 'default' : 'secondary'}>
-                            {payout.doctorType}
+                          <Badge variant={payout.doctorType === 'REFERRAL' ? 'default' : payout.doctorType === 'CLINIC' ? 'secondary' : 'outline'}>
+                            {payout.doctorType === 'DIAGNOSTIC_CENTER' ? 'DC' : payout.doctorType}
                           </Badge>
                         </TableCell>
                         <TableCell>{formatPeriod(payout.periodStartDate, payout.periodEndDate)}</TableCell>
@@ -553,12 +566,15 @@ const PayoutsList = () => {
                 <SelectContent>
                   <SelectItem value="REFERRAL">Referral Doctor</SelectItem>
                   <SelectItem value="CLINIC">Clinic Doctor</SelectItem>
+                  <SelectItem value="DIAGNOSTIC_CENTER">Diagnostic Center</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-gray-500 mt-1">
-                {deriveForm.doctorType === 'REFERRAL' 
+                {deriveForm.doctorType === 'REFERRAL'
                   ? 'Commission on diagnostic tests from finalized reports'
-                  : 'Consultation fees from completed clinic visits'}
+                  : deriveForm.doctorType === 'CLINIC'
+                  ? 'Consultation fees from completed clinic visits'
+                  : 'Commission for diagnostic center on finalized visits'}
               </p>
             </div>
 

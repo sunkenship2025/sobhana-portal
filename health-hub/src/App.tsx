@@ -22,6 +22,7 @@ import OwnerDashboard from "./pages/owner/OwnerDashboard";
 import ManageDoctors from "./pages/owner/ManageDoctors";
 import ManageClinicDoctors from "./pages/owner/ManageClinicDoctors";
 import ManageTests from "./pages/owner/ManageTests";
+import AdminConfigCenter from "./pages/owner/AdminConfigCenter";
 import PayoutsList from "./pages/owner/PayoutsList";
 import PayoutDetail from "./pages/owner/PayoutDetail";
 import BillPrintPage from "./pages/BillPrintPage";
@@ -128,11 +129,12 @@ function AppRoutes() {
           <ManageClinicDoctors />
         </ProtectedRoute>
       } />
-      <Route path="/owner/tests" element={
+      <Route path="/owner/config" element={
         <ProtectedRoute allowedRoles={['staff', 'owner']}>
-          <ManageTests />
+          <AdminConfigCenter />
         </ProtectedRoute>
       } />
+      <Route path="/owner/tests" element={<Navigate to="/owner/config?tab=tests" replace />} />
       <Route path="/owner/payouts" element={
         <ProtectedRoute allowedRoles={['owner', 'staff']}>
           <PayoutsList />

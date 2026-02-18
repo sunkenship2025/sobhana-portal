@@ -77,7 +77,7 @@ const navItems: NavItem[] = [
     subItems: [
       { label: 'Referral Doctors', href: '/owner/doctors' },
       { label: 'Clinic Doctors', href: '/owner/clinic-doctors' },
-      { label: 'Manage Tests', href: '/owner/tests' },
+      { label: 'Config Center', href: '/owner/config' },
       { label: 'Payouts', href: '/owner/payouts' },
     ]
   },

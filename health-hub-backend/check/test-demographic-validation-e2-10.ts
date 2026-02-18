@@ -3,7 +3,7 @@
  * Tests validation rules for patient input data
  */
 
-import { validatePatientDemographics, validatePhone, validateEmail } from './src/utils/validation';
+import { validatePatientDemographics, validatePhone, validateEmail } from '../src/utils/validation';
 
 console.log('🧪 E2-10: Testing Patient Demographic Validation\n');
 

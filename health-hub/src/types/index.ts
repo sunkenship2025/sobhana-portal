@@ -295,7 +295,7 @@ export interface PatientSearchResult {
 // ============================================
 // PAYOUT TYPES
 // ============================================
-export type PayoutDoctorType = 'REFERRAL' | 'CLINIC';
+export type PayoutDoctorType = 'REFERRAL' | 'CLINIC' | 'DIAGNOSTIC_CENTER';
 // PaymentType is defined above in VISIT section
 
 export interface PayoutLineItem {

@@ -4,6 +4,9 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import { generateDiagnosticBillNumber } from '../services/numberService';
 import { logAction } from '../services/auditService';
+import { decrementForTests } from '../services/stockService';
+import { evaluateDerivedParameters } from '../services/derivedParameterService';
+import { resolveReferenceRanges } from '../services/referenceRangeService';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -150,6 +153,9 @@ router.get('/:id', async (req: AuthRequest, res) => {
             test: {
               include: {
                 childTests: {
+                  include: {
+                    derivedParameter: { select: { id: true } },
+                  },
                   orderBy: { displayOrder: 'asc' },
                 },
               },
@@ -226,6 +232,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
           name: ct.name,
           code: ct.code,
           displayOrder: ct.displayOrder,
+          isDerived: !!ct.derivedParameter,
           referenceRange: {
             min: ct.referenceMin ?? 0,
             max: ct.referenceMax ?? 0,
@@ -907,8 +914,8 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
         }
       }
 
-      // Update visit status to RESULTS_PENDING if still DRAFT
-      if (visit.status === 'DRAFT') {
+      // Update visit status to WAITING if still DRAFT or IN_PROGRESS
+      if (visit.status === 'DRAFT' || visit.status === 'IN_PROGRESS') {
         await tx.visit.update({
           where: { id },
           data: { status: 'WAITING' },
@@ -916,12 +923,224 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
       }
     });
 
+    // --- Auto-flag results with age-aware reference ranges ---
+    try {
+      const patient = await prisma.patient.findUnique({
+        where: { id: visit.patientId },
+        select: { yearOfBirth: true, gender: true },
+      });
+
+      if (patient) {
+        // Collect test IDs that had numeric values
+        const flaggableResults = results.filter(
+          (r: any) => r.value !== null && r.value !== undefined && r.testId
+        );
+        const testIdsForFlags = flaggableResults.map((r: any) => r.testId);
+
+        if (testIdsForFlags.length > 0) {
+          const resolvedRanges = await resolveReferenceRanges(
+            testIdsForFlags,
+            patient.yearOfBirth,
+            patient.gender as any
+          );
+
+          // Batch-update flags based on resolved ranges
+          for (const r of flaggableResults) {
+            const range = resolvedRanges.get(r.testId);
+            if (!range) continue;
+
+            const numValue = parseFloat(r.value);
+            if (isNaN(numValue)) continue;
+
+            let flag: 'HIGH' | 'LOW' | 'NORMAL' | null = null;
+            if (range.referenceMax !== null && numValue > range.referenceMax) {
+              flag = 'HIGH';
+            } else if (range.referenceMin !== null && numValue < range.referenceMin) {
+              flag = 'LOW';
+            } else if (range.referenceMin !== null || range.referenceMax !== null) {
+              flag = 'NORMAL';
+            }
+
+            if (flag) {
+              const testOrderId = testToOrderMap.get(r.testId);
+              if (testOrderId) {
+                await prisma.testResult.updateMany({
+                  where: {
+                    testOrderId,
+                    testId: r.testId,
+                    reportVersionId: draftVersion.id,
+                  },
+                  data: { flag },
+                });
+              }
+            }
+          }
+        }
+      }
+    } catch (flagErr) {
+      // Non-fatal: log but don't fail the whole request
+      console.warn('Auto-flag calculation warning:', flagErr);
+    }
+
+    // --- Derived Parameters: auto-calculate formula-based values ---
+    try {
+      // Build resultsByTestCode: { testCode: numericValue }
+      const allTestIds = results.map((r: any) => r.testId).filter(Boolean);
+      const testsWithCodes = await prisma.labTest.findMany({
+        where: { id: { in: allTestIds } },
+        select: { id: true, code: true },
+      });
+      const testIdToCode = new Map(testsWithCodes.map((t) => [t.id, t.code]));
+
+      const resultsByTestCode: Record<string, number> = {};
+      for (const r of results) {
+        const code = testIdToCode.get(r.testId);
+        if (code && r.value !== null && r.value !== undefined) {
+          resultsByTestCode[code] = parseFloat(r.value);
+        }
+      }
+
+      // Get all ordered test IDs (including panel children)
+      const orderedTestIds = Array.from(testToOrderMap.keys());
+      const derivedResults = await evaluateDerivedParameters(
+        orderedTestIds,
+        new Map(Object.entries(resultsByTestCode))
+      );
+
+      if (derivedResults.length > 0) {
+        const draftVer = visit.report?.versions[0];
+        if (draftVer) {
+          for (const dr of derivedResults) {
+            const orderIdForDerived = testToOrderMap.get(dr.testId);
+            if (!orderIdForDerived) continue;
+
+            // Upsert derived result
+            await prisma.testResult.deleteMany({
+              where: {
+                testOrderId: orderIdForDerived,
+                testId: dr.testId,
+                reportVersionId: draftVer.id,
+              },
+            });
+            await prisma.testResult.create({
+              data: {
+                testOrderId: orderIdForDerived,
+                testId: dr.testId,
+                reportVersionId: draftVer.id,
+                value: dr.value,
+                flag: null,
+                notes: `Auto-calculated: ${dr.parameterName}`,
+              },
+            });
+          }
+        }
+      }
+    } catch (derivedErr) {
+      // Non-fatal: log but don't fail the whole request
+      console.warn('Derived parameter calculation warning:', derivedErr);
+    }
+
     return res.json({ success: true });
   } catch (err: any) {
     console.error('Save test results error:', err);
     return res.status(500).json({
       error: 'INTERNAL_ERROR',
       message: 'Failed to save test results',
+    });
+  }
+});
+
+// POST /api/visits/diagnostic/:id/collect-sample - Record sample collection and decrement stock
+router.post('/:id/collect-sample', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const branchId = req.branchId!;
+    const userId = req.user!.id;
+
+    // Fetch visit with test orders
+    const visit = await prisma.visit.findFirst({
+      where: {
+        id,
+        branchId,
+        domain: 'DIAGNOSTICS',
+      },
+      include: {
+        testOrders: {
+          include: {
+            test: {
+              select: { id: true, name: true, sampleType: true, isPanel: true, childTests: { select: { id: true } } },
+            },
+          },
+        },
+      },
+    });
+
+    if (!visit) {
+      return res.status(404).json({
+        error: 'NOT_FOUND',
+        message: 'Diagnostic visit not found',
+      });
+    }
+
+    if (visit.status !== 'DRAFT') {
+      return res.status(400).json({
+        error: 'INVALID_STATUS',
+        message: `Sample can only be collected when visit is in DRAFT status. Current status: ${visit.status}`,
+      });
+    }
+
+    // Collect all test IDs (including panel children)
+    const testIds: string[] = [];
+    for (const to of visit.testOrders) {
+      testIds.push(to.testId);
+      if (to.test.isPanel && to.test.childTests) {
+        for (const child of to.test.childTests) {
+          testIds.push(child.id);
+        }
+      }
+    }
+
+    // Decrement stock and update status in a transaction
+    await prisma.$transaction(async (tx) => {
+      // Decrement stock for ordered tests (non-fatal if stock items not configured)
+      try {
+        await decrementForTests(testIds, visit.billNumber, branchId, userId, tx);
+      } catch (stockErr) {
+        console.warn('Stock decrement warning (non-fatal):', stockErr);
+      }
+
+      // Move visit to IN_PROGRESS
+      await tx.visit.update({
+        where: { id },
+        data: { status: 'IN_PROGRESS' },
+      });
+    });
+
+    // Audit log
+    await logAction({
+      actionType: 'FINALIZE',
+      entityType: 'Visit',
+      entityId: id,
+      userId,
+      branchId,
+      newValues: {
+        billNumber: visit.billNumber,
+        testCount: testIds.length,
+        sampleTypes: [...new Set(visit.testOrders.map((to: any) => to.test.sampleType).filter(Boolean))],
+      },
+    });
+
+    return res.json({
+      success: true,
+      status: 'IN_PROGRESS',
+      testsCollected: testIds.length,
+      sampleTypes: [...new Set(visit.testOrders.map((to) => to.test.sampleType).filter(Boolean))],
+    });
+  } catch (err: any) {
+    console.error('Collect sample error:', err);
+    return res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: 'Failed to record sample collection',
     });
   }
 });

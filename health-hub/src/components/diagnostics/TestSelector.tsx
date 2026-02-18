@@ -10,6 +10,8 @@ interface LabTest {
   code: string;
   priceInPaise: number;
   departmentId?: string;
+  department?: { id: string; name: string } | null;
+  sampleType?: string | null;
 }
 
 interface TestSelectorProps {
@@ -47,6 +49,33 @@ export function TestSelector({
       )
       .slice(0, 10); // Limit to 10 results for performance
   }, [tests, searchQuery, selectedTestIds]);
+
+  // Group filtered tests by department
+  const groupedTests = useMemo(() => {
+    const groups: { department: string; tests: LabTest[] }[] = [];
+    const deptMap = new Map<string, LabTest[]>();
+
+    for (const test of filteredTests) {
+      const dept = test.department?.name || 'Other';
+      if (!deptMap.has(dept)) deptMap.set(dept, []);
+      deptMap.get(dept)!.push(test);
+    }
+
+    for (const [department, tests] of deptMap) {
+      groups.push({ department, tests });
+    }
+
+    return groups;
+  }, [filteredTests]);
+
+  // Flat index mapping for keyboard navigation
+  const flatIndexToTest = useMemo(() => {
+    const flat: LabTest[] = [];
+    for (const group of groupedTests) {
+      flat.push(...group.tests);
+    }
+    return flat;
+  }, [groupedTests]);
 
   // Get selected test objects
   const selectedTests = useMemo(() => {
@@ -108,8 +137,8 @@ export function TestSelector({
         break;
       case 'Enter':
         e.preventDefault();
-        if (filteredTests[highlightedIndex]) {
-          handleAddTest(filteredTests[highlightedIndex]);
+        if (flatIndexToTest[highlightedIndex]) {
+          handleAddTest(flatIndexToTest[highlightedIndex]);
         }
         break;
       case 'Escape':
@@ -147,37 +176,52 @@ export function TestSelector({
 
         {/* Dropdown */}
         {isOpen && filteredTests.length > 0 && (
-          <div 
+          <div
             ref={listRef}
             className="absolute z-50 w-full mt-1 bg-popover border rounded-lg shadow-lg max-h-64 overflow-auto"
           >
-            {filteredTests.map((test, index) => (
-              <div
-                key={test.id}
-                className={cn(
-                  "flex items-center justify-between px-4 py-3 cursor-pointer transition-colors",
-                  index === highlightedIndex 
-                    ? "bg-accent text-accent-foreground" 
-                    : "hover:bg-muted"
-                )}
-                onMouseEnter={() => setHighlightedIndex(index)}
-                onMouseDown={(e) => {
-                  e.preventDefault(); // Prevent blur
-                  handleAddTest(test);
-                }}
-              >
-                <div className="flex items-center gap-3">
-                  <Plus className="h-4 w-4 text-muted-foreground" />
-                  <div>
-                    <p className="font-medium">{test.name}</p>
-                    <p className="text-xs text-muted-foreground">{test.code}</p>
+            {groupedTests.map((group) => {
+              return (
+                <div key={group.department}>
+                  <div className="px-4 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50 sticky top-0">
+                    {group.department}
                   </div>
+                  {group.tests.map((test) => {
+                    const flatIdx = flatIndexToTest.indexOf(test);
+                    return (
+                      <div
+                        key={test.id}
+                        className={cn(
+                          "flex items-center justify-between px-4 py-3 cursor-pointer transition-colors",
+                          flatIdx === highlightedIndex
+                            ? "bg-accent text-accent-foreground"
+                            : "hover:bg-muted"
+                        )}
+                        onMouseEnter={() => setHighlightedIndex(flatIdx)}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          handleAddTest(test);
+                        }}
+                      >
+                        <div className="flex items-center gap-3">
+                          <Plus className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <p className="font-medium">{test.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {test.code}
+                              {test.sampleType && <span className="ml-2 text-xs opacity-60">{test.sampleType}</span>}
+                            </p>
+                          </div>
+                        </div>
+                        <span className="font-semibold text-primary">
+                          ₹{(test.priceInPaise / 100).toFixed(0)}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
-                <span className="font-semibold text-primary">
-                  ₹{(test.priceInPaise / 100).toFixed(0)}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
