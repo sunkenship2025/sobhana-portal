@@ -35,6 +35,7 @@ interface ChildTest {
   name: string;
   code: string;
   displayOrder: number;
+  isDerived?: boolean;
   referenceRange: ReferenceRange;
 }
 
@@ -297,7 +298,8 @@ const DiagnosticsResultEntry = () => {
     testName: string,
     testCode: string,
     referenceRange: ReferenceRange,
-    isSubTest: boolean = false
+    isSubTest: boolean = false,
+    isDerived: boolean = false
   ) => {
     const valueStr = results[testId] || '';
     const value = valueStr ? parseFloat(valueStr) : null;
@@ -320,6 +322,11 @@ const DiagnosticsResultEntry = () => {
             {testName}
           </Label>
           <span className="text-xs text-muted-foreground ml-2">({testCode})</span>
+          {isDerived && (
+            <span className="ml-2 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+              Auto
+            </span>
+          )}
         </div>
 
         <div>
@@ -441,7 +448,8 @@ const DiagnosticsResultEntry = () => {
                               child.name,
                               child.code,
                               child.referenceRange,
-                              true
+                              true,
+                              !!child.isDerived
                             )
                           )}
                         </div>

@@ -6,7 +6,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import { createPatient } from './src/services/patientService';
+import { createPatient } from '../src/services/patientService';
 
 const prisma = new PrismaClient();
 

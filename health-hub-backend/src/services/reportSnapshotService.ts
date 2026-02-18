@@ -12,7 +12,8 @@
  * - interpretationsSnapshot: Resolved interpretation texts
  */
 
-import { PrismaClient, ReportVersion, TestResult } from '@prisma/client';
+import { PrismaClient, ReportVersion, TestResult, Gender } from '@prisma/client';
+import { resolveReferenceRanges } from './referenceRangeService';
 
 const prisma = new PrismaClient();
 
@@ -30,6 +31,7 @@ export interface TestResultSnapshot {
   referenceMin: number | null;
   referenceMax: number | null;
   referenceUnit: string | null;
+  sampleType: string | null;
   methodText: string | null;
   displayOrder: number;
   indentLevel: number;
@@ -175,6 +177,18 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
   const patient = visit.patient;
 
   // ============================================================================
+  // RESOLVE AGE-AWARE REFERENCE RANGES
+  // ============================================================================
+
+  const allTestIds = reportVersion.testResults.map(r => r.test.id);
+  const uniqueTestIds = [...new Set(allTestIds)];
+  const resolvedRanges = await resolveReferenceRanges(
+    uniqueTestIds,
+    patient.yearOfBirth,
+    patient.gender as Gender
+  );
+
+  // ============================================================================
   // BUILD PANEL SNAPSHOTS (Grouped by Department)
   // ============================================================================
   
@@ -214,9 +228,10 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
         value: result.value,
         flag: result.flag,
         notes: result.notes,
-        referenceMin: test.referenceMin,
-        referenceMax: test.referenceMax,
-        referenceUnit: test.referenceUnit,
+        referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
+        referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
+        referenceUnit: resolvedRanges.get(test.id)?.referenceUnit ?? test.referenceUnit,
+        sampleType: test.sampleType ?? null,
         methodText: panelItem.methodText,
         displayOrder: panelItem.displayOrder,
         indentLevel: panelItem.indentLevel,
@@ -436,6 +451,15 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
 
   const patient = visit.patient;
 
+  // Resolve age-aware reference ranges
+  const allTestIds = reportVersion.testResults.map((r: any) => r.test.id);
+  const uniqueTestIds = [...new Set(allTestIds)];
+  const resolvedRanges = await resolveReferenceRanges(
+    uniqueTestIds,
+    patient.yearOfBirth,
+    patient.gender as Gender
+  );
+
   // Build panel snapshots — same logic as createReportSnapshot
   const panelMap = new Map<string, { panel: any; results: any[] }>();
 
@@ -469,9 +493,10 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
         value: result.value,
         flag: result.flag,
         notes: result.notes,
-        referenceMin: test.referenceMin,
-        referenceMax: test.referenceMax,
-        referenceUnit: test.referenceUnit,
+        referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
+        referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
+        referenceUnit: resolvedRanges.get(test.id)?.referenceUnit ?? test.referenceUnit,
+        sampleType: test.sampleType ?? null,
         methodText: panelItem.methodText,
         displayOrder: panelItem.displayOrder,
         indentLevel: panelItem.indentLevel,

@@ -13,7 +13,7 @@ export interface PayoutLineItem {
   date: Date;
   testOrFee: string; // Test name for referral, "Consultation Fee" for clinic
   amountInPaise: number;
-  commissionPercentage?: number; // Only for referral
+  commissionPercentage?: number; // Only for referral/diagnostic center
   derivedCommissionInPaise: number;
 }
 
@@ -231,6 +231,167 @@ async function deriveClinicPayout(
 }
 
 // ===========================================================================
+// DERIVATION LOGIC - DIAGNOSTIC CENTERS
+// ===========================================================================
+
+/**
+ * Derive payout for a diagnostic center.
+ * Formula: Sum of (visit.totalAmountInPaise × center.commissionPercent / 100)
+ * for visits linked via DiagnosticCenter_Visit with finalized reports in period.
+ */
+async function deriveDiagnosticCenterPayout(
+  diagnosticCenterId: string,
+  branchId: string,
+  periodStartDate: Date,
+  periodEndDate: Date
+): Promise<PayoutDerivationResult> {
+  const center = await prisma.diagnosticReferralCenter.findUnique({
+    where: { id: diagnosticCenterId },
+    select: { id: true, name: true, commissionPercent: true },
+  });
+
+  if (!center) {
+    throw new Error('Diagnostic center not found');
+  }
+
+  // Get visits linked to this center with finalized reports
+  const centerVisits = await prisma.diagnosticCenter_Visit.findMany({
+    where: {
+      diagnosticCenterId,
+      branchId,
+      visit: {
+        report: {
+          versions: {
+            some: {
+              status: 'FINALIZED',
+              finalizedAt: {
+                gte: periodStartDate,
+                lte: periodEndDate,
+              },
+            },
+          },
+        },
+      },
+    },
+    include: {
+      visit: {
+        include: {
+          patient: { select: { name: true } },
+          testOrders: {
+            include: {
+              test: { select: { name: true } },
+            },
+          },
+          report: {
+            include: {
+              versions: {
+                where: { status: 'FINALIZED' },
+                orderBy: { versionNum: 'desc' },
+                take: 1,
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const lineItems: PayoutLineItem[] = [];
+  let totalDerivedInPaise = 0;
+
+  for (const cv of centerVisits) {
+    const visit = cv.visit;
+    const finalizedAt = visit.report?.versions[0]?.finalizedAt;
+    const billTotal = visit.totalAmountInPaise;
+    const commissionInPaise = Math.round(
+      (billTotal * center.commissionPercent) / 100
+    );
+    totalDerivedInPaise += commissionInPaise;
+
+    // Create one line item per visit (not per test order)
+    lineItems.push({
+      visitId: visit.id,
+      billNumber: visit.billNumber,
+      patientName: visit.patient.name,
+      date: finalizedAt || visit.createdAt,
+      testOrFee: visit.testOrders.map((to) => to.test.name).join(', '),
+      amountInPaise: billTotal,
+      commissionPercentage: center.commissionPercent,
+      derivedCommissionInPaise: commissionInPaise,
+    });
+  }
+
+  return {
+    doctorType: 'DIAGNOSTIC_CENTER',
+    doctorId: diagnosticCenterId,
+    doctorName: center.name,
+    branchId,
+    periodStartDate,
+    periodEndDate,
+    lineItems,
+    derivedAmountInPaise: totalDerivedInPaise,
+  };
+}
+
+// ===========================================================================
+// HELPER: Route derivation to the correct function based on doctorType
+// ===========================================================================
+
+function deriveByType(
+  doctorType: PayoutDoctorType,
+  doctorId: string,
+  branchId: string,
+  periodStartDate: Date,
+  periodEndDate: Date
+): Promise<PayoutDerivationResult> {
+  switch (doctorType) {
+    case 'REFERRAL':
+      return deriveReferralPayout(doctorId, branchId, periodStartDate, periodEndDate);
+    case 'CLINIC':
+      return deriveClinicPayout(doctorId, branchId, periodStartDate, periodEndDate);
+    case 'DIAGNOSTIC_CENTER':
+      return deriveDiagnosticCenterPayout(doctorId, branchId, periodStartDate, periodEndDate);
+    default:
+      throw new Error(`Unsupported doctor type: ${doctorType}`);
+  }
+}
+
+/**
+ * Map doctorType to the correct where clause for finding existing ledger entries.
+ */
+function doctorIdWhereClause(doctorType: PayoutDoctorType, doctorId: string) {
+  switch (doctorType) {
+    case 'REFERRAL':
+      return { referralDoctorId: doctorId };
+    case 'CLINIC':
+      return { clinicDoctorId: doctorId };
+    case 'DIAGNOSTIC_CENTER':
+      return { diagnosticCenterId: doctorId };
+  }
+}
+
+/**
+ * Extract doctorId from a payout ledger record.
+ */
+function extractDoctorId(payout: any): string {
+  if (payout.doctorType === 'REFERRAL') return payout.referralDoctorId!;
+  if (payout.doctorType === 'CLINIC') return payout.clinicDoctorId!;
+  return payout.diagnosticCenterId!;
+}
+
+/**
+ * Extract doctorName from included relations.
+ */
+function extractDoctorName(payout: any): string {
+  return (
+    payout.referralDoctor?.name ||
+    payout.clinicDoctor?.name ||
+    payout.diagnosticCenter?.name ||
+    'Unknown'
+  );
+}
+
+// ===========================================================================
 // EXPORTED SERVICE FUNCTIONS
 // ===========================================================================
 
@@ -249,9 +410,7 @@ export async function derivePayout(
   const existing = await prisma.doctorPayoutLedger.findFirst({
     where: {
       doctorType,
-      ...(doctorType === 'REFERRAL'
-        ? { referralDoctorId: doctorId }
-        : { clinicDoctorId: doctorId }),
+      ...doctorIdWhereClause(doctorType, doctorId),
       branchId,
       periodStartDate,
       periodEndDate,
@@ -259,24 +418,21 @@ export async function derivePayout(
     include: {
       referralDoctor: { select: { name: true } },
       clinicDoctor: { select: { name: true } },
+      diagnosticCenter: { select: { name: true } },
       branch: { select: { name: true } },
     },
   });
 
   if (existing) {
     // Return existing with line items recalculated (for display only)
-    const derivation =
-      doctorType === 'REFERRAL'
-        ? await deriveReferralPayout(doctorId, branchId, periodStartDate, periodEndDate)
-        : await deriveClinicPayout(doctorId, branchId, periodStartDate, periodEndDate);
+    const derivation = await deriveByType(doctorType, doctorId, branchId, periodStartDate, periodEndDate);
 
     return {
       payout: {
         id: existing.id,
         doctorType: existing.doctorType,
-        doctorId: doctorType === 'REFERRAL' ? existing.referralDoctorId! : existing.clinicDoctorId!,
-        doctorName:
-          existing.referralDoctor?.name || existing.clinicDoctor?.name || 'Unknown',
+        doctorId: extractDoctorId(existing),
+        doctorName: extractDoctorName(existing),
         branchId: existing.branchId,
         branchName: existing.branch.name,
         periodStartDate: existing.periodStartDate,
@@ -295,10 +451,7 @@ export async function derivePayout(
   }
 
   // Derive new payout
-  const derivation =
-    doctorType === 'REFERRAL'
-      ? await deriveReferralPayout(doctorId, branchId, periodStartDate, periodEndDate)
-      : await deriveClinicPayout(doctorId, branchId, periodStartDate, periodEndDate);
+  const derivation = await deriveByType(doctorType, doctorId, branchId, periodStartDate, periodEndDate);
 
   // Create new ledger entry
   const newPayout = await prisma.doctorPayoutLedger.create({
@@ -306,6 +459,7 @@ export async function derivePayout(
       doctorType,
       referralDoctorId: doctorType === 'REFERRAL' ? doctorId : null,
       clinicDoctorId: doctorType === 'CLINIC' ? doctorId : null,
+      diagnosticCenterId: doctorType === 'DIAGNOSTIC_CENTER' ? doctorId : null,
       branchId,
       periodStartDate,
       periodEndDate,
@@ -365,6 +519,7 @@ export async function listPayouts(
     include: {
       referralDoctor: { select: { name: true } },
       clinicDoctor: { select: { name: true } },
+      diagnosticCenter: { select: { name: true } },
       branch: { select: { name: true } },
     },
     orderBy: { derivedAt: 'desc' },
@@ -373,8 +528,8 @@ export async function listPayouts(
   return payouts.map((p) => ({
     id: p.id,
     doctorType: p.doctorType,
-    doctorId: p.doctorType === 'REFERRAL' ? p.referralDoctorId! : p.clinicDoctorId!,
-    doctorName: p.referralDoctor?.name || p.clinicDoctor?.name || 'Unknown',
+    doctorId: extractDoctorId(p),
+    doctorName: extractDoctorName(p),
     branchId: p.branchId,
     branchName: p.branch.name,
     periodStartDate: p.periodStartDate,
@@ -395,36 +550,29 @@ export async function getPayoutDetail(payoutId: string): Promise<PayoutDetail | 
     include: {
       referralDoctor: { select: { name: true } },
       clinicDoctor: { select: { name: true } },
+      diagnosticCenter: { select: { name: true } },
       branch: { select: { name: true } },
     },
   });
 
   if (!payout) return null;
 
-  const doctorId =
-    payout.doctorType === 'REFERRAL' ? payout.referralDoctorId! : payout.clinicDoctorId!;
+  const doctorId = extractDoctorId(payout);
 
   // Re-derive line items for display (amounts frozen in ledger)
-  const derivation =
-    payout.doctorType === 'REFERRAL'
-      ? await deriveReferralPayout(
-          doctorId,
-          payout.branchId,
-          payout.periodStartDate,
-          payout.periodEndDate
-        )
-      : await deriveClinicPayout(
-          doctorId,
-          payout.branchId,
-          payout.periodStartDate,
-          payout.periodEndDate
-        );
+  const derivation = await deriveByType(
+    payout.doctorType,
+    doctorId,
+    payout.branchId,
+    payout.periodStartDate,
+    payout.periodEndDate
+  );
 
   return {
     id: payout.id,
     doctorType: payout.doctorType,
     doctorId,
-    doctorName: payout.referralDoctor?.name || payout.clinicDoctor?.name || 'Unknown',
+    doctorName: extractDoctorName(payout),
     branchId: payout.branchId,
     branchName: payout.branch.name,
     periodStartDate: payout.periodStartDate,
@@ -511,6 +659,23 @@ export async function getClinicDoctors(isActive?: boolean) {
       doctorNumber: true,
       name: true,
       specialty: true,
+      isActive: true,
+    },
+    orderBy: { name: 'asc' },
+  });
+}
+
+/**
+ * Get all diagnostic centers for dropdown selection.
+ */
+export async function getDiagnosticCenters(isActive?: boolean) {
+  return prisma.diagnosticReferralCenter.findMany({
+    where: isActive !== undefined ? { isActive } : undefined,
+    select: {
+      id: true,
+      centerNumber: true,
+      name: true,
+      commissionPercent: true,
       isActive: true,
     },
     orderBy: { name: 'asc' },

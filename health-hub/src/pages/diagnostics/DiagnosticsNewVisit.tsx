@@ -35,7 +35,9 @@ const DiagnosticsNewVisit = () => {
   // API data state
   const [labTests, setLabTests] = useState<LabTest[]>([]);
   const [referralDoctors, setReferralDoctors] = useState<ReferralDoctor[]>([]);
+  const [diagnosticCenters, setDiagnosticCenters] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedCenterId, setSelectedCenterId] = useState<string>('');
 
   const [phone, setPhone] = useState('');
   const [billSearch, setBillSearch] = useState('');
@@ -74,9 +76,10 @@ const DiagnosticsNewVisit = () => {
           'X-Branch-Id': activeBranch.id,
         };
 
-        const [testsRes, doctorsRes] = await Promise.all([
+        const [testsRes, doctorsRes, centersRes] = await Promise.all([
           fetch(`${API_BASE}/lab-tests`, { headers }),
           fetch(`${API_BASE}/referral-doctors`, { headers }),
+          fetch(`${API_BASE}/diagnostic-centers`, { headers }),
         ]);
 
         if (testsRes.ok) {
@@ -86,6 +89,10 @@ const DiagnosticsNewVisit = () => {
         if (doctorsRes.ok) {
           const doctors = await doctorsRes.json();
           setReferralDoctors(doctors);
+        }
+        if (centersRes.ok) {
+          const centers = await centersRes.json();
+          setDiagnosticCenters(centers);
         }
       } catch (error) {
         console.error('Failed to fetch data:', error);
@@ -302,6 +309,7 @@ const DiagnosticsNewVisit = () => {
         body: JSON.stringify({
           patientId: patient.id,
           referralDoctorId: selectedDoctorId || null,
+          diagnosticCenterId: selectedCenterId || null,
           testIds: selectedTests,
           paymentType,
           paymentStatus: 'PAID',
@@ -700,6 +708,38 @@ const DiagnosticsNewVisit = () => {
                 }}
                 disabled={isSubmitting}
               />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Diagnostic Center (optional) */}
+        {selectedTests.length > 0 && diagnosticCenters.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Diagnostic Center (optional)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Select
+                value={selectedCenterId}
+                onValueChange={setSelectedCenterId}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select diagnostic center (if referred)" />
+                </SelectTrigger>
+                <SelectContent>
+                  {diagnosticCenters.map((center: any) => (
+                    <SelectItem key={center.id} value={center.id}>
+                      {center.name} ({center.centerNumber})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedCenterId && (
+                <Button variant="ghost" size="sm" className="mt-2 text-muted-foreground"
+                  onClick={() => setSelectedCenterId('')}>
+                  Clear selection
+                </Button>
+              )}
             </CardContent>
           </Card>
         )}
