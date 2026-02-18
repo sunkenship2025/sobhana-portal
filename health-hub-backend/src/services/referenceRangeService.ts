@@ -5,6 +5,9 @@
  * patient age (from yearOfBirth) and gender, using TestAgeRange rows.
  * Falls back to the default LabTest.referenceMin / referenceMax if
  * no age-specific range matches.
+ *
+ * Age ranges are stored in days for precision (newborns, infants).
+ * yearOfBirth is converted to approximate age in days for matching.
  */
 
 import { PrismaClient, Gender } from '@prisma/client';
@@ -22,7 +25,7 @@ export interface ResolvedRange {
  * Resolve the reference range for a test, considering patient demographics.
  *
  * Match logic (TestAgeRange):
- *   - minAgeYears <= patientAge <= maxAgeYears  (null bounds = open-ended)
+ *   - minAgeDays <= patientAgeDays <= maxAgeDays  (null bounds = open-ended)
  *   - gender matches OR TestAgeRange.gender is null (gender-neutral)
  *
  * Falls back to LabTest.referenceMin/Max/Unit/Text if no range matches.
@@ -36,8 +39,10 @@ export async function resolveReferenceRange(
   yearOfBirth: number,
   patientGender: Gender
 ): Promise<ResolvedRange> {
-  const currentYear = new Date().getFullYear();
-  const patientAge = currentYear - yearOfBirth;
+  const now = new Date();
+  const patientAgeDays = Math.floor(
+    (now.getTime() - new Date(yearOfBirth, 0, 1).getTime()) / (1000 * 60 * 60 * 24)
+  );
 
   // Find matching age-range rows (most specific first)
   const ageRanges = await prisma.testAgeRange.findMany({
@@ -50,17 +55,16 @@ export async function resolveReferenceRange(
     },
     orderBy: [
       { gender: 'asc' }, // gender-specific rows first (M/F before null)
-      { minAgeYears: 'asc' },
+      { minAgeDays: 'asc' },
     ],
   });
 
   // Find first matching range
   for (const range of ageRanges) {
-    const minOk = range.minAgeYears === null || patientAge >= range.minAgeYears;
-    const maxOk = range.maxAgeYears === null || patientAge <= range.maxAgeYears;
+    const minOk = range.minAgeDays === null || patientAgeDays >= range.minAgeDays;
+    const maxOk = range.maxAgeDays === null || patientAgeDays <= range.maxAgeDays;
 
     if (minOk && maxOk) {
-      // Prefer gender-specific over gender-neutral
       return {
         referenceMin: range.referenceMin,
         referenceMax: range.referenceMax,
