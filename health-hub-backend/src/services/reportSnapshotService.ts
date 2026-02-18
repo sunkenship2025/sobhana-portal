@@ -137,6 +137,7 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
                 where: { isActive: true },
                 orderBy: { displayOrder: 'asc' },
               },
+              department: true,
             },
           },
           // The test order — has snapshot metadata (name, code, reference ranges at order time)
@@ -220,7 +221,7 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
           }
         }
       }
-      
+
       panelMap.get(key)!.results.push({
         testId: test.id,
         testCode: test.code,   // Sub-test code (HB, RBC, etc.)
@@ -239,11 +240,62 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
         interpretationText,
       });
     }
+
+    // ── Orphan test fallback: tests not linked to any panel ──
+    if (test.panelItems.length === 0) {
+      let orphanInterpretation: string | null = null;
+      if (result.value !== null && test.interpretations.length > 0) {
+        for (const interp of test.interpretations) {
+          const minOk = interp.minValue === null || result.value >= interp.minValue;
+          const maxOk = interp.maxValue === null || result.value < interp.maxValue;
+          if (minOk && maxOk) {
+            orphanInterpretation = interp.interpretationText;
+            break;
+          }
+        }
+      }
+
+      const dept = test.department;
+      const deptId = dept?.id || '__general__';
+      const orphanPanelKey = `__orphan__${deptId}`;
+
+      if (!panelMap.has(orphanPanelKey)) {
+        panelMap.set(orphanPanelKey, {
+          panel: {
+            id: orphanPanelKey,
+            name: dept?.name || 'General',
+            displayName: dept?.name || 'General',
+            layoutType: 'STANDARD_TABLE',
+            displayOrder: 9999,
+            department: dept || { id: '__general__', name: 'General', reportHeaderText: '', displayOrder: 9999 },
+          },
+          results: [],
+        });
+      }
+
+      panelMap.get(orphanPanelKey)!.results.push({
+        testId: test.id,
+        testCode: test.code,
+        testName: test.name,
+        value: result.value,
+        flag: result.flag,
+        notes: result.notes,
+        referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
+        referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
+        referenceUnit: resolvedRanges.get(test.id)?.referenceUnit ?? test.referenceUnit,
+        sampleType: test.sampleType ?? null,
+        methodText: test.method ?? null,
+        displayOrder: test.displayOrder ?? 0,
+        indentLevel: 0,
+        subGroup: null,
+        interpretationText: orphanInterpretation,
+      });
+    }
   }
-  
+
   // Group panels by department
   const departmentMap = new Map<string, DepartmentSnapshot>();
-  
+
   for (const [panelId, { panel, results }] of panelMap) {
     const dept = panel.department;
     const deptId = dept.id;
@@ -424,6 +476,7 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
                         where: { isActive: true },
                         orderBy: { displayOrder: 'asc' },
                       },
+                      department: true,
                     },
                   },
                   testOrder: true,
@@ -501,6 +554,57 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
         displayOrder: panelItem.displayOrder,
         indentLevel: panelItem.indentLevel,
         subGroup: panelItem.subGroup,
+        interpretationText,
+      });
+    }
+
+    // ── Orphan test fallback: tests not linked to any panel ──
+    if (test.panelItems.length === 0) {
+      let interpretationText: string | null = null;
+      if (result.value !== null && test.interpretations.length > 0) {
+        for (const interp of test.interpretations) {
+          const minOk = interp.minValue === null || result.value >= interp.minValue;
+          const maxOk = interp.maxValue === null || result.value < interp.maxValue;
+          if (minOk && maxOk) {
+            interpretationText = interp.interpretationText;
+            break;
+          }
+        }
+      }
+
+      const dept = test.department;
+      const deptId = dept?.id || '__general__';
+      const orphanPanelKey = `__orphan__${deptId}`;
+
+      if (!panelMap.has(orphanPanelKey)) {
+        panelMap.set(orphanPanelKey, {
+          panel: {
+            id: orphanPanelKey,
+            name: dept?.name || 'General',
+            displayName: dept?.name || 'General',
+            layoutType: 'STANDARD_TABLE',
+            displayOrder: 9999,
+            department: dept || { id: '__general__', name: 'General', reportHeaderText: '', displayOrder: 9999 },
+          },
+          results: [],
+        });
+      }
+
+      panelMap.get(orphanPanelKey)!.results.push({
+        testId: test.id,
+        testCode: test.code,
+        testName: test.name,
+        value: result.value,
+        flag: result.flag,
+        notes: result.notes,
+        referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
+        referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
+        referenceUnit: resolvedRanges.get(test.id)?.referenceUnit ?? test.referenceUnit,
+        sampleType: test.sampleType ?? null,
+        methodText: test.method ?? null,
+        displayOrder: test.displayOrder ?? 0,
+        indentLevel: 0,
+        subGroup: null,
         interpretationText,
       });
     }
