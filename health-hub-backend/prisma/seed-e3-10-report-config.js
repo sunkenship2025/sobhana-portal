@@ -41,15 +41,6 @@ async function seedReportConfig() {
       },
     }),
     prisma.department.upsert({
-      where: { name: 'CLINICAL_CHEMISTRY' },
-      update: {},
-      create: {
-        name: 'CLINICAL_CHEMISTRY',
-        reportHeaderText: 'DEPARTMENT OF CLINICAL CHEMISTRY',
-        displayOrder: 4,
-      },
-    }),
-    prisma.department.upsert({
       where: { name: 'MICROBIOLOGY' },
       update: {},
       create: {
@@ -60,7 +51,7 @@ async function seedReportConfig() {
     }),
   ]);
 
-  const [haematology, biochemistry, serology, clinicalChemistry, microbiology] = departments;
+  const [haematology, biochemistry, serology, microbiology] = departments;
   console.log(`✅ Created ${departments.length} departments`);
 
   // ============================================================================
@@ -169,12 +160,12 @@ async function seedReportConfig() {
   });
 
   // Dr. Abdur Rehman Asif signs:
-  // - Clinical Chemistry (advanced biochemistry)
+  // - Biochemistry
   await prisma.signingRule.upsert({
-    where: { departmentId_signingDoctorId: { departmentId: clinicalChemistry.id, signingDoctorId: drAbdur.id } },
+    where: { departmentId_signingDoctorId: { departmentId: biochemistry.id, signingDoctorId: drAbdur.id } },
     update: {},
     create: {
-      departmentId: clinicalChemistry.id,
+      departmentId: biochemistry.id,
       signingDoctorId: drAbdur.id,
       showLabInchargeNote: false,
       displayOrder: 1,
@@ -623,28 +614,28 @@ async function seedReportConfig() {
     },
   });
 
-  // Vitamin D Panel (CLINICAL CHEMISTRY)
+  // Vitamin D Panel (BIOCHEMISTRY)
   const vitDPanel = await prisma.panelDefinition.upsert({
     where: { name: 'VIT_D_PANEL' },
     update: {},
     create: {
       name: 'VIT_D_PANEL',
       displayName: 'VITAMIN D',
-      departmentId: clinicalChemistry.id,
+      departmentId: biochemistry.id,
       layoutType: 'INTERPRETATION_SINGLE',
       displayOrder: 1,
       showMethodColumn: true,
     },
   });
 
-  // Calcium Panel (CLINICAL CHEMISTRY)
+  // Calcium Panel (BIOCHEMISTRY)
   const calciumPanel = await prisma.panelDefinition.upsert({
     where: { name: 'CALCIUM_PANEL' },
     update: {},
     create: {
       name: 'CALCIUM_PANEL',
       displayName: 'SERUM CALCIUM',
-      departmentId: clinicalChemistry.id,
+      departmentId: biochemistry.id,
       layoutType: 'INTERPRETATION_SINGLE',
       displayOrder: 2,
       showMethodColumn: true,

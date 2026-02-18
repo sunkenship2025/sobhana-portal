@@ -101,6 +101,19 @@ enum Gender {
 enum PayoutDoctorType {
   REFERRAL
   CLINIC
+  DIAGNOSTIC_CENTER
+}
+
+enum StockTransactionType {
+  CREDIT       // Restock / purchase
+  DEBIT        // Consumed by test run
+  ADJUSTMENT   // Manual correction (physical stock-take)
+}
+
+enum ReferralSourceType {
+  SELF           // In-house test
+  REFERRED_TO    // We refer TO another diagnostic center
+  REFERRED_FROM  // Referred FROM another diagnostic center to us
 }
 
 enum MessageStatus {
@@ -276,6 +289,15 @@ model LabTest {
   // Is this a panel (has children) or individual test?
   isPanel         Boolean  @default(false)
 
+  // Extended fields for test management overhaul
+  sampleType          String?              // e.g., "Blood", "Serum", "Urine" — display on report
+  method              String?              // e.g., "ECLIA", "GOD-POD" — global default method
+  departmentId        String?              // Direct link to department for admin grouping
+  defaultReferralType ReferralSourceType   @default(SELF) // Default referral type, overridable at billing
+
+  // Department relation
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
   /// Test orders in visits
   testOrders TestOrder[]
   
@@ -286,10 +308,16 @@ model LabTest {
   panelItems      PanelTestItem[]
   interpretations InterpretationTemplate[]
 
+  // Extended relations
+  ageRanges         TestAgeRange[]
+  derivedParameter  DerivedParameter?
+  stockRequirements TestStockRequirement[]
+
   @@index([isActive])
   @@index([code])
   @@index([createdAt])
   @@index([parentTestId])
+  @@index([departmentId])
 }
 
 /// Branch: Physical location where visits occur
@@ -307,11 +335,13 @@ model Branch {
   users User[]
 
   /// All data for this branch
-  visits           Visit[]
-  referrals        ReferralDoctor_Visit[]
-  bills            Bill[]
-  payoutLedger     DoctorPayoutLedger[]
-  auditLogs        AuditLog[]
+  visits                    Visit[]
+  referrals                 ReferralDoctor_Visit[]
+  diagnosticCenterReferrals DiagnosticCenter_Visit[]
+  bills                     Bill[]
+  payoutLedger              DoctorPayoutLedger[]
+  auditLogs                 AuditLog[]
+  stockItems                StockItem[]
 
   @@index([isActive])
   @@index([code])
@@ -362,6 +392,9 @@ model Visit {
 
   /// Explicit referrals (for diagnostics)
   referrals ReferralDoctor_Visit[]
+
+  /// External diagnostic center referrals (to/from)
+  diagnosticCenterReferrals DiagnosticCenter_Visit[]
 
   /// Bill (one per visit)
   bill   Bill?
@@ -567,9 +600,10 @@ model DoctorPayoutRule {
 ///   - CLINIC: Sum of consultation fees for all completed visits in period
 model DoctorPayoutLedger {
   id                    String           @id @default(cuid())
-  doctorType            PayoutDoctorType // REFERRAL | CLINIC
+  doctorType            PayoutDoctorType // REFERRAL | CLINIC | DIAGNOSTIC_CENTER
   referralDoctorId      String?          // Set when doctorType = REFERRAL
   clinicDoctorId        String?          // Set when doctorType = CLINIC
+  diagnosticCenterId    String?          // Set when doctorType = DIAGNOSTIC_CENTER
   branchId              String
   periodStartDate       DateTime
   periodEndDate         DateTime
@@ -582,14 +616,16 @@ model DoctorPayoutLedger {
   notes                 String?
   createdAt             DateTime         @default(now())
 
-  referralDoctor ReferralDoctor? @relation(fields: [referralDoctorId], references: [id], onDelete: Restrict)
-  clinicDoctor   ClinicDoctor?   @relation(fields: [clinicDoctorId], references: [id], onDelete: Restrict)
-  branch         Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  referralDoctor   ReferralDoctor?          @relation(fields: [referralDoctorId], references: [id], onDelete: Restrict)
+  clinicDoctor     ClinicDoctor?            @relation(fields: [clinicDoctorId], references: [id], onDelete: Restrict)
+  diagnosticCenter DiagnosticReferralCenter? @relation(fields: [diagnosticCenterId], references: [id], onDelete: Restrict)
+  branch           Branch                   @relation(fields: [branchId], references: [id], onDelete: Restrict)
 
-  @@unique([doctorType, referralDoctorId, clinicDoctorId, branchId, periodStartDate, periodEndDate])
+  @@unique([doctorType, referralDoctorId, clinicDoctorId, diagnosticCenterId, branchId, periodStartDate, periodEndDate])
   @@index([doctorType])
   @@index([referralDoctorId])
   @@index([clinicDoctorId])
+  @@index([diagnosticCenterId])
   @@index([branchId])
   @@index([paidAt])
 }
@@ -707,6 +743,7 @@ model Department {
 
   panels       PanelDefinition[]
   signingRules SigningRule[]
+  labTests     LabTest[]
 
   @@index([displayOrder])
   @@index([isActive])
@@ -848,4 +885,138 @@ model ReportAccessLog {
   @@index([reportVersionId])
   @@index([accessType])
   @@index([createdAt])
+}
+
+// ─── Age-Based Reference Ranges ──────────────────────────────────
+model TestAgeRange {
+  id            String   @id @default(cuid())
+  testId        String
+  minAgeYears   Int?
+  maxAgeYears   Int?
+  gender        Gender?
+  referenceMin  Float?
+  referenceMax  Float?
+  referenceUnit String?
+  referenceText String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  test LabTest @relation(fields: [testId], references: [id], onDelete: Cascade)
+
+  @@unique([testId, minAgeYears, maxAgeYears, gender])
+  @@index([testId])
+}
+
+// ─── Derived Parameters (formula-based calculated values) ────────
+model DerivedParameter {
+  id                  String   @id @default(cuid())
+  testId              String   @unique
+  parameterName       String
+  formula             String
+  dependsOnTestCodes  Json
+  displayOrder        Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  test LabTest @relation(fields: [testId], references: [id], onDelete: Cascade)
+}
+
+// ─── Diagnostic Referral Centers ─────────────────────────────────
+model DiagnosticReferralCenter {
+  id                String   @id @default(cuid())
+  name              String
+  centerNumber      String   @unique
+  contactPerson     String?
+  phone             String?
+  email             String?
+  address           String?
+  commissionPercent Float    @default(0)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  payoutLedger   DoctorPayoutLedger[]
+  visitReferrals DiagnosticCenter_Visit[]
+}
+
+// ─── Diagnostic Center ↔ Visit Join Table ────────────────────────
+model DiagnosticCenter_Visit {
+  id                   String             @id @default(cuid())
+  visitId              String
+  diagnosticCenterId   String
+  branchId             String
+  referralType         ReferralSourceType @default(SELF)
+  createdAt            DateTime           @default(now())
+
+  visit              Visit                    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  diagnosticCenter   DiagnosticReferralCenter @relation(fields: [diagnosticCenterId], references: [id])
+  branch             Branch                   @relation(fields: [branchId], references: [id])
+
+  @@unique([visitId, diagnosticCenterId])
+  @@index([diagnosticCenterId])
+  @@index([branchId])
+}
+
+// ─── Stock / Inventory ───────────────────────────────────────────
+model StockItem {
+  id              String   @id @default(cuid())
+  name            String
+  unit            String
+  currentQuantity Int      @default(0)
+  reorderLevel    Int      @default(10)
+  branchId        String
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  branch        Branch                 @relation(fields: [branchId], references: [id])
+  transactions  StockTransaction[]
+  requirements  TestStockRequirement[]
+  alerts        StockAlert[]
+
+  @@index([branchId])
+}
+
+model TestStockRequirement {
+  id              String @id @default(cuid())
+  testId          String
+  stockItemId     String
+  quantityPerTest Float  @default(1)
+
+  test      LabTest   @relation(fields: [testId], references: [id], onDelete: Cascade)
+  stockItem StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+
+  @@unique([testId, stockItemId])
+  @@index([stockItemId])
+}
+
+model StockTransaction {
+  id          String               @id @default(cuid())
+  stockItemId String
+  type        StockTransactionType
+  quantity    Int
+  referenceId String?
+  notes       String?
+  createdAt   DateTime             @default(now())
+
+  stockItem StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+
+  @@index([stockItemId])
+  @@index([createdAt])
+}
+
+model StockAlert {
+  id          String   @id @default(cuid())
+  stockItemId String
+  branchId    String
+  alertType   String
+  message     String
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  stockItem StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+
+  @@index([stockItemId])
+  @@index([branchId])
+  @@index([isRead])
 }
