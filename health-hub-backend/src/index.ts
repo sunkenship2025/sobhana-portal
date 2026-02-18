@@ -25,6 +25,12 @@ import reportDownloadRoutes from './routes/reportDownload';
 import billRoutes from './routes/bills';
 import webhookRoutes from './routes/webhooks';
 import messageRoutes from './routes/messages';
+import departmentRoutes from './routes/departments';
+import diagnosticCenterRoutes from './routes/diagnosticCenters';
+import stockRoutes from './routes/stock';
+import signingDoctorRoutes from './routes/signingDoctors';
+import signingRuleRoutes from './routes/signingRules';
+import panelRoutes from './routes/panels';
 
 // PDF Service warmup
 import { warmupPdfService, closeBrowser } from './services/pdfGenerationService';
@@ -135,6 +141,12 @@ app.use('/api/payouts', payoutRoutes);
 app.use('/api/audit-logs', auditLogRoutes);
 app.use('/api/bills', billRoutes);
 app.use('/api/messages', messageRoutes);
+app.use('/api/departments', departmentRoutes);
+app.use('/api/diagnostic-centers', diagnosticCenterRoutes);
+app.use('/api/stock', stockRoutes);
+app.use('/api/signing-doctors', signingDoctorRoutes);
+app.use('/api/signing-rules', signingRuleRoutes);
+app.use('/api/panels', panelRoutes);
 
 // Global error handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

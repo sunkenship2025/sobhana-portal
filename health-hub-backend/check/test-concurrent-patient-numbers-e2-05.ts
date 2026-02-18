@@ -6,7 +6,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import { generatePatientNumber, generateDiagnosticBillNumber, generateClinicBillNumber } from './src/services/numberService';
+import { generatePatientNumber, generateDiagnosticBillNumber, generateClinicBillNumber } from '../src/services/numberService';
 
 const prisma = new PrismaClient();
 

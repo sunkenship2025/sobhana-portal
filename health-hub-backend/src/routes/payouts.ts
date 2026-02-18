@@ -25,10 +25,11 @@ router.get('/', requireRole('owner', 'staff'), async (req: AuthRequest, res) => 
     // Validate doctorType if provided
     let validatedDoctorType: PayoutDoctorType | undefined;
     if (doctorType) {
-      if (doctorType !== 'REFERRAL' && doctorType !== 'CLINIC') {
+      const validTypes = ['REFERRAL', 'CLINIC', 'DIAGNOSTIC_CENTER'];
+      if (!validTypes.includes(doctorType as string)) {
         return res.status(400).json({
           error: 'VALIDATION_ERROR',
-          message: 'doctorType must be REFERRAL or CLINIC',
+          message: 'doctorType must be REFERRAL, CLINIC, or DIAGNOSTIC_CENTER',
         });
       }
       validatedDoctorType = doctorType as PayoutDoctorType;
@@ -101,10 +102,11 @@ router.post('/derive', requireRole('owner'), async (req: AuthRequest, res) => {
     }
 
     // Validate doctorType
-    if (doctorType !== 'REFERRAL' && doctorType !== 'CLINIC') {
+    const validTypes = ['REFERRAL', 'CLINIC', 'DIAGNOSTIC_CENTER'];
+    if (!validTypes.includes(doctorType)) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'doctorType must be REFERRAL or CLINIC',
+        message: 'doctorType must be REFERRAL, CLINIC, or DIAGNOSTIC_CENTER',
       });
     }
 
@@ -209,6 +211,23 @@ router.get('/doctors/clinic', requireRole('owner', 'staff'), async (_req: AuthRe
     return res.status(500).json({
       error: 'INTERNAL_ERROR',
       message: 'Failed to get clinic doctors',
+    });
+  }
+});
+
+// ===========================================================================
+// GET /api/payouts/doctors/diagnostic-centers - Get all diagnostic centers for dropdown
+// Access: owner, staff
+// ===========================================================================
+router.get('/doctors/diagnostic-centers', requireRole('owner', 'staff'), async (_req: AuthRequest, res) => {
+  try {
+    const centers = await payoutService.getDiagnosticCenters(true);
+    return res.json({ data: centers });
+  } catch (err: any) {
+    console.error('Get diagnostic centers error:', err);
+    return res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: 'Failed to get diagnostic centers',
     });
   }
 });

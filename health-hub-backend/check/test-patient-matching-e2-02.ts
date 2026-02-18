@@ -10,8 +10,8 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import * as patientMatching from './src/services/patientMatchingService';
-import * as patientService from './src/services/patientService';
+import * as patientMatching from '../src/services/patientMatchingService';
+import * as patientService from '../src/services/patientService';
 
 const prisma = new PrismaClient();
 
