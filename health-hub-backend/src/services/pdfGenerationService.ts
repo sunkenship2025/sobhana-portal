@@ -3,32 +3,66 @@
  * 
  * Uses Puppeteer to generate PDF from HTML template.
  * PDF is generated on-demand, not stored permanently.
+ * 
+ * In production (Render), uses @sparticuz/chromium bundled binary.
+ * Locally, uses regular puppeteer with its own Chrome.
  */
 
-import puppeteer, { Browser, PDFOptions } from 'puppeteer';
+import puppeteerCore, { Browser, PDFOptions } from 'puppeteer-core';
 import { renderReportHtml } from './reportRendererService';
 import { getReportSnapshot } from './reportSnapshotService';
 import path from 'path';
+
+const isProduction = process.env.NODE_ENV === 'production';
 
 // Singleton browser instance for performance
 let browserInstance: Browser | null = null;
 
 /**
  * Gets or creates the browser instance.
+ * Uses @sparticuz/chromium in production (Render), regular puppeteer locally.
  */
 async function getBrowser(): Promise<Browser> {
   if (!browserInstance || !browserInstance.isConnected()) {
-    browserInstance = await puppeteer.launch({
-      headless: true,
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-      args: [
+    let executablePath: string | undefined;
+    let args: string[];
+
+    if (isProduction) {
+      // In production, use @sparticuz/chromium bundled binary
+      const chromium = await import('@sparticuz/chromium');
+      executablePath = await chromium.default.executablePath();
+      args = chromium.default.args;
+    } else if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+      // Explicit path provided (Docker, etc.)
+      executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      args = [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
         '--disable-software-rasterizer',
         '--single-process',
-      ],
+      ];
+    } else {
+      // Local dev — use puppeteer's bundled Chrome
+      const puppeteer = await import('puppeteer');
+      const browser = await puppeteer.default.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+        ],
+      });
+      browserInstance = browser as unknown as Browser;
+      return browserInstance;
+    }
+
+    browserInstance = await puppeteerCore.launch({
+      headless: true,
+      executablePath,
+      args,
     });
   }
   return browserInstance;
