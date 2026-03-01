@@ -135,7 +135,7 @@ const ClinicVisitQueue = () => {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5 text-context-clinic" />
+              <Users className="h-5 w-5" style={{ color: 'var(--branch-accent)' }} />
               Visit Queue ({filteredVisits.length})
             </CardTitle>
           </CardHeader>

@@ -48,7 +48,7 @@ const Dashboard = () => {
                 {pendingResults.length > 0 && <AlertCircle className="h-4 w-4 text-warning" />}
                 Pending Lab Results
               </CardTitle>
-              <FlaskConical className="h-4 w-4 text-primary" />
+              <FlaskConical className="h-4 w-4" style={{ color: 'var(--branch-accent)' }} />
             </CardHeader>
             <CardContent>
               <div className={`text-3xl font-bold ${pendingResults.length > 0 ? 'text-warning' : 'text-muted-foreground'}`}>
@@ -63,20 +63,20 @@ const Dashboard = () => {
             </CardContent>
           </Card>
 
-          <Card className={waitingOP.length > 0 ? "border-context-clinic/50 bg-context-clinic/5" : ""}>
+          <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
-                {waitingOP.length > 0 && <Clock className="h-4 w-4 text-context-clinic" />}
+                {waitingOP.length > 0 && <Clock className="h-4 w-4" style={{ color: 'var(--branch-accent)' }} />}
                 Waiting OP Patients
               </CardTitle>
-              <Stethoscope className="h-4 w-4 text-context-clinic" />
+              <Stethoscope className="h-4 w-4" style={{ color: 'var(--branch-accent)' }} />
             </CardHeader>
             <CardContent>
-              <div className={`text-3xl font-bold ${waitingOP.length > 0 ? 'text-context-clinic' : 'text-muted-foreground'}`}>
+              <div className="text-3xl font-bold text-muted-foreground">
                 {waitingOP.length}
               </div>
               <p className="text-xs text-muted-foreground mb-3">in queue</p>
-              <Button asChild size="sm" variant={waitingOP.length > 0 ? "secondary" : "outline"}>
+              <Button asChild size="sm" variant="outline">
                 <Link to="/clinic/queue">
                   View Queue <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
@@ -84,20 +84,20 @@ const Dashboard = () => {
             </CardContent>
           </Card>
 
-          <Card className={waitingIP.length > 0 ? "border-context-clinic/50 bg-context-clinic/5" : ""}>
+          <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
-                {waitingIP.length > 0 && <Clock className="h-4 w-4 text-context-clinic" />}
+                {waitingIP.length > 0 && <Clock className="h-4 w-4" style={{ color: 'var(--branch-accent)' }} />}
                 Active IP Admissions
               </CardTitle>
-              <Users className="h-4 w-4 text-context-clinic" />
+              <Users className="h-4 w-4" style={{ color: 'var(--branch-accent)' }} />
             </CardHeader>
             <CardContent>
-              <div className={`text-3xl font-bold ${waitingIP.length > 0 ? 'text-context-clinic' : 'text-muted-foreground'}`}>
+              <div className="text-3xl font-bold text-muted-foreground">
                 {waitingIP.length}
               </div>
               <p className="text-xs text-muted-foreground mb-3">currently admitted</p>
-              <Button asChild size="sm" variant={waitingIP.length > 0 ? "secondary" : "outline"}>
+              <Button asChild size="sm" variant="outline">
                 <Link to="/clinic/queue">
                   View Admissions <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
@@ -113,25 +113,25 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-              <Button asChild className="h-auto py-4 flex-col gap-2">
+              <Button asChild className="h-auto py-4 flex-col gap-2 border-0 text-white hover:opacity-90" style={{ backgroundColor: 'var(--branch-accent)' }}>
                 <Link to="/diagnostics/new">
                   <FlaskConical className="h-6 w-6" />
                   New Diagnostic Visit
                 </Link>
               </Button>
-              <Button asChild variant="secondary" className="h-auto py-4 flex-col gap-2">
+              <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2" style={{ borderColor: 'var(--branch-accent)', color: 'var(--branch-accent)' }}>
                 <Link to="/clinic/new">
                   <Stethoscope className="h-6 w-6" />
                   New Clinic Visit
                 </Link>
               </Button>
-              <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2">
+              <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2" style={{ borderColor: 'var(--branch-accent)', color: 'var(--branch-accent)' }}>
                 <Link to="/diagnostics/pending">
                   <Clock className="h-6 w-6" />
                   Enter Results
                 </Link>
               </Button>
-              <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2">
+              <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2" style={{ borderColor: 'var(--branch-accent)', color: 'var(--branch-accent)' }}>
                 <Link to="/clinic/queue">
                   <Users className="h-6 w-6" />
                   Visit Queue
@@ -148,7 +148,7 @@ const Dashboard = () => {
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 Today's OP Visits
               </CardTitle>
-              <Stethoscope className="h-4 w-4 text-context-clinic" />
+              <Stethoscope className="h-4 w-4" style={{ color: 'var(--branch-accent)' }} />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{opCount}</div>
@@ -160,7 +160,7 @@ const Dashboard = () => {
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 Today's IP Visits
               </CardTitle>
-              <Users className="h-4 w-4 text-context-clinic" />
+              <Users className="h-4 w-4" style={{ color: 'var(--branch-accent)' }} />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{ipCount}</div>
@@ -172,7 +172,7 @@ const Dashboard = () => {
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 Diagnostics Today
               </CardTitle>
-              <FlaskConical className="h-4 w-4 text-primary" />
+              <FlaskConical className="h-4 w-4" style={{ color: 'var(--branch-accent)' }} />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{branchDiagnosticVisits.length}</div>
@@ -184,10 +184,10 @@ const Dashboard = () => {
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 Reports Finalized
               </CardTitle>
-              <CheckCircle2 className="h-4 w-4 text-success" />
+              <CheckCircle2 className="h-4 w-4" style={{ color: 'var(--branch-accent)' }} />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-success">{finalizedReports.length}</div>
+              <div className="text-2xl font-bold" style={{ color: 'var(--branch-accent)' }}>{finalizedReports.length}</div>
             </CardContent>
           </Card>
         </div>
@@ -203,8 +203,8 @@ const Dashboard = () => {
                 </>
               ) : (
                 <>
-                  <CheckCircle2 className="h-5 w-5 text-success" />
-                  All Clear
+                  <CheckCircle2 className="h-5 w-5" style={{ color: 'var(--branch-accent)' }} />
+                  <span style={{ color: 'var(--branch-accent)' }}>All Clear</span>
                 </>
               )}
             </CardTitle>

@@ -42,11 +42,12 @@
 
     --radius: 0.5rem;
 
-    /* Context Colors */
-    --context-diagnostics: 220 80% 50%;
-    --context-clinic: 280 70% 50%;
-    --context-doctor: 142 72% 40%;
-    --context-owner: 38 92% 50%;
+    /* Branch Theme Colors (defaults — overridden dynamically per branch) */
+    --branch-sidebar-bg: #1B2B58;
+    --branch-sidebar-active: #25397a;
+    --branch-banner-bg: #1B2B58;
+    --branch-accent: #D91C2B;
+    --branch-accent-fg: #ffffff;
 
     /* Status Colors */
     --status-draft: 38 92% 50%;
@@ -158,22 +159,7 @@
 @layer components {
   .context-banner {
     @apply px-4 py-2 text-sm font-medium text-white;
-  }
-  
-  .context-banner-diagnostics {
-    background-color: hsl(var(--context-diagnostics));
-  }
-  
-  .context-banner-clinic {
-    background-color: hsl(var(--context-clinic));
-  }
-  
-  .context-banner-doctor {
-    background-color: hsl(var(--context-doctor));
-  }
-  
-  .context-banner-owner {
-    background-color: hsl(var(--context-owner));
+    background-color: var(--branch-banner-bg);
   }
 
   .status-badge {
