@@ -60,7 +60,7 @@ router.get('/', async (req: AuthRequest, res) => {
       where: whereClause,
       include: {
         department: { select: { id: true, name: true } },
-        _count: { select: { ageRanges: true, stockRequirements: true, interpretations: true } }
+        _count: { select: { ageRanges: true, interpretations: true } }
       },
       orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }]
     });
@@ -81,10 +81,6 @@ router.get('/:id', async (req: AuthRequest, res) => {
         department: { select: { id: true, name: true } },
         ageRanges: { orderBy: { minAgeDays: 'asc' } },
         derivedParameter: true,
-        stockRequirements: {
-          include: { stockItem: { select: { id: true, name: true, unit: true } } },
-          orderBy: { stockItem: { name: 'asc' } }
-        },
         interpretations: { where: { isActive: true }, orderBy: { displayOrder: 'asc' } },
         panelItems: {
           include: { test: { select: { id: true, name: true, code: true } } },
@@ -106,7 +102,6 @@ router.get('/:id', async (req: AuthRequest, res) => {
       ...transformTest(test),
       ageRanges: test.ageRanges,
       derivedParameter: test.derivedParameter,
-      stockRequirements: test.stockRequirements,
       interpretations: test.interpretations,
       panelItems: test.panelItems,
       childTests: test.childTests
@@ -442,105 +437,6 @@ router.delete('/:id/derived-parameter', async (req: AuthRequest, res) => {
   } catch (err: any) {
     console.error('Delete derived parameter error:', err);
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to delete derived parameter' });
-  }
-});
-
-// ═══════════════════════════════════════════════════════════
-//  STOCK REQUIREMENTS  /:id/stock-requirements
-// ═══════════════════════════════════════════════════════════
-
-// GET /api/lab-tests/:id/stock-requirements
-router.get('/:id/stock-requirements', async (req: AuthRequest, res) => {
-  try {
-    const reqs = await prisma.testStockRequirement.findMany({
-      where: { testId: req.params.id },
-      include: { stockItem: { select: { id: true, name: true, unit: true } } }
-    });
-    return res.json(reqs);
-  } catch (err: any) {
-    console.error('List stock requirements error:', err);
-    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to list stock requirements' });
-  }
-});
-
-// POST /api/lab-tests/:id/stock-requirements
-router.post('/:id/stock-requirements', async (req: AuthRequest, res) => {
-  try {
-    const testId = req.params.id;
-    const { stockItemId, quantityPerTest } = req.body;
-
-    if (!stockItemId) {
-      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'stockItemId is required' });
-    }
-
-    const test = await prisma.labTest.findUnique({ where: { id: testId } });
-    if (!test) {
-      return res.status(404).json({ error: 'NOT_FOUND', message: 'Lab test not found' });
-    }
-
-    const item = await prisma.stockItem.findUnique({ where: { id: stockItemId } });
-    if (!item) {
-      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Stock item not found' });
-    }
-
-    const requirement = await prisma.testStockRequirement.create({
-      data: {
-        testId,
-        stockItemId,
-        quantityPerTest: quantityPerTest ?? 1
-      },
-      include: { stockItem: { select: { id: true, name: true, unit: true } } }
-    });
-    return res.status(201).json(requirement);
-  } catch (err: any) {
-    if (err.code === 'P2002') {
-      return res.status(409).json({
-        error: 'CONFLICT',
-        message: 'This stock item is already linked to this test'
-      });
-    }
-    console.error('Create stock requirement error:', err);
-    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to create stock requirement' });
-  }
-});
-
-// PATCH /api/lab-tests/:id/stock-requirements/:reqId
-router.patch('/:id/stock-requirements/:reqId', async (req: AuthRequest, res) => {
-  try {
-    const { reqId } = req.params;
-    const { quantityPerTest } = req.body;
-
-    const existing = await prisma.testStockRequirement.findUnique({ where: { id: reqId } });
-    if (!existing || existing.testId !== req.params.id) {
-      return res.status(404).json({ error: 'NOT_FOUND', message: 'Stock requirement not found for this test' });
-    }
-
-    const updated = await prisma.testStockRequirement.update({
-      where: { id: reqId },
-      data: { quantityPerTest: quantityPerTest ?? existing.quantityPerTest },
-      include: { stockItem: { select: { id: true, name: true, unit: true } } }
-    });
-    return res.json(updated);
-  } catch (err: any) {
-    console.error('Update stock requirement error:', err);
-    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to update stock requirement' });
-  }
-});
-
-// DELETE /api/lab-tests/:id/stock-requirements/:reqId
-router.delete('/:id/stock-requirements/:reqId', async (req: AuthRequest, res) => {
-  try {
-    const { reqId } = req.params;
-    const existing = await prisma.testStockRequirement.findUnique({ where: { id: reqId } });
-    if (!existing || existing.testId !== req.params.id) {
-      return res.status(404).json({ error: 'NOT_FOUND', message: 'Stock requirement not found for this test' });
-    }
-
-    await prisma.testStockRequirement.delete({ where: { id: reqId } });
-    return res.json({ id: reqId, message: 'Stock requirement removed' });
-  } catch (err: any) {
-    console.error('Delete stock requirement error:', err);
-    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to delete stock requirement' });
   }
 });
 

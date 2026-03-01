@@ -1,6 +1,6 @@
 import { PrismaClient, PayoutDoctorType, PaymentType } from '@prisma/client';
+import prisma from '../lib/prisma';
 
-const prisma = new PrismaClient();
 
 // ===========================================================================
 // TYPES

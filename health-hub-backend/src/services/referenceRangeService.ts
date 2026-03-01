@@ -1,13 +1,14 @@
 /**
- * Reference Range Service (Step 28)
+ * Reference Range Service
  *
- * Resolves the correct reference range for a lab test based on
- * patient age (from yearOfBirth) and gender, using TestAgeRange rows.
- * Falls back to the default LabTest.referenceMin / referenceMax if
- * no age-specific range matches.
+ * Resolves the correct reference range for a test based on
+ * patient age and gender.
  *
- * Age ranges are stored in days for precision (newborns, infants).
- * yearOfBirth is converted to approximate age in days for matching.
+ * Supports BOTH architectures:
+ *   - Legacy: LabTest.id → TestAgeRange rows
+ *   - New:    TestDefinition.id → TestDefinitionRange rows
+ *
+ * Falls back to the default reference values if no age-specific range matches.
  */
 
 import { PrismaClient, Gender } from '@prisma/client';
@@ -18,21 +19,76 @@ export interface ResolvedRange {
   referenceMax: number | null;
   referenceUnit: string | null;
   referenceText: string | null;
-  source: 'age-range' | 'default'; // how the range was resolved
+  source: 'age-range' | 'definition-range' | 'default';
 }
 
 /**
- * Resolve the reference range for a test, considering patient demographics.
- *
- * Match logic (TestAgeRange):
- *   - minAgeDays <= patientAgeDays <= maxAgeDays  (null bounds = open-ended)
- *   - gender matches OR TestAgeRange.gender is null (gender-neutral)
- *
- * Falls back to LabTest.referenceMin/Max/Unit/Text if no range matches.
- *
- * @param testId        - The LabTest.id
- * @param yearOfBirth   - Patient.yearOfBirth (always present)
- * @param patientGender - Patient.gender (M | F | O)
+ * Resolve reference range using TestDefinitionRange (new architecture).
+ * Falls back to TestDefinition default values.
+ */
+export async function resolveByTestDefinition(
+  testDefinitionId: string,
+  yearOfBirth: number,
+  patientGender: Gender
+): Promise<ResolvedRange> {
+  const now = new Date();
+  const patientAgeDays = Math.floor(
+    (now.getTime() - new Date(yearOfBirth, 0, 1).getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  // Find matching TestDefinitionRange rows
+  const ranges = await prisma.testDefinitionRange.findMany({
+    where: {
+      testDefinitionId,
+      OR: [
+        { gender: patientGender },
+        { gender: null },
+      ],
+    },
+    orderBy: [
+      { gender: 'asc' },
+      { minAgeDays: 'asc' },
+    ],
+  });
+
+  for (const range of ranges) {
+    const minOk = range.minAgeDays === null || patientAgeDays >= range.minAgeDays;
+    const maxOk = range.maxAgeDays === null || patientAgeDays <= range.maxAgeDays;
+
+    if (minOk && maxOk) {
+      return {
+        referenceMin: range.referenceMin,
+        referenceMax: range.referenceMax,
+        referenceUnit: range.referenceUnit,
+        referenceText: range.referenceText,
+        source: 'definition-range',
+      };
+    }
+  }
+
+  // Fallback: TestDefinition default values
+  const def = await prisma.testDefinition.findUnique({
+    where: { id: testDefinitionId },
+    select: {
+      referenceMin: true,
+      referenceMax: true,
+      referenceUnit: true,
+      referenceText: true,
+    },
+  });
+
+  return {
+    referenceMin: def?.referenceMin ?? null,
+    referenceMax: def?.referenceMax ?? null,
+    referenceUnit: def?.referenceUnit ?? null,
+    referenceText: def?.referenceText ?? null,
+    source: 'default',
+  };
+}
+
+/**
+ * Legacy: Resolve reference range using TestAgeRange (old architecture).
+ * Falls back to LabTest default values.
  */
 export async function resolveReferenceRange(
   testId: string,
@@ -44,22 +100,20 @@ export async function resolveReferenceRange(
     (now.getTime() - new Date(yearOfBirth, 0, 1).getTime()) / (1000 * 60 * 60 * 24)
   );
 
-  // Find matching age-range rows (most specific first)
   const ageRanges = await prisma.testAgeRange.findMany({
     where: {
       testId,
       OR: [
         { gender: patientGender },
-        { gender: null }, // gender-neutral ranges
+        { gender: null },
       ],
     },
     orderBy: [
-      { gender: 'asc' }, // gender-specific rows first (M/F before null)
+      { gender: 'asc' },
       { minAgeDays: 'asc' },
     ],
   });
 
-  // Find first matching range
   for (const range of ageRanges) {
     const minOk = range.minAgeDays === null || patientAgeDays >= range.minAgeDays;
     const maxOk = range.maxAgeDays === null || patientAgeDays <= range.maxAgeDays;
@@ -75,7 +129,6 @@ export async function resolveReferenceRange(
     }
   }
 
-  // Fallback: use LabTest default reference values
   const test = await prisma.labTest.findUnique({
     where: { id: testId },
     select: {
@@ -98,18 +151,29 @@ export async function resolveReferenceRange(
 /**
  * Bulk resolve ranges for multiple tests at once.
  * Used by report snapshot generation.
+ * Prefers TestDefinition ranges when testDefinitionId is available.
  */
 export async function resolveReferenceRanges(
   testIds: string[],
   yearOfBirth: number,
-  patientGender: Gender
+  patientGender: Gender,
+  testDefinitionIds?: Map<string, string> // testId → testDefinitionId mapping
 ): Promise<Map<string, ResolvedRange>> {
   const results = new Map<string, ResolvedRange>();
 
-  // Run in parallel for speed
   await Promise.all(
     testIds.map(async (testId) => {
-      const range = await resolveReferenceRange(testId, yearOfBirth, patientGender);
+      const defId = testDefinitionIds?.get(testId);
+      let range: ResolvedRange;
+
+      if (defId) {
+        // New architecture
+        range = await resolveByTestDefinition(defId, yearOfBirth, patientGender);
+      } else {
+        // Legacy
+        range = await resolveReferenceRange(testId, yearOfBirth, patientGender);
+      }
+
       results.set(testId, range);
     })
   );
