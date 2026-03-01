@@ -1,0 +1,1169 @@
+
+Replace:
+
+Tests & Panels
+
+
+With:
+
+Clinical Definitions
+Panel Definitions
+Commercial Products
+
+
+Delete:
+
+ManageTestsV2
+
+/api/lab-tests CRUD
+
+Legacy editing UI
+
+Keep legacy LabTest table only for historical compatibility.
+using chrome dev tools verify if all this functionality is there , as u verify it isnt there see whats the issue and fix it fool proofly not just a surface level fix
+
+ADMIN CONFIG CENTER
+Complete Functional Specification (Enterprise-Level)
+1️⃣ CORE PURPOSE
+
+The Admin Config Center exists to:
+
+Define clinical truth
+
+Control report rendering
+
+Control commercial packaging
+
+Control pricing
+
+Control inventory mappings
+
+Control departments
+
+Control signing authority
+
+Control referral structures
+
+Preserve version integrity
+
+Protect snapshot immutability
+
+This is not an operational screen.
+It is a governed configuration platform.
+
+2️⃣ GLOBAL STRUCTURE
+
+Tabs (Top-Level Modules)
+
+Clinical Definitions
+Panel Definitions
+Billable Products
+Departments
+Signing
+Doctors & Referrals
+Stock
+
+
+Each tab is:
+
+Isolated
+
+Role-protected
+
+Version-aware
+
+Audited
+
+3️⃣ CLINICAL DEFINITIONS MODULE
+Purpose:
+
+Define medical analytes (atomic, derived, text-only).
+
+List View Features
+
+Search by name or code
+
+Filter by:
+
+Type (Atomic / Derived / Text)
+
+Department
+
+Status (Active / Locked / Deprecated)
+
+Version column visible
+
+Lock badge (Used in X reports)
+
+Created by / last modified
+
+Bulk export (CSV)
+
+Detail View Functional Sections
+A. Identity
+
+Name
+
+Code (unique)
+
+Department
+
+Type
+
+Version
+
+Status
+
+Version history drawer
+
+B. Clinical Properties
+
+Unit
+
+Decimal precision
+
+Method
+
+Sample type compatibility
+
+C. Reference Ranges
+
+Supports:
+
+Numeric ranges
+
+Open-ended ranges
+
+Pediatric bands
+
+Gender differentiation
+
+Categorical ranges
+
+Text-only reference
+
+Validations:
+
+No overlap
+
+No age band conflict
+
+No mixed range types
+
+D. Interpretation Rules
+
+Modes:
+
+NONE
+
+MANUAL
+
+AUTOMATIC
+
+Rule Types:
+
+RANGE_BASED
+
+CATEGORY_BASED
+
+TEXT_ONLY
+
+Validations:
+
+No overlapping rule bands
+
+No conflicting categories
+
+No ambiguous string matches
+
+E. Derived Formula (if type = DERIVED)
+
+Formula builder
+
+Dependency tree visualization
+
+Circular detection
+
+Impact preview
+
+F. Version Control
+
+Save as New Version only
+
+Lock detection
+
+Version comparison viewer
+
+Change reason required
+
+4️⃣ PANEL DEFINITIONS MODULE
+Purpose:
+
+Define rendering structure of reports.
+
+List View
+
+Panel name
+
+Layout type
+
+Department
+
+Active status
+
+Version indicator
+
+Usage count
+
+Panel Editor
+A. Metadata
+
+Name
+
+Display name
+
+Department
+
+Layout type
+
+B. Layout Behavior
+
+Layout types control structure:
+
+STANDARD_TABLE
+
+CBP_FORMAT
+
+WIDAL
+
+MICROBIOLOGY
+
+etc.
+
+Selecting layout:
+
+Auto-creates subgroup scaffolding
+
+Restricts illegal placements
+
+Enforces structure rules
+
+C. Analyte Items
+
+Per item:
+
+Linked TestDefinition version
+
+Display order (drag)
+
+Subgroup
+
+Indent level
+
+Display style
+
+Show method toggle
+
+Custom method override (optional)
+
+Panel must:
+
+Have ≥1 analyte
+
+Reference specific version IDs
+
+D. Live Preview
+
+Calls real report rendering engine
+
+Uses mock data
+
+Renders exact HTML
+
+Must match final report output
+
+E. Optional Panel-Level Summary
+
+Summary template text
+
+Displayed below analyte table
+
+Does not override analyte interpretation
+
+5️⃣ BILLABLE PRODUCTS MODULE
+Purpose:
+
+Define what is sold to patients.
+
+List View
+
+Name
+
+Product type (Single / Bundle)
+
+Base price
+
+Active status
+
+Branch overrides indicator
+
+Inventory mapping status
+
+Usage count
+
+Product Editor
+A. Metadata
+
+Name
+
+Product type
+
+Sample type
+
+B. Component Linking
+
+Can include:
+
+TestDefinition versions
+
+PanelDefinitions
+
+Cannot include:
+
+Other BillableProducts
+
+Validation:
+
+≥1 component
+
+No recursion
+
+No circular linking
+
+C. Pricing
+
+Base price
+
+Branch override table
+
+Future extension-ready (tier pricing)
+
+Snapshot rule:
+
+Price must be frozen at visit creation
+
+D. Inventory Mapping
+
+Stock item linking
+
+Quantity required
+
+Cost impact calculation
+
+Warning if missing mapping
+
+Required for consumable sample types
+
+Snapshot rule:
+
+Inventory mapping frozen at visit creation
+
+6️⃣ DEPARTMENTS MODULE
+Purpose:
+
+Categorize tests & panels logically.
+
+Features:
+
+Department name
+
+Display order
+
+Active toggle
+
+Used by:
+
+Clinical Definitions
+
+Panels
+
+Cannot delete if in use
+
+7️⃣ SIGNING MODULE
+Purpose:
+
+Control report signatories.
+
+Features:
+
+Signatory name
+
+Designation
+
+Digital signature upload
+
+Department linking
+
+Active toggle
+
+Preview signature placement
+
+Reports must snapshot:
+
+Signatory name
+
+Signature image reference
+
+Changing signatory must not affect old reports.
+
+8️⃣ DOCTORS & REFERRALS MODULE
+Purpose:
+
+Manage referral tracking & payout logic.
+
+Features:
+
+Doctor profile
+
+Referral type
+
+Commission model
+
+Department mapping
+
+Active status
+
+Must support:
+
+Referral-linked visits
+
+Commission calculation logic
+
+Reporting exports
+
+No clinical editing here.
+
+9️⃣ STOCK MODULE
+Purpose:
+
+Inventory governance.
+
+Features:
+
+Stock item creation
+
+Unit cost
+
+Minimum threshold
+
+Supplier info
+
+Active toggle
+
+Used in ProductInventoryMapping
+
+Stock must:
+
+Not be deletable if mapped
+
+Show usage count
+
+🔟 GLOBAL BEHAVIOR ACROSS MODULES
+A. Role Protection
+
+Only:
+
+Owner
+
+ConfigAdmin
+
+Can access configuration modules.
+
+Staff and Doctors:
+
+Read-only or no access.
+
+B. Audit Trail
+
+All configuration changes must log:
+
+User
+
+Timestamp
+
+Old values
+
+New values
+
+Reason
+
+Audit must be immutable.
+
+C. Version Awareness
+
+Every module that references versioned entity must:
+
+Show version badge
+
+Prevent silent updates
+
+Show impact summary
+
+D. State Machine
+
+Each entity must have:
+
+ACTIVE
+LOCKED
+DEPRECATED
+ARCHIVED
+
+
+Clear transitions required.
+
+E. Migration Safety
+
+Old LabTest logic must remain intact for historical data.
+
+New modules must not break:
+
+Old reports
+
+Old visits
+
+Old billing
+
+1️⃣1️⃣ SYSTEM INTEGRATION REQUIREMENTS
+
+Admin Config Center changes must properly integrate with:
+
+Visit creation
+
+Result entry
+
+Derived evaluation
+
+Interpretation evaluation
+
+Snapshot builder
+
+Renderer
+
+Billing engine
+
+Inventory deduction
+
+Commission engine
+
+If any of these do not understand new schema → configuration system is incomplete.
+
+1️⃣2️⃣ UX SAFETY PRINCIPLES
+
+Admin Config Center must:
+
+Prevent accidental destructive changes
+
+Block unsafe operations
+
+Highlight impact before saving
+
+Make cross-layer dependencies visible
+
+Enforce separation visually
+
+It must not:
+
+Be free-form
+
+Allow inline mutation of locked versions
+
+Hide dependency relationships
+
+1️⃣3️⃣ PERFORMANCE & SCALABILITY
+
+Must support:
+
+1000+ clinical definitions
+
+500+ panels
+
+1000+ products
+
+Multi-branch pricing
+
+Large inventory lists
+
+List views must:
+
+Paginate
+
+Server-filter
+
+Not load full dataset blindly
+
+1️⃣4️⃣ RELEASE ACCEPTANCE CRITERIA
+
+Admin Config Center is production-ready only if:
+
+Versioning works everywhere
+
+No silent mutation possible
+
+No recursive bundles possible
+
+No interpretation ambiguity possible
+
+Pricing snapshot integrity verified
+
+Inventory snapshot integrity verified
+
+Old reports unaffected
+
+Preview matches production renderer
+
+
+=================================================
+1️⃣ DATABASE & SCHEMA INTEGRITY
+Prisma / DB Migration
+
+ prisma migrate dev runs successfully on clean DB
+
+ prisma generate produces no type errors
+
+ No orphaned FKs after migration
+
+ Unique constraints enforced:
+
+ TestDefinition(code, versionNumber)
+
+ TestDefinitionRange(testDefinitionId, gender, ageMinDays, ageMaxDays)
+
+ ProductBranchPricing(productId, branchId)
+
+ ProductInventoryMapping(productId, stockItemId)
+
+ Self-reference previousVersionId is correctly nullable
+
+ All enums stored as enum types (not string free-text)
+
+2️⃣ VERSIONING SYSTEM
+Clinical Definitions
+
+ Editing creates a new row (clone)
+
+ Old version marked inactive
+
+ Old version cannot be mutated
+
+ versionNumber increments correctly
+
+ previousVersionId correctly set
+
+ Locked versions cannot be edited
+
+ Locked versions cannot be deleted
+
+ getVersionHistory(code) returns correct order (desc)
+
+Panel Pinning
+
+ Panels reference specific testDefinitionVersionId
+
+ Updating TestDefinition does NOT change existing panels
+
+ New panels default to latest active version
+
+Product Pinning
+
+ BillableProductComponent references version ID (not logical ID)
+
+ No silent version drift when definitions update
+
+3️⃣ INTERPRETATION RULE SYSTEM
+Rule Model
+
+ InterpretationRule supports:
+
+ RANGE_BASED
+
+ CATEGORY_BASED
+
+ TEXT_ONLY
+
+ interpretationMode enum works:
+
+ AUTOMATIC
+
+ MANUAL
+
+ NONE
+
+Rule Validation
+
+ Overlapping numeric ranges are rejected
+
+ Overlapping categorical bands are rejected
+
+ Duplicate text matches rejected
+
+ Rule ordering does NOT determine correctness (no ambiguity allowed)
+
+ Parser validates conditionExpression at creation
+
+ No unsafe eval / dynamic execution
+
+ AND operator works correctly
+
+ Negative values supported
+
+ Float precision handled safely
+
+Snapshot Behavior
+
+ Interpretation evaluated only at finalization
+
+ Interpretation stored in snapshot
+
+ Changing rules does NOT affect old reports
+
+ interpretationMode = MANUAL stores staff text correctly
+
+ interpretationMode = NONE results in no interpretation
+
+4️⃣ REFERENCE RANGE SYSTEM
+
+ Overlapping age bands rejected
+
+ Gender conflicts rejected
+
+ Open-ended ranges supported
+
+ Categorical ranges supported
+
+ Text-only references supported
+
+ Range type locks UI structure
+
+ Numeric + categorical cannot mix
+
+ Age stored in days (not years)
+
+ Age comparison logic verified for pediatric edge cases
+
+5️⃣ DERIVED FORMULA SYSTEM
+
+ Circular dependency detection works
+
+ Multi-level dependencies detected
+
+ dependsOnCodes graph validated
+
+ Derived formula evaluated correctly at result entry
+
+ Derived formula evaluated correctly at snapshot
+
+ Derived formula errors fail safely (not silent)
+
+ Derived formula change does not affect historical snapshot
+
+6️⃣ PANEL SYSTEM
+
+ Layout type enum enforced
+
+ Layout constraints validated (CBP subgroup rules)
+
+ Minimum one analyte required
+
+ Display order persisted correctly
+
+ Drag-and-drop ordering saved correctly
+
+ Preview endpoint calls real renderer
+
+ Preview output matches actual final report HTML
+
+ No formula editing allowed in panel
+
+ No range editing allowed in panel
+
+ Panel soft-delete works
+
+ Panels in use cannot be deleted
+
+7️⃣ BILLABLE PRODUCT SYSTEM
+Structure
+
+ ProductType SINGLE / BUNDLE works
+
+ Cannot include BillableProduct inside another
+
+ Circular bundle references blocked
+
+ Must contain ≥1 component
+
+Pricing
+
+ Base price required
+
+ Branch override works
+
+ Branch override snapshot at visit creation
+
+ Pricing source recorded (BASE / BRANCH_OVERRIDE)
+
+ Changing override does not affect historical visits
+
+Inventory
+
+ Inventory mapping required for consumable sample types
+
+ QuantityRequired enforced
+
+ Inventory snapshot stored at visit creation
+
+ Missing mapping triggers warning/block
+
+ Stock impact calculation correct
+
+8️⃣ VISIT CREATION FLOW
+
+ Accepts productIds
+
+ Expands to correct TestDefinition versions
+
+ TestOrder rows reference testDefinitionId
+
+ Legacy labTestId fallback preserved
+
+ Snapshot price stored
+
+ Snapshot test name/code stored
+
+ Snapshot unit & ranges stored
+
+ Multiple products expansion verified
+
+9️⃣ RESULT ENTRY FLOW
+
+ Works for legacy LabTest orders
+
+ Works for new TestDefinition orders
+
+ Derived evaluation supports both old & new
+
+ Panel items resolved from correct structure
+
+ Numeric validation enforced
+
+ Result save does not alter snapshot
+
+🔟 REPORT SNAPSHOT SYSTEM
+
+ Snapshot reads from versioned definitions
+
+ Snapshot stores:
+
+ reference ranges
+
+ interpretation text
+
+ panel layout
+
+ unit
+
+ Renderer uses snapshot only
+
+ Changing definition does not re-render old reports
+
+ Old finalized reports render correctly
+
+ Legacy reports unaffected
+
+1️⃣1️⃣ MIGRATION INTEGRITY
+
+ Every LabTest has matching TestDefinition
+
+ Age ranges migrated correctly
+
+ InterpretationTemplate migrated correctly
+
+ DerivedParameter mapped correctly
+
+ PanelDefinition migrated correctly
+
+ Product created for priced tests
+
+ Migration audit log generated
+
+ No missing foreign keys post-migration
+
+1️⃣2️⃣ CONCURRENCY & SAFETY
+
+ updatedAt column present
+
+ Optimistic locking enforced
+
+ Race condition tested with simultaneous edits
+
+ Version cloning safe under concurrency
+
+ No duplicate versionNumber possible
+
+1️⃣3️⃣ PERMISSIONS & SECURITY
+
+ Only Owner/ConfigAdmin can access configuration routes
+
+ Staff cannot mutate definitions
+
+ Doctor role has no configuration access
+
+ Soft-delete does not bypass authorization
+
+ No unsafe eval in formula or interpretation
+
+1️⃣4️⃣ AUDIT LOGGING
+
+ createdBy stored on definitions
+
+ changeReason captured on new version
+
+ Audit trail stored
+
+ Audit log immutable
+
+ Audit visible in version history
+
+✅ FRONTEND TEAM — MASTER VERIFICATION CHECKLIST
+1️⃣ CLINICAL DEFINITIONS UI
+
+ List view loads correctly
+
+ Filters work (Atomic/Derived/Text)
+
+ Search works
+
+ Version badge visible
+
+ Locked badge visible
+
+ "Save as New Version" present
+
+ No direct mutate editing
+
+ Derived shows formula builder
+
+ Range UI adapts to type
+
+ Age overlap errors shown inline
+
+ Interpretation overlap errors shown inline
+
+ Circular dependency error visible
+
+ Version history accessible
+
+ Deprecated state clearly labeled
+
+2️⃣ PANEL DEFINITIONS UI
+
+ Layout type drives subgroup structure
+
+ Drag-and-drop works
+
+ Subgroup dropdown restricted
+
+ Cannot add invalid layout combination
+
+ Live preview loads actual HTML
+
+ Preview matches production layout
+
+ No pricing fields visible
+
+ No formula fields visible
+
+ Versioned analytes clearly shown
+
+3️⃣ COMMERCIAL PRODUCTS UI
+
+ Type toggle works (Single/Bundle)
+
+ Cannot add BillableProduct inside bundle
+
+ Branch override table works
+
+ Inventory mapping UI functional
+
+ Warning shown if missing mapping
+
+ Snapshot logic clearly indicated
+
+ Deprecated products clearly marked
+
+4️⃣ TEST SELECTOR
+
+ Loads BillableProducts not LabTests
+
+ Shows product type badge
+
+ Shows price
+
+ Correct price used for selected branch
+
+ selectedProductIds stored correctly
+
+5️⃣ VISIT CREATION UI
+
+ Sends productIds
+
+ Displays expanded tests correctly
+
+ Price summary accurate
+
+ Branch pricing reflected
+
+6️⃣ RESULT ENTRY UI
+
+ Shows correct reference ranges
+
+ Derived fields auto-update
+
+ No duplicate derived rendering
+
+ Manual interpretation field appears if mode=MANUAL
+
+ Snapshot warning shown before finalize
+
+7️⃣ REGRESSION TESTS
+
+ Old visits still load
+
+ Old reports still render
+
+ No broken navigation
+
+ No stale references
+
+ No UI mixing of clinical/panel/commercial
+
+8️⃣ FINAL SYSTEM VALIDATION SCENARIOS
+
+Must test end-to-end:
+
+ Create new Clinical Definition v1
+
+ Create v2
+
+ Add to panel
+
+ Add panel to bundle
+
+ Set branch override
+
+ Create visit
+
+ Enter results
+
+ Verify derived
+
+ Finalize report
+
+ Modify definition → verify old report unchanged
+
+ Verify inventory deduction
+
+ Verify interpretation correct
+
+ Verify audit log entries
+
+FINAL ACCEPTANCE CONDITION
+
+System is production-ready only if:
+
+No silent version mutation possible
+
+No recursive bundles possible
+
+No interpretation ambiguity possible
+
+No pricing drift possible
+
+No inventory drift possible
+
+No report re-render mutation possible
+
+No cross-layer configuration leakage possible
+
+-------------------------------------------------
+Plan: New Architecture Integration — Report Rendering, Result Entry, Billing
+The new 3-module architecture (TestDefinition, ClinicalPanel, BillableProduct) is implemented but not yet wired into the existing report rendering pipeline, result entry flow, or bill display. There are 5 bugs/data-loss issues and missing integration paths that need fixing.
+
+TL;DR: Fix layout type enum mismatch, add referenceText + interpretationSeverity to report snapshots, add ClinicalPanel fallback grouping for product-ordered tests, resolve age-aware ranges at entry time for child tests, and add product-grouped bill display.
+
+Steps
+
+A. Fix Layout Type Enum Mismatch (Bug)
+In ManagePanelDefinitions.tsx — the LAYOUT_TYPES array uses FLAT and GROUPED which don't exist in the Prisma PanelLayoutType enum, and is missing STANDARD_TABLE and WIDAL. Fix by replacing FLAT → STANDARD_TABLE, GROUPED → STANDARD_TABLE (with subgroups), and adding WIDAL as an option. This ensures Prisma accepts the values and the renderer can match them.
+
+In reportRendererService.ts — the renderPanel() switch already handles all 5 enum values. No change needed here, but verify the default fallback to renderStandardTable covers any edge cases.
+
+B. Add referenceText to Report Snapshot (Data Loss Fix)
+In reportSnapshotService.ts — add referenceText: string | null to the TestResultSnapshot interface (around line 40).
+
+In createReportSnapshot() — when building each result object (both panel-linked and orphan paths), include referenceText from resolved ranges: referenceText: resolvedRanges.get(test.id)?.referenceText ?? test.referenceText ?? null.
+
+In buildEphemeralSnapshot() — same change in both panel-linked and orphan test result-building blocks.
+
+In reportRendererService.ts — update renderStandardTable() and renderInterpretationSingle() to display test.referenceText when numeric min/max are both null (similar to how the result entry UI already does it).
+
+C. Capture interpretationSeverity in Snapshot (Bug Fix)
+In reportSnapshotService.ts — add interpretationSeverity: string | null to the TestResultSnapshot interface.
+
+In createReportSnapshot() — include interpretationSeverity in each result object push (both panel-linked and orphan paths). Currently the local variable interpretationSeverity is set but never written to the result.
+
+In buildEphemeralSnapshot() — same fix for both paths.
+
+In reportRendererService.ts — update renderInterpretationSingle() to apply severity-based CSS classes to the interpretation block (e.g., interpretation-normal, interpretation-warning, interpretation-critical). Add corresponding CSS rules to report-screen.css and report-print.css.
+
+D. ClinicalPanel Fallback Grouping in Snapshot
+In createReportSnapshot() — after the existing panelItems loop (legacy grouping), add a fallback: for tests still orphaned (not linked to any PanelDefinition), look up the LabTest's code in ClinicalPanelItem → ClinicalPanel (via TestDefinition.code match). If found, group under that ClinicalPanel's layout and department.
+
+In buildEphemeralSnapshot() — same ClinicalPanel fallback lookup. This ensures tests ordered via BillableProduct → TestDefinition that have no legacy PanelTestItem entries still get proper panel grouping and layout rendering.
+
+E. Age-Aware Reference Ranges in Result Entry UI
+In diagnosticVisits.ts GET /:id handler — after building the transformed response, call resolveReferenceRanges() for all child test IDs with the patient's yearOfBirth and gender. Override each child test's referenceRange with the resolved age-specific values. This way the result entry UI shows the correct age/gender-specific reference range, not just the LabTest default.
+also in diagnostic visit when we are creating a patient we can only enter dob or age in years so when a baby comes we should be able to enter age in days and entering dob should take days if its less than year and connect to the age range system properly
+Also override the parent test's referenceRange with resolved values when available (for standalone non-panel tests).
+
+F. Bill Product Grouping (Backend)
+In bills.ts — update the diagnostic items transformation to include productIdSnapshot and priceSourceSnapshot from each TestOrder. Add a productName field by looking up the BillableProduct name from productIdSnapshot when present.
+
+Group items by productIdSnapshot in the response — return a productGroups array alongside items. Each group has { productId, productName, isBundle, items[] }. Tests without a product get grouped under a null-product group.
+
+G. Bill Product Grouping (Frontend)
+In BillPrintPage.tsx — update the BillData interface to include optional productGroups. When productGroups is present and has bundle groups, render items grouped under product name headers (e.g., "Basic Health Checkup" spanning the row, then indented test items underneath).
+
+In BillPrint.tsx — same product grouping rendering for the inline bill print component.
+
+H. Text-Based Test Value Support in Result Entry
+In DiagnosticsResultEntry.tsx — renderTestInput() currently uses type="number" when hasNumericRange is true and type="text" otherwise. This is already correct. However, when saving, saveResults() always does parseFloat(valueStr) which drops text-based values. Add logic: if the test has no numeric range (min=0, max=0, no unit) and the value is non-numeric, send it as notes instead of value (or send value as null with the text in notes). This matches how the renderer shows text-only results via test.notes.
+
+Update the computeFlag function return to handle text-based tests gracefully — return null (no flag) for non-numeric values regardless of range settings.
+
+Verification
+
+Run npx tsc --noEmit in both health-hub-backend and health-hub after all changes
+Test report preview (ephemeral snapshot) with: (a) a test ordered via BillableProduct that has ClinicalPanel grouping, (b) a test with age-specific ranges, (c) a test with text-based referenceText, (d) a test with InterpretationRule severity
+Test finalized report (persisted snapshot) renders same as preview
+Test bill print shows product grouping for bundle orders
+Test result entry shows age-specific reference ranges for child tests
+Verify layout type dropdown in ClinicalPanel admin matches Prisma enum values
+Decisions
+
+Layout type: FLAT (non-existent) maps to STANDARD_TABLE (existing) — both render the same way
+referenceText takes precedence over numeric range display when present (matches existing entry UI pattern)
+Product grouping on bills uses productIdSnapshot (already frozen at order time) so it's immutable
+Text-based test results stored in notes field with value: null (matches renderer expectation)
+
+------------------------------------------
+

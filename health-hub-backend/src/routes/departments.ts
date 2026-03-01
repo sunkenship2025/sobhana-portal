@@ -1,10 +1,9 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
+import prisma from '../lib/prisma';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // All routes require auth + branch context
 router.use(authMiddleware);
@@ -28,6 +27,8 @@ router.get('/', async (req: AuthRequest, res) => {
             labTests: true,
             panels: true,
             signingRules: true,
+            testDefinitions: true,
+            clinicalPanels: true,
           }
         }
       },
@@ -65,7 +66,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
           select: { id: true, name: true, code: true, isPanel: true },
         },
         _count: {
-          select: { labTests: true, panels: true, signingRules: true }
+          select: { labTests: true, panels: true, signingRules: true, testDefinitions: true, clinicalPanels: true }
         }
       }
     });
@@ -189,7 +190,7 @@ router.delete('/:id', async (req: AuthRequest, res) => {
   try {
     const existing = await prisma.department.findUnique({
       where: { id: req.params.id },
-      include: { _count: { select: { labTests: true, panels: true } } }
+      include: { _count: { select: { labTests: true, panels: true, testDefinitions: true, clinicalPanels: true } } }
     });
     if (!existing) {
       return res.status(404).json({

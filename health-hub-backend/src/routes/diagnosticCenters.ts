@@ -1,11 +1,10 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { authMiddleware } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import { generateNextNumber } from '../services/numberService';
+import prisma from '../lib/prisma';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
