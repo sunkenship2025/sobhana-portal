@@ -163,12 +163,12 @@
   }
 
   .btn-branch-outline {
-    border-color: var(--branch-accent);
-    color: var(--branch-accent);
+    border-color: var(--branch-accent) !important;
+    color: var(--branch-accent) !important;
   }
   .btn-branch-outline:hover {
-    background-color: var(--branch-accent);
-    color: white;
+    background-color: var(--branch-accent) !important;
+    color: white !important;
   }
 
   .status-badge {
