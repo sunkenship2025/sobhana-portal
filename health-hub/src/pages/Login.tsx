@@ -218,11 +218,7 @@ const Login = () => {
             </button>
           </form>
 
-          {/* Footer */}
-          <div className="mt-8 text-center text-xs text-gray-400">
-            <p>Demo mode: Enter any email/password to login</p>
-            <p className="mt-2">&copy; 2023 Sobhana Portal. All rights reserved.</p>
-          </div>
+
         </div>
       </div>
     </div>
