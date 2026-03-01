@@ -66,12 +66,29 @@ const Login = () => {
           {/* Logo Block */}
           <div className="text-center flex flex-col items-center">
             <div className="flex flex-col items-center mb-6">
-              {/* Logo image */}
-              <img
-                src="/sobhana-whitebg.png"
-                alt="Sobhana"
-                className="h-14 object-contain mb-2"
-              />
+              {/* Icon-based logo */}
+              <div className="flex items-end justify-center mb-1 gap-3">
+                <div className="relative w-16 h-14 flex items-end shrink-0">
+                  <span
+                    className="material-symbols-outlined text-[#1B2B58] text-5xl absolute left-0 bottom-0 z-10"
+                    style={{ fontVariationSettings: "'FILL' 1, 'wght' 700" }}
+                  >
+                    biotech
+                  </span>
+                  <span
+                    className="material-symbols-outlined text-[#D91C2B] text-4xl absolute right-0 bottom-1 z-20 bg-white rounded-full border-2 border-white"
+                    style={{ fontVariationSettings: "'FILL' 1, 'wght' 600" }}
+                  >
+                    medical_services
+                  </span>
+                </div>
+                <h1
+                  className="text-5xl font-black text-[#D91C2B] tracking-tighter uppercase leading-none"
+                  style={{ fontStretch: 'expanded' }}
+                >
+                  SOBHANA
+                </h1>
+              </div>
               <div className="text-[#1B2B58] font-bold text-xs sm:text-sm tracking-[0.15em] uppercase text-center border-t-2 border-[#1B2B58]/20 pt-2 w-full max-w-[340px]">
                 Diagnostic Centre &amp; Multi Speciality Clinic
               </div>
