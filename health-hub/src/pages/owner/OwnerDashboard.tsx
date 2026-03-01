@@ -30,7 +30,7 @@ const OwnerDashboard = () => {
     <AppLayout context="owner">
       <div className="space-y-6 animate-fade-in">
         <div className="flex items-center gap-3">
-          <Building2 className="h-8 w-8 text-context-owner" />
+          <Building2 className="h-8 w-8" style={{ color: 'var(--branch-accent)' }} />
           <div>
             <h1 className="text-2xl font-bold">Owner Dashboard</h1>
             <p className="text-muted-foreground">How is the business doing today?</p>
@@ -45,8 +45,8 @@ const OwnerDashboard = () => {
           <CardContent>
             <div className="grid gap-6 md:grid-cols-3">
               <div className="flex items-center gap-4 p-4 rounded-lg bg-muted">
-                <div className="p-3 rounded-full bg-context-clinic/10">
-                  <Stethoscope className="h-6 w-6 text-context-clinic" />
+                <div className="p-3 rounded-full" style={{ backgroundColor: 'color-mix(in srgb, var(--branch-accent) 10%, transparent)' }}>
+                  <Stethoscope className="h-6 w-6" style={{ color: 'var(--branch-accent)' }} />
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Clinic OP</p>
@@ -55,8 +55,8 @@ const OwnerDashboard = () => {
               </div>
               
               <div className="flex items-center gap-4 p-4 rounded-lg bg-muted">
-                <div className="p-3 rounded-full bg-context-clinic/10">
-                  <Users className="h-6 w-6 text-context-clinic" />
+                <div className="p-3 rounded-full" style={{ backgroundColor: 'color-mix(in srgb, var(--branch-accent) 10%, transparent)' }}>
+                  <Users className="h-6 w-6" style={{ color: 'var(--branch-accent)' }} />
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Clinic IP</p>

@@ -55,11 +55,12 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        context: {
-          diagnostics: "hsl(var(--context-diagnostics))",
-          clinic: "hsl(var(--context-clinic))",
-          doctor: "hsl(var(--context-doctor))",
-          owner: "hsl(var(--context-owner))",
+        branch: {
+          sidebar: "var(--branch-sidebar-bg)",
+          "sidebar-active": "var(--branch-sidebar-active)",
+          banner: "var(--branch-banner-bg)",
+          accent: "var(--branch-accent)",
+          "accent-fg": "var(--branch-accent-fg)",
         },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",

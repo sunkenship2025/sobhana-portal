@@ -103,7 +103,7 @@ const DoctorDashboard = () => {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-context-doctor" />
+              <FileText className="h-5 w-5" style={{ color: 'var(--branch-accent)' }} />
               Report List ({filteredReports.length})
             </CardTitle>
           </CardHeader>
