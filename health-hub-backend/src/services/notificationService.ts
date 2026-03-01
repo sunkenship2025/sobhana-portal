@@ -254,13 +254,14 @@ export async function sendBillConfirmation(visitId: string): Promise<void> {
     // Build template components
     // Template: bill_receipt
     // Body params: {{1}} = patient name, {{2}} = bill number, {{3}} = amount
+    // Note: template already includes ₹ symbol before {{3}}, so don't prefix it here
     const components: TemplateComponent[] = [
       {
         type: 'body',
         parameters: [
           { type: 'text', text: info.patient.name },
           { type: 'text', text: info.visit.billNumber },
-          { type: 'text', text: `₹${amountInRupees}` },
+          { type: 'text', text: amountInRupees },
         ],
       },
     ];
@@ -443,13 +444,14 @@ export async function resendBillNotification(visitId: string, staffUserId?: stri
     const formattedPhone = formatPhoneForWhatsApp(info.phone);
     const amountInRupees = (info.bill.totalAmountInPaise / 100).toLocaleString('en-IN');
 
+    // Note: template already includes ₹ symbol before {{3}}, so don't prefix it here
     const components: TemplateComponent[] = [
       {
         type: 'body',
         parameters: [
           { type: 'text', text: info.patient.name },
           { type: 'text', text: info.visit.billNumber },
-          { type: 'text', text: `₹${amountInRupees}` },
+          { type: 'text', text: amountInRupees },
         ],
       },
     ];
