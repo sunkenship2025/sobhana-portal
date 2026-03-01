@@ -5,8 +5,8 @@ import { ValidationError, ConflictError } from '../utils/errors';
 import * as patientMatching from './patientMatchingService';
 import { validatePatientDemographics, validateAddress, calculateYOBFromAge, calculateAgeFromDOB, getPatientAge } from '../utils/validation';
 import crypto from 'crypto';
+import prisma from '../lib/prisma';
 
-const prisma = new PrismaClient();
 
 /**
  * E2-16: Convert string to 32-bit signed integer for PostgreSQL advisory lock

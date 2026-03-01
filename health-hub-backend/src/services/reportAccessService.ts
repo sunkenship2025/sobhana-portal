@@ -5,10 +5,9 @@
  * Tokens are cryptographically random and unguessable.
  */
 
-import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
+import prisma from '../lib/prisma';
 
-const prisma = new PrismaClient();
 
 /**
  * Generates a cryptographically secure random token.

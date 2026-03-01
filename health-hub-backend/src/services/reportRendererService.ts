@@ -26,11 +26,18 @@ function escapeHtml(text: string | null | undefined): string {
     .replace(/'/g, '&#039;');
 }
 
-function formatValue(value: number | null, unit: string | null): string {
+function formatValue(
+  value: number | null, 
+  unit: string | null, 
+  textValue?: string | null, 
+  prefix?: string | null
+): string {
+  // textValue takes priority (narrative/text results)
+  if (textValue) return textValue;
   if (value === null) return '-';
-  // Format with appropriate decimal places
   const formatted = Number.isInteger(value) ? value.toString() : value.toFixed(2);
-  return unit ? `${formatted} ${unit}` : formatted;
+  const withPrefix = prefix ? `${prefix}${formatted}` : formatted;
+  return unit ? `${withPrefix} ${unit}` : withPrefix;
 }
 
 function formatReference(min: number | null, max: number | null, unit: string | null): string {
@@ -108,22 +115,59 @@ function formatDateTime(isoDate: string): string {
 // ============================================================================
 
 function renderStandardTable(panel: PanelSnapshot): string {
-  const rows = panel.tests.map((test: TestResultSnapshot) => {
+  const useSubgroups = panel.showSubgroups === true;
+  const prefix = panel.valueDisplayPrefix ?? null;
+
+  // Group by subGroup if enabled
+  const renderRow = (test: TestResultSnapshot) => {
     const indent = test.indentLevel > 0 ? 'indent-' + test.indentLevel : '';
     const valueClass = getValueClass(test.value, test.referenceMin, test.referenceMax);
-    
+    const bold = test.isBold ? 'font-weight: bold;' : '';
+    const italic = test.isItalic ? 'font-style: italic;' : '';
+    const style = (bold || italic) ? ` style="${bold}${italic}"` : '';
+
     return `
-      <tr class="${indent}">
+      <tr class="${indent}"${style}>
         <td class="test-name">
           ${escapeHtml(test.testName)}
           ${test.methodText ? `<div class="method-text">${escapeHtml(test.methodText)}</div>` : ''}
         </td>
-        <td class="test-value ${valueClass}">${formatValue(test.value, null)}</td>
+        <td class="test-value ${valueClass}">${formatValue(test.value, null, test.textValue, prefix)}</td>
         <td class="test-unit">${escapeHtml(test.referenceUnit) || ''}</td>
         <td class="test-reference">${formatReference(test.referenceMin, test.referenceMax, null)}</td>
       </tr>
     `;
-  }).join('');
+  };
+
+  let rowsHtml = '';
+
+  if (useSubgroups) {
+    // Group tests by subGroup, render section headers between groups
+    const groups = new Map<string, TestResultSnapshot[]>();
+    for (const test of panel.tests) {
+      const group = test.subGroup || '__default__';
+      if (!groups.has(group)) groups.set(group, []);
+      groups.get(group)!.push(test);
+    }
+    for (const [group, tests] of groups) {
+      if (group !== '__default__') {
+        rowsHtml += `<tr class="section-header"><td colspan="4"><strong>${escapeHtml(group)}</strong></td></tr>`;
+      }
+      rowsHtml += tests.map(renderRow).join('');
+    }
+  } else {
+    rowsHtml = panel.tests.map(renderRow).join('');
+  }
+
+  // Add interpretation block if panel has showInterpretation flag
+  let interpretBlock = '';
+  if (panel.showInterpretation && panel.interpretationHtml) {
+    interpretBlock = `
+      <div class="interpretation-block">
+        <strong>Interpretation:</strong>
+        <p>${escapeHtml(panel.interpretationHtml)}</p>
+      </div>`;
+  }
 
   return `
     <table class="results-table standard-table">
@@ -136,9 +180,10 @@ function renderStandardTable(panel: PanelSnapshot): string {
         </tr>
       </thead>
       <tbody>
-        ${rows}
+        ${rowsHtml}
       </tbody>
     </table>
+    ${interpretBlock}
   `;
 }
 
@@ -301,8 +346,75 @@ function renderTextOnly(panel: PanelSnapshot): string {
   return `
     <div class="text-only-result">
       <strong>${escapeHtml(test.testName)}:</strong>
-      <span class="result-text">${escapeHtml(test.notes) || formatValue(test.value, test.referenceUnit)}</span>
+      <span class="result-text">${escapeHtml(test.textValue ?? test.notes ?? '') || formatValue(test.value, test.referenceUnit)}</span>
     </div>
+  `;
+}
+
+/**
+ * Imaging narrative: free-text report (e.g., ultrasound, X-ray findings).
+ * Shows test name as heading, textValue/notes as narrative body.
+ */
+function renderImagingNarrative(panel: PanelSnapshot): string {
+  const sections = panel.tests.map((test: TestResultSnapshot) => {
+    const content = test.textValue || test.notes || '';
+    return `
+      <div class="imaging-section">
+        <h4 class="imaging-title">${escapeHtml(test.testName)}</h4>
+        <div class="imaging-narrative">${escapeHtml(content)}</div>
+      </div>
+    `;
+  }).join('');
+
+  let interpretBlock = '';
+  if (panel.showInterpretation && panel.interpretationHtml) {
+    interpretBlock = `
+      <div class="interpretation-block">
+        <strong>Impression:</strong>
+        <p>${escapeHtml(panel.interpretationHtml)}</p>
+      </div>`;
+  }
+
+  return `
+    <div class="imaging-report">
+      ${sections}
+      ${interpretBlock}
+    </div>
+  `;
+}
+
+/**
+ * Procedure structured: key-value pairs for procedure results.
+ * Similar to standard table but without reference ranges.
+ */
+function renderProcedureStructured(panel: PanelSnapshot): string {
+  const rows = panel.tests.map((test: TestResultSnapshot) => {
+    const bold = test.isBold ? 'font-weight: bold;' : '';
+    const italic = test.isItalic ? 'font-style: italic;' : '';
+    const style = (bold || italic) ? ` style="${bold}${italic}"` : '';
+    const indent = test.indentLevel > 0 ? 'indent-' + test.indentLevel : '';
+    const displayValue = test.textValue || test.notes || formatValue(test.value, test.referenceUnit);
+
+    return `
+      <tr class="${indent}"${style}>
+        <td class="test-name">${escapeHtml(test.testName)}</td>
+        <td class="test-value">${escapeHtml(displayValue)}</td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <table class="results-table procedure-table">
+      <thead>
+        <tr>
+          <th class="col-param">PARAMETER</th>
+          <th class="col-result">RESULT</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
   `;
 }
 
@@ -310,9 +422,20 @@ function renderPanel(panel: PanelSnapshot): string {
   let content = '';
   
   switch (panel.layoutType) {
+    // ━━ New architecture layout types ━━
     case 'STANDARD_TABLE':
       content = renderStandardTable(panel);
       break;
+    case 'TEXT_ONLY':
+      content = renderTextOnly(panel);
+      break;
+    case 'IMAGING_NARRATIVE':
+      content = renderImagingNarrative(panel);
+      break;
+    case 'PROCEDURE_STRUCTURED':
+      content = renderProcedureStructured(panel);
+      break;
+    // ━━ Legacy layout types (backward compat for existing snapshots) ━━
     case 'CBP':
       content = renderCBPTable(panel);
       break;
@@ -321,9 +444,6 @@ function renderPanel(panel: PanelSnapshot): string {
       break;
     case 'INTERPRETATION_SINGLE':
       content = renderInterpretationSingle(panel);
-      break;
-    case 'TEXT_ONLY':
-      content = renderTextOnly(panel);
       break;
     default:
       content = renderStandardTable(panel);
@@ -372,7 +492,7 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
     .filter(sig => !sig.showLabInchargeNote || sig.signatureImagePath) // show doctors with actual signatures
     .map(sig => `
     <div class="signature-block">
-      <img src="${baseUrl}${escapeHtml(sig.signatureImagePath)}" alt="Signature" class="signature-image" onerror="this.style.display='none'" />
+      ${sig.signatureImagePath ? `<img src="${baseUrl}${escapeHtml(sig.signatureImagePath)}" alt="Signature" class="signature-image" onerror="this.style.display='none'" />` : ''}
       <div class="doctor-name">${escapeHtml(sig.doctorName)}</div>
       <div class="doctor-degrees">${escapeHtml(sig.degrees)}</div>
       <div class="doctor-designation">${escapeHtml(sig.designation)}</div>

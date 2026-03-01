@@ -1,8 +1,7 @@
 import { Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from './auth';
+import prisma from '../lib/prisma';
 
-const prisma = new PrismaClient();
 
 export const branchContextMiddleware = async (
   req: AuthRequest,
