@@ -119,19 +119,19 @@ const Dashboard = () => {
                   New Diagnostic Visit
                 </Link>
               </Button>
-              <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2" style={{ borderColor: 'var(--branch-accent)', color: 'var(--branch-accent)' }}>
+              <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2 btn-branch-outline">
                 <Link to="/clinic/new">
                   <Stethoscope className="h-6 w-6" />
                   New Clinic Visit
                 </Link>
               </Button>
-              <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2" style={{ borderColor: 'var(--branch-accent)', color: 'var(--branch-accent)' }}>
+              <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2 btn-branch-outline">
                 <Link to="/diagnostics/pending">
                   <Clock className="h-6 w-6" />
                   Enter Results
                 </Link>
               </Button>
-              <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2" style={{ borderColor: 'var(--branch-accent)', color: 'var(--branch-accent)' }}>
+              <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2 btn-branch-outline">
                 <Link to="/clinic/queue">
                   <Users className="h-6 w-6" />
                   Visit Queue
