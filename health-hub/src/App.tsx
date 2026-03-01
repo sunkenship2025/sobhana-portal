@@ -25,6 +25,9 @@ import PayoutsList from "./pages/owner/PayoutsList";
 import PayoutDetail from "./pages/owner/PayoutDetail";
 import BillPrintPage from "./pages/BillPrintPage";
 import ReportViewPage from "./pages/ReportViewPage";
+import PrivacyPolicy from "./pages/legal/PrivacyPolicy";
+import TermsOfService from "./pages/legal/TermsOfService";
+import DataDeletion from "./pages/legal/DataDeletion";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -138,6 +141,11 @@ function AppRoutes() {
       
       {/* Public routes for secure document access */}
       <Route path="/report/view" element={<ReportViewPage />} />
+      
+      {/* Legal / compliance pages (public) */}
+      <Route path="/privacy" element={<PrivacyPolicy />} />
+      <Route path="/terms" element={<TermsOfService />} />
+      <Route path="/data-deletion" element={<DataDeletion />} />
       <Route path="/bill/print/:domain/:visitId" element={
         <ProtectedRoute allowedRoles={['staff', 'owner']}>
           <BillPrintPage />
