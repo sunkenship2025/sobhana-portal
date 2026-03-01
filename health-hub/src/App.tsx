@@ -19,9 +19,7 @@ import GlobalPatientSearch from "./pages/clinic/GlobalPatientSearch";
 import Patient360 from "./pages/clinic/Patient360";
 import DoctorDashboard from "./pages/doctor/DoctorDashboard";
 import OwnerDashboard from "./pages/owner/OwnerDashboard";
-import ManageDoctors from "./pages/owner/ManageDoctors";
-import ManageClinicDoctors from "./pages/owner/ManageClinicDoctors";
-import ManageTests from "./pages/owner/ManageTests";
+
 import AdminConfigCenter from "./pages/owner/AdminConfigCenter";
 import PayoutsList from "./pages/owner/PayoutsList";
 import PayoutDetail from "./pages/owner/PayoutDetail";
@@ -119,22 +117,14 @@ function AppRoutes() {
           <OwnerDashboard />
         </ProtectedRoute>
       } />
-      <Route path="/owner/doctors" element={
-        <ProtectedRoute allowedRoles={['staff', 'owner']}>
-          <ManageDoctors />
-        </ProtectedRoute>
-      } />
-      <Route path="/owner/clinic-doctors" element={
-        <ProtectedRoute allowedRoles={['staff', 'owner']}>
-          <ManageClinicDoctors />
-        </ProtectedRoute>
-      } />
+      <Route path="/owner/doctors" element={<Navigate to="/owner/config?tab=referrals" replace />} />
+      <Route path="/owner/clinic-doctors" element={<Navigate to="/owner/config?tab=referrals" replace />} />
       <Route path="/owner/config" element={
         <ProtectedRoute allowedRoles={['staff', 'owner']}>
           <AdminConfigCenter />
         </ProtectedRoute>
       } />
-      <Route path="/owner/tests" element={<Navigate to="/owner/config?tab=tests" replace />} />
+      <Route path="/owner/tests" element={<Navigate to="/owner/config?tab=clinical-defs" replace />} />
       <Route path="/owner/payouts" element={
         <ProtectedRoute allowedRoles={['owner', 'staff']}>
           <PayoutsList />

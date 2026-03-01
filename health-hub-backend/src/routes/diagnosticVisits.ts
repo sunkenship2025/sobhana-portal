@@ -4,9 +4,9 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import { generateDiagnosticBillNumber } from '../services/numberService';
 import { logAction } from '../services/auditService';
-import { decrementForTests } from '../services/stockService';
 import { evaluateDerivedParameters } from '../services/derivedParameterService';
 import { resolveReferenceRanges } from '../services/referenceRangeService';
+import { resolveProducts, ProductResolutionError } from '../services/productOrderService';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -290,6 +290,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
 });
 
 // POST /api/visits/diagnostic - Create new diagnostic visit
+// Accepts EITHER productIds (new architecture) OR testIds (legacy)
 router.post('/', async (req: AuthRequest, res) => {
   try {
     const {
@@ -299,15 +300,19 @@ router.post('/', async (req: AuthRequest, res) => {
       referralType,
       referralOverrides,
       testIds,
+      productIds,
       paymentType,
       paymentStatus,
     } = req.body;
 
+    const hasProducts = productIds && Array.isArray(productIds) && productIds.length > 0;
+    const hasTests = testIds && Array.isArray(testIds) && testIds.length > 0;
+
     // Validation
-    if (!patientId || !testIds || !Array.isArray(testIds) || testIds.length === 0) {
+    if (!patientId || (!hasProducts && !hasTests)) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'Patient ID and at least one test are required',
+        message: 'Patient ID and at least one product or test are required',
       });
     }
 
@@ -323,21 +328,6 @@ router.post('/', async (req: AuthRequest, res) => {
       });
     }
 
-    // Get tests with prices
-    const tests = await prisma.labTest.findMany({
-      where: { id: { in: testIds } },
-    });
-
-    if (tests.length !== testIds.length) {
-      return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: 'One or more tests not found',
-      });
-    }
-
-    // Calculate total
-    const totalAmountInPaise = tests.reduce((sum, t) => sum + t.priceInPaise, 0);
-
     // Get referral doctor commission if applicable
     let commissionPercent = 0;
     if (referralDoctorId) {
@@ -349,8 +339,82 @@ router.post('/', async (req: AuthRequest, res) => {
       }
     }
 
+    // ── Resolve tests + pricing ──
+    // Two paths: product-based (new) or direct test-based (legacy)
+    let totalAmountInPaise = 0;
+    let testOrderData: Array<{
+      testId: string;
+      testDefinitionId?: string;
+      productId?: string;
+      priceInPaise: number;
+      testNameSnapshot: string;
+      testCodeSnapshot: string;
+      referenceMinSnapshot: number | null;
+      referenceMaxSnapshot: number | null;
+      referenceUnitSnapshot: string | null;
+    }> = [];
+
+    if (hasProducts) {
+      // ── New architecture: resolve BillableProducts ──
+      try {
+        const resolved = await resolveProducts(productIds, req.branchId!);
+
+        for (const rp of resolved) {
+          for (const to of rp.testOrders) {
+            testOrderData.push({
+              testId: to.labTestId,
+              testDefinitionId: to.testDefinitionId,
+              productId: to.productId,
+              priceInPaise: to.priceInPaise,
+              testNameSnapshot: to.testName,
+              testCodeSnapshot: to.testCode,
+              referenceMinSnapshot: to.referenceMin,
+              referenceMaxSnapshot: to.referenceMax,
+              referenceUnitSnapshot: to.referenceUnit,
+            });
+          }
+          totalAmountInPaise += rp.effectivePrice;
+        }
+      } catch (err) {
+        if (err instanceof ProductResolutionError) {
+          return res.status(400).json({
+            error: err.code,
+            message: err.message,
+            details: err.details,
+          });
+        }
+        throw err;
+      }
+    } else {
+      // ── Legacy path: direct LabTest IDs ──
+      const tests = await prisma.labTest.findMany({
+        where: { id: { in: testIds } },
+      });
+
+      if (tests.length !== testIds.length) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: 'One or more tests not found',
+        });
+      }
+
+      totalAmountInPaise = tests.reduce((sum, t) => sum + t.priceInPaise, 0);
+
+      testOrderData = tests.map((test) => ({
+        testId: test.id,
+        priceInPaise: test.priceInPaise,
+        testNameSnapshot: test.name,
+        testCodeSnapshot: test.code,
+        referenceMinSnapshot: test.referenceMin,
+        referenceMaxSnapshot: test.referenceMax,
+        referenceUnitSnapshot: test.referenceUnit,
+      }));
+    }
+
     // Generate bill number
     const billNumber = await generateDiagnosticBillNumber(branch.code);
+
+    const overrides: Record<string, number> = referralOverrides || {};
 
     // Create visit with all related records in a transaction
     const result = await prisma.$transaction(async (tx) => {
@@ -402,21 +466,20 @@ router.post('/', async (req: AuthRequest, res) => {
       }
 
       // Create test orders with metadata snapshot (E3-03)
-      // Use per-test referral overrides if provided, else fall back to doctor's global rate
-      const overrides: Record<string, number> = referralOverrides || {};
       await tx.testOrder.createMany({
-        data: tests.map((test) => ({
+        data: testOrderData.map((tod) => ({
           visitId: visit.id,
-          testId: test.id,
+          testId: tod.testId,
           branchId: req.branchId!,
-          priceInPaise: test.priceInPaise,
-          referralCommissionPercentage: overrides[test.id] ?? commissionPercent,
-          // E3-03: Snapshot test metadata at order time
-          testNameSnapshot: test.name,
-          testCodeSnapshot: test.code,
-          referenceMinSnapshot: test.referenceMin,
-          referenceMaxSnapshot: test.referenceMax,
-          referenceUnitSnapshot: test.referenceUnit,
+          priceInPaise: tod.priceInPaise,
+          referralCommissionPercentage: overrides[tod.testId] ?? commissionPercent,
+          testNameSnapshot: tod.testNameSnapshot,
+          testCodeSnapshot: tod.testCodeSnapshot,
+          referenceMinSnapshot: tod.referenceMinSnapshot,
+          referenceMaxSnapshot: tod.referenceMaxSnapshot,
+          referenceUnitSnapshot: tod.referenceUnitSnapshot,
+          testDefinitionId: tod.testDefinitionId ?? null,
+          productId: tod.productId ?? null,
         })),
       });
 
@@ -1028,6 +1091,7 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
         const draftVer = visit.report?.versions[0];
         if (draftVer) {
           for (const dr of derivedResults) {
+            if (!dr.testId) continue; // skip new-architecture derived results without testId
             const orderIdForDerived = testToOrderMap.get(dr.testId);
             if (!orderIdForDerived) continue;
 
@@ -1117,15 +1181,8 @@ router.post('/:id/collect-sample', async (req: AuthRequest, res) => {
       }
     }
 
-    // Decrement stock and update status in a transaction
+    // Update status in a transaction
     await prisma.$transaction(async (tx) => {
-      // Decrement stock for ordered tests (non-fatal if stock items not configured)
-      try {
-        await decrementForTests(testIds, visit.billNumber, branchId, userId, tx);
-      } catch (stockErr) {
-        console.warn('Stock decrement warning (non-fatal):', stockErr);
-      }
-
       // Move visit to IN_PROGRESS
       await tx.visit.update({
         where: { id },

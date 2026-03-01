@@ -31,7 +31,7 @@ async function getBrowser(): Promise<Browser> {
         '--disable-dev-shm-usage',
         '--disable-gpu',
         '--disable-software-rasterizer',
-        '--single-process',
+        // '--single-process' removed: causes crashes on macOS and Linux
       ],
     };
 

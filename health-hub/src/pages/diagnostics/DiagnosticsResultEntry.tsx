@@ -42,6 +42,7 @@ interface ChildTest {
 interface TestOrder {
   id: string;
   testId: string;
+  testDefinitionId?: string;
   testName: string;
   testCode: string;
   price: number;
@@ -246,14 +247,15 @@ const DiagnosticsResultEntry = () => {
         .filter((test) => results[test.testId])
         .map((test) => {
           const valueStr = results[test.testId];
-          const value = parseFloat(valueStr);
-          const flag = computeFlag(value, test.min, test.max);
+          const parsedValue = parseFloat(valueStr);
+          const isNumeric = !isNaN(parsedValue) && valueStr.trim() !== '';
+          const flag = isNumeric ? computeFlag(parsedValue, test.min, test.max) : null;
 
           return {
             testId: test.testId,
-            value,
+            value: isNumeric ? parsedValue : null,
             flag: flag || 'NORMAL',
-            notes: ''
+            notes: isNumeric ? '' : valueStr, // Text-based values go into notes
           };
         });
 

@@ -1,10 +1,9 @@
-import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { ValidationError, UnauthorizedError } from '../utils/errors';
 import { logAction } from './auditService';
+import prisma from '../lib/prisma';
 
-const prisma = new PrismaClient();
 
 export async function login(email: string, password: string, ipAddress?: string, userAgent?: string) {
   // Find user

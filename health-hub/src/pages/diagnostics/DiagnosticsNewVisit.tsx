@@ -8,12 +8,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { TestSelector } from '@/components/diagnostics/TestSelector';
+import { ProductSelector, type ProductForSelector } from '@/components/diagnostics/ProductSelector';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { toast } from 'sonner';
-import type { Patient, PatientSearchResult, PaymentType, DiagnosticVisitView, TestOrder, LabTest, ReferralDoctor } from '@/types';
+import type { Patient, PatientSearchResult, PaymentType, DiagnosticVisitView, TestOrder, ReferralDoctor } from '@/types';
 import { Search, UserPlus, CheckCircle2, Printer, MessageCircle } from 'lucide-react';
 import { BillPrint } from '@/components/print/BillPrint';
 import { validatePatientForm, type ValidationErrors } from '@/lib/validation';
@@ -33,7 +33,7 @@ const DiagnosticsNewVisit = () => {
   const activeBranch = getActiveBranch();
 
   // API data state
-  const [labTests, setLabTests] = useState<LabTest[]>([]);
+  const [products, setProducts] = useState<ProductForSelector[]>([]);
   const [referralDoctors, setReferralDoctors] = useState<ReferralDoctor[]>([]);
   const [diagnosticCenters, setDiagnosticCenters] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -45,7 +45,7 @@ const DiagnosticsNewVisit = () => {
   const [matchingPatients, setMatchingPatients] = useState<PatientSearchResult[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [showNewPatientForm, setShowNewPatientForm] = useState(false);
-  const [selectedTests, setSelectedTests] = useState<string[]>([]);
+  const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [paymentType, setPaymentType] = useState<PaymentType>('CASH');
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>('');
   const [referralOverrides, setReferralOverrides] = useState<Record<string, string>>({});
@@ -77,15 +77,15 @@ const DiagnosticsNewVisit = () => {
           'X-Branch-Id': activeBranch.id,
         };
 
-        const [testsRes, doctorsRes, centersRes] = await Promise.all([
-          fetch(`${API_BASE}/lab-tests`, { headers }),
+        const [productsRes, doctorsRes, centersRes] = await Promise.all([
+          fetch(`${API_BASE}/billable-products`, { headers }),
           fetch(`${API_BASE}/referral-doctors`, { headers }),
           fetch(`${API_BASE}/diagnostic-centers`, { headers }),
         ]);
 
-        if (testsRes.ok) {
-          const tests = await testsRes.json();
-          setLabTests(tests);
+        if (productsRes.ok) {
+          const prods = await productsRes.json();
+          setProducts(prods);
         }
         if (doctorsRes.ok) {
           const doctors = await doctorsRes.json();
@@ -161,24 +161,9 @@ const DiagnosticsNewVisit = () => {
     setWhatsappOptIn((result.patient as any).whatsappOptIn ?? true);
   };
 
-  const handleTestToggle = (testId: string) => {
-    setSelectedTests((prev) => {
-      const next = prev.includes(testId)
-        ? prev.filter((id) => id !== testId)
-        : [...prev, testId];
-
-      if (!next.includes(testId)) {
-        const { [testId]: _removed, ...rest } = referralOverrides;
-        setReferralOverrides(rest);
-      }
-
-      return next;
-    });
-  };
-
-  const totalAmount = selectedTests.reduce((sum, testId) => {
-    const test = labTests.find((t) => t.id === testId);
-    return sum + (test?.priceInPaise ? test.priceInPaise / 100 : 0);
+  const totalAmount = selectedProducts.reduce((sum, prodId) => {
+    const product = products.find((p) => p.id === prodId);
+    return sum + (product?.effectivePrice ?? 0);
   }, 0);
 
   const handleSubmit = async () => {
@@ -291,7 +276,7 @@ const DiagnosticsNewVisit = () => {
       return;
     }
 
-    if (selectedTests.length === 0) {
+    if (selectedProducts.length === 0) {
       toast.error('Please select at least one test');
       return;
     }
@@ -319,7 +304,7 @@ const DiagnosticsNewVisit = () => {
                   .map(([k, v]) => [k, parseFloat(v)])
               )
             : undefined,
-          testIds: selectedTests,
+          productIds: selectedProducts,
           paymentType,
           paymentStatus: 'PAID',
         }),
@@ -335,23 +320,23 @@ const DiagnosticsNewVisit = () => {
         ? referralDoctors.find(d => d.id === selectedDoctorId) 
         : undefined;
 
-      // Calculate total amount in paise from selected tests
-      const totalAmountInPaise = selectedTests.reduce((sum, testId) => {
-        const test = labTests.find((t) => t.id === testId)!;
-        return sum + test.priceInPaise;
-      }, 0);
+      // Calculate total amount in paise from selected products
+      const totalAmountInPaise = Math.round(selectedProducts.reduce((sum, prodId) => {
+        const product = products.find((p) => p.id === prodId);
+        return sum + (product?.effectivePrice ?? 0) * 100;
+      }, 0));
 
-      // Create test orders for display
-      const testOrders: TestOrder[] = selectedTests.map((testId, index) => {
-        const test = labTests.find((t) => t.id === testId)!;
+      // Use test orders from backend response if available, otherwise build from products
+      const testOrders: TestOrder[] = visit.testOrders ?? selectedProducts.map((prodId, index) => {
+        const product = products.find((p) => p.id === prodId)!;
         return {
           id: `${visit.id}-to-${index}`,
           visitId: visit.id,
-          testId: test.id,
-          testName: test.name,
-          testCode: test.code,
-          priceInPaise: test.priceInPaise,
-          referenceRange: test.referenceRange,
+          productId: product.id,
+          testName: product.name,
+          testCode: product.code,
+          priceInPaise: Math.round(product.effectivePrice * 100),
+          referenceRange: { min: 0, max: 0, unit: '' },
         };
       });
 
@@ -456,7 +441,7 @@ const DiagnosticsNewVisit = () => {
                     setPhone('');
                     setMatchingPatients([]);
                     setSelectedPatient(null);
-                    setSelectedTests([]);
+                    setSelectedProducts([]);
                     setShowNewPatientForm(false);
                     setSelectedDoctorId('');
                     setReferralOverrides({});
@@ -701,18 +686,18 @@ const DiagnosticsNewVisit = () => {
               <CardTitle>Select Tests</CardTitle>
             </CardHeader>
             <CardContent>
-              <TestSelector
-                tests={labTests}
-                selectedTestIds={selectedTests}
-                onSelectionChange={(testIds) => {
-                  // Update selected tests
-                  setSelectedTests(testIds);
-                  // Clean up referral overrides for removed tests
-                  const removedTestIds = selectedTests.filter(id => !testIds.includes(id));
-                  if (removedTestIds.length > 0) {
+              <ProductSelector
+                products={products}
+                selectedProductIds={selectedProducts}
+                onSelectionChange={(productIds) => {
+                  // Update selected products
+                  setSelectedProducts(productIds);
+                  // Clean up referral overrides for removed products
+                  const removedIds = selectedProducts.filter(id => !productIds.includes(id));
+                  if (removedIds.length > 0) {
                     setReferralOverrides(prev => {
                       const updated = { ...prev };
-                      removedTestIds.forEach(id => delete updated[id]);
+                      removedIds.forEach(id => delete updated[id]);
                       return updated;
                     });
                   }
@@ -724,7 +709,7 @@ const DiagnosticsNewVisit = () => {
         )}
 
         {/* Diagnostic Center (optional) */}
-        {selectedTests.length > 0 && diagnosticCenters.length > 0 && (
+        {selectedProducts.length > 0 && diagnosticCenters.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle>Diagnostic Center (optional)</CardTitle>
@@ -777,7 +762,7 @@ const DiagnosticsNewVisit = () => {
         )}
 
         {/* Billing */}
-        {selectedTests.length > 0 && (
+        {selectedProducts.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle>Billing</CardTitle>
@@ -793,8 +778,8 @@ const DiagnosticsNewVisit = () => {
                     const doctor = referralDoctors.find(d => d.id === value);
                     if (doctor) {
                       const nextOverrides: Record<string, string> = {};
-                      selectedTests.forEach((testId) => {
-                        nextOverrides[testId] = doctor.commissionPercent.toString();
+                      selectedProducts.forEach((productId) => {
+                        nextOverrides[productId] = doctor.commissionPercent.toString();
                       });
                       setReferralOverrides(nextOverrides);
                     } else {
@@ -815,20 +800,20 @@ const DiagnosticsNewVisit = () => {
                 </Select>
               </div>
 
-              {selectedDoctorId && selectedTests.length > 0 && (
+              {selectedDoctorId && selectedProducts.length > 0 && (
                 <div className="space-y-3">
-                  <Label>Per-test referral % (optional override)</Label>
+                  <Label>Per-product referral % (optional override)</Label>
                   <div className="grid gap-2">
-                    {selectedTests.map((testId) => {
-                      const test = labTests.find((t) => t.id === testId);
-                      if (!test) return null;
-                      const value = referralOverrides[testId] ?? '';
+                    {selectedProducts.map((productId) => {
+                      const product = products.find((p) => p.id === productId);
+                      if (!product) return null;
+                      const value = referralOverrides[productId] ?? '';
                       const baseDoctor = referralDoctors.find(d => d.id === selectedDoctorId);
                       const base = baseDoctor?.commissionPercent ?? 0;
                       return (
-                        <div key={testId} className="flex items-center gap-3">
+                        <div key={productId} className="flex items-center gap-3">
                           <div className="flex-1">
-                            <p className="font-medium">{test.name}</p>
+                            <p className="font-medium">{product.name}</p>
                             <p className="text-sm text-muted-foreground">Base: {base}%</p>
                           </div>
                           <Input
@@ -840,7 +825,7 @@ const DiagnosticsNewVisit = () => {
                             value={value}
                             onChange={(e) => {
                               const next = e.target.value;
-                              setReferralOverrides((prev) => ({ ...prev, [testId]: next }));
+                              setReferralOverrides((prev) => ({ ...prev, [productId]: next }));
                             }}
                           />
                         </div>

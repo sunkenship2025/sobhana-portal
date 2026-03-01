@@ -3,7 +3,6 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import path from 'path';
-import { PrismaClient } from '@prisma/client';
 
 // Load environment variables
 dotenv.config();
@@ -15,7 +14,8 @@ import patientRoutes from './routes/patients';
 import referralDoctorRoutes from './routes/referralDoctors';
 import clinicDoctorRoutes from './routes/clinicDoctors';
 import doctorSearchRoutes from './routes/doctors';
-import labTestRoutes from './routes/labTests';
+// LEGACY — superseded by /api/billable-products pipeline
+// import labTestRoutes from './routes/labTests';
 import diagnosticVisitRoutes from './routes/diagnosticVisits';
 import clinicVisitRoutes from './routes/clinicVisits';
 import payoutRoutes from './routes/payouts';
@@ -27,16 +27,19 @@ import webhookRoutes from './routes/webhooks';
 import messageRoutes from './routes/messages';
 import departmentRoutes from './routes/departments';
 import diagnosticCenterRoutes from './routes/diagnosticCenters';
-import stockRoutes from './routes/stock';
 import signingDoctorRoutes from './routes/signingDoctors';
 import signingRuleRoutes from './routes/signingRules';
-import panelRoutes from './routes/panels';
+// LEGACY — superseded by /api/clinical-panels pipeline
+// import panelRoutes from './routes/panels';
+import clinicalDefinitionRoutes from './routes/clinicalDefinitions';
+import clinicalPanelRoutes from './routes/clinicalPanels';
+import billableProductRoutes from './routes/billableProducts';
 
 // PDF Service warmup
 import { warmupPdfService, closeBrowser } from './services/pdfGenerationService';
+import prisma from './lib/prisma';
 
 const app = express();
-const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3000;
 
 // Security middleware - relaxed for development
@@ -134,7 +137,8 @@ app.use('/api/patients', patientRoutes);
 app.use('/api/doctors', doctorSearchRoutes); // Cross-search endpoint
 app.use('/api/referral-doctors', referralDoctorRoutes);
 app.use('/api/clinic-doctors', clinicDoctorRoutes);
-app.use('/api/lab-tests', labTestRoutes);
+// LEGACY — superseded by /api/billable-products
+// app.use('/api/lab-tests', labTestRoutes);
 app.use('/api/visits/diagnostic', diagnosticVisitRoutes);
 app.use('/api/visits/clinic', clinicVisitRoutes);
 app.use('/api/payouts', payoutRoutes);
@@ -143,10 +147,15 @@ app.use('/api/bills', billRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/departments', departmentRoutes);
 app.use('/api/diagnostic-centers', diagnosticCenterRoutes);
-app.use('/api/stock', stockRoutes);
 app.use('/api/signing-doctors', signingDoctorRoutes);
 app.use('/api/signing-rules', signingRuleRoutes);
-app.use('/api/panels', panelRoutes);
+// LEGACY — superseded by /api/clinical-panels
+// app.use('/api/panels', panelRoutes);
+
+// New architecture: Clinical Definitions, Panels, Products
+app.use('/api/clinical-definitions', clinicalDefinitionRoutes);
+app.use('/api/clinical-panels', clinicalPanelRoutes);
+app.use('/api/billable-products', billableProductRoutes);
 
 // Global error handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

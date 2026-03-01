@@ -75,8 +75,6 @@ const navItems: NavItem[] = [
     href: '/owner',
     roles: ['staff', 'owner'],
     subItems: [
-      { label: 'Referral Doctors', href: '/owner/doctors' },
-      { label: 'Clinic Doctors', href: '/owner/clinic-doctors' },
       { label: 'Config Center', href: '/owner/config' },
       { label: 'Payouts', href: '/owner/payouts' },
     ]
