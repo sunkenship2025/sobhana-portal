@@ -79,7 +79,7 @@ export interface ClinicDoctor {
 }
 
 // ============================================
-// LAB TEST (Master catalog)
+// LAB TEST (Legacy master catalog — deprecated, kept for backward compat)
 // ============================================
 export interface LabTest {
   id: string;
@@ -94,13 +94,132 @@ export interface LabTest {
 }
 
 // ============================================
+// NEW ARCHITECTURE: TestDefinition → ClinicalPanel → BillableProduct
+// ============================================
+
+export type DefinitionStatus = 'DRAFT' | 'ACTIVE' | 'LOCKED' | 'DEPRECATED' | 'ARCHIVED';
+
+export interface TestDefinition {
+  id: string;
+  rootDefinitionId: string;
+  name: string;
+  code: string;
+  version: number;
+  isLatest: boolean;
+  status: DefinitionStatus;
+  sampleType: string | null;
+  method: string | null;
+  referenceUnit: string | null;
+  referenceMin: number | null;
+  referenceMax: number | null;
+  referenceText: string | null;
+  formulaExpression: string | null;
+  dependsOnCodes: string[] | null;
+  interpretationMode: string;
+  departmentId: string | null;
+  displayOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  department?: { id: string; name: string } | null;
+  ranges?: TestDefinitionRange[];
+  interpretationRules?: InterpretationRule[];
+  _count?: { panelItems: number };
+}
+
+export interface TestDefinitionRange {
+  id?: string;
+  testDefinitionId: string;
+  minAgeDays: number | null;
+  maxAgeDays: number | null;
+  gender: Gender | null;
+  referenceMin: number | null;
+  referenceMax: number | null;
+  referenceUnit: string | null;
+  referenceText: string | null;
+}
+
+export interface InterpretationRule {
+  id?: string;
+  testDefinitionId: string;
+  ruleType: string;
+  operator: string;
+  value1: number | null;
+  value2: number | null;
+  textMatch: string | null;
+  interpretationText: string;
+  severity: string | null;
+  displayOrder: number;
+  isActive: boolean;
+}
+
+export interface ClinicalPanelItem {
+  id: string;
+  panelId: string;
+  testDefinitionId: string;
+  displayOrder: number;
+  subgroup: string | null;
+  testDefinition?: TestDefinition;
+}
+
+export interface ClinicalPanel {
+  id: string;
+  name: string;
+  code: string;
+  layoutType: string;
+  departmentId: string | null;
+  isActive: boolean;
+  summaryInterpretationTemplate: string | null;
+  createdAt: string;
+  updatedAt: string;
+  department?: { id: string; name: string } | null;
+  items: ClinicalPanelItem[];
+}
+
+export interface BillableProductPanel {
+  id: string;
+  productId: string;
+  panelId: string;
+  displayOrder: number;
+  panel?: ClinicalPanel;
+}
+
+export interface ProductBranchPricing {
+  id: string;
+  productId: string;
+  branchId: string;
+  price: number;
+  isActive: boolean;
+  branch?: { id: string; name: string };
+}
+
+export interface BillableProduct {
+  id: string;
+  name: string;
+  code: string;
+  productType: string;
+  basePrice: number;
+  isActive: boolean;
+  description: string | null;
+  createdAt: string;
+  updatedAt: string;
+  components: { testDefinitionId: string; testDefinition?: TestDefinition }[];
+  branchPricing: ProductBranchPricing[];
+  effectivePrice?: number; // Branch-resolved price from API
+}
+
+// ============================================
 // TEST ORDER (links Visit to ordered tests)
 // E3-03: Test metadata is snapshotted at order time
+// Supports both legacy testId and new testDefinitionId
 // ============================================
 export interface TestOrder {
   id: string;
   visitId: string;
-  testId: string;
+  testId?: string | null;             // Legacy LabTest FK (nullable)
+  testDefinitionId?: string | null;   // New TestDefinition FK
+  productId?: string | null;          // BillableProduct FK for traceability
+  panelId?: string | null;            // ClinicalPanel FK for traceability
   testName: string;       // Snapshotted test name at order time
   testCode: string;       // Snapshotted test code at order time
   priceInPaise: number;   // Snapshotted price at order time
@@ -109,7 +228,8 @@ export interface TestOrder {
     max: number;
     unit: string;
   };
-  referralCommissionPercent?: number; // Optional per-test referral % override
+  referenceText?: string | null;      // For qualitative tests
+  referralCommissionPercent?: number;
 }
 
 // ============================================
@@ -122,12 +242,16 @@ export interface TestResult {
   testName: string;
   testCode: string;
   value: number | null;
+  notes?: string | null;              // Text-based values for qualitative tests
   referenceRange: {
     min: number;
     max: number;
     unit: string;
   };
+  referenceText?: string | null;
   flag: 'NORMAL' | 'HIGH' | 'LOW' | null;
+  interpretationText?: string | null;
+  interpretationSeverity?: string | null;
 }
 
 // ============================================

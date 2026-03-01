@@ -47,7 +47,8 @@ interface Visit {
   createdAt: string;
   patient: {
     name: string;
-    age: number;
+    yearOfBirth?: number;
+    dateOfBirth?: string;
     gender: string;
     identifiers?: Array<{ type: string; value: string }>;
   };
@@ -81,7 +82,7 @@ const DiagnosticsReportPreview = () => {
   const [showConfirm, setShowConfirm] = useState(false);
   const [reportToken, setReportToken] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
-  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);  // blob URL for iframe
   const [previewLoading, setPreviewLoading] = useState(false);
 
   // Fetch visit from API
@@ -145,6 +146,8 @@ const DiagnosticsReportPreview = () => {
   }
 
   const { patient, testOrders, referralDoctor } = visit;
+  const currentYear = new Date().getFullYear();
+  const patientAge = patient.yearOfBirth ? currentYear - patient.yearOfBirth : null;
   // Get test results from the latest version (versions are ordered by versionNum desc)
   const latestVersion = (visit.report as any)?.versions?.[0];
   const testResults = latestVersion?.testResults || [];
@@ -274,7 +277,11 @@ const DiagnosticsReportPreview = () => {
 
       if (response.ok) {
         const html = await response.text();
-        setPreviewHtml(html);
+        // Use blob URL so images (signature files) load from absolute http://localhost:3000 URLs
+        const blob = new Blob([html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        // Revoke previous blob URL
+        setPreviewUrl(prev => { if (prev) URL.revokeObjectURL(prev); return url; });
         setShowPreview(true);
       } else {
         const err = await response.json().catch(() => ({}));
@@ -331,7 +338,7 @@ const DiagnosticsReportPreview = () => {
               <div>
                 <CardTitle>{patient.name}</CardTitle>
                 <p className="text-muted-foreground">
-                  {patient.age} years | {patient.gender === 'M' ? 'Male' : patient.gender === 'F' ? 'Female' : 'Other'}
+                  {patientAge ? `${patientAge} yrs` : ''} | {patient.gender === 'M' ? 'Male' : patient.gender === 'F' ? 'Female' : 'Other'}
                 </p>
                 {referralDoctor && (
                   <p className="text-sm text-muted-foreground mt-1">
@@ -449,7 +456,7 @@ const DiagnosticsReportPreview = () => {
       </div>
 
       {/* Full-Screen Report Preview Modal */}
-      {showPreview && previewHtml && (
+      {showPreview && previewUrl && (
         <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col">
           {/* Modal Header */}
           <div className="flex items-center justify-between px-6 py-3 border-b bg-background">
@@ -484,11 +491,10 @@ const DiagnosticsReportPreview = () => {
           {/* Iframe with Report HTML */}
           <div className="flex-1 overflow-hidden bg-muted p-4">
             <iframe
-              srcDoc={previewHtml}
+              src={previewUrl}
               className="w-full h-full rounded-lg shadow-xl border bg-white mx-auto"
               style={{ maxWidth: '900px', display: 'block', margin: '0 auto' }}
               title="Report Preview"
-              sandbox="allow-same-origin"
             />
           </div>
         </div>

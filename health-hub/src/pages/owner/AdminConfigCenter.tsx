@@ -2,26 +2,33 @@ import { Suspense, lazy } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import {
+  FlaskConical, LayoutGrid, Package, Building2, UserCheck, Users,
+} from 'lucide-react';
 
-const ManageTestsV2 = lazy(() => import('./ManageTestsV2'));
 const ManageDepartments = lazy(() => import('./ManageDepartments'));
 const ManageSigningDoctors = lazy(() => import('./ManageSigningDoctors'));
-const ManageInterpretations = lazy(() => import('./ManageInterpretations'));
-const ManageStock = lazy(() => import('./ManageStock'));
-const ManageDiagnosticCenters = lazy(() => import('./ManageDiagnosticCenters'));
+const ManageDoctorsAndReferrals = lazy(() => import('./ManageDoctorsAndReferrals'));
+const ManageClinicalDefinitions = lazy(() => import('./ManageClinicalDefinitions'));
+const ManagePanelDefinitions = lazy(() => import('./ManagePanelDefinitions'));
+const ManageBillableProducts = lazy(() => import('./ManageBillableProducts'));
 
 const TABS = [
-  { value: 'tests', label: 'Tests & Panels' },
-  { value: 'departments', label: 'Departments' },
-  { value: 'signing', label: 'Signing' },
-  { value: 'interpretations', label: 'Interpretations' },
-  { value: 'stock', label: 'Stock' },
-  { value: 'centers', label: 'Diagnostic Centers' },
+  { value: 'clinical-defs', label: 'Clinical Definitions', icon: FlaskConical },
+  { value: 'panels', label: 'Panel Definitions', icon: LayoutGrid },
+  { value: 'products', label: 'Billable Products', icon: Package },
+  { value: 'departments', label: 'Departments', icon: Building2 },
+  { value: 'signing', label: 'Signing Doctors', icon: UserCheck },
+  { value: 'referrals', label: 'Referrals', icon: Users },
 ] as const;
+
+const Loading = () => (
+  <div className="py-12 text-center text-muted-foreground">Loading...</div>
+);
 
 export default function AdminConfigCenter() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get('tab') || 'tests';
+  const activeTab = searchParams.get('tab') || 'clinical-defs';
 
   const handleTabChange = (value: string) => {
     setSearchParams({ tab: value });
@@ -30,50 +37,59 @@ export default function AdminConfigCenter() {
   return (
     <AppLayout context="owner">
       <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
-        <h1 className="text-2xl font-bold">Admin Config Center</h1>
+        <div>
+          <h1 className="text-2xl font-bold">Admin Config Center</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Manage clinical definitions, panels, products, departments and signing doctors
+          </p>
+        </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="flex-wrap">
-            {TABS.map((tab) => (
-              <TabsTrigger key={tab.value} value={tab.value}>
-                {tab.label}
-              </TabsTrigger>
-            ))}
+          <TabsList className="flex-wrap h-auto gap-1 p-1">
+            {TABS.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <TabsTrigger key={tab.value} value={tab.value} className="gap-1.5">
+                  <Icon className="h-3.5 w-3.5" />
+                  {tab.label}
+                </TabsTrigger>
+              );
+            })}
           </TabsList>
 
-          <TabsContent value="tests">
-            <Suspense fallback={<div className="py-8 text-center text-muted-foreground">Loading...</div>}>
-              <ManageTestsV2 />
+          <TabsContent value="clinical-defs">
+            <Suspense fallback={<Loading />}>
+              <ManageClinicalDefinitions />
+            </Suspense>
+          </TabsContent>
+
+          <TabsContent value="panels">
+            <Suspense fallback={<Loading />}>
+              <ManagePanelDefinitions />
+            </Suspense>
+          </TabsContent>
+
+          <TabsContent value="products">
+            <Suspense fallback={<Loading />}>
+              <ManageBillableProducts />
             </Suspense>
           </TabsContent>
 
           <TabsContent value="departments">
-            <Suspense fallback={<div className="py-8 text-center text-muted-foreground">Loading...</div>}>
+            <Suspense fallback={<Loading />}>
               <ManageDepartments />
             </Suspense>
           </TabsContent>
 
           <TabsContent value="signing">
-            <Suspense fallback={<div className="py-8 text-center text-muted-foreground">Loading...</div>}>
+            <Suspense fallback={<Loading />}>
               <ManageSigningDoctors />
             </Suspense>
           </TabsContent>
 
-          <TabsContent value="interpretations">
-            <Suspense fallback={<div className="py-8 text-center text-muted-foreground">Loading...</div>}>
-              <ManageInterpretations />
-            </Suspense>
-          </TabsContent>
-
-          <TabsContent value="stock">
-            <Suspense fallback={<div className="py-8 text-center text-muted-foreground">Loading...</div>}>
-              <ManageStock />
-            </Suspense>
-          </TabsContent>
-
-          <TabsContent value="centers">
-            <Suspense fallback={<div className="py-8 text-center text-muted-foreground">Loading...</div>}>
-              <ManageDiagnosticCenters />
+          <TabsContent value="referrals">
+            <Suspense fallback={<Loading />}>
+              <ManageDoctorsAndReferrals />
             </Suspense>
           </TabsContent>
         </Tabs>

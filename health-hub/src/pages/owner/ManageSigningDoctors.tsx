@@ -5,15 +5,23 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter,
+} from '@/components/ui/sheet';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, Link2 } from 'lucide-react';
+import {
+  Plus, Pencil, Trash2, UserCheck, Link2, Search, Upload, FileSignature,
+} from 'lucide-react';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '@/components/ui/dialog';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -22,6 +30,8 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+
+/* ───────── Types ───────── */
 
 interface SigningDoctor {
   id: string;
@@ -50,6 +60,20 @@ interface SigningRule {
   signingDoctor: { id: string; name: string; degrees: string; designation: string };
 }
 
+/* ───────── Helpers ───────── */
+
+function getInitials(name: string) {
+  return name
+    .replace(/^Dr\.?\s*/i, '')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(w => w[0].toUpperCase())
+    .join('');
+}
+
+/* ───────── Component ───────── */
+
 export default function ManageSigningDoctors() {
   const { token } = useAuthStore();
 
@@ -57,13 +81,14 @@ export default function ManageSigningDoctors() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [rules, setRules] = useState<SigningRule[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
-  // Doctor dialog
-  const [doctorDialogOpen, setDoctorDialogOpen] = useState(false);
+  // Sheet for doctor edit
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [editingDoctorId, setEditingDoctorId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [doctorForm, setDoctorForm] = useState({
-    name: '', degrees: '', designation: '', registrationNumber: '',
+    name: '', degrees: '', designation: '', registrationNumber: '', isActive: true,
   });
 
   // Rule dialog
@@ -111,14 +136,15 @@ export default function ManageSigningDoctors() {
 
   // ── Doctor CRUD ──────────────────────────────────────────────────
   const resetDoctorForm = () => {
-    setDoctorForm({ name: '', degrees: '', designation: '', registrationNumber: '' });
-    setDoctorDialogOpen(false);
+    setDoctorForm({ name: '', degrees: '', designation: '', registrationNumber: '', isActive: true });
+    setSheetOpen(false);
     setEditingDoctorId(null);
   };
 
   const handleAddDoctor = () => {
     resetDoctorForm();
-    setDoctorDialogOpen(true);
+    setDoctorForm({ name: '', degrees: '', designation: '', registrationNumber: '', isActive: true });
+    setSheetOpen(true);
   };
 
   const handleEditDoctor = (doc: SigningDoctor) => {
@@ -127,9 +153,10 @@ export default function ManageSigningDoctors() {
       degrees: doc.degrees,
       designation: doc.designation,
       registrationNumber: doc.registrationNumber || '',
+      isActive: doc.isActive,
     });
     setEditingDoctorId(doc.id);
-    setDoctorDialogOpen(true);
+    setSheetOpen(true);
   };
 
   const handleSubmitDoctor = async () => {
@@ -244,188 +271,347 @@ export default function ManageSigningDoctors() {
     } catch { toast.error('Failed to deactivate rule'); }
   };
 
+  // ─── Filter ──────────────────────────────────────────────────────
+  const filteredDoctors = doctors.filter(d => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return d.name.toLowerCase().includes(q) || d.designation.toLowerCase().includes(q)
+      || d.degrees.toLowerCase().includes(q);
+  });
+
   if (loading) {
-    return <div className="py-8 text-center text-muted-foreground">Loading signing data...</div>;
+    return <div className="py-12 text-center text-muted-foreground">Loading signing data...</div>;
   }
 
+  // ─── Render ──────────────────────────────────────────────────────
   return (
     <div className="space-y-8">
       {/* ── Signing Doctors ─────────────────────────────────────── */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold">Signing Doctors</h3>
-            <p className="text-sm text-muted-foreground">Doctors whose signatures appear on reports.</p>
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <UserCheck className="h-5 w-5" /> Signing Doctors
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Doctors whose signatures appear on reports
+            </p>
           </div>
-          <Button onClick={handleAddDoctor}>
-            <Plus className="h-4 w-4 mr-2" /> Add Doctor
+          <Button onClick={handleAddDoctor} size="sm">
+            <Plus className="h-4 w-4 mr-1" /> Add Doctor
           </Button>
         </div>
 
-        {doctors.length === 0 ? (
-          <p className="text-center text-muted-foreground py-6">No signing doctors yet.</p>
+        {/* Search */}
+        <div className="relative max-w-sm">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search doctors..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="pl-8"
+          />
+        </div>
+
+        {filteredDoctors.length === 0 ? (
+          <p className="text-center text-muted-foreground py-8">No signing doctors found.</p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Degrees</TableHead>
-                <TableHead>Designation</TableHead>
-                <TableHead>Reg. No.</TableHead>
-                <TableHead className="text-center">Rules</TableHead>
-                <TableHead className="text-center">Active</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {doctors.map((doc) => (
-                <TableRow key={doc.id} className={!doc.isActive ? 'opacity-50' : ''}>
-                  <TableCell className="font-medium">{doc.name}</TableCell>
-                  <TableCell>{doc.degrees}</TableCell>
-                  <TableCell>{doc.designation}</TableCell>
-                  <TableCell className="text-muted-foreground">{doc.registrationNumber || '---'}</TableCell>
-                  <TableCell className="text-center">{doc._count.signingRules}</TableCell>
-                  <TableCell className="text-center">
-                    <Switch checked={doc.isActive} onCheckedChange={() => handleToggleDoctor(doc)} />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex gap-2 justify-end">
-                      <Button variant="ghost" size="icon" onClick={() => handleEditDoctor(doc)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => setDeleteId(doc.id)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </TableCell>
+          <div className="border rounded-lg overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40">
+                  <TableHead>Doctor</TableHead>
+                  <TableHead>Designation</TableHead>
+                  <TableHead>Reg. No.</TableHead>
+                  <TableHead className="text-center">Rules</TableHead>
+                  <TableHead className="text-center">Active</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filteredDoctors.map(doc => (
+                  <TableRow key={doc.id} className={!doc.isActive ? 'opacity-50' : ''}>
+                    {/* Doctor with avatar */}
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-9 w-9 bg-primary/10 text-primary">
+                          <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                            {getInitials(doc.name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <div className="font-medium">{doc.name}</div>
+                          <div className="text-xs text-muted-foreground">{doc.degrees}</div>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm">{doc.designation}</TableCell>
+                    <TableCell>
+                      {doc.registrationNumber ? (
+                        <Badge variant="outline" className="font-mono text-xs">
+                          {doc.registrationNumber}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Badge variant="secondary">{doc._count.signingRules}</Badge>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Switch checked={doc.isActive} onCheckedChange={() => handleToggleDoctor(doc)} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex gap-1 justify-end">
+                        <Button variant="ghost" size="icon" onClick={() => handleEditDoctor(doc)} className="h-8 w-8">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => setDeleteId(doc.id)} className="h-8 w-8">
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </section>
+
+      <Separator />
 
       {/* ── Signing Rules ───────────────────────────────────────── */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold">Signing Rules</h3>
-            <p className="text-sm text-muted-foreground">Assign doctors to departments for report signing.</p>
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Link2 className="h-5 w-5" /> Signing Rules
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Assign doctors to departments for report signing
+            </p>
           </div>
-          <Button onClick={handleAddRule} variant="outline">
-            <Link2 className="h-4 w-4 mr-2" /> Add Rule
+          <Button onClick={handleAddRule} size="sm" variant="outline">
+            <Plus className="h-4 w-4 mr-1" /> Add Rule
           </Button>
         </div>
 
         {rules.length === 0 ? (
-          <p className="text-center text-muted-foreground py-6">No signing rules yet.</p>
+          <p className="text-center text-muted-foreground py-8">No signing rules yet.</p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Department</TableHead>
-                <TableHead>Doctor</TableHead>
-                <TableHead className="text-center">Lab Incharge Note</TableHead>
-                <TableHead className="text-center">Order</TableHead>
-                <TableHead className="text-center">Active</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rules.map((rule) => (
-                <TableRow key={rule.id} className={!rule.isActive ? 'opacity-50' : ''}>
-                  <TableCell className="font-medium">{rule.department.name}</TableCell>
-                  <TableCell>{rule.signingDoctor.name} — {rule.signingDoctor.degrees}</TableCell>
-                  <TableCell className="text-center">{rule.showLabInchargeNote ? 'Yes' : 'No'}</TableCell>
-                  <TableCell className="text-center font-mono">{rule.displayOrder}</TableCell>
-                  <TableCell className="text-center">
-                    <Switch checked={rule.isActive} onCheckedChange={() => handleToggleRule(rule)} />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" onClick={() => handleDeleteRule(rule.id)}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </TableCell>
+          <div className="border rounded-lg overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40">
+                  <TableHead>Department</TableHead>
+                  <TableHead>Doctor</TableHead>
+                  <TableHead className="text-center">Lab Incharge Note</TableHead>
+                  <TableHead className="text-center">Order</TableHead>
+                  <TableHead className="text-center">Active</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {rules.map(rule => (
+                  <TableRow key={rule.id} className={!rule.isActive ? 'opacity-50' : ''}>
+                    <TableCell>
+                      <Badge variant="secondary">{rule.department.name}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div>
+                        <span className="font-medium">{rule.signingDoctor.name}</span>
+                        <span className="text-muted-foreground text-sm"> — {rule.signingDoctor.degrees}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {rule.showLabInchargeNote ? (
+                        <Badge className="bg-green-100 text-green-800 text-xs">Yes</Badge>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">No</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center font-mono text-sm">{rule.displayOrder}</TableCell>
+                    <TableCell className="text-center">
+                      <Switch checked={rule.isActive} onCheckedChange={() => handleToggleRule(rule)} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="icon" onClick={() => handleDeleteRule(rule.id)} className="h-8 w-8">
+                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </section>
 
-      {/* Doctor Create/Edit Dialog */}
-      <Dialog open={doctorDialogOpen} onOpenChange={(open) => { if (!open) resetDoctorForm(); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingDoctorId ? 'Edit Signing Doctor' : 'Add Signing Doctor'}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="doc-name">Name *</Label>
-              <Input id="doc-name" placeholder="Dr. Aruna" value={doctorForm.name}
-                onChange={(e) => setDoctorForm({ ...doctorForm, name: e.target.value })} />
+      {/* ── Doctor Sheet (Side Panel) ───────────────────────────── */}
+      <Sheet open={sheetOpen} onOpenChange={(open) => { if (!open) resetDoctorForm(); }}>
+        <SheetContent className="sm:max-w-md overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>{editingDoctorId ? 'Edit Signing Doctor' : 'Add Signing Doctor'}</SheetTitle>
+            <SheetDescription>
+              {editingDoctorId
+                ? 'Update doctor details and signature information.'
+                : 'Add a new doctor who can sign lab reports.'}
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="space-y-5 py-6">
+            {/* Avatar preview */}
+            {doctorForm.name && (
+              <div className="flex items-center gap-3">
+                <Avatar className="h-12 w-12 bg-primary/10 text-primary">
+                  <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
+                    {getInitials(doctorForm.name)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="text-sm">
+                  <div className="font-medium">{doctorForm.name}</div>
+                  {doctorForm.degrees && (
+                    <div className="text-muted-foreground">{doctorForm.degrees}</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <Separator />
+
+            {/* Name */}
+            <div className="space-y-1.5">
+              <Label htmlFor="doc-name">Doctor Name *</Label>
+              <Input
+                id="doc-name"
+                placeholder="Dr. Aruna Reddy"
+                value={doctorForm.name}
+                onChange={e => setDoctorForm({ ...doctorForm, name: e.target.value })}
+              />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="doc-degrees">Degrees *</Label>
-              <Input id="doc-degrees" placeholder="M.D., Pathology" value={doctorForm.degrees}
-                onChange={(e) => setDoctorForm({ ...doctorForm, degrees: e.target.value })} />
+
+            {/* Degrees */}
+            <div className="space-y-1.5">
+              <Label htmlFor="doc-degrees">Degree / Qualification *</Label>
+              <Input
+                id="doc-degrees"
+                placeholder="M.D., Pathology"
+                value={doctorForm.degrees}
+                onChange={e => setDoctorForm({ ...doctorForm, degrees: e.target.value })}
+              />
             </div>
-            <div className="space-y-2">
+
+            {/* Designation */}
+            <div className="space-y-1.5">
               <Label htmlFor="doc-designation">Designation *</Label>
-              <Input id="doc-designation" placeholder="Consultant Pathologist" value={doctorForm.designation}
-                onChange={(e) => setDoctorForm({ ...doctorForm, designation: e.target.value })} />
+              <Input
+                id="doc-designation"
+                placeholder="Consultant Pathologist"
+                value={doctorForm.designation}
+                onChange={e => setDoctorForm({ ...doctorForm, designation: e.target.value })}
+              />
             </div>
-            <div className="space-y-2">
+
+            {/* Registration */}
+            <div className="space-y-1.5">
               <Label htmlFor="doc-reg">Registration Number</Label>
-              <Input id="doc-reg" placeholder="TSMC/PATH/2015/0001" value={doctorForm.registrationNumber}
-                onChange={(e) => setDoctorForm({ ...doctorForm, registrationNumber: e.target.value })} />
+              <Input
+                id="doc-reg"
+                placeholder="TSMC/PATH/2015/0001"
+                value={doctorForm.registrationNumber}
+                onChange={e => setDoctorForm({ ...doctorForm, registrationNumber: e.target.value })}
+              />
+            </div>
+
+            <Separator />
+
+            {/* Digital Signature Upload */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1.5">
+                <FileSignature className="h-4 w-4" /> Digital Signature
+              </Label>
+              <div className="border-2 border-dashed rounded-lg p-6 text-center hover:bg-muted/50 transition-colors cursor-pointer">
+                <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                <p className="text-sm text-muted-foreground">
+                  Click to upload signature image
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  PNG or JPG, transparent background preferred
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Signature will appear on printed reports for this doctor
+              </p>
+            </div>
+
+            {/* Active toggle */}
+            <div className="flex items-center gap-3">
+              <Switch
+                checked={doctorForm.isActive}
+                onCheckedChange={v => setDoctorForm({ ...doctorForm, isActive: v })}
+              />
+              <Label>Active</Label>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={resetDoctorForm}>Cancel</Button>
-            <Button onClick={handleSubmitDoctor}>{editingDoctorId ? 'Update' : 'Create'}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
-      {/* Signing Rule Dialog */}
+          <SheetFooter className="mt-4">
+            <Button variant="outline" onClick={resetDoctorForm}>Cancel</Button>
+            <Button onClick={handleSubmitDoctor}>
+              {editingDoctorId ? 'Update Doctor' : 'Add Doctor'}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Signing Rule Dialog ─────────────────────────────────── */}
       <Dialog open={ruleDialogOpen} onOpenChange={(open) => { if (!open) setRuleDialogOpen(false); }}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Add Signing Rule</DialogTitle>
+            <DialogDescription>
+              Assign a doctor to sign reports for a specific department.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <Label>Department *</Label>
-              <Select value={ruleForm.departmentId} onValueChange={(v) => setRuleForm({ ...ruleForm, departmentId: v })}>
+              <Select value={ruleForm.departmentId} onValueChange={v => setRuleForm({ ...ruleForm, departmentId: v })}>
                 <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
                 <SelectContent>
-                  {departments.map((d) => (
+                  {departments.map(d => (
                     <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <Label>Signing Doctor *</Label>
-              <Select value={ruleForm.signingDoctorId} onValueChange={(v) => setRuleForm({ ...ruleForm, signingDoctorId: v })}>
+              <Select value={ruleForm.signingDoctorId} onValueChange={v => setRuleForm({ ...ruleForm, signingDoctorId: v })}>
                 <SelectTrigger><SelectValue placeholder="Select doctor" /></SelectTrigger>
                 <SelectContent>
-                  {doctors.filter(d => d.isActive).map((d) => (
+                  {doctors.filter(d => d.isActive).map(d => (
                     <SelectItem key={d.id} value={d.id}>{d.name} — {d.degrees}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="flex items-center space-x-2">
-              <Checkbox id="rule-incharge" checked={ruleForm.showLabInchargeNote}
-                onCheckedChange={(checked) => setRuleForm({ ...ruleForm, showLabInchargeNote: checked === true })} />
+              <Checkbox
+                id="rule-incharge"
+                checked={ruleForm.showLabInchargeNote}
+                onCheckedChange={(checked) => setRuleForm({ ...ruleForm, showLabInchargeNote: checked === true })}
+              />
               <Label htmlFor="rule-incharge">Show lab incharge note on report</Label>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <Label htmlFor="rule-order">Display Order</Label>
-              <Input id="rule-order" type="number" min={0} value={ruleForm.displayOrder}
-                onChange={(e) => setRuleForm({ ...ruleForm, displayOrder: e.target.value })} />
+              <Input
+                id="rule-order" type="number" min={0}
+                value={ruleForm.displayOrder}
+                onChange={e => setRuleForm({ ...ruleForm, displayOrder: e.target.value })}
+                className="max-w-[120px]"
+              />
             </div>
           </div>
           <DialogFooter>
@@ -435,13 +621,14 @@ export default function ManageSigningDoctors() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation */}
+      {/* ── Delete Confirmation ─────────────────────────────────── */}
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Signing Doctor?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will deactivate the doctor and all their signing rules. Reports already signed will remain unchanged.
+              This will deactivate the doctor and all their signing rules.
+              Reports already signed will remain unchanged.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

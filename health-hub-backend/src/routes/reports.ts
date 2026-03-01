@@ -1,11 +1,10 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { generateReportToken, verifyReportToken } from '../services/tokenService';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { logAction } from '../services/auditService';
+import prisma from '../lib/prisma';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // POST /api/reports/generate-token - Generate a secure token for viewing a report
 // Requires authentication

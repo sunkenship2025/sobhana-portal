@@ -4,6 +4,13 @@
  * Creates immutable snapshots of all report data at finalization time.
  * This is the SINGLE SOURCE OF TRUTH for rendering - never read live data.
  * 
+ * Supports BOTH architectures:
+ *   - Legacy: LabTest → PanelTestItem → PanelDefinition
+ *   - New:    TestDefinition → ClinicalPanelItem → ClinicalPanel
+ * 
+ * When testResult has testDefinitionId, prefers ClinicalPanel chain.
+ * Falls back to PanelTestItem chain for legacy data.
+ * 
  * Snapshot includes:
  * - panelsSnapshot: Panel layout + test groupings
  * - signaturesSnapshot: Signing doctor details
@@ -23,9 +30,11 @@ const prisma = new PrismaClient();
 
 export interface TestResultSnapshot {
   testId: string;
+  testDefinitionId?: string;
   testCode: string;
   testName: string;
   value: number | null;
+  textValue?: string | null;
   flag: string | null;
   notes: string | null;
   referenceMin: number | null;
@@ -35,6 +44,8 @@ export interface TestResultSnapshot {
   methodText: string | null;
   displayOrder: number;
   indentLevel: number;
+  isBold?: boolean;
+  isItalic?: boolean;
   subGroup: string | null;
 }
 
@@ -47,6 +58,9 @@ export interface PanelSnapshot {
   departmentId: string;
   departmentName: string;
   departmentHeaderText: string;
+  showSubgroups?: boolean;
+  showInterpretation?: boolean;
+  valueDisplayPrefix?: string | null;
   tests: TestResultSnapshot[];
   interpretationHtml?: string;
 }
@@ -104,6 +118,303 @@ export interface ReportSnapshot {
 }
 
 // ============================================================================
+// INTERPRETATION MATCHING HELPERS
+// ============================================================================
+
+/**
+ * Match interpretation using NEW InterpretationRule model (operator-based).
+ * Supports NUMERIC (comparison operators) and TEXT (pattern matching) rules.
+ */
+function matchInterpretationRule(
+  value: number | null,
+  textValue: string | null,
+  rules: any[]
+): string | null {
+  for (const rule of rules) {
+    if (rule.ruleType === 'NUMERIC' && value !== null) {
+      const v1 = rule.value1 as number;
+      const v2 = rule.value2 as number | null;
+      switch (rule.operator) {
+        case 'LT':          if (value < v1) return rule.interpretationText; break;
+        case 'LTE':         if (value <= v1) return rule.interpretationText; break;
+        case 'GT':          if (value > v1) return rule.interpretationText; break;
+        case 'GTE':         if (value >= v1) return rule.interpretationText; break;
+        case 'EQ':          if (value === v1) return rule.interpretationText; break;
+        case 'BETWEEN':     if (v2 !== null && value >= v1 && value <= v2) return rule.interpretationText; break;
+        case 'NOT_BETWEEN': if (v2 !== null && (value < v1 || value > v2)) return rule.interpretationText; break;
+      }
+    } else if (rule.ruleType === 'TEXT' && textValue !== null && rule.operator === 'MATCH') {
+      if (rule.textMatch && textValue.toLowerCase().includes(rule.textMatch.toLowerCase())) {
+        return rule.interpretationText;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Match interpretation using LEGACY InterpretationTemplate model (min/max range).
+ */
+function matchLegacyInterpretation(value: number | null, interpretations: any[]): string | null {
+  if (value === null || interpretations.length === 0) return null;
+  for (const interp of interpretations) {
+    const minOk = interp.minValue === null || value >= interp.minValue;
+    const maxOk = interp.maxValue === null || value < interp.maxValue;
+    if (minOk && maxOk) return interp.interpretationText;
+  }
+  return null;
+}
+
+// ============================================================================
+// SHARED PANEL-BUILDING LOGIC
+// ============================================================================
+
+/**
+ * The Prisma include fragment for testResults that fetches BOTH legacy and new chains.
+ * Used by both createReportSnapshot and buildEphemeralSnapshot.
+ */
+export const testResultInclude = {
+  // Legacy chain: LabTest → PanelTestItem → PanelDefinition
+  test: {
+    include: {
+      panelItems: {
+        include: {
+          panel: {
+            include: { department: true },
+          },
+        },
+      },
+      interpretations: {
+        where: { isActive: true },
+        orderBy: { displayOrder: 'asc' as const },
+      },
+      department: true,
+    },
+  },
+  // New chain: TestDefinition → ClinicalPanelItem → ClinicalPanel
+  testDefinition: {
+    include: {
+      panelItems: {
+        include: {
+          panel: {
+            include: { department: true },
+          },
+        },
+      },
+      interpretationRules: {
+        where: { isActive: true },
+        orderBy: { displayOrder: 'asc' as const },
+      },
+    },
+  },
+  testOrder: true,
+} as const;
+
+/**
+ * Builds panel map and department snapshots from test results.
+ * Supports DUAL architecture:
+ *   - If result has testDefinition with panelItems → ClinicalPanel chain (preferred)
+ *   - Otherwise → PanelTestItem/PanelDefinition chain (legacy fallback)
+ */
+function buildPanelsAndDepartments(
+  testResults: any[],
+  resolvedRanges: Map<string, { referenceMin: number | null; referenceMax: number | null; referenceUnit: string | null }>
+): DepartmentSnapshot[] {
+  const panelMap = new Map<string, { panel: any; results: any[] }>();
+
+  for (const result of testResults) {
+    const test = result.test;
+    const testDef = result.testDefinition;
+
+    // Determine which architecture to use
+    const useNewChain = testDef && testDef.panelItems && testDef.panelItems.length > 0;
+
+    if (useNewChain) {
+      // ━━ NEW ARCHITECTURE: ClinicalPanelItem → ClinicalPanel ━━
+      for (const panelItem of testDef.panelItems) {
+        const panel = panelItem.panel;
+        const key = panel.id;
+
+        if (!panelMap.has(key)) {
+          panelMap.set(key, { panel, results: [] });
+        }
+
+        // Match interpretation using InterpretationRule (operator-based)
+        const interpretationText = matchInterpretationRule(
+          result.value,
+          result.textValue ?? null,
+          testDef.interpretationRules || []
+        );
+
+        panelMap.get(key)!.results.push({
+          testId: test.id,
+          testDefinitionId: testDef.id,
+          testCode: testDef.code || test.code,
+          testName: testDef.name || test.name,
+          value: result.value,
+          textValue: result.textValue ?? null,
+          flag: result.flag,
+          notes: result.notes,
+          referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
+          referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
+          referenceUnit: resolvedRanges.get(test.id)?.referenceUnit ?? test.referenceUnit,
+          sampleType: testDef.sampleType ?? test.sampleType ?? null,
+          methodText: panelItem.methodText,
+          displayOrder: panelItem.displayOrder,
+          indentLevel: panelItem.indentLevel,
+          isBold: panelItem.isBold,
+          isItalic: panelItem.isItalic,
+          subGroup: panelItem.subGroup,
+          interpretationText,
+        });
+      }
+    } else if (test.panelItems && test.panelItems.length > 0) {
+      // ━━ LEGACY ARCHITECTURE: PanelTestItem → PanelDefinition ━━
+      for (const panelItem of test.panelItems) {
+        const panel = panelItem.panel;
+        const key = panel.id;
+
+        if (!panelMap.has(key)) {
+          panelMap.set(key, { panel, results: [] });
+        }
+
+        const interpretationText = matchLegacyInterpretation(
+          result.value,
+          test.interpretations || []
+        );
+
+        panelMap.get(key)!.results.push({
+          testId: test.id,
+          testDefinitionId: testDef?.id ?? undefined,
+          testCode: test.code,
+          testName: test.name,
+          value: result.value,
+          textValue: result.textValue ?? null,
+          flag: result.flag,
+          notes: result.notes,
+          referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
+          referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
+          referenceUnit: resolvedRanges.get(test.id)?.referenceUnit ?? test.referenceUnit,
+          sampleType: test.sampleType ?? null,
+          methodText: panelItem.methodText,
+          displayOrder: panelItem.displayOrder,
+          indentLevel: panelItem.indentLevel,
+          isBold: panelItem.isBold ?? false,
+          isItalic: panelItem.isItalic ?? false,
+          subGroup: panelItem.subGroup,
+          interpretationText,
+        });
+      }
+    } else {
+      // ━━ ORPHAN: test not linked to any panel ━━
+      const interpretationText = useNewChain
+        ? matchInterpretationRule(result.value, result.textValue ?? null, testDef?.interpretationRules || [])
+        : matchLegacyInterpretation(result.value, test.interpretations || []);
+
+      const dept = test.department;
+      const deptId = dept?.id || '__general__';
+      const orphanPanelKey = `__orphan__${deptId}`;
+
+      if (!panelMap.has(orphanPanelKey)) {
+        panelMap.set(orphanPanelKey, {
+          panel: {
+            id: orphanPanelKey,
+            name: dept?.name || 'General',
+            displayName: dept?.name || 'General',
+            layoutType: 'STANDARD_TABLE',
+            displayOrder: 9999,
+            department: dept || { id: '__general__', name: 'General', reportHeaderText: '', displayOrder: 9999 },
+          },
+          results: [],
+        });
+      }
+
+      panelMap.get(orphanPanelKey)!.results.push({
+        testId: test.id,
+        testDefinitionId: testDef?.id ?? undefined,
+        testCode: testDef?.code || test.code,
+        testName: testDef?.name || test.name,
+        value: result.value,
+        textValue: result.textValue ?? null,
+        flag: result.flag,
+        notes: result.notes,
+        referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
+        referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
+        referenceUnit: resolvedRanges.get(test.id)?.referenceUnit ?? test.referenceUnit,
+        sampleType: test.sampleType ?? null,
+        methodText: test.method ?? null,
+        displayOrder: test.displayOrder ?? 0,
+        indentLevel: 0,
+        isBold: false,
+        isItalic: false,
+        subGroup: null,
+        interpretationText,
+      });
+    }
+  }
+
+  // Group panels by department
+  const departmentMap = new Map<string, DepartmentSnapshot>();
+
+  for (const [_panelId, { panel, results }] of panelMap) {
+    const dept = panel.department;
+    const deptId = dept.id;
+
+    if (!departmentMap.has(deptId)) {
+      departmentMap.set(deptId, {
+        departmentId: deptId,
+        departmentName: dept.name,
+        departmentHeaderText: dept.reportHeaderText,
+        displayOrder: dept.displayOrder,
+        panels: [],
+      });
+    }
+
+    // Sort results by display order
+    results.sort((a: any, b: any) => a.displayOrder - b.displayOrder);
+
+    // Build interpretation HTML for panels with showInterpretation
+    let interpretationHtml: string | undefined;
+    const shouldShowInterp = panel.showInterpretation === true
+      || panel.layoutType === 'INTERPRETATION_SINGLE'; // legacy compat
+    if (shouldShowInterp) {
+      const interpretations = results
+        .filter((r: any) => r.interpretationText)
+        .map((r: any) => r.interpretationText);
+      if (interpretations.length > 0) {
+        interpretationHtml = interpretations.join('\n\n');
+      }
+    }
+
+    departmentMap.get(deptId)!.panels.push({
+      panelId: panel.id,
+      panelName: panel.name,
+      displayName: panel.displayName,
+      layoutType: panel.layoutType,
+      displayOrder: panel.displayOrder,
+      departmentId: deptId,
+      departmentName: dept.name,
+      departmentHeaderText: dept.reportHeaderText,
+      showSubgroups: panel.showSubgroups ?? undefined,
+      showInterpretation: panel.showInterpretation ?? undefined,
+      valueDisplayPrefix: panel.valueDisplayPrefix ?? null,
+      tests: results,
+      interpretationHtml,
+    });
+  }
+
+  // Sort departments and panels
+  const departments = Array.from(departmentMap.values())
+    .sort((a, b) => a.displayOrder - b.displayOrder);
+
+  for (const dept of departments) {
+    dept.panels.sort((a, b) => a.displayOrder - b.displayOrder);
+  }
+
+  return departments;
+}
+
+// ============================================================================
 // SNAPSHOT CREATION
 // ============================================================================
 
@@ -120,29 +431,7 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
     where: { id: reportVersionId },
     include: {
       testResults: {
-        include: {
-          // The actual sub-test (HB, RBC, etc.) — this has panelItems
-          test: {
-            include: {
-              panelItems: {
-                include: {
-                  panel: {
-                    include: {
-                      department: true,
-                    },
-                  },
-                },
-              },
-              interpretations: {
-                where: { isActive: true },
-                orderBy: { displayOrder: 'asc' },
-              },
-              department: true,
-            },
-          },
-          // The test order — has snapshot metadata (name, code, reference ranges at order time)
-          testOrder: true,
-        },
+        include: testResultInclude,
       },
       report: {
         include: {
@@ -178,173 +467,32 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
   const patient = visit.patient;
 
   // ============================================================================
-  // RESOLVE AGE-AWARE REFERENCE RANGES
+  // RESOLVE AGE-AWARE REFERENCE RANGES (dual architecture)
   // ============================================================================
 
-  const allTestIds = reportVersion.testResults.map(r => r.test.id);
+  const allTestIds = reportVersion.testResults.map((r: any) => r.test.id);
   const uniqueTestIds = [...new Set(allTestIds)];
+
+  // Build testDefinitionId map for results that have new-chain FK
+  const testDefIdMap = new Map<string, string>();
+  for (const r of reportVersion.testResults) {
+    if ((r as any).testDefinitionId && (r as any).testDefinition) {
+      testDefIdMap.set(r.test.id, (r as any).testDefinitionId);
+    }
+  }
+
   const resolvedRanges = await resolveReferenceRanges(
     uniqueTestIds,
     patient.yearOfBirth,
-    patient.gender as Gender
+    patient.gender as Gender,
+    testDefIdMap.size > 0 ? testDefIdMap : undefined
   );
 
   // ============================================================================
-  // BUILD PANEL SNAPSHOTS (Grouped by Department)
+  // BUILD PANEL SNAPSHOTS (Grouped by Department) — uses shared helper
   // ============================================================================
-  
-  // Group test results by panel
-  const panelMap = new Map<string, { panel: any; results: any[] }>();
-  
-  for (const result of reportVersion.testResults) {
-    const testOrder = result.testOrder;
-    const test = result.test; // The actual sub-test (HB, RBC, etc.) — has panelItems
-    
-    // Find which panel this test belongs to via PanelTestItem mapping
-    for (const panelItem of test.panelItems) {
-      const panel = panelItem.panel;
-      const key = panel.id;
-      
-      if (!panelMap.has(key)) {
-        panelMap.set(key, { panel, results: [] });
-      }
-      
-      // Match interpretation based on value
-      let interpretationText: string | null = null;
-      if (result.value !== null && test.interpretations.length > 0) {
-        for (const interp of test.interpretations) {
-          const minOk = interp.minValue === null || result.value >= interp.minValue;
-          const maxOk = interp.maxValue === null || result.value < interp.maxValue;
-          if (minOk && maxOk) {
-            interpretationText = interp.interpretationText;
-            break;
-          }
-        }
-      }
 
-      panelMap.get(key)!.results.push({
-        testId: test.id,
-        testCode: test.code,   // Sub-test code (HB, RBC, etc.)
-        testName: test.name,   // Sub-test name (Haemoglobin, RBC Count, etc.)
-        value: result.value,
-        flag: result.flag,
-        notes: result.notes,
-        referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
-        referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
-        referenceUnit: resolvedRanges.get(test.id)?.referenceUnit ?? test.referenceUnit,
-        sampleType: test.sampleType ?? null,
-        methodText: panelItem.methodText,
-        displayOrder: panelItem.displayOrder,
-        indentLevel: panelItem.indentLevel,
-        subGroup: panelItem.subGroup,
-        interpretationText,
-      });
-    }
-
-    // ── Orphan test fallback: tests not linked to any panel ──
-    if (test.panelItems.length === 0) {
-      let orphanInterpretation: string | null = null;
-      if (result.value !== null && test.interpretations.length > 0) {
-        for (const interp of test.interpretations) {
-          const minOk = interp.minValue === null || result.value >= interp.minValue;
-          const maxOk = interp.maxValue === null || result.value < interp.maxValue;
-          if (minOk && maxOk) {
-            orphanInterpretation = interp.interpretationText;
-            break;
-          }
-        }
-      }
-
-      const dept = test.department;
-      const deptId = dept?.id || '__general__';
-      const orphanPanelKey = `__orphan__${deptId}`;
-
-      if (!panelMap.has(orphanPanelKey)) {
-        panelMap.set(orphanPanelKey, {
-          panel: {
-            id: orphanPanelKey,
-            name: dept?.name || 'General',
-            displayName: dept?.name || 'General',
-            layoutType: 'STANDARD_TABLE',
-            displayOrder: 9999,
-            department: dept || { id: '__general__', name: 'General', reportHeaderText: '', displayOrder: 9999 },
-          },
-          results: [],
-        });
-      }
-
-      panelMap.get(orphanPanelKey)!.results.push({
-        testId: test.id,
-        testCode: test.code,
-        testName: test.name,
-        value: result.value,
-        flag: result.flag,
-        notes: result.notes,
-        referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
-        referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
-        referenceUnit: resolvedRanges.get(test.id)?.referenceUnit ?? test.referenceUnit,
-        sampleType: test.sampleType ?? null,
-        methodText: test.method ?? null,
-        displayOrder: test.displayOrder ?? 0,
-        indentLevel: 0,
-        subGroup: null,
-        interpretationText: orphanInterpretation,
-      });
-    }
-  }
-
-  // Group panels by department
-  const departmentMap = new Map<string, DepartmentSnapshot>();
-
-  for (const [panelId, { panel, results }] of panelMap) {
-    const dept = panel.department;
-    const deptId = dept.id;
-    
-    if (!departmentMap.has(deptId)) {
-      departmentMap.set(deptId, {
-        departmentId: deptId,
-        departmentName: dept.name,
-        departmentHeaderText: dept.reportHeaderText,
-        displayOrder: dept.displayOrder,
-        panels: [],
-      });
-    }
-    
-    // Sort results by display order
-    results.sort((a, b) => a.displayOrder - b.displayOrder);
-    
-    // Build interpretation HTML for INTERPRETATION_SINGLE panels
-    let interpretationHtml: string | undefined;
-    if (panel.layoutType === 'INTERPRETATION_SINGLE') {
-      const interpretations = results
-        .filter(r => r.interpretationText)
-        .map(r => r.interpretationText);
-      if (interpretations.length > 0) {
-        interpretationHtml = interpretations.join('\n\n');
-      }
-    }
-    
-    departmentMap.get(deptId)!.panels.push({
-      panelId: panel.id,
-      panelName: panel.name,
-      displayName: panel.displayName,
-      layoutType: panel.layoutType,
-      displayOrder: panel.displayOrder,
-      departmentId: deptId,
-      departmentName: dept.name,
-      departmentHeaderText: dept.reportHeaderText,
-      tests: results,
-      interpretationHtml,
-    });
-  }
-  
-  // Sort departments and panels
-  const departments = Array.from(departmentMap.values())
-    .sort((a, b) => a.displayOrder - b.displayOrder);
-  
-  for (const dept of departments) {
-    dept.panels.sort((a, b) => a.displayOrder - b.displayOrder);
-  }
+  const departments = buildPanelsAndDepartments(reportVersion.testResults as any[], resolvedRanges);
 
   // ============================================================================
   // BUILD SIGNATURE SNAPSHOTS
@@ -462,25 +610,7 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
             take: 1,
             include: {
               testResults: {
-                include: {
-                  test: {
-                    include: {
-                      panelItems: {
-                        include: {
-                          panel: {
-                            include: { department: true },
-                          },
-                        },
-                      },
-                      interpretations: {
-                        where: { isActive: true },
-                        orderBy: { displayOrder: 'asc' },
-                      },
-                      department: true,
-                    },
-                  },
-                  testOrder: true,
-                },
+                include: testResultInclude,
               },
             },
           },
@@ -504,163 +634,26 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
 
   const patient = visit.patient;
 
-  // Resolve age-aware reference ranges
+  // Resolve age-aware reference ranges (dual architecture)
   const allTestIds = reportVersion.testResults.map((r: any) => r.test.id);
   const uniqueTestIds = [...new Set(allTestIds)];
+
+  const testDefIdMap = new Map<string, string>();
+  for (const r of reportVersion.testResults) {
+    if ((r as any).testDefinitionId && (r as any).testDefinition) {
+      testDefIdMap.set((r as any).test.id, (r as any).testDefinitionId);
+    }
+  }
+
   const resolvedRanges = await resolveReferenceRanges(
     uniqueTestIds,
     patient.yearOfBirth,
-    patient.gender as Gender
+    patient.gender as Gender,
+    testDefIdMap.size > 0 ? testDefIdMap : undefined
   );
 
-  // Build panel snapshots — same logic as createReportSnapshot
-  const panelMap = new Map<string, { panel: any; results: any[] }>();
-
-  for (const result of reportVersion.testResults) {
-    const test = result.test;
-
-    for (const panelItem of test.panelItems) {
-      const panel = panelItem.panel;
-      const key = panel.id;
-
-      if (!panelMap.has(key)) {
-        panelMap.set(key, { panel, results: [] });
-      }
-
-      let interpretationText: string | null = null;
-      if (result.value !== null && test.interpretations.length > 0) {
-        for (const interp of test.interpretations) {
-          const minOk = interp.minValue === null || result.value >= interp.minValue;
-          const maxOk = interp.maxValue === null || result.value < interp.maxValue;
-          if (minOk && maxOk) {
-            interpretationText = interp.interpretationText;
-            break;
-          }
-        }
-      }
-
-      panelMap.get(key)!.results.push({
-        testId: test.id,
-        testCode: test.code,
-        testName: test.name,
-        value: result.value,
-        flag: result.flag,
-        notes: result.notes,
-        referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
-        referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
-        referenceUnit: resolvedRanges.get(test.id)?.referenceUnit ?? test.referenceUnit,
-        sampleType: test.sampleType ?? null,
-        methodText: panelItem.methodText,
-        displayOrder: panelItem.displayOrder,
-        indentLevel: panelItem.indentLevel,
-        subGroup: panelItem.subGroup,
-        interpretationText,
-      });
-    }
-
-    // ── Orphan test fallback: tests not linked to any panel ──
-    if (test.panelItems.length === 0) {
-      let interpretationText: string | null = null;
-      if (result.value !== null && test.interpretations.length > 0) {
-        for (const interp of test.interpretations) {
-          const minOk = interp.minValue === null || result.value >= interp.minValue;
-          const maxOk = interp.maxValue === null || result.value < interp.maxValue;
-          if (minOk && maxOk) {
-            interpretationText = interp.interpretationText;
-            break;
-          }
-        }
-      }
-
-      const dept = test.department;
-      const deptId = dept?.id || '__general__';
-      const orphanPanelKey = `__orphan__${deptId}`;
-
-      if (!panelMap.has(orphanPanelKey)) {
-        panelMap.set(orphanPanelKey, {
-          panel: {
-            id: orphanPanelKey,
-            name: dept?.name || 'General',
-            displayName: dept?.name || 'General',
-            layoutType: 'STANDARD_TABLE',
-            displayOrder: 9999,
-            department: dept || { id: '__general__', name: 'General', reportHeaderText: '', displayOrder: 9999 },
-          },
-          results: [],
-        });
-      }
-
-      panelMap.get(orphanPanelKey)!.results.push({
-        testId: test.id,
-        testCode: test.code,
-        testName: test.name,
-        value: result.value,
-        flag: result.flag,
-        notes: result.notes,
-        referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
-        referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
-        referenceUnit: resolvedRanges.get(test.id)?.referenceUnit ?? test.referenceUnit,
-        sampleType: test.sampleType ?? null,
-        methodText: test.method ?? null,
-        displayOrder: test.displayOrder ?? 0,
-        indentLevel: 0,
-        subGroup: null,
-        interpretationText,
-      });
-    }
-  }
-
-  // Group panels by department
-  const departmentMap = new Map<string, DepartmentSnapshot>();
-
-  for (const [_panelId, { panel, results }] of panelMap) {
-    const dept = panel.department;
-    const deptId = dept.id;
-
-    if (!departmentMap.has(deptId)) {
-      departmentMap.set(deptId, {
-        departmentId: deptId,
-        departmentName: dept.name,
-        departmentHeaderText: dept.reportHeaderText,
-        displayOrder: dept.displayOrder,
-        panels: [],
-      });
-    }
-
-    results.sort((a: any, b: any) => a.displayOrder - b.displayOrder);
-
-    let interpretationHtml: string | undefined;
-    if (panel.layoutType === 'INTERPRETATION_SINGLE') {
-      const interpretations = results
-        .filter((r: any) => r.interpretationText)
-        .map((r: any) => r.interpretationText);
-      if (interpretations.length > 0) {
-        interpretationHtml = interpretations.join('\n\n');
-      }
-    }
-
-    departmentMap.get(deptId)!.panels.push({
-      panelId: panel.id,
-      panelName: panel.name,
-      displayName: panel.displayName,
-      layoutType: panel.layoutType,
-      displayOrder: panel.displayOrder,
-      departmentId: deptId,
-      departmentName: dept.name,
-      departmentHeaderText: dept.reportHeaderText,
-      tests: results,
-      interpretationHtml,
-    });
-  }
-
-  const departments = Array.from(departmentMap.values())
-    .sort((a, b) => a.displayOrder - b.displayOrder);
-
-  for (const dept of departments) {
-    dept.panels.sort((a, b) => a.displayOrder - b.displayOrder);
-  }
-
-  // Build signature snapshots
+  // Build panel snapshots — shared helper handles dual architecture
+  const departments = buildPanelsAndDepartments(reportVersion.testResults as any[], resolvedRanges);
   const reportDeptIds = new Set(departments.map(d => d.departmentId));
   const signingRules = await prisma.signingRule.findMany({
     where: {
