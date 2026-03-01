@@ -1,7 +1,7 @@
 import { PrismaClient, IdentifierType } from '@prisma/client';
 import { ValidationError } from '../utils/errors';
+import prisma from '../lib/prisma';
 
-const prisma = new PrismaClient();
 
 /**
  * E2-02: Centralized Patient Identifier Matching Strategy

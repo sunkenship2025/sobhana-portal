@@ -256,6 +256,194 @@ async function main() {
 
   console.log(`✅ Created lab tests: ${cbc.code}, ${thyroid.code}, ${lipid.code}, ${bloodSugar.code}, ${hemoglobin.code}, ${urineRoutine.code}, ${liverFunction.code}, ${kidneyFunction.code}`);
 
+  // ── New Architecture: TestDefinitions ──────────────────────────────────
+
+  // Helper to create a v1 TestDefinition with root=self
+  async function createDef(data: {
+    name: string; code: string; sampleType?: string; method?: string;
+    referenceUnit?: string; referenceMin?: number; referenceMax?: number;
+    referenceText?: string; interpretationMode?: 'NONE' | 'RANGE_BASED' | 'TEXT_MATCH' | 'FORMULA';
+  }) {
+    const td = await prisma.testDefinition.create({
+      data: {
+        name: data.name,
+        code: data.code,
+        version: 1,
+        isLatest: true,
+        status: 'ACTIVE',
+        sampleType: data.sampleType ?? null,
+        method: data.method ?? null,
+        referenceUnit: data.referenceUnit ?? null,
+        referenceMin: data.referenceMin ?? null,
+        referenceMax: data.referenceMax ?? null,
+        referenceText: data.referenceText ?? null,
+        interpretationMode: data.interpretationMode ?? 'NONE',
+        rootDefinitionId: 'PLACEHOLDER',
+      },
+    });
+    await prisma.testDefinition.update({ where: { id: td.id }, data: { rootDefinitionId: td.id } });
+    return td;
+  }
+
+  const defFbs = await createDef({ name: 'Blood Sugar (Fasting)', code: 'FBS', sampleType: 'Blood', referenceUnit: 'mg/dL', referenceMin: 70, referenceMax: 100, interpretationMode: 'RANGE_BASED' });
+  const defHb = await createDef({ name: 'Hemoglobin', code: 'HB', sampleType: 'Blood', referenceUnit: 'g/dL', referenceMin: 12, referenceMax: 16, interpretationMode: 'RANGE_BASED' });
+  const defCbc = await createDef({ name: 'Complete Blood Count', code: 'CBC', sampleType: 'Blood' });
+  const defThyroid = await createDef({ name: 'Thyroid Profile', code: 'THYROID', sampleType: 'Blood' });
+  const defLipid = await createDef({ name: 'Lipid Profile', code: 'LIPID', sampleType: 'Blood' });
+  const defUrine = await createDef({ name: 'Urine Routine', code: 'URINE', sampleType: 'Urine' });
+  const defLft = await createDef({ name: 'Liver Function Test', code: 'LFT', sampleType: 'Blood' });
+  const defKft = await createDef({ name: 'Kidney Function Test', code: 'KFT', sampleType: 'Blood' });
+
+  // Add interpretation rules for FBS
+  await prisma.interpretationRule.createMany({
+    data: [
+      { testDefinitionId: defFbs.id, ruleType: 'NUMERIC_RANGE', operator: 'BETWEEN', value1: 70, value2: 100, interpretationText: 'Normal fasting blood sugar', severity: 'NORMAL', displayOrder: 0, isActive: true },
+      { testDefinitionId: defFbs.id, ruleType: 'NUMERIC_RANGE', operator: 'BETWEEN', value1: 100, value2: 126, interpretationText: 'Pre-diabetic range', severity: 'WARNING', displayOrder: 1, isActive: true },
+      { testDefinitionId: defFbs.id, ruleType: 'NUMERIC_RANGE', operator: 'GTE', value1: 126, value2: null, interpretationText: 'Diabetic range – consult physician', severity: 'CRITICAL', displayOrder: 2, isActive: true },
+    ],
+  });
+
+  console.log('✅ Created TestDefinitions with interpretation rules');
+
+  // ── New Architecture: ClinicalPanels ──────────────────────────────────
+
+  // Create a department first for panel association
+  const deptHaem = await prisma.department.create({
+    data: {
+      name: 'HAEMATOLOGY',
+      reportHeaderText: 'DEPARTMENT OF HAEMATOLOGY',
+      displayOrder: 1,
+      isActive: true,
+    },
+  });
+
+  const deptBiochem = await prisma.department.create({
+    data: {
+      name: 'BIOCHEMISTRY',
+      reportHeaderText: 'DEPARTMENT OF BIOCHEMISTRY',
+      displayOrder: 2,
+      isActive: true,
+    },
+  });
+
+  // Create ClinicalPanels
+  const panelCbc = await prisma.clinicalPanel.create({
+    data: {
+      name: 'CBC',
+      displayName: 'COMPLETE BLOOD COUNT',
+      departmentId: deptHaem.id,
+      layoutType: 'STANDARD_TABLE',
+      showSubgroups: false,
+      displayOrder: 1,
+      isActive: true,
+      items: { create: [{ testDefinitionId: defCbc.id, displayOrder: 0 }] },
+    },
+  });
+
+  const panelFbs = await prisma.clinicalPanel.create({
+    data: {
+      name: 'FBS',
+      displayName: 'FASTING BLOOD SUGAR',
+      departmentId: deptBiochem.id,
+      layoutType: 'STANDARD_TABLE',
+      showInterpretation: true,
+      displayOrder: 2,
+      isActive: true,
+      items: { create: [{ testDefinitionId: defFbs.id, displayOrder: 0 }] },
+    },
+  });
+
+  const panelHb = await prisma.clinicalPanel.create({
+    data: {
+      name: 'HB',
+      displayName: 'HEMOGLOBIN',
+      departmentId: deptHaem.id,
+      layoutType: 'STANDARD_TABLE',
+      displayOrder: 3,
+      isActive: true,
+      items: { create: [{ testDefinitionId: defHb.id, displayOrder: 0 }] },
+    },
+  });
+
+  const panelUrine = await prisma.clinicalPanel.create({
+    data: {
+      name: 'URINE',
+      displayName: 'URINE ROUTINE',
+      departmentId: deptBiochem.id,
+      layoutType: 'STANDARD_TABLE',
+      displayOrder: 4,
+      isActive: true,
+      items: { create: [{ testDefinitionId: defUrine.id, displayOrder: 0 }] },
+    },
+  });
+
+  console.log('✅ Created ClinicalPanels');
+
+  // ── New Architecture: BillableProducts ─────────────────────────────────
+
+  const productFbs = await prisma.billableProduct.create({
+    data: {
+      name: 'Blood Sugar (Fasting)',
+      code: 'FBS',
+      basePriceInPaise: 10000,
+      isActive: true,
+      isBundle: false,
+      panels: { create: [{ panelId: panelFbs.id, displayOrder: 0 }] },
+    },
+  });
+
+  const productHb = await prisma.billableProduct.create({
+    data: {
+      name: 'Hemoglobin',
+      code: 'HB',
+      basePriceInPaise: 8000,
+      isActive: true,
+      isBundle: false,
+      panels: { create: [{ panelId: panelHb.id, displayOrder: 0 }] },
+    },
+  });
+
+  const productCbc = await prisma.billableProduct.create({
+    data: {
+      name: 'Complete Blood Count',
+      code: 'CBC',
+      basePriceInPaise: 35000,
+      isActive: true,
+      isBundle: false,
+      panels: { create: [{ panelId: panelCbc.id, displayOrder: 0 }] },
+    },
+  });
+
+  // Bundle example: Basic Health Checkup
+  await prisma.billableProduct.create({
+    data: {
+      name: 'Basic Health Checkup',
+      code: 'BASIC-CHECKUP',
+      basePriceInPaise: 75000,
+      isActive: true,
+      isBundle: true,
+      description: 'Includes CBC, FBS, Urine Routine',
+      panels: {
+        create: [
+          { panelId: panelCbc.id, displayOrder: 0 },
+          { panelId: panelFbs.id, displayOrder: 1 },
+          { panelId: panelUrine.id, displayOrder: 2 },
+        ],
+      },
+    },
+  });
+
+  // Branch pricing override for Chintal on FBS product
+  await prisma.productBranchPricing.create({
+    data: {
+      productId: productFbs.id,
+      branchId: chintal.id,
+      priceInPaise: 8000, // Discounted at Chintal
+    },
+  });
+
+  console.log('✅ Created BillableProducts with branch pricing');
+
   console.log('\\n🎉 Seed complete!');
   console.log('\\n📝 Login credentials:');
   console.log('   Admin: admin@sobhana.com / password123');

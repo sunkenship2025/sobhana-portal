@@ -1,9 +1,8 @@
-import { PrismaClient } from '@prisma/client';
 import { generateReferralDoctorNumber, generateClinicDoctorNumber } from './numberService';
 import { logAction } from './auditService';
 import { ValidationError, ConflictError, NotFoundError } from '../utils/errors';
+import prisma from '../lib/prisma';
 
-const prisma = new PrismaClient();
 
 // ==================== REFERRAL DOCTORS ====================
 

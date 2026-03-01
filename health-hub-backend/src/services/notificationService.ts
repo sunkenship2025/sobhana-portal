@@ -11,15 +11,14 @@
  * Template tone: Purely informational. No marketing language.
  */
 
-import { PrismaClient } from '@prisma/client';
 import {
   sendTemplate,
   isWhatsAppEnabled,
   formatPhoneForWhatsApp,
   type TemplateComponent,
 } from './whatsappCloudService';
+import prisma from '../lib/prisma';
 
-const prisma = new PrismaClient();
 
 // ============================================================================
 // HELPERS

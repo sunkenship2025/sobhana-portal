@@ -1,1190 +1,1656 @@
+// ═══════════════════════════════════════════════════════════════════════════════
+// SEED FULL CATALOG — Sobhana Diagnostics
+// Sections 0-7: Imports through Biochemistry
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ═══ SECTION 0: IMPORTS ═══
+
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-// ---------------------------------------------------------------------------
-// Type definitions for seed data
-// ---------------------------------------------------------------------------
-interface TestSeed {
+// ═══ SECTION 1: MASTER MAP & INTERFACES ═══
+
+// Master map: test code -> test id (populated by upsertTest)
+const T: Record<string, string> = {};
+
+// ─── HELPERS ──────────────────────────────────────────────────────
+
+interface TestDef {
   code: string;
   name: string;
   priceInPaise: number;
+  departmentId: string;
+  sampleType?: string | null;
+  method?: string | null;
   referenceMin?: number | null;
   referenceMax?: number | null;
   referenceUnit?: string | null;
   referenceText?: string | null;
-  sampleType?: string | null;
-  method?: string | null;
-  displayOrder: number;
-  department: string;
   isPanel?: boolean;
+  displayOrder?: number;
 }
 
-// ---------------------------------------------------------------------------
-// Main seed function
-// ---------------------------------------------------------------------------
+async function upsertTest(def: TestDef): Promise<string> {
+  const data = {
+    name: def.name,
+    priceInPaise: def.priceInPaise,
+    departmentId: def.departmentId,
+    sampleType: def.sampleType ?? null,
+    method: def.method ?? null,
+    referenceMin: def.referenceMin ?? null,
+    referenceMax: def.referenceMax ?? null,
+    referenceUnit: def.referenceUnit ?? null,
+    referenceText: def.referenceText ?? null,
+    isPanel: def.isPanel ?? false,
+    displayOrder: def.displayOrder ?? 0,
+    isActive: true,
+  };
+  const result = await prisma.labTest.upsert({
+    where: { code: def.code },
+    create: { code: def.code, ...data },
+    update: data,
+  });
+  T[def.code] = result.id;
+  return result.id;
+}
+
+async function upsertTests(tests: TestDef[]): Promise<void> {
+  for (const t of tests) await upsertTest(t);
+}
+
+// ═══ SECTION 2: SAFE CLEAR CATALOG ═══
+
+async function safeClearCatalog(): Promise<void> {
+  const orderCount = await prisma.testOrder.count();
+  console.log(`  testOrder.count() = ${orderCount}`);
+
+  // Always safe to delete these (no direct visit/order dependency)
+  await prisma.interpretationTemplate.deleteMany();
+  await prisma.derivedParameter.deleteMany();
+  await prisma.testAgeRange.deleteMany();
+  await prisma.panelTestItem.deleteMany();
+  await prisma.panelDefinition.deleteMany();
+  await prisma.signingRule.deleteMany();
+  console.log('  Cleared: interpretationTemplate, derivedParameter, testAgeRange,');
+  console.log('           panelTestItem, panelDefinition, signingRule');
+
+  if (orderCount === 0) {
+    // No orders exist — safe to wipe catalog entirely
+    await prisma.signingDoctor.deleteMany();
+    // Nullify self-referencing parentTestId before deleting labTests
+    await prisma.labTest.updateMany({ data: { parentTestId: null } });
+    await prisma.labTest.deleteMany();
+    await prisma.department.deleteMany();
+    console.log('  Cleared: signingDoctor, labTest, department (no orders exist)');
+  } else {
+    console.log('  Kept: signingDoctor, labTest, department (orders exist — upsert only)');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN
+// ═══════════════════════════════════════════════════════════════════════════════
+
 async function main() {
-  console.log('Seeding full test catalog...\n');
+  console.log('');
+  console.log('================================================================');
+  console.log('  SEED FULL CATALOG — Sobhana Diagnostics');
+  console.log('================================================================');
+  console.log('');
 
-  // =========================================================================
-  // 1. DEPARTMENTS
-  // =========================================================================
-  const departmentsData = [
-    { name: 'HAEMATOLOGY',   reportHeaderText: 'DEPARTMENT OF HAEMATOLOGY',   displayOrder: 1 },
-    { name: 'BIOCHEMISTRY',  reportHeaderText: 'DEPARTMENT OF BIOCHEMISTRY',  displayOrder: 2 },
-    { name: 'SEROLOGY',      reportHeaderText: 'DEPARTMENT OF SEROLOGY',      displayOrder: 3 },
-    { name: 'MICROBIOLOGY',  reportHeaderText: 'DEPARTMENT OF MICROBIOLOGY',  displayOrder: 4 },
-    { name: 'PATHOLOGY',     reportHeaderText: 'DEPARTMENT OF PATHOLOGY',     displayOrder: 5 },
-    { name: 'RADIOLOGY',     reportHeaderText: 'DEPARTMENT OF RADIOLOGY',     displayOrder: 6 },
-  ];
+  // ─── Safe clear ───
+  console.log('[1/N] Clearing existing catalog data...');
+  await safeClearCatalog();
+  console.log('');
 
-  const deptMap: Record<string, string> = {};
-  for (const dept of departmentsData) {
-    const d = await prisma.department.upsert({
-      where: { name: dept.name },
-      create: dept,
-      update: { reportHeaderText: dept.reportHeaderText, displayOrder: dept.displayOrder },
-    });
-    deptMap[dept.name] = d.id;
-  }
-  console.log(`  [1/8] Departments: ${Object.keys(deptMap).length} upserted`);
+  // ═══ SECTION 3: DEPARTMENTS ═══
 
-  // =========================================================================
-  // 2. LAB TESTS (individual tests, organized by department)
-  // =========================================================================
+  console.log('[2/N] Upserting departments...');
 
-  // -- HAEMATOLOGY ----------------------------------------------------------
-  const haematologyTests: TestSeed[] = [
-    // CBC / CBP components
-    { code: 'HGB',    name: 'Haemoglobin',        priceInPaise: 8000,  referenceMin: 12,     referenceMax: 16,     referenceUnit: 'g/dL',      sampleType: 'EDTA_BLOOD', method: 'Colorimetric (Cyanmethemoglobin)', displayOrder: 1,  department: 'HAEMATOLOGY' },
-    { code: 'WBC',    name: 'Total WBC Count',     priceInPaise: 8000,  referenceMin: 4000,   referenceMax: 11000,  referenceUnit: '/cumm',     sampleType: 'EDTA_BLOOD', method: 'Impedance',                        displayOrder: 2,  department: 'HAEMATOLOGY' },
-    { code: 'RBC',    name: 'RBC Count',           priceInPaise: 8000,  referenceMin: 4.5,    referenceMax: 5.5,    referenceUnit: 'mill/cumm', sampleType: 'EDTA_BLOOD', method: 'Impedance',                        displayOrder: 3,  department: 'HAEMATOLOGY' },
-    { code: 'PLT',    name: 'Platelet Count',      priceInPaise: 8000,  referenceMin: 150000, referenceMax: 450000, referenceUnit: '/cumm',     sampleType: 'EDTA_BLOOD', method: 'Impedance',                        displayOrder: 4,  department: 'HAEMATOLOGY' },
-    { code: 'HCT',    name: 'PCV / Hematocrit',    priceInPaise: 8000,  referenceMin: 36,     referenceMax: 46,     referenceUnit: '%',         sampleType: 'EDTA_BLOOD', method: 'Calculated',                       displayOrder: 5,  department: 'HAEMATOLOGY' },
-    { code: 'MCV',    name: 'MCV',                 priceInPaise: 8000,  referenceMin: 80,     referenceMax: 100,    referenceUnit: 'fL',        sampleType: 'EDTA_BLOOD', method: 'Calculated',                       displayOrder: 6,  department: 'HAEMATOLOGY' },
-    { code: 'MCH',    name: 'MCH',                 priceInPaise: 8000,  referenceMin: 27,     referenceMax: 32,     referenceUnit: 'pg',        sampleType: 'EDTA_BLOOD', method: 'Calculated',                       displayOrder: 7,  department: 'HAEMATOLOGY' },
-    { code: 'MCHC',   name: 'MCHC',                priceInPaise: 8000,  referenceMin: 32,     referenceMax: 36,     referenceUnit: 'g/dL',      sampleType: 'EDTA_BLOOD', method: 'Calculated',                       displayOrder: 8,  department: 'HAEMATOLOGY' },
-    { code: 'RDW',    name: 'RDW',                 priceInPaise: 8000,  referenceMin: 11.5,   referenceMax: 14.5,   referenceUnit: '%',         sampleType: 'EDTA_BLOOD', method: 'Calculated',                       displayOrder: 9,  department: 'HAEMATOLOGY' },
-    { code: 'MPV',    name: 'MPV',                 priceInPaise: 0,     referenceMin: 7.5,    referenceMax: 11.5,   referenceUnit: 'fL',        sampleType: 'EDTA_BLOOD', method: 'Calculated',                       displayOrder: 10, department: 'HAEMATOLOGY' },
-    // Differential Count
-    { code: 'NEUTRO', name: 'Neutrophils',         priceInPaise: 5000,  referenceMin: 40,     referenceMax: 70,     referenceUnit: '%',         sampleType: 'EDTA_BLOOD', method: 'Automated / Manual DC',            displayOrder: 11, department: 'HAEMATOLOGY' },
-    { code: 'LYMPH',  name: 'Lymphocytes',         priceInPaise: 5000,  referenceMin: 20,     referenceMax: 40,     referenceUnit: '%',         sampleType: 'EDTA_BLOOD', method: 'Automated / Manual DC',            displayOrder: 12, department: 'HAEMATOLOGY' },
-    { code: 'EOSINO', name: 'Eosinophils',         priceInPaise: 5000,  referenceMin: 1,      referenceMax: 6,      referenceUnit: '%',         sampleType: 'EDTA_BLOOD', method: 'Automated / Manual DC',            displayOrder: 13, department: 'HAEMATOLOGY' },
-    { code: 'MONO',   name: 'Monocytes',           priceInPaise: 5000,  referenceMin: 2,      referenceMax: 8,      referenceUnit: '%',         sampleType: 'EDTA_BLOOD', method: 'Automated / Manual DC',            displayOrder: 14, department: 'HAEMATOLOGY' },
-    { code: 'BASO',   name: 'Basophils',           priceInPaise: 5000,  referenceMin: 0,      referenceMax: 1,      referenceUnit: '%',         sampleType: 'EDTA_BLOOD', method: 'Automated / Manual DC',            displayOrder: 15, department: 'HAEMATOLOGY' },
-    // Other haematology
-    { code: 'ESR',    name: 'ESR',                 priceInPaise: 10000, referenceMin: 0,      referenceMax: 20,     referenceUnit: 'mm/hr',     sampleType: 'CITRATE_BLOOD', method: 'Westergren',                   displayOrder: 16, department: 'HAEMATOLOGY' },
-    { code: 'RETIC',  name: 'Reticulocyte Count',  priceInPaise: 15000, referenceMin: 0.5,    referenceMax: 2.5,    referenceUnit: '%',         sampleType: 'EDTA_BLOOD', method: 'Supravital Staining',              displayOrder: 17, department: 'HAEMATOLOGY' },
-    { code: 'PS',     name: 'Peripheral Smear',    priceInPaise: 20000, referenceText: 'See comments',                                         sampleType: 'EDTA_BLOOD', method: 'Leishman Stain',                   displayOrder: 18, department: 'HAEMATOLOGY' },
-    { code: 'AEC',    name: 'Absolute Eosinophil Count', priceInPaise: 10000, referenceMin: 40, referenceMax: 440, referenceUnit: '/cumm',      sampleType: 'EDTA_BLOOD', method: 'Counting Chamber',                 displayOrder: 19, department: 'HAEMATOLOGY' },
-    // Blood Group
-    { code: 'BGRP',   name: 'Blood Group & Rh Typing', priceInPaise: 5000,  referenceText: 'A/B/AB/O, Rh+/-',                                 sampleType: 'EDTA_BLOOD', method: 'Slide / Tube Method',              displayOrder: 20, department: 'HAEMATOLOGY' },
-    // Coagulation
-    { code: 'BT_TEST', name: 'Bleeding Time',       priceInPaise: 10000, referenceMin: 1,     referenceMax: 7,      referenceUnit: 'min',       sampleType: 'CAPILLARY',  method: 'Duke Method',                     displayOrder: 21, department: 'HAEMATOLOGY' },
-    { code: 'CT_TEST', name: 'Clotting Time',        priceInPaise: 10000, referenceMin: 4,     referenceMax: 11,     referenceUnit: 'min',       sampleType: 'CAPILLARY',  method: 'Capillary Tube Method',           displayOrder: 22, department: 'HAEMATOLOGY' },
-    { code: 'PT_TEST', name: 'Prothrombin Time',     priceInPaise: 20000, referenceMin: 11,    referenceMax: 16,     referenceUnit: 'sec',       sampleType: 'CITRATE_BLOOD', method: 'Coagulometry',                displayOrder: 23, department: 'HAEMATOLOGY' },
-    { code: 'INR_VAL', name: 'INR',                  priceInPaise: 0,     referenceMin: 0.8,   referenceMax: 1.2,    referenceUnit: '',          sampleType: 'CITRATE_BLOOD', method: 'Calculated',                  displayOrder: 24, department: 'HAEMATOLOGY' },
-    { code: 'APTT',    name: 'APTT',                 priceInPaise: 20000, referenceMin: 25,    referenceMax: 38,     referenceUnit: 'sec',       sampleType: 'CITRATE_BLOOD', method: 'Coagulometry',                displayOrder: 25, department: 'HAEMATOLOGY' },
-    // Malaria (smear is haem)
-    { code: 'MP_SMEAR', name: 'Malaria Parasite (Smear)', priceInPaise: 10000, referenceText: 'Not seen', sampleType: 'EDTA_BLOOD', method: 'Thick & Thin Smear',  displayOrder: 26, department: 'HAEMATOLOGY' },
-    // Electrophoresis
-    { code: 'HB_ELEC', name: 'Hb Electrophoresis',  priceInPaise: 60000, referenceText: 'See report',    sampleType: 'EDTA_BLOOD', method: 'Capillary Electrophoresis',       displayOrder: 27, department: 'HAEMATOLOGY' },
-  ];
-
-  // -- BIOCHEMISTRY ---------------------------------------------------------
-  const biochemistryTests: TestSeed[] = [
-    // Blood Sugar
-    { code: 'BSF',     name: 'Blood Sugar (Fasting)',   priceInPaise: 10000, referenceMin: 70,    referenceMax: 100,   referenceUnit: 'mg/dL',  sampleType: 'FLUORIDE_BLOOD', method: 'GOD-POD',                  displayOrder: 1,  department: 'BIOCHEMISTRY' },
-    { code: 'BSPP',    name: 'Blood Sugar (PP)',        priceInPaise: 10000, referenceMin: 70,    referenceMax: 140,   referenceUnit: 'mg/dL',  sampleType: 'FLUORIDE_BLOOD', method: 'GOD-POD',                  displayOrder: 2,  department: 'BIOCHEMISTRY' },
-    { code: 'RBS',     name: 'Random Blood Sugar',      priceInPaise: 10000, referenceMin: 70,    referenceMax: 140,   referenceUnit: 'mg/dL',  sampleType: 'FLUORIDE_BLOOD', method: 'GOD-POD',                  displayOrder: 3,  department: 'BIOCHEMISTRY' },
-    { code: 'HBA1C',   name: 'HbA1c',                   priceInPaise: 40000, referenceMin: 4.0,   referenceMax: 5.6,   referenceUnit: '%',      sampleType: 'EDTA_BLOOD',     method: 'HPLC',                     displayOrder: 4,  department: 'BIOCHEMISTRY' },
-    // GTT sub-tests
-    { code: 'GTT_F',   name: 'GTT - Fasting',           priceInPaise: 0,     referenceMin: 70,    referenceMax: 100,   referenceUnit: 'mg/dL',  sampleType: 'FLUORIDE_BLOOD', method: 'GOD-POD',                  displayOrder: 5,  department: 'BIOCHEMISTRY' },
-    { code: 'GTT_1HR', name: 'GTT - 1 Hour',            priceInPaise: 0,     referenceMax: 180,                        referenceUnit: 'mg/dL',  sampleType: 'FLUORIDE_BLOOD', method: 'GOD-POD',                  displayOrder: 6,  department: 'BIOCHEMISTRY' },
-    { code: 'GTT_2HR', name: 'GTT - 2 Hours',           priceInPaise: 0,     referenceMin: 70,    referenceMax: 140,   referenceUnit: 'mg/dL',  sampleType: 'FLUORIDE_BLOOD', method: 'GOD-POD',                  displayOrder: 7,  department: 'BIOCHEMISTRY' },
-    // Renal
-    { code: 'UREA',    name: 'Blood Urea',              priceInPaise: 8000,  referenceMin: 15,    referenceMax: 40,    referenceUnit: 'mg/dL',  sampleType: 'SERUM', method: 'Urease-GLDH',                        displayOrder: 8,  department: 'BIOCHEMISTRY' },
-    { code: 'CREAT',   name: 'Serum Creatinine',        priceInPaise: 8000,  referenceMin: 0.6,   referenceMax: 1.2,   referenceUnit: 'mg/dL',  sampleType: 'SERUM', method: 'Jaffe (Modified)',                    displayOrder: 9,  department: 'BIOCHEMISTRY' },
-    { code: 'BUN',     name: 'Blood Urea Nitrogen',     priceInPaise: 8000,  referenceMin: 7,     referenceMax: 20,    referenceUnit: 'mg/dL',  sampleType: 'SERUM', method: 'Calculated',                         displayOrder: 10, department: 'BIOCHEMISTRY' },
-    { code: 'UA',      name: 'Uric Acid',               priceInPaise: 8000,  referenceMin: 3.5,   referenceMax: 7.2,   referenceUnit: 'mg/dL',  sampleType: 'SERUM', method: 'Uricase',                            displayOrder: 11, department: 'BIOCHEMISTRY' },
-    // Proteins
-    { code: 'TP',      name: 'Total Protein',            priceInPaise: 8000,  referenceMin: 6.0,  referenceMax: 8.3,   referenceUnit: 'g/dL',  sampleType: 'SERUM', method: 'Biuret',                              displayOrder: 12, department: 'BIOCHEMISTRY' },
-    { code: 'ALB',     name: 'Albumin',                  priceInPaise: 8000,  referenceMin: 3.5,  referenceMax: 5.5,   referenceUnit: 'g/dL',  sampleType: 'SERUM', method: 'BCG',                                 displayOrder: 13, department: 'BIOCHEMISTRY' },
-    { code: 'GLOB',    name: 'Globulin',                 priceInPaise: 0,     referenceMin: 2.0,  referenceMax: 3.5,   referenceUnit: 'g/dL',  sampleType: 'SERUM', method: 'Calculated (TP - ALB)',                displayOrder: 14, department: 'BIOCHEMISTRY' },
-    { code: 'AGRATIO', name: 'A/G Ratio',                priceInPaise: 0,     referenceMin: 1.0,  referenceMax: 2.0,   referenceUnit: '',      sampleType: 'SERUM', method: 'Calculated',                          displayOrder: 15, department: 'BIOCHEMISTRY' },
-    // Bilirubin
-    { code: 'TBIL',    name: 'Total Bilirubin',          priceInPaise: 8000,  referenceMin: 0.1,  referenceMax: 1.2,   referenceUnit: 'mg/dL', sampleType: 'SERUM', method: 'Diazo (Jendrassik-Grof)',              displayOrder: 16, department: 'BIOCHEMISTRY' },
-    { code: 'DBIL',    name: 'Direct Bilirubin',         priceInPaise: 8000,  referenceMin: 0.0,  referenceMax: 0.3,   referenceUnit: 'mg/dL', sampleType: 'SERUM', method: 'Diazo (Jendrassik-Grof)',              displayOrder: 17, department: 'BIOCHEMISTRY' },
-    { code: 'IBIL',    name: 'Indirect Bilirubin',       priceInPaise: 0,     referenceMin: 0.1,  referenceMax: 0.9,   referenceUnit: 'mg/dL', sampleType: 'SERUM', method: 'Calculated (TBIL - DBIL)',             displayOrder: 18, department: 'BIOCHEMISTRY' },
-    // Liver enzymes
-    { code: 'SGOT',    name: 'SGOT / AST',               priceInPaise: 8000,  referenceMin: 5,    referenceMax: 40,    referenceUnit: 'U/L',   sampleType: 'SERUM', method: 'IFCC (Modified)',                      displayOrder: 19, department: 'BIOCHEMISTRY' },
-    { code: 'SGPT',    name: 'SGPT / ALT',               priceInPaise: 8000,  referenceMin: 7,    referenceMax: 56,    referenceUnit: 'U/L',   sampleType: 'SERUM', method: 'IFCC (Modified)',                      displayOrder: 20, department: 'BIOCHEMISTRY' },
-    { code: 'ALP',     name: 'Alkaline Phosphatase',     priceInPaise: 8000,  referenceMin: 44,   referenceMax: 147,   referenceUnit: 'U/L',   sampleType: 'SERUM', method: 'pNPP (IFCC)',                         displayOrder: 21, department: 'BIOCHEMISTRY' },
-    { code: 'GGT',     name: 'Gamma GT (GGT)',           priceInPaise: 10000, referenceMin: 0,    referenceMax: 55,    referenceUnit: 'U/L',   sampleType: 'SERUM', method: 'IFCC',                                displayOrder: 22, department: 'BIOCHEMISTRY' },
-    // Lipids
-    { code: 'CHOL',    name: 'Total Cholesterol',        priceInPaise: 10000, referenceMax: 200,                       referenceUnit: 'mg/dL', sampleType: 'SERUM', method: 'CHOD-PAP',                            displayOrder: 23, department: 'BIOCHEMISTRY' },
-    { code: 'TGL',     name: 'Triglycerides',             priceInPaise: 10000, referenceMax: 150,                       referenceUnit: 'mg/dL', sampleType: 'SERUM', method: 'GPO-PAP',                             displayOrder: 24, department: 'BIOCHEMISTRY' },
-    { code: 'HDL',     name: 'HDL Cholesterol',           priceInPaise: 10000, referenceMin: 40,   referenceMax: 60,    referenceUnit: 'mg/dL', sampleType: 'SERUM', method: 'Direct',                              displayOrder: 25, department: 'BIOCHEMISTRY' },
-    { code: 'LDL',     name: 'LDL Cholesterol',           priceInPaise: 0,     referenceMax: 100,                       referenceUnit: 'mg/dL', sampleType: 'SERUM', method: 'Friedewald Calculation',              displayOrder: 26, department: 'BIOCHEMISTRY' },
-    { code: 'VLDL',    name: 'VLDL Cholesterol',          priceInPaise: 0,     referenceMin: 5,    referenceMax: 40,    referenceUnit: 'mg/dL', sampleType: 'SERUM', method: 'Calculated (TGL / 5)',                displayOrder: 27, department: 'BIOCHEMISTRY' },
-    { code: 'CHOL_HDL_R', name: 'Chol/HDL Ratio',        priceInPaise: 0,     referenceMax: 5.0,                       referenceUnit: '',      sampleType: 'SERUM', method: 'Calculated',                          displayOrder: 28, department: 'BIOCHEMISTRY' },
-    { code: 'TGL_HDL_R',  name: 'TGL/HDL Ratio',         priceInPaise: 0,     referenceMax: 4.0,                       referenceUnit: '',      sampleType: 'SERUM', method: 'Calculated',                          displayOrder: 29, department: 'BIOCHEMISTRY' },
-    // Electrolytes
-    { code: 'NA',      name: 'Sodium',                    priceInPaise: 10000, referenceMin: 136,  referenceMax: 145,   referenceUnit: 'mEq/L', sampleType: 'SERUM', method: 'ISE',                                displayOrder: 30, department: 'BIOCHEMISTRY' },
-    { code: 'K',       name: 'Potassium',                 priceInPaise: 10000, referenceMin: 3.5,  referenceMax: 5.1,   referenceUnit: 'mEq/L', sampleType: 'SERUM', method: 'ISE',                                displayOrder: 31, department: 'BIOCHEMISTRY' },
-    { code: 'CL',      name: 'Chloride',                  priceInPaise: 10000, referenceMin: 98,   referenceMax: 106,   referenceUnit: 'mEq/L', sampleType: 'SERUM', method: 'ISE',                                displayOrder: 32, department: 'BIOCHEMISTRY' },
-    { code: 'CA',      name: 'Calcium',                   priceInPaise: 10000, referenceMin: 8.5,  referenceMax: 10.5,  referenceUnit: 'mg/dL', sampleType: 'SERUM', method: 'Arsenazo III',                       displayOrder: 33, department: 'BIOCHEMISTRY' },
-    { code: 'PHOS',    name: 'Phosphorus',                priceInPaise: 10000, referenceMin: 2.5,  referenceMax: 4.5,   referenceUnit: 'mg/dL', sampleType: 'SERUM', method: 'Molybdate UV',                       displayOrder: 34, department: 'BIOCHEMISTRY' },
-    { code: 'MG',      name: 'Magnesium',                 priceInPaise: 15000, referenceMin: 1.7,  referenceMax: 2.2,   referenceUnit: 'mg/dL', sampleType: 'SERUM', method: 'Xylidyl Blue',                       displayOrder: 35, department: 'BIOCHEMISTRY' },
-    // Iron studies
-    { code: 'IRON',    name: 'Serum Iron',                priceInPaise: 20000, referenceMin: 60,   referenceMax: 170,   referenceUnit: 'mcg/dL', sampleType: 'SERUM', method: 'Ferrozine',                         displayOrder: 36, department: 'BIOCHEMISTRY' },
-    { code: 'TIBC',    name: 'TIBC',                      priceInPaise: 20000, referenceMin: 250,  referenceMax: 370,   referenceUnit: 'mcg/dL', sampleType: 'SERUM', method: 'Ferrozine',                         displayOrder: 37, department: 'BIOCHEMISTRY' },
-    { code: 'FERR',    name: 'Ferritin',                  priceInPaise: 30000, referenceMin: 12,   referenceMax: 300,   referenceUnit: 'ng/mL',  sampleType: 'SERUM', method: 'ECLIA',                             displayOrder: 38, department: 'BIOCHEMISTRY' },
-    // Thyroid
-    { code: 'T3',      name: 'Triiodothyronine (T3)',     priceInPaise: 20000, referenceMin: 0.8,  referenceMax: 2.0,   referenceUnit: 'ng/mL',  sampleType: 'SERUM', method: 'ECLIA',                             displayOrder: 39, department: 'BIOCHEMISTRY' },
-    { code: 'T4',      name: 'Thyroxine (T4)',            priceInPaise: 20000, referenceMin: 5.1,  referenceMax: 14.1,  referenceUnit: 'mcg/dL', sampleType: 'SERUM', method: 'ECLIA',                             displayOrder: 40, department: 'BIOCHEMISTRY' },
-    { code: 'TSH',     name: 'TSH',                       priceInPaise: 25000, referenceMin: 0.27, referenceMax: 4.2,   referenceUnit: 'uIU/mL', sampleType: 'SERUM', method: 'ECLIA',                             displayOrder: 41, department: 'BIOCHEMISTRY' },
-    { code: 'FT3',     name: 'Free T3',                   priceInPaise: 30000, referenceMin: 2.0,  referenceMax: 4.4,   referenceUnit: 'pg/mL',  sampleType: 'SERUM', method: 'ECLIA',                             displayOrder: 42, department: 'BIOCHEMISTRY' },
-    { code: 'FT4',     name: 'Free T4',                   priceInPaise: 30000, referenceMin: 0.93, referenceMax: 1.7,   referenceUnit: 'ng/dL',  sampleType: 'SERUM', method: 'ECLIA',                             displayOrder: 43, department: 'BIOCHEMISTRY' },
-    // Enzymes
-    { code: 'LDH',     name: 'Lactate Dehydrogenase',     priceInPaise: 15000, referenceMin: 140,  referenceMax: 280,   referenceUnit: 'U/L',    sampleType: 'SERUM', method: 'IFCC (Lactate → Pyruvate)',          displayOrder: 44, department: 'BIOCHEMISTRY' },
-    { code: 'AMYLASE', name: 'Amylase',                   priceInPaise: 15000, referenceMin: 28,   referenceMax: 100,   referenceUnit: 'U/L',    sampleType: 'SERUM', method: 'CNPG3',                              displayOrder: 45, department: 'BIOCHEMISTRY' },
-    { code: 'LIPASE',  name: 'Lipase',                    priceInPaise: 20000, referenceMin: 0,    referenceMax: 60,    referenceUnit: 'U/L',    sampleType: 'SERUM', method: 'Enzymatic Colorimetric',             displayOrder: 46, department: 'BIOCHEMISTRY' },
-    { code: 'CPK',     name: 'CPK Total',                 priceInPaise: 20000, referenceMin: 24,   referenceMax: 195,   referenceUnit: 'U/L',    sampleType: 'SERUM', method: 'IFCC',                               displayOrder: 47, department: 'BIOCHEMISTRY' },
-    { code: 'CPKMB',   name: 'CPK-MB',                    priceInPaise: 25000, referenceMin: 0,    referenceMax: 25,    referenceUnit: 'U/L',    sampleType: 'SERUM', method: 'Immunoinhibition',                   displayOrder: 48, department: 'BIOCHEMISTRY' },
-    // Cardiac markers
-    { code: 'TROP_I',  name: 'Troponin I',                priceInPaise: 60000, referenceMax: 0.04,                      referenceUnit: 'ng/mL',  sampleType: 'SERUM', method: 'ECLIA',                             displayOrder: 49, department: 'BIOCHEMISTRY' },
-    { code: 'PROBNP',  name: 'NT-proBNP',                 priceInPaise: 80000, referenceMax: 125,                       referenceUnit: 'pg/mL',  sampleType: 'SERUM', method: 'ECLIA',                             displayOrder: 50, department: 'BIOCHEMISTRY' },
-    // Vitamins
-    { code: 'VITD',    name: 'Vitamin D (25-OH)',          priceInPaise: 100000, referenceMin: 30,  referenceMax: 100,   referenceUnit: 'ng/mL',  sampleType: 'SERUM', method: 'ECLIA',                            displayOrder: 51, department: 'BIOCHEMISTRY' },
-    { code: 'VITB12',  name: 'Vitamin B12',               priceInPaise: 60000, referenceMin: 211,  referenceMax: 946,   referenceUnit: 'pg/mL',  sampleType: 'SERUM', method: 'ECLIA',                             displayOrder: 52, department: 'BIOCHEMISTRY' },
-    { code: 'FOLATE',  name: 'Folic Acid',                priceInPaise: 60000, referenceMin: 4.6,  referenceMax: 18.7,  referenceUnit: 'ng/mL',  sampleType: 'SERUM', method: 'ECLIA',                             displayOrder: 53, department: 'BIOCHEMISTRY' },
-    // Tumor markers & hormones
-    { code: 'PSA',     name: 'PSA (Total)',                priceInPaise: 60000, referenceMax: 4.0,                       referenceUnit: 'ng/mL',  sampleType: 'SERUM', method: 'ECLIA',                             displayOrder: 54, department: 'BIOCHEMISTRY' },
-    { code: 'CA125',   name: 'CA-125',                    priceInPaise: 80000, referenceMax: 35,                        referenceUnit: 'U/mL',   sampleType: 'SERUM', method: 'ECLIA',                             displayOrder: 55, department: 'BIOCHEMISTRY' },
-    { code: 'AFP',     name: 'Alpha Fetoprotein',         priceInPaise: 60000, referenceMax: 7.0,                       referenceUnit: 'ng/mL',  sampleType: 'SERUM', method: 'ECLIA',                             displayOrder: 56, department: 'BIOCHEMISTRY' },
-    { code: 'CEA',     name: 'CEA',                       priceInPaise: 60000, referenceMax: 5.0,                       referenceUnit: 'ng/mL',  sampleType: 'SERUM', method: 'ECLIA',                             displayOrder: 57, department: 'BIOCHEMISTRY' },
-    { code: 'BHCG',    name: 'Beta HCG',                  priceInPaise: 60000, referenceMax: 5.0,                       referenceUnit: 'mIU/mL', sampleType: 'SERUM', method: 'ECLIA',                             displayOrder: 58, department: 'BIOCHEMISTRY' },
-    // Urine biochemistry
-    { code: 'MICRO_ALB', name: 'Microalbumin (Urine)',    priceInPaise: 30000, referenceMax: 30,                        referenceUnit: 'mg/L',   sampleType: 'URINE', method: 'Immunoturbidimetry',               displayOrder: 59, department: 'BIOCHEMISTRY' },
-    { code: 'UR_PROT24', name: '24hr Urine Protein',      priceInPaise: 30000, referenceMax: 150,                       referenceUnit: 'mg/24hr', sampleType: 'URINE', method: 'Turbidimetry',                    displayOrder: 60, department: 'BIOCHEMISTRY' },
-    // Protein electrophoresis
-    { code: 'PROT_ELEC', name: 'Protein Electrophoresis', priceInPaise: 80000, referenceText: 'See report',             sampleType: 'SERUM', method: 'Capillary Electrophoresis',                                 displayOrder: 61, department: 'BIOCHEMISTRY' },
-  ];
-
-  // -- SEROLOGY -------------------------------------------------------------
-  const serologyTests: TestSeed[] = [
-    // Widal components
-    { code: 'WIDAL_TO', name: 'Widal TO',       priceInPaise: 5000,  referenceText: '< 1:80',       sampleType: 'SERUM', method: 'Slide / Tube Agglutination', displayOrder: 1,  department: 'SEROLOGY' },
-    { code: 'WIDAL_TH', name: 'Widal TH',       priceInPaise: 5000,  referenceText: '< 1:80',       sampleType: 'SERUM', method: 'Slide / Tube Agglutination', displayOrder: 2,  department: 'SEROLOGY' },
-    { code: 'WIDAL_AO', name: 'Widal AO',       priceInPaise: 5000,  referenceText: '< 1:80',       sampleType: 'SERUM', method: 'Slide / Tube Agglutination', displayOrder: 3,  department: 'SEROLOGY' },
-    { code: 'WIDAL_AH', name: 'Widal AH',       priceInPaise: 5000,  referenceText: '< 1:80',       sampleType: 'SERUM', method: 'Slide / Tube Agglutination', displayOrder: 4,  department: 'SEROLOGY' },
-    { code: 'WIDAL_BO', name: 'Widal BO',       priceInPaise: 5000,  referenceText: '< 1:80',       sampleType: 'SERUM', method: 'Slide / Tube Agglutination', displayOrder: 5,  department: 'SEROLOGY' },
-    { code: 'WIDAL_BH', name: 'Widal BH',       priceInPaise: 5000,  referenceText: '< 1:80',       sampleType: 'SERUM', method: 'Slide / Tube Agglutination', displayOrder: 6,  department: 'SEROLOGY' },
-    // Inflammatory / Autoimmune markers
-    { code: 'CRP',       name: 'CRP (C-Reactive Protein)', priceInPaise: 20000, referenceMin: 0, referenceMax: 6,   referenceUnit: 'mg/L',  sampleType: 'SERUM', method: 'Latex Agglutination',         displayOrder: 7,  department: 'SEROLOGY' },
-    { code: 'ASO',       name: 'ASO Titre',                priceInPaise: 20000, referenceMin: 0, referenceMax: 200, referenceUnit: 'IU/mL', sampleType: 'SERUM', method: 'Latex Agglutination',         displayOrder: 8,  department: 'SEROLOGY' },
-    { code: 'RA',        name: 'RA Factor',                priceInPaise: 20000, referenceMin: 0, referenceMax: 20,  referenceUnit: 'IU/mL', sampleType: 'SERUM', method: 'Latex Agglutination',         displayOrder: 9,  department: 'SEROLOGY' },
-    // Infectious disease screening
-    { code: 'HIV',       name: 'HIV I & II (Screening)',    priceInPaise: 30000, referenceText: 'Non-reactive', sampleType: 'SERUM', method: 'ECLIA / Rapid',                 displayOrder: 10, department: 'SEROLOGY' },
-    { code: 'HBSAG',     name: 'HBsAg',                    priceInPaise: 30000, referenceText: 'Non-reactive', sampleType: 'SERUM', method: 'ECLIA / Rapid',                 displayOrder: 11, department: 'SEROLOGY' },
-    { code: 'HCV',       name: 'HCV (Anti-HCV)',           priceInPaise: 40000, referenceText: 'Non-reactive', sampleType: 'SERUM', method: 'ECLIA / Rapid',                 displayOrder: 12, department: 'SEROLOGY' },
-    { code: 'VDRL',      name: 'VDRL',                     priceInPaise: 15000, referenceText: 'Non-reactive', sampleType: 'SERUM', method: 'RPR Card',                      displayOrder: 13, department: 'SEROLOGY' },
-    // Dengue
-    { code: 'DNS1',      name: 'Dengue NS1 Antigen',       priceInPaise: 50000, referenceText: 'Negative', sampleType: 'SERUM', method: 'ELISA / Rapid Card',               displayOrder: 14, department: 'SEROLOGY' },
-    { code: 'DIGM',      name: 'Dengue IgM',               priceInPaise: 50000, referenceText: 'Negative', sampleType: 'SERUM', method: 'ELISA / Rapid Card',               displayOrder: 15, department: 'SEROLOGY' },
-    { code: 'DIGG',      name: 'Dengue IgG',               priceInPaise: 50000, referenceText: 'Negative', sampleType: 'SERUM', method: 'ELISA / Rapid Card',               displayOrder: 16, department: 'SEROLOGY' },
-    // Typhidot
-    { code: 'TIGM',      name: 'Typhidot IgM',             priceInPaise: 30000, referenceText: 'Negative', sampleType: 'SERUM', method: 'Rapid Immunochromatography',       displayOrder: 17, department: 'SEROLOGY' },
-    { code: 'TIGG',      name: 'Typhidot IgG',             priceInPaise: 30000, referenceText: 'Negative', sampleType: 'SERUM', method: 'Rapid Immunochromatography',       displayOrder: 18, department: 'SEROLOGY' },
-    // Autoimmune
-    { code: 'ANA',       name: 'ANA (Screening)',           priceInPaise: 60000, referenceText: 'Negative', sampleType: 'SERUM', method: 'ELISA / IFA',                     displayOrder: 19, department: 'SEROLOGY' },
-    { code: 'ANTI_DS',   name: 'Anti-dsDNA',               priceInPaise: 60000, referenceMax: 25,          referenceUnit: 'IU/mL', sampleType: 'SERUM', method: 'ELISA',    displayOrder: 20, department: 'SEROLOGY' },
-    { code: 'ANTI_CCP',  name: 'Anti-CCP',                 priceInPaise: 60000, referenceMax: 17,          referenceUnit: 'U/mL',  sampleType: 'SERUM', method: 'ECLIA',    displayOrder: 21, department: 'SEROLOGY' },
-    // Other febrile
-    { code: 'CHIK_IGM',  name: 'Chikungunya IgM',          priceInPaise: 50000, referenceText: 'Negative', sampleType: 'SERUM', method: 'ELISA / Rapid',                   displayOrder: 22, department: 'SEROLOGY' },
-    { code: 'SCRUB_IGM', name: 'Scrub Typhus IgM',         priceInPaise: 50000, referenceText: 'Negative', sampleType: 'SERUM', method: 'ELISA / Rapid',                   displayOrder: 23, department: 'SEROLOGY' },
-    { code: 'LEPTO_IGM', name: 'Leptospira IgM',           priceInPaise: 50000, referenceText: 'Negative', sampleType: 'SERUM', method: 'ELISA / Rapid',                   displayOrder: 24, department: 'SEROLOGY' },
-    { code: 'HPYLORI',   name: 'H. pylori Ab',             priceInPaise: 30000, referenceText: 'Negative', sampleType: 'SERUM', method: 'Rapid Card',                      displayOrder: 25, department: 'SEROLOGY' },
-  ];
-
-  // -- MICROBIOLOGY: Urine Routine sub-tests --------------------------------
-  const urineTests: TestSeed[] = [
-    { code: 'UR_COLOR',  name: 'Urine Color',            priceInPaise: 0, referenceText: 'Pale Yellow',  sampleType: 'URINE', method: 'Visual',        displayOrder: 1,  department: 'MICROBIOLOGY' },
-    { code: 'UR_APPEAR', name: 'Urine Appearance',       priceInPaise: 0, referenceText: 'Clear',        sampleType: 'URINE', method: 'Visual',        displayOrder: 2,  department: 'MICROBIOLOGY' },
-    { code: 'UR_PH',     name: 'Urine pH',               priceInPaise: 0, referenceMin: 4.5, referenceMax: 8.0,   referenceUnit: '',     sampleType: 'URINE', method: 'Dipstick',      displayOrder: 3,  department: 'MICROBIOLOGY' },
-    { code: 'UR_SG',     name: 'Urine Specific Gravity', priceInPaise: 0, referenceMin: 1.005, referenceMax: 1.030, referenceUnit: '',   sampleType: 'URINE', method: 'Refractometer', displayOrder: 4,  department: 'MICROBIOLOGY' },
-    { code: 'UR_PROT',   name: 'Urine Protein',          priceInPaise: 0, referenceText: 'Nil',          sampleType: 'URINE', method: 'Dipstick',      displayOrder: 5,  department: 'MICROBIOLOGY' },
-    { code: 'UR_GLUC',   name: 'Urine Glucose',          priceInPaise: 0, referenceText: 'Nil',          sampleType: 'URINE', method: 'Dipstick',      displayOrder: 6,  department: 'MICROBIOLOGY' },
-    { code: 'UR_KET',    name: 'Urine Ketones',          priceInPaise: 0, referenceText: 'Nil',          sampleType: 'URINE', method: 'Dipstick',      displayOrder: 7,  department: 'MICROBIOLOGY' },
-    { code: 'UR_BIL',    name: 'Urine Bilirubin',        priceInPaise: 0, referenceText: 'Nil',          sampleType: 'URINE', method: 'Dipstick',      displayOrder: 8,  department: 'MICROBIOLOGY' },
-    { code: 'UR_BLOOD',  name: 'Urine Blood',            priceInPaise: 0, referenceText: 'Nil',          sampleType: 'URINE', method: 'Dipstick',      displayOrder: 9,  department: 'MICROBIOLOGY' },
-    { code: 'UR_WBC',    name: 'Urine WBC',              priceInPaise: 0, referenceMin: 0, referenceMax: 5,  referenceUnit: '/hpf', sampleType: 'URINE', method: 'Microscopy', displayOrder: 10, department: 'MICROBIOLOGY' },
-    { code: 'UR_RBC',    name: 'Urine RBC',              priceInPaise: 0, referenceMin: 0, referenceMax: 2,  referenceUnit: '/hpf', sampleType: 'URINE', method: 'Microscopy', displayOrder: 11, department: 'MICROBIOLOGY' },
-    { code: 'UR_EPITH',  name: 'Epithelial Cells',       priceInPaise: 0, referenceText: 'Few',          sampleType: 'URINE', method: 'Microscopy',    displayOrder: 12, department: 'MICROBIOLOGY' },
-    { code: 'UR_CAST',   name: 'Casts',                  priceInPaise: 0, referenceText: 'Nil',          sampleType: 'URINE', method: 'Microscopy',    displayOrder: 13, department: 'MICROBIOLOGY' },
-    { code: 'UR_CRYST',  name: 'Crystals',               priceInPaise: 0, referenceText: 'Nil',          sampleType: 'URINE', method: 'Microscopy',    displayOrder: 14, department: 'MICROBIOLOGY' },
-    { code: 'UR_BACT',   name: 'Bacteria',               priceInPaise: 0, referenceText: 'Nil',          sampleType: 'URINE', method: 'Microscopy',    displayOrder: 15, department: 'MICROBIOLOGY' },
-  ];
-
-  // -- MICROBIOLOGY: Stool Routine sub-tests --------------------------------
-  const stoolTests: TestSeed[] = [
-    { code: 'ST_COLOR',   name: 'Stool Color',       priceInPaise: 0, referenceText: 'Brown',    sampleType: 'STOOL', method: 'Visual',    displayOrder: 16, department: 'MICROBIOLOGY' },
-    { code: 'ST_CONSIST', name: 'Stool Consistency',  priceInPaise: 0, referenceText: 'Formed',   sampleType: 'STOOL', method: 'Visual',    displayOrder: 17, department: 'MICROBIOLOGY' },
-    { code: 'ST_OB',      name: 'Occult Blood',       priceInPaise: 0, referenceText: 'Negative', sampleType: 'STOOL', method: 'Chemical',  displayOrder: 18, department: 'MICROBIOLOGY' },
-    { code: 'ST_OVA',     name: 'Ova',                priceInPaise: 0, referenceText: 'Not seen', sampleType: 'STOOL', method: 'Microscopy', displayOrder: 19, department: 'MICROBIOLOGY' },
-    { code: 'ST_CYST',    name: 'Cysts',              priceInPaise: 0, referenceText: 'Not seen', sampleType: 'STOOL', method: 'Microscopy', displayOrder: 20, department: 'MICROBIOLOGY' },
-    { code: 'ST_WBC',     name: 'Stool WBC',          priceInPaise: 0, referenceText: 'Nil',      sampleType: 'STOOL', method: 'Microscopy', displayOrder: 21, department: 'MICROBIOLOGY' },
-    { code: 'ST_RBC',     name: 'Stool RBC',          priceInPaise: 0, referenceText: 'Nil',      sampleType: 'STOOL', method: 'Microscopy', displayOrder: 22, department: 'MICROBIOLOGY' },
-  ];
-
-  // -- MICROBIOLOGY: Culture & other standalone tests -----------------------
-  const microStandaloneTests: TestSeed[] = [
-    { code: 'BLOOD_CS',  name: 'Blood Culture & Sensitivity',   priceInPaise: 80000, referenceText: 'No growth',   sampleType: 'BLOOD',   method: 'Automated (BacT/ALERT)',  displayOrder: 30, department: 'MICROBIOLOGY' },
-    { code: 'URINE_CS',  name: 'Urine Culture & Sensitivity',   priceInPaise: 50000, referenceText: 'No growth / < 10^5 CFU/mL', sampleType: 'URINE', method: 'CLED + Blood Agar', displayOrder: 31, department: 'MICROBIOLOGY' },
-    { code: 'SPUTUM_CS', name: 'Sputum Culture & Sensitivity',  priceInPaise: 50000, referenceText: 'No pathogen', sampleType: 'SPUTUM',  method: 'Blood Agar + MacConkey', displayOrder: 32, department: 'MICROBIOLOGY' },
-    { code: 'PUS_CS',    name: 'Pus Culture & Sensitivity',     priceInPaise: 50000, referenceText: 'No growth',   sampleType: 'SWAB',    method: 'Blood Agar + MacConkey', displayOrder: 33, department: 'MICROBIOLOGY' },
-    { code: 'THROAT_CS', name: 'Throat Swab C&S',               priceInPaise: 50000, referenceText: 'Normal flora', sampleType: 'SWAB',   method: 'Blood Agar + MacConkey', displayOrder: 34, department: 'MICROBIOLOGY' },
-    { code: 'AFB_STAIN', name: 'AFB Stain (ZN)',                priceInPaise: 15000, referenceText: 'No AFB seen',  sampleType: 'SPUTUM',  method: 'Ziehl-Neelsen Stain',   displayOrder: 35, department: 'MICROBIOLOGY' },
-    { code: 'GRAM_STAIN', name: 'Gram Stain',                   priceInPaise: 10000, referenceText: 'See report',   sampleType: 'SWAB',   method: 'Gram Staining',          displayOrder: 36, department: 'MICROBIOLOGY' },
-    { code: 'KOH_MOUNT', name: 'KOH Mount',                     priceInPaise: 10000, referenceText: 'No fungal elements', sampleType: 'SKIN_SCRAPING', method: 'KOH Wet Mount', displayOrder: 37, department: 'MICROBIOLOGY' },
-    { code: 'WET_MOUNT', name: 'Wet Mount',                     priceInPaise: 10000, referenceText: 'No parasites', sampleType: 'URINE',   method: 'Wet Mount Microscopy',   displayOrder: 38, department: 'MICROBIOLOGY' },
-    { code: 'MANTOUX',   name: 'Mantoux Test',                  priceInPaise: 15000, referenceText: '< 10mm (non-reactive)', sampleType: 'INTRADERMAL', method: 'Tuberculin Injection',   displayOrder: 39, department: 'MICROBIOLOGY' },
-    // Malaria
-    { code: 'MP_QBC',    name: 'Malaria (QBC)',                 priceInPaise: 20000, referenceText: 'Negative', sampleType: 'EDTA_BLOOD', method: 'QBC Fluorescence',       displayOrder: 40, department: 'MICROBIOLOGY' },
-    { code: 'MP_RAPID',  name: 'Malaria Rapid Card',            priceInPaise: 15000, referenceText: 'Negative', sampleType: 'EDTA_BLOOD', method: 'Immunochromatography',   displayOrder: 41, department: 'MICROBIOLOGY' },
-  ];
-
-  // -- PATHOLOGY ------------------------------------------------------------
-  const pathologyTests: TestSeed[] = [
-    // Semen Analysis sub-tests
-    { code: 'SEM_VOL',   name: 'Semen Volume',         priceInPaise: 0, referenceMin: 1.5,  referenceMax: 5.0,  referenceUnit: 'mL',         sampleType: 'SEMEN', method: 'Graduated Pipette', displayOrder: 1, department: 'PATHOLOGY' },
-    { code: 'SEM_COLOR', name: 'Semen Color',          priceInPaise: 0, referenceText: 'Greyish White',                                     sampleType: 'SEMEN', method: 'Visual',            displayOrder: 2, department: 'PATHOLOGY' },
-    { code: 'SEM_PH',    name: 'Semen pH',             priceInPaise: 0, referenceMin: 7.2,  referenceMax: 8.0,  referenceUnit: '',            sampleType: 'SEMEN', method: 'pH Paper',          displayOrder: 3, department: 'PATHOLOGY' },
-    { code: 'SEM_COUNT', name: 'Sperm Count',          priceInPaise: 0, referenceMin: 15,   referenceMax: 200,  referenceUnit: 'million/mL',  sampleType: 'SEMEN', method: 'Neubauer Chamber',  displayOrder: 4, department: 'PATHOLOGY' },
-    { code: 'SEM_MOT',   name: 'Total Motility',       priceInPaise: 0, referenceMin: 40,   referenceMax: 100,  referenceUnit: '%',           sampleType: 'SEMEN', method: 'Microscopy',        displayOrder: 5, department: 'PATHOLOGY' },
-    { code: 'SEM_PMOT',  name: 'Progressive Motility', priceInPaise: 0, referenceMin: 32,   referenceMax: 100,  referenceUnit: '%',           sampleType: 'SEMEN', method: 'Microscopy',        displayOrder: 6, department: 'PATHOLOGY' },
-    { code: 'SEM_MORPH', name: 'Normal Morphology',    priceInPaise: 0, referenceMin: 4,    referenceMax: 100,  referenceUnit: '%',           sampleType: 'SEMEN', method: 'Diff-Quik Stain',   displayOrder: 7, department: 'PATHOLOGY' },
-    // Standalone pathology
-    { code: 'UPT',       name: 'Urine Pregnancy Test', priceInPaise: 10000, referenceText: 'Negative',   sampleType: 'URINE', method: 'Rapid Immunochromatography', displayOrder: 10, department: 'PATHOLOGY' },
-    { code: 'FNAC',      name: 'FNAC',                 priceInPaise: 100000, referenceText: 'See report', sampleType: 'ASPIRATE', method: 'Cytology',               displayOrder: 11, department: 'PATHOLOGY' },
-    { code: 'PAP',       name: 'Pap Smear',            priceInPaise: 50000,  referenceText: 'See report', sampleType: 'CERVICAL_SWAB', method: 'Pap Stain',         displayOrder: 12, department: 'PATHOLOGY' },
-  ];
-
-  // -- RADIOLOGY ------------------------------------------------------------
-  const radiologyTests: TestSeed[] = [
-    { code: 'XRAY', name: 'X-Ray',      priceInPaise: 30000, referenceText: 'See report', sampleType: null, method: null, displayOrder: 1, department: 'RADIOLOGY' },
-    { code: 'USG',  name: 'Ultrasound', priceInPaise: 50000, referenceText: 'See report', sampleType: null, method: null, displayOrder: 2, department: 'RADIOLOGY' },
-    { code: 'ECG',  name: 'ECG',        priceInPaise: 20000, referenceText: 'See report', sampleType: null, method: null, displayOrder: 3, department: 'RADIOLOGY' },
-  ];
-
-  // -- Combine all individual tests -----------------------------------------
-  const allIndividualTests: TestSeed[] = [
-    ...haematologyTests,
-    ...biochemistryTests,
-    ...serologyTests,
-    ...urineTests,
-    ...stoolTests,
-    ...microStandaloneTests,
-    ...pathologyTests,
-    ...radiologyTests,
-  ];
-
-  // -- Panel LabTests (isPanel = true, for billing/ordering) ----------------
-  const panelLabTests: TestSeed[] = [
-    { code: 'CBP',             name: 'Complete Blood Picture',       priceInPaise: 35000,  sampleType: 'EDTA_BLOOD',     displayOrder: 100, department: 'HAEMATOLOGY',  isPanel: true },
-    { code: 'LFT',             name: 'Liver Function Test',          priceInPaise: 55000,  sampleType: 'SERUM',          displayOrder: 101, department: 'BIOCHEMISTRY', isPanel: true },
-    { code: 'RFT',             name: 'Renal Function Test',          priceInPaise: 50000,  sampleType: 'SERUM',          displayOrder: 102, department: 'BIOCHEMISTRY', isPanel: true },
-    { code: 'LIPID',           name: 'Lipid Profile',                priceInPaise: 45000,  sampleType: 'SERUM',          displayOrder: 103, department: 'BIOCHEMISTRY', isPanel: true },
-    { code: 'THYROID',         name: 'Thyroid Profile',              priceInPaise: 50000,  sampleType: 'SERUM',          displayOrder: 104, department: 'BIOCHEMISTRY', isPanel: true },
-    { code: 'WIDAL',           name: 'Widal Test',                   priceInPaise: 30000,  sampleType: 'SERUM',          displayOrder: 105, department: 'SEROLOGY',     isPanel: true },
-    { code: 'URINE_RE',        name: 'Urine Routine Examination',    priceInPaise: 15000,  sampleType: 'URINE',          displayOrder: 106, department: 'MICROBIOLOGY', isPanel: true },
-    { code: 'STOOL_RE',        name: 'Stool Routine Examination',    priceInPaise: 15000,  sampleType: 'STOOL',          displayOrder: 107, department: 'MICROBIOLOGY', isPanel: true },
-    { code: 'SEMEN_AN',        name: 'Semen Analysis',               priceInPaise: 50000,  sampleType: 'SEMEN',          displayOrder: 108, department: 'PATHOLOGY',    isPanel: true },
-    // New panels
-    { code: 'BLOOD_SUGAR_PNL', name: 'Blood Sugar Profile',          priceInPaise: 30000,  sampleType: 'FLUORIDE_BLOOD', displayOrder: 109, department: 'BIOCHEMISTRY', isPanel: true },
-    { code: 'ELECTROLYTE_PNL', name: 'Electrolyte Panel',            priceInPaise: 40000,  sampleType: 'SERUM',          displayOrder: 110, department: 'BIOCHEMISTRY', isPanel: true },
-    { code: 'IRON_PNL',        name: 'Iron Studies',                 priceInPaise: 60000,  sampleType: 'SERUM',          displayOrder: 111, department: 'BIOCHEMISTRY', isPanel: true },
-    { code: 'COAG_PNL',        name: 'Coagulation Profile',          priceInPaise: 40000,  sampleType: 'CITRATE_BLOOD',  displayOrder: 112, department: 'HAEMATOLOGY',  isPanel: true },
-    { code: 'CARDIAC_PNL',     name: 'Cardiac Markers Panel',        priceInPaise: 150000, sampleType: 'SERUM',          displayOrder: 113, department: 'BIOCHEMISTRY', isPanel: true },
-    { code: 'DENGUE_PNL',      name: 'Dengue Profile',               priceInPaise: 120000, sampleType: 'SERUM',          displayOrder: 114, department: 'SEROLOGY',     isPanel: true },
-    { code: 'VITAMIN_PNL',     name: 'Vitamin Panel',                priceInPaise: 200000, sampleType: 'SERUM',          displayOrder: 115, department: 'BIOCHEMISTRY', isPanel: true },
-    { code: 'GTT_PNL',         name: 'Glucose Tolerance Test',       priceInPaise: 30000,  sampleType: 'FLUORIDE_BLOOD', displayOrder: 116, department: 'BIOCHEMISTRY', isPanel: true },
-    { code: 'TUMOR_MKR_PNL',   name: 'Tumor Markers Panel',          priceInPaise: 250000, sampleType: 'SERUM',          displayOrder: 117, department: 'BIOCHEMISTRY', isPanel: true },
-    { code: 'AUTOIMMUNE_PNL',  name: 'Autoimmune Panel',             priceInPaise: 150000, sampleType: 'SERUM',          displayOrder: 118, department: 'SEROLOGY',     isPanel: true },
-  ];
-
-  // Upsert all tests via a shared helper
-  const testMap: Record<string, string> = {}; // code -> id
-
-  async function upsertTest(t: TestSeed) {
-    const { code, department, isPanel, ...fields } = t;
-    const data = {
-      name:          fields.name,
-      priceInPaise:  fields.priceInPaise,
-      referenceMin:  fields.referenceMin ?? null,
-      referenceMax:  fields.referenceMax ?? null,
-      referenceUnit: fields.referenceUnit ?? null,
-      referenceText: fields.referenceText ?? null,
-      sampleType:    fields.sampleType ?? null,
-      method:        fields.method ?? null,
-      displayOrder:  fields.displayOrder,
-      departmentId:  deptMap[department],
-      isPanel:       isPanel ?? false,
-      isActive:      true,
-    };
-
-    const result = await prisma.labTest.upsert({
-      where: { code },
-      create: { code, ...data },
-      update: data,
-    });
-    testMap[code] = result.id;
-  }
-
-  // Upsert individual tests first
-  for (const t of allIndividualTests) { await upsertTest(t); }
-  console.log(`  [2/8] Individual tests: ${allIndividualTests.length} upserted`);
-
-  // Upsert panel LabTests
-  for (const t of panelLabTests) { await upsertTest(t); }
-  console.log(`        Panel tests: ${panelLabTests.length} upserted`);
-
-  // =========================================================================
-  // 3. PANEL DEFINITIONS + PANEL TEST ITEMS
-  // =========================================================================
-
-  // Helper: upsert a PanelDefinition and its child PanelTestItem entries
-  async function seedPanel(panel: {
-    name: string;
-    displayName: string;
-    department: string;
-    layoutType: 'STANDARD_TABLE' | 'CBP' | 'WIDAL' | 'INTERPRETATION_SINGLE' | 'TEXT_ONLY';
-    displayOrder: number;
-    showMethodColumn?: boolean;
-    items: {
-      code: string;
-      displayOrder: number;
-      subGroup?: string;
-      indentLevel?: number;
-      isBold?: boolean;
-      showMethod?: boolean;
-      methodText?: string;
-    }[];
-  }) {
-    const pd = await prisma.panelDefinition.upsert({
-      where: { name: panel.name },
-      create: {
-        name:             panel.name,
-        displayName:      panel.displayName,
-        departmentId:     deptMap[panel.department],
-        layoutType:       panel.layoutType,
-        displayOrder:     panel.displayOrder,
-        showMethodColumn: panel.showMethodColumn ?? false,
-      },
-      update: {
-        displayName:      panel.displayName,
-        departmentId:     deptMap[panel.department],
-        layoutType:       panel.layoutType,
-        displayOrder:     panel.displayOrder,
-        showMethodColumn: panel.showMethodColumn ?? false,
-      },
-    });
-
-    for (const item of panel.items) {
-      const testId = testMap[item.code];
-      if (!testId) {
-        console.warn(`    WARN: test code "${item.code}" not found for panel "${panel.name}" -- skipping`);
-        continue;
-      }
-      await prisma.panelTestItem.upsert({
-        where: { panelId_testId: { panelId: pd.id, testId } },
-        create: {
-          panelId:      pd.id,
-          testId,
-          displayOrder: item.displayOrder,
-          subGroup:     item.subGroup ?? null,
-          indentLevel:  item.indentLevel ?? 0,
-          isBold:       item.isBold ?? false,
-          showMethod:   item.showMethod ?? false,
-          methodText:   item.methodText ?? null,
-        },
-        update: {
-          displayOrder: item.displayOrder,
-          subGroup:     item.subGroup ?? null,
-          indentLevel:  item.indentLevel ?? 0,
-          isBold:       item.isBold ?? false,
-          showMethod:   item.showMethod ?? false,
-          methodText:   item.methodText ?? null,
-        },
-      });
-    }
-  }
-
-  // --- CBP (Complete Blood Picture) ----------------------------------------
-  await seedPanel({
-    name: 'CBP', displayName: 'COMPLETE BLOOD PICTURE', department: 'HAEMATOLOGY',
-    layoutType: 'CBP', displayOrder: 1, showMethodColumn: true,
-    items: [
-      { code: 'HGB',    displayOrder: 1,  subGroup: 'MAIN', isBold: true },
-      { code: 'WBC',    displayOrder: 2,  subGroup: 'MAIN' },
-      { code: 'RBC',    displayOrder: 3,  subGroup: 'MAIN' },
-      { code: 'PLT',    displayOrder: 4,  subGroup: 'MAIN' },
-      { code: 'HCT',    displayOrder: 5,  subGroup: 'MAIN' },
-      { code: 'MCV',    displayOrder: 6,  subGroup: 'MAIN' },
-      { code: 'MCH',    displayOrder: 7,  subGroup: 'MAIN' },
-      { code: 'MCHC',   displayOrder: 8,  subGroup: 'MAIN' },
-      { code: 'RDW',    displayOrder: 9,  subGroup: 'MAIN' },
-      { code: 'MPV',    displayOrder: 10, subGroup: 'MAIN' },
-      // Differential count
-      { code: 'NEUTRO', displayOrder: 11, subGroup: 'DIFFERENTIAL', indentLevel: 1 },
-      { code: 'LYMPH',  displayOrder: 12, subGroup: 'DIFFERENTIAL', indentLevel: 1 },
-      { code: 'EOSINO', displayOrder: 13, subGroup: 'DIFFERENTIAL', indentLevel: 1 },
-      { code: 'MONO',   displayOrder: 14, subGroup: 'DIFFERENTIAL', indentLevel: 1 },
-      { code: 'BASO',   displayOrder: 15, subGroup: 'DIFFERENTIAL', indentLevel: 1 },
-    ],
+  const deptHaem = await prisma.department.upsert({
+    where: { name: 'HAEMATOLOGY' },
+    create: { name: 'HAEMATOLOGY', reportHeaderText: 'DEPARTMENT OF HAEMATOLOGY', displayOrder: 1, isActive: true },
+    update: { reportHeaderText: 'DEPARTMENT OF HAEMATOLOGY', displayOrder: 1, isActive: true },
   });
 
-  // --- LFT (Liver Function Test) -------------------------------------------
-  await seedPanel({
-    name: 'LFT', displayName: 'LIVER FUNCTION TEST', department: 'BIOCHEMISTRY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 2, showMethodColumn: true,
-    items: [
-      { code: 'TBIL',    displayOrder: 1,  showMethod: true },
-      { code: 'DBIL',    displayOrder: 2,  showMethod: true },
-      { code: 'IBIL',    displayOrder: 3 },
-      { code: 'SGOT',    displayOrder: 4,  showMethod: true },
-      { code: 'SGPT',    displayOrder: 5,  showMethod: true },
-      { code: 'ALP',     displayOrder: 6,  showMethod: true },
-      { code: 'GGT',     displayOrder: 7,  showMethod: true },
-      { code: 'TP',      displayOrder: 8,  showMethod: true },
-      { code: 'ALB',     displayOrder: 9,  showMethod: true },
-      { code: 'GLOB',    displayOrder: 10 },
-      { code: 'AGRATIO', displayOrder: 11 },
-    ],
+  const deptBiochem = await prisma.department.upsert({
+    where: { name: 'BIOCHEMISTRY' },
+    create: { name: 'BIOCHEMISTRY', reportHeaderText: 'DEPARTMENT OF BIOCHEMISTRY', displayOrder: 2, isActive: true },
+    update: { reportHeaderText: 'DEPARTMENT OF BIOCHEMISTRY', displayOrder: 2, isActive: true },
   });
 
-  // --- RFT (Renal Function Test) -------------------------------------------
-  await seedPanel({
-    name: 'RFT', displayName: 'RENAL FUNCTION TEST', department: 'BIOCHEMISTRY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 3, showMethodColumn: true,
-    items: [
-      { code: 'UREA',  displayOrder: 1, showMethod: true },
-      { code: 'CREAT', displayOrder: 2, showMethod: true },
-      { code: 'BUN',   displayOrder: 3 },
-      { code: 'UA',    displayOrder: 4, showMethod: true },
-      { code: 'NA',    displayOrder: 5, showMethod: true },
-      { code: 'K',     displayOrder: 6, showMethod: true },
-      { code: 'CL',    displayOrder: 7, showMethod: true },
-    ],
+  const deptSerology = await prisma.department.upsert({
+    where: { name: 'SEROLOGY' },
+    create: { name: 'SEROLOGY', reportHeaderText: 'DEPARTMENT OF SEROLOGY', displayOrder: 3, isActive: true },
+    update: { reportHeaderText: 'DEPARTMENT OF SEROLOGY', displayOrder: 3, isActive: true },
   });
 
-  // --- Lipid Profile -------------------------------------------------------
-  await seedPanel({
-    name: 'LIPID', displayName: 'LIPID PROFILE', department: 'BIOCHEMISTRY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 4, showMethodColumn: true,
-    items: [
-      { code: 'CHOL',       displayOrder: 1, showMethod: true },
-      { code: 'TGL',        displayOrder: 2, showMethod: true },
-      { code: 'HDL',        displayOrder: 3, showMethod: true },
-      { code: 'LDL',        displayOrder: 4 },
-      { code: 'VLDL',       displayOrder: 5 },
-      { code: 'CHOL_HDL_R', displayOrder: 6 },
-      { code: 'TGL_HDL_R',  displayOrder: 7 },
-    ],
+  const deptMicro = await prisma.department.upsert({
+    where: { name: 'MICROBIOLOGY' },
+    create: { name: 'MICROBIOLOGY', reportHeaderText: 'DEPARTMENT OF MICROBIOLOGY', displayOrder: 4, isActive: true },
+    update: { reportHeaderText: 'DEPARTMENT OF MICROBIOLOGY', displayOrder: 4, isActive: true },
   });
 
-  // --- Thyroid Profile -----------------------------------------------------
-  await seedPanel({
-    name: 'THYROID', displayName: 'THYROID PROFILE', department: 'BIOCHEMISTRY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 5, showMethodColumn: true,
-    items: [
-      { code: 'T3',  displayOrder: 1, showMethod: true, methodText: 'ECLIA' },
-      { code: 'T4',  displayOrder: 2, showMethod: true, methodText: 'ECLIA' },
-      { code: 'TSH', displayOrder: 3, showMethod: true, methodText: 'ECLIA' },
-    ],
+  const deptPath = await prisma.department.upsert({
+    where: { name: 'PATHOLOGY' },
+    create: { name: 'PATHOLOGY', reportHeaderText: 'DEPARTMENT OF PATHOLOGY', displayOrder: 5, isActive: true },
+    update: { reportHeaderText: 'DEPARTMENT OF PATHOLOGY', displayOrder: 5, isActive: true },
   });
 
-  // --- Widal Panel ---------------------------------------------------------
-  await seedPanel({
-    name: 'WIDAL', displayName: 'WIDAL TEST', department: 'SEROLOGY',
-    layoutType: 'WIDAL', displayOrder: 6,
-    items: [
-      { code: 'WIDAL_TO', displayOrder: 1 },
-      { code: 'WIDAL_TH', displayOrder: 2 },
-      { code: 'WIDAL_AO', displayOrder: 3 },
-      { code: 'WIDAL_AH', displayOrder: 4 },
-      { code: 'WIDAL_BO', displayOrder: 5 },
-      { code: 'WIDAL_BH', displayOrder: 6 },
-    ],
+  const deptRadio = await prisma.department.upsert({
+    where: { name: 'RADIOLOGY' },
+    create: { name: 'RADIOLOGY', reportHeaderText: 'DEPARTMENT OF RADIOLOGY', displayOrder: 6, isActive: true },
+    update: { reportHeaderText: 'DEPARTMENT OF RADIOLOGY', displayOrder: 6, isActive: true },
   });
 
-  // --- Urine Routine Panel -------------------------------------------------
-  await seedPanel({
-    name: 'URINE_RE', displayName: 'URINE ROUTINE EXAMINATION', department: 'MICROBIOLOGY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 7,
-    items: [
-      { code: 'UR_COLOR',  displayOrder: 1 },
-      { code: 'UR_APPEAR', displayOrder: 2 },
-      { code: 'UR_PH',     displayOrder: 3 },
-      { code: 'UR_SG',     displayOrder: 4 },
-      { code: 'UR_PROT',   displayOrder: 5 },
-      { code: 'UR_GLUC',   displayOrder: 6 },
-      { code: 'UR_KET',    displayOrder: 7 },
-      { code: 'UR_BIL',    displayOrder: 8 },
-      { code: 'UR_BLOOD',  displayOrder: 9 },
-      { code: 'UR_WBC',    displayOrder: 10 },
-      { code: 'UR_RBC',    displayOrder: 11 },
-      { code: 'UR_EPITH',  displayOrder: 12 },
-      { code: 'UR_CAST',   displayOrder: 13 },
-      { code: 'UR_CRYST',  displayOrder: 14 },
-      { code: 'UR_BACT',   displayOrder: 15 },
-    ],
-  });
+  console.log(`  Created/updated: ${deptHaem.name}, ${deptBiochem.name}, ${deptSerology.name}, ${deptMicro.name}, ${deptPath.name}, ${deptRadio.name}`);
+  console.log('');
 
-  // --- Stool Routine Panel -------------------------------------------------
-  await seedPanel({
-    name: 'STOOL_RE', displayName: 'STOOL ROUTINE EXAMINATION', department: 'MICROBIOLOGY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 8,
-    items: [
-      { code: 'ST_COLOR',   displayOrder: 1 },
-      { code: 'ST_CONSIST', displayOrder: 2 },
-      { code: 'ST_OB',      displayOrder: 3 },
-      { code: 'ST_OVA',     displayOrder: 4 },
-      { code: 'ST_CYST',    displayOrder: 5 },
-      { code: 'ST_WBC',     displayOrder: 6 },
-      { code: 'ST_RBC',     displayOrder: 7 },
-    ],
-  });
+  // ═══ SECTION 4: SIGNING DOCTOR ═══
 
-  // --- Semen Analysis Panel ------------------------------------------------
-  await seedPanel({
-    name: 'SEMEN_AN', displayName: 'SEMEN ANALYSIS', department: 'PATHOLOGY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 9,
-    items: [
-      { code: 'SEM_VOL',   displayOrder: 1 },
-      { code: 'SEM_COLOR', displayOrder: 2 },
-      { code: 'SEM_PH',    displayOrder: 3 },
-      { code: 'SEM_COUNT', displayOrder: 4 },
-      { code: 'SEM_MOT',   displayOrder: 5 },
-      { code: 'SEM_PMOT',  displayOrder: 6 },
-      { code: 'SEM_MORPH', displayOrder: 7 },
-    ],
-  });
+  console.log('[3/N] Upserting signing doctor...');
 
-  // =========================================================================
-  // NEW PANELS — for previously unlinked/orphan tests
-  // =========================================================================
+  const signingDoctorData = {
+    name: 'Dr. Aruna',
+    degrees: 'MBBS, MD (Pathology)',
+    designation: 'Consultant Pathologist',
+    registrationNumber: 'KMC-12345',
+    signatureImagePath: '/images/signatures/dr-aruna.png',
+    isActive: true,
+  };
 
-  // --- Blood Sugar Panel ---------------------------------------------------
-  await seedPanel({
-    name: 'BLOOD_SUGAR', displayName: 'BLOOD SUGAR', department: 'BIOCHEMISTRY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 10, showMethodColumn: true,
-    items: [
-      { code: 'BSF',   displayOrder: 1, showMethod: true },
-      { code: 'BSPP',  displayOrder: 2, showMethod: true },
-      { code: 'RBS',   displayOrder: 3, showMethod: true },
-      { code: 'HBA1C', displayOrder: 4, showMethod: true },
-    ],
-  });
-
-  // --- GTT Panel -----------------------------------------------------------
-  await seedPanel({
-    name: 'GTT', displayName: 'GLUCOSE TOLERANCE TEST', department: 'BIOCHEMISTRY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 11, showMethodColumn: true,
-    items: [
-      { code: 'GTT_F',   displayOrder: 1, showMethod: true },
-      { code: 'GTT_1HR', displayOrder: 2, showMethod: true },
-      { code: 'GTT_2HR', displayOrder: 3, showMethod: true },
-    ],
-  });
-
-  // --- Electrolyte Panel ---------------------------------------------------
-  await seedPanel({
-    name: 'ELECTROLYTE', displayName: 'ELECTROLYTES', department: 'BIOCHEMISTRY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 12, showMethodColumn: true,
-    items: [
-      { code: 'NA',   displayOrder: 1, showMethod: true },
-      { code: 'K',    displayOrder: 2, showMethod: true },
-      { code: 'CL',   displayOrder: 3, showMethod: true },
-      { code: 'CA',   displayOrder: 4, showMethod: true },
-      { code: 'PHOS', displayOrder: 5, showMethod: true },
-      { code: 'MG',   displayOrder: 6, showMethod: true },
-    ],
-  });
-
-  // --- Iron Studies Panel --------------------------------------------------
-  await seedPanel({
-    name: 'IRON_STUDIES', displayName: 'IRON STUDIES', department: 'BIOCHEMISTRY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 13, showMethodColumn: true,
-    items: [
-      { code: 'IRON', displayOrder: 1, showMethod: true },
-      { code: 'TIBC', displayOrder: 2, showMethod: true },
-      { code: 'FERR', displayOrder: 3, showMethod: true },
-    ],
-  });
-
-  // --- Inflammatory Markers Panel ------------------------------------------
-  await seedPanel({
-    name: 'INFLAMMATORY', displayName: 'INFLAMMATORY MARKERS', department: 'SEROLOGY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 14, showMethodColumn: true,
-    items: [
-      { code: 'CRP', displayOrder: 1, showMethod: true },
-      { code: 'ASO', displayOrder: 2, showMethod: true },
-      { code: 'RA',  displayOrder: 3, showMethod: true },
-    ],
-  });
-
-  // --- Infectious Disease Screening Panel ----------------------------------
-  await seedPanel({
-    name: 'INFECTIOUS_SCREEN', displayName: 'INFECTIOUS DISEASE SCREENING', department: 'SEROLOGY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 15,
-    items: [
-      { code: 'HIV',   displayOrder: 1 },
-      { code: 'HBSAG', displayOrder: 2 },
-      { code: 'HCV',   displayOrder: 3 },
-      { code: 'VDRL',  displayOrder: 4 },
-    ],
-  });
-
-  // --- Dengue Panel --------------------------------------------------------
-  await seedPanel({
-    name: 'DENGUE', displayName: 'DENGUE PROFILE', department: 'SEROLOGY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 16,
-    items: [
-      { code: 'DNS1', displayOrder: 1 },
-      { code: 'DIGM', displayOrder: 2 },
-      { code: 'DIGG', displayOrder: 3 },
-    ],
-  });
-
-  // --- Typhidot Panel ------------------------------------------------------
-  await seedPanel({
-    name: 'TYPHIDOT', displayName: 'TYPHIDOT', department: 'SEROLOGY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 17,
-    items: [
-      { code: 'TIGM', displayOrder: 1 },
-      { code: 'TIGG', displayOrder: 2 },
-    ],
-  });
-
-  // --- Coagulation Profile -------------------------------------------------
-  await seedPanel({
-    name: 'COAGULATION', displayName: 'COAGULATION PROFILE', department: 'HAEMATOLOGY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 18, showMethodColumn: true,
-    items: [
-      { code: 'BT_TEST', displayOrder: 1, showMethod: true },
-      { code: 'CT_TEST', displayOrder: 2, showMethod: true },
-      { code: 'PT_TEST', displayOrder: 3, showMethod: true },
-      { code: 'INR_VAL', displayOrder: 4 },
-      { code: 'APTT',    displayOrder: 5, showMethod: true },
-    ],
-  });
-
-  // --- Cardiac Markers Panel -----------------------------------------------
-  await seedPanel({
-    name: 'CARDIAC_MARKERS', displayName: 'CARDIAC MARKERS', department: 'BIOCHEMISTRY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 19, showMethodColumn: true,
-    items: [
-      { code: 'TROP_I', displayOrder: 1, showMethod: true },
-      { code: 'CPKMB',  displayOrder: 2, showMethod: true },
-      { code: 'CPK',    displayOrder: 3, showMethod: true },
-      { code: 'PROBNP', displayOrder: 4, showMethod: true },
-      { code: 'LDH',    displayOrder: 5, showMethod: true },
-    ],
-  });
-
-  // --- Tumor Markers Panel -------------------------------------------------
-  await seedPanel({
-    name: 'TUMOR_MARKERS', displayName: 'TUMOR MARKERS', department: 'BIOCHEMISTRY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 20, showMethodColumn: true,
-    items: [
-      { code: 'PSA',   displayOrder: 1, showMethod: true, methodText: 'ECLIA' },
-      { code: 'AFP',   displayOrder: 2, showMethod: true, methodText: 'ECLIA' },
-      { code: 'CEA',   displayOrder: 3, showMethod: true, methodText: 'ECLIA' },
-      { code: 'CA125', displayOrder: 4, showMethod: true, methodText: 'ECLIA' },
-      { code: 'BHCG',  displayOrder: 5, showMethod: true, methodText: 'ECLIA' },
-    ],
-  });
-
-  // --- Autoimmune Panel ----------------------------------------------------
-  await seedPanel({
-    name: 'AUTOIMMUNE', displayName: 'AUTOIMMUNE MARKERS', department: 'SEROLOGY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 21, showMethodColumn: true,
-    items: [
-      { code: 'ANA',      displayOrder: 1, showMethod: true },
-      { code: 'ANTI_DS',  displayOrder: 2, showMethod: true },
-      { code: 'ANTI_CCP', displayOrder: 3, showMethod: true },
-    ],
-  });
-
-  // --- Vitamin Panel -------------------------------------------------------
-  await seedPanel({
-    name: 'VITAMINS', displayName: 'VITAMIN PANEL', department: 'BIOCHEMISTRY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 22, showMethodColumn: true,
-    items: [
-      { code: 'VITD',   displayOrder: 1, showMethod: true, methodText: 'ECLIA' },
-      { code: 'VITB12', displayOrder: 2, showMethod: true, methodText: 'ECLIA' },
-      { code: 'FOLATE', displayOrder: 3, showMethod: true, methodText: 'ECLIA' },
-    ],
-  });
-
-  // --- Haematology Singles (ESR, Retic, AEC, Blood Group) ---
-  await seedPanel({
-    name: 'HAEM_SINGLE', displayName: 'HAEMATOLOGY', department: 'HAEMATOLOGY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 23, showMethodColumn: true,
-    items: [
-      { code: 'ESR',      displayOrder: 1, showMethod: true },
-      { code: 'RETIC',    displayOrder: 2, showMethod: true },
-      { code: 'AEC',      displayOrder: 3, showMethod: true },
-      { code: 'BGRP',     displayOrder: 4, showMethod: true },
-      { code: 'MP_SMEAR', displayOrder: 5, showMethod: true },
-    ],
-  });
-
-  // --- Peripheral Smear (text/comments) ---
-  await seedPanel({
-    name: 'PS_PANEL', displayName: 'PERIPHERAL SMEAR EXAMINATION', department: 'HAEMATOLOGY',
-    layoutType: 'TEXT_ONLY', displayOrder: 24,
-    items: [
-      { code: 'PS', displayOrder: 1 },
-    ],
-  });
-
-  // --- Malaria Panel -------------------------------------------------------
-  await seedPanel({
-    name: 'MALARIA', displayName: 'MALARIA SCREENING', department: 'MICROBIOLOGY',
-    layoutType: 'STANDARD_TABLE', displayOrder: 25,
-    items: [
-      { code: 'MP_QBC',   displayOrder: 1 },
-      { code: 'MP_RAPID', displayOrder: 2 },
-    ],
-  });
-
-  const totalPanels = 25;
-  console.log(`  [3/8] Panel definitions + panel test items: ${totalPanels} panels upserted`);
-
-  // =========================================================================
-  // 4. TEST AGE RANGES (gender/age-specific reference overrides)
-  //    Stored in DAYS for newborn/infant precision.
-  //    Helpers: D=days, M=months(~30d), Y=years(~365d)
-  // =========================================================================
-
-  const D = 1;
-  const M = 30;   // 1 month ≈ 30 days
-  const Y = 365;  // 1 year ≈ 365 days
-
-  // Idempotent helper: delete all existing ranges for a test, then re-create
-  async function setAgeRanges(
-    testCode: string,
-    ranges: {
-      minAgeDays?: number | null;
-      maxAgeDays?: number | null;
-      gender?: 'M' | 'F' | 'O' | null;
-      referenceMin?: number | null;
-      referenceMax?: number | null;
-      referenceUnit?: string | null;
-      referenceText?: string | null;
-    }[]
-  ) {
-    const testId = testMap[testCode];
-    if (!testId) {
-      console.warn(`    WARN: test code "${testCode}" not found for age ranges -- skipping`);
-      return;
-    }
-    await prisma.testAgeRange.deleteMany({ where: { testId } });
-    if (ranges.length > 0) {
-      await prisma.testAgeRange.createMany({
-        data: ranges.map(r => ({
-          testId,
-          minAgeDays:    r.minAgeDays  ?? null,
-          maxAgeDays:    r.maxAgeDays  ?? null,
-          gender:        r.gender      ?? null,
-          referenceMin:  r.referenceMin ?? null,
-          referenceMax:  r.referenceMax ?? null,
-          referenceUnit: r.referenceUnit ?? null,
-          referenceText: r.referenceText ?? null,
-        })),
-      });
-    }
-  }
-
-  // --- Haemoglobin (HGB) — newborn through adult ---
-  await setAgeRanges('HGB', [
-    { minAgeDays: 0,      maxAgeDays: 1*D,    referenceMin: 14.0, referenceMax: 24.0, referenceUnit: 'g/dL' },
-    { minAgeDays: 2*D,    maxAgeDays: 7*D,    referenceMin: 13.5, referenceMax: 21.5, referenceUnit: 'g/dL' },
-    { minAgeDays: 8*D,    maxAgeDays: 1*M,    referenceMin: 10.0, referenceMax: 18.0, referenceUnit: 'g/dL' },
-    { minAgeDays: 1*M+1,  maxAgeDays: 6*M,    referenceMin: 9.5,  referenceMax: 14.0, referenceUnit: 'g/dL' },
-    { minAgeDays: 6*M+1,  maxAgeDays: 2*Y,    referenceMin: 10.5, referenceMax: 13.5, referenceUnit: 'g/dL' },
-    { minAgeDays: 2*Y+1,  maxAgeDays: 12*Y,   referenceMin: 11.0, referenceMax: 15.5, referenceUnit: 'g/dL' },
-    { gender: 'M', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 13.0, referenceMax: 17.0, referenceUnit: 'g/dL' },
-    { gender: 'F', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 12.0, referenceMax: 16.0, referenceUnit: 'g/dL' },
-  ]);
-
-  // --- WBC — newborn through adult ---
-  await setAgeRanges('WBC', [
-    { minAgeDays: 0,      maxAgeDays: 1*D,    referenceMin: 9000,  referenceMax: 30000, referenceUnit: '/cumm' },
-    { minAgeDays: 2*D,    maxAgeDays: 7*D,    referenceMin: 5000,  referenceMax: 21000, referenceUnit: '/cumm' },
-    { minAgeDays: 8*D,    maxAgeDays: 1*Y,    referenceMin: 5000,  referenceMax: 19500, referenceUnit: '/cumm' },
-    { minAgeDays: 1*Y+1,  maxAgeDays: 3*Y,    referenceMin: 6000,  referenceMax: 17500, referenceUnit: '/cumm' },
-    { minAgeDays: 3*Y+1,  maxAgeDays: 6*Y,    referenceMin: 5500,  referenceMax: 15500, referenceUnit: '/cumm' },
-    { minAgeDays: 6*Y+1,  maxAgeDays: 12*Y,   referenceMin: 4500,  referenceMax: 13500, referenceUnit: '/cumm' },
-    { minAgeDays: 13*Y,   maxAgeDays: null,    referenceMin: 4000,  referenceMax: 11000, referenceUnit: '/cumm' },
-  ]);
-
-  // --- PLT (Platelet) — newborn through adult ---
-  await setAgeRanges('PLT', [
-    { minAgeDays: 0,      maxAgeDays: 1*M,   referenceMin: 100000, referenceMax: 450000, referenceUnit: '/cumm' },
-    { minAgeDays: 1*M+1,  maxAgeDays: 12*Y,  referenceMin: 150000, referenceMax: 450000, referenceUnit: '/cumm' },
-    { minAgeDays: 13*Y,   maxAgeDays: null,   referenceMin: 150000, referenceMax: 400000, referenceUnit: '/cumm' },
-  ]);
-
-  // --- RBC — newborn through adult ---
-  await setAgeRanges('RBC', [
-    { minAgeDays: 0,      maxAgeDays: 1*D,    referenceMin: 4.0, referenceMax: 6.6, referenceUnit: 'mill/cumm' },
-    { minAgeDays: 2*D,    maxAgeDays: 1*M,    referenceMin: 3.9, referenceMax: 5.9, referenceUnit: 'mill/cumm' },
-    { minAgeDays: 1*M+1,  maxAgeDays: 6*M,    referenceMin: 3.0, referenceMax: 5.4, referenceUnit: 'mill/cumm' },
-    { minAgeDays: 6*M+1,  maxAgeDays: 12*Y,   referenceMin: 3.8, referenceMax: 5.5, referenceUnit: 'mill/cumm' },
-    { gender: 'M', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 4.5, referenceMax: 5.5, referenceUnit: 'mill/cumm' },
-    { gender: 'F', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 3.8, referenceMax: 5.0, referenceUnit: 'mill/cumm' },
-  ]);
-
-  // --- Total Bilirubin (TBIL) — neonatal ranges are critical ---
-  await setAgeRanges('TBIL', [
-    { minAgeDays: 0,      maxAgeDays: 1*D,    referenceMin: 0.0, referenceMax: 6.0,  referenceUnit: 'mg/dL' },
-    { minAgeDays: 2*D,    maxAgeDays: 2*D,    referenceMin: 0.0, referenceMax: 8.0,  referenceUnit: 'mg/dL' },
-    { minAgeDays: 3*D,    maxAgeDays: 5*D,    referenceMin: 0.0, referenceMax: 12.0, referenceUnit: 'mg/dL' },
-    { minAgeDays: 6*D,    maxAgeDays: 1*M,    referenceMin: 0.0, referenceMax: 1.5,  referenceUnit: 'mg/dL' },
-    { minAgeDays: 1*M+1,  maxAgeDays: null,   referenceMin: 0.1, referenceMax: 1.2,  referenceUnit: 'mg/dL' },
-  ]);
-
-  // --- TSH — neonatal screening ranges ---
-  await setAgeRanges('TSH', [
-    { minAgeDays: 0,      maxAgeDays: 5*D,   referenceMin: 1.0,  referenceMax: 39.0, referenceUnit: 'uIU/mL' },
-    { minAgeDays: 6*D,    maxAgeDays: 3*M,   referenceMin: 0.6,  referenceMax: 10.0, referenceUnit: 'uIU/mL' },
-    { minAgeDays: 3*M+1,  maxAgeDays: 1*Y,   referenceMin: 0.4,  referenceMax: 7.0,  referenceUnit: 'uIU/mL' },
-    { minAgeDays: 1*Y+1,  maxAgeDays: 5*Y,   referenceMin: 0.4,  referenceMax: 6.0,  referenceUnit: 'uIU/mL' },
-    { minAgeDays: 5*Y+1,  maxAgeDays: 14*Y,  referenceMin: 0.4,  referenceMax: 5.0,  referenceUnit: 'uIU/mL' },
-    { minAgeDays: 15*Y,   maxAgeDays: null,   referenceMin: 0.27, referenceMax: 4.2,  referenceUnit: 'uIU/mL' },
-  ]);
-
-  // --- Creatinine (CREAT) — newborn through adult ---
-  await setAgeRanges('CREAT', [
-    { minAgeDays: 0,      maxAgeDays: 1*M,   referenceMin: 0.3, referenceMax: 1.0, referenceUnit: 'mg/dL' },
-    { minAgeDays: 1*M+1,  maxAgeDays: 12*Y,  referenceMin: 0.3, referenceMax: 0.7, referenceUnit: 'mg/dL' },
-    { gender: 'M', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 0.7, referenceMax: 1.3, referenceUnit: 'mg/dL' },
-    { gender: 'F', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 0.6, referenceMax: 1.1, referenceUnit: 'mg/dL' },
-  ]);
-
-  // --- ALP — child vs adult ---
-  await setAgeRanges('ALP', [
-    { minAgeDays: 0,      maxAgeDays: 17*Y,  referenceMin: 150, referenceMax: 420, referenceUnit: 'U/L' },
-    { minAgeDays: 18*Y,   maxAgeDays: null,   referenceMin: 44,  referenceMax: 147, referenceUnit: 'U/L' },
-  ]);
-
-  // --- ESR — child, adult M/F ---
-  await setAgeRanges('ESR', [
-    { minAgeDays: 0,      maxAgeDays: 12*Y,  referenceMin: 0, referenceMax: 10, referenceUnit: 'mm/hr' },
-    { gender: 'M', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 0, referenceMax: 15, referenceUnit: 'mm/hr' },
-    { gender: 'F', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 0, referenceMax: 20, referenceUnit: 'mm/hr' },
-  ]);
-
-  // --- Ferritin — newborn, infant, child, adult M/F ---
-  await setAgeRanges('FERR', [
-    { minAgeDays: 0,      maxAgeDays: 1*M,   referenceMin: 25,  referenceMax: 200, referenceUnit: 'ng/mL' },
-    { minAgeDays: 1*M+1,  maxAgeDays: 1*Y,   referenceMin: 200, referenceMax: 600, referenceUnit: 'ng/mL' },
-    { minAgeDays: 1*Y+1,  maxAgeDays: 5*Y,   referenceMin: 6,   referenceMax: 24,  referenceUnit: 'ng/mL' },
-    { minAgeDays: 5*Y+1,  maxAgeDays: 15*Y,  referenceMin: 7,   referenceMax: 140, referenceUnit: 'ng/mL' },
-    { gender: 'M', minAgeDays: 16*Y, maxAgeDays: null, referenceMin: 30,  referenceMax: 400, referenceUnit: 'ng/mL' },
-    { gender: 'F', minAgeDays: 16*Y, maxAgeDays: null, referenceMin: 12,  referenceMax: 150, referenceUnit: 'ng/mL' },
-  ]);
-
-  // --- Uric Acid: Male vs Female ---
-  await setAgeRanges('UA', [
-    { minAgeDays: 0,      maxAgeDays: 12*Y,  referenceMin: 2.0, referenceMax: 5.5, referenceUnit: 'mg/dL' },
-    { gender: 'M', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 3.5, referenceMax: 7.2, referenceUnit: 'mg/dL' },
-    { gender: 'F', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 2.6, referenceMax: 6.0, referenceUnit: 'mg/dL' },
-  ]);
-
-  // --- Iron: Male vs Female ---
-  await setAgeRanges('IRON', [
-    { minAgeDays: 0,      maxAgeDays: 12*Y,  referenceMin: 50, referenceMax: 120, referenceUnit: 'mcg/dL' },
-    { gender: 'M', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 65, referenceMax: 175, referenceUnit: 'mcg/dL' },
-    { gender: 'F', minAgeDays: 13*Y, maxAgeDays: null, referenceMin: 50, referenceMax: 170, referenceUnit: 'mcg/dL' },
-  ]);
-
-  // --- Calcium (CA) — newborn, child, adult ---
-  await setAgeRanges('CA', [
-    { minAgeDays: 0,      maxAgeDays: 10*D,  referenceMin: 7.6, referenceMax: 10.4, referenceUnit: 'mg/dL' },
-    { minAgeDays: 11*D,   maxAgeDays: 2*Y,   referenceMin: 9.0, referenceMax: 11.0, referenceUnit: 'mg/dL' },
-    { minAgeDays: 2*Y+1,  maxAgeDays: 12*Y,  referenceMin: 8.8, referenceMax: 10.8, referenceUnit: 'mg/dL' },
-    { minAgeDays: 13*Y,   maxAgeDays: null,   referenceMin: 8.5, referenceMax: 10.5, referenceUnit: 'mg/dL' },
-  ]);
-
-  // --- Potassium (K) — newborn vs adult ---
-  await setAgeRanges('K', [
-    { minAgeDays: 0,      maxAgeDays: 1*M,   referenceMin: 3.7, referenceMax: 5.9, referenceUnit: 'mEq/L' },
-    { minAgeDays: 1*M+1,  maxAgeDays: 12*Y,  referenceMin: 3.4, referenceMax: 4.7, referenceUnit: 'mEq/L' },
-    { minAgeDays: 13*Y,   maxAgeDays: null,   referenceMin: 3.5, referenceMax: 5.1, referenceUnit: 'mEq/L' },
-  ]);
-
-  // --- Phosphorus (PHOS) — child vs adult ---
-  await setAgeRanges('PHOS', [
-    { minAgeDays: 0,      maxAgeDays: 1*Y,   referenceMin: 4.5, referenceMax: 6.7, referenceUnit: 'mg/dL' },
-    { minAgeDays: 1*Y+1,  maxAgeDays: 12*Y,  referenceMin: 4.5, referenceMax: 5.5, referenceUnit: 'mg/dL' },
-    { minAgeDays: 13*Y,   maxAgeDays: null,   referenceMin: 2.5, referenceMax: 4.5, referenceUnit: 'mg/dL' },
-  ]);
-
-  let totalAgeRanges = 8 + 7 + 3 + 6 + 5 + 6 + 4 + 2 + 3 + 6 + 3 + 3 + 4 + 3 + 3;
-  console.log(`  [4/8] TestAgeRanges: ${totalAgeRanges} entries set (HGB, WBC, PLT, RBC, TBIL, TSH, CREAT, ALP, ESR, FERR, UA, IRON, CA, K, PHOS)`);
-
-  // =========================================================================
-  // 5. DERIVED PARAMETERS
-  // =========================================================================
-
-  const derivedParams = [
-    // LFT derived
-    { testCode: 'GLOB',       parameterName: 'Globulin',           formula: 'TP - ALB',                dependsOnTestCodes: ['TP', 'ALB'],            displayOrder: 1 },
-    { testCode: 'AGRATIO',    parameterName: 'A/G Ratio',          formula: 'ALB / (TP - ALB)',        dependsOnTestCodes: ['ALB', 'TP'],            displayOrder: 2 },
-    { testCode: 'IBIL',       parameterName: 'Indirect Bilirubin', formula: 'TBIL - DBIL',             dependsOnTestCodes: ['TBIL', 'DBIL'],         displayOrder: 3 },
-    // Lipid derived
-    { testCode: 'VLDL',       parameterName: 'VLDL Cholesterol',   formula: 'TGL / 5',                 dependsOnTestCodes: ['TGL'],                  displayOrder: 4 },
-    { testCode: 'LDL',        parameterName: 'LDL Cholesterol',    formula: 'CHOL - HDL - (TGL / 5)',  dependsOnTestCodes: ['CHOL', 'HDL', 'TGL'],   displayOrder: 5 },
-    { testCode: 'CHOL_HDL_R', parameterName: 'Chol/HDL Ratio',     formula: 'CHOL / HDL',              dependsOnTestCodes: ['CHOL', 'HDL'],          displayOrder: 6 },
-    { testCode: 'TGL_HDL_R',  parameterName: 'TGL/HDL Ratio',      formula: 'TGL / HDL',               dependsOnTestCodes: ['TGL', 'HDL'],           displayOrder: 7 },
-    // Renal derived
-    { testCode: 'BUN',        parameterName: 'Blood Urea Nitrogen', formula: 'UREA * 0.467',           dependsOnTestCodes: ['UREA'],                 displayOrder: 8 },
-  ];
-
-  for (const dp of derivedParams) {
-    const testId = testMap[dp.testCode];
-    if (!testId) {
-      console.warn(`    WARN: test code "${dp.testCode}" not found for derived param -- skipping`);
-      continue;
-    }
-    await prisma.derivedParameter.upsert({
-      where: { testId },
-      create: {
-        testId,
-        parameterName:      dp.parameterName,
-        formula:            dp.formula,
-        dependsOnTestCodes: dp.dependsOnTestCodes,
-        displayOrder:       dp.displayOrder,
-      },
-      update: {
-        parameterName:      dp.parameterName,
-        formula:            dp.formula,
-        dependsOnTestCodes: dp.dependsOnTestCodes,
-        displayOrder:       dp.displayOrder,
-      },
-    });
-  }
-
-  console.log(`  [5/8] DerivedParameters: ${derivedParams.length} upserted (GLOB, AGRATIO, IBIL, VLDL, LDL, CHOL/HDL, TGL/HDL, BUN)`);
-
-  // =========================================================================
-  // 6. INTERPRETATION TEMPLATES
-  // =========================================================================
-
-  async function seedInterpretation(
-    testCode: string,
-    items: {
-      minValue?: number | null;
-      maxValue?: number | null;
-      interpretationText: string;
-      displayOrder: number;
-    }[]
-  ) {
-    const testId = testMap[testCode];
-    if (!testId) {
-      console.warn(`    WARN: test code "${testCode}" not found for interpretations -- skipping`);
-      return;
-    }
-    // Delete existing, then recreate (idempotent)
-    await prisma.interpretationTemplate.deleteMany({ where: { testId } });
-    if (items.length > 0) {
-      await prisma.interpretationTemplate.createMany({
-        data: items.map(i => ({
-          testId,
-          minValue:           i.minValue ?? null,
-          maxValue:           i.maxValue ?? null,
-          interpretationText: i.interpretationText,
-          displayOrder:       i.displayOrder,
-          isActive:           true,
-        })),
-      });
-    }
-  }
-
-  // HbA1c interpretation
-  await seedInterpretation('HBA1C', [
-    { maxValue: 5.7,    interpretationText: 'Normal',                         displayOrder: 1 },
-    { minValue: 5.7, maxValue: 6.5, interpretationText: 'Pre-diabetic',      displayOrder: 2 },
-    { minValue: 6.5,    interpretationText: 'Diabetic',                       displayOrder: 3 },
-  ]);
-
-  // BSF interpretation
-  await seedInterpretation('BSF', [
-    { maxValue: 100,     interpretationText: 'Normal',                        displayOrder: 1 },
-    { minValue: 100, maxValue: 126, interpretationText: 'Impaired Fasting Glucose', displayOrder: 2 },
-    { minValue: 126,     interpretationText: 'Diabetic Range',                displayOrder: 3 },
-  ]);
-
-  // Total Cholesterol interpretation
-  await seedInterpretation('CHOL', [
-    { maxValue: 200,     interpretationText: 'Desirable',                     displayOrder: 1 },
-    { minValue: 200, maxValue: 240, interpretationText: 'Borderline High',    displayOrder: 2 },
-    { minValue: 240,     interpretationText: 'High',                          displayOrder: 3 },
-  ]);
-
-  // TSH interpretation
-  await seedInterpretation('TSH', [
-    { maxValue: 0.27,    interpretationText: 'Low (Hyperthyroid)',            displayOrder: 1 },
-    { minValue: 0.27, maxValue: 4.2, interpretationText: 'Normal (Euthyroid)', displayOrder: 2 },
-    { minValue: 4.2,     interpretationText: 'High (Hypothyroid)',            displayOrder: 3 },
-  ]);
-
-  // Vitamin D interpretation
-  await seedInterpretation('VITD', [
-    { maxValue: 20,      interpretationText: 'Deficient',                     displayOrder: 1 },
-    { minValue: 20, maxValue: 30, interpretationText: 'Insufficient',         displayOrder: 2 },
-    { minValue: 30, maxValue: 100, interpretationText: 'Sufficient',          displayOrder: 3 },
-    { minValue: 100,     interpretationText: 'Potentially Toxic',             displayOrder: 4 },
-  ]);
-
-  console.log('  [6/8] InterpretationTemplates: 5 tests configured (HbA1c, BSF, Cholesterol, TSH, Vitamin D)');
-
-  // =========================================================================
-  // 7. SIGNING DOCTOR + SIGNING RULES
-  // =========================================================================
-
-  // SigningDoctor has no @unique on name, so use findFirst + create/update
   let signingDoctor = await prisma.signingDoctor.findFirst({
-    where: { name: 'Dr. Aruna' },
+    where: { registrationNumber: 'KMC-12345' },
   });
 
   if (!signingDoctor) {
-    signingDoctor = await prisma.signingDoctor.create({
-      data: {
-        name:               'Dr. Aruna',
-        degrees:            'MBBS, MD (Pathology)',
-        designation:        'Consultant Pathologist',
-        registrationNumber: 'KMC-12345',
-        signatureImagePath: '/signatures/dr-aruna.png',
-        isActive:           true,
-      },
-    });
-    console.log('  [7/8] SigningDoctor: Dr. Aruna created');
+    signingDoctor = await prisma.signingDoctor.create({ data: signingDoctorData });
+    console.log(`  Created signing doctor: ${signingDoctor.name}`);
   } else {
     signingDoctor = await prisma.signingDoctor.update({
       where: { id: signingDoctor.id },
-      data: {
-        degrees:            'MBBS, MD (Pathology)',
-        designation:        'Consultant Pathologist',
-        registrationNumber: 'KMC-12345',
-        signatureImagePath: '/signatures/dr-aruna.png',
-        isActive:           true,
-      },
+      data: signingDoctorData,
     });
-    console.log('  [7/8] SigningDoctor: Dr. Aruna updated');
+    console.log(`  Updated signing doctor: ${signingDoctor.name}`);
   }
+  console.log('');
 
-  // SigningRules: link Dr. Aruna to all departments
-  const signingDepts = ['HAEMATOLOGY', 'BIOCHEMISTRY', 'SEROLOGY', 'PATHOLOGY', 'MICROBIOLOGY', 'RADIOLOGY'];
-  for (const deptName of signingDepts) {
-    const departmentId = deptMap[deptName];
-    if (!departmentId) continue;
+  // ═══ SECTION 5: SIGNING RULES ═══
+
+  console.log('[4/N] Upserting signing rules...');
+
+  const signingDepts = [
+    { dept: deptHaem, order: 1 },
+    { dept: deptBiochem, order: 2 },
+    { dept: deptSerology, order: 3 },
+    { dept: deptMicro, order: 4 },
+    { dept: deptPath, order: 5 },
+    // RADIOLOGY skipped — no signing rule
+  ];
+
+  for (const { dept, order } of signingDepts) {
     await prisma.signingRule.upsert({
       where: {
         departmentId_signingDoctorId: {
-          departmentId,
+          departmentId: dept.id,
           signingDoctorId: signingDoctor.id,
         },
       },
       create: {
-        departmentId,
-        signingDoctorId:     signingDoctor.id,
-        displayOrder:        1,
-        showLabInchargeNote: deptName === 'HAEMATOLOGY' || deptName === 'BIOCHEMISTRY',
-        isActive:            true,
+        departmentId: dept.id,
+        signingDoctorId: signingDoctor.id,
+        displayOrder: order,
+        isActive: true,
       },
       update: {
-        displayOrder:        1,
-        showLabInchargeNote: deptName === 'HAEMATOLOGY' || deptName === 'BIOCHEMISTRY',
-        isActive:            true,
+        displayOrder: order,
+        isActive: true,
       },
     });
+    console.log(`  Signing rule: ${dept.name} -> ${signingDoctor.name}`);
   }
-  console.log(`        SigningRules: ${signingDepts.length} dept rules upserted (incl. RADIOLOGY)`);
+  console.log('');
 
-  // =========================================================================
-  // 8. STOCK ITEMS (requires an existing branch)
-  // =========================================================================
+  // ═══ SECTION 6: HAEMATOLOGY TESTS ═══
 
-  const branch = await prisma.branch.findFirst({ where: { isActive: true } });
-  if (branch) {
-    const stockItemsData = [
-      { name: 'EDTA Tubes (2 mL)',       unit: 'pcs', reorderLevel: 50 },
-      { name: 'Plain Tubes (5 mL)',       unit: 'pcs', reorderLevel: 50 },
-      { name: 'Citrate Tubes (2.7 mL)',   unit: 'pcs', reorderLevel: 30 },
-      { name: 'Fluoride Tubes (2 mL)',    unit: 'pcs', reorderLevel: 30 },
-      { name: 'Urine Containers',         unit: 'pcs', reorderLevel: 40 },
-      { name: 'Lancets',                  unit: 'pcs', reorderLevel: 100 },
-      { name: 'Cotton Swabs',             unit: 'pcs', reorderLevel: 200 },
-      { name: 'Glass Slides',             unit: 'pcs', reorderLevel: 100 },
-      { name: 'Cover Slips',              unit: 'pcs', reorderLevel: 100 },
-      { name: 'Stool Containers',         unit: 'pcs', reorderLevel: 30 },
-      { name: 'Blood Culture Bottles',    unit: 'pcs', reorderLevel: 20 },
-      { name: 'Sputum Containers',        unit: 'pcs', reorderLevel: 20 },
-      { name: 'Swab Sticks (Sterile)',    unit: 'pcs', reorderLevel: 50 },
-      { name: 'Vacutainer Needles',       unit: 'pcs', reorderLevel: 100 },
-      { name: 'Tourniquets',              unit: 'pcs', reorderLevel: 10 },
-    ];
+  console.log('[5/N] Upserting HAEMATOLOGY tests...');
+  const H = deptHaem.id; // shorthand for haematology department ID
 
-    let stockCreated = 0;
-    for (const si of stockItemsData) {
-      const existing = await prisma.stockItem.findFirst({
-        where: { name: si.name, branchId: branch.id },
-      });
-      if (!existing) {
-        await prisma.stockItem.create({
-          data: {
-            name:            si.name,
-            unit:            si.unit,
-            currentQuantity: 0,
-            reorderLevel:    si.reorderLevel,
-            branchId:        branch.id,
-            isActive:        true,
-          },
-        });
-        stockCreated++;
-      }
+  // ─── 6a: Standalone haematology tests ───
+
+  await upsertTests([
+    { code: 'HB',       name: 'Haemoglobin',                priceInPaise: 15000,  departmentId: H, sampleType: 'EDTA_BLOOD',    method: 'Colorimetric',          referenceMin: 12,   referenceMax: 17,   referenceUnit: 'g/dL',        displayOrder: 1  },
+    { code: 'AEC',      name: 'Absolute Eosinophil Count',   priceInPaise: 10000,  departmentId: H, sampleType: 'EDTA_BLOOD',    method: 'Counting Chamber',      referenceMin: 40,   referenceMax: 440,  referenceUnit: 'cells/cumm',  displayOrder: 2  },
+    { code: 'ESR',      name: 'ESR',                         priceInPaise: 20000,  departmentId: H, sampleType: 'CITRATE_BLOOD', method: 'Westergren',            referenceMin: 0,    referenceMax: 20,   referenceUnit: 'mm/hr',       displayOrder: 3  },
+    { code: 'PLT',      name: 'Platelet Count',              priceInPaise: 20000,  departmentId: H, sampleType: 'EDTA_BLOOD',    method: 'Impedance',             referenceMin: 1.5,  referenceMax: 4.0,  referenceUnit: 'lakhs/cumm',  displayOrder: 4  },
+    { code: 'BT_CT',    name: 'Bleeding Time & Clotting Time', priceInPaise: 10000, departmentId: H, sampleType: 'CAPILLARY',    method: 'Duke Method',                                                                             displayOrder: 5  },
+    { code: 'APTT',     name: 'APTT',                        priceInPaise: 60000,  departmentId: H, sampleType: 'CITRATE_BLOOD', method: 'Coagulometry',          referenceMin: 25,   referenceMax: 36,   referenceUnit: 'sec',         displayOrder: 6  },
+    { code: 'PT_INR',   name: 'PT with INR',                 priceInPaise: 60000,  departmentId: H, sampleType: 'CITRATE_BLOOD', method: 'Coagulometry',                                                                             displayOrder: 7  },
+    { code: 'PT_TEST',  name: 'Prothrombin Time',            priceInPaise: 80000,  departmentId: H, sampleType: 'CITRATE_BLOOD', method: 'Coagulometry',          referenceMin: 11,   referenceMax: 15,   referenceUnit: 'sec',         displayOrder: 8  },
+    { code: 'D_DIMER',  name: 'D-Dimer',                     priceInPaise: 150000, departmentId: H, sampleType: 'CITRATE_BLOOD', method: 'ELISA',                 referenceMin: null,  referenceMax: 500,  referenceUnit: 'ng/mL',       displayOrder: 9  },
+    { code: 'ICT',      name: 'Indirect Coombs Test',        priceInPaise: 60000,  departmentId: H, sampleType: 'EDTA_BLOOD',    method: 'Tube Method',                                                   referenceText: 'Negative',    displayOrder: 10 },
+    { code: 'BGRP',     name: 'Blood Group & Rh Typing',     priceInPaise: 15000,  departmentId: H, sampleType: 'EDTA_BLOOD',    method: 'Slide/Tube Method',                                             referenceText: 'A/B/AB/O, Rh+/-', displayOrder: 11 },
+    { code: 'PS',       name: 'Peripheral Smear',            priceInPaise: 30000,  departmentId: H, sampleType: 'EDTA_BLOOD',    method: 'Leishman Stain',                                                referenceText: 'See Comments', displayOrder: 12 },
+    { code: 'HB_ELEC',  name: 'Hb Electrophoresis',          priceInPaise: 150000, departmentId: H, sampleType: 'EDTA_BLOOD',    method: 'Capillary Electrophoresis',                                     referenceText: 'See Report',  displayOrder: 13 },
+  ]);
+
+  console.log('  Standalone haematology tests: 13 upserted');
+
+  // ─── 6b: Panel LabTests (isPanel: true) ───
+
+  await upsertTests([
+    { code: 'CBP',          name: 'Complete Blood Picture', priceInPaise: 30000,  departmentId: H, sampleType: 'EDTA_BLOOD',    isPanel: true, displayOrder: 100 },
+    { code: 'HAEMOGRAM',    name: 'Haemogram',              priceInPaise: 50000,  departmentId: H, sampleType: 'EDTA_BLOOD',    isPanel: true, displayOrder: 101 },
+    { code: 'APTT_PT_PNL',  name: 'APTT & PT Test',         priceInPaise: 100000, departmentId: H, sampleType: 'CITRATE_BLOOD', isPanel: true, displayOrder: 102 },
+  ]);
+
+  console.log('  Panel haematology tests: 3 upserted');
+
+  // ─── 6c: CBP sub-tests (price 0, all EDTA_BLOOD) ───
+
+  await upsertTests([
+    { code: 'WBC',    name: 'Total WBC Count', priceInPaise: 0, departmentId: H, sampleType: 'EDTA_BLOOD', method: 'Impedance',          referenceMin: 4000,  referenceMax: 11000, referenceUnit: '/cumm',    displayOrder: 20 },
+    { code: 'RBC',    name: 'RBC Count',        priceInPaise: 0, departmentId: H, sampleType: 'EDTA_BLOOD', method: 'Impedance',          referenceMin: 4.5,   referenceMax: 5.5,   referenceUnit: 'mill/cumm', displayOrder: 21 },
+    { code: 'HCT',    name: 'PCV / Hematocrit', priceInPaise: 0, departmentId: H, sampleType: 'EDTA_BLOOD', method: 'Calculated',         referenceMin: 36,    referenceMax: 50,    referenceUnit: '%',        displayOrder: 22 },
+    { code: 'MCV',    name: 'MCV',              priceInPaise: 0, departmentId: H, sampleType: 'EDTA_BLOOD', method: 'Calculated',         referenceMin: 80,    referenceMax: 100,   referenceUnit: 'fL',       displayOrder: 23 },
+    { code: 'MCH',    name: 'MCH',              priceInPaise: 0, departmentId: H, sampleType: 'EDTA_BLOOD', method: 'Calculated',         referenceMin: 27,    referenceMax: 32,    referenceUnit: 'pg',       displayOrder: 24 },
+    { code: 'MCHC',   name: 'MCHC',             priceInPaise: 0, departmentId: H, sampleType: 'EDTA_BLOOD', method: 'Calculated',         referenceMin: 32,    referenceMax: 36,    referenceUnit: 'g/dL',     displayOrder: 25 },
+    { code: 'RDW',    name: 'RDW',              priceInPaise: 0, departmentId: H, sampleType: 'EDTA_BLOOD', method: 'Calculated',         referenceMin: 11.5,  referenceMax: 14.5,  referenceUnit: '%',        displayOrder: 26 },
+    { code: 'MPV',    name: 'MPV',              priceInPaise: 0, departmentId: H, sampleType: 'EDTA_BLOOD', method: 'Calculated',         referenceMin: 7.5,   referenceMax: 11.5,  referenceUnit: 'fL',       displayOrder: 27 },
+    { code: 'NEUTRO', name: 'Neutrophils',      priceInPaise: 0, departmentId: H, sampleType: 'EDTA_BLOOD', method: 'Automated/Manual DC', referenceMin: 40,    referenceMax: 70,    referenceUnit: '%',        displayOrder: 28 },
+    { code: 'LYMPH',  name: 'Lymphocytes',      priceInPaise: 0, departmentId: H, sampleType: 'EDTA_BLOOD', method: 'Automated/Manual DC', referenceMin: 20,    referenceMax: 40,    referenceUnit: '%',        displayOrder: 29 },
+    { code: 'EOSINO', name: 'Eosinophils',      priceInPaise: 0, departmentId: H, sampleType: 'EDTA_BLOOD', method: 'Automated/Manual DC', referenceMin: 1,     referenceMax: 6,     referenceUnit: '%',        displayOrder: 30 },
+    { code: 'MONO',   name: 'Monocytes',        priceInPaise: 0, departmentId: H, sampleType: 'EDTA_BLOOD', method: 'Automated/Manual DC', referenceMin: 2,     referenceMax: 8,     referenceUnit: '%',        displayOrder: 31 },
+    { code: 'BASO',   name: 'Basophils',        priceInPaise: 0, departmentId: H, sampleType: 'EDTA_BLOOD', method: 'Automated/Manual DC', referenceMin: 0,     referenceMax: 1,     referenceUnit: '%',        displayOrder: 32 },
+  ]);
+
+  console.log('  CBP sub-tests: 13 upserted');
+  console.log('');
+
+  // ═══ SECTION 7: BIOCHEMISTRY TESTS ═══
+
+  console.log('[6/N] Upserting BIOCHEMISTRY tests...');
+  const B = deptBiochem.id; // shorthand for biochemistry department ID
+
+  // ─── 7a: Sugar tests ───
+
+  await upsertTests([
+    { code: 'FBS',             name: 'Fasting Blood Sugar',  priceInPaise: 5000,  departmentId: B, sampleType: 'FLUORIDE_BLOOD', method: 'GOD-POD', referenceMin: 70,  referenceMax: 100,  referenceUnit: 'mg/dL',    displayOrder: 1 },
+    { code: 'PLBS',            name: 'Post Lunch Blood Sugar', priceInPaise: 6000, departmentId: B, sampleType: 'FLUORIDE_BLOOD', method: 'GOD-POD', referenceMin: 70,  referenceMax: 140,  referenceUnit: 'mg/dL',    displayOrder: 2 },
+    { code: 'RBS',             name: 'Random Blood Sugar',   priceInPaise: 5000,  departmentId: B, sampleType: 'FLUORIDE_BLOOD', method: 'GOD-POD', referenceMin: 70,  referenceMax: 140,  referenceUnit: 'mg/dL',    displayOrder: 3 },
+    { code: 'HBA1C',           name: 'HbA1c',                priceInPaise: 50000, departmentId: B, sampleType: 'EDTA_BLOOD',     method: 'HPLC',    referenceMin: 4.0, referenceMax: 5.6,  referenceUnit: '%',        displayOrder: 4 },
+    { code: 'FASTING_INSULIN', name: 'Fasting Insulin',      priceInPaise: 80000, departmentId: B, sampleType: 'SERUM',          method: 'ECLIA',   referenceMin: 2.6, referenceMax: 24.9, referenceUnit: 'uIU/mL',   displayOrder: 5 },
+  ]);
+
+  console.log('  Sugar tests: 5 upserted');
+
+  // ─── 7b: Renal tests ───
+
+  await upsertTests([
+    { code: 'BLOOD_UREA',   name: 'Blood Urea',        priceInPaise: 30000,  departmentId: B, sampleType: 'SERUM', method: 'Urease-GLDH',        referenceMin: 15,  referenceMax: 40,   referenceUnit: 'mg/dL',         displayOrder: 10 },
+    { code: 'S_CREATININE', name: 'Serum Creatinine',   priceInPaise: 30000,  departmentId: B, sampleType: 'SERUM', method: 'Jaffe Modified',     referenceMin: 0.6, referenceMax: 1.2,  referenceUnit: 'mg/dL',         displayOrder: 11 },
+    { code: 'EGFR',         name: 'eGFR',               priceInPaise: 100000, departmentId: B, sampleType: 'SERUM', method: 'CKD-EPI Calculation', referenceMin: 90,  referenceMax: null, referenceUnit: 'mL/min/1.73m2', displayOrder: 12 },
+    { code: 'S_URIC_ACID',  name: 'Serum Uric Acid',    priceInPaise: 30000,  departmentId: B, sampleType: 'SERUM', method: 'Uricase',            referenceMin: 3.5, referenceMax: 7.2,  referenceUnit: 'mg/dL',         displayOrder: 13 },
+  ]);
+
+  console.log('  Renal tests: 4 upserted');
+
+  // ─── 7c: Liver standalone (priced) ───
+
+  await upsertTests([
+    { code: 'T_BILIRUBIN',    name: 'Total Bilirubin',        priceInPaise: 30000, departmentId: B, sampleType: 'SERUM', method: 'Diazo',          referenceMin: 0.1, referenceMax: 1.2, referenceUnit: 'mg/dL', displayOrder: 20 },
+    { code: 'SGOT',            name: 'SGOT / AST',             priceInPaise: 30000, departmentId: B, sampleType: 'SERUM', method: 'IFCC Modified',  referenceMin: 5,   referenceMax: 40,  referenceUnit: 'U/L',   displayOrder: 21 },
+    { code: 'S_ALBUMIN',       name: 'Serum Albumin',          priceInPaise: 30000, departmentId: B, sampleType: 'SERUM', method: 'BCG',            referenceMin: 3.5, referenceMax: 5.5, referenceUnit: 'g/dL',  displayOrder: 22 },
+    { code: 'S_BILIRUBIN_PNL', name: 'Serum Bilirubin (Panel)', priceInPaise: 50000, departmentId: B, sampleType: 'SERUM', isPanel: true,                                                                        displayOrder: 120 },
+  ]);
+
+  console.log('  Liver standalone tests: 4 upserted');
+
+  // ─── 7d: Liver sub-tests (price 0) ───
+
+  await upsertTests([
+    { code: 'D_BILIRUBIN', name: 'Direct Bilirubin',       priceInPaise: 0, departmentId: B, sampleType: 'SERUM', method: 'Diazo',         referenceMin: 0.0, referenceMax: 0.3,  referenceUnit: 'mg/dL', displayOrder: 23 },
+    { code: 'I_BILIRUBIN', name: 'Indirect Bilirubin',     priceInPaise: 0, departmentId: B, sampleType: 'SERUM', method: 'Calculated',    referenceMin: 0.1, referenceMax: 0.9,  referenceUnit: 'mg/dL', displayOrder: 24 },
+    { code: 'SGPT',        name: 'SGPT / ALT',             priceInPaise: 0, departmentId: B, sampleType: 'SERUM', method: 'IFCC Modified', referenceMin: 7,   referenceMax: 56,   referenceUnit: 'U/L',   displayOrder: 25 },
+    { code: 'ALP',         name: 'Alkaline Phosphatase',   priceInPaise: 0, departmentId: B, sampleType: 'SERUM', method: 'pNPP IFCC',    referenceMin: 44,  referenceMax: 147,  referenceUnit: 'U/L',   displayOrder: 26 },
+    { code: 'GGT',         name: 'Gamma GT',               priceInPaise: 0, departmentId: B, sampleType: 'SERUM', method: 'IFCC',          referenceMin: 0,   referenceMax: 55,   referenceUnit: 'U/L',   displayOrder: 27 },
+    { code: 'T_PROTEIN',   name: 'Total Protein',          priceInPaise: 0, departmentId: B, sampleType: 'SERUM', method: 'Biuret',        referenceMin: 6.0, referenceMax: 8.3,  referenceUnit: 'g/dL',  displayOrder: 28 },
+    { code: 'GLOBULIN',    name: 'Globulin',               priceInPaise: 0, departmentId: B, sampleType: 'SERUM', method: 'Calculated',    referenceMin: 2.0, referenceMax: 3.5,  referenceUnit: 'g/dL',  displayOrder: 29 },
+    { code: 'AG_RATIO',    name: 'A/G Ratio',              priceInPaise: 0, departmentId: B, sampleType: 'SERUM', method: 'Calculated',    referenceMin: 1.0, referenceMax: 2.0,                          displayOrder: 30 },
+  ]);
+
+  console.log('  Liver sub-tests: 8 upserted');
+
+  // ─── 7e: Lipid sub-tests (price 0) + standalone cholesterol ───
+
+  await upsertTests([
+    { code: 'T_CHOLESTEROL', name: 'Total Cholesterol',              priceInPaise: 0, departmentId: B, sampleType: 'SERUM', method: 'CHOD-PAP',   referenceMin: null, referenceMax: 200,  referenceUnit: 'mg/dL', displayOrder: 35 },
+    { code: 'TGL',           name: 'Triglycerides',                  priceInPaise: 0, departmentId: B, sampleType: 'SERUM', method: 'GPO-PAP',    referenceMin: null, referenceMax: 150,  referenceUnit: 'mg/dL', displayOrder: 36 },
+    { code: 'HDL',           name: 'HDL Cholesterol',                priceInPaise: 0, departmentId: B, sampleType: 'SERUM', method: 'Direct',     referenceMin: 40,   referenceMax: 60,   referenceUnit: 'mg/dL', displayOrder: 37 },
+    { code: 'LDL',           name: 'LDL Cholesterol',                priceInPaise: 0, departmentId: B, sampleType: 'SERUM', method: 'Friedewald', referenceMin: null, referenceMax: 100,  referenceUnit: 'mg/dL', displayOrder: 38 },
+    { code: 'VLDL',          name: 'VLDL Cholesterol',               priceInPaise: 0, departmentId: B, sampleType: 'SERUM', method: 'Calculated', referenceMin: 5,    referenceMax: 40,   referenceUnit: 'mg/dL', displayOrder: 39 },
+    { code: 'CHOL_HDL_R',   name: 'Chol/HDL Ratio',                 priceInPaise: 0, departmentId: B, sampleType: 'SERUM', method: 'Calculated', referenceMin: null, referenceMax: 5.0,                          displayOrder: 40 },
+    { code: 'S_CHOLESTEROL', name: 'Serum Cholesterol (standalone)', priceInPaise: 30000, departmentId: B, sampleType: 'SERUM', method: 'CHOD-PAP', referenceMin: null, referenceMax: 200, referenceUnit: 'mg/dL', displayOrder: 41 },
+  ]);
+
+  console.log('  Lipid sub-tests + standalone: 7 upserted');
+
+  // ─── 7f: Electrolytes (priced individually) + chloride sub-test ───
+
+  await upsertTests([
+    { code: 'S_SODIUM',     name: 'Serum Sodium',      priceInPaise: 30000, departmentId: B, sampleType: 'SERUM', method: 'ISE',           referenceMin: 136,  referenceMax: 145,  referenceUnit: 'mEq/L', displayOrder: 45 },
+    { code: 'S_POTASSIUM',  name: 'Serum Potassium',   priceInPaise: 30000, departmentId: B, sampleType: 'SERUM', method: 'ISE',           referenceMin: 3.5,  referenceMax: 5.1,  referenceUnit: 'mEq/L', displayOrder: 46 },
+    { code: 'S_CALCIUM',    name: 'Serum Calcium',     priceInPaise: 40000, departmentId: B, sampleType: 'SERUM', method: 'Arsenazo III',  referenceMin: 8.5,  referenceMax: 10.5, referenceUnit: 'mg/dL', displayOrder: 47 },
+    { code: 'S_PHOSPHORUS', name: 'Serum Phosphorus',  priceInPaise: 40000, departmentId: B, sampleType: 'SERUM', method: 'Molybdate UV',  referenceMin: 2.5,  referenceMax: 4.5,  referenceUnit: 'mg/dL', displayOrder: 48 },
+    { code: 'S_MAGNESIUM',  name: 'Serum Magnesium',   priceInPaise: 50000, departmentId: B, sampleType: 'SERUM', method: 'Xylidyl Blue',  referenceMin: 1.7,  referenceMax: 2.2,  referenceUnit: 'mg/dL', displayOrder: 49 },
+    { code: 'CHLORIDE',     name: 'Chloride',          priceInPaise: 0,     departmentId: B, sampleType: 'SERUM', method: 'ISE',           referenceMin: 98,   referenceMax: 106,  referenceUnit: 'mEq/L', displayOrder: 50 },
+  ]);
+
+  console.log('  Electrolytes: 6 upserted');
+
+  // ─── 7g: Iron tests ───
+
+  await upsertTests([
+    { code: 'S_IRON',   name: 'Serum Iron', priceInPaise: 80000, departmentId: B, sampleType: 'SERUM', method: 'Ferrozine', referenceMin: 60,  referenceMax: 170, referenceUnit: 'mcg/dL', displayOrder: 55 },
+    { code: 'FERRITIN', name: 'Ferritin',   priceInPaise: 80000, departmentId: B, sampleType: 'SERUM', method: 'ECLIA',     referenceMin: 12,  referenceMax: 300, referenceUnit: 'ng/mL',  displayOrder: 56 },
+    { code: 'TIBC',     name: 'TIBC',       priceInPaise: 0,     departmentId: B, sampleType: 'SERUM', method: 'Ferrozine', referenceMin: 250, referenceMax: 370, referenceUnit: 'mcg/dL', displayOrder: 57 },
+  ]);
+
+  console.log('  Iron tests: 3 upserted');
+
+  // ─── 7h: Thyroid tests ───
+
+  await upsertTests([
+    { code: 'TSH',      name: 'TSH',                   priceInPaise: 30000,  departmentId: B, sampleType: 'SERUM', method: 'ECLIA', referenceMin: 0.27, referenceMax: 4.2,  referenceUnit: 'uIU/mL', displayOrder: 60 },
+    { code: 'T3',       name: 'T3',                    priceInPaise: 40000,  departmentId: B, sampleType: 'SERUM', method: 'ECLIA', referenceMin: 0.8,  referenceMax: 2.0,  referenceUnit: 'ng/mL',  displayOrder: 61 },
+    { code: 'T4',       name: 'T4',                    priceInPaise: 0,      departmentId: B, sampleType: 'SERUM', method: 'ECLIA', referenceMin: 5.1,  referenceMax: 14.1, referenceUnit: 'mcg/dL', displayOrder: 62 },
+    { code: 'FT3',      name: 'Free T3',               priceInPaise: 40000,  departmentId: B, sampleType: 'SERUM', method: 'ECLIA', referenceMin: 2.0,  referenceMax: 4.4,  referenceUnit: 'pg/mL',  displayOrder: 63 },
+    { code: 'FT4',      name: 'Free T4',               priceInPaise: 40000,  departmentId: B, sampleType: 'SERUM', method: 'ECLIA', referenceMin: 0.93, referenceMax: 1.7,  referenceUnit: 'ng/dL',  displayOrder: 64 },
+    { code: 'ANTI_TPO', name: 'Anti-TPO Antibodies',   priceInPaise: 120000, departmentId: B, sampleType: 'SERUM', method: 'ECLIA', referenceMin: null, referenceMax: 34,   referenceUnit: 'IU/mL',  displayOrder: 65 },
+  ]);
+
+  console.log('  Thyroid tests: 6 upserted');
+
+  // ─── 7i: Hormones ───
+
+  await upsertTests([
+    { code: 'FSH',          name: 'FSH',                 priceInPaise: 60000,  departmentId: B, sampleType: 'SERUM', method: 'ECLIA',                                                       referenceText: 'See report (varies by phase)', displayOrder: 70 },
+    { code: 'LH',           name: 'LH',                  priceInPaise: 60000,  departmentId: B, sampleType: 'SERUM', method: 'ECLIA',                                                       referenceText: 'See report (varies by phase)', displayOrder: 71 },
+    { code: 'PROLACTIN',    name: 'Prolactin',            priceInPaise: 60000,  departmentId: B, sampleType: 'SERUM', method: 'ECLIA', referenceMin: 4.79, referenceMax: 23.3, referenceUnit: 'ng/mL',                                 displayOrder: 72 },
+    { code: 'ESTRADIOL',    name: 'Estradiol (E2)',       priceInPaise: 80000,  departmentId: B, sampleType: 'SERUM', method: 'ECLIA',                                                       referenceText: 'See report (varies by phase)', displayOrder: 73 },
+    { code: 'PROGESTERONE', name: 'Progesterone',         priceInPaise: 80000,  departmentId: B, sampleType: 'SERUM', method: 'ECLIA',                                                       referenceText: 'See report (varies by phase)', displayOrder: 74 },
+    { code: 'AMH',          name: 'AMH',                  priceInPaise: 250000, departmentId: B, sampleType: 'SERUM', method: 'ECLIA', referenceMin: 1.0,  referenceMax: 3.5,  referenceUnit: 'ng/mL',                                 displayOrder: 75 },
+    { code: 'TESTOSTERONE',  name: 'Serum Testosterone',  priceInPaise: 80000,  departmentId: B, sampleType: 'SERUM', method: 'ECLIA',                                                       referenceText: 'See report (M/F differs)',     displayOrder: 76 },
+    { code: 'CORTISOL',     name: 'Serum Cortisol',       priceInPaise: 70000,  departmentId: B, sampleType: 'SERUM', method: 'ECLIA', referenceMin: 6.2,  referenceMax: 19.4, referenceUnit: 'mcg/dL',                                displayOrder: 77 },
+  ]);
+
+  console.log('  Hormones: 8 upserted');
+
+  // ─── 7j: Tumor markers ───
+
+  await upsertTests([
+    { code: 'AFP',   name: 'AFP',       priceInPaise: 90000,  departmentId: B, sampleType: 'SERUM', method: 'ECLIA', referenceMin: null, referenceMax: 7.0,                    referenceUnit: 'ng/mL',                                   displayOrder: 80 },
+    { code: 'CEA',   name: 'CEA',       priceInPaise: 100000, departmentId: B, sampleType: 'SERUM', method: 'ECLIA', referenceMin: null, referenceMax: 5.0,                    referenceUnit: 'ng/mL',                                   displayOrder: 81 },
+    { code: 'CA125', name: 'CA-125',    priceInPaise: 120000, departmentId: B, sampleType: 'SERUM', method: 'ECLIA', referenceMin: null, referenceMax: 35,                     referenceUnit: 'U/mL',                                    displayOrder: 82 },
+    { code: 'CA199', name: 'CA 19.9',   priceInPaise: 120000, departmentId: B, sampleType: 'SERUM', method: 'ECLIA', referenceMin: null, referenceMax: 37,                     referenceUnit: 'U/mL',                                    displayOrder: 83 },
+    { code: 'BHCG',  name: 'Beta HCG',  priceInPaise: 90000,  departmentId: B, sampleType: 'SERUM', method: 'ECLIA',                                                          referenceText: 'See report (varies by trimester)',        displayOrder: 84 },
+  ]);
+
+  console.log('  Tumor markers: 5 upserted');
+
+  // ─── 7k: Vitamins ───
+
+  await upsertTests([
+    { code: 'FOLIC_ACID', name: 'Folic Acid',   priceInPaise: 80000,  departmentId: B, sampleType: 'SERUM', method: 'ECLIA', referenceMin: 4.6,  referenceMax: 18.7, referenceUnit: 'ng/mL', displayOrder: 85 },
+    { code: 'VIT_B12',    name: 'Vitamin B12',   priceInPaise: 100000, departmentId: B, sampleType: 'SERUM', method: 'ECLIA', referenceMin: 211,  referenceMax: 946,  referenceUnit: 'pg/mL', displayOrder: 86 },
+    { code: 'VIT_D3',     name: 'Vitamin D3',    priceInPaise: 150000, departmentId: B, sampleType: 'SERUM', method: 'ECLIA', referenceMin: 30,   referenceMax: 100,  referenceUnit: 'ng/mL', displayOrder: 87 },
+  ]);
+
+  console.log('  Vitamins: 3 upserted');
+
+  // ─── 7l: Cardiac tests ───
+
+  await upsertTests([
+    { code: 'TROPONIN_I', name: 'Troponin I',         priceInPaise: 150000, departmentId: B, sampleType: 'SERUM', method: 'ECLIA',            referenceMin: null, referenceMax: 0.04, referenceUnit: 'ng/mL', displayOrder: 90 },
+    { code: 'TROPONIN_T', name: 'Troponin T',         priceInPaise: 150000, departmentId: B, sampleType: 'SERUM', method: 'ECLIA',            referenceMin: null, referenceMax: 14,   referenceUnit: 'pg/mL', displayOrder: 91 },
+    { code: 'LDH',        name: 'LDH',                priceInPaise: 60000,  departmentId: B, sampleType: 'SERUM', method: 'IFCC',             referenceMin: 140,  referenceMax: 280,  referenceUnit: 'U/L',   displayOrder: 92 },
+    { code: 'CK',         name: 'Creatinine Kinase',  priceInPaise: 30000,  departmentId: B, sampleType: 'SERUM', method: 'IFCC',             referenceMin: 24,   referenceMax: 195,  referenceUnit: 'U/L',   displayOrder: 93 },
+    { code: 'CPK',        name: 'CPK (CK-MB)',        priceInPaise: 40000,  departmentId: B, sampleType: 'SERUM', method: 'Immunoinhibition', referenceMin: 0,    referenceMax: 25,   referenceUnit: 'U/L',   displayOrder: 94 },
+  ]);
+
+  console.log('  Cardiac tests: 5 upserted');
+
+  // ─── 7m: Enzymes ───
+
+  await upsertTests([
+    { code: 'S_AMYLASE', name: 'Serum Amylase', priceInPaise: 80000, departmentId: B, sampleType: 'SERUM', method: 'CNPG3',                  referenceMin: 28, referenceMax: 100, referenceUnit: 'U/L', displayOrder: 95 },
+    { code: 'S_LIPASE',  name: 'Serum Lipase',  priceInPaise: 80000, departmentId: B, sampleType: 'SERUM', method: 'Enzymatic Colorimetric', referenceMin: 0,  referenceMax: 60,  referenceUnit: 'U/L', displayOrder: 96 },
+  ]);
+
+  console.log('  Enzymes: 2 upserted');
+
+  // ─── 7n: Other biochemistry tests ───
+
+  await upsertTests([
+    { code: 'IPTH',           name: 'Intact PTH',              priceInPaise: 80000,  departmentId: B, sampleType: 'SERUM', method: 'ECLIA',                referenceMin: 15,   referenceMax: 65,    referenceUnit: 'pg/mL',                                    displayOrder: 100 },
+    { code: 'S_COPPER',       name: 'Serum Copper',            priceInPaise: 160000, departmentId: B, sampleType: 'SERUM', method: 'Colorimetric',         referenceMin: 70,   referenceMax: 175,   referenceUnit: 'mcg/dL',                                   displayOrder: 101 },
+    { code: 'HOMOCYSTEINE',   name: 'Serum Homocysteine',      priceInPaise: 150000, departmentId: B, sampleType: 'SERUM', method: 'ECLIA',                referenceMin: 5,    referenceMax: 15,    referenceUnit: 'umol/L',                                   displayOrder: 102 },
+    { code: 'S_IGE',          name: 'Serum IgE',               priceInPaise: 80000,  departmentId: B, sampleType: 'SERUM', method: 'ECLIA',                referenceMin: null,  referenceMax: 100,   referenceUnit: 'IU/mL',                                    displayOrder: 103 },
+    { code: 'S_IGG',          name: 'Serum IgG',               priceInPaise: 120000, departmentId: B, sampleType: 'SERUM', method: 'Turbidimetry',         referenceMin: 700,   referenceMax: 1600,  referenceUnit: 'mg/dL',                                    displayOrder: 104 },
+    { code: 'S_IGM',          name: 'Serum IgM',               priceInPaise: 120000, departmentId: B, sampleType: 'SERUM', method: 'Turbidimetry',         referenceMin: 40,    referenceMax: 230,   referenceUnit: 'mg/dL',                                    displayOrder: 105 },
+    { code: 'CHOLINESTERASE', name: 'Serum Cholinesterase',    priceInPaise: 40000,  departmentId: B, sampleType: 'SERUM', method: 'Butyrylthiocholine',   referenceMin: 5320,  referenceMax: 12920, referenceUnit: 'U/L',                                      displayOrder: 106 },
+    { code: 'UPCR',           name: 'UPCR',                   priceInPaise: 80000,  departmentId: B, sampleType: 'URINE', method: 'Calculated',           referenceMin: null,  referenceMax: 0.2,   referenceUnit: 'mg/mg',                                    displayOrder: 107 },
+    { code: 'VALPROATE',      name: 'Serum Valproate Level',   priceInPaise: 155000, departmentId: B, sampleType: 'SERUM', method: 'Immunoassay',          referenceMin: 50,    referenceMax: 100,   referenceUnit: 'mcg/mL',                                   displayOrder: 108 },
+    { code: 'KETONE_BODIES',  name: 'Ketone Bodies',           priceInPaise: 20000,  departmentId: B, sampleType: 'URINE', method: 'Dipstick',                                                      referenceText: 'Nil',                                      displayOrder: 109 },
+  ]);
+
+  console.log('  Other biochemistry tests: 10 upserted');
+
+  // ─── 7o: GTT sub-tests (0 price, FLUORIDE_BLOOD) ───
+
+  await upsertTests([
+    { code: 'GTT_F',    name: 'GTT - Fasting', priceInPaise: 0, departmentId: B, sampleType: 'FLUORIDE_BLOOD', method: 'GOD-POD', referenceMin: 70,   referenceMax: 100, referenceUnit: 'mg/dL', displayOrder: 110 },
+    { code: 'GTT_1HR',  name: 'GTT - 1 Hour',  priceInPaise: 0, departmentId: B, sampleType: 'FLUORIDE_BLOOD', method: 'GOD-POD', referenceMin: null,  referenceMax: 180, referenceUnit: 'mg/dL', displayOrder: 111 },
+    { code: 'GTT_2HR',  name: 'GTT - 2 Hours', priceInPaise: 0, departmentId: B, sampleType: 'FLUORIDE_BLOOD', method: 'GOD-POD', referenceMin: 70,    referenceMax: 140, referenceUnit: 'mg/dL', displayOrder: 112 },
+  ]);
+
+  console.log('  GTT sub-tests: 3 upserted');
+
+  // ─── 7p: Prenatal sub-tests (0 price, SERUM) ───
+
+  await upsertTests([
+    { code: 'PAPP_A', name: 'PAPP-A',                priceInPaise: 0, departmentId: B, sampleType: 'SERUM', method: 'ECLIA', referenceText: 'See report (MoM)', displayOrder: 113 },
+    { code: 'UE3',    name: 'Unconjugated Estriol',  priceInPaise: 0, departmentId: B, sampleType: 'SERUM', method: 'ECLIA', referenceText: 'See report (MoM)', displayOrder: 114 },
+  ]);
+
+  console.log('  Prenatal sub-tests: 2 upserted');
+
+  // ─── 7q: RFT sub-test (0 price) ───
+
+  await upsertTests([
+    { code: 'BUN', name: 'Blood Urea Nitrogen', priceInPaise: 0, departmentId: B, sampleType: 'SERUM', method: 'Calculated', referenceMin: 7, referenceMax: 20, referenceUnit: 'mg/dL', displayOrder: 115 },
+  ]);
+
+  console.log('  RFT sub-test: 1 upserted');
+
+  // ─── 7r: Biochemistry Panels (isPanel: true) ───
+
+  await upsertTests([
+    { code: 'FBS_PLBS',        name: 'Fasting & Post Lunch Blood Sugar',    priceInPaise: 10000,  departmentId: B, sampleType: 'FLUORIDE_BLOOD', isPanel: true, displayOrder: 130 },
+    { code: 'GTT',             name: 'Glucose Tolerance Test',              priceInPaise: 40000,  departmentId: B, sampleType: 'FLUORIDE_BLOOD', isPanel: true, displayOrder: 131 },
+    { code: 'OGTT',            name: 'Oral Glucose Tolerance Test',         priceInPaise: 30000,  departmentId: B, sampleType: 'FLUORIDE_BLOOD', isPanel: true, displayOrder: 132 },
+    { code: 'DIABETIC_CARD',   name: 'Diabetic Card',                       priceInPaise: 50000,  departmentId: B, sampleType: 'SERUM',          isPanel: true, displayOrder: 133 },
+    { code: 'KFT',             name: 'Kidney Function Test',                priceInPaise: 60000,  departmentId: B, sampleType: 'SERUM',          isPanel: true, displayOrder: 134 },
+    { code: 'RFT',             name: 'Renal Function Test',                 priceInPaise: 90000,  departmentId: B, sampleType: 'SERUM',          isPanel: true, displayOrder: 135 },
+    { code: 'LFT',             name: 'Liver Function Test',                 priceInPaise: 50000,  departmentId: B, sampleType: 'SERUM',          isPanel: true, displayOrder: 136 },
+    { code: 'LFT_GGT',        name: 'Liver Function Test with GGT',        priceInPaise: 80000,  departmentId: B, sampleType: 'SERUM',          isPanel: true, displayOrder: 137 },
+    { code: 'LIPID',           name: 'Lipid Profile',                       priceInPaise: 50000,  departmentId: B, sampleType: 'SERUM',          isPanel: true, displayOrder: 138 },
+    { code: 'S_ELECTROLYTES',  name: 'Serum Electrolytes',                  priceInPaise: 50000,  departmentId: B, sampleType: 'SERUM',          isPanel: true, displayOrder: 139 },
+    { code: 'IRON_PROFILE',    name: 'Iron Profile',                        priceInPaise: 200000, departmentId: B, sampleType: 'SERUM',          isPanel: true, displayOrder: 140 },
+    { code: 'THYROID_PROFILE', name: 'Thyroid Profile (T3, T4, TSH)',       priceInPaise: 50000,  departmentId: B, sampleType: 'SERUM',          isPanel: true, displayOrder: 141 },
+    { code: 'FREE_THYROID',    name: 'Free Thyroid Profile (FT3, FT4, TSH)', priceInPaise: 90000, departmentId: B, sampleType: 'SERUM',         isPanel: true, displayOrder: 142 },
+    { code: 'ANTI_THYROID_AB', name: 'Anti-Thyroid Antibodies',             priceInPaise: 190000, departmentId: B, sampleType: 'SERUM',          isPanel: true, displayOrder: 143 },
+    { code: 'FSH_LH_PRL',     name: 'FSH, LH, Prolactin',                 priceInPaise: 200000, departmentId: B, sampleType: 'SERUM',          isPanel: true, displayOrder: 144 },
+    { code: 'VIT_D3_B12',     name: 'Vitamin D3 & B12',                    priceInPaise: 250000, departmentId: B, sampleType: 'SERUM',          isPanel: true, displayOrder: 145 },
+    { code: 'DIABETIC_PROFILE', name: 'Diabetic Profile',                   priceInPaise: 150000, departmentId: B, sampleType: 'SERUM',          isPanel: true, displayOrder: 146 },
+    { code: 'DOUBLE_MARKER',  name: 'Double Marker',                        priceInPaise: 250000, departmentId: B, sampleType: 'SERUM',          isPanel: true, displayOrder: 147 },
+    { code: 'TRIPLE_MARKER',  name: 'Triple Marker',                        priceInPaise: 300000, departmentId: B, sampleType: 'SERUM',          isPanel: true, displayOrder: 148 },
+    { code: 'FEVER_PKG',      name: 'Fever Package',                        priceInPaise: 60000,  departmentId: B, sampleType: 'SERUM',          isPanel: true, displayOrder: 149 },
+  ]);
+
+  console.log('  Biochemistry panels: 20 upserted');
+  console.log('');
+
+  // ═══ SECTION 8: SEROLOGY TESTS ═══
+
+  console.log('[7/N] Upserting SEROLOGY tests...');
+  const S = deptSerology.id;
+
+  // ─── 8a: Serology individual tests ───
+
+  await upsertTests([
+    { code: 'HIV',        name: 'HIV I & II',             priceInPaise: 50000,   departmentId: S, sampleType: 'SERUM', method: 'ECLIA',        referenceText: 'Non-Reactive',  displayOrder: 1  },
+    { code: 'HBSAG',      name: 'HBsAg',                  priceInPaise: 30000,   departmentId: S, sampleType: 'SERUM', method: 'ECLIA',        referenceText: 'Non-Reactive',  displayOrder: 2  },
+    { code: 'HCV',        name: 'Anti-HCV',               priceInPaise: 80000,   departmentId: S, sampleType: 'SERUM', method: 'ECLIA',        referenceText: 'Non-Reactive',  displayOrder: 3  },
+    { code: 'VDRL',       name: 'VDRL',                   priceInPaise: 30000,   departmentId: S, sampleType: 'SERUM', method: 'RPR',          referenceText: 'Non-Reactive',  displayOrder: 4  },
+    { code: 'CRP',        name: 'CRP',                    priceInPaise: 40000,   departmentId: S, sampleType: 'SERUM', method: 'Turbidimetry', referenceMin: null, referenceMax: 6,    referenceUnit: 'mg/L',  displayOrder: 5  },
+    { code: 'HSCRP',      name: 'hs-CRP',                 priceInPaise: 120000,  departmentId: S, sampleType: 'SERUM', method: 'Turbidimetry', referenceMin: null, referenceMax: 3,    referenceUnit: 'mg/L',  displayOrder: 6  },
+    { code: 'ASO',        name: 'ASO Titre',              priceInPaise: 80000,   departmentId: S, sampleType: 'SERUM', method: 'Turbidimetry', referenceMin: null, referenceMax: 200,  referenceUnit: 'IU/mL', displayOrder: 7  },
+    { code: 'RF',         name: 'Rheumatoid Factor',      priceInPaise: 50000,   departmentId: S, sampleType: 'SERUM', method: 'Turbidimetry', referenceMin: null, referenceMax: 20,   referenceUnit: 'IU/mL', displayOrder: 8  },
+    { code: 'ANA',        name: 'ANA (IF)',                priceInPaise: 150000,  departmentId: S, sampleType: 'SERUM', method: 'IFA',          referenceText: 'Negative',      displayOrder: 9  },
+    { code: 'ANA_PROFILE', name: 'ANA Profile',           priceInPaise: 400000,  departmentId: S, sampleType: 'SERUM', method: 'Immunoblot',   referenceText: 'See Report',    displayOrder: 10 },
+    { code: 'ANCA',       name: 'ANCA',                   priceInPaise: 350000,  departmentId: S, sampleType: 'SERUM', method: 'IFA',          referenceText: 'Negative',      displayOrder: 11 },
+    { code: 'ANTI_CCP',   name: 'Anti-CCP',               priceInPaise: 300000,  departmentId: S, sampleType: 'SERUM', method: 'ECLIA',        referenceMin: null, referenceMax: 20, referenceUnit: 'U/mL', displayOrder: 12 },
+    { code: 'ANTI_DS_DNA', name: 'Anti ds-DNA',           priceInPaise: 380000,  departmentId: S, sampleType: 'SERUM', method: 'ECLIA',        referenceMin: null, referenceMax: 30, referenceUnit: 'IU/mL', displayOrder: 13 },
+    { code: 'ANTI_GBM',   name: 'Anti-GBM',               priceInPaise: 350000,  departmentId: S, sampleType: 'SERUM', method: 'ELISA',        referenceText: 'Negative',      displayOrder: 14 },
+    { code: 'RUBELLA_IGG', name: 'Rubella IgG',           priceInPaise: 150000,  departmentId: S, sampleType: 'SERUM', method: 'ECLIA',        referenceText: '>10 IU/mL = Immune', displayOrder: 15 },
+    { code: 'C3',         name: 'Complement C3',           priceInPaise: 80000,   departmentId: S, sampleType: 'SERUM', method: 'Nephelometry', referenceMin: 90,  referenceMax: 180, referenceUnit: 'mg/dL', displayOrder: 16 },
+    { code: 'C4',         name: 'Complement C4',           priceInPaise: 80000,   departmentId: S, sampleType: 'SERUM', method: 'Nephelometry', referenceMin: 10,  referenceMax: 40,  referenceUnit: 'mg/dL', displayOrder: 17 },
+    { code: 'CHIKUNGUNYA', name: 'Chikungunya IgM',       priceInPaise: 200000,  departmentId: S, sampleType: 'SERUM', method: 'ELISA',        referenceText: 'Negative',      displayOrder: 18 },
+    { code: 'HIV_WB',     name: 'HIV Western Blot',        priceInPaise: 250000,  departmentId: S, sampleType: 'SERUM', method: 'Western Blot', referenceText: 'Negative',     displayOrder: 19 },
+    { code: 'S_TYPHUS',   name: 'Scrub Typhus IgM',       priceInPaise: 300000,  departmentId: S, sampleType: 'SERUM', method: 'ELISA',        referenceText: 'Negative',      displayOrder: 20 },
+    { code: 'TG_IGA',     name: 'Anti-tTG IgA',           priceInPaise: 300000,  departmentId: S, sampleType: 'SERUM', method: 'ELISA',        referenceMin: null, referenceMax: 20, referenceUnit: 'U/mL', displayOrder: 21 },
+    { code: 'TTG_DGP',    name: 'tTG + DGP Combo',        priceInPaise: 600000,  departmentId: S, sampleType: 'SERUM', method: 'ELISA',        referenceText: 'Negative',      displayOrder: 22 },
+    { code: 'TTG_IGA',    name: 'tTG IgA',                priceInPaise: 350000,  departmentId: S, sampleType: 'SERUM', method: 'ELISA',        referenceMin: null, referenceMax: 20, referenceUnit: 'U/mL', displayOrder: 23 },
+    { code: 'TTG_IGG',    name: 'tTG IgG',                priceInPaise: 400000,  departmentId: S, sampleType: 'SERUM', method: 'ELISA',        referenceMin: null, referenceMax: 20, referenceUnit: 'U/mL', displayOrder: 24 },
+    { code: 'DENGUE_NS1', name: 'Dengue NS1 Antigen',     priceInPaise: 100000,  departmentId: S, sampleType: 'SERUM', method: 'ELISA',        referenceText: 'Negative',      displayOrder: 25 },
+    { code: 'ALLERGIC_PROFILE', name: 'Allergic Profile (Total IgE + Panel)', priceInPaise: 1200000, departmentId: S, sampleType: 'SERUM', method: 'Immunoblot', referenceText: 'See Report', displayOrder: 26 },
+  ]);
+
+  console.log('  Serology individual: 26 upserted');
+
+  // ─── 8b: Dengue sub-tests (price 0) ───
+
+  await upsertTests([
+    { code: 'DENGUE_IGM', name: 'Dengue IgM', priceInPaise: 0, departmentId: S, sampleType: 'SERUM', method: 'ELISA', referenceText: 'Negative', displayOrder: 30 },
+    { code: 'DENGUE_IGG', name: 'Dengue IgG', priceInPaise: 0, departmentId: S, sampleType: 'SERUM', method: 'ELISA', referenceText: 'Negative', displayOrder: 31 },
+  ]);
+
+  // ─── 8c: Widal sub-tests (price 0) ───
+
+  await upsertTests([
+    { code: 'WIDAL_TO', name: 'Salmonella typhi O',  priceInPaise: 0, departmentId: S, sampleType: 'SERUM', method: 'Tube Agglutination', referenceText: '<1:80', displayOrder: 35 },
+    { code: 'WIDAL_TH', name: 'Salmonella typhi H',  priceInPaise: 0, departmentId: S, sampleType: 'SERUM', method: 'Tube Agglutination', referenceText: '<1:80', displayOrder: 36 },
+    { code: 'WIDAL_AO', name: 'Salmonella para A O', priceInPaise: 0, departmentId: S, sampleType: 'SERUM', method: 'Tube Agglutination', referenceText: '<1:80', displayOrder: 37 },
+    { code: 'WIDAL_AH', name: 'Salmonella para A H', priceInPaise: 0, departmentId: S, sampleType: 'SERUM', method: 'Tube Agglutination', referenceText: '<1:80', displayOrder: 38 },
+    { code: 'WIDAL_BO', name: 'Salmonella para B O', priceInPaise: 0, departmentId: S, sampleType: 'SERUM', method: 'Tube Agglutination', referenceText: '<1:80', displayOrder: 39 },
+    { code: 'WIDAL_BH', name: 'Salmonella para B H', priceInPaise: 0, departmentId: S, sampleType: 'SERUM', method: 'Tube Agglutination', referenceText: '<1:80', displayOrder: 40 },
+  ]);
+
+  console.log('  Serology sub-tests (Dengue + Widal): 8 upserted');
+
+  // ─── 8d: Serology panels ───
+
+  await upsertTests([
+    { code: 'HIV_HBSAG',           name: 'HIV + HBsAg',                  priceInPaise: 80000,  departmentId: S, sampleType: 'SERUM', isPanel: true, displayOrder: 50 },
+    { code: 'HIV_HBSAG_HCV',       name: 'HIV + HBsAg + HCV',            priceInPaise: 130000, departmentId: S, sampleType: 'SERUM', isPanel: true, displayOrder: 51 },
+    { code: 'HIV_HBSAG_VDRL',      name: 'HIV + HBsAg + VDRL',           priceInPaise: 110000, departmentId: S, sampleType: 'SERUM', isPanel: true, displayOrder: 52 },
+    { code: 'HIV_HBSAG_VDRL_HCV',  name: 'HIV + HBsAg + VDRL + HCV',     priceInPaise: 160000, departmentId: S, sampleType: 'SERUM', isPanel: true, displayOrder: 53 },
+    { code: 'DENGUE_PNL',          name: 'Dengue Panel (NS1 + IgM + IgG)', priceInPaise: 150000, departmentId: S, sampleType: 'SERUM', isPanel: true, displayOrder: 54 },
+    { code: 'WIDAL',               name: 'Widal Test',                    priceInPaise: 30000,  departmentId: S, sampleType: 'SERUM', isPanel: true, displayOrder: 55 },
+    { code: 'WIDAL_MP',            name: 'Widal + Malaria Parasite',      priceInPaise: 60000,  departmentId: S, sampleType: 'SERUM', isPanel: true, displayOrder: 56 },
+    { code: 'ANC_PROFILE',         name: 'ANC Profile',                   priceInPaise: 200000, departmentId: S, sampleType: 'SERUM', isPanel: true, displayOrder: 57 },
+  ]);
+
+  console.log('  Serology panels: 8 upserted');
+  console.log('');
+
+  // ═══ SECTION 9: MICROBIOLOGY TESTS ═══
+
+  console.log('[8/N] Upserting MICROBIOLOGY tests...');
+  const M = deptMicro.id;
+
+  await upsertTests([
+    { code: 'BLOOD_CS',    name: 'Blood Culture & Sensitivity',   priceInPaise: 100000, departmentId: M, sampleType: 'BLOOD',  method: 'Automated BacT/ALERT', referenceText: 'No Growth / See Report', displayOrder: 1 },
+    { code: 'URINE_CS',    name: 'Urine Culture & Sensitivity',   priceInPaise: 50000,  departmentId: M, sampleType: 'URINE',  method: 'Culture & ABST',       referenceText: 'No Growth / See Report', displayOrder: 2 },
+    { code: 'PUS_CS',      name: 'Pus Culture & Sensitivity',     priceInPaise: 50000,  departmentId: M, sampleType: 'PUS',    method: 'Culture & ABST',       referenceText: 'No Growth / See Report', displayOrder: 3 },
+    { code: 'SPUTUM_AFB',  name: 'Sputum for AFB',                priceInPaise: 70000,  departmentId: M, sampleType: 'SPUTUM', method: 'ZN Stain',             referenceText: 'Negative for AFB',       displayOrder: 4 },
+    { code: 'MALARIA',     name: 'Malaria Parasite (Smear)',      priceInPaise: 30000,  departmentId: M, sampleType: 'EDTA_BLOOD', method: 'Thick & Thin Smear', referenceText: 'No Parasites Seen',    displayOrder: 5 },
+    { code: 'MANTOUX',     name: 'Mantoux Test',                  priceInPaise: 30000,  departmentId: M, sampleType: 'INTRADERMAL', method: 'Tuberculin PPD',    referenceText: 'See Report (48-72 hrs)', displayOrder: 6 },
+    { code: 'RT_PCR',      name: 'RT-PCR',                        priceInPaise: 100000, departmentId: M, sampleType: 'SWAB',   method: 'Real-Time PCR',         referenceText: 'Not Detected',           displayOrder: 7 },
+  ]);
+
+  console.log('  Microbiology: 7 upserted');
+  console.log('');
+
+  // ═══ SECTION 10: PATHOLOGY TESTS ═══
+
+  console.log('[9/N] Upserting PATHOLOGY tests...');
+  const P = deptPath.id;
+
+  // ─── 10a: UPT (standalone) ───
+
+  await upsertTest({ code: 'UPT', name: 'Urine Pregnancy Test', priceInPaise: 10000, departmentId: P, sampleType: 'URINE', method: 'Immunochromatography', referenceText: 'Negative / Positive', displayOrder: 1 });
+
+  // ─── 10b: CUE panel + 15 sub-tests ───
+
+  await upsertTest({ code: 'CUE', name: 'Complete Urine Examination', priceInPaise: 15000, departmentId: P, sampleType: 'URINE', isPanel: true, displayOrder: 10 });
+
+  await upsertTests([
+    { code: 'CUE_COLOR',      name: 'Colour',              priceInPaise: 0, departmentId: P, sampleType: 'URINE', referenceText: 'Pale Yellow',           displayOrder: 11 },
+    { code: 'CUE_APPEAR',     name: 'Appearance',           priceInPaise: 0, departmentId: P, sampleType: 'URINE', referenceText: 'Clear',                 displayOrder: 12 },
+    { code: 'CUE_PH',         name: 'pH',                   priceInPaise: 0, departmentId: P, sampleType: 'URINE', referenceMin: 4.5, referenceMax: 8.0,   displayOrder: 13 },
+    { code: 'CUE_SG',         name: 'Specific Gravity',     priceInPaise: 0, departmentId: P, sampleType: 'URINE', referenceMin: 1.005, referenceMax: 1.030, displayOrder: 14 },
+    { code: 'CUE_PROTEIN',    name: 'Protein',              priceInPaise: 0, departmentId: P, sampleType: 'URINE', referenceText: 'Nil',                   displayOrder: 15 },
+    { code: 'CUE_GLUCOSE',    name: 'Glucose',              priceInPaise: 0, departmentId: P, sampleType: 'URINE', referenceText: 'Nil',                   displayOrder: 16 },
+    { code: 'CUE_KETONES',    name: 'Ketones',              priceInPaise: 0, departmentId: P, sampleType: 'URINE', referenceText: 'Nil',                   displayOrder: 17 },
+    { code: 'CUE_BILIRUBIN',  name: 'Bilirubin',            priceInPaise: 0, departmentId: P, sampleType: 'URINE', referenceText: 'Nil',                   displayOrder: 18 },
+    { code: 'CUE_BLOOD',      name: 'Blood',                priceInPaise: 0, departmentId: P, sampleType: 'URINE', referenceText: 'Nil',                   displayOrder: 19 },
+    { code: 'CUE_WBC',        name: 'WBC (Pus Cells)',      priceInPaise: 0, departmentId: P, sampleType: 'URINE', referenceText: '0-5 /HPF',              displayOrder: 20 },
+    { code: 'CUE_RBC',        name: 'RBC',                  priceInPaise: 0, departmentId: P, sampleType: 'URINE', referenceText: '0-2 /HPF',              displayOrder: 21 },
+    { code: 'CUE_EPI',        name: 'Epithelial Cells',     priceInPaise: 0, departmentId: P, sampleType: 'URINE', referenceText: 'Few',                   displayOrder: 22 },
+    { code: 'CUE_CASTS',      name: 'Casts',                priceInPaise: 0, departmentId: P, sampleType: 'URINE', referenceText: 'Nil',                   displayOrder: 23 },
+    { code: 'CUE_CRYSTALS',   name: 'Crystals',             priceInPaise: 0, departmentId: P, sampleType: 'URINE', referenceText: 'Nil',                   displayOrder: 24 },
+    { code: 'CUE_BACTERIA',   name: 'Bacteria',             priceInPaise: 0, departmentId: P, sampleType: 'URINE', referenceText: 'Nil',                   displayOrder: 25 },
+  ]);
+
+  console.log('  CUE panel + 15 sub-tests upserted');
+
+  // ─── 10c: CSE panel + 7 sub-tests ───
+
+  await upsertTest({ code: 'CSE', name: 'Complete Stool Examination', priceInPaise: 40000, departmentId: P, sampleType: 'STOOL', isPanel: true, displayOrder: 30 });
+
+  await upsertTests([
+    { code: 'CSE_COLOR',       name: 'Colour',        priceInPaise: 0, departmentId: P, sampleType: 'STOOL', referenceText: 'Yellow-Brown',       displayOrder: 31 },
+    { code: 'CSE_CONSISTENCY', name: 'Consistency',    priceInPaise: 0, departmentId: P, sampleType: 'STOOL', referenceText: 'Formed',             displayOrder: 32 },
+    { code: 'CSE_OCCULT',      name: 'Occult Blood',   priceInPaise: 0, departmentId: P, sampleType: 'STOOL', referenceText: 'Negative',           displayOrder: 33 },
+    { code: 'CSE_OVA',         name: 'Ova',            priceInPaise: 0, departmentId: P, sampleType: 'STOOL', referenceText: 'Not Seen',           displayOrder: 34 },
+    { code: 'CSE_CYSTS',       name: 'Cysts',          priceInPaise: 0, departmentId: P, sampleType: 'STOOL', referenceText: 'Not Seen',           displayOrder: 35 },
+    { code: 'CSE_WBC',         name: 'WBC (Pus Cells)', priceInPaise: 0, departmentId: P, sampleType: 'STOOL', referenceText: '0-5 /HPF',          displayOrder: 36 },
+    { code: 'CSE_RBC',         name: 'RBC',            priceInPaise: 0, departmentId: P, sampleType: 'STOOL', referenceText: 'Nil',                displayOrder: 37 },
+  ]);
+
+  console.log('  CSE panel + 7 sub-tests upserted');
+
+  // ─── 10d: Semen Analysis panel + 7 sub-tests ───
+
+  await upsertTest({ code: 'SEMEN_ANALYSIS', name: 'Semen Analysis', priceInPaise: 50000, departmentId: P, sampleType: 'SEMEN', isPanel: true, displayOrder: 40 });
+
+  await upsertTests([
+    { code: 'SEMEN_VOL',       name: 'Volume',              priceInPaise: 0, departmentId: P, sampleType: 'SEMEN', referenceMin: 1.5, referenceMax: 5.0, referenceUnit: 'mL', displayOrder: 41 },
+    { code: 'SEMEN_COLOR',     name: 'Colour',              priceInPaise: 0, departmentId: P, sampleType: 'SEMEN', referenceText: 'Greyish White',    displayOrder: 42 },
+    { code: 'SEMEN_PH',        name: 'pH',                  priceInPaise: 0, departmentId: P, sampleType: 'SEMEN', referenceMin: 7.2, referenceMax: 8.0,                      displayOrder: 43 },
+    { code: 'SEMEN_COUNT',     name: 'Sperm Count',         priceInPaise: 0, departmentId: P, sampleType: 'SEMEN', referenceMin: 15, referenceMax: null, referenceUnit: 'million/mL', referenceText: '>=15', displayOrder: 44 },
+    { code: 'SEMEN_MOTILITY',  name: 'Total Motility',      priceInPaise: 0, departmentId: P, sampleType: 'SEMEN', referenceMin: 40, referenceMax: null, referenceUnit: '%', referenceText: '>=40%', displayOrder: 45 },
+    { code: 'SEMEN_PROG_MOT',  name: 'Progressive Motility', priceInPaise: 0, departmentId: P, sampleType: 'SEMEN', referenceMin: 32, referenceMax: null, referenceUnit: '%', referenceText: '>=32%', displayOrder: 46 },
+    { code: 'SEMEN_MORPHOLOGY', name: 'Normal Morphology',  priceInPaise: 0, departmentId: P, sampleType: 'SEMEN', referenceMin: 4, referenceMax: null, referenceUnit: '%', referenceText: '>=4%', displayOrder: 47 },
+  ]);
+
+  console.log('  Semen Analysis panel + 7 sub-tests upserted');
+  console.log('');
+
+  // ═══ SECTION 11: RADIOLOGY TESTS ═══
+
+  console.log('[10/N] Upserting RADIOLOGY tests...');
+  const R = deptRadio.id;
+  const RAD = { departmentId: R, referenceText: 'See Report' as string | null };
+
+  // ─── 11a: X-Ray (~42 tests) ───
+
+  await upsertTests([
+    { code: 'XRAY_CHEST_PA',        name: 'X-Ray Chest PA',           priceInPaise: 30000,  ...RAD, displayOrder: 1  },
+    { code: 'XRAY_CHEST_AP',        name: 'X-Ray Chest AP',           priceInPaise: 30000,  ...RAD, displayOrder: 2  },
+    { code: 'XRAY_CHEST_LAT',       name: 'X-Ray Chest Lateral',      priceInPaise: 35000,  ...RAD, displayOrder: 3  },
+    { code: 'XRAY_KUB',             name: 'X-Ray KUB',                priceInPaise: 40000,  ...RAD, displayOrder: 4  },
+    { code: 'XRAY_ABDOMEN_ERECT',   name: 'X-Ray Abdomen Erect',      priceInPaise: 40000,  ...RAD, displayOrder: 5  },
+    { code: 'XRAY_SKULL_AP_LAT',    name: 'X-Ray Skull AP/LAT',       priceInPaise: 50000,  ...RAD, displayOrder: 6  },
+    { code: 'XRAY_PNS',             name: 'X-Ray PNS (OM View)',      priceInPaise: 40000,  ...RAD, displayOrder: 7  },
+    { code: 'XRAY_NASAL_BONE',      name: 'X-Ray Nasal Bone',         priceInPaise: 40000,  ...RAD, displayOrder: 8  },
+    { code: 'XRAY_MASTOID',         name: 'X-Ray Mastoid',            priceInPaise: 50000,  ...RAD, displayOrder: 9  },
+    { code: 'XRAY_MANDIBLE',        name: 'X-Ray Mandible',           priceInPaise: 40000,  ...RAD, displayOrder: 10 },
+    { code: 'XRAY_C_SPINE_AP',      name: 'X-Ray C-Spine AP',         priceInPaise: 40000,  ...RAD, displayOrder: 11 },
+    { code: 'XRAY_C_SPINE_LAT',     name: 'X-Ray C-Spine Lateral',    priceInPaise: 40000,  ...RAD, displayOrder: 12 },
+    { code: 'XRAY_D_SPINE_AP',      name: 'X-Ray D-Spine AP',         priceInPaise: 40000,  ...RAD, displayOrder: 13 },
+    { code: 'XRAY_D_SPINE_LAT',     name: 'X-Ray D-Spine Lateral',    priceInPaise: 40000,  ...RAD, displayOrder: 14 },
+    { code: 'XRAY_LS_SPINE_AP',     name: 'X-Ray LS Spine AP',        priceInPaise: 40000,  ...RAD, displayOrder: 15 },
+    { code: 'XRAY_LS_SPINE_LAT',    name: 'X-Ray LS Spine Lateral',   priceInPaise: 40000,  ...RAD, displayOrder: 16 },
+    { code: 'XRAY_SI_JOINT',        name: 'X-Ray SI Joint',           priceInPaise: 40000,  ...RAD, displayOrder: 17 },
+    { code: 'XRAY_PELVIS_AP',       name: 'X-Ray Pelvis AP',          priceInPaise: 40000,  ...RAD, displayOrder: 18 },
+    { code: 'XRAY_HIP_JOINT',       name: 'X-Ray Hip Joint',          priceInPaise: 40000,  ...RAD, displayOrder: 19 },
+    { code: 'XRAY_FEMUR',           name: 'X-Ray Femur AP/LAT',       priceInPaise: 40000,  ...RAD, displayOrder: 20 },
+    { code: 'XRAY_KNEE_AP_LAT',     name: 'X-Ray Knee AP/LAT',        priceInPaise: 30000,  ...RAD, displayOrder: 21 },
+    { code: 'XRAY_KNEE_STANDING',   name: 'X-Ray Knee (Standing)',     priceInPaise: 40000,  ...RAD, displayOrder: 22 },
+    { code: 'XRAY_TIBIA_FIBULA',    name: 'X-Ray Tibia/Fibula',       priceInPaise: 30000,  ...RAD, displayOrder: 23 },
+    { code: 'XRAY_ANKLE',           name: 'X-Ray Ankle AP/LAT',       priceInPaise: 30000,  ...RAD, displayOrder: 24 },
+    { code: 'XRAY_FOOT',            name: 'X-Ray Foot AP/OBL',        priceInPaise: 30000,  ...RAD, displayOrder: 25 },
+    { code: 'XRAY_CALCANEUM',       name: 'X-Ray Calcaneum',          priceInPaise: 30000,  ...RAD, displayOrder: 26 },
+    { code: 'XRAY_SHOULDER',        name: 'X-Ray Shoulder AP',        priceInPaise: 40000,  ...RAD, displayOrder: 27 },
+    { code: 'XRAY_CLAVICLE',        name: 'X-Ray Clavicle',           priceInPaise: 30000,  ...RAD, displayOrder: 28 },
+    { code: 'XRAY_HUMERUS',         name: 'X-Ray Humerus AP/LAT',     priceInPaise: 35000,  ...RAD, displayOrder: 29 },
+    { code: 'XRAY_ELBOW',           name: 'X-Ray Elbow AP/LAT',       priceInPaise: 30000,  ...RAD, displayOrder: 30 },
+    { code: 'XRAY_FOREARM',         name: 'X-Ray Forearm AP/LAT',     priceInPaise: 30000,  ...RAD, displayOrder: 31 },
+    { code: 'XRAY_WRIST',           name: 'X-Ray Wrist AP/LAT',       priceInPaise: 30000,  ...RAD, displayOrder: 32 },
+    { code: 'XRAY_HAND',            name: 'X-Ray Hand AP/OBL',        priceInPaise: 30000,  ...RAD, displayOrder: 33 },
+    { code: 'XRAY_SCAPULA',         name: 'X-Ray Scapula',            priceInPaise: 40000,  ...RAD, displayOrder: 34 },
+    { code: 'XRAY_RIBS',            name: 'X-Ray Ribs',               priceInPaise: 40000,  ...RAD, displayOrder: 35 },
+    { code: 'XRAY_STERNUM',         name: 'X-Ray Sternum',            priceInPaise: 40000,  ...RAD, displayOrder: 36 },
+    { code: 'XRAY_WHOLE_SPINE',     name: 'X-Ray Whole Spine',        priceInPaise: 80000,  ...RAD, displayOrder: 37 },
+    { code: 'XRAY_BOTH_KNEES_STAND', name: 'X-Ray Both Knees Standing', priceInPaise: 60000, ...RAD, displayOrder: 38 },
+    { code: 'XRAY_BARIUM_SWALLOW',  name: 'Barium Swallow',           priceInPaise: 120000, ...RAD, displayOrder: 39 },
+    { code: 'XRAY_BARIUM_MEAL',     name: 'Barium Meal',              priceInPaise: 150000, ...RAD, displayOrder: 40 },
+    { code: 'XRAY_BARIUM_ENEMA',    name: 'Barium Enema',             priceInPaise: 200000, ...RAD, displayOrder: 41 },
+    { code: 'XRAY_IVP',             name: 'IVP / IVU',                priceInPaise: 200000, ...RAD, displayOrder: 42 },
+  ]);
+
+  console.log('  X-Ray: 42 upserted');
+
+  // ─── 11b: CT scans ───
+
+  await upsertTests([
+    { code: 'CT_PNS',            name: 'CT PNS',                priceInPaise: 250000, ...RAD, displayOrder: 50 },
+    { code: 'CT_PNS_CORONAL',    name: 'CT PNS (Coronal Cuts)', priceInPaise: 250000, ...RAD, displayOrder: 51 },
+    { code: 'CT_BRAIN',          name: 'CT Brain',              priceInPaise: 220000, ...RAD, displayOrder: 52 },
+    { code: 'CT_KUB',            name: 'CT KUB',                priceInPaise: 500000, ...RAD, displayOrder: 53 },
+    { code: 'CT_HRCT_CHEST',     name: 'HRCT Chest',            priceInPaise: 500000, ...RAD, displayOrder: 54 },
+  ]);
+
+  console.log('  CT scans: 5 upserted');
+
+  // ─── 11c: USG (~27 tests) ───
+
+  await upsertTests([
+    { code: 'USG_ABDOMEN',          name: 'USG Abdomen',              priceInPaise: 100000, ...RAD, displayOrder: 60 },
+    { code: 'USG_PELVIS',           name: 'USG Pelvis',               priceInPaise: 100000, ...RAD, displayOrder: 61 },
+    { code: 'USG_ABD_PELVIS',       name: 'USG Abdomen + Pelvis',     priceInPaise: 150000, ...RAD, displayOrder: 62 },
+    { code: 'USG_OBSTETRIC',        name: 'USG Obstetric',            priceInPaise: 150000, ...RAD, displayOrder: 63 },
+    { code: 'USG_KUB',              name: 'USG KUB',                  priceInPaise: 100000, ...RAD, displayOrder: 64 },
+    { code: 'USG_NECK',             name: 'USG Neck / Thyroid',       priceInPaise: 120000, ...RAD, displayOrder: 65 },
+    { code: 'USG_BREAST',           name: 'USG Breast (Bilateral)',   priceInPaise: 150000, ...RAD, displayOrder: 66 },
+    { code: 'USG_SCROTUM',          name: 'USG Scrotum',              priceInPaise: 120000, ...RAD, displayOrder: 67 },
+    { code: 'USG_SOFT_TISSUE',      name: 'USG Soft Tissue',          priceInPaise: 100000, ...RAD, displayOrder: 68 },
+    { code: 'USG_CHEST',            name: 'USG Chest',                priceInPaise: 100000, ...RAD, displayOrder: 69 },
+    { code: 'USG_TVS',              name: 'USG Transvaginal',         priceInPaise: 150000, ...RAD, displayOrder: 70 },
+    { code: 'USG_PROSTATE',         name: 'USG Prostate (TRUS)',      priceInPaise: 150000, ...RAD, displayOrder: 71 },
+    { code: 'USG_JOINT',            name: 'USG Joint',                priceInPaise: 150000, ...RAD, displayOrder: 72 },
+    { code: 'USG_WHOLE_ABD',        name: 'USG Whole Abdomen',        priceInPaise: 150000, ...RAD, displayOrder: 73 },
+    { code: 'USG_DOPPLER_LOWER',    name: 'USG Doppler Lower Limb',   priceInPaise: 300000, ...RAD, displayOrder: 74 },
+    { code: 'USG_DOPPLER_UPPER',    name: 'USG Doppler Upper Limb',   priceInPaise: 300000, ...RAD, displayOrder: 75 },
+    { code: 'USG_CAROTID',          name: 'USG Carotid Doppler',      priceInPaise: 300000, ...RAD, displayOrder: 76 },
+    { code: 'USG_RENAL_DOPPLER',    name: 'USG Renal Doppler',        priceInPaise: 250000, ...RAD, displayOrder: 77 },
+    { code: 'USG_PORTAL_DOPPLER',   name: 'USG Portal Doppler',       priceInPaise: 250000, ...RAD, displayOrder: 78 },
+    { code: 'USG_OBS_DOPPLER',      name: 'USG Obstetric with Doppler', priceInPaise: 300000, ...RAD, displayOrder: 79 },
+    { code: 'USG_ANOMALY',          name: 'USG Anomaly Scan',         priceInPaise: 250000, ...RAD, displayOrder: 80 },
+    { code: 'USG_NT_SCAN',          name: 'USG NT Scan',              priceInPaise: 250000, ...RAD, displayOrder: 81 },
+    { code: 'USG_GROWTH',           name: 'USG Growth Scan',          priceInPaise: 200000, ...RAD, displayOrder: 82 },
+    { code: 'USG_BPP',              name: 'USG Biophysical Profile',   priceInPaise: 200000, ...RAD, displayOrder: 83 },
+    { code: 'USG_FOLLICULAR',       name: 'USG Follicular Study',     priceInPaise: 150000, ...RAD, displayOrder: 84 },
+    { code: 'USG_GUIDED_FNAC',      name: 'USG Guided FNAC',          priceInPaise: 300000, ...RAD, displayOrder: 85 },
+    { code: 'USG_3D_4D',            name: 'USG 3D/4D',                priceInPaise: 500000, ...RAD, displayOrder: 86 },
+  ]);
+
+  console.log('  USG: 27 upserted');
+
+  // ─── 11d: Procedures ───
+
+  await upsertTests([
+    { code: 'ECG',        name: 'ECG (12 Lead)',       priceInPaise: 25000,  ...RAD, displayOrder: 90 },
+    { code: 'EEG',        name: 'EEG',                 priceInPaise: 200000, ...RAD, displayOrder: 91 },
+    { code: 'ECHO_2D',    name: '2D Echocardiography', priceInPaise: 160000, ...RAD, displayOrder: 92 },
+    { code: 'PFT',        name: 'PFT / Spirometry',    priceInPaise: 150000, ...RAD, displayOrder: 93 },
+    { code: 'TMT',        name: 'Treadmill Test (TMT)', priceInPaise: 150000, ...RAD, displayOrder: 94 },
+    { code: 'ENDOSCOPY',  name: 'Upper GI Endoscopy',  priceInPaise: 300000, ...RAD, displayOrder: 95 },
+  ]);
+
+  console.log('  Procedures: 6 upserted');
+  console.log('');
+
+  // ═══ ALL TESTS UPSERTED ═══
+  const totalTests = Object.keys(T).length;
+  console.log(`  TOTAL TESTS UPSERTED: ${totalTests}`);
+  console.log('');
+
+  // ═══ SECTION 12: PANEL DEFINITIONS (PanelDefinition for report rendering) ═══
+
+  console.log('[11/N] Upserting PanelDefinitions...');
+
+  const panelDefs: Array<{ name: string; displayName: string; deptId: string; layoutType: string; showMethodColumn?: boolean; displayOrder: number }> = [
+    // HAEMATOLOGY panels
+    { name: 'CBP',              displayName: 'COMPLETE BLOOD PICTURE',      deptId: deptHaem.id,    layoutType: 'CBP',            displayOrder: 1  },
+    { name: 'HAEMOGRAM',        displayName: 'HAEMOGRAM (CBP + ESR)',       deptId: deptHaem.id,    layoutType: 'CBP',            displayOrder: 2  },
+    { name: 'APTT_PT',          displayName: 'APTT & PT TEST',              deptId: deptHaem.id,    layoutType: 'STANDARD_TABLE', displayOrder: 3  },
+    // BIOCHEMISTRY panels
+    { name: 'LFT',              displayName: 'LIVER FUNCTION TEST',         deptId: deptBiochem.id, layoutType: 'STANDARD_TABLE', showMethodColumn: true, displayOrder: 10 },
+    { name: 'LFT_GGT_PNL',     displayName: 'LIVER FUNCTION TEST WITH GGT', deptId: deptBiochem.id, layoutType: 'STANDARD_TABLE', showMethodColumn: true, displayOrder: 11 },
+    { name: 'RFT_PNL',          displayName: 'RENAL FUNCTION TEST',         deptId: deptBiochem.id, layoutType: 'STANDARD_TABLE', displayOrder: 12 },
+    { name: 'KFT_PNL',          displayName: 'KIDNEY FUNCTION TEST',        deptId: deptBiochem.id, layoutType: 'STANDARD_TABLE', displayOrder: 13 },
+    { name: 'LIPID_PNL',        displayName: 'LIPID PROFILE',               deptId: deptBiochem.id, layoutType: 'STANDARD_TABLE', displayOrder: 14 },
+    { name: 'ELECTROLYTES_PNL', displayName: 'SERUM ELECTROLYTES',          deptId: deptBiochem.id, layoutType: 'STANDARD_TABLE', displayOrder: 15 },
+    { name: 'IRON_PNL',         displayName: 'IRON PROFILE',                deptId: deptBiochem.id, layoutType: 'STANDARD_TABLE', displayOrder: 16 },
+    { name: 'THYROID_PNL',      displayName: 'THYROID PROFILE',             deptId: deptBiochem.id, layoutType: 'STANDARD_TABLE', displayOrder: 17 },
+    { name: 'FREE_THYROID_PNL', displayName: 'FREE THYROID PROFILE',        deptId: deptBiochem.id, layoutType: 'STANDARD_TABLE', displayOrder: 18 },
+    { name: 'BILIRUBIN_PNL',    displayName: 'SERUM BILIRUBIN',             deptId: deptBiochem.id, layoutType: 'STANDARD_TABLE', displayOrder: 19 },
+    { name: 'GTT_PNL',          displayName: 'GLUCOSE TOLERANCE TEST',      deptId: deptBiochem.id, layoutType: 'STANDARD_TABLE', displayOrder: 20 },
+    { name: 'FBS_PLBS_PNL',     displayName: 'FBS & PLBS',                  deptId: deptBiochem.id, layoutType: 'STANDARD_TABLE', displayOrder: 21 },
+    { name: 'DIABETIC_CARD_PNL', displayName: 'DIABETIC CARD',              deptId: deptBiochem.id, layoutType: 'STANDARD_TABLE', displayOrder: 22 },
+    { name: 'FSH_LH_PRL_PNL',  displayName: 'FSH, LH & PROLACTIN',        deptId: deptBiochem.id, layoutType: 'STANDARD_TABLE', displayOrder: 23 },
+    { name: 'VIT_D3_B12_PNL',  displayName: 'VITAMIN D3 & B12',            deptId: deptBiochem.id, layoutType: 'STANDARD_TABLE', displayOrder: 24 },
+    // SEROLOGY panels
+    { name: 'WIDAL_PNL',        displayName: 'WIDAL TEST',                  deptId: deptSerology.id, layoutType: 'WIDAL',         displayOrder: 30 },
+    { name: 'DENGUE_PNL_DEF',   displayName: 'DENGUE PANEL',               deptId: deptSerology.id, layoutType: 'STANDARD_TABLE', displayOrder: 31 },
+    { name: 'HIV_HBSAG_PNL',    displayName: 'HIV + HBsAg',                deptId: deptSerology.id, layoutType: 'STANDARD_TABLE', displayOrder: 32 },
+    // PATHOLOGY panels
+    { name: 'CUE_PNL',          displayName: 'COMPLETE URINE EXAMINATION', deptId: deptPath.id,    layoutType: 'STANDARD_TABLE', displayOrder: 40 },
+    { name: 'CSE_PNL',          displayName: 'COMPLETE STOOL EXAMINATION', deptId: deptPath.id,    layoutType: 'STANDARD_TABLE', displayOrder: 41 },
+    { name: 'SEMEN_PNL',        displayName: 'SEMEN ANALYSIS',             deptId: deptPath.id,    layoutType: 'STANDARD_TABLE', displayOrder: 42 },
+  ];
+
+  const panelMap: Record<string, string> = {};
+
+  for (const pd of panelDefs) {
+    const result = await prisma.panelDefinition.upsert({
+      where: { name: pd.name },
+      create: {
+        name: pd.name,
+        displayName: pd.displayName,
+        departmentId: pd.deptId,
+        layoutType: pd.layoutType as any,
+        showMethodColumn: pd.showMethodColumn ?? false,
+        displayOrder: pd.displayOrder,
+        isActive: true,
+      },
+      update: {
+        displayName: pd.displayName,
+        departmentId: pd.deptId,
+        layoutType: pd.layoutType as any,
+        showMethodColumn: pd.showMethodColumn ?? false,
+        displayOrder: pd.displayOrder,
+        isActive: true,
+      },
+    });
+    panelMap[pd.name] = result.id;
+  }
+
+  console.log(`  PanelDefinitions: ${panelDefs.length} upserted`);
+  console.log('');
+
+  // ═══ SECTION 13: PANEL TEST ITEMS WIRING ═══
+
+  console.log('[12/N] Wiring PanelTestItems...');
+
+  // Delete all existing panel test items (already done in safeClearCatalog, but safe to re-run)
+  await prisma.panelTestItem.deleteMany();
+
+  type PanelWire = { panel: string; code: string; order: number; subGroup?: string; indent?: number; bold?: boolean; method?: string };
+
+  const wiring: PanelWire[] = [
+    // ─── CBP ───
+    { panel: 'CBP', code: 'HB',     order: 1,  subGroup: 'MAIN' },
+    { panel: 'CBP', code: 'WBC',    order: 2,  subGroup: 'MAIN' },
+    { panel: 'CBP', code: 'RBC',    order: 3,  subGroup: 'MAIN' },
+    { panel: 'CBP', code: 'PLT',    order: 4,  subGroup: 'MAIN' },
+    { panel: 'CBP', code: 'HCT',    order: 5,  subGroup: 'MAIN' },
+    { panel: 'CBP', code: 'MCV',    order: 6,  subGroup: 'MAIN' },
+    { panel: 'CBP', code: 'MCH',    order: 7,  subGroup: 'MAIN' },
+    { panel: 'CBP', code: 'MCHC',   order: 8,  subGroup: 'MAIN' },
+    { panel: 'CBP', code: 'RDW',    order: 9,  subGroup: 'MAIN' },
+    { panel: 'CBP', code: 'MPV',    order: 10, subGroup: 'MAIN' },
+    { panel: 'CBP', code: 'NEUTRO', order: 11, subGroup: 'DIFFERENTIAL', indent: 1 },
+    { panel: 'CBP', code: 'LYMPH',  order: 12, subGroup: 'DIFFERENTIAL', indent: 1 },
+    { panel: 'CBP', code: 'EOSINO', order: 13, subGroup: 'DIFFERENTIAL', indent: 1 },
+    { panel: 'CBP', code: 'MONO',   order: 14, subGroup: 'DIFFERENTIAL', indent: 1 },
+    { panel: 'CBP', code: 'BASO',   order: 15, subGroup: 'DIFFERENTIAL', indent: 1 },
+
+    // ─── HAEMOGRAM (CBP + ESR) ───
+    { panel: 'HAEMOGRAM', code: 'HB',     order: 1,  subGroup: 'MAIN' },
+    { panel: 'HAEMOGRAM', code: 'WBC',    order: 2,  subGroup: 'MAIN' },
+    { panel: 'HAEMOGRAM', code: 'RBC',    order: 3,  subGroup: 'MAIN' },
+    { panel: 'HAEMOGRAM', code: 'PLT',    order: 4,  subGroup: 'MAIN' },
+    { panel: 'HAEMOGRAM', code: 'HCT',    order: 5,  subGroup: 'MAIN' },
+    { panel: 'HAEMOGRAM', code: 'MCV',    order: 6,  subGroup: 'MAIN' },
+    { panel: 'HAEMOGRAM', code: 'MCH',    order: 7,  subGroup: 'MAIN' },
+    { panel: 'HAEMOGRAM', code: 'MCHC',   order: 8,  subGroup: 'MAIN' },
+    { panel: 'HAEMOGRAM', code: 'RDW',    order: 9,  subGroup: 'MAIN' },
+    { panel: 'HAEMOGRAM', code: 'MPV',    order: 10, subGroup: 'MAIN' },
+    { panel: 'HAEMOGRAM', code: 'NEUTRO', order: 11, subGroup: 'DIFFERENTIAL', indent: 1 },
+    { panel: 'HAEMOGRAM', code: 'LYMPH',  order: 12, subGroup: 'DIFFERENTIAL', indent: 1 },
+    { panel: 'HAEMOGRAM', code: 'EOSINO', order: 13, subGroup: 'DIFFERENTIAL', indent: 1 },
+    { panel: 'HAEMOGRAM', code: 'MONO',   order: 14, subGroup: 'DIFFERENTIAL', indent: 1 },
+    { panel: 'HAEMOGRAM', code: 'BASO',   order: 15, subGroup: 'DIFFERENTIAL', indent: 1 },
+    { panel: 'HAEMOGRAM', code: 'ESR',    order: 16, subGroup: 'MAIN' },
+
+    // ─── APTT & PT ───
+    { panel: 'APTT_PT', code: 'APTT',    order: 1 },
+    { panel: 'APTT_PT', code: 'PT_INR',  order: 2 },
+
+    // ─── LFT ───
+    { panel: 'LFT', code: 'T_BILIRUBIN', order: 1, bold: true },
+    { panel: 'LFT', code: 'D_BILIRUBIN', order: 2, indent: 1 },
+    { panel: 'LFT', code: 'I_BILIRUBIN', order: 3, indent: 1 },
+    { panel: 'LFT', code: 'SGOT',        order: 4 },
+    { panel: 'LFT', code: 'SGPT',        order: 5 },
+    { panel: 'LFT', code: 'ALP',         order: 6 },
+    { panel: 'LFT', code: 'T_PROTEIN',   order: 7 },
+    { panel: 'LFT', code: 'S_ALBUMIN',   order: 8 },
+    { panel: 'LFT', code: 'GLOBULIN',    order: 9 },
+    { panel: 'LFT', code: 'AG_RATIO',    order: 10 },
+
+    // ─── LFT with GGT ───
+    { panel: 'LFT_GGT_PNL', code: 'T_BILIRUBIN', order: 1, bold: true },
+    { panel: 'LFT_GGT_PNL', code: 'D_BILIRUBIN', order: 2, indent: 1 },
+    { panel: 'LFT_GGT_PNL', code: 'I_BILIRUBIN', order: 3, indent: 1 },
+    { panel: 'LFT_GGT_PNL', code: 'SGOT',        order: 4 },
+    { panel: 'LFT_GGT_PNL', code: 'SGPT',        order: 5 },
+    { panel: 'LFT_GGT_PNL', code: 'ALP',         order: 6 },
+    { panel: 'LFT_GGT_PNL', code: 'GGT',         order: 7 },
+    { panel: 'LFT_GGT_PNL', code: 'T_PROTEIN',   order: 8 },
+    { panel: 'LFT_GGT_PNL', code: 'S_ALBUMIN',   order: 9 },
+    { panel: 'LFT_GGT_PNL', code: 'GLOBULIN',    order: 10 },
+    { panel: 'LFT_GGT_PNL', code: 'AG_RATIO',    order: 11 },
+
+    // ─── RFT ───
+    { panel: 'RFT_PNL', code: 'BLOOD_UREA',   order: 1 },
+    { panel: 'RFT_PNL', code: 'BUN',           order: 2 },
+    { panel: 'RFT_PNL', code: 'S_CREATININE',  order: 3 },
+    { panel: 'RFT_PNL', code: 'S_URIC_ACID',   order: 4 },
+    { panel: 'RFT_PNL', code: 'S_SODIUM',      order: 5 },
+    { panel: 'RFT_PNL', code: 'S_POTASSIUM',   order: 6 },
+    { panel: 'RFT_PNL', code: 'CHLORIDE',      order: 7 },
+
+    // ─── KFT ───
+    { panel: 'KFT_PNL', code: 'BLOOD_UREA',   order: 1 },
+    { panel: 'KFT_PNL', code: 'S_CREATININE',  order: 2 },
+    { panel: 'KFT_PNL', code: 'S_URIC_ACID',   order: 3 },
+
+    // ─── LIPID ───
+    { panel: 'LIPID_PNL', code: 'T_CHOLESTEROL', order: 1 },
+    { panel: 'LIPID_PNL', code: 'TGL',           order: 2 },
+    { panel: 'LIPID_PNL', code: 'HDL',           order: 3 },
+    { panel: 'LIPID_PNL', code: 'LDL',           order: 4 },
+    { panel: 'LIPID_PNL', code: 'VLDL',          order: 5 },
+    { panel: 'LIPID_PNL', code: 'CHOL_HDL_R',    order: 6 },
+
+    // ─── ELECTROLYTES ───
+    { panel: 'ELECTROLYTES_PNL', code: 'S_SODIUM',    order: 1 },
+    { panel: 'ELECTROLYTES_PNL', code: 'S_POTASSIUM', order: 2 },
+    { panel: 'ELECTROLYTES_PNL', code: 'CHLORIDE',    order: 3 },
+
+    // ─── IRON PROFILE ───
+    { panel: 'IRON_PNL', code: 'S_IRON',   order: 1 },
+    { panel: 'IRON_PNL', code: 'TIBC',     order: 2 },
+    { panel: 'IRON_PNL', code: 'FERRITIN', order: 3 },
+
+    // ─── THYROID PROFILE ───
+    { panel: 'THYROID_PNL', code: 'T3',  order: 1 },
+    { panel: 'THYROID_PNL', code: 'T4',  order: 2 },
+    { panel: 'THYROID_PNL', code: 'TSH', order: 3 },
+
+    // ─── FREE THYROID ───
+    { panel: 'FREE_THYROID_PNL', code: 'FT3', order: 1 },
+    { panel: 'FREE_THYROID_PNL', code: 'FT4', order: 2 },
+    { panel: 'FREE_THYROID_PNL', code: 'TSH', order: 3 },
+
+    // ─── BILIRUBIN ───
+    { panel: 'BILIRUBIN_PNL', code: 'T_BILIRUBIN', order: 1, bold: true },
+    { panel: 'BILIRUBIN_PNL', code: 'D_BILIRUBIN', order: 2, indent: 1 },
+    { panel: 'BILIRUBIN_PNL', code: 'I_BILIRUBIN', order: 3, indent: 1 },
+
+    // ─── GTT ───
+    { panel: 'GTT_PNL', code: 'GTT_F',   order: 1 },
+    { panel: 'GTT_PNL', code: 'GTT_1HR', order: 2 },
+    { panel: 'GTT_PNL', code: 'GTT_2HR', order: 3 },
+
+    // ─── FBS + PLBS ───
+    { panel: 'FBS_PLBS_PNL', code: 'FBS',  order: 1 },
+    { panel: 'FBS_PLBS_PNL', code: 'PLBS', order: 2 },
+
+    // ─── DIABETIC CARD ───
+    { panel: 'DIABETIC_CARD_PNL', code: 'FBS',   order: 1 },
+    { panel: 'DIABETIC_CARD_PNL', code: 'PLBS',  order: 2 },
+    { panel: 'DIABETIC_CARD_PNL', code: 'HBA1C', order: 3 },
+
+    // ─── FSH + LH + PRL ───
+    { panel: 'FSH_LH_PRL_PNL', code: 'FSH',      order: 1 },
+    { panel: 'FSH_LH_PRL_PNL', code: 'LH',       order: 2 },
+    { panel: 'FSH_LH_PRL_PNL', code: 'PROLACTIN', order: 3 },
+
+    // ─── VIT D3 + B12 ───
+    { panel: 'VIT_D3_B12_PNL', code: 'VIT_D3',  order: 1 },
+    { panel: 'VIT_D3_B12_PNL', code: 'VIT_B12', order: 2 },
+
+    // ─── WIDAL ───
+    { panel: 'WIDAL_PNL', code: 'WIDAL_TO', order: 1 },
+    { panel: 'WIDAL_PNL', code: 'WIDAL_TH', order: 2 },
+    { panel: 'WIDAL_PNL', code: 'WIDAL_AO', order: 3 },
+    { panel: 'WIDAL_PNL', code: 'WIDAL_AH', order: 4 },
+    { panel: 'WIDAL_PNL', code: 'WIDAL_BO', order: 5 },
+    { panel: 'WIDAL_PNL', code: 'WIDAL_BH', order: 6 },
+
+    // ─── DENGUE PANEL ───
+    { panel: 'DENGUE_PNL_DEF', code: 'DENGUE_NS1', order: 1 },
+    { panel: 'DENGUE_PNL_DEF', code: 'DENGUE_IGM', order: 2 },
+    { panel: 'DENGUE_PNL_DEF', code: 'DENGUE_IGG', order: 3 },
+
+    // ─── HIV + HBsAg ───
+    { panel: 'HIV_HBSAG_PNL', code: 'HIV',   order: 1 },
+    { panel: 'HIV_HBSAG_PNL', code: 'HBSAG', order: 2 },
+
+    // ─── CUE ───
+    { panel: 'CUE_PNL', code: 'CUE_COLOR',     order: 1  },
+    { panel: 'CUE_PNL', code: 'CUE_APPEAR',    order: 2  },
+    { panel: 'CUE_PNL', code: 'CUE_PH',        order: 3  },
+    { panel: 'CUE_PNL', code: 'CUE_SG',        order: 4  },
+    { panel: 'CUE_PNL', code: 'CUE_PROTEIN',   order: 5  },
+    { panel: 'CUE_PNL', code: 'CUE_GLUCOSE',   order: 6  },
+    { panel: 'CUE_PNL', code: 'CUE_KETONES',   order: 7  },
+    { panel: 'CUE_PNL', code: 'CUE_BILIRUBIN', order: 8  },
+    { panel: 'CUE_PNL', code: 'CUE_BLOOD',     order: 9  },
+    { panel: 'CUE_PNL', code: 'CUE_WBC',       order: 10 },
+    { panel: 'CUE_PNL', code: 'CUE_RBC',       order: 11 },
+    { panel: 'CUE_PNL', code: 'CUE_EPI',       order: 12 },
+    { panel: 'CUE_PNL', code: 'CUE_CASTS',     order: 13 },
+    { panel: 'CUE_PNL', code: 'CUE_CRYSTALS',  order: 14 },
+    { panel: 'CUE_PNL', code: 'CUE_BACTERIA',  order: 15 },
+
+    // ─── CSE ───
+    { panel: 'CSE_PNL', code: 'CSE_COLOR',       order: 1 },
+    { panel: 'CSE_PNL', code: 'CSE_CONSISTENCY', order: 2 },
+    { panel: 'CSE_PNL', code: 'CSE_OCCULT',      order: 3 },
+    { panel: 'CSE_PNL', code: 'CSE_OVA',         order: 4 },
+    { panel: 'CSE_PNL', code: 'CSE_CYSTS',       order: 5 },
+    { panel: 'CSE_PNL', code: 'CSE_WBC',         order: 6 },
+    { panel: 'CSE_PNL', code: 'CSE_RBC',         order: 7 },
+
+    // ─── SEMEN ───
+    { panel: 'SEMEN_PNL', code: 'SEMEN_VOL',       order: 1 },
+    { panel: 'SEMEN_PNL', code: 'SEMEN_COLOR',     order: 2 },
+    { panel: 'SEMEN_PNL', code: 'SEMEN_PH',        order: 3 },
+    { panel: 'SEMEN_PNL', code: 'SEMEN_COUNT',     order: 4 },
+    { panel: 'SEMEN_PNL', code: 'SEMEN_MOTILITY',  order: 5 },
+    { panel: 'SEMEN_PNL', code: 'SEMEN_PROG_MOT',  order: 6 },
+    { panel: 'SEMEN_PNL', code: 'SEMEN_MORPHOLOGY', order: 7 },
+  ];
+
+  let wiringCount = 0;
+  for (const w of wiring) {
+    const panelId = panelMap[w.panel];
+    const testId = T[w.code];
+    if (!panelId || !testId) {
+      console.warn(`  ⚠️ Skip wiring: panel=${w.panel} test=${w.code} (missing ID)`);
+      continue;
     }
-    console.log(`  [8/8] StockItems: ${stockCreated} created, ${stockItemsData.length - stockCreated} already existed (branch: "${branch.name}")`);
-  } else {
-    console.log('  [8/8] StockItems: SKIPPED (no active branch found -- run base seed first)');
+    await prisma.panelTestItem.create({
+      data: {
+        panelId,
+        testId,
+        displayOrder: w.order,
+        subGroup: w.subGroup ?? null,
+        indentLevel: w.indent ?? 0,
+        isBold: w.bold ?? false,
+        showMethod: !!w.method,
+        methodText: w.method ?? null,
+      },
+    });
+    wiringCount++;
   }
 
-  // =========================================================================
-  // SUMMARY
-  // =========================================================================
-  console.log('\n--- Seed Summary ---');
-  console.log(`  Departments:              ${Object.keys(deptMap).length}`);
-  console.log(`  Individual tests:         ${allIndividualTests.length}`);
-  console.log(`  Panel tests (billing):    ${panelLabTests.length}`);
-  console.log(`  Panel definitions:        ${totalPanels}`);
-  console.log(`  TestAgeRanges:            ${totalAgeRanges} entries (15 tests, incl. neonatal)`);
-  console.log(`  DerivedParameters:        ${derivedParams.length}`);
-  console.log(`  InterpretationTemplates:  5 tests`);
-  console.log(`  SigningDoctor:            1 (Dr. Aruna)`);
-  console.log(`  SigningRules:             ${signingDepts.length}`);
-  console.log(`  StockItems:              ${branch ? '15 (max)' : 'skipped'}`);
-  console.log('\nSeed complete!');
+  console.log(`  PanelTestItems: ${wiringCount} created`);
+  console.log('');
+
+  // ═══ SECTION 14: DERIVED PARAMETERS ═══
+
+  console.log('[13/N] Creating DerivedParameters...');
+
+  const derivedParams: Array<{ testCode: string; parameterName: string; formula: string; dependsOn: string[] }> = [
+    { testCode: 'GLOBULIN',    parameterName: 'Globulin',         formula: 'T_PROTEIN - S_ALBUMIN',                    dependsOn: ['T_PROTEIN', 'S_ALBUMIN'] },
+    { testCode: 'AG_RATIO',    parameterName: 'A/G Ratio',        formula: 'S_ALBUMIN / (T_PROTEIN - S_ALBUMIN)',       dependsOn: ['T_PROTEIN', 'S_ALBUMIN'] },
+    { testCode: 'I_BILIRUBIN', parameterName: 'Indirect Bilirubin', formula: 'T_BILIRUBIN - D_BILIRUBIN',              dependsOn: ['T_BILIRUBIN', 'D_BILIRUBIN'] },
+    { testCode: 'LDL',         parameterName: 'LDL Cholesterol',  formula: 'T_CHOLESTEROL - HDL - (TGL / 5)',           dependsOn: ['T_CHOLESTEROL', 'HDL', 'TGL'] },
+    { testCode: 'VLDL',        parameterName: 'VLDL Cholesterol', formula: 'TGL / 5',                                   dependsOn: ['TGL'] },
+    { testCode: 'CHOL_HDL_R',  parameterName: 'Chol/HDL Ratio',   formula: 'T_CHOLESTEROL / HDL',                      dependsOn: ['T_CHOLESTEROL', 'HDL'] },
+    { testCode: 'BUN',         parameterName: 'BUN',               formula: 'BLOOD_UREA * 0.467',                      dependsOn: ['BLOOD_UREA'] },
+  ];
+
+  for (const dp of derivedParams) {
+    const testId = T[dp.testCode];
+    if (!testId) { console.warn(`  ⚠️ Skip derived: ${dp.testCode} (not found)`); continue; }
+    await prisma.derivedParameter.upsert({
+      where: { testId },
+      create: { testId, parameterName: dp.parameterName, formula: dp.formula, dependsOnTestCodes: dp.dependsOn },
+      update: { parameterName: dp.parameterName, formula: dp.formula, dependsOnTestCodes: dp.dependsOn },
+    });
+  }
+
+  console.log(`  DerivedParameters: ${derivedParams.length} upserted`);
+  console.log('');
+
+  // ═══ SECTION 15: INTERPRETATION TEMPLATES ═══
+
+  console.log('[14/N] Creating InterpretationTemplates...');
+
+  // Already deleted in safeClearCatalog, create fresh
+  const interps: Array<{ testCode: string; minValue: number | null; maxValue: number | null; text: string; order: number }> = [
+    // HbA1c
+    { testCode: 'HBA1C', minValue: null,  maxValue: 5.7,  text: 'Normal',                                         order: 1 },
+    { testCode: 'HBA1C', minValue: 5.7,   maxValue: 6.5,  text: 'Pre-diabetic (Impaired glucose tolerance)',       order: 2 },
+    { testCode: 'HBA1C', minValue: 6.5,   maxValue: null, text: 'Diabetic range',                                  order: 3 },
+    // FBS
+    { testCode: 'FBS', minValue: null,  maxValue: 100,  text: 'Normal fasting glucose',                          order: 1 },
+    { testCode: 'FBS', minValue: 100,   maxValue: 126,  text: 'Impaired fasting glucose (pre-diabetic)',         order: 2 },
+    { testCode: 'FBS', minValue: 126,   maxValue: null, text: 'Diabetic range',                                  order: 3 },
+    // TSH
+    { testCode: 'TSH', minValue: null,  maxValue: 0.4,  text: 'Low TSH: Evaluate for hyperthyroidism',           order: 1 },
+    { testCode: 'TSH', minValue: 0.4,   maxValue: 4.5,  text: 'Normal thyroid function',                         order: 2 },
+    { testCode: 'TSH', minValue: 4.5,   maxValue: 10,   text: 'Mildly elevated: Subclinical hypothyroidism',     order: 3 },
+    { testCode: 'TSH', minValue: 10,    maxValue: null, text: 'Elevated: Overt hypothyroidism',                   order: 4 },
+    // Vitamin D3
+    { testCode: 'VIT_D3', minValue: null,  maxValue: 20,   text: 'Deficient',                                     order: 1 },
+    { testCode: 'VIT_D3', minValue: 20,    maxValue: 30,   text: 'Insufficient',                                   order: 2 },
+    { testCode: 'VIT_D3', minValue: 30,    maxValue: 100,  text: 'Sufficient',                                     order: 3 },
+    { testCode: 'VIT_D3', minValue: 100,   maxValue: null, text: 'Potential toxicity',                             order: 4 },
+    // Total Cholesterol
+    { testCode: 'T_CHOLESTEROL', minValue: null,  maxValue: 200,  text: 'Desirable',                              order: 1 },
+    { testCode: 'T_CHOLESTEROL', minValue: 200,   maxValue: 240,  text: 'Borderline high',                        order: 2 },
+    { testCode: 'T_CHOLESTEROL', minValue: 240,   maxValue: null, text: 'High',                                   order: 3 },
+  ];
+
+  let interpCount = 0;
+  for (const i of interps) {
+    const testId = T[i.testCode];
+    if (!testId) { console.warn(`  ⚠️ Skip interp: ${i.testCode} (not found)`); continue; }
+    await prisma.interpretationTemplate.create({
+      data: { testId, minValue: i.minValue, maxValue: i.maxValue, interpretationText: i.text, displayOrder: i.order, isActive: true },
+    });
+    interpCount++;
+  }
+
+  console.log(`  InterpretationTemplates: ${interpCount} created`);
+  console.log('');
+
+  // ═══ SECTION 16: AGE-BASED REFERENCE RANGES ═══
+
+  console.log('[15/N] Creating TestAgeRanges...');
+
+  // Age constants in days
+  const D = 1, MO = 30, Y = 365;
+
+  type AgeRange = { testCode: string; minAge: number | null; maxAge: number | null; gender: 'M' | 'F' | 'O' | null; refMin: number | null; refMax: number | null; unit: string | null; text: string | null };
+
+  const ageRanges: AgeRange[] = [
+    // ─── HB (8 ranges) ───
+    { testCode: 'HB', minAge: null,     maxAge: 1*D,      gender: null, refMin: 14, refMax: 24,   unit: 'g/dL', text: null },
+    { testCode: 'HB', minAge: 1*D,      maxAge: 7*D,      gender: null, refMin: 14, refMax: 24,   unit: 'g/dL', text: null },
+    { testCode: 'HB', minAge: 7*D,      maxAge: 1*MO,     gender: null, refMin: 10, refMax: 20,   unit: 'g/dL', text: null },
+    { testCode: 'HB', minAge: 1*MO,     maxAge: 6*MO,     gender: null, refMin: 9.5, refMax: 14,  unit: 'g/dL', text: null },
+    { testCode: 'HB', minAge: 6*MO,     maxAge: 2*Y,      gender: null, refMin: 10.5, refMax: 13.5, unit: 'g/dL', text: null },
+    { testCode: 'HB', minAge: 2*Y,      maxAge: 12*Y,     gender: null, refMin: 11.5, refMax: 15.5, unit: 'g/dL', text: null },
+    { testCode: 'HB', minAge: 12*Y,     maxAge: null,      gender: 'M', refMin: 13,  refMax: 17,   unit: 'g/dL', text: null },
+    { testCode: 'HB', minAge: 12*Y,     maxAge: null,      gender: 'F', refMin: 12,  refMax: 16,   unit: 'g/dL', text: null },
+
+    // ─── WBC (7 ranges) ───
+    { testCode: 'WBC', minAge: null,     maxAge: 1*D,      gender: null, refMin: 9000, refMax: 30000, unit: '/cumm', text: null },
+    { testCode: 'WBC', minAge: 1*D,      maxAge: 7*D,      gender: null, refMin: 5000, refMax: 21000, unit: '/cumm', text: null },
+    { testCode: 'WBC', minAge: 7*D,      maxAge: 1*MO,     gender: null, refMin: 5000, refMax: 19500, unit: '/cumm', text: null },
+    { testCode: 'WBC', minAge: 1*MO,     maxAge: 6*MO,     gender: null, refMin: 6000, refMax: 17500, unit: '/cumm', text: null },
+    { testCode: 'WBC', minAge: 6*MO,     maxAge: 2*Y,      gender: null, refMin: 6000, refMax: 17000, unit: '/cumm', text: null },
+    { testCode: 'WBC', minAge: 2*Y,      maxAge: 12*Y,     gender: null, refMin: 5000, refMax: 14500, unit: '/cumm', text: null },
+    { testCode: 'WBC', minAge: 12*Y,     maxAge: null,      gender: null, refMin: 4000, refMax: 11000, unit: '/cumm', text: null },
+
+    // ─── PLT (3 ranges) ───
+    { testCode: 'PLT', minAge: null,     maxAge: 1*MO,     gender: null, refMin: 150000, refMax: 450000, unit: '/cumm', text: null },
+    { testCode: 'PLT', minAge: 1*MO,     maxAge: 12*Y,     gender: null, refMin: 150000, refMax: 400000, unit: '/cumm', text: null },
+    { testCode: 'PLT', minAge: 12*Y,     maxAge: null,      gender: null, refMin: 150000, refMax: 400000, unit: '/cumm', text: null },
+
+    // ─── RBC (6 ranges) ───
+    { testCode: 'RBC', minAge: null,     maxAge: 1*D,      gender: null, refMin: 4.0, refMax: 6.6,  unit: 'mill/cumm', text: null },
+    { testCode: 'RBC', minAge: 1*D,      maxAge: 1*MO,     gender: null, refMin: 3.9, refMax: 5.9,  unit: 'mill/cumm', text: null },
+    { testCode: 'RBC', minAge: 1*MO,     maxAge: 6*MO,     gender: null, refMin: 3.0, refMax: 5.4,  unit: 'mill/cumm', text: null },
+    { testCode: 'RBC', minAge: 6*MO,     maxAge: 12*Y,     gender: null, refMin: 4.0, refMax: 5.2,  unit: 'mill/cumm', text: null },
+    { testCode: 'RBC', minAge: 12*Y,     maxAge: null,      gender: 'M', refMin: 4.5, refMax: 5.5,  unit: 'mill/cumm', text: null },
+    { testCode: 'RBC', minAge: 12*Y,     maxAge: null,      gender: 'F', refMin: 4.0, refMax: 5.0,  unit: 'mill/cumm', text: null },
+
+    // ─── T_BILIRUBIN (5 ranges - neonatal critical) ───
+    { testCode: 'T_BILIRUBIN', minAge: null,     maxAge: 1*D,      gender: null, refMin: null, refMax: 6,    unit: 'mg/dL', text: null },
+    { testCode: 'T_BILIRUBIN', minAge: 1*D,      maxAge: 2*D,      gender: null, refMin: null, refMax: 10,   unit: 'mg/dL', text: null },
+    { testCode: 'T_BILIRUBIN', minAge: 2*D,      maxAge: 5*D,      gender: null, refMin: null, refMax: 12,   unit: 'mg/dL', text: null },
+    { testCode: 'T_BILIRUBIN', minAge: 5*D,      maxAge: 1*MO,     gender: null, refMin: null, refMax: 1.5,  unit: 'mg/dL', text: null },
+    { testCode: 'T_BILIRUBIN', minAge: 1*MO,     maxAge: null,      gender: null, refMin: 0.1, refMax: 1.2,  unit: 'mg/dL', text: null },
+
+    // ─── TSH (6 ranges - neonatal) ───
+    { testCode: 'TSH', minAge: null,     maxAge: 3*D,      gender: null, refMin: 1, refMax: 39,    unit: 'uIU/mL', text: null },
+    { testCode: 'TSH', minAge: 3*D,      maxAge: 1*MO,     gender: null, refMin: 1.7, refMax: 9.1, unit: 'uIU/mL', text: null },
+    { testCode: 'TSH', minAge: 1*MO,     maxAge: 12*MO,    gender: null, refMin: 0.8, refMax: 8.2, unit: 'uIU/mL', text: null },
+    { testCode: 'TSH', minAge: 12*MO,    maxAge: 5*Y,      gender: null, refMin: 0.7, refMax: 5.97, unit: 'uIU/mL', text: null },
+    { testCode: 'TSH', minAge: 5*Y,      maxAge: 12*Y,     gender: null, refMin: 0.6, refMax: 4.84, unit: 'uIU/mL', text: null },
+    { testCode: 'TSH', minAge: 12*Y,     maxAge: null,      gender: null, refMin: 0.27, refMax: 4.2, unit: 'uIU/mL', text: null },
+
+    // ─── S_CREATININE (4 ranges) ───
+    { testCode: 'S_CREATININE', minAge: null,     maxAge: 1*Y,      gender: null, refMin: 0.2, refMax: 0.4,  unit: 'mg/dL', text: null },
+    { testCode: 'S_CREATININE', minAge: 1*Y,      maxAge: 12*Y,     gender: null, refMin: 0.3, refMax: 0.7,  unit: 'mg/dL', text: null },
+    { testCode: 'S_CREATININE', minAge: 12*Y,     maxAge: null,      gender: 'M', refMin: 0.7, refMax: 1.3,  unit: 'mg/dL', text: null },
+    { testCode: 'S_CREATININE', minAge: 12*Y,     maxAge: null,      gender: 'F', refMin: 0.6, refMax: 1.1,  unit: 'mg/dL', text: null },
+
+    // ─── ALP (2 ranges) ───
+    { testCode: 'ALP', minAge: null,     maxAge: 12*Y,     gender: null, refMin: 100, refMax: 320,  unit: 'U/L', text: null },
+    { testCode: 'ALP', minAge: 12*Y,     maxAge: null,      gender: null, refMin: 44,  refMax: 147,  unit: 'U/L', text: null },
+
+    // ─── ESR (3 ranges) ───
+    { testCode: 'ESR', minAge: null,     maxAge: 12*Y,     gender: null, refMin: 0, refMax: 10,   unit: 'mm/hr', text: null },
+    { testCode: 'ESR', minAge: 12*Y,     maxAge: null,      gender: 'M', refMin: 0, refMax: 15,   unit: 'mm/hr', text: null },
+    { testCode: 'ESR', minAge: 12*Y,     maxAge: null,      gender: 'F', refMin: 0, refMax: 20,   unit: 'mm/hr', text: null },
+
+    // ─── FERRITIN (6 ranges) ───
+    { testCode: 'FERRITIN', minAge: null,     maxAge: 1*MO,     gender: null, refMin: 25,  refMax: 200, unit: 'ng/mL', text: null },
+    { testCode: 'FERRITIN', minAge: 1*MO,     maxAge: 6*MO,     gender: null, refMin: 50,  refMax: 200, unit: 'ng/mL', text: null },
+    { testCode: 'FERRITIN', minAge: 6*MO,     maxAge: 5*Y,      gender: null, refMin: 7,   refMax: 140, unit: 'ng/mL', text: null },
+    { testCode: 'FERRITIN', minAge: 5*Y,      maxAge: 12*Y,     gender: null, refMin: 7,   refMax: 140, unit: 'ng/mL', text: null },
+    { testCode: 'FERRITIN', minAge: 12*Y,     maxAge: null,      gender: 'M', refMin: 20,  refMax: 250, unit: 'ng/mL', text: null },
+    { testCode: 'FERRITIN', minAge: 12*Y,     maxAge: null,      gender: 'F', refMin: 10,  refMax: 120, unit: 'ng/mL', text: null },
+
+    // ─── S_URIC_ACID (3 ranges) ───
+    { testCode: 'S_URIC_ACID', minAge: null,     maxAge: 12*Y,     gender: null, refMin: 2.0, refMax: 5.5,  unit: 'mg/dL', text: null },
+    { testCode: 'S_URIC_ACID', minAge: 12*Y,     maxAge: null,      gender: 'M', refMin: 3.5, refMax: 7.2,  unit: 'mg/dL', text: null },
+    { testCode: 'S_URIC_ACID', minAge: 12*Y,     maxAge: null,      gender: 'F', refMin: 2.6, refMax: 6.0,  unit: 'mg/dL', text: null },
+
+    // ─── S_CALCIUM (4 ranges) ───
+    { testCode: 'S_CALCIUM', minAge: null,     maxAge: 1*MO,     gender: null, refMin: 7.6, refMax: 10.4, unit: 'mg/dL', text: null },
+    { testCode: 'S_CALCIUM', minAge: 1*MO,     maxAge: 1*Y,      gender: null, refMin: 9.0, refMax: 11.0, unit: 'mg/dL', text: null },
+    { testCode: 'S_CALCIUM', minAge: 1*Y,      maxAge: 12*Y,     gender: null, refMin: 8.8, refMax: 10.8, unit: 'mg/dL', text: null },
+    { testCode: 'S_CALCIUM', minAge: 12*Y,     maxAge: null,      gender: null, refMin: 8.5, refMax: 10.5, unit: 'mg/dL', text: null },
+
+    // ─── S_POTASSIUM (3 ranges) ───
+    { testCode: 'S_POTASSIUM', minAge: null,     maxAge: 1*MO,     gender: null, refMin: 3.7, refMax: 5.9,  unit: 'mEq/L', text: null },
+    { testCode: 'S_POTASSIUM', minAge: 1*MO,     maxAge: 12*Y,     gender: null, refMin: 3.4, refMax: 4.7,  unit: 'mEq/L', text: null },
+    { testCode: 'S_POTASSIUM', minAge: 12*Y,     maxAge: null,      gender: null, refMin: 3.5, refMax: 5.1,  unit: 'mEq/L', text: null },
+
+    // ─── S_PHOSPHORUS (3 ranges) ───
+    { testCode: 'S_PHOSPHORUS', minAge: null,     maxAge: 1*Y,      gender: null, refMin: 4.5, refMax: 6.7,  unit: 'mg/dL', text: null },
+    { testCode: 'S_PHOSPHORUS', minAge: 1*Y,      maxAge: 12*Y,     gender: null, refMin: 4.5, refMax: 5.5,  unit: 'mg/dL', text: null },
+    { testCode: 'S_PHOSPHORUS', minAge: 12*Y,     maxAge: null,      gender: null, refMin: 2.5, refMax: 4.5,  unit: 'mg/dL', text: null },
+
+    // ─── S_IRON (3 ranges) ───
+    { testCode: 'S_IRON', minAge: null,     maxAge: 1*Y,      gender: null, refMin: 100, refMax: 250, unit: 'mcg/dL', text: null },
+    { testCode: 'S_IRON', minAge: 1*Y,      maxAge: 12*Y,     gender: null, refMin: 50,  refMax: 120, unit: 'mcg/dL', text: null },
+    { testCode: 'S_IRON', minAge: 12*Y,     maxAge: null,      gender: null, refMin: 60,  refMax: 170, unit: 'mcg/dL', text: null },
+  ];
+
+  // Build create data array (filter out tests not found)
+  const ageCreateData = ageRanges
+    .filter(ar => {
+      if (!T[ar.testCode]) { console.warn(`  ⚠️ Skip age range: ${ar.testCode} (not found)`); return false; }
+      return true;
+    })
+    .map(ar => ({
+      testId: T[ar.testCode],
+      minAgeDays: ar.minAge,
+      maxAgeDays: ar.maxAge,
+      gender: ar.gender as any ?? null,
+      referenceMin: ar.refMin,
+      referenceMax: ar.refMax,
+      referenceUnit: ar.unit,
+      referenceText: ar.text,
+    }));
+
+  await prisma.testAgeRange.createMany({ data: ageCreateData });
+  const ageCount = ageCreateData.length;
+
+  console.log(`  TestAgeRanges: ${ageCount} upserted`);
+  console.log('');
+
+  // ═══ SECTION 17: DEACTIVATE ORPHAN CODES ═══
+
+  console.log('[16/N] Deactivating orphan test codes...');
+
+  const allNewCodes = Object.keys(T);
+  const deactivated = await prisma.labTest.updateMany({
+    where: { code: { notIn: allNewCodes }, isActive: true },
+    data: { isActive: false },
+  });
+
+  console.log(`  Deactivated ${deactivated.count} orphan tests`);
+  console.log('');
+
+  // ═══ SUMMARY ═══
+
+  const testCount = await prisma.labTest.count({ where: { isActive: true } });
+  const panelDefCount = await prisma.panelDefinition.count();
+  const panelItemCount = await prisma.panelTestItem.count();
+  const derivedCount = await prisma.derivedParameter.count();
+  const interpTotalCount = await prisma.interpretationTemplate.count();
+  const ageRangeCount = await prisma.testAgeRange.count();
+  const deptCount = await prisma.department.count();
+  const signingRuleCount = await prisma.signingRule.count();
+
+  console.log('================================================================');
+  console.log('  SEED COMPLETE');
+  console.log('================================================================');
+  console.log(`  Departments:           ${deptCount}`);
+  console.log(`  Active LabTests:       ${testCount}`);
+  console.log(`  PanelDefinitions:      ${panelDefCount}`);
+  console.log(`  PanelTestItems:        ${panelItemCount}`);
+  console.log(`  DerivedParameters:     ${derivedCount}`);
+  console.log(`  InterpretationTemplates: ${interpTotalCount}`);
+  console.log(`  TestAgeRanges:         ${ageRangeCount}`);
+  console.log(`  SigningRules:          ${signingRuleCount}`);
+  console.log('================================================================');
+  console.log('');
+
+  // ═══ SECTION 18: SEED NEW ARCHITECTURE ═══
+  await seedNewArchitecture();
 }
 
-// ---------------------------------------------------------------------------
-// Run
-// ---------------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════════════════════════════
+// NEW ARCHITECTURE SEED
+// Mirrors legacy LabTest catalog into TestDefinition → ClinicalPanel → BillableProduct
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Map: testCode → TestDefinition ID
+const TD: Record<string, string> = {};
+// Map: panelCode → ClinicalPanel ID
+const CP: Record<string, string> = {};
+
+async function seedNewArchitecture(): Promise<void> {
+  console.log('');
+  console.log('================================================================');
+  console.log('  NEW ARCHITECTURE SEED');
+  console.log('================================================================');
+
+  // ─── Clear existing new-arch data (safe — no FK to legacy) ───
+  console.log('[NA-1] Clearing existing new-arch data...');
+  await prisma.billableProductPanel.deleteMany();
+  await prisma.productBranchPricing.deleteMany();
+  await prisma.billableProduct.deleteMany();
+  await prisma.clinicalPanelItem.deleteMany();
+  await prisma.clinicalPanel.deleteMany();
+  await prisma.interpretationRule.deleteMany();
+  await prisma.testDefinitionRange.deleteMany();
+  await prisma.testDefinition.deleteMany();
+  console.log('  Cleared: TestDefinition, ClinicalPanel, BillableProduct + children');
+
+  // ─── Step 1: Create TestDefinitions from LabTests ───
+  console.log('[NA-2] Creating TestDefinitions from LabTests...');
+
+  const labTests = await prisma.labTest.findMany({
+    where: { isActive: true, isPanel: false },
+    orderBy: [{ departmentId: 'asc' }, { displayOrder: 'asc' }],
+  });
+
+  for (const lt of labTests) {
+    const td = await prisma.testDefinition.create({
+      data: {
+        rootDefinitionId: '', // placeholder, updated below
+        name: lt.name,
+        code: lt.code,
+        version: 1,
+        isLatest: true,
+        status: 'ACTIVE',
+        sampleType: lt.sampleType,
+        method: lt.method,
+        referenceUnit: lt.referenceUnit,
+        referenceMin: lt.referenceMin,
+        referenceMax: lt.referenceMax,
+        referenceText: lt.referenceText,
+        formulaExpression: null,
+        dependsOnCodes: [],
+        interpretationMode: 'NONE',
+        departmentId: lt.departmentId,
+        displayOrder: lt.displayOrder,
+      },
+    });
+    // Set rootDefinitionId to self for v1
+    await prisma.testDefinition.update({
+      where: { id: td.id },
+      data: { rootDefinitionId: td.id },
+    });
+    TD[lt.code] = td.id;
+  }
+  console.log(`  Created ${Object.keys(TD).length} TestDefinitions`);
+
+  // ─── Step 2: Seed TestDefinitionRanges from TestAgeRanges ───
+  console.log('[NA-3] Migrating TestAgeRanges → TestDefinitionRanges...');
+
+  const ageRanges = await prisma.testAgeRange.findMany({
+    include: { test: { select: { code: true } } },
+  });
+
+  let rangeCount = 0;
+  for (const ar of ageRanges) {
+    const tdId = TD[ar.test.code];
+    if (!tdId) continue;
+    await prisma.testDefinitionRange.create({
+      data: {
+        testDefinitionId: tdId,
+        minAgeDays: ar.minAgeDays,
+        maxAgeDays: ar.maxAgeDays,
+        gender: ar.gender,
+        referenceMin: ar.referenceMin,
+        referenceMax: ar.referenceMax,
+        referenceUnit: ar.referenceUnit,
+        referenceText: ar.referenceText ?? null,
+      },
+    });
+    rangeCount++;
+  }
+  console.log(`  Created ${rangeCount} TestDefinitionRanges`);
+
+  // ─── Step 3: Seed DerivedParameter formulas into TestDefinitions ───
+  console.log('[NA-4] Migrating DerivedParameters → TestDefinition formulas...');
+
+  const derivedParams = await prisma.derivedParameter.findMany({
+    include: { test: { select: { code: true } } },
+  });
+
+  let derivedCount = 0;
+  for (const dp of derivedParams) {
+    const tdId = TD[dp.test.code];
+    if (!tdId) continue;
+
+    // Parse dependsOn codes from the formula
+    const dependsOnCodes = dp.dependsOnTestCodes
+      ? (typeof dp.dependsOnTestCodes === 'string'
+          ? JSON.parse(dp.dependsOnTestCodes as string)
+          : dp.dependsOnTestCodes)
+      : [];
+
+    await prisma.testDefinition.update({
+      where: { id: tdId },
+      data: {
+        formulaExpression: dp.formula,
+        dependsOnCodes,
+        interpretationMode: 'FORMULA',
+      },
+    });
+    derivedCount++;
+  }
+  console.log(`  Updated ${derivedCount} TestDefinitions with formulas`);
+
+  // ─── Step 4: Seed InterpretationRules from InterpretationTemplates ───
+  console.log('[NA-5] Migrating InterpretationTemplates → InterpretationRules...');
+
+  const interpTemplates = await prisma.interpretationTemplate.findMany({
+    include: { test: { select: { code: true } } },
+  });
+
+  let ruleCount = 0;
+  for (const it of interpTemplates) {
+    const tdId = TD[it.test.code];
+    if (!tdId) continue;
+
+    await prisma.interpretationRule.create({
+      data: {
+        testDefinitionId: tdId,
+        ruleType: 'NUMERIC_RANGE',
+        operator: it.maxValue != null ? 'BETWEEN' : 'GTE',
+        value1: it.minValue ?? null,
+        value2: it.maxValue ?? null,
+        interpretationText: it.interpretationText,
+        severity: it.category ?? 'normal',
+        displayOrder: it.displayOrder ?? ruleCount,
+        isActive: true,
+      },
+    });
+    ruleCount++;
+
+    // Mark test as having range-based interpretation
+    await prisma.testDefinition.update({
+      where: { id: tdId },
+      data: { interpretationMode: 'RANGE_BASED' },
+    });
+  }
+  console.log(`  Created ${ruleCount} InterpretationRules`);
+
+  // ─── Step 5: Create ClinicalPanels from PanelDefinitions ───
+  console.log('[NA-6] Creating ClinicalPanels from PanelDefinitions...');
+
+  const panelDefs = await prisma.panelDefinition.findMany({
+    include: {
+      testItems: {
+        orderBy: { displayOrder: 'asc' },
+        include: { test: { select: { code: true } } },
+      },
+    },
+    orderBy: { displayOrder: 'asc' },
+  });
+
+  for (const pd of panelDefs) {
+    const panel = await prisma.clinicalPanel.create({
+      data: {
+        name: pd.name,
+        displayName: pd.displayName,
+        departmentId: pd.departmentId,
+        layoutType: pd.layoutType,
+        displayOrder: pd.displayOrder,
+        showMethodColumn: pd.showMethodColumn,
+        showSubgroups: pd.testItems.some(ti => ti.subGroup != null),
+        isActive: true,
+      },
+    });
+    CP[pd.name] = panel.id;
+
+    // Wire panel items
+    for (const ti of pd.testItems) {
+      const tdId = TD[ti.test.code];
+      if (!tdId) continue;
+      await prisma.clinicalPanelItem.create({
+        data: {
+          panelId: panel.id,
+          testDefinitionId: tdId,
+          displayOrder: ti.displayOrder,
+          subGroup: ti.subGroup,
+          indentLevel: ti.indent ?? 0,
+          isBold: ti.bold ?? false,
+        },
+      });
+    }
+  }
+  console.log(`  Created ${Object.keys(CP).length} ClinicalPanels with items`);
+
+  // ─── Step 6: Create BillableProducts ───
+  console.log('[NA-7] Creating BillableProducts...');
+
+  // 6a: Panel-based products (each LabTest with isPanel=true becomes a BillableProduct)
+  const panelLabTests = await prisma.labTest.findMany({
+    where: { isPanel: true, isActive: true },
+    orderBy: [{ departmentId: 'asc' }, { displayOrder: 'asc' }],
+  });
+
+  let productCount = 0;
+  for (const plt of panelLabTests) {
+    // Find matching ClinicalPanel by name/code
+    const matchingPanelId = CP[plt.code] || CP[plt.name];
+
+    const product = await prisma.billableProduct.create({
+      data: {
+        name: plt.name,
+        code: plt.code,
+        description: `${plt.name} panel`,
+        basePriceInPaise: plt.priceInPaise,
+        isBundle: true,
+        displayOrder: plt.displayOrder,
+        isActive: true,
+      },
+    });
+
+    // Link to clinical panel if found
+    if (matchingPanelId) {
+      await prisma.billableProductPanel.create({
+        data: {
+          productId: product.id,
+          panelId: matchingPanelId,
+          displayOrder: 0,
+        },
+      });
+    }
+    productCount++;
+  }
+
+  // 6b: Individual test products (high-value standalone tests)
+  const standaloneTests = await prisma.labTest.findMany({
+    where: {
+      isPanel: false,
+      isActive: true,
+      priceInPaise: { gt: 0 }, // Only tests that have a price
+      parentTestId: null,       // Only top-level tests (not sub-tests)
+    },
+    orderBy: [{ departmentId: 'asc' }, { displayOrder: 'asc' }],
+  });
+
+  for (const st of standaloneTests) {
+    const tdId = TD[st.code];
+    if (!tdId) continue;
+
+    // Create a single-test ClinicalPanel for standalone test products
+    const singlePanelName = `_AUTO_${st.code}`;
+    let singlePanelId: string;
+
+    const existingPanel = await prisma.clinicalPanel.findUnique({
+      where: { name: singlePanelName },
+    });
+
+    if (existingPanel) {
+      singlePanelId = existingPanel.id;
+    } else {
+      const singlePanel = await prisma.clinicalPanel.create({
+        data: {
+          name: singlePanelName,
+          displayName: st.name,
+          departmentId: st.departmentId,
+          layoutType: 'STANDARD_TABLE',
+          displayOrder: st.displayOrder,
+          isActive: true,
+        },
+      });
+      singlePanelId = singlePanel.id;
+
+      await prisma.clinicalPanelItem.create({
+        data: {
+          panelId: singlePanelId,
+          testDefinitionId: tdId,
+          displayOrder: 0,
+        },
+      });
+    }
+
+    const product = await prisma.billableProduct.create({
+      data: {
+        name: st.name,
+        code: st.code,
+        description: null,
+        basePriceInPaise: st.priceInPaise,
+        isBundle: false,
+        displayOrder: st.displayOrder,
+        isActive: true,
+      },
+    });
+
+    await prisma.billableProductPanel.create({
+      data: {
+        productId: product.id,
+        panelId: singlePanelId,
+        testDefinitionId: tdId,
+        displayOrder: 0,
+      },
+    });
+
+    productCount++;
+  }
+
+  console.log(`  Created ${productCount} BillableProducts`);
+
+  // ─── Summary ───
+  const tdCount = await prisma.testDefinition.count();
+  const cpCount = await prisma.clinicalPanel.count();
+  const cpiCount = await prisma.clinicalPanelItem.count();
+  const bpCount = await prisma.billableProduct.count();
+  const bppCount = await prisma.billableProductPanel.count();
+  const tdrCount = await prisma.testDefinitionRange.count();
+  const irCount = await prisma.interpretationRule.count();
+
+  console.log('');
+  console.log('================================================================');
+  console.log('  NEW ARCHITECTURE SEED COMPLETE');
+  console.log('================================================================');
+  console.log(`  TestDefinitions:        ${tdCount}`);
+  console.log(`  TestDefinitionRanges:   ${tdrCount}`);
+  console.log(`  InterpretationRules:    ${irCount}`);
+  console.log(`  ClinicalPanels:         ${cpCount}`);
+  console.log(`  ClinicalPanelItems:     ${cpiCount}`);
+  console.log(`  BillableProducts:       ${bpCount}`);
+  console.log(`  BillableProductPanels:  ${bppCount}`);
+  console.log('================================================================');
+  console.log('');
+}
+
 main()
   .catch((e) => {
     console.error('Seed failed:', e);

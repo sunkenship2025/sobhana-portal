@@ -104,12 +104,6 @@ enum PayoutDoctorType {
   DIAGNOSTIC_CENTER
 }
 
-enum StockTransactionType {
-  CREDIT       // Restock / purchase
-  DEBIT        // Consumed by test run
-  ADJUSTMENT   // Manual correction (physical stock-take)
-}
-
 enum ReferralSourceType {
   SELF           // In-house test
   REFERRED_TO    // We refer TO another diagnostic center
@@ -138,12 +132,44 @@ enum MessageContextType {
 }
 
 // E3-10: Panel layout types for report rendering
+// Collapsed from 5 → 2 active + 2 future. CBP/WIDAL/INTERPRETATION_SINGLE are now
+// STANDARD_TABLE with config flags (showSubgroups, showInterpretation, valueDisplayPrefix).
 enum PanelLayoutType {
-  STANDARD_TABLE        // Simple test name | value | unit | reference table
-  CBP                   // Composite: main table + differential + peripheral smear
-  WIDAL                 // Dilution format with multiple antigens
-  INTERPRETATION_SINGLE // Single test with interpretation block
-  TEXT_ONLY             // Text block (peripheral smear comment, MP result)
+  STANDARD_TABLE           // Configurable table: test | value | unit | reference
+  TEXT_ONLY                // Free-text result (peripheral smear, MP result)
+  IMAGING_NARRATIVE        // Future: radiology narrative reports
+  PROCEDURE_STRUCTURED     // Future: procedure-based structured reports
+}
+
+// ─── New Architecture Enums ──────────────────────────────────────
+enum TestDefinitionStatus {
+  ACTIVE
+  LOCKED
+  DEPRECATED
+  ARCHIVED
+}
+
+enum InterpretationMode {
+  NONE
+  RANGE_BASED
+  TEXT_MATCH
+  FORMULA
+}
+
+enum ComparisonOperator {
+  LT
+  LTE
+  GT
+  GTE
+  EQ
+  BETWEEN
+  MATCH
+}
+
+enum InterpretationRuleType {
+  NUMERIC_RANGE
+  TEXT_MATCH
+  CATEGORY_MATCH
 }
 
 // ============================================================================
@@ -311,7 +337,6 @@ model LabTest {
   // Extended relations
   ageRanges         TestAgeRange[]
   derivedParameter  DerivedParameter?
-  stockRequirements TestStockRequirement[]
 
   @@index([isActive])
   @@index([code])
@@ -341,7 +366,7 @@ model Branch {
   bills                     Bill[]
   payoutLedger              DoctorPayoutLedger[]
   auditLogs                 AuditLog[]
-  stockItems                StockItem[]
+  productBranchPricing      ProductBranchPricing[]
 
   @@index([isActive])
   @@index([code])
@@ -457,6 +482,7 @@ model Bill {
 /// TestOrder: Individual test in a diagnostic visit
 /// Supports per-test commission override (null = use referral doctor's base %).
 /// E3-03: Test metadata is snapshotted at order time for immutability.
+/// DUAL FK: testId (old LabTest) + testDefinitionId (new TestDefinition) during migration.
 model TestOrder {
   id                             String   @id @default(cuid())
   visitId                        String
@@ -473,14 +499,21 @@ model TestOrder {
   referenceMaxSnapshot           Float?   // Reference max at time of order
   referenceUnitSnapshot          String?  // Reference unit at time of order
 
-  visit Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
-  test  LabTest  @relation(fields: [testId], references: [id], onDelete: Restrict)
+  // New architecture: dual FK for migration period
+  testDefinitionId               String?  // New-arch FK (nullable during migration)
+  productId                      String?  // Which BillableProduct was ordered
+
+  visit          Visit            @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  test           LabTest          @relation(fields: [testId], references: [id], onDelete: Restrict)
+  testDefinition TestDefinition?  @relation(fields: [testDefinitionId], references: [id], onDelete: Restrict)
+  product        BillableProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
   /// Results for this test
   testResults TestResult[]
 
   @@index([visitId])
   @@index([testId])
+  @@index([testDefinitionId])
   @@index([branchId])
   @@index([branchId, createdAt])
 }
@@ -536,22 +569,29 @@ model ReportVersion {
 
 /// TestResult: Individual test result in a report version
 /// IMMUTABLE once report is finalized.
+/// DUAL FK: testId (old LabTest) + testDefinitionId (new TestDefinition) during migration.
 model TestResult {
   id              String         @id @default(cuid())
   testOrderId     String
   testId          String         // The actual test (can be sub-test of ordered panel)
   reportVersionId String
   value           Float?         // Numeric result (can be null)
+  textValue       String?        // Text-based result (e.g., "Positive", "Negative")
   flag            TestResultFlag? // NORMAL | HIGH | LOW
   notes           String?
   createdAt       DateTime       @default(now())
 
-  testOrder      TestOrder      @relation(fields: [testOrderId], references: [id], onDelete: Cascade)
-  test           LabTest        @relation(fields: [testId], references: [id], onDelete: Restrict)
-  reportVersion  ReportVersion  @relation(fields: [reportVersionId], references: [id], onDelete: Cascade)
+  // New architecture: dual FK
+  testDefinitionId String?       // New-arch FK (nullable during migration)
+
+  testOrder        TestOrder      @relation(fields: [testOrderId], references: [id], onDelete: Cascade)
+  test             LabTest        @relation(fields: [testId], references: [id], onDelete: Restrict)
+  testDefinition   TestDefinition? @relation(fields: [testDefinitionId], references: [id], onDelete: Restrict)
+  reportVersion    ReportVersion  @relation(fields: [reportVersionId], references: [id], onDelete: Cascade)
 
   @@index([testOrderId])
   @@index([testId])
+  @@index([testDefinitionId])
   @@index([reportVersionId])
 }
 
@@ -741,9 +781,11 @@ model Department {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  panels       PanelDefinition[]
-  signingRules SigningRule[]
-  labTests     LabTest[]
+  panels          PanelDefinition[]
+  signingRules    SigningRule[]
+  labTests        LabTest[]
+  clinicalPanels  ClinicalPanel[]
+  testDefinitions TestDefinition[]
 
   @@index([displayOrder])
   @@index([isActive])
@@ -957,66 +999,226 @@ model DiagnosticCenter_Visit {
   @@index([branchId])
 }
 
-// ─── Stock / Inventory ───────────────────────────────────────────
-model StockItem {
-  id              String   @id @default(cuid())
-  name            String
-  unit            String
-  currentQuantity Int      @default(0)
-  reorderLevel    Int      @default(10)
-  branchId        String
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+// ============================================================================
+// NEW ARCHITECTURE: TestDefinition → ClinicalPanel → BillableProduct
+// ============================================================================
 
-  branch        Branch                 @relation(fields: [branchId], references: [id])
-  transactions  StockTransaction[]
-  requirements  TestStockRequirement[]
-  alerts        StockAlert[]
+/// TestDefinition: Versioned clinical test definition (replaces LabTest for new data)
+/// Uses clone-on-edit semantics: active version is isLatest=true.
+/// Status lifecycle: ACTIVE → LOCKED → DEPRECATED → ARCHIVED
+model TestDefinition {
+  id                 String               @id @default(cuid())
+  rootDefinitionId   String               // Points to first version's ID (groups versions)
+  version            Int                  @default(1)
+  previousVersionId  String?              // Previous version ID (null for v1)
+  isLatest           Boolean              @default(true)
+  status             TestDefinitionStatus @default(ACTIVE)
+  
+  name               String
+  code               String               // Unique among isLatest=true
+  sampleType         String?              // e.g., "Blood", "Serum", "Urine"
+  method             String?              // e.g., "ECLIA", "GOD-POD"
+  referenceUnit      String?              // e.g., "g/dL", "mg/dL"
+  departmentId       String?
+  
+  // Default reference range (fallback if no age/gender-specific range matches)
+  referenceMin       Float?
+  referenceMax       Float?
+  referenceText      String?              // For text-based ranges like "Negative"
+  
+  // Derived parameter support
+  formulaExpression  String?              // e.g., "ALB / GLOB"
+  dependsOnCodes     Json                 @default("[]") // String array of test codes
+  
+  // Interpretation
+  interpretationMode InterpretationMode   @default(NONE)
+  
+  displayOrder       Int                  @default(0)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  
+  // Relations
+  department         Department?          @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  ranges             TestDefinitionRange[]
+  interpretationRules InterpretationRule[]
+  panelItems         ClinicalPanelItem[]
+  testOrders         TestOrder[]
+  testResults        TestResult[]
+  productPanels      BillableProductPanel[] // Products that include this (via panels)
 
+  @@unique([code, isLatest]) // Code is unique among latest versions
+  @@index([rootDefinitionId])
+  @@index([isLatest, status])
+  @@index([code])
+  @@index([departmentId])
+  @@index([displayOrder])
+}
+
+/// TestDefinitionRange: Age/gender-specific reference ranges for a TestDefinition
+model TestDefinitionRange {
+  id               String   @id @default(cuid())
+  testDefinitionId String
+  minAgeDays       Int?     // age in total days (0 = newborn). null = no lower bound
+  maxAgeDays       Int?     // null = no upper limit
+  gender           Gender?  // null = gender-neutral
+  referenceMin     Float?
+  referenceMax     Float?
+  referenceUnit    String?
+  referenceText    String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  testDefinition TestDefinition @relation(fields: [testDefinitionId], references: [id], onDelete: Cascade)
+
+  @@unique([testDefinitionId, minAgeDays, maxAgeDays, gender])
+  @@index([testDefinitionId])
+}
+
+/// InterpretationRule: Configurable interpretation rules for test results
+/// Supports numeric range matching, text matching, and category matching
+model InterpretationRule {
+  id                 String               @id @default(cuid())
+  testDefinitionId   String
+  ruleType           InterpretationRuleType
+  operator           ComparisonOperator
+  value1             Float?               // Primary comparison value
+  value2             Float?               // Secondary value (for BETWEEN operator)
+  textMatch          String?              // For TEXT_MATCH / CATEGORY_MATCH rules
+  interpretationText String               // The interpretation text to display
+  severity           String?              // e.g., "normal", "caution", "critical"
+  displayOrder       Int                  @default(0)
+  isActive           Boolean              @default(true)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  testDefinition TestDefinition @relation(fields: [testDefinitionId], references: [id], onDelete: Cascade)
+
+  @@index([testDefinitionId])
+  @@index([isActive])
+}
+
+/// ClinicalPanel: Report rendering groups (replaces PanelDefinition for new data)
+/// Each panel has a layout type and config flags that control rendering
+model ClinicalPanel {
+  id                String          @id @default(cuid())
+  name              String          @unique
+  displayName       String          // e.g., "LIVER FUNCTION TEST"
+  departmentId      String
+  layoutType        PanelLayoutType @default(STANDARD_TABLE)
+  displayOrder      Int             @default(0)
+  showMethodColumn  Boolean         @default(false)
+  
+  // Config flags for STANDARD_TABLE rendering variants
+  showSubgroups     Boolean         @default(false)  // true = render subGroup sections (e.g., CBP: MAIN/DIFFERENTIAL/SMEAR)
+  showInterpretation Boolean        @default(false)  // true = render interpretation block below results
+  valueDisplayPrefix String?                         // e.g., "1:" for Widal dilution format
+  
+  summaryInterpretationTemplate String?              // Template for panel-level interpretation
+  isActive          Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  department Department          @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  items      ClinicalPanelItem[]
+  productPanels BillableProductPanel[]
+
+  @@index([departmentId])
+  @@index([displayOrder])
+  @@index([isActive])
+}
+
+/// ClinicalPanelItem: Tests within a ClinicalPanel, with display rules
+model ClinicalPanelItem {
+  id               String   @id @default(cuid())
+  panelId          String
+  testDefinitionId String
+  displayOrder     Int      @default(0)
+  showMethod       Boolean  @default(false)
+  methodText       String?  // Override method text for this panel context
+  indentLevel      Int      @default(0)
+  isBold           Boolean  @default(false)
+  isItalic         Boolean  @default(false)
+  subGroup         String?  // e.g., "MAIN", "DIFFERENTIAL", "SMEAR" for subgroup rendering
+  createdAt        DateTime @default(now())
+
+  panel          ClinicalPanel  @relation(fields: [panelId], references: [id], onDelete: Cascade)
+  testDefinition TestDefinition @relation(fields: [testDefinitionId], references: [id], onDelete: Restrict)
+
+  @@unique([panelId, testDefinitionId])
+  @@index([panelId])
+  @@index([testDefinitionId])
+}
+
+/// BillableProduct: Commercial products sold to patients
+/// Decoupled from clinical definitions — purely commercial layer.
+/// A product maps to one or more ClinicalPanels (not directly to TestDefinitions).
+model BillableProduct {
+  id               String   @id @default(cuid())
+  name             String
+  code             String   @unique
+  description      String?
+  basePriceInPaise Int      // Default price (can be overridden per branch)
+  isBundle         Boolean  @default(false)  // true = package of multiple panels
+  displayOrder     Int      @default(0)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  panels         BillableProductPanel[]
+  branchPricing  ProductBranchPricing[]
+  testOrders     TestOrder[]
+
+  @@index([code])
+  @@index([isActive])
+  @@index([displayOrder])
+}
+
+/// BillableProductPanel: Join table linking products to clinical panels
+/// Product → Panel → PanelItems → TestDefinitions (no direct TestDefinition link)
+model BillableProductPanel {
+  id               String @id @default(cuid())
+  productId        String
+  panelId          String
+  testDefinitionId String?  // Optional: direct test reference for single-test products
+  displayOrder     Int    @default(0)
+  createdAt        DateTime @default(now())
+
+  product        BillableProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  panel          ClinicalPanel   @relation(fields: [panelId], references: [id], onDelete: Restrict)
+  testDefinition TestDefinition? @relation(fields: [testDefinitionId], references: [id], onDelete: SetNull)
+
+  @@unique([productId, panelId])
+  @@index([productId])
+  @@index([panelId])
+}
+
+/// ProductBranchPricing: Per-branch price overrides for products
+model ProductBranchPricing {
+  id           String   @id @default(cuid())
+  productId    String
+  branchId     String
+  priceInPaise Int
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  product BillableProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  branch  Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, branchId])
+  @@index([productId])
   @@index([branchId])
 }
 
-model TestStockRequirement {
-  id              String @id @default(cuid())
-  testId          String
-  stockItemId     String
-  quantityPerTest Float  @default(1)
-
-  test      LabTest   @relation(fields: [testId], references: [id], onDelete: Cascade)
-  stockItem StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
-
-  @@unique([testId, stockItemId])
-  @@index([stockItemId])
-}
-
-model StockTransaction {
-  id          String               @id @default(cuid())
-  stockItemId String
-  type        StockTransactionType
-  quantity    Int
-  referenceId String?
-  notes       String?
-  createdAt   DateTime             @default(now())
-
-  stockItem StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
-
-  @@index([stockItemId])
-  @@index([createdAt])
-}
-
-model StockAlert {
-  id          String   @id @default(cuid())
-  stockItemId String
-  branchId    String
-  alertType   String
-  message     String
-  isRead      Boolean  @default(false)
-  createdAt   DateTime @default(now())
-
-  stockItem StockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
-
-  @@index([stockItemId])
-  @@index([branchId])
-  @@index([isRead])
+/// DerivedParameterDef: Formula-based calculated parameters (new architecture)
+/// Separate from TestDefinition for clarity, but linked 1:1
+model DerivedParameterDef {
+  id                 String   @id @default(cuid())
+  testDefinitionCode String   @unique  // Code of the test definition this derives
+  parameterName      String
+  formula            String            // e.g., "ALB / GLOB"
+  dependsOnTestCodes Json              // String array: ["ALB", "GLOB"]
+  displayOrder       Int               @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 }
