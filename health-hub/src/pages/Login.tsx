@@ -119,7 +119,7 @@ const Login = () => {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="staff@sobhana.com"
+                    placeholder="Enter your email"
                     className="pl-10 block w-full rounded-md border border-gray-300 bg-gray-50 text-gray-900 focus:ring-[#D91C2B] focus:border-[#D91C2B] sm:text-sm h-12 transition duration-150 ease-in-out font-medium"
                   />
                 </div>
@@ -142,7 +142,7 @@ const Login = () => {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Password123"
+                    placeholder="Enter your password"
                     className="pl-10 block w-full rounded-md border border-gray-300 bg-gray-50 text-gray-900 focus:ring-[#D91C2B] focus:border-[#D91C2B] sm:text-sm h-12 transition duration-150 ease-in-out font-medium"
                   />
                 </div>
