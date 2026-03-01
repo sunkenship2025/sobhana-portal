@@ -113,7 +113,7 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-              <Button asChild className="h-auto py-4 flex-col gap-2 border-0 text-white hover:opacity-90" style={{ backgroundColor: 'var(--branch-accent)' }}>
+              <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2 btn-branch-outline">
                 <Link to="/diagnostics/new">
                   <FlaskConical className="h-6 w-6" />
                   New Diagnostic Visit
