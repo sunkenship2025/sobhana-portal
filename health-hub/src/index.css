@@ -162,6 +162,15 @@
     background-color: var(--branch-banner-bg);
   }
 
+  .btn-branch-outline {
+    border-color: var(--branch-accent);
+    color: var(--branch-accent);
+  }
+  .btn-branch-outline:hover {
+    background-color: var(--branch-accent);
+    color: white;
+  }
+
   .status-badge {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
   }
