@@ -97,10 +97,10 @@ export function Sidebar() {
   );
   
   return (
-    <aside className="fixed left-0 top-0 z-40 h-screen w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col">
-      <div className="flex h-16 items-center px-6 border-b border-sidebar-border">
-        <Microscope className="h-8 w-8 text-sidebar-primary" />
-        <span className="ml-3 text-xl font-bold text-sidebar-foreground">Sobhana Portal</span>
+    <aside className="fixed left-0 top-0 z-40 h-screen w-64 text-white border-r border-white/10 flex flex-col" style={{ backgroundColor: 'var(--branch-sidebar-bg)' }}>
+      <div className="flex h-16 items-center px-6 border-b border-white/10">
+        <Microscope className="h-8 w-8 text-white" />
+        <span className="ml-3 text-xl font-bold text-white">SOBHANA</span>
       </div>
       
       <nav className="mt-6 px-3 flex-1">
@@ -117,9 +117,10 @@ export function Sidebar() {
                     className={cn(
                       'flex w-full items-center justify-between rounded-lg px-4 py-3 text-sm font-medium transition-colors',
                       isActive 
-                        ? 'bg-sidebar-accent text-sidebar-primary' 
-                        : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                        ? 'text-white' 
+                        : 'text-white/70 hover:text-white'
                     )}
+                    style={isActive ? { backgroundColor: 'var(--branch-sidebar-active)' } : undefined}
                   >
                     <span className="flex items-center gap-3">
                       <Icon className="h-5 w-5" />
@@ -148,9 +149,10 @@ export function Sidebar() {
               className={cn(
                 'flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors',
                 isActive 
-                  ? 'bg-sidebar-accent text-sidebar-primary' 
-                  : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                  ? 'text-white' 
+                  : 'text-white/70 hover:text-white'
               )}
+              style={isActive ? { backgroundColor: 'var(--branch-sidebar-active)' } : undefined}
             >
               <Icon className="h-5 w-5" />
               {item.label}
@@ -160,16 +162,16 @@ export function Sidebar() {
       </nav>
 
       {/* User info & Logout */}
-      <div className="p-3 border-t border-sidebar-border">
+      <div className="p-3 border-t border-white/10">
         {user && (
           <div className="px-4 py-2 mb-2">
-            <p className="text-sm font-medium text-sidebar-foreground">{user.name}</p>
-            <p className="text-xs text-sidebar-foreground/60 capitalize">{user.role}</p>
+            <p className="text-sm font-medium text-white">{user.name}</p>
+            <p className="text-xs text-white/60 capitalize">{user.role}</p>
           </div>
         )}
         <Button 
           variant="ghost" 
-          className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          className="w-full justify-start text-white/70 hover:bg-white/10 hover:text-white"
           onClick={handleLogout}
         >
           <LogOut className="mr-3 h-4 w-4" />
