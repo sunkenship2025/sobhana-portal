@@ -80,6 +80,7 @@ const corsOptions: cors.CorsOptions = {
     'Origin',
     'Cache-Control',
     'Pragma',
+    'If-Match',
   ],
   exposedHeaders: ['Content-Length', 'X-Request-Id', 'Date'],
   maxAge: 0, // Don't cache preflight requests
