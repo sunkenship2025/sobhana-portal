@@ -539,10 +539,9 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
     `;
   }).join('');
 
-  // Render signature blocks — only actual signing doctors (not lab incharge placeholder)
-  // Lab Incharge is a separate blank space for physical pen signing
+  // Render signature blocks — all signing doctors on the right side
+  // Lab Incharge blank space is separately rendered on the left
   const signatureBlocks = snapshot.signatures
-    .filter(sig => !sig.showLabInchargeNote || sig.signatureImagePath) // show doctors with actual signatures
     .map(sig => {
     // Inline signature image as base64 data URI (avoids Puppeteer HTTP fetch issues)
     const sigDataUri = inlineSignatureImage(sig.signatureImagePath);
@@ -684,12 +683,14 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
 
       <!-- Signature Section -->
       <section class="signatures-section">
+        ${snapshot.signatures.some(s => s.showLabInchargeNote) ? `
         <div class="signatures-left">
           <div class="signature-block lab-incharge-block">
             <div class="lab-incharge-line"></div>
             <div class="lab-incharge-label">Lab Incharge</div>
           </div>
         </div>
+        ` : ''}
         <div class="signatures-right">
           ${signatureBlocks}
         </div>

@@ -84,6 +84,8 @@ export default function ManageSigningDoctors() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [pendingSignatureFile, setPendingSignatureFile] = useState<File | null>(null);
+  const [pendingSignaturePreview, setPendingSignaturePreview] = useState<string | null>(null);
 
   // Sheet for doctor edit
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -139,6 +141,9 @@ export default function ManageSigningDoctors() {
   // ── Doctor CRUD ──────────────────────────────────────────────────
   const resetDoctorForm = () => {
     setDoctorForm({ name: '', degrees: '', designation: '', registrationNumber: '', isActive: true });
+    setPendingSignatureFile(null);
+    if (pendingSignaturePreview) URL.revokeObjectURL(pendingSignaturePreview);
+    setPendingSignaturePreview(null);
     setSheetOpen(false);
     setEditingDoctorId(null);
   };
@@ -181,16 +186,43 @@ export default function ManageSigningDoctors() {
         });
         if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed to update'); return; }
         toast.success('Signing doctor updated');
+        await fetchAll();
+        resetDoctorForm();
       } else {
         const res = await fetch(`${API_BASE}/signing-doctors`, {
           method: 'POST', headers: getHeaders(), body: JSON.stringify(body),
         });
         if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed to create'); return; }
+        const created = await res.json();
         toast.success('Signing doctor created');
-      }
 
-      await fetchAll();
-      resetDoctorForm();
+        // Auto-upload pending signature if one was selected
+        if (pendingSignatureFile && created.id) {
+          try {
+            const { activeBranchId } = useBranchStore.getState();
+            const formData = new FormData();
+            formData.append('signature', pendingSignatureFile);
+            const uploadRes = await fetch(`${API_BASE}/signing-doctors/${created.id}/upload-signature`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'X-Branch-Id': activeBranchId || '',
+              },
+              body: formData,
+            });
+            if (uploadRes.ok) {
+              toast.success('Signature uploaded successfully');
+            } else {
+              toast.error('Doctor created but signature upload failed — edit the doctor to retry');
+            }
+          } catch {
+            toast.error('Doctor created but signature upload failed — edit the doctor to retry');
+          }
+        }
+
+        await fetchAll();
+        resetDoctorForm();
+      }
     } catch (err) {
       console.error('Error saving signing doctor:', err);
       toast.error('Failed to save signing doctor');
@@ -225,7 +257,7 @@ export default function ManageSigningDoctors() {
   // ── Signature Upload ─────────────────────────────────────────────
   const handleSignatureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !editingDoctorId) return;
+    if (!file) return;
 
     // Validate file type
     const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
@@ -237,6 +269,16 @@ export default function ManageSigningDoctors() {
     // Validate file size (2MB max)
     if (file.size > 2 * 1024 * 1024) {
       toast.error('File size must be under 2MB');
+      return;
+    }
+
+    // If adding a new doctor (not yet saved), store file for later upload
+    if (!editingDoctorId) {
+      setPendingSignatureFile(file);
+      if (pendingSignaturePreview) URL.revokeObjectURL(pendingSignaturePreview);
+      setPendingSignaturePreview(URL.createObjectURL(file));
+      toast.success('Signature selected — it will be uploaded when you save the doctor');
+      if (signatureInputRef.current) signatureInputRef.current.value = '';
       return;
     }
 
@@ -606,24 +648,26 @@ export default function ManageSigningDoctors() {
                 onChange={handleSignatureUpload}
               />
 
-              {/* Current signature preview */}
-              {editingDoctorId && doctors.find(d => d.id === editingDoctorId)?.signatureImagePath ? (
+              {/* Current / pending signature preview */}
+              {(editingDoctorId && doctors.find(d => d.id === editingDoctorId)?.signatureImagePath) || pendingSignaturePreview ? (
                 <div className="space-y-2">
                   <div className="border rounded-lg p-3 bg-muted/30">
                     <img
-                      src={`${API_BASE_URL}${doctors.find(d => d.id === editingDoctorId)!.signatureImagePath}`}
-                      alt="Current signature"
+                      src={pendingSignaturePreview || `${API_BASE_URL}${doctors.find(d => d.id === editingDoctorId)!.signatureImagePath}`}
+                      alt={pendingSignaturePreview ? 'Selected signature' : 'Current signature'}
                       className="h-16 mx-auto"
                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                     />
-                    <p className="text-xs text-center text-muted-foreground mt-1">Current signature</p>
+                    <p className="text-xs text-center text-muted-foreground mt-1">
+                      {pendingSignaturePreview ? 'Selected signature (will upload on save)' : 'Current signature'}
+                    </p>
                   </div>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     className="w-full"
-                    disabled={uploading || !editingDoctorId}
+                    disabled={uploading}
                     onClick={() => signatureInputRef.current?.click()}
                   >
                     <Upload className="h-4 w-4 mr-1" />
@@ -632,15 +676,12 @@ export default function ManageSigningDoctors() {
                 </div>
               ) : (
                 <div
-                  className={`border-2 border-dashed rounded-lg p-6 text-center hover:bg-muted/50 transition-colors ${editingDoctorId ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}
-                  onClick={() => editingDoctorId && signatureInputRef.current?.click()}
+                  className="border-2 border-dashed rounded-lg p-6 text-center hover:bg-muted/50 transition-colors cursor-pointer"
+                  onClick={() => signatureInputRef.current?.click()}
                 >
                   <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                   <p className="text-sm text-muted-foreground">
-                    {editingDoctorId
-                      ? (uploading ? 'Uploading...' : 'Click to upload signature image')
-                      : 'Save doctor first, then upload signature'
-                    }
+                    {uploading ? 'Uploading...' : 'Click to upload signature image'}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
                     PNG or JPG, transparent background preferred
