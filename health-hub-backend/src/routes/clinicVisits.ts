@@ -225,6 +225,7 @@ router.post('/', async (req: AuthRequest, res) => {
       paymentStatus,
       isRevisit,
       originalVisitId,
+      sendWhatsApp,
     } = req.body;
 
     // Validation
@@ -332,11 +333,13 @@ router.post('/', async (req: AuthRequest, res) => {
     });
 
     // Fire-and-forget: Send bill confirmation via WhatsApp (non-blocking)
-    import('../services/notificationService').then(({ sendBillConfirmation }) => {
-      sendBillConfirmation(result.id).catch((err) =>
-        console.error('[Notification] Bill notification failed (non-blocking):', err.message)
-      );
-    });
+    if (sendWhatsApp) {
+      import('../services/notificationService').then(({ sendBillConfirmation }) => {
+        sendBillConfirmation(result.id).catch((err) =>
+          console.error('[Notification] Bill notification failed (non-blocking):', err.message)
+        );
+      });
+    }
 
     return res.status(201).json({
       id: completeVisit!.id,
