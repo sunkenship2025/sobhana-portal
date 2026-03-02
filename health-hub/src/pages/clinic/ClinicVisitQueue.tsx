@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useAppStore } from '@/store/appStore';
 import { useBranchStore } from '@/store/branchStore';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { Search, Users } from 'lucide-react';
+import { Search, Users, RotateCcw } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -157,6 +157,12 @@ const ClinicVisitQueue = () => {
                         <span className="text-xs px-2 py-0.5 rounded bg-muted font-medium">
                           {visit.visitType}
                         </span>
+                        {visit.isRevisit && (
+                          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">
+                            <RotateCcw className="h-3 w-3" />
+                            Revisit
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-4 text-sm">
                         <span className="text-muted-foreground">
