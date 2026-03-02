@@ -310,6 +310,7 @@ const ClinicNewVisit = () => {
           paymentStatus: 'PAID',
           isRevisit: revisitInfo?.isRevisit || false,
           originalVisitId: revisitInfo?.originalVisitId || null,
+          sendWhatsApp: showNewPatientForm ? newPatient.whatsappOptIn : whatsappOptIn,
         }),
       });
 
@@ -445,7 +446,7 @@ const ClinicNewVisit = () => {
 
         {/* Print Content */}
         <div ref={printRef} className="hidden print:block">
-          <ClinicPrescriptionPrint visitView={successData.visitView} />
+          <ClinicPrescriptionPrint visitView={successData.visitView} branchName={activeBranch?.name} />
         </div>
       </AppLayout>
     );

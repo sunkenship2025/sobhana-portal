@@ -307,6 +307,7 @@ const DiagnosticsNewVisit = () => {
           productIds: selectedProducts,
           paymentType,
           paymentStatus: 'PAID',
+          sendWhatsApp: showNewPatientForm ? newPatient.whatsappOptIn : whatsappOptIn,
         }),
       });
 
