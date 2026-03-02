@@ -68,7 +68,8 @@ router.get('/:token', async (req: Request, res: Response) => {
       mode: renderMode,
       baseUrl,
       reportToken: token,
-      includePdfStyles: true,
+      includePdfStyles: mode === 'physical',
+      forPdfDigital: mode === 'digital',
       qrDataUrl,
     });
 
