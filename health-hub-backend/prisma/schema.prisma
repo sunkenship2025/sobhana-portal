@@ -1048,7 +1048,8 @@ model TestDefinition {
   testResults        TestResult[]
   productPanels      BillableProductPanel[] // Products that include this (via panels)
 
-  @@unique([code, isLatest]) // Code is unique among latest versions
+  @@unique([rootDefinitionId, version]) // Each root can only have one of each version number
+  @@index([code, isLatest]) // Fast lookup for code uniqueness among latest
   @@index([rootDefinitionId])
   @@index([isLatest, status])
   @@index([code])
