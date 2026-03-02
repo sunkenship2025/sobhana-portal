@@ -381,8 +381,8 @@ body.report-body {
   color: #555;
   text-align: left;
   padding: 0;
-  margin-top: 22px;
-  margin-bottom: 28px;
+  margin-top: 25px;
+  margin-bottom: 0;
   font-weight: 400;
 }
 
@@ -390,12 +390,29 @@ body.report-body {
    SIGNATURES
    ============================================================================ */
 
+/* Authorized Signatory label */
+.authorized-signatory-label {
+  font-size: 9pt;
+  font-weight: 600;
+  color: var(--color-text-light);
+  text-align: right;
+  margin-bottom: 8px;
+}
+
 .signatures-section {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  margin-top: 32px;
-  padding-top: 16px;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+/* Thin divider between signatures and footer */
+.report-divider {
+  height: 1px;
+  background: var(--color-border);
+  margin-top: 16px;
+  margin-bottom: 0;
 }
 
 .signatures-left {
@@ -449,7 +466,8 @@ body.report-body {
    ============================================================================ */
 
 .footer {
-  margin-top: auto;
+  margin-top: 0;
+  padding-top: 30px;
   font-size: 7.5pt;
   color: #333;
 }
@@ -575,10 +593,12 @@ body.report-body {
   .section-header td { padding-top: 4px; }
   
   /* Compact note */
-  .report-note { font-size: 7.5pt; margin-top: 6px; margin-bottom: 10px; }
+  .report-note { font-size: 7.5pt; margin-top: 6px; margin-bottom: 0; }
   
   /* Compact signatures */
-  .signatures-section { margin-top: 0; padding-top: 8px; }
+  .authorized-signatory-label { font-size: 7.5pt; margin-bottom: 4px; }
+  .signatures-section { margin-top: 0; padding-top: 4px; }
+  .report-divider { margin-top: 8px; }
   .signature-image { height: 35px; }
   .doctor-name { font-size: 9pt; }
   .doctor-degrees { font-size: 7.5pt; }

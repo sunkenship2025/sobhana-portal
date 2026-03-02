@@ -220,8 +220,8 @@ body.report-body {
   color: #555;
   text-align: left;
   padding: 0;
-  margin-top: 12pt;
-  margin-bottom: 14pt;
+  margin-top: 14pt;
+  margin-bottom: 0;
   font-weight: 400;
 }
 
@@ -229,12 +229,27 @@ body.report-body {
    SIGNATURES
    ============================================================================ */
 
+.authorized-signatory-label {
+  font-size: 8pt;
+  font-weight: 600;
+  color: #555;
+  text-align: right;
+  margin-bottom: 6pt;
+}
+
 .signatures-section {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  margin-top: var(--spacing-lg);
-  padding-top: var(--spacing-md);
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.report-divider {
+  height: 0.5pt;
+  background: #999;
+  margin-top: 10pt;
+  margin-bottom: 0;
 }
 
 .signatures-left {

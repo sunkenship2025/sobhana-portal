@@ -227,6 +227,10 @@ export async function createNewVersion(
       data: { isLatest: false, status: 'LOCKED' },
     });
 
+    // Helper: use update value if key is explicitly provided, else fall back to current
+    const pick = <T>(key: string, fallback: T): T =>
+      key in (updates as Record<string, unknown>) ? (updates as Record<string, unknown>)[key] as T : fallback;
+
     // Create new version
     const newVersion = await tx.testDefinition.create({
       data: {
@@ -237,15 +241,15 @@ export async function createNewVersion(
         status: 'ACTIVE',
         name: updates.name ?? current.name,
         code: newCode,
-        sampleType: updates.sampleType ?? current.sampleType,
-        method: updates.method ?? current.method,
-        referenceUnit: updates.referenceUnit ?? current.referenceUnit,
-        departmentId: updates.departmentId ?? current.departmentId,
-        referenceMin: updates.referenceMin ?? current.referenceMin,
-        referenceMax: updates.referenceMax ?? current.referenceMax,
-        referenceText: updates.referenceText ?? current.referenceText,
-        formulaExpression: updates.formulaExpression ?? current.formulaExpression,
-        dependsOnCodes: updates.dependsOnCodes ?? (current.dependsOnCodes as string[]) ?? [],
+        sampleType: pick('sampleType', current.sampleType),
+        method: pick('method', current.method),
+        referenceUnit: pick('referenceUnit', current.referenceUnit),
+        departmentId: pick('departmentId', current.departmentId),
+        referenceMin: pick('referenceMin', current.referenceMin),
+        referenceMax: pick('referenceMax', current.referenceMax),
+        referenceText: pick('referenceText', current.referenceText),
+        formulaExpression: pick('formulaExpression', current.formulaExpression),
+        dependsOnCodes: pick('dependsOnCodes', (current.dependsOnCodes as string[]) ?? []),
         interpretationMode: updates.interpretationMode ?? current.interpretationMode,
         displayOrder: updates.displayOrder ?? current.displayOrder,
       },

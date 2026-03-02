@@ -673,15 +673,16 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
         ${departmentSections}
       </div>
 
-      <!-- Bottom Section — pushed to bottom of page via flexbox margin-top:auto -->
-      <div class="report-bottom-section">
-
-      <!-- Clinical Note -->
+      <!-- Clinical Note — directly below results table -->
       <div class="report-note">
         This report should be interpreted in conjunction with clinical findings.
       </div>
 
+      <!-- Bottom Section — pushed to bottom of page via flexbox margin-top:auto -->
+      <div class="report-bottom-section">
+
       <!-- Signature Section -->
+      <div class="authorized-signatory-label">Authorized Signatory</div>
       <section class="signatures-section">
         ${snapshot.signatures.some(s => s.showLabInchargeNote) ? `
         <div class="signatures-left">
@@ -703,6 +704,8 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
         <div class="print-qr-text">Scan to download report</div>
       </div>
       ` : ''}
+
+      <div class="report-divider"></div>
 
       </div><!-- /report-bottom-section -->
 
