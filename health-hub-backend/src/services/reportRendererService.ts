@@ -497,10 +497,12 @@ export interface RenderOptions {
   includePdfStyles?: boolean;
   /** Pre-generated QR code as base64 data URI (avoids external API dependency) */
   qrDataUrl?: string;
+  /** When true, forces header/footer visible even in print context (for Puppeteer digital PDF) */
+  forPdfDigital?: boolean;
 }
 
 export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOptions): string {
-  const { mode, baseUrl = '', reportToken = '', includePdfStyles = false, qrDataUrl = '' } = options;
+  const { mode, baseUrl = '', reportToken = '', includePdfStyles = false, qrDataUrl = '', forPdfDigital = false } = options;
   
   // Render departments and panels
   const departmentSections = snapshot.departments.map(dept => {
@@ -535,7 +537,11 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
   // This fixes mixed-content blocking on Render (http CSS links on https page)
   // and makes Puppeteer PDF generation fully self-contained
   let inlineCss = '';
-  if (includePdfStyles) {
+  if (forPdfDigital) {
+    // Digital PDF (WhatsApp download): only screen CSS, NO print CSS
+    // Header/footer must remain visible in the PDF
+    inlineCss = `<style>${SCREEN_CSS}</style>`;
+  } else if (includePdfStyles) {
     inlineCss = `<style>${SCREEN_CSS}</style>\n<style media="print">${PRINT_CSS}</style>`;
   } else if (mode === 'print') {
     inlineCss = `<style>${PRINT_CSS}</style>`;
@@ -561,9 +567,19 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
         margin-left: 15mm;
         margin-right: 15mm;
       }
-      .header, .footer { display: none !important; }
+      ${forPdfDigital ? '' : '.header, .footer { display: none !important; }'}
       .no-print { display: none !important; }
     }
+    ${forPdfDigital ? `
+    /* Digital PDF override: force header/footer visible in Puppeteer print context */
+    @media print {
+      .header { display: block !important; }
+      .footer { display: block !important; }
+      .header-qr { display: flex !important; }
+      .report-page { box-shadow: none; margin: 0; }
+      body.report-body { background: white; padding: 0; }
+    }
+    ` : ''}
   </style>
 </head>
 <body class="report-body ${mode}-mode">
