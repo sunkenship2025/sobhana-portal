@@ -301,6 +301,8 @@ export interface ClinicVisit extends BaseVisit {
   doctorId: string; // Consulting doctor (internal ClinicDoctor.id)
   hospitalWard?: string;
   consultationFeeInPaise: number;
+  isRevisit?: boolean;
+  originalVisitId?: string;
   status: ClinicVisitStatus;
 }
 

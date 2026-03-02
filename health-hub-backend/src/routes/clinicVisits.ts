@@ -74,6 +74,8 @@ router.get('/', async (req: AuthRequest, res) => {
       doctor: v.clinicVisit?.clinicDoctor || null,
       totalAmount: v.totalAmountInPaise / 100,
       consultationFee: (v.clinicVisit?.consultationFeeInPaise || 0) / 100,
+      isRevisit: v.clinicVisit?.isRevisit || false,
+      originalVisitId: v.clinicVisit?.originalVisitId || null,
       paymentType: v.bill?.paymentType || 'CASH',
       paymentStatus: v.bill?.paymentStatus || 'PENDING',
       createdAt: v.createdAt,
@@ -137,6 +139,8 @@ router.get('/:id', async (req: AuthRequest, res) => {
       doctor: visit.clinicVisit?.clinicDoctor || null,
       totalAmount: visit.totalAmountInPaise / 100,
       consultationFee: (visit.clinicVisit?.consultationFeeInPaise || 0) / 100,
+      isRevisit: visit.clinicVisit?.isRevisit || false,
+      originalVisitId: visit.clinicVisit?.originalVisitId || null,
       paymentType: visit.bill?.paymentType || 'CASH',
       paymentStatus: visit.bill?.paymentStatus || 'PENDING',
       createdAt: visit.createdAt,
@@ -153,6 +157,61 @@ router.get('/:id', async (req: AuthRequest, res) => {
   }
 });
 
+// GET /api/visits/clinic/check-revisit - Check if a visit qualifies as a revisit
+// A revisit = same patient + same doctor + within 7 days of a previous completed/waiting/in_progress visit
+router.get('/check-revisit', async (req: AuthRequest, res) => {
+  try {
+    const { patientId, doctorId } = req.query;
+
+    if (!patientId || !doctorId) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'patientId and doctorId are required',
+      });
+    }
+
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    // Find the most recent clinic visit for this patient+doctor within last 7 days
+    const recentVisit = await prisma.visit.findFirst({
+      where: {
+        patientId: patientId as string,
+        domain: 'CLINIC',
+        status: { not: 'CANCELLED' },
+        createdAt: { gte: sevenDaysAgo },
+        clinicVisit: {
+          clinicDoctorId: doctorId as string,
+        },
+      },
+      include: {
+        clinicVisit: {
+          include: { clinicDoctor: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (recentVisit) {
+      return res.json({
+        isRevisit: true,
+        originalVisitId: recentVisit.id,
+        originalBillNumber: recentVisit.billNumber,
+        originalDate: recentVisit.createdAt,
+        doctorName: recentVisit.clinicVisit?.clinicDoctor?.name || null,
+      });
+    }
+
+    return res.json({ isRevisit: false });
+  } catch (err: any) {
+    console.error('Check revisit error:', err);
+    return res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: 'Failed to check revisit status',
+    });
+  }
+});
+
 // POST /api/visits/clinic - Create new clinic visit
 router.post('/', async (req: AuthRequest, res) => {
   try {
@@ -164,6 +223,8 @@ router.post('/', async (req: AuthRequest, res) => {
       consultationFee,
       paymentType,
       paymentStatus,
+      isRevisit,
+      originalVisitId,
     } = req.body;
 
     // Validation
@@ -198,8 +259,11 @@ router.post('/', async (req: AuthRequest, res) => {
       });
     }
 
+    // If revisit, force consultation fee to ₹0
+    const effectiveFee = isRevisit ? 0 : consultationFee;
+
     // Convert fee to paise
-    const consultationFeeInPaise = Math.round(consultationFee * 100);
+    const consultationFeeInPaise = Math.round(effectiveFee * 100);
 
     // Generate bill number
     const billNumber = await generateClinicBillNumber(branch.code);
@@ -238,6 +302,8 @@ router.post('/', async (req: AuthRequest, res) => {
           visitType,
           hospitalWard: visitType === 'IP' ? hospitalWard : null,
           consultationFeeInPaise,
+          isRevisit: isRevisit || false,
+          originalVisitId: isRevisit ? originalVisitId : null,
           status: 'WAITING',
         },
       });
