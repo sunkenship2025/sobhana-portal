@@ -677,9 +677,9 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
       <!-- Bottom Section — pushed to bottom of page via flexbox margin-top:auto -->
       <div class="report-bottom-section">
 
-      <!-- Note Line -->
+      <!-- Clinical Note -->
       <div class="report-note">
-        <em>Note : Please correlate clinically if necessary kindly discuss.</em>
+        This report should be interpreted in conjunction with clinical findings.
       </div>
 
       <!-- Signature Section -->
@@ -702,12 +702,6 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
         <div class="print-qr-text">Scan to download report</div>
       </div>
       ` : ''}
-
-      <!-- End of Report -->
-      <div class="end-of-report">
-        <hr class="end-line" />
-        <span class="end-text">— END OF REPORT —</span>
-      </div>
 
       </div><!-- /report-bottom-section -->
 

@@ -217,10 +217,12 @@ body.report-body {
 
 .report-note {
   font-size: 8pt;
-  text-align: center;
-  padding: var(--spacing-sm);
-  border-top: 0.5pt dashed var(--color-border);
-  margin-top: var(--spacing-md);
+  color: #555;
+  text-align: left;
+  padding: 0;
+  margin-top: 12pt;
+  margin-bottom: 14pt;
+  font-weight: 400;
 }
 
 /* ============================================================================
@@ -282,15 +284,6 @@ body.report-body {
 }
 .print-qr-img { width: 50pt; height: 50pt; }
 .print-qr-text { font-size: 7pt; color: #666; }
-
-.end-of-report {
-  text-align: center;
-  margin-top: var(--spacing-lg);
-  padding-top: var(--spacing-sm);
-}
-
-.end-line { border: none; border-top: 0.5pt solid var(--color-border); margin-bottom: var(--spacing-xs); }
-.end-text { font-size: 9pt; letter-spacing: 1pt; }
 
 /* ============================================================================
    PAGE BREAKS
