@@ -153,7 +153,7 @@
   .print-page {
     page-break-after: always;
     min-height: 100vh;
-    padding: 12mm 15mm;
+    padding: 20mm 15mm 25mm 15mm;
     box-sizing: border-box;
   }
   .print-page:last-child {
