@@ -22,11 +22,12 @@ export const ClinicPrescriptionPrint = ({ visitView }: ClinicPrescriptionPrintPr
   const genderFull = patient.gender === 'M' ? 'Male' : patient.gender === 'F' ? 'Female' : 'Other';
 
   return (
-    <div>
+    <div className="print-content bg-white text-black">
+
       {/* ============ PAGE 1: Prescription Pad ============ */}
-      <div className="print-content p-8 bg-white text-black max-w-2xl mx-auto" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <div className="print-page p-8" style={{ display: 'flex', flexDirection: 'column' }}>
         {/* Doctor Header */}
-        <div className="border-b-2 border-black pb-4 mb-4 flex justify-between gap-4">
+        <div className="border-b-2 border-black pb-4 mb-6 flex justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold">{clinicDoctor?.name || 'Clinic Doctor'}</h1>
             <p className="text-sm">{clinicDoctor?.qualification}</p>
@@ -40,27 +41,27 @@ export const ClinicPrescriptionPrint = ({ visitView }: ClinicPrescriptionPrintPr
           </div>
         </div>
 
-        {/* Patient Info - Clean style */}
+        {/* Patient Info */}
         <div className="mb-2">
-          <p className="text-base"><strong>Patient Name:</strong>  {patient.name.toUpperCase()}</p>
+          <p className="text-base"><strong>Patient Name:</strong>&ensp;{patient.name.toUpperCase()}</p>
         </div>
-        <div className="border-b-2 border-black pb-3 mb-6">
-          <p className="text-base"><strong>Age / Gender:</strong>  {patient.age} / {genderFull}</p>
+        <div className="border-b border-black pb-3 mb-6">
+          <p className="text-base"><strong>Age / Gender:</strong>&ensp;{patient.age} / {genderFull}</p>
         </div>
 
         {/* Rx Symbol & Prescription Area */}
-        <div className="flex-1" style={{ minHeight: '400px' }}>
+        <div className="flex-1">
           <p className="text-5xl font-bold mb-6" style={{ fontFamily: 'serif' }}>℞</p>
-          {/* Blank area for doctor to write prescriptions */}
         </div>
 
         {/* Follow-up line */}
-        <div className="border-t border-black pt-3 mt-auto mb-8">
-          <p className="text-sm">Free follow-up valid until {followUpDateStr}.</p>
+        <div className="mt-auto">
+          <p className="text-sm mb-2">Free follow-up valid until {followUpDateStr}.</p>
+          <div className="border-t border-black mb-16"></div>
         </div>
 
         {/* Doctor Signature */}
-        <div className="text-center mt-8 mb-4">
+        <div className="text-center mb-4">
           <div className="inline-block">
             <div className="border-t border-black w-48 mb-1"></div>
             <p className="text-sm">Doctor's Signature</p>
@@ -68,11 +69,8 @@ export const ClinicPrescriptionPrint = ({ visitView }: ClinicPrescriptionPrintPr
         </div>
       </div>
 
-      {/* Page Break */}
-      <div style={{ pageBreakBefore: 'always' }}></div>
-
       {/* ============ PAGE 2: Bill Receipt ============ */}
-      <div className="print-content p-8 bg-white text-black max-w-2xl mx-auto">
+      <div className="print-page p-8">
         {/* Letterhead */}
         <div className="border-b-2 border-black pb-4 mb-4 flex justify-between gap-4">
           <div>
@@ -100,7 +98,7 @@ export const ClinicPrescriptionPrint = ({ visitView }: ClinicPrescriptionPrintPr
           </div>
         </div>
 
-        {/* Prescription Body (blank for notes) */}
+        {/* Prescription Body */}
         <div className="border border-black p-4 mb-4 min-h-[240px]">
           <h3 className="font-semibold mb-2">Prescription / Notes</h3>
           <p className="text-sm text-gray-700">(Write instructions here)</p>
@@ -124,6 +122,7 @@ export const ClinicPrescriptionPrint = ({ visitView }: ClinicPrescriptionPrintPr
           <p className="mt-2">* This is a computer generated document *</p>
         </div>
       </div>
+
     </div>
   );
 };
