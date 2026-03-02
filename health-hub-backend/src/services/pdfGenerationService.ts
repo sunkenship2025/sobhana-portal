@@ -118,6 +118,12 @@ export async function generateReportPdf(
   const page = await browser.newPage();
 
   try {
+    // Digital PDFs use screen media type to prevent @media print rules from
+    // firing — preserves full colors, header/footer, and normal font sizes.
+    if (options.mode === 'digital') {
+      await page.emulateMediaType('screen');
+    }
+
     // Set content with base URL for resource resolution
     await page.setContent(html, {
       waitUntil: 'networkidle0',
@@ -150,6 +156,11 @@ export async function generatePdfFromHtml(
   const page = await browser.newPage();
 
   try {
+    // Digital PDFs: screen media type prevents @media print from firing
+    if (options.mode === 'digital') {
+      await page.emulateMediaType('screen');
+    }
+
     await page.setContent(html, {
       waitUntil: 'networkidle0',
       timeout: 30000,
