@@ -118,23 +118,28 @@
 }
 
 /* Print Styles */
+@page {
+  margin: 0;
+  size: A4;
+}
+
 @media print {
   /* Hide everything by default */
   body * {
     visibility: hidden;
   }
-  
+
   /* Hide elements with no-print class completely */
   .no-print {
     display: none !important;
   }
-  
+
   /* Show print content */
   .print-content,
   .print-content * {
     visibility: visible;
   }
-  
+
   .print-content {
     position: absolute;
     left: 0;
@@ -148,6 +153,7 @@
   .print-page {
     page-break-after: always;
     min-height: 100vh;
+    padding: 12mm 15mm;
     box-sizing: border-box;
   }
   .print-page:last-child {
