@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { API_BASE } from '@/lib/api';
+import { useState, useEffect, useRef } from 'react';
+import { API_BASE, API_BASE_URL } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -76,12 +76,14 @@ function getInitials(name: string) {
 
 export default function ManageSigningDoctors() {
   const { token } = useAuthStore();
+  const signatureInputRef = useRef<HTMLInputElement>(null);
 
   const [doctors, setDoctors] = useState<SigningDoctor[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [rules, setRules] = useState<SigningRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [uploading, setUploading] = useState(false);
 
   // Sheet for doctor edit
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -220,6 +222,58 @@ export default function ManageSigningDoctors() {
     setDeleteId(null);
   };
 
+  // ── Signature Upload ─────────────────────────────────────────────
+  const handleSignatureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !editingDoctorId) return;
+
+    // Validate file type
+    const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (!allowed.includes(file.type)) {
+      toast.error('Only PNG, JPG, or WebP images are allowed');
+      return;
+    }
+
+    // Validate file size (2MB max)
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('File size must be under 2MB');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const { activeBranchId } = useBranchStore.getState();
+      const formData = new FormData();
+      formData.append('signature', file);
+
+      const res = await fetch(`${API_BASE}/signing-doctors/${editingDoctorId}/upload-signature`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Branch-Id': activeBranchId || '',
+          // Don't set Content-Type — browser sets it with boundary for FormData
+        },
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        toast.error(err.message || 'Upload failed');
+        return;
+      }
+
+      toast.success('Signature uploaded successfully');
+      await fetchAll();
+    } catch (err) {
+      console.error('Signature upload error:', err);
+      toast.error('Failed to upload signature');
+    } finally {
+      setUploading(false);
+      // Reset file input so same file can be re-selected
+      if (signatureInputRef.current) signatureInputRef.current.value = '';
+    }
+  };
+
   // ── Rule CRUD ────────────────────────────────────────────────────
   const handleAddRule = () => {
     setRuleForm({ departmentId: '', signingDoctorId: '', showLabInchargeNote: false, displayOrder: '1' });
@@ -323,6 +377,7 @@ export default function ManageSigningDoctors() {
                   <TableHead>Doctor</TableHead>
                   <TableHead>Designation</TableHead>
                   <TableHead>Reg. No.</TableHead>
+                  <TableHead className="text-center">Signature</TableHead>
                   <TableHead className="text-center">Rules</TableHead>
                   <TableHead className="text-center">Active</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -355,8 +410,18 @@ export default function ManageSigningDoctors() {
                         <span className="text-muted-foreground text-sm">—</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-center">
-                      <Badge variant="secondary">{doc._count.signingRules}</Badge>
+                    <TableCell className="text-center">                      {doc.signatureImagePath ? (
+                        <img
+                          src={`${API_BASE_URL}${doc.signatureImagePath}`}
+                          alt="Sig"
+                          className="h-8 mx-auto"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      ) : (
+                        <span className="text-muted-foreground text-xs">No signature</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">                      <Badge variant="secondary">{doc._count.signingRules}</Badge>
                     </TableCell>
                     <TableCell className="text-center">
                       <Switch checked={doc.isActive} onCheckedChange={() => handleToggleDoctor(doc)} />
@@ -531,15 +596,57 @@ export default function ManageSigningDoctors() {
               <Label className="flex items-center gap-1.5">
                 <FileSignature className="h-4 w-4" /> Digital Signature
               </Label>
-              <div className="border-2 border-dashed rounded-lg p-6 text-center hover:bg-muted/50 transition-colors cursor-pointer">
-                <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                <p className="text-sm text-muted-foreground">
-                  Click to upload signature image
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  PNG or JPG, transparent background preferred
-                </p>
-              </div>
+
+              {/* Hidden file input */}
+              <input
+                ref={signatureInputRef}
+                type="file"
+                accept=".png,.jpg,.jpeg,.webp"
+                className="hidden"
+                onChange={handleSignatureUpload}
+              />
+
+              {/* Current signature preview */}
+              {editingDoctorId && doctors.find(d => d.id === editingDoctorId)?.signatureImagePath ? (
+                <div className="space-y-2">
+                  <div className="border rounded-lg p-3 bg-muted/30">
+                    <img
+                      src={`${API_BASE_URL}${doctors.find(d => d.id === editingDoctorId)!.signatureImagePath}`}
+                      alt="Current signature"
+                      className="h-16 mx-auto"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                    <p className="text-xs text-center text-muted-foreground mt-1">Current signature</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    disabled={uploading || !editingDoctorId}
+                    onClick={() => signatureInputRef.current?.click()}
+                  >
+                    <Upload className="h-4 w-4 mr-1" />
+                    {uploading ? 'Uploading...' : 'Replace Signature'}
+                  </Button>
+                </div>
+              ) : (
+                <div
+                  className={`border-2 border-dashed rounded-lg p-6 text-center hover:bg-muted/50 transition-colors ${editingDoctorId ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}
+                  onClick={() => editingDoctorId && signatureInputRef.current?.click()}
+                >
+                  <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                  <p className="text-sm text-muted-foreground">
+                    {editingDoctorId
+                      ? (uploading ? 'Uploading...' : 'Click to upload signature image')
+                      : 'Save doctor first, then upload signature'
+                    }
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    PNG or JPG, transparent background preferred
+                  </p>
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">
                 Signature will appear on printed reports for this doctor
               </p>

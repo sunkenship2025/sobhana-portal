@@ -574,7 +574,7 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
     /* Digital PDF: Puppeteer uses emulateMediaType('screen') so @media print
        rules never fire. These non-print rules do cosmetic cleanup for PDF output
        while preserving all screen colors, fonts, and header/footer. */
-    .report-page { box-shadow: none; margin: 0; }
+    .report-page { box-shadow: none; margin: 0; min-height: auto; }
     body.report-body { background: white; padding: 0; }
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     ` : ''}
@@ -646,6 +646,9 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
         ${departmentSections}
       </div>
 
+      <!-- Bottom Section — pushed to bottom of page via flexbox margin-top:auto -->
+      <div class="report-bottom-section">
+
       <!-- Note Line -->
       <div class="report-note">
         <em>Note : Please correlate clinically if necessary kindly discuss.</em>
@@ -677,6 +680,8 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
         <hr class="end-line" />
         <span class="end-text">— END OF REPORT —</span>
       </div>
+
+      </div><!-- /report-bottom-section -->
 
     </main>
 
