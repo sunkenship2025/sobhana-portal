@@ -145,7 +145,7 @@ router.post('/', async (req: AuthRequest, res) => {
         degrees: degrees.trim(),
         designation: designation.trim(),
         registrationNumber: registrationNumber?.trim() || null,
-        signatureImagePath: signatureImagePath?.trim() || null,
+        signatureImagePath: signatureImagePath?.trim() || '',
       },
     });
 
