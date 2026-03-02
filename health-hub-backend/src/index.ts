@@ -42,6 +42,9 @@ import prisma from './lib/prisma';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust reverse proxy (Render) — ensures req.protocol returns 'https'
+app.set('trust proxy', true);
+
 // Security middleware - relaxed for development
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },

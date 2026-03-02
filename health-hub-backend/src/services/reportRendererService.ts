@@ -11,6 +11,34 @@
  */
 
 import { ReportSnapshot, PanelSnapshot, TestResultSnapshot } from './reportSnapshotService';
+import fs from 'fs';
+import path from 'path';
+
+// ============================================================================
+// INLINE ASSETS — loaded once at startup, embedded in every report HTML
+// Eliminates external CSS/image dependencies (fixes mixed-content on Render)
+// ============================================================================
+
+const CSS_DIR = path.join(__dirname, '../../public/css');
+const IMAGES_DIR = path.join(__dirname, '../../public/images');
+
+let SCREEN_CSS = '';
+let PRINT_CSS = '';
+let LOGO_DATA_URI = '';
+
+try {
+  SCREEN_CSS = fs.readFileSync(path.join(CSS_DIR, 'report-screen.css'), 'utf-8');
+  PRINT_CSS = fs.readFileSync(path.join(CSS_DIR, 'report-print.css'), 'utf-8');
+} catch (err) {
+  console.error('Failed to load report CSS files:', err);
+}
+
+try {
+  const logoBuffer = fs.readFileSync(path.join(IMAGES_DIR, 'sobhana-logo-cropped.png'));
+  LOGO_DATA_URI = `data:image/png;base64,${logoBuffer.toString('base64')}`;
+} catch (err) {
+  console.error('Failed to load logo for inlining:', err);
+}
 
 // ============================================================================
 // RENDER HELPERS
@@ -503,11 +531,17 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
   // Use pre-generated QR data URI if provided, otherwise skip QR
   const qrImgSrc = qrDataUrl || '';
 
-  // Decide which CSS to include
-  const cssLink = includePdfStyles 
-    ? `<link rel="stylesheet" href="${baseUrl}/css/report-screen.css">
-       <link rel="stylesheet" href="${baseUrl}/css/report-print.css" media="print">`
-    : `<link rel="stylesheet" href="${baseUrl}/css/report-${mode}.css">`;
+  // Inline CSS directly into HTML — no external stylesheet dependencies
+  // This fixes mixed-content blocking on Render (http CSS links on https page)
+  // and makes Puppeteer PDF generation fully self-contained
+  let inlineCss = '';
+  if (includePdfStyles) {
+    inlineCss = `<style>${SCREEN_CSS}</style>\n<style media="print">${PRINT_CSS}</style>`;
+  } else if (mode === 'print') {
+    inlineCss = `<style>${PRINT_CSS}</style>`;
+  } else {
+    inlineCss = `<style>${SCREEN_CSS}</style>`;
+  }
 
   // Build full HTML — structure matches the Sobhana pre-printed letterhead
   return `<!DOCTYPE html>
@@ -516,7 +550,7 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Diagnostic Report - ${escapeHtml(snapshot.patient.name)} - ${escapeHtml(snapshot.visit.billNumber)}</title>
-  ${cssLink}
+  ${inlineCss}
   <style>
     /* Inline critical styles for print reliability */
     @media print {
@@ -539,7 +573,7 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
     <!-- HEADER — Replicates Sobhana pre-printed letterhead (hidden in print) -->
     <header class="header">
       <div class="header-logo-row">
-        <img src="${baseUrl}/images/sobhana-logo-cropped.png" alt="Sobhana Diagnostic Centre" class="header-logo" />
+        <img src="${LOGO_DATA_URI || (baseUrl + '/images/sobhana-logo-cropped.png')}" alt="Sobhana Diagnostic Centre" class="header-logo" />
         ${qrImgSrc ? `
         <div class="header-qr no-print">
           <img src="${qrImgSrc}" alt="QR" class="header-qr-img" />
