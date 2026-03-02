@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { API_BASE } from '@/lib/api';
+import { API_BASE, API_BASE_URL } from '@/lib/api';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -233,7 +233,7 @@ const DiagnosticsReportPreview = () => {
   const handlePrint = () => {
     if (reportToken) {
       // Open the report HTML in a new window and trigger browser print dialog
-      const printWindow = window.open(`/reports/${reportToken}/view`, '_blank');
+      const printWindow = window.open(`${API_BASE_URL}/reports/${reportToken}/view`, '_blank');
       if (printWindow) {
         printWindow.addEventListener('load', () => {
           setTimeout(() => printWindow.print(), 500);
@@ -440,7 +440,7 @@ const DiagnosticsReportPreview = () => {
                   </p>
                   {reportToken && (
                     <a 
-                      href={`/reports/${reportToken}`}
+                      href={`${API_BASE_URL}/reports/${reportToken}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-sm text-primary hover:underline mt-1 inline-block"

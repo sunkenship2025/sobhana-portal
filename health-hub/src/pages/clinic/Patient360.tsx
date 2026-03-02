@@ -37,7 +37,7 @@ import { PatientEditDialog } from '@/components/patient360/PatientEditDialog';
  * - No editing allowed (read-only view)
  */
 
-import { API_BASE } from '@/lib/api';
+import { API_BASE, API_BASE_URL } from '@/lib/api';
 
 // API call for Patient 360 data
 const fetchPatient360 = async (
@@ -121,7 +121,7 @@ function VisitDetailDrawer({ visit, open, onClose, patientPhone, patientName, on
       toast.error('Report not available.');
       return;
     }
-    const printWindow = window.open(`/reports/${visit.reportAccessToken}/view`, '_blank');
+    const printWindow = window.open(`${API_BASE_URL}/reports/${visit.reportAccessToken}/view`, '_blank');
     if (printWindow) {
       printWindow.addEventListener('load', () => {
         setTimeout(() => printWindow.print(), 500);
@@ -341,7 +341,7 @@ export default function Patient360() {
   const handlePreviewReport = async (reportAccessToken: string) => {
     setPreviewLoading(true);
     try {
-      const response = await fetch(`/reports/${reportAccessToken}/view`);
+      const response = await fetch(`${API_BASE_URL}/reports/${reportAccessToken}/view`);
       if (response.ok) {
         const html = await response.text();
         setPreviewHtml(html);
