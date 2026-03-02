@@ -64,7 +64,7 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
         </div>
 
         {/* Doctor Signature */}
-        <div className="text-center mb-4">
+        <div className="text-right mb-4">
           <div className="inline-block">
             <div className="border-t border-black w-48 mb-1"></div>
             <p className="text-sm">Doctor's Signature</p>
