@@ -190,7 +190,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     if (degrees !== undefined) data.degrees = degrees.trim();
     if (designation !== undefined) data.designation = designation.trim();
     if (registrationNumber !== undefined) data.registrationNumber = registrationNumber?.trim() || null;
-    if (signatureImagePath !== undefined) data.signatureImagePath = signatureImagePath?.trim() || null;
+    if (signatureImagePath !== undefined) data.signatureImagePath = signatureImagePath?.trim() || '';
     if (isActive !== undefined) data.isActive = isActive;
 
     const doctor = await prisma.signingDoctor.update({

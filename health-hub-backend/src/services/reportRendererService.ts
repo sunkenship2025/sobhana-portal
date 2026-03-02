@@ -21,6 +21,7 @@ import path from 'path';
 
 const CSS_DIR = path.join(__dirname, '../../public/css');
 const IMAGES_DIR = path.join(__dirname, '../../public/images');
+const PUBLIC_DIR = path.join(__dirname, '../../public');
 
 let SCREEN_CSS = '';
 let PRINT_CSS = '';
@@ -38,6 +39,28 @@ try {
   LOGO_DATA_URI = `data:image/png;base64,${logoBuffer.toString('base64')}`;
 } catch (err) {
   console.error('Failed to load logo for inlining:', err);
+}
+
+/**
+ * Inline a signature image from disk as a base64 data URI.
+ * Returns data URI string, or empty string if file not found.
+ * This ensures Puppeteer doesn't need to HTTP-fetch signature images
+ * from the same server (which can fail/timeout in Docker).
+ */
+function inlineSignatureImage(signatureImagePath: string | null): string {
+  if (!signatureImagePath) return '';
+  try {
+    const fullPath = path.join(PUBLIC_DIR, signatureImagePath);
+    if (!fs.existsSync(fullPath)) return '';
+    const buffer = fs.readFileSync(fullPath);
+    const ext = path.extname(signatureImagePath).toLowerCase();
+    const mime = ext === '.png' ? 'image/png'
+      : ext === '.webp' ? 'image/webp'
+      : 'image/jpeg';
+    return `data:${mime};base64,${buffer.toString('base64')}`;
+  } catch {
+    return '';
+  }
 }
 
 // ============================================================================
@@ -520,15 +543,20 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
   // Lab Incharge is a separate blank space for physical pen signing
   const signatureBlocks = snapshot.signatures
     .filter(sig => !sig.showLabInchargeNote || sig.signatureImagePath) // show doctors with actual signatures
-    .map(sig => `
+    .map(sig => {
+    // Inline signature image as base64 data URI (avoids Puppeteer HTTP fetch issues)
+    const sigDataUri = inlineSignatureImage(sig.signatureImagePath);
+    const sigImgSrc = sigDataUri || (sig.signatureImagePath ? `${baseUrl}${escapeHtml(sig.signatureImagePath)}` : '');
+    return `
     <div class="signature-block">
-      ${sig.signatureImagePath ? `<img src="${baseUrl}${escapeHtml(sig.signatureImagePath)}" alt="Signature" class="signature-image" onerror="this.style.display='none'" />` : ''}
+      ${sigImgSrc ? `<img src="${sigImgSrc}" alt="Signature" class="signature-image" onerror="this.style.display='none'" />` : ''}
       <div class="doctor-name">${escapeHtml(sig.doctorName)}</div>
       <div class="doctor-degrees">${escapeHtml(sig.degrees)}</div>
       <div class="doctor-designation">${escapeHtml(sig.designation)}</div>
       ${sig.registrationNumber ? `<div class="doctor-reg">Reg. No: ${escapeHtml(sig.registrationNumber)}</div>` : ''}
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   // Use pre-generated QR data URI if provided, otherwise skip QR
   const qrImgSrc = qrDataUrl || '';
