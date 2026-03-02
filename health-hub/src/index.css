@@ -143,6 +143,16 @@
     background: white !important;
     color: black !important;
   }
+
+  /* Multi-page print: pages stack naturally */
+  .print-page {
+    page-break-after: always;
+    min-height: 100vh;
+    box-sizing: border-box;
+  }
+  .print-page:last-child {
+    page-break-after: auto;
+  }
 }
 
 @layer base {
