@@ -79,7 +79,7 @@ export interface SignatureSnapshot {
   degrees: string;
   designation: string;
   registrationNumber: string | null;
-  signatureImagePath: string;
+  signatureImagePath: string | null;
   showLabInchargeNote: boolean;
   displayOrder: number;
 }
