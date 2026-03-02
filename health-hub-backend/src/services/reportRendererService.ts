@@ -571,14 +571,12 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
       .no-print { display: none !important; }
     }
     ${forPdfDigital ? `
-    /* Digital PDF override: force header/footer visible in Puppeteer print context */
-    @media print {
-      .header { display: block !important; }
-      .footer { display: block !important; }
-      .header-qr { display: flex !important; }
-      .report-page { box-shadow: none; margin: 0; }
-      body.report-body { background: white; padding: 0; }
-    }
+    /* Digital PDF: Puppeteer uses emulateMediaType('screen') so @media print
+       rules never fire. These non-print rules do cosmetic cleanup for PDF output
+       while preserving all screen colors, fonts, and header/footer. */
+    .report-page { box-shadow: none; margin: 0; }
+    body.report-body { background: white; padding: 0; }
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     ` : ''}
   </style>
 </head>
