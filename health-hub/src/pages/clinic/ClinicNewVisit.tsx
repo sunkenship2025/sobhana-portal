@@ -13,7 +13,7 @@ import { useBranchStore } from '@/store/branchStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { toast } from 'sonner';
 import type { Patient, PaymentType, VisitType, ClinicVisitView, ClinicDoctor } from '@/types';
-import { Search, UserPlus, CheckCircle2, Printer, MessageCircle } from 'lucide-react';
+import { Search, UserPlus, CheckCircle2, Printer, MessageCircle, RotateCcw } from 'lucide-react';
 import { ClinicPrescriptionPrint } from '@/components/print/ClinicPrescriptionPrint';
 import { validatePatientForm, type ValidationErrors } from '@/lib/validation';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -40,6 +40,16 @@ const ClinicNewVisit = () => {
   const [consultationFee, setConsultationFee] = useState('500');
   const [paymentType, setPaymentType] = useState<PaymentType>('CASH');
   const [successData, setSuccessData] = useState<{ visitView: ClinicVisitView } | null>(null);
+
+  // Revisit detection state
+  const [revisitInfo, setRevisitInfo] = useState<{
+    isRevisit: boolean;
+    originalVisitId: string;
+    originalBillNumber: string;
+    originalDate: string;
+    doctorName: string;
+  } | null>(null);
+  const [checkingRevisit, setCheckingRevisit] = useState(false);
 
   // New patient form
   const [newPatient, setNewPatient] = useState({
@@ -80,6 +90,45 @@ const ClinicNewVisit = () => {
 
     fetchDoctors();
   }, [token, activeBranch]);
+
+  // Check revisit eligibility when patient + doctor are selected
+  useEffect(() => {
+    const checkRevisit = async () => {
+      const patientId = selectedPatient?.id;
+      if (!patientId || !selectedDoctorId || !token || !activeBranch) {
+        setRevisitInfo(null);
+        return;
+      }
+
+      setCheckingRevisit(true);
+      try {
+        const res = await fetch(
+          `${API_BASE}/visits/clinic/check-revisit?patientId=${patientId}&doctorId=${selectedDoctorId}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'X-Branch-Id': activeBranch.id,
+            },
+          }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.isRevisit) {
+            setRevisitInfo(data);
+            setConsultationFee('0'); // Auto-set fee to ₹0
+          } else {
+            setRevisitInfo(null);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to check revisit:', error);
+      } finally {
+        setCheckingRevisit(false);
+      }
+    };
+
+    checkRevisit();
+  }, [selectedPatient?.id, selectedDoctorId, token, activeBranch]);
 
   // Search patients via API
   const handlePhoneChange = async (value: string) => {
@@ -256,9 +305,11 @@ const ClinicNewVisit = () => {
           doctorId: selectedDoctorId,
           visitType,
           hospitalWard: visitType === 'IP' ? hospitalWard : null,
-          consultationFee: parseInt(consultationFee),
+          consultationFee: revisitInfo?.isRevisit ? 0 : parseInt(consultationFee),
           paymentType,
           paymentStatus: 'PAID',
+          isRevisit: revisitInfo?.isRevisit || false,
+          originalVisitId: revisitInfo?.originalVisitId || null,
         }),
       });
 
@@ -279,11 +330,13 @@ const ClinicNewVisit = () => {
           visitType,
           doctorId: selectedDoctorId,
           hospitalWard: visitType === 'IP' ? hospitalWard : undefined,
-          totalAmountInPaise: Math.round(parseInt(consultationFee) * 100),
-          consultationFeeInPaise: Math.round(parseInt(consultationFee) * 100),
+          totalAmountInPaise: revisitInfo?.isRevisit ? 0 : Math.round(parseInt(consultationFee) * 100),
+          consultationFeeInPaise: revisitInfo?.isRevisit ? 0 : Math.round(parseInt(consultationFee) * 100),
           paymentType,
           paymentStatus: 'PAID',
           status: 'WAITING',
+          isRevisit: revisitInfo?.isRevisit || false,
+          originalVisitId: revisitInfo?.originalVisitId || undefined,
           createdAt: new Date(visit.createdAt),
           updatedAt: new Date(visit.createdAt),
         },
@@ -339,7 +392,12 @@ const ClinicNewVisit = () => {
               <div className="text-center space-y-4">
                 <CheckCircle2 className="h-16 w-16 text-success mx-auto" />
                 <h2 className="text-2xl font-bold">Visit Created Successfully!</h2>
-                
+                                {successData.visitView.visit.isRevisit && (
+                  <div className="inline-flex items-center gap-2 bg-blue-100 text-blue-800 rounded-full px-4 py-1.5 text-sm font-medium">
+                    <RotateCcw className="h-4 w-4" />
+                    Revisit — Free Consultation
+                  </div>
+                )}
                 <div className="bg-card rounded-lg p-4 space-y-2 text-left">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Bill #:</span>
@@ -369,6 +427,7 @@ const ClinicNewVisit = () => {
                     setHospitalWard('');
                     setShowNewPatientForm(false);
                     setConsultationFee('500');
+                    setRevisitInfo(null);
                     setNewPatient({ name: '', age: '', dateOfBirth: '', gender: 'M', whatsappOptIn: true }); // E2-09: Reset form
                     setValidationErrors({});
                     setWhatsappOptIn(true);
@@ -659,6 +718,25 @@ const ClinicNewVisit = () => {
               <CardTitle>Billing</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Revisit Banner */}
+              {revisitInfo?.isRevisit && (
+                <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <RotateCcw className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="font-semibold text-blue-900">Revisit Detected — Free Consultation</p>
+                    <p className="text-sm text-blue-700 mt-1">
+                      This patient visited <strong>{revisitInfo.doctorName}</strong> on{' '}
+                      <strong>{new Date(revisitInfo.originalDate).toLocaleDateString('en-IN')}</strong>{' '}
+                      (Bill #{revisitInfo.originalBillNumber}). Follow-up within 7 days — consultation fee waived.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {checkingRevisit && (
+                <p className="text-sm text-muted-foreground animate-pulse">Checking revisit eligibility...</p>
+              )}
+
               <div className="space-y-2">
                 <Label htmlFor="fee">Consultation Fee</Label>
                 <div className="flex items-center gap-2 max-w-sm">
@@ -666,9 +744,14 @@ const ClinicNewVisit = () => {
                   <Input
                     id="fee"
                     type="number"
-                    value={consultationFee}
+                    value={revisitInfo?.isRevisit ? '0' : consultationFee}
                     onChange={(e) => setConsultationFee(e.target.value)}
+                    disabled={revisitInfo?.isRevisit}
+                    className={revisitInfo?.isRevisit ? 'bg-blue-50 text-blue-700 font-bold' : ''}
                   />
+                  {revisitInfo?.isRevisit && (
+                    <span className="text-sm text-blue-600 font-medium whitespace-nowrap">Revisit — Free</span>
+                  )}
                 </div>
               </div>
 

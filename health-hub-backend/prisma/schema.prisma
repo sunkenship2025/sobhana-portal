@@ -605,6 +605,8 @@ model ClinicVisit {
   visitType              ClinicVisitType
   hospitalWard           String?
   consultationFeeInPaise Int
+  isRevisit              Boolean        @default(false)
+  originalVisitId        String?        // Points to the original Visit.id this is a follow-up of
   status                 VisitStatus    @default(WAITING) // Queue state: WAITING | IN_PROGRESS | COMPLETED
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
