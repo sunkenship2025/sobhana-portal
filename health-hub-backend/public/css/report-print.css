@@ -53,6 +53,7 @@ body.report-body {
 
 .report-page { width: 100%; }
 .report-content { width: 100%; }
+.report-bottom-section { margin-top: 20px; }
 
 /* ============================================================================
    HIDDEN ELEMENTS (Pre-printed on letterhead)
