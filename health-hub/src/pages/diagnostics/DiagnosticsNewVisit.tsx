@@ -13,9 +13,9 @@ import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { toast } from 'sonner';
-import type { Patient, PatientSearchResult, PaymentType, DiagnosticVisitView, TestOrder, ReferralDoctor } from '@/types';
+import type { Patient, PatientSearchResult, PaymentType, DiagnosticVisitView, TestOrder, ReferralDoctor, BillReceiptData } from '@/types';
 import { Search, UserPlus, CheckCircle2, Printer, MessageCircle } from 'lucide-react';
-import { BillPrint } from '@/components/print/BillPrint';
+import { BillReceipt } from '@/components/print/BillReceipt';
 import { validatePatientForm, type ValidationErrors } from '@/lib/validation';
 import {
   Select,
@@ -464,7 +464,30 @@ const DiagnosticsNewVisit = () => {
 
         {/* Print Content */}
         <div ref={printRef} className="hidden print:block">
-          <BillPrint visitView={successData.visitView} />
+          <BillReceipt data={{
+            billNumber: successData.visitView.visit.billNumber,
+            date: successData.visitView.visit.createdAt,
+            domain: 'DIAGNOSTICS',
+            branchName: activeBranch?.name,
+            patient: {
+              name: successData.visitView.patient.name,
+              phone: successData.visitView.patient.identifiers?.find((i: any) => i.type === 'PHONE')?.value || '',
+              age: successData.visitView.patient.age,
+              gender: successData.visitView.patient.gender,
+            },
+            referralDoctor: successData.visitView.referralDoctor ? {
+              name: successData.visitView.referralDoctor.name,
+            } : undefined,
+            paymentType: successData.visitView.visit.paymentType,
+            paymentStatus: successData.visitView.visit.paymentStatus,
+            totalAmount: successData.visitView.visit.totalAmountInPaise / 100,
+            items: successData.visitView.testOrders.map((order) => ({
+              id: order.id,
+              name: order.testName,
+              price: order.priceInPaise / 100,
+              referralPercent: order.referralCommissionPercent,
+            })),
+          }} />
         </div>
       </AppLayout>
     );
