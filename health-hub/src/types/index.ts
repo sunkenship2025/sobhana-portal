@@ -456,3 +456,41 @@ export interface PayoutDetail extends PayoutSummary {
   reviewedAt: string | null;
   lineItems: PayoutLineItem[];
 }
+
+// ============================================
+// SHARED BILL RECEIPT TYPE (For unified print)
+// ============================================
+
+export interface BillReceiptItem {
+  id: string;
+  name: string;
+  price: number;            // Already in rupees (not paise)
+  referralPercent?: number;
+}
+
+export interface BillReceiptData {
+  billNumber: string;
+  date: string | Date;      // ISO string or Date object
+  domain: 'CLINIC' | 'DIAGNOSTICS';
+  visitType?: string;       // 'OP' | 'IP' for clinic
+  isRevisit?: boolean;
+  branchName?: string;
+  patient: {
+    name: string;
+    phone: string;
+    age: number;
+    gender: string;         // 'M' | 'F' | 'O'
+  };
+  doctor?: {
+    name: string;
+    qualification?: string;
+    specialty?: string;
+  };
+  referralDoctor?: {
+    name: string;
+  };
+  paymentType: string;
+  paymentStatus: string;
+  totalAmount: number;      // Already in rupees
+  items: BillReceiptItem[];
+}
