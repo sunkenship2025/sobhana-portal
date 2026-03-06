@@ -1,10 +1,29 @@
+/**
+ * Auth Store — Zustand
+ *
+ * Manages the authenticated user's JWT token and profile.
+ * Persisted to localStorage under the key 'auth-storage' so the user
+ * stays logged in across page refreshes.
+ *
+ * Usage in components:
+ * @example
+ *   const { user, isAuthenticated, logout } = useAuthStore();
+ *   const { login } = useAuthStore();
+ *   await login(email, password, role);
+ *
+ * Token expiry:
+ *   Call `checkTokenExpiration()` early in the component tree (done in ProtectedRoute)
+ *   to auto-logout when the 7-day JWT expires.
+ */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { useBranchStore } from './branchStore';
 import { API_BASE } from '@/lib/api';
 
+/** Available roles in the system. Mirrors the backend `UserRole` enum. */
 export type UserRole = 'doctor' | 'owner' | 'staff';
 
+/** Public user profile attached to every authenticated session */
 interface User {
   id: string;
   email: string;

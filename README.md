@@ -1,10 +1,10 @@
-# Sobhana Portal - Healthcare Management System
+# Sobhana Health Hub
 
-A comprehensive healthcare management system for diagnostic centers and clinics, featuring patient management, lab test ordering, result entry, report generation, and billing.
+A full-stack web application for Sobhana Diagnostic Centre and associated polyclinic branches. Covers patient registration, diagnostic test ordering, lab result entry, PDF report generation, WhatsApp notifications, doctor payouts, and clinical test catalog management.
 
-![Sobhana Portal](health-hub/public/sobhana-blackbg.png)
+---
 
-## 🏥 Overview
+## Overview
 
 Sobhana Portal is a full-stack healthcare management application designed to streamline operations for diagnostic centers and clinics. It handles the complete patient journey from registration through lab testing, report generation, and billing.
 
