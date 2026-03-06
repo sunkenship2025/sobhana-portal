@@ -1,3 +1,20 @@
+/**
+ * Branch Store — Zustand
+ *
+ * Tracks the list of available branches and which one is currently active.
+ * The active branch ID is sent with every API request as the `X-Branch-Id`
+ * header (injected by each fetch call using `localStorage.getItem('authToken')`).
+ *
+ * Persisted to localStorage so branch selection survives page refresh.
+ *
+ * IMPORTANT: When the user switches branches, call `queryClient.clear()`
+ * to flush TanStack Query's cache — otherwise stale data from the old
+ * branch may be displayed.
+ *
+ * @example
+ *   const { activeBranchId, setActiveBranch } = useBranchStore();
+ *   const activeBranch = useBranchStore(state => state.getActiveBranch());
+ */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Branch } from '@/types';

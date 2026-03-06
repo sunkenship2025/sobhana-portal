@@ -1,3 +1,25 @@
+/**
+ * Sobhana Health Hub — Express API Server Entry Point
+ *
+ * This file is the root of the backend application. It:
+ *   1. Configures global middleware (CORS, Helmet, JSON parsing, auth, branch context)
+ *   2. Mounts all 24 route modules under /api/*
+ *   3. Registers the public /reports/:token and /webhooks/whatsapp routes (no auth)
+ *   4. Warms up the singleton Puppeteer browser on startup
+ *   5. Handles graceful shutdown (SIGINT/SIGTERM) to close Puppeteer and Prisma cleanly
+ *
+ * Route mounting convention:
+ *   - /api/auth              — no auth middleware (login is the entry point)
+ *   - /api/*                 — auth + branch context middleware applied
+ *   - /reports/:token        — public; token IS the access control
+ *   - /webhooks/whatsapp     — public; verified by Meta's hub.verify_token
+ *
+ * Environment variables consumed here:
+ *   PORT                — HTTP port (default: 3000)
+ *   FRONTEND_URL        — comma-separated CORS origin whitelist
+ *   JWT_SECRET          — required for authMiddleware to verify tokens
+ *   PUPPETEER_*         — consumed by pdfGenerationService (see that file)
+ */
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';

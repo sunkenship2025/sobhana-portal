@@ -1,8 +1,35 @@
+/**
+ * Branch Context Middleware
+ *
+ * Resolves and attaches `req.branchId` to every authenticated request.
+ *
+ * Priority order:
+ *   1. `X-Branch-Id` request header — allows staff to operate on a specific
+ *      branch (used when the user has access to multiple branches, e.g. owner).
+ *   2. `user.activeBranchId` from the database — the user's default branch.
+ *
+ * This middleware also verifies that:
+ *   - The user account is still active (not disabled between requests)
+ *   - The requested branch exists and is active
+ *
+ * All downstream services rely on `req.branchId` being set correctly.
+ * Any Prisma query that should be branch-scoped MUST include
+ * `branchId: req.branchId` in its `where` clause.
+ */
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from './auth';
 import prisma from '../lib/prisma';
 
-
+/**
+ * Resolves the active branch for the current request.
+ *
+ * Must run AFTER `authMiddleware` (requires `req.user` to be set).
+ * Sets `req.branchId` on success.
+ *
+ * @returns 401 if no authenticated user
+ * @returns 403 if user account is disabled
+ * @returns 400 if the requested branch is missing or inactive
+ */
 export const branchContextMiddleware = async (
   req: AuthRequest,
   res: Response,

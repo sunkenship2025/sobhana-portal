@@ -1,17 +1,48 @@
+/**
+ * JWT Authentication Middleware
+ *
+ * Verifies the `Authorization: Bearer <token>` header on every
+ * protected request. On success, attaches decoded token data to
+ * `req.user` so downstream route handlers and services can identify
+ * the caller without re-querying the database.
+ *
+ * This middleware is mounted globally in `index.ts` but skipped on:
+ *   - POST /api/auth/login  (public)
+ *   - GET  /reports/:token  (public, token-based)
+ *   - POST /webhooks/whatsapp  (Meta signature verification instead)
+ */
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
+/**
+ * The decoded payload of a Sobhana Health Hub JWT.
+ * This shape is defined when signing in `authService.login()`.
+ */
 export interface AuthUser {
+  /** The User.id (UUID) from the database */
   id: string;
   email: string;
+  /** One of: 'staff' | 'doctor' | 'owner' */
   role: string;
 }
 
+/**
+ * Extends Express's Request type to carry auth and branch context
+ * injected by the auth and branch middleware.
+ */
 export interface AuthRequest extends Request {
+  /** Set by `authMiddleware` after JWT verification */
   user?: AuthUser;
+  /** Set by `branchContextMiddleware` from X-Branch-Id header or user.activeBranchId */
   branchId?: string;
 }
 
+/**
+ * Express middleware that verifies the JWT and attaches `req.user`.
+ *
+ * Returns 401 if the token is missing, malformed, or expired.
+ * Returns 500 for unexpected errors (e.g. JWT_SECRET misconfiguration).
+ */
 export const authMiddleware = async (
   req: AuthRequest,
   res: Response,
