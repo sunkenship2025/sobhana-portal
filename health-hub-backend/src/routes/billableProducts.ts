@@ -22,6 +22,9 @@ const router = Router();
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
 
+// ─── Code format validation ───────────────────────────────────────────
+const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
+
 // ─── Helper ──────────────────────────────────────────────────────────
 function transformProduct(product: any) {
   return {
@@ -33,6 +36,24 @@ function transformProduct(product: any) {
     hasBranchPricing: (product._count?.branchPricing ?? 0) > 0,
   };
 }
+
+// ─── GET /check-code — Real-time code uniqueness check ───────────────
+router.get('/check-code', async (req: AuthRequest, res) => {
+  try {
+    const { code } = req.query;
+    if (!code || typeof code !== 'string') {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'code query parameter is required' });
+    }
+    const existing = await prisma.billableProduct.findUnique({
+      where: { code: code.toUpperCase() },
+      select: { id: true },
+    });
+    return res.json({ available: !existing });
+  } catch (error: any) {
+    console.error('Error checking code:', error);
+    return res.status(500).json({ error: 'CHECK_FAILED', message: error.message });
+  }
+});
 
 // ─── GET / — List products ───────────────────────────────────────────
 router.get('/', async (req: AuthRequest, res) => {
@@ -164,6 +185,29 @@ router.post('/', async (req: AuthRequest, res) => {
       });
     }
 
+    // Validate code format
+    if (!CODE_REGEX.test(code)) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'code must be 2-20 uppercase alphanumeric characters or underscores (e.g. CBC_PANEL)',
+      });
+    }
+
+    // Validate panel count based on product type
+    const resolvedProductType = productType ?? (resolvedIsBundle ? 'PANEL_BUNDLE' : 'INDIVIDUAL_TEST');
+    if (resolvedProductType === 'INDIVIDUAL_TEST' && panels && panels.length > 1) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'INDIVIDUAL_TEST products can have at most 1 panel',
+      });
+    }
+    if (resolvedProductType === 'PANEL_BUNDLE' && (!panels || panels.length < 1)) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'PANEL_BUNDLE products must have at least 1 panel',
+      });
+    }
+
     // Validate panels reference existing ClinicalPanels
     if (panels?.length) {
       const panelIds = panels.map((p: any) => p.panelId);
@@ -242,6 +286,24 @@ router.put('/:id', async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Product not found' });
     }
 
+    // Validate panel count based on effective product type
+    if (panels !== undefined) {
+      const effectiveIsBundle = resolvedIsBundle ?? existing.isBundle;
+      const effectiveType = productType ?? (effectiveIsBundle ? 'PANEL_BUNDLE' : 'INDIVIDUAL_TEST');
+      if (effectiveType === 'INDIVIDUAL_TEST' && panels.length > 1) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: 'INDIVIDUAL_TEST products can have at most 1 panel',
+        });
+      }
+      if (effectiveType === 'PANEL_BUNDLE' && panels.length < 1) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: 'PANEL_BUNDLE products must have at least 1 panel',
+        });
+      }
+    }
+
     const product = await prisma.$transaction(async (tx) => {
       // Replace panel links if provided
       if (panels) {
@@ -305,6 +367,27 @@ router.patch('/:id', async (req: AuthRequest, res) => {
   } catch (error: any) {
     console.error('Error toggling product:', error);
     return res.status(500).json({ error: 'UPDATE_FAILED', message: error.message });
+  }
+});
+
+// ─── DELETE /:id — Delete product ────────────────────────────────────
+router.delete('/:id', async (req: AuthRequest, res) => {
+  try {
+    const existing = await prisma.billableProduct.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Product not found' });
+    }
+
+    await prisma.$transaction([
+      prisma.billableProductPanel.deleteMany({ where: { productId: req.params.id } }),
+      prisma.productBranchPricing.deleteMany({ where: { productId: req.params.id } }),
+      prisma.billableProduct.delete({ where: { id: req.params.id } }),
+    ]);
+
+    return res.json({ success: true });
+  } catch (error: any) {
+    console.error('Error deleting product:', error);
+    return res.status(500).json({ error: 'DELETE_FAILED', message: error.message });
   }
 });
 

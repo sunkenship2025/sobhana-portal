@@ -1010,7 +1010,7 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
     try {
       const patient = await prisma.patient.findUnique({
         where: { id: visit.patientId },
-        select: { yearOfBirth: true, gender: true },
+        select: { yearOfBirth: true, dateOfBirth: true, gender: true },
       });
 
       if (patient) {
@@ -1024,7 +1024,9 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
           const resolvedRanges = await resolveReferenceRanges(
             testIdsForFlags,
             patient.yearOfBirth,
-            patient.gender as any
+            patient.gender as any,
+            undefined,
+            patient.dateOfBirth
           );
 
           // Batch-update flags based on resolved ranges
@@ -1035,8 +1037,12 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
             const numValue = parseFloat(r.value);
             if (isNaN(numValue)) continue;
 
-            let flag: 'HIGH' | 'LOW' | 'NORMAL' | null = null;
-            if (range.referenceMax !== null && numValue > range.referenceMax) {
+            let flag: 'CRITICAL_HIGH' | 'CRITICAL_LOW' | 'HIGH' | 'LOW' | 'NORMAL' | null = null;
+            if (range.criticalMax !== null && numValue > range.criticalMax) {
+              flag = 'CRITICAL_HIGH';
+            } else if (range.criticalMin !== null && numValue < range.criticalMin) {
+              flag = 'CRITICAL_LOW';
+            } else if (range.referenceMax !== null && numValue > range.referenceMax) {
               flag = 'HIGH';
             } else if (range.referenceMin !== null && numValue < range.referenceMin) {
               flag = 'LOW';

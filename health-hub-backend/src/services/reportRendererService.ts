@@ -101,34 +101,54 @@ function formatReference(min: number | null, max: number | null, unit: string | 
 /**
  * 3-tier value coloring:
  * - value-normal (green): within reference range
- * - value-warning (orange): slightly out of range (within 20% of boundary)
- * - value-critical (red): very out of range (beyond 20% of boundary)
+ * - value-warning (orange): out of range but not critical
+ * - value-critical (red): beyond critical thresholds (or legacy 20% heuristic)
+ *
+ * When criticalMin/criticalMax are set, they are used as hard boundaries.
+ * Otherwise, falls back to the 20% deviation heuristic.
  */
-function getValueClass(value: number | null, min: number | null, max: number | null): string {
+function getValueClass(
+  value: number | null,
+  min: number | null,
+  max: number | null,
+  criticalMin?: number | null,
+  criticalMax?: number | null,
+): string {
   if (value === null) return '';
   if (min === null && max === null) return '';
-  
-  // Check if in range
+
+  // Check if in normal range
   const aboveMax = max !== null && value > max;
   const belowMin = min !== null && value < min;
-  
+
   if (!aboveMax && !belowMin) return 'value-normal';
-  
-  // Calculate how far out of range (as % of the range span)
+
+  // If critical thresholds are defined, use them directly
+  const hasCriticalThresholds = criticalMin !== null && criticalMin !== undefined
+    || criticalMax !== null && criticalMax !== undefined;
+
+  if (hasCriticalThresholds) {
+    if (criticalMax != null && value > criticalMax) return 'value-critical';
+    if (criticalMin != null && value < criticalMin) return 'value-critical';
+    // Out of normal range but not beyond critical → warning
+    return 'value-warning';
+  }
+
+  // Fallback: legacy 20% deviation heuristic
   const range = (max !== null && min !== null) ? max - min : null;
-  
+
   if (aboveMax && max !== null) {
     const deviation = value - max;
     const threshold = range !== null ? range * 0.2 : max * 0.2;
     return deviation <= threshold ? 'value-warning' : 'value-critical';
   }
-  
+
   if (belowMin && min !== null) {
     const deviation = min - value;
     const threshold = range !== null ? range * 0.2 : min * 0.2;
     return deviation <= threshold ? 'value-warning' : 'value-critical';
   }
-  
+
   return 'value-warning';
 }
 
@@ -172,7 +192,7 @@ function renderStandardTable(panel: PanelSnapshot): string {
   // Group by subGroup if enabled
   const renderRow = (test: TestResultSnapshot) => {
     const indent = test.indentLevel > 0 ? 'indent-' + test.indentLevel : '';
-    const valueClass = getValueClass(test.value, test.referenceMin, test.referenceMax);
+    const valueClass = getValueClass(test.value, test.referenceMin, test.referenceMax, test.criticalMin, test.criticalMax);
     const bold = test.isBold ? 'font-weight: bold;' : '';
     const italic = test.isItalic ? 'font-style: italic;' : '';
     const style = (bold || italic) ? ` style="${bold}${italic}"` : '';
@@ -255,7 +275,7 @@ function renderCBPTable(panel: PanelSnapshot): string {
 
   // Main table
   const mainRows = mainTests.map((test: TestResultSnapshot) => {
-    const valueClass = getValueClass(test.value, test.referenceMin, test.referenceMax);
+    const valueClass = getValueClass(test.value, test.referenceMin, test.referenceMax, test.criticalMin, test.criticalMax);
     return `
       <tr>
         <td class="test-name">${escapeHtml(test.testName)}</td>
@@ -270,7 +290,7 @@ function renderCBPTable(panel: PanelSnapshot): string {
   let diffSection = '';
   if (diffTests.length > 0) {
     const diffRows = diffTests.map((test: TestResultSnapshot) => {
-      const valueClass = getValueClass(test.value, test.referenceMin, test.referenceMax);
+      const valueClass = getValueClass(test.value, test.referenceMin, test.referenceMax, test.criticalMin, test.criticalMax);
       return `
         <tr>
           <td class="test-name indent-1">${escapeHtml(test.testName)}</td>
@@ -357,7 +377,7 @@ function renderInterpretationSingle(panel: PanelSnapshot): string {
   const test = panel.tests[0];
   if (!test) return '';
 
-  const valueClass = getValueClass(test.value, test.referenceMin, test.referenceMax);
+  const valueClass = getValueClass(test.value, test.referenceMin, test.referenceMax, test.criticalMin, test.criticalMax);
   
   return `
     <table class="results-table interpretation-table">
@@ -644,7 +664,7 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
           </div>
           <div class="info-item">
             <span class="label">Age / Gender:</span>
-            <span class="value">${snapshot.patient.age} Years / ${formatGender(snapshot.patient.gender)}</span>
+            <span class="value">${snapshot.patient.ageDisplay || (snapshot.patient.age + ' Years')} / ${formatGender(snapshot.patient.gender)}</span>
           </div>
           <div class="info-item">
             <span class="label">Date:</span>

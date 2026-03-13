@@ -22,6 +22,9 @@ const router = Router();
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
 
+// ─── Code format validation ───────────────────────────────────────────
+const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
+
 // ─── Helper ──────────────────────────────────────────────────────────
 function transformPanel(panel: any) {
   return {
@@ -30,9 +33,28 @@ function transformPanel(panel: any) {
     // Schema has `name` (unique key) + `displayName` (human label)
     code: panel.name,                  // unique key → code
     name: panel.displayName || panel.name, // human label → name
+    sampleType: panel.sampleType ?? null,
     itemCount: panel.items?.length ?? panel._count?.items ?? 0,
   };
 }
+
+// ─── GET /check-code — Real-time code uniqueness check ───────────────
+router.get('/check-code', async (req: AuthRequest, res) => {
+  try {
+    const { code } = req.query;
+    if (!code || typeof code !== 'string') {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'code query parameter is required' });
+    }
+    const existing = await prisma.clinicalPanel.findUnique({
+      where: { name: code.toUpperCase() },
+      select: { id: true },
+    });
+    return res.json({ available: !existing });
+  } catch (error: any) {
+    console.error('Error checking code:', error);
+    return res.status(500).json({ error: 'CHECK_FAILED', message: error.message });
+  }
+});
 
 // ─── GET / — List panels ─────────────────────────────────────────────
 router.get('/', async (req: AuthRequest, res) => {
@@ -131,7 +153,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
 router.post('/', async (req: AuthRequest, res) => {
   try {
     const {
-      name, displayName, departmentId, layoutType,
+      name, displayName, departmentId, layoutType, sampleType,
       displayOrder, showMethodColumn, showSubgroups, showInterpretation, valueDisplayPrefix,
       summaryInterpretationTemplate, items,
     } = req.body;
@@ -140,6 +162,14 @@ router.post('/', async (req: AuthRequest, res) => {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
         message: 'name, displayName, departmentId, and layoutType are required',
+      });
+    }
+
+    // Validate code (name) format
+    if (!CODE_REGEX.test(name)) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'Panel code must be 2-20 uppercase alphanumeric characters or underscores (e.g. CBC_PANEL)',
       });
     }
 
@@ -181,6 +211,7 @@ router.post('/', async (req: AuthRequest, res) => {
         displayName,
         departmentId,
         layoutType,
+        sampleType: sampleType ?? null,
         displayOrder: displayOrder ?? 0,
         showMethodColumn: showMethodColumn ?? false,
         showSubgroups: showSubgroups ?? false,
@@ -227,7 +258,7 @@ router.post('/', async (req: AuthRequest, res) => {
 router.put('/:id', async (req: AuthRequest, res) => {
   try {
     const {
-      name, displayName, departmentId, layoutType,
+      name, displayName, departmentId, layoutType, sampleType,
       displayOrder, showMethodColumn, showSubgroups, showInterpretation, valueDisplayPrefix,
       summaryInterpretationTemplate, items,
     } = req.body;
@@ -258,6 +289,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
           displayName: displayName ?? existing.displayName,
           departmentId: departmentId ?? existing.departmentId,
           layoutType: layoutType ?? existing.layoutType,
+          sampleType: sampleType !== undefined ? sampleType : existing.sampleType,
           displayOrder: displayOrder ?? existing.displayOrder,
           showMethodColumn: showMethodColumn ?? existing.showMethodColumn,
           showSubgroups: showSubgroups ?? existing.showSubgroups,
@@ -324,6 +356,37 @@ router.patch('/:id', async (req: AuthRequest, res) => {
   } catch (error: any) {
     console.error('Error toggling panel:', error);
     return res.status(500).json({ error: 'UPDATE_FAILED', message: error.message });
+  }
+});
+
+// ─── DELETE /:id — Delete panel ──────────────────────────────────────
+router.delete('/:id', async (req: AuthRequest, res) => {
+  try {
+    const existing = await prisma.clinicalPanel.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Panel not found' });
+    }
+
+    // Check if referenced by billable products
+    const productRefCount = await prisma.billableProductPanel.count({
+      where: { panelId: req.params.id },
+    });
+
+    if (productRefCount > 0) {
+      return res.status(409).json({
+        error: 'CONFLICT',
+        message: `Cannot delete: panel is used by ${productRefCount} billable product(s). Remove it from those products first.`,
+      });
+    }
+
+    // Delete panel items first, then panel
+    await prisma.clinicalPanelItem.deleteMany({ where: { panelId: req.params.id } });
+    await prisma.clinicalPanel.delete({ where: { id: req.params.id } });
+
+    return res.json({ success: true });
+  } catch (error: any) {
+    console.error('Error deleting panel:', error);
+    return res.status(500).json({ error: 'DELETE_FAILED', message: error.message });
   }
 });
 

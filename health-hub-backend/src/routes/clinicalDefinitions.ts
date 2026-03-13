@@ -33,6 +33,9 @@ const router = Router();
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
 
+// ─── Code format validation ───────────────────────────────────────────
+const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
+
 // ─── Helper: transform for API response ──────────────────────────────
 function transformDefinition(def: any) {
   return {
@@ -41,6 +44,24 @@ function transformDefinition(def: any) {
     ruleCount: def.interpretationRules?.length ?? def._count?.interpretationRules ?? 0,
   };
 }
+
+// ─── GET /check-code — Real-time code uniqueness check ───────────────
+router.get('/check-code', async (req: AuthRequest, res) => {
+  try {
+    const { code } = req.query;
+    if (!code || typeof code !== 'string') {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'code query parameter is required' });
+    }
+    const existing = await prisma.testDefinition.findFirst({
+      where: { code: code.toUpperCase(), isLatest: true },
+      select: { id: true },
+    });
+    return res.json({ available: !existing });
+  } catch (error: any) {
+    console.error('Error checking code:', error);
+    return res.status(500).json({ error: 'CHECK_FAILED', message: error.message });
+  }
+});
 
 // ─── GET / — List latest test definitions ────────────────────────────
 router.get('/', async (req: AuthRequest, res) => {
@@ -60,12 +81,13 @@ router.get('/', async (req: AuthRequest, res) => {
       where.departmentId = departmentId;
     }
 
-    if (status && typeof status === 'string') {
+    if (status && typeof status === 'string' && status !== 'all') {
       where.status = status;
-    } else {
-      // Default: show ACTIVE and DEPRECATED (not LOCKED/ARCHIVED)
+    } else if (!status) {
+      // Default (no filter param): show ACTIVE and DEPRECATED for non-management callers
       where.status = { in: ['ACTIVE', 'DEPRECATED'] };
     }
+    // status=all → no status filter, show everything
 
     if (interpretationMode && typeof interpretationMode === 'string') {
       where.interpretationMode = interpretationMode;
@@ -127,6 +149,7 @@ router.get('/:rootId/versions', async (req: AuthRequest, res) => {
       where: { rootDefinitionId: req.params.rootId },
       include: {
         department: { select: { id: true, name: true } },
+        _count: { select: { ranges: true, interpretationRules: true } },
       },
       orderBy: { version: 'desc' },
     });
@@ -135,7 +158,7 @@ router.get('/:rootId/versions', async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'No versions found' });
     }
 
-    return res.json(versions);
+    return res.json(versions.map(transformDefinition));
   } catch (error: any) {
     console.error('Error fetching versions:', error);
     return res.status(500).json({ error: 'FETCH_FAILED', message: error.message });
@@ -226,6 +249,90 @@ router.get('/:rootId/dependents', async (req: AuthRequest, res) => {
   } catch (error: any) {
     console.error('Error fetching dependents:', error);
     return res.status(500).json({ error: 'FETCH_FAILED', message: error.message });
+  }
+});
+
+// ─── PATCH /:id/toggle-visibility — Toggle isActive flag ─────────────
+router.patch('/:id/toggle-visibility', async (req: AuthRequest, res) => {
+  try {
+    const def = await prisma.testDefinition.findUnique({ where: { id: req.params.id } });
+    if (!def) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Test definition not found' });
+    }
+    const updated = await prisma.testDefinition.update({
+      where: { id: req.params.id },
+      data: { isActive: !def.isActive },
+      include: {
+        department: { select: { id: true, name: true } },
+        _count: { select: { ranges: true, interpretationRules: true, panelItems: true, productPanels: true } },
+      },
+    });
+    return res.json(transformDefinition(updated));
+  } catch (error: any) {
+    console.error('Error toggling visibility:', error);
+    return res.status(500).json({ error: 'UPDATE_FAILED', message: error.message });
+  }
+});
+
+// ─── DELETE /:rootId — Delete all versions of a definition ───────────
+// Strategy: physical delete if no FK references; otherwise archive
+// (set isLatest=false + status=ARCHIVED) so the code becomes reusable.
+router.delete('/:rootId', async (req: AuthRequest, res) => {
+  try {
+    const versions = await prisma.testDefinition.findMany({
+      where: { rootDefinitionId: req.params.rootId },
+      select: { id: true, code: true, name: true },
+    });
+
+    if (versions.length === 0) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Test definition not found' });
+    }
+
+    const versionIds = versions.map(v => v.id);
+
+    // Check for active references in panels — block unless panel items removed first
+    const panelItemCount = await prisma.clinicalPanelItem.count({
+      where: { testDefinitionId: { in: versionIds } },
+    });
+
+    if (panelItemCount > 0) {
+      return res.status(409).json({
+        error: 'CONFLICT',
+        message: `Cannot delete: this definition is used in ${panelItemCount} panel item(s). Remove it from all panels first.`,
+      });
+    }
+
+    // Check for test orders / results referencing this definition
+    const [orderCount, resultCount] = await Promise.all([
+      prisma.testOrder.count({ where: { testDefinitionId: { in: versionIds } } }),
+      prisma.testResult.count({ where: { testDefinitionId: { in: versionIds } } }),
+    ]);
+
+    const hasHistoricalData = orderCount > 0 || resultCount > 0;
+
+    if (hasHistoricalData) {
+      // Can't physically delete (FK Restrict) — archive instead so the code is freed
+      await prisma.testDefinition.updateMany({
+        where: { rootDefinitionId: req.params.rootId },
+        data: { isLatest: false, status: 'ARCHIVED' },
+      });
+      return res.json({
+        success: true,
+        archived: true,
+        message: `Definition archived (${orderCount} order(s), ${resultCount} result(s) reference it). Code is now available for reuse.`,
+      });
+    }
+
+    // No references — safe to physically delete (ranges + rules cascade)
+    // Also clear any BillableProductPanel references (onDelete: SetNull handles this)
+    await prisma.testDefinition.deleteMany({
+      where: { rootDefinitionId: req.params.rootId },
+    });
+
+    return res.json({ success: true });
+  } catch (error: any) {
+    console.error('Error deleting definition:', error);
+    return res.status(500).json({ error: 'DELETE_FAILED', message: error.message });
   }
 });
 

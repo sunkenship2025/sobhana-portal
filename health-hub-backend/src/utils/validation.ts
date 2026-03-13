@@ -197,6 +197,29 @@ export function getPatientAge(dateOfBirth: Date | null, yearOfBirth: number): nu
 }
 
 /**
+ * Get smart age display string: "18 Days", "7 Months", "45 Years"
+ * Uses DOB for precision when available, otherwise uses ageUnit hint.
+ */
+export function getPatientAgeDisplay(dateOfBirth: Date | null, yearOfBirth: number, ageUnit?: string | null): string {
+  if (dateOfBirth) {
+    const now = new Date();
+    const diffMs = now.getTime() - new Date(dateOfBirth).getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (diffDays < 30) return `${diffDays} Day${diffDays !== 1 ? 's' : ''}`;
+    if (diffDays < 365) {
+      const months = Math.floor(diffDays / 30.44);
+      return `${months} Month${months !== 1 ? 's' : ''}`;
+    }
+    const years = Math.floor(diffDays / 365.25);
+    return `${years} Year${years !== 1 ? 's' : ''}`;
+  }
+  const approxAge = calculateAgeFromYOB(yearOfBirth);
+  if (ageUnit === 'DAYS') return `${approxAge} Day${approxAge !== 1 ? 's' : ''}`;
+  if (ageUnit === 'MONTHS') return `${approxAge} Month${approxAge !== 1 ? 's' : ''}`;
+  return `${approxAge} Year${approxAge !== 1 ? 's' : ''}`;
+}
+
+/**
  * Validates address field
  */
 export function validateAddress(address: string | null | undefined): string | null {
