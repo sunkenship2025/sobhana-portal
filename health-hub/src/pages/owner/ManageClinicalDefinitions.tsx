@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { API_BASE } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
 import {
   Plus, Pencil, Search, ChevronDown, ChevronRight,
-  FlaskConical, Lock, Archive, History, Eye, AlertTriangle,
-  CheckCircle2, AlertCircle,
+  FlaskConical, Lock, Archive, History, Eye, AlertTriangle, Trash2,
+  CheckCircle2, AlertCircle, Circle, Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,6 +28,7 @@ import {
 import {
   Collapsible, CollapsibleContent, CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import { Switch } from '@/components/ui/switch';
 
 /* ───────── Types ───────── */
 
@@ -38,8 +39,12 @@ interface TestDefinitionRange {
   minAgeDays: number | null;
   maxAgeDays: number | null;
   gender: string | null;
+  category: string | null;
+  categoryLabel: string | null;
   referenceMin: number | null;
   referenceMax: number | null;
+  criticalMin: number | null;
+  criticalMax: number | null;
   referenceUnit: string | null;
   referenceText: string | null;
 }
@@ -71,17 +76,22 @@ interface TestDefinition {
   departmentId: string | null;
   referenceMin: number | null;
   referenceMax: number | null;
+  criticalMin: number | null;
+  criticalMax: number | null;
   referenceText: string | null;
   formulaExpression: string | null;
   dependsOnCodes: string[] | null;
   interpretationMode: string;
   displayOrder: number;
+  isActive: boolean;
   updatedAt: string;
   createdAt: string;
   ranges: TestDefinitionRange[];
+  rangeCount?: number;
+  ruleCount?: number;
   interpretationRules: InterpretationRule[];
   department?: { id: string; name: string } | null;
-  _count?: { panelItems: number };
+  _count?: { panelItems: number; ranges?: number; interpretationRules?: number };
 }
 
 type FormMode = 'create' | 'edit' | 'new-version';
@@ -128,6 +138,61 @@ function formatRange(def: TestDefinition) {
 const INTERPRETATION_MODES = ['NONE', 'RANGE_BASED', 'CATEGORY_BASED', 'TEXT_ONLY'];
 const RULE_TYPES = ['NUMERIC_RANGE', 'CATEGORY_MATCH', 'TEXT_MATCH'];
 const OPERATORS = ['LT', 'LTE', 'GT', 'GTE', 'EQ', 'BETWEEN', 'MATCH'];
+const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
+
+/* ───────── Category Range Constants & Helpers ───────── */
+
+const RANGE_CATEGORIES = [
+  { value: 'MALE', label: 'Male' },
+  { value: 'FEMALE', label: 'Female' },
+  { value: 'INFANT', label: 'Infant' },
+  { value: 'CHILD', label: 'Child' },
+  { value: 'OTHER', label: 'Other' },
+];
+
+function categoryDefaults(cat: string): Partial<TestDefinitionRange> {
+  switch (cat) {
+    case 'MALE': return { gender: 'M', minAgeDays: null, maxAgeDays: null };
+    case 'FEMALE': return { gender: 'F', minAgeDays: null, maxAgeDays: null };
+    case 'INFANT': return { gender: null, minAgeDays: 0, maxAgeDays: 730 };
+    case 'CHILD': return { gender: null, minAgeDays: 730, maxAgeDays: 6570 };
+    case 'OTHER': return { gender: null, minAgeDays: null, maxAgeDays: null };
+    default: return {};
+  }
+}
+
+function daysToDisplay(days: number): { value: number; unit: string } {
+  if (days >= 365 && days % 365 === 0) return { value: days / 365, unit: 'years' };
+  if (days >= 30 && days % 30 === 0) return { value: days / 30, unit: 'months' };
+  return { value: days, unit: 'days' };
+}
+
+function displayToDays(value: number, unit: string): number {
+  if (unit === 'years') return value * 365;
+  if (unit === 'months') return value * 30;
+  return value;
+}
+
+function formatAgeBadge(minDays: number | null, maxDays: number | null): string {
+  if (minDays == null && maxDays == null) return '';
+  const minDisp = minDays != null ? daysToDisplay(minDays) : null;
+  const maxDisp = maxDays != null ? daysToDisplay(maxDays) : null;
+  if (minDisp && maxDisp) return `${minDisp.value} ${minDisp.unit} – ${maxDisp.value} ${maxDisp.unit}`;
+  if (minDisp) return `≥ ${minDisp.value} ${minDisp.unit}`;
+  if (maxDisp) return `≤ ${maxDisp.value} ${maxDisp.unit}`;
+  return '';
+}
+
+function inferCategory(range: TestDefinitionRange): string | null {
+  if (range.category) return range.category;
+  if (range.gender === 'M') return 'MALE';
+  if (range.gender === 'F') return 'FEMALE';
+  if (range.minAgeDays != null && range.maxAgeDays != null) {
+    if (range.maxAgeDays <= 730) return 'INFANT';
+    if (range.minAgeDays >= 730 && range.maxAgeDays <= 6570) return 'CHILD';
+  }
+  return 'OTHER';
+}
 
 /* ───────── Accordion Section Indicator ───────── */
 
@@ -135,7 +200,7 @@ function SectionStatus({ ok }: { ok: boolean }) {
   return ok ? (
     <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
   ) : (
-    <AlertCircle className="h-4 w-4 text-orange-500 shrink-0" />
+    <Circle className="h-4 w-4 text-muted-foreground shrink-0" />
   );
 }
 
@@ -165,10 +230,13 @@ export default function ManageClinicalDefinitions() {
   const [impactOpen, setImpactOpen] = useState(false);
   const [impactData, setImpactData] = useState<any>(null);
 
+  // Delete dialog
+  const [deleteConfirm, setDeleteConfirm] = useState<TestDefinition | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   // Form fields
   const [formName, setFormName] = useState('');
   const [formCode, setFormCode] = useState('');
-  const [formSampleType, setFormSampleType] = useState('');
   const [formMethod, setFormMethod] = useState('');
   const [formUnit, setFormUnit] = useState('');
   const [formDepartmentId, setFormDepartmentId] = useState('');
@@ -178,9 +246,17 @@ export default function ManageClinicalDefinitions() {
   const [formFormula, setFormFormula] = useState('');
   const [formDependsOn, setFormDependsOn] = useState('');
   const [formInterpMode, setFormInterpMode] = useState('NONE');
-  const [formDisplayOrder, setFormDisplayOrder] = useState('0');
   const [formRanges, setFormRanges] = useState<TestDefinitionRange[]>([]);
   const [formRules, setFormRules] = useState<InterpretationRule[]>([]);
+  const [formShowCritical, setFormShowCritical] = useState(false);
+  const [formGeneralCriticalMin, setFormGeneralCriticalMin] = useState('');
+  const [formGeneralCriticalMax, setFormGeneralCriticalMax] = useState('');
+  const [formSampleType, setFormSampleType] = useState('');
+
+  // Code validation
+  const [codeAvailable, setCodeAvailable] = useState<boolean | null>(null);
+  const [codeChecking, setCodeChecking] = useState(false);
+  const codeCheckTimer = useRef<ReturnType<typeof setTimeout>>(null);
 
   // ─── Data fetching ──────────────────────────────────────────────────────
 
@@ -188,7 +264,7 @@ export default function ManageClinicalDefinitions() {
     try {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
-      if (statusFilter && statusFilter !== '__all__') params.set('status', statusFilter);
+      params.set('status', statusFilter !== '__all__' ? statusFilter : 'all');
       if (deptFilter && deptFilter !== '__all__') params.set('departmentId', deptFilter);
       const res = await fetch(`${API_BASE}/clinical-definitions?${params}`, { headers });
       if (!res.ok) throw new Error('Failed to fetch');
@@ -221,21 +297,45 @@ export default function ManageClinicalDefinitions() {
   useEffect(() => { fetchDefinitions(); }, [fetchDefinitions]);
   useEffect(() => { fetchDepartments(); }, [fetchDepartments]);
 
+  // ─── Debounced code uniqueness check ──────────────────────────────────
+
+  useEffect(() => {
+    if (formMode !== 'create') { setCodeAvailable(null); return; }
+    const code = formCode.trim().toUpperCase();
+    if (!code || !CODE_REGEX.test(code)) { setCodeAvailable(null); return; }
+    if (codeCheckTimer.current) clearTimeout(codeCheckTimer.current);
+    setCodeChecking(true);
+    codeCheckTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/clinical-definitions/check-code?code=${encodeURIComponent(code)}`, { headers });
+        if (res.ok) {
+          const data = await res.json();
+          setCodeAvailable(data.available);
+        }
+      } catch { /* ignore */ }
+      setCodeChecking(false);
+    }, 400);
+    return () => { if (codeCheckTimer.current) clearTimeout(codeCheckTimer.current); };
+  }, [formCode, formMode]);
+
   // ─── Form reset ─────────────────────────────────────────────────────────
 
   const resetForm = () => {
-    setFormName(''); setFormCode(''); setFormSampleType(''); setFormMethod('');
+    setFormName(''); setFormCode(''); setFormMethod('');
     setFormUnit(''); setFormDepartmentId(''); setFormRefMin(''); setFormRefMax('');
     setFormRefText(''); setFormFormula(''); setFormDependsOn('');
-    setFormInterpMode('NONE'); setFormDisplayOrder('0');
+    setFormInterpMode('NONE');
     setFormRanges([]); setFormRules([]);
+    setFormShowCritical(false);
+    setFormGeneralCriticalMin(''); setFormGeneralCriticalMax('');
+    setFormSampleType('');
     setEditingDef(null);
+    setCodeAvailable(null); setCodeChecking(false);
   };
 
   const populateForm = (def: TestDefinition) => {
     setFormName(def.name);
     setFormCode(def.code);
-    setFormSampleType(def.sampleType || '');
     setFormMethod(def.method || '');
     setFormUnit(def.referenceUnit || '');
     setFormDepartmentId(def.departmentId || '');
@@ -245,9 +345,23 @@ export default function ManageClinicalDefinitions() {
     setFormFormula(def.formulaExpression || '');
     setFormDependsOn(def.dependsOnCodes ? def.dependsOnCodes.join(', ') : '');
     setFormInterpMode(def.interpretationMode || 'NONE');
-    setFormDisplayOrder(def.displayOrder?.toString() || '0');
-    setFormRanges(def.ranges || []);
+    setFormSampleType(def.sampleType || '');
+
+    // Populate ranges with inferred categories
+    const ranges = (def.ranges || []).map(r => ({
+      ...r,
+      category: r.category || inferCategory(r),
+      categoryLabel: r.categoryLabel || null,
+    }));
+    setFormRanges(ranges);
     setFormRules(def.interpretationRules || []);
+
+    // Auto-enable critical toggle if any critical values exist
+    const hasCritical = (def.criticalMin != null) || (def.criticalMax != null) ||
+      ranges.some(r => r.criticalMin != null || r.criticalMax != null);
+    setFormShowCritical(hasCritical);
+    setFormGeneralCriticalMin(def.criticalMin?.toString() || '');
+    setFormGeneralCriticalMax(def.criticalMax?.toString() || '');
   };
 
   // ─── Handlers ───────────────────────────────────────────────────────────
@@ -258,16 +372,33 @@ export default function ManageClinicalDefinitions() {
     setDialogOpen(true);
   };
 
-  const openNewVersion = (def: TestDefinition) => {
-    populateForm(def);
-    setEditingDef(def);
-    setFormMode('new-version');
-    setDialogOpen(true);
+  const openNewVersion = async (def: TestDefinition) => {
+    try {
+      const res = await fetch(`${API_BASE}/clinical-definitions/${def.id}`, { headers });
+      if (!res.ok) throw new Error('Failed');
+      const full = await res.json();
+      populateForm(full);
+      setEditingDef(full);
+      setFormMode('new-version');
+      setDialogOpen(true);
+    } catch {
+      toast.error('Failed to load definition details');
+    }
   };
 
   const handleSave = async () => {
     if (!formName.trim() || !formCode.trim()) {
       toast.error('Name and Code are required');
+      return;
+    }
+
+    if (formMode === 'create' && !CODE_REGEX.test(formCode.trim())) {
+      toast.error('Code must be 2-20 uppercase alphanumeric characters or underscores');
+      return;
+    }
+
+    if (formMode === 'create' && codeAvailable === false) {
+      toast.error('Code is already in use');
       return;
     }
 
@@ -282,17 +413,22 @@ export default function ManageClinicalDefinitions() {
         departmentId: formDepartmentId || null,
         referenceMin: formRefMin ? parseFloat(formRefMin) : null,
         referenceMax: formRefMax ? parseFloat(formRefMax) : null,
+        criticalMin: formShowCritical && formGeneralCriticalMin ? parseFloat(formGeneralCriticalMin) : null,
+        criticalMax: formShowCritical && formGeneralCriticalMax ? parseFloat(formGeneralCriticalMax) : null,
         referenceText: formRefText || null,
         formulaExpression: formFormula || null,
         dependsOnCodes: formDependsOn ? formDependsOn.split(',').map(s => s.trim()).filter(Boolean) : null,
         interpretationMode: formInterpMode,
-        displayOrder: parseInt(formDisplayOrder) || 0,
         ranges: formRanges.map(r => ({
           minAgeDays: r.minAgeDays,
           maxAgeDays: r.maxAgeDays,
           gender: r.gender || null,
+          category: r.category || null,
+          categoryLabel: r.categoryLabel || null,
           referenceMin: r.referenceMin,
           referenceMax: r.referenceMax,
+          criticalMin: formShowCritical ? r.criticalMin : null,
+          criticalMax: formShowCritical ? r.criticalMax : null,
           referenceUnit: r.referenceUnit || null,
           referenceText: r.referenceText || null,
         })),
@@ -367,6 +503,45 @@ export default function ManageClinicalDefinitions() {
     }
   };
 
+  const toggleVisibility = async (def: TestDefinition) => {
+    try {
+      const res = await fetch(`${API_BASE}/clinical-definitions/${def.id}/toggle-visibility`, {
+        method: 'PATCH', headers,
+      });
+      if (!res.ok) throw new Error('Toggle failed');
+      toast.success(`Definition ${def.isActive ? 'hidden' : 'shown'}`);
+      fetchDefinitions();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`${API_BASE}/clinical-definitions/${deleteConfirm.rootDefinitionId}`, {
+        method: 'DELETE', headers,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || 'Delete failed');
+      }
+      const data = await res.json();
+      if (data.archived) {
+        toast.success(`Definition "${deleteConfirm.name}" archived — code is now available for reuse`);
+      } else {
+        toast.success(`Definition "${deleteConfirm.name}" deleted`);
+      }
+      setDeleteConfirm(null);
+      fetchDefinitions();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const toggleVersionHistory = async (rootId: string) => {
     if (expandedRoot === rootId) {
       setExpandedRoot(null);
@@ -382,7 +557,10 @@ export default function ManageClinicalDefinitions() {
   const addRange = () => {
     setFormRanges([...formRanges, {
       minAgeDays: null, maxAgeDays: null, gender: null,
-      referenceMin: null, referenceMax: null, referenceUnit: null, referenceText: null,
+      category: null, categoryLabel: null,
+      referenceMin: null, referenceMax: null,
+      criticalMin: null, criticalMax: null,
+      referenceUnit: null, referenceText: null,
     }]);
   };
 
@@ -394,6 +572,20 @@ export default function ManageClinicalDefinitions() {
 
   const removeRange = (idx: number) => {
     setFormRanges(formRanges.filter((_, i) => i !== idx));
+  };
+
+  const updateRangeCategory = (idx: number, cat: string) => {
+    const updated = [...formRanges];
+    const defaults = categoryDefaults(cat);
+    updated[idx] = {
+      ...updated[idx],
+      category: cat,
+      gender: defaults.gender ?? null,
+      minAgeDays: defaults.minAgeDays ?? null,
+      maxAgeDays: defaults.maxAgeDays ?? null,
+      categoryLabel: cat === 'OTHER' ? updated[idx].categoryLabel : null,
+    };
+    setFormRanges(updated);
   };
 
   const addRule = () => {
@@ -565,9 +757,9 @@ export default function ManageClinicalDefinitions() {
 
                     {/* Ranges count */}
                     <TableCell className="text-center">
-                      {def.ranges?.length > 0 ? (
+                      {(def.rangeCount ?? def._count?.ranges ?? def.ranges?.length ?? 0) > 0 ? (
                         <Badge variant="outline" className="text-xs">
-                          {def.ranges.length}
+                          {def.rangeCount ?? def._count?.ranges ?? def.ranges?.length}
                         </Badge>
                       ) : (
                         <span className="text-muted-foreground text-sm">0</span>
@@ -587,8 +779,11 @@ export default function ManageClinicalDefinitions() {
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
                         )}
-                        <Button size="sm" variant="ghost" onClick={() => handleViewImpact(def)} title="View Impact" className="h-7 w-7 p-0">
-                          <Eye className="h-3.5 w-3.5" />
+                        <Button size="sm" variant="ghost" onClick={() => handleViewImpact(def)} title="View Impact" className="h-7 px-2 gap-1 text-xs">
+                          <Eye className="h-3.5 w-3.5" /> Impact
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(def)} title="Delete definition" className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50">
+                          <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                         {statusActions(def).map(a => (
                           <Button
@@ -601,6 +796,12 @@ export default function ManageClinicalDefinitions() {
                             {a.label}
                           </Button>
                         ))}
+                        <Switch
+                          checked={def.isActive}
+                          onCheckedChange={() => toggleVisibility(def)}
+                          className="ml-1"
+                          title={def.isActive ? 'Visible in clinical forms' : 'Hidden from clinical forms'}
+                        />
                       </div>
                     </TableCell>
                   </TableRow>
@@ -621,7 +822,7 @@ export default function ManageClinicalDefinitions() {
                         {formatRange(v)}
                       </TableCell>
                       <TableCell className="text-center text-xs text-muted-foreground">
-                        {v.ranges?.length || 0}
+                        {v.rangeCount ?? v._count?.ranges ?? v.ranges?.length ?? 0}
                       </TableCell>
                       <TableCell>
                         <Badge className={STATUS_COLORS[v.status] || ''} variant="outline">{v.status}</Badge>
@@ -674,13 +875,29 @@ export default function ManageClinicalDefinitions() {
                 <div className="grid grid-cols-2 gap-4 pt-2">
                   <div className="space-y-1.5">
                     <Label>Test Code *</Label>
-                    <Input
-                      value={formCode}
-                      onChange={e => setFormCode(e.target.value)}
-                      placeholder="e.g., HB, FBS, TSH"
-                      disabled={formMode === 'new-version'}
-                      className="font-mono"
-                    />
+                    <div className="relative">
+                      <Input
+                        value={formCode}
+                        onChange={e => setFormCode(e.target.value.toUpperCase())}
+                        placeholder="e.g., HB, FBS, TSH"
+                        disabled={formMode === 'new-version'}
+                        className="font-mono pr-8"
+                      />
+                      {formMode === 'create' && formCode.trim() && (
+                        <span className="absolute right-2 top-2.5">
+                          {codeChecking ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> :
+                           !CODE_REGEX.test(formCode.trim()) ? <AlertCircle className="h-4 w-4 text-red-500" /> :
+                           codeAvailable === true ? <CheckCircle2 className="h-4 w-4 text-green-600" /> :
+                           codeAvailable === false ? <AlertCircle className="h-4 w-4 text-red-500" /> : null}
+                        </span>
+                      )}
+                    </div>
+                    {formMode === 'create' && formCode.trim() && !CODE_REGEX.test(formCode.trim()) && (
+                      <p className="text-xs text-red-500">2-20 uppercase letters, digits, or underscores</p>
+                    )}
+                    {formMode === 'create' && codeAvailable === false && (
+                      <p className="text-xs text-red-500">Code already in use</p>
+                    )}
                   </div>
                   <div className="space-y-1.5">
                     <Label>Test Name *</Label>
@@ -695,18 +912,11 @@ export default function ManageClinicalDefinitions() {
                         {departments.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Sample Type</Label>
-                    <Input value={formSampleType} onChange={e => setFormSampleType(e.target.value)} placeholder="e.g., Blood, Serum" />
+                    <p className="text-xs text-muted-foreground">Optional — department can also be set at the panel level</p>
                   </div>
                   <div className="space-y-1.5">
                     <Label>Method</Label>
                     <Input value={formMethod} onChange={e => setFormMethod(e.target.value)} placeholder="e.g., ECLIA, GOD-POD" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Display Order</Label>
-                    <Input type="number" value={formDisplayOrder} onChange={e => setFormDisplayOrder(e.target.value)} />
                   </div>
                 </div>
               </AccordionContent>
@@ -717,7 +927,7 @@ export default function ManageClinicalDefinitions() {
               <AccordionTrigger className="hover:no-underline">
                 <div className="flex items-center gap-2">
                   <SectionStatus ok={defaultRangeOk} />
-                  <span className="font-medium">Default Reference Range</span>
+                  <span className="font-medium">General Reference Range</span>
                   {defaultRangeOk && (
                     <span className="text-xs text-muted-foreground ml-2">
                       {formRefMin || '?'} – {formRefMax || '?'} {formUnit}
@@ -726,20 +936,45 @@ export default function ManageClinicalDefinitions() {
                 </div>
               </AccordionTrigger>
               <AccordionContent>
-                <div className="grid grid-cols-3 gap-4 pt-2">
-                  <div className="space-y-1.5">
-                    <Label>Min Value</Label>
-                    <Input type="number" value={formRefMin} onChange={e => setFormRefMin(e.target.value)} placeholder="e.g., 12" />
+                <div className="space-y-4 pt-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">Default reference range used when no age/gender-specific range matches</p>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="critical-toggle-general" className="text-xs text-muted-foreground">Critical Values</Label>
+                      <Switch
+                        id="critical-toggle-general"
+                        checked={formShowCritical}
+                        onCheckedChange={setFormShowCritical}
+                      />
+                    </div>
+                  </div>
+                  <div className={`grid gap-4 ${formShowCritical ? 'grid-cols-5' : 'grid-cols-3'}`}>
+                    <div className="space-y-1.5">
+                      <Label>Min Value</Label>
+                      <Input type="number" value={formRefMin} onChange={e => setFormRefMin(e.target.value)} placeholder="e.g., 12" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Max Value</Label>
+                      <Input type="number" value={formRefMax} onChange={e => setFormRefMax(e.target.value)} placeholder="e.g., 16" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Unit</Label>
+                      <Input value={formUnit} onChange={e => setFormUnit(e.target.value)} placeholder="e.g., g/dL" />
+                    </div>
+                    {formShowCritical && (
+                      <>
+                        <div className="space-y-1.5">
+                          <Label className="text-red-600">Critical Low</Label>
+                          <Input type="number" value={formGeneralCriticalMin} onChange={e => setFormGeneralCriticalMin(e.target.value)} placeholder="e.g., 7" className="border-red-200 focus:border-red-400" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-red-600">Critical High</Label>
+                          <Input type="number" value={formGeneralCriticalMax} onChange={e => setFormGeneralCriticalMax(e.target.value)} placeholder="e.g., 20" className="border-red-200 focus:border-red-400" />
+                        </div>
+                      </>
+                    )}
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Max Value</Label>
-                    <Input type="number" value={formRefMax} onChange={e => setFormRefMax(e.target.value)} placeholder="e.g., 16" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Unit</Label>
-                    <Input value={formUnit} onChange={e => setFormUnit(e.target.value)} placeholder="e.g., g/dL" />
-                  </div>
-                  <div className="col-span-3 space-y-1.5">
                     <Label>Reference Text</Label>
                     <Input value={formRefText} onChange={e => setFormRefText(e.target.value)} placeholder="e.g., Negative, Non-reactive" />
                     <p className="text-xs text-muted-foreground">For qualitative tests, use text instead of min/max values</p>
@@ -763,9 +998,19 @@ export default function ManageClinicalDefinitions() {
                 <div className="space-y-3 pt-2">
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-muted-foreground">Define different reference ranges for specific age groups or genders</p>
-                    <Button size="sm" variant="outline" onClick={addRange}>
-                      <Plus className="h-3 w-3 mr-1" /> Add Range
-                    </Button>
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor="critical-toggle-ranges" className="text-xs text-muted-foreground">Critical Values</Label>
+                        <Switch
+                          id="critical-toggle-ranges"
+                          checked={formShowCritical}
+                          onCheckedChange={setFormShowCritical}
+                        />
+                      </div>
+                      <Button size="sm" variant="outline" onClick={addRange}>
+                        <Plus className="h-3 w-3 mr-1" /> Add Range
+                      </Button>
+                    </div>
                   </div>
 
                   {formRanges.length === 0 ? (
@@ -775,33 +1020,99 @@ export default function ManageClinicalDefinitions() {
                   ) : (
                     <div className="space-y-2">
                       {/* Header */}
-                      <div className="grid grid-cols-8 gap-1 text-xs font-medium text-muted-foreground px-1">
-                        <span>Min Days</span>
-                        <span>Max Days</span>
-                        <span>Gender</span>
-                        <span>Min</span>
-                        <span>Max</span>
+                      <div className={`grid gap-1 text-xs font-medium text-muted-foreground px-1 ${formShowCritical ? 'grid-cols-[120px_1fr_1fr_1fr_1fr_1fr_1fr_1fr_28px]' : 'grid-cols-[120px_1fr_1fr_1fr_1fr_1fr_28px]'}`}>
+                        <span>Category</span>
+                        <span>Ref Min</span>
+                        <span>Ref Max</span>
                         <span>Unit</span>
+                        {formShowCritical && <span className="text-red-600">Crit Low</span>}
+                        {formShowCritical && <span className="text-red-600">Crit High</span>}
                         <span>Text</span>
                         <span></span>
                       </div>
                       {formRanges.map((r, i) => (
-                        <div key={i} className="grid grid-cols-8 gap-1 items-center">
-                          <Input type="number" placeholder="0" value={r.minAgeDays ?? ''} onChange={e => updateRange(i, 'minAgeDays', e.target.value ? parseInt(e.target.value) : null)} className="h-8 text-xs" />
-                          <Input type="number" placeholder="∞" value={r.maxAgeDays ?? ''} onChange={e => updateRange(i, 'maxAgeDays', e.target.value ? parseInt(e.target.value) : null)} className="h-8 text-xs" />
-                          <Select value={r.gender || '__any__'} onValueChange={v => updateRange(i, 'gender', v === '__any__' ? null : v)}>
-                            <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Any" /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__any__">Any</SelectItem>
-                              <SelectItem value="M">Male</SelectItem>
-                              <SelectItem value="F">Female</SelectItem>
-                            </SelectContent>
-                          </Select>
+                        <div key={i} className={`group grid gap-1 items-start ${formShowCritical ? 'grid-cols-[120px_1fr_1fr_1fr_1fr_1fr_1fr_1fr_28px]' : 'grid-cols-[120px_1fr_1fr_1fr_1fr_1fr_28px]'}`}>
+                          {/* Category dropdown */}
+                          <div className="space-y-1">
+                            <Select value={r.category || '__none__'} onValueChange={v => updateRangeCategory(i, v === '__none__' ? '' : v)}>
+                              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select..." /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__">Select...</SelectItem>
+                                {RANGE_CATEGORIES.map(c => (
+                                  <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {/* Inline age inputs for INFANT/CHILD */}
+                            {(r.category === 'INFANT' || r.category === 'CHILD') && (
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <Input
+                                  type="number"
+                                  className="h-6 text-[10px] w-10 px-1 text-center"
+                                  placeholder="0"
+                                  value={r.minAgeDays != null ? daysToDisplay(r.minAgeDays).value : ''}
+                                  onChange={e => {
+                                    const unit = r.minAgeDays != null ? daysToDisplay(r.minAgeDays).unit : (r.category === 'INFANT' ? 'days' : 'years');
+                                    updateRange(i, 'minAgeDays', e.target.value ? displayToDays(parseFloat(e.target.value), unit) : null);
+                                  }}
+                                />
+                                <span className="text-[9px] text-muted-foreground">–</span>
+                                <Input
+                                  type="number"
+                                  className="h-6 text-[10px] w-10 px-1 text-center"
+                                  placeholder="∞"
+                                  value={r.maxAgeDays != null ? daysToDisplay(r.maxAgeDays).value : ''}
+                                  onChange={e => {
+                                    const unit = r.maxAgeDays != null ? daysToDisplay(r.maxAgeDays).unit : (r.category === 'INFANT' ? 'months' : 'years');
+                                    updateRange(i, 'maxAgeDays', e.target.value ? displayToDays(parseFloat(e.target.value), unit) : null);
+                                  }}
+                                />
+                                <Select
+                                  value={r.maxAgeDays != null ? daysToDisplay(r.maxAgeDays).unit : (r.category === 'INFANT' ? 'months' : 'years')}
+                                  onValueChange={unit => {
+                                    // Convert both min and max to the new unit for consistency
+                                    const minDisplay = r.minAgeDays != null ? daysToDisplay(r.minAgeDays) : null;
+                                    const maxDisplay = r.maxAgeDays != null ? daysToDisplay(r.maxAgeDays) : null;
+                                    const updated = [...formRanges];
+                                    if (minDisplay) {
+                                      updated[i] = { ...updated[i], minAgeDays: displayToDays(minDisplay.value, unit) };
+                                    }
+                                    if (maxDisplay) {
+                                      updated[i] = { ...updated[i], maxAgeDays: displayToDays(maxDisplay.value, unit) };
+                                    }
+                                    setFormRanges(updated);
+                                  }}
+                                >
+                                  <SelectTrigger className="h-6 text-[10px] w-[58px] px-1"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="days">days</SelectItem>
+                                    <SelectItem value="months">mo</SelectItem>
+                                    <SelectItem value="years">yrs</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )}
+                            {/* Custom label for OTHER */}
+                            {r.category === 'OTHER' && (
+                              <Input
+                                placeholder="Label..."
+                                value={r.categoryLabel ?? ''}
+                                onChange={e => updateRange(i, 'categoryLabel', e.target.value || null)}
+                                className="h-6 text-[10px]"
+                              />
+                            )}
+                          </div>
                           <Input type="number" placeholder="Min" value={r.referenceMin ?? ''} onChange={e => updateRange(i, 'referenceMin', e.target.value ? parseFloat(e.target.value) : null)} className="h-8 text-xs" />
                           <Input type="number" placeholder="Max" value={r.referenceMax ?? ''} onChange={e => updateRange(i, 'referenceMax', e.target.value ? parseFloat(e.target.value) : null)} className="h-8 text-xs" />
                           <Input placeholder="Unit" value={r.referenceUnit ?? ''} onChange={e => updateRange(i, 'referenceUnit', e.target.value || null)} className="h-8 text-xs" />
+                          {formShowCritical && (
+                            <>
+                              <Input type="number" placeholder="Crit Low" value={r.criticalMin ?? ''} onChange={e => updateRange(i, 'criticalMin', e.target.value ? parseFloat(e.target.value) : null)} className="h-8 text-xs border-red-200 focus:border-red-400" />
+                              <Input type="number" placeholder="Crit High" value={r.criticalMax ?? ''} onChange={e => updateRange(i, 'criticalMax', e.target.value ? parseFloat(e.target.value) : null)} className="h-8 text-xs border-red-200 focus:border-red-400" />
+                            </>
+                          )}
                           <Input placeholder="Text" value={r.referenceText ?? ''} onChange={e => updateRange(i, 'referenceText', e.target.value || null)} className="h-8 text-xs" />
-                          <Button size="sm" variant="ghost" onClick={() => removeRange(i)} className="h-8 w-8 p-0 text-red-500">✕</Button>
+                          <Button size="sm" variant="ghost" onClick={() => removeRange(i)} className="h-8 w-7 p-0 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">✕</Button>
                         </div>
                       ))}
                     </div>
@@ -853,12 +1164,12 @@ export default function ManageClinicalDefinitions() {
               </AccordionContent>
             </AccordionItem>
 
-            {/* ─── Interpretation Rules ─────────────────────────────── */}
+            {/* ─── Clinical Interpretation Rules ───────────────────────── */}
             <AccordionItem value="interpretation-rules">
               <AccordionTrigger className="hover:no-underline">
                 <div className="flex items-center gap-2">
                   <SectionStatus ok={interpOk} />
-                  <span className="font-medium">Interpretation Rules</span>
+                  <span className="font-medium">Clinical Interpretation Rules</span>
                   <Badge variant="outline" className="text-xs ml-2">
                     {formRules.length}
                   </Badge>
@@ -866,6 +1177,7 @@ export default function ManageClinicalDefinitions() {
               </AccordionTrigger>
               <AccordionContent>
                 <div className="space-y-4 pt-2">
+                  <p className="text-xs text-muted-foreground">Rules are evaluated top-to-bottom; first match wins.</p>
                   {/* Interp mode */}
                   <div className="space-y-1.5 max-w-xs">
                     <Label>Interpretation Mode</Label>
@@ -998,6 +1310,25 @@ export default function ManageClinicalDefinitions() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Delete Confirmation Dialog ──────────────────────────────────── */}
+      <Dialog open={!!deleteConfirm} onOpenChange={open => { if (!open) setDeleteConfirm(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Definition</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to permanently delete <strong>{deleteConfirm?.name}</strong> (all versions)?
+              This cannot be undone. You cannot delete a definition that is used in panels.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirm(null)} disabled={deleting}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

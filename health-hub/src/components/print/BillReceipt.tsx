@@ -74,7 +74,7 @@ export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
         <div className="grid grid-cols-2 gap-y-1 text-sm">
           <p><strong>Name:</strong>&ensp;{data.patient.name.toUpperCase()}</p>
           <p><strong>Phone:</strong>&ensp;{data.patient.phone || 'N/A'}</p>
-          <p><strong>Age:</strong>&ensp;{data.patient.age} years</p>
+          <p><strong>Age:</strong>&ensp;{data.patient.ageDisplay || `${data.patient.age} years`}</p>
           <p><strong>Gender:</strong>&ensp;{genderFull}</p>
         </div>
       </div>

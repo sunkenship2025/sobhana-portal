@@ -128,7 +128,7 @@ const DoctorDashboard = () => {
                         <div className="flex items-center gap-2">
                           <span className="font-semibold">{visitView.patient.name}</span>
                           <span className="text-muted-foreground">
-                            | {visitView.patient.age} | {visitView.patient.gender}
+                            | {(visitView.patient as any).ageDisplay || visitView.patient.age} | {visitView.patient.gender}
                           </span>
                         </div>
                         <div className="flex items-center gap-4 text-sm">
@@ -178,7 +178,7 @@ const DoctorDashboard = () => {
                 <div>
                   <p className="font-semibold text-lg">{selectedVisitView.patient.name}</p>
                   <p className="text-muted-foreground">
-                    {selectedVisitView.patient.age} years | {selectedVisitView.patient.gender === 'M' ? 'Male' : selectedVisitView.patient.gender === 'F' ? 'Female' : 'Other'}
+                    {(selectedVisitView.patient as any).ageDisplay || `${selectedVisitView.patient.age} years`} | {selectedVisitView.patient.gender === 'M' ? 'Male' : selectedVisitView.patient.gender === 'F' ? 'Female' : 'Other'}
                   </p>
                 </div>
                 <div className="text-right">

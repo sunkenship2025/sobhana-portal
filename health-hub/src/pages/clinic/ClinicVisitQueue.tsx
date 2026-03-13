@@ -265,7 +265,7 @@ const ClinicVisitQueue = () => {
                   <p className="text-sm text-muted-foreground">Patient</p>
                   <p className="font-medium">{selectedVisit.patient.name}</p>
                   <p className="text-sm text-muted-foreground">
-                    {selectedVisit.patient.age} | {selectedVisit.patient.gender === 'M' ? 'Male' : selectedVisit.patient.gender === 'F' ? 'Female' : 'Other'}
+                    {(selectedVisit.patient as any).ageDisplay || selectedVisit.patient.age} | {selectedVisit.patient.gender === 'M' ? 'Male' : selectedVisit.patient.gender === 'F' ? 'Female' : 'Other'}
                   </p>
                   <p className="text-sm">{selectedVisit.patient.identifiers.find((i) => i.type === 'PHONE')?.value}</p>
                 </div>

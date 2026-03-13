@@ -176,7 +176,7 @@ export default function GlobalPatientSearch() {
                       {result.patient.name}
                       <span className="text-muted-foreground font-normal">|</span>
                       <span className="text-muted-foreground font-normal">
-                        {result.patient.age}
+                        {(result.patient as any).ageDisplay || result.patient.age}
                       </span>
                       <span className="text-muted-foreground font-normal">|</span>
                       <span className="text-muted-foreground font-normal">

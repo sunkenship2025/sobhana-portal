@@ -38,6 +38,8 @@ export interface PatientIdentifier {
 // ============================================
 // PATIENT (GLOBAL - shared across branches)
 // ============================================
+export type AgeUnit = 'DAYS' | 'MONTHS' | 'YEARS';
+
 export interface Patient {
   id: string;
   patientNumber: string;  // P-00001, P-00002, etc.
@@ -45,6 +47,8 @@ export interface Patient {
   age: number; // E2-09: Calculated from YOB/DOB, not stored
   yearOfBirth: number; // E2-09: Required - YOB for age calculation
   dateOfBirth?: Date | string | null; // E2-09: Optional - exact DOB if known
+  ageUnit?: AgeUnit; // DAYS, MONTHS, YEARS — for smart age display
+  ageDisplay?: string; // e.g., "7 Months", "18 Days", "45 Years"
   gender: Gender;
   address?: string;
   identifiers: PatientIdentifier[];
@@ -479,6 +483,7 @@ export interface BillReceiptData {
     name: string;
     phone: string;
     age: number;
+    ageDisplay?: string; // e.g., "7 Months", "18 Days"
     gender: string;         // 'M' | 'F' | 'O'
   };
   doctor?: {

@@ -16,7 +16,7 @@ import { toast } from 'sonner';
 import type { Patient, PatientSearchResult, PaymentType, DiagnosticVisitView, TestOrder, ReferralDoctor, BillReceiptData } from '@/types';
 import { Search, UserPlus, CheckCircle2, Printer, MessageCircle } from 'lucide-react';
 import { BillReceipt } from '@/components/print/BillReceipt';
-import { validatePatientForm, type ValidationErrors } from '@/lib/validation';
+import { validatePatientForm, computeSmartAge, formatAgeDisplay, type ValidationErrors } from '@/lib/validation';
 import {
   Select,
   SelectContent,
@@ -57,6 +57,7 @@ const DiagnosticsNewVisit = () => {
   const [newPatient, setNewPatient] = useState({
     name: '',
     age: '',
+    ageUnit: 'YEARS' as 'DAYS' | 'MONTHS' | 'YEARS',
     dateOfBirth: '', // E2-09: Optional DOB field
     gender: 'M' as 'M' | 'F' | 'O',
     whatsappOptIn: true, // Default: opted in for WhatsApp notifications
@@ -182,6 +183,7 @@ const DiagnosticsNewVisit = () => {
         age: newPatient.age,
         gender: newPatient.gender,
         phone,
+        ageUnit: newPatient.ageUnit,
       });
 
       if (Object.keys(errors).length > 0) {
@@ -206,6 +208,7 @@ const DiagnosticsNewVisit = () => {
           body: JSON.stringify({
             name: newPatient.name,
             age: newPatient.age ? parseInt(newPatient.age) : undefined, // E2-09: Age optional if DOB provided
+            ageUnit: newPatient.ageUnit, // Smart age unit
             dateOfBirth: newPatient.dateOfBirth ? newPatient.dateOfBirth.split('T')[0] : undefined, // E2-09: Send date-only (YYYY-MM-DD)
             gender: newPatient.gender,
             identifiers: [{ type: 'PHONE', value: phone, isPrimary: true }],
@@ -223,7 +226,7 @@ const DiagnosticsNewVisit = () => {
             `⚠️ Potential Duplicate Detected\n\n` +
             `Existing Patient: ${existing.patientNumber}\n` +
             `Name: ${existing.name}\n` +
-            `Age: ${existing.age}, Gender: ${existing.gender}\n` +
+            `Age: ${existing.ageDisplay || existing.age}, Gender: ${existing.gender}\n` +
             `Phone: ${existing.phone}\n\n` +
             `This looks like the same person. Do you want to:\n` +
             `• Click OK to USE EXISTING patient\n` +
@@ -246,6 +249,7 @@ const DiagnosticsNewVisit = () => {
               body: JSON.stringify({
                 name: newPatient.name,
                 age: newPatient.age ? parseInt(newPatient.age) : undefined, // E2-09: Age optional if DOB provided
+                ageUnit: newPatient.ageUnit, // Smart age unit
                 dateOfBirth: newPatient.dateOfBirth ? newPatient.dateOfBirth.split('T')[0] : undefined, // E2-09: Send date-only (YYYY-MM-DD)
                 gender: newPatient.gender,
                 identifiers: [{ type: 'PHONE', value: phone, isPrimary: true }],
@@ -448,7 +452,7 @@ const DiagnosticsNewVisit = () => {
                     setReferralOverrides({});
                     setSelectedCenterId('');
                     setReferralType('SELF');
-                    setNewPatient({ name: '', age: '', dateOfBirth: '', gender: 'M', whatsappOptIn: false }); // E2-09: Reset form
+                    setNewPatient({ name: '', age: '', ageUnit: 'YEARS', dateOfBirth: '', gender: 'M', whatsappOptIn: false }); // E2-09: Reset form
                     setValidationErrors({});
                   }}>
                     Create Another Visit
@@ -473,6 +477,7 @@ const DiagnosticsNewVisit = () => {
               name: successData.visitView.patient.name,
               phone: successData.visitView.patient.identifiers?.find((i: any) => i.type === 'PHONE')?.value || '',
               age: successData.visitView.patient.age,
+              ageDisplay: (successData.visitView.patient as any).ageDisplay,
               gender: successData.visitView.patient.gender,
             },
             referralDoctor: successData.visitView.referralDoctor ? {
@@ -564,7 +569,7 @@ const DiagnosticsNewVisit = () => {
                     <Label htmlFor={result.patient.id} className="flex-1 cursor-pointer">
                       <span className="font-medium">{result.patient.name}</span>
                       <span className="text-muted-foreground ml-2">
-                        | {result.patient.age} | {result.patient.gender}
+                        | {result.patient.ageDisplay || `${result.patient.age} Years`} | {result.patient.gender}
                       </span>
                     </Label>
                   </div>
@@ -617,18 +622,11 @@ const DiagnosticsNewVisit = () => {
                     value={newPatient.dateOfBirth}
                     onChange={(e) => {
                       const dob = e.target.value;
-                      setNewPatient({ ...newPatient, dateOfBirth: dob });
-                      
-                      // E2-09: Auto-calculate age from DOB
                       if (dob) {
-                        const dobDate = new Date(dob);
-                        const today = new Date();
-                        let calculatedAge = today.getFullYear() - dobDate.getFullYear();
-                        const monthDiff = today.getMonth() - dobDate.getMonth();
-                        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dobDate.getDate())) {
-                          calculatedAge--;
-                        }
-                        setNewPatient({ ...newPatient, dateOfBirth: dob, age: calculatedAge.toString() });
+                        const smart = computeSmartAge(dob);
+                        setNewPatient({ ...newPatient, dateOfBirth: dob, age: smart.age.toString(), ageUnit: smart.unit });
+                      } else {
+                        setNewPatient({ ...newPatient, dateOfBirth: dob });
                       }
                     }}
                   />
@@ -636,19 +634,34 @@ const DiagnosticsNewVisit = () => {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="age">Age *</Label>
-                  <Input
-                    id="age"
-                    type="number"
-                    placeholder="Age"
-                    value={newPatient.age}
-                    onChange={(e) => {
-                      setNewPatient({ ...newPatient, age: e.target.value });
-                      if (validationErrors.age) {
-                        setValidationErrors({ ...validationErrors, age: undefined });
-                      }
-                    }}
-                    className={validationErrors.age ? 'border-red-500' : ''}
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      id="age"
+                      type="number"
+                      placeholder="Age"
+                      value={newPatient.age}
+                      onChange={(e) => {
+                        setNewPatient({ ...newPatient, age: e.target.value });
+                        if (validationErrors.age) {
+                          setValidationErrors({ ...validationErrors, age: undefined });
+                        }
+                      }}
+                      className={`flex-1 ${validationErrors.age ? 'border-red-500' : ''}`}
+                    />
+                    <Select
+                      value={newPatient.ageUnit}
+                      onValueChange={(v) => setNewPatient({ ...newPatient, ageUnit: v as 'DAYS' | 'MONTHS' | 'YEARS' })}
+                    >
+                      <SelectTrigger className="w-[110px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="DAYS">Days</SelectItem>
+                        <SelectItem value="MONTHS">Months</SelectItem>
+                        <SelectItem value="YEARS">Years</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   {validationErrors.age && (
                     <p className="text-sm text-red-500">{validationErrors.age}</p>
                   )}
