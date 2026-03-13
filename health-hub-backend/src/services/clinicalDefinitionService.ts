@@ -19,7 +19,7 @@ import {
   checkConcurrency,
   InterpretationRuleInput,
 } from '../utils/clinicalValidation';
-import { TestDefinitionStatus, InterpretationMode, ComparisonOperator, InterpretationRuleType } from '@prisma/client';
+import { TestDefinitionStatus, InterpretationMode, ComparisonOperator, InterpretationRuleType, RangeCategory } from '@prisma/client';
 
 // ============================================================================
 // TYPES
@@ -34,6 +34,8 @@ export interface CreateTestDefinitionInput {
   departmentId?: string;
   referenceMin?: number;
   referenceMax?: number;
+  criticalMin?: number;
+  criticalMax?: number;
   referenceText?: string;
   formulaExpression?: string;
   dependsOnCodes?: string[];
@@ -47,8 +49,12 @@ export interface RangeInput {
   minAgeDays?: number;
   maxAgeDays?: number;
   gender?: 'M' | 'F' | 'O';
+  category?: RangeCategory;
+  categoryLabel?: string;
   referenceMin?: number;
   referenceMax?: number;
+  criticalMin?: number;
+  criticalMax?: number;
   referenceUnit?: string;
   referenceText?: string;
 }
@@ -58,12 +64,15 @@ export interface RangeInput {
 // ============================================================================
 
 export async function createTestDefinition(input: CreateTestDefinitionInput) {
+  // Normalize code to uppercase for consistent lookups
+  const normalizedCode = input.code.trim().toUpperCase();
+
   // Validate code uniqueness among latest versions
   const existing = await prisma.testDefinition.findFirst({
-    where: { code: input.code, isLatest: true },
+    where: { code: normalizedCode, isLatest: true },
   });
   if (existing) {
-    throw new Error(`Test code "${input.code}" already exists`);
+    throw new Error(`Test code "${normalizedCode}" already exists`);
   }
 
   // Validate interpretation rules for overlaps
@@ -92,18 +101,20 @@ export async function createTestDefinition(input: CreateTestDefinitionInput) {
         isLatest: true,
         status: 'ACTIVE',
         name: input.name,
-        code: input.code,
+        code: normalizedCode,
         sampleType: input.sampleType,
         method: input.method,
         referenceUnit: input.referenceUnit,
         departmentId: input.departmentId,
         referenceMin: input.referenceMin,
         referenceMax: input.referenceMax,
+        criticalMin: input.criticalMin,
+        criticalMax: input.criticalMax,
         referenceText: input.referenceText,
         formulaExpression: input.formulaExpression,
         dependsOnCodes: input.dependsOnCodes ?? [],
         interpretationMode: input.interpretationMode ?? 'NONE',
-        displayOrder: input.displayOrder ?? 0,
+        displayOrder: 0,  // UI no longer sets displayOrder; order is controlled by ClinicalPanelItem
       },
     });
 
@@ -121,8 +132,12 @@ export async function createTestDefinition(input: CreateTestDefinitionInput) {
           minAgeDays: r.minAgeDays,
           maxAgeDays: r.maxAgeDays,
           gender: r.gender,
+          category: r.category,
+          categoryLabel: r.categoryLabel,
           referenceMin: r.referenceMin,
           referenceMax: r.referenceMax,
+          criticalMin: r.criticalMin,
+          criticalMax: r.criticalMax,
           referenceUnit: r.referenceUnit,
           referenceText: r.referenceText,
         })),
@@ -211,7 +226,7 @@ export async function createNewVersion(
     }
 
     // Validate code uniqueness if code changed
-    const newCode = updates.code ?? current.code;
+    const newCode = (updates.code ?? current.code).trim().toUpperCase();
     if (newCode !== current.code) {
       const codeExists = await tx.testDefinition.findFirst({
         where: { code: newCode, isLatest: true, rootDefinitionId: { not: rootDefinitionId } },
@@ -247,6 +262,8 @@ export async function createNewVersion(
         departmentId: pick('departmentId', current.departmentId),
         referenceMin: pick('referenceMin', current.referenceMin),
         referenceMax: pick('referenceMax', current.referenceMax),
+        criticalMin: pick('criticalMin', current.criticalMin),
+        criticalMax: pick('criticalMax', current.criticalMax),
         referenceText: pick('referenceText', current.referenceText),
         formulaExpression: pick('formulaExpression', current.formulaExpression),
         dependsOnCodes: pick('dependsOnCodes', (current.dependsOnCodes as string[]) ?? []),
@@ -260,8 +277,12 @@ export async function createNewVersion(
       minAgeDays: r.minAgeDays,
       maxAgeDays: r.maxAgeDays,
       gender: r.gender as 'M' | 'F' | 'O' | undefined,
+      category: r.category,
+      categoryLabel: r.categoryLabel,
       referenceMin: r.referenceMin,
       referenceMax: r.referenceMax,
+      criticalMin: r.criticalMin,
+      criticalMax: r.criticalMax,
       referenceUnit: r.referenceUnit,
       referenceText: r.referenceText,
     }));
@@ -273,8 +294,12 @@ export async function createNewVersion(
           minAgeDays: r.minAgeDays,
           maxAgeDays: r.maxAgeDays,
           gender: r.gender,
+          category: r.category,
+          categoryLabel: r.categoryLabel,
           referenceMin: r.referenceMin,
           referenceMax: r.referenceMax,
+          criticalMin: r.criticalMin,
+          criticalMax: r.criticalMax,
           referenceUnit: r.referenceUnit,
           referenceText: r.referenceText,
         })),

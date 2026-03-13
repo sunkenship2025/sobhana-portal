@@ -3,7 +3,7 @@ import { generatePatientNumber } from './numberService';
 import { logAction } from './auditService';
 import { ValidationError, ConflictError } from '../utils/errors';
 import * as patientMatching from './patientMatchingService';
-import { validatePatientDemographics, validateAddress, calculateYOBFromAge, calculateAgeFromDOB, getPatientAge } from '../utils/validation';
+import { validatePatientDemographics, validateAddress, calculateYOBFromAge, calculateAgeFromDOB, getPatientAge, getPatientAgeDisplay } from '../utils/validation';
 import crypto from 'crypto';
 import prisma from '../lib/prisma';
 
@@ -21,6 +21,7 @@ function stringToLockId(input: string): number {
 export interface CreatePatientInput {
   name: string;
   age?: number; // E2-09: Optional - used to calculate YOB if DOB not provided
+  ageUnit?: string; // DAYS, MONTHS, YEARS — defaults to YEARS
   dateOfBirth?: Date; // E2-09: Optional - exact DOB if known
   gender: 'M' | 'F' | 'O';
   address?: string;
@@ -39,12 +40,24 @@ export async function createPatient(input: CreatePatientInput) {
   // E2-09: Calculate yearOfBirth from DOB or age FIRST (needed for validation)
   let yearOfBirth: number;
   let dateOfBirth: Date | null = null;
+  const ageUnit = input.ageUnit || 'YEARS';
   
   if (input.dateOfBirth) {
     dateOfBirth = input.dateOfBirth;
     yearOfBirth = input.dateOfBirth.getFullYear();
   } else if (input.age !== undefined) {
-    yearOfBirth = calculateYOBFromAge(input.age);
+    // For DAYS/MONTHS: compute an approximate DOB for precise reference range matching
+    const now = new Date();
+    if (ageUnit === 'DAYS') {
+      dateOfBirth = new Date(now.getTime() - input.age * 24 * 60 * 60 * 1000);
+      yearOfBirth = dateOfBirth.getFullYear();
+    } else if (ageUnit === 'MONTHS') {
+      dateOfBirth = new Date(now);
+      dateOfBirth.setMonth(dateOfBirth.getMonth() - input.age);
+      yearOfBirth = dateOfBirth.getFullYear();
+    } else {
+      yearOfBirth = calculateYOBFromAge(input.age);
+    }
   } else {
     throw new ValidationError('Either age or dateOfBirth must be provided');
   }
@@ -155,6 +168,7 @@ export async function createPatient(input: CreatePatientInput) {
         name: input.name.toUpperCase(), // Medical standard: names in all caps
         yearOfBirth, // E2-09: Required - derived from age or DOB
         dateOfBirth, // E2-09: Optional - exact DOB if provided
+        ageUnit: input.dateOfBirth ? 'YEARS' : ageUnit, // Store unit hint for smart display
         gender: input.gender,
         address: input.address,
         whatsappOptIn: input.whatsappOptIn ?? false,
@@ -228,6 +242,8 @@ export async function searchPatients(query: {
       patientNumber: patient.patientNumber,
       name: patient.name,
       age: getPatientAge(patient.dateOfBirth, patient.yearOfBirth), // E2-09: Calculate current age
+      ageUnit: patient.ageUnit || 'YEARS',
+      ageDisplay: getPatientAgeDisplay(patient.dateOfBirth, patient.yearOfBirth, patient.ageUnit),
       dateOfBirth: patient.dateOfBirth, // E2-09: Include DOB in response
       yearOfBirth: patient.yearOfBirth, // E2-09: Include YOB in response
       gender: patient.gender,
@@ -367,6 +383,8 @@ export async function getPatient360View(patientId: string) {
       patientNumber: patient.patientNumber,
       name: patient.name,
       age: getPatientAge(patient.dateOfBirth, patient.yearOfBirth), // E2-09: Calculate current age
+      ageUnit: patient.ageUnit || 'YEARS',
+      ageDisplay: getPatientAgeDisplay(patient.dateOfBirth, patient.yearOfBirth, patient.ageUnit),
       dateOfBirth: patient.dateOfBirth, // E2-09: Include DOB
       yearOfBirth: patient.yearOfBirth, // E2-09: Include YOB
       gender: patient.gender,
@@ -394,6 +412,7 @@ export interface UpdatePatientInput {
   updates: {
     name?: string;
     age?: number; // E2-09: Optional - will be converted to YOB
+    ageUnit?: string; // DAYS, MONTHS, YEARS
     dateOfBirth?: Date; // E2-09: Optional - exact DOB if provided
     gender?: 'M' | 'F' | 'O';
     address?: string;
@@ -564,11 +583,26 @@ export async function updatePatient(input: UpdatePatientInput) {
     const patientUpdates: any = {};
     if (updates.name !== undefined) patientUpdates.name = updates.name.toUpperCase();
     
-    // E2-09: Handle age update - convert to YOB
+    // E2-09: Handle age update - convert to YOB, with unit-aware DOB computation
     if (updates.age !== undefined) {
-      patientUpdates.yearOfBirth = calculateYOBFromAge(updates.age);
-      // If age is updated, clear DOB since we only have approximate age now
-      patientUpdates.dateOfBirth = null;
+      const unit = updates.ageUnit || 'YEARS';
+      if (unit === 'DAYS') {
+        const approxDob = new Date(Date.now() - updates.age * 24 * 60 * 60 * 1000);
+        patientUpdates.dateOfBirth = approxDob;
+        patientUpdates.yearOfBirth = approxDob.getFullYear();
+        patientUpdates.ageUnit = 'DAYS';
+      } else if (unit === 'MONTHS') {
+        const approxDob = new Date();
+        approxDob.setMonth(approxDob.getMonth() - updates.age);
+        patientUpdates.dateOfBirth = approxDob;
+        patientUpdates.yearOfBirth = approxDob.getFullYear();
+        patientUpdates.ageUnit = 'MONTHS';
+      } else {
+        patientUpdates.yearOfBirth = calculateYOBFromAge(updates.age);
+        // If age is updated in years, clear DOB since we only have approximate age now
+        patientUpdates.dateOfBirth = null;
+        patientUpdates.ageUnit = 'YEARS';
+      }
     }
     
     if (updates.gender !== undefined) patientUpdates.gender = updates.gender;

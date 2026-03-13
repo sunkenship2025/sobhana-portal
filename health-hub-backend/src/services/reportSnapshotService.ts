@@ -40,6 +40,8 @@ export interface TestResultSnapshot {
   referenceMin: number | null;
   referenceMax: number | null;
   referenceUnit: string | null;
+  criticalMin: number | null;
+  criticalMax: number | null;
   sampleType: string | null;
   methodText: string | null;
   displayOrder: number;
@@ -54,6 +56,7 @@ export interface PanelSnapshot {
   panelName: string;
   displayName: string;
   layoutType: string;
+  sampleType: string | null;
   displayOrder: number;
   departmentId: string;
   departmentName: string;
@@ -92,8 +95,32 @@ export interface PatientSnapshot {
   yearOfBirth: number;
   dateOfBirth: string | null;
   age: number;
+  ageDisplay: string; // Smart display: "45 Years", "7 Months", "18 Days"
   phone: string | null;
   address: string | null;
+}
+
+/** Compute a human-friendly age string from DOB or yearOfBirth + ageUnit */
+function computeAgeDisplay(yearOfBirth: number, dateOfBirth?: Date | string | null, ageUnit?: string | null): string {
+  const now = new Date();
+  // If we have an exact DOB, compute precisely
+  if (dateOfBirth) {
+    const dob = new Date(dateOfBirth);
+    const diffMs = now.getTime() - dob.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (diffDays < 30) return `${diffDays} Day${diffDays !== 1 ? 's' : ''}`;
+    if (diffDays < 365) {
+      const months = Math.floor(diffDays / 30.44);
+      return `${months} Month${months !== 1 ? 's' : ''}`;
+    }
+    const years = Math.floor(diffDays / 365.25);
+    return `${years} Year${years !== 1 ? 's' : ''}`;
+  }
+  // Fallback: use yearOfBirth with ageUnit hint
+  const approxAge = now.getFullYear() - yearOfBirth;
+  if (ageUnit === 'DAYS') return `${approxAge} Day${approxAge !== 1 ? 's' : ''}`;
+  if (ageUnit === 'MONTHS') return `${approxAge} Month${approxAge !== 1 ? 's' : ''}`;
+  return `${approxAge} Year${approxAge !== 1 ? 's' : ''}`;
 }
 
 export interface VisitSnapshot {
@@ -218,7 +245,7 @@ export const testResultInclude = {
  */
 function buildPanelsAndDepartments(
   testResults: any[],
-  resolvedRanges: Map<string, { referenceMin: number | null; referenceMax: number | null; referenceUnit: string | null }>
+  resolvedRanges: Map<string, { referenceMin: number | null; referenceMax: number | null; referenceUnit: string | null; criticalMin: number | null; criticalMax: number | null }>
 ): DepartmentSnapshot[] {
   const panelMap = new Map<string, { panel: any; results: any[] }>();
 
@@ -258,7 +285,9 @@ function buildPanelsAndDepartments(
           referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
           referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
           referenceUnit: resolvedRanges.get(test.id)?.referenceUnit ?? test.referenceUnit,
-          sampleType: testDef.sampleType ?? test.sampleType ?? null,
+          criticalMin: resolvedRanges.get(test.id)?.criticalMin ?? null,
+          criticalMax: resolvedRanges.get(test.id)?.criticalMax ?? null,
+          sampleType: panel.sampleType ?? testDef.sampleType ?? test.sampleType ?? null,
           methodText: panelItem.methodText,
           displayOrder: panelItem.displayOrder,
           indentLevel: panelItem.indentLevel,
@@ -295,6 +324,8 @@ function buildPanelsAndDepartments(
           referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
           referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
           referenceUnit: resolvedRanges.get(test.id)?.referenceUnit ?? test.referenceUnit,
+          criticalMin: resolvedRanges.get(test.id)?.criticalMin ?? null,
+          criticalMax: resolvedRanges.get(test.id)?.criticalMax ?? null,
           sampleType: test.sampleType ?? null,
           methodText: panelItem.methodText,
           displayOrder: panelItem.displayOrder,
@@ -341,6 +372,8 @@ function buildPanelsAndDepartments(
         referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
         referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
         referenceUnit: resolvedRanges.get(test.id)?.referenceUnit ?? test.referenceUnit,
+        criticalMin: resolvedRanges.get(test.id)?.criticalMin ?? null,
+        criticalMax: resolvedRanges.get(test.id)?.criticalMax ?? null,
         sampleType: test.sampleType ?? null,
         methodText: test.method ?? null,
         displayOrder: test.displayOrder ?? 0,
@@ -391,6 +424,7 @@ function buildPanelsAndDepartments(
       panelName: panel.name,
       displayName: panel.displayName,
       layoutType: panel.layoutType,
+      sampleType: panel.sampleType ?? null,
       displayOrder: panel.displayOrder,
       departmentId: deptId,
       departmentName: dept.name,
@@ -485,12 +519,9 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
     uniqueTestIds,
     patient.yearOfBirth,
     patient.gender as Gender,
-    testDefIdMap.size > 0 ? testDefIdMap : undefined
+    testDefIdMap.size > 0 ? testDefIdMap : undefined,
+    patient.dateOfBirth
   );
-
-  // ============================================================================
-  // BUILD PANEL SNAPSHOTS (Grouped by Department) — uses shared helper
-  // ============================================================================
 
   const departments = buildPanelsAndDepartments(reportVersion.testResults as any[], resolvedRanges);
 
@@ -550,13 +581,10 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
     yearOfBirth: patient.yearOfBirth,
     dateOfBirth: patient.dateOfBirth?.toISOString() || null,
     age,
+    ageDisplay: computeAgeDisplay(patient.yearOfBirth, patient.dateOfBirth, (patient as any).ageUnit),
     phone: patient.identifiers[0]?.value || null,
     address: patient.address,
   };
-
-  // ============================================================================
-  // BUILD VISIT SNAPSHOT
-  // ============================================================================
   
   const visitSnapshot: VisitSnapshot = {
     visitId: visit.id,
@@ -649,7 +677,8 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
     uniqueTestIds,
     patient.yearOfBirth,
     patient.gender as Gender,
-    testDefIdMap.size > 0 ? testDefIdMap : undefined
+    testDefIdMap.size > 0 ? testDefIdMap : undefined,
+    patient.dateOfBirth
   );
 
   // Build panel snapshots — shared helper handles dual architecture
@@ -696,6 +725,7 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
     yearOfBirth: patient.yearOfBirth,
     dateOfBirth: patient.dateOfBirth?.toISOString() || null,
     age,
+    ageDisplay: computeAgeDisplay(patient.yearOfBirth, patient.dateOfBirth, (patient as any).ageUnit),
     phone: patient.identifiers[0]?.value || null,
     address: patient.address,
   };
