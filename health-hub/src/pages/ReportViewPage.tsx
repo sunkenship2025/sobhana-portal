@@ -170,7 +170,7 @@ export default function ReportViewPage() {
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <p><strong>Name:</strong> {patient.name}</p>
-              <p><strong>Age/Gender:</strong> {patient.age} years / {patient.gender === 'M' ? 'Male' : patient.gender === 'F' ? 'Female' : 'Other'}</p>
+              <p><strong>Age/Gender:</strong> {(patient as any).ageDisplay || `${patient.age} years`} / {patient.gender === 'M' ? 'Male' : patient.gender === 'F' ? 'Female' : 'Other'}</p>
             </div>
             <div>
               <p><strong>Phone:</strong> {patient.phone}</p>

@@ -49,7 +49,7 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
           <p className="text-base"><strong>Patient Name:</strong>&ensp;{patient.name.toUpperCase()}</p>
         </div>
         <div className="border-b border-black pb-3 mb-6">
-          <p className="text-base"><strong>Age / Gender:</strong>&ensp;{patient.age} / {genderFull}</p>
+          <p className="text-base"><strong>Age / Gender:</strong>&ensp;{(patient as any).ageDisplay || patient.age} / {genderFull}</p>
         </div>
 
         {/* Rx Symbol & Prescription Area */}
@@ -86,6 +86,7 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
             name: patient.name,
             phone: patient.identifiers.find(i => i.type === 'PHONE')?.value || 'N/A',
             age: patient.age,
+            ageDisplay: (patient as any).ageDisplay,
             gender: patient.gender,
           },
           doctor: clinicDoctor ? {

@@ -62,6 +62,7 @@ function toBillReceiptData(api: ApiBillData): BillReceiptData {
       name: api.patient.name,
       phone: api.patient.phone,
       age: api.patient.age,
+      ageDisplay: api.patient.ageDisplay,
       gender: api.patient.gender,
     },
     doctor: api.doctor,

@@ -436,7 +436,7 @@ export default function Patient360() {
               <div>
                 <h3 className="text-2xl font-bold">{patient.name}</h3>
                 <p className="text-muted-foreground">
-                  {patient.age} years | {patient.gender === 'M' ? 'Male' : patient.gender === 'F' ? 'Female' : 'Other'}
+                  {(patient as any).ageDisplay || `${patient.age} years`} | {patient.gender === 'M' ? 'Male' : patient.gender === 'F' ? 'Female' : 'Other'}
                 </p>
                 {patient.dateOfBirth && (
                   <p className="text-sm text-muted-foreground">

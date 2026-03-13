@@ -35,6 +35,7 @@ interface PatientEditDialogProps {
     gender: string;
     address?: string | null;
     whatsappOptIn?: boolean;
+    ageUnit?: string;
     identifiers: Array<{ type: string; value: string }>;
   };
   token: string | null;
@@ -51,6 +52,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
   const [formData, setFormData] = useState({
     name: patient.name,
     age: patient.age.toString(),
+    ageUnit: (patient.ageUnit || 'YEARS') as 'DAYS' | 'MONTHS' | 'YEARS',
     gender: patient.gender,
     phone: primaryPhone,
     email: primaryEmail,
@@ -62,6 +64,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
   const [initialData] = useState({
     name: patient.name,
     age: patient.age.toString(),
+    ageUnit: (patient.ageUnit || 'YEARS') as string,
     gender: patient.gender,
     phone: primaryPhone,
     email: primaryEmail,
@@ -93,6 +96,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
       phone: formData.phone,
       email: formData.email,
       address: formData.address,
+      ageUnit: formData.ageUnit,
     });
 
     if (Object.keys(errors).length > 0) {
@@ -118,6 +122,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
       
       if (formData.name !== initialData.name) updatePayload.name = formData.name;
       if (formData.age !== initialData.age) updatePayload.age = parseInt(formData.age);
+      if (formData.ageUnit !== initialData.ageUnit) updatePayload.ageUnit = formData.ageUnit;
       if (formData.gender !== initialData.gender) updatePayload.gender = formData.gender;
       if (formData.address !== initialData.address) updatePayload.address = formData.address;
       
@@ -176,6 +181,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
       setFormData({
         name: patient.name,
         age: patient.age.toString(),
+        ageUnit: (patient.ageUnit || 'YEARS') as 'DAYS' | 'MONTHS' | 'YEARS',
         gender: patient.gender,
         phone: primaryPhone,
         email: primaryEmail,
@@ -232,21 +238,36 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
                 <Label htmlFor="age">
                   Age <span className="text-red-500">*</span>
                 </Label>
-                <Input
-                  id="age"
-                  type="number"
-                  min="0"
-                  max="150"
-                  value={formData.age}
-                  onChange={(e) => {
-                    setFormData({ ...formData, age: e.target.value });
-                    if (validationErrors.age) {
-                      setValidationErrors({ ...validationErrors, age: undefined });
-                    }
-                  }}
-                  className={validationErrors.age ? 'border-red-500' : ''}
-                  required
-                />
+                <div className="flex gap-2">
+                  <Input
+                    id="age"
+                    type="number"
+                    min="0"
+                    max="150"
+                    value={formData.age}
+                    onChange={(e) => {
+                      setFormData({ ...formData, age: e.target.value });
+                      if (validationErrors.age) {
+                        setValidationErrors({ ...validationErrors, age: undefined });
+                      }
+                    }}
+                    className={`flex-1 ${validationErrors.age ? 'border-red-500' : ''}`}
+                    required
+                  />
+                  <Select
+                    value={formData.ageUnit}
+                    onValueChange={(v) => setFormData({ ...formData, ageUnit: v as 'DAYS' | 'MONTHS' | 'YEARS' })}
+                  >
+                    <SelectTrigger className="w-[110px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="DAYS">Days</SelectItem>
+                      <SelectItem value="MONTHS">Months</SelectItem>
+                      <SelectItem value="YEARS">Years</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 {validationErrors.age && (
                   <p className="text-sm text-red-500">{validationErrors.age}</p>
                 )}
