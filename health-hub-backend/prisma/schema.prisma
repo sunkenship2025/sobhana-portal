@@ -68,6 +68,16 @@ enum TestResultFlag {
   NORMAL
   HIGH
   LOW
+  CRITICAL_HIGH
+  CRITICAL_LOW
+}
+
+enum RangeCategory {
+  MALE
+  FEMALE
+  INFANT
+  CHILD
+  OTHER
 }
 
 enum ClinicVisitType {
@@ -199,6 +209,7 @@ model Patient {
   name          String
   yearOfBirth   Int       // E2-09: Required - calculated from age or DOB
   dateOfBirth   DateTime? // E2-09: Optional - if user knows exact DOB
+  ageUnit       String    @default("YEARS") // DAYS, MONTHS, YEARS — for smart age display
   gender        Gender
   address       String?
   createdAt     DateTime  @default(now())
@@ -1027,6 +1038,8 @@ model TestDefinition {
   referenceMin       Float?
   referenceMax       Float?
   referenceText      String?              // For text-based ranges like "Negative"
+  criticalMin        Float?               // Critical low threshold for general range
+  criticalMax        Float?               // Critical high threshold for general range
   
   // Derived parameter support
   formulaExpression  String?              // e.g., "ALB / GLOB"
@@ -1036,9 +1049,10 @@ model TestDefinition {
   interpretationMode InterpretationMode   @default(NONE)
   
   displayOrder       Int                  @default(0)
+  isActive           Boolean              @default(true) // Visibility flag — controls whether this definition appears in clinical forms
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
-  
+
   // Relations
   department         Department?          @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   ranges             TestDefinitionRange[]
@@ -1059,21 +1073,25 @@ model TestDefinition {
 
 /// TestDefinitionRange: Age/gender-specific reference ranges for a TestDefinition
 model TestDefinitionRange {
-  id               String   @id @default(cuid())
+  id               String         @id @default(cuid())
   testDefinitionId String
-  minAgeDays       Int?     // age in total days (0 = newborn). null = no lower bound
-  maxAgeDays       Int?     // null = no upper limit
-  gender           Gender?  // null = gender-neutral
+  category         RangeCategory? // UI selector: MALE, FEMALE, INFANT, CHILD, OTHER
+  categoryLabel    String?        // Custom label for OTHER category (e.g., "Pregnant")
+  minAgeDays       Int?           // age in total days (0 = newborn). null = no lower bound
+  maxAgeDays       Int?           // null = no upper limit
+  gender           Gender?        // null = gender-neutral
   referenceMin     Float?
   referenceMax     Float?
   referenceUnit    String?
   referenceText    String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  criticalMin      Float?         // Critical low threshold
+  criticalMax      Float?         // Critical high threshold
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   testDefinition TestDefinition @relation(fields: [testDefinitionId], references: [id], onDelete: Cascade)
 
-  @@unique([testDefinitionId, minAgeDays, maxAgeDays, gender])
+  @@unique([testDefinitionId, category, categoryLabel, minAgeDays, maxAgeDays, gender])
   @@index([testDefinitionId])
 }
 
@@ -1110,7 +1128,8 @@ model ClinicalPanel {
   layoutType        PanelLayoutType @default(STANDARD_TABLE)
   displayOrder      Int             @default(0)
   showMethodColumn  Boolean         @default(false)
-  
+  sampleType        String?                          // e.g., "WB-EDTA", "Serum", "Urine"
+
   // Config flags for STANDARD_TABLE rendering variants
   showSubgroups     Boolean         @default(false)  // true = render subGroup sections (e.g., CBP: MAIN/DIFFERENTIAL/SMEAR)
   showInterpretation Boolean        @default(false)  // true = render interpretation block below results

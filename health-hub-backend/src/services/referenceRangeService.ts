@@ -14,11 +14,25 @@
 import { PrismaClient, Gender } from '@prisma/client';
 const prisma = new PrismaClient();
 
+/**
+ * Calculate patient age in days.
+ * Uses dateOfBirth for precision when available, otherwise falls back to yearOfBirth (Jan 1 approximation).
+ */
+function calculateAgeDays(yearOfBirth: number, dateOfBirth?: Date | null): number {
+  const now = new Date();
+  if (dateOfBirth) {
+    return Math.floor((now.getTime() - new Date(dateOfBirth).getTime()) / (1000 * 60 * 60 * 24));
+  }
+  return Math.floor((now.getTime() - new Date(yearOfBirth, 0, 1).getTime()) / (1000 * 60 * 60 * 24));
+}
+
 export interface ResolvedRange {
   referenceMin: number | null;
   referenceMax: number | null;
   referenceUnit: string | null;
   referenceText: string | null;
+  criticalMin: number | null;
+  criticalMax: number | null;
   source: 'age-range' | 'definition-range' | 'default';
 }
 
@@ -29,14 +43,13 @@ export interface ResolvedRange {
 export async function resolveByTestDefinition(
   testDefinitionId: string,
   yearOfBirth: number,
-  patientGender: Gender
+  patientGender: Gender,
+  dateOfBirth?: Date | null
 ): Promise<ResolvedRange> {
-  const now = new Date();
-  const patientAgeDays = Math.floor(
-    (now.getTime() - new Date(yearOfBirth, 0, 1).getTime()) / (1000 * 60 * 60 * 24)
-  );
+  const patientAgeDays = calculateAgeDays(yearOfBirth, dateOfBirth);
 
   // Find matching TestDefinitionRange rows
+  // Order: gender-specific first (desc puts 'M'/'F' before null), then narrowest age range first
   const ranges = await prisma.testDefinitionRange.findMany({
     where: {
       testDefinitionId,
@@ -46,8 +59,8 @@ export async function resolveByTestDefinition(
       ],
     },
     orderBy: [
-      { gender: 'asc' },
-      { minAgeDays: 'asc' },
+      { gender: 'desc' },
+      { minAgeDays: 'desc' },
     ],
   });
 
@@ -61,6 +74,8 @@ export async function resolveByTestDefinition(
         referenceMax: range.referenceMax,
         referenceUnit: range.referenceUnit,
         referenceText: range.referenceText,
+        criticalMin: range.criticalMin,
+        criticalMax: range.criticalMax,
         source: 'definition-range',
       };
     }
@@ -74,6 +89,8 @@ export async function resolveByTestDefinition(
       referenceMax: true,
       referenceUnit: true,
       referenceText: true,
+      criticalMin: true,
+      criticalMax: true,
     },
   });
 
@@ -82,6 +99,8 @@ export async function resolveByTestDefinition(
     referenceMax: def?.referenceMax ?? null,
     referenceUnit: def?.referenceUnit ?? null,
     referenceText: def?.referenceText ?? null,
+    criticalMin: def?.criticalMin ?? null,
+    criticalMax: def?.criticalMax ?? null,
     source: 'default',
   };
 }
@@ -93,12 +112,10 @@ export async function resolveByTestDefinition(
 export async function resolveReferenceRange(
   testId: string,
   yearOfBirth: number,
-  patientGender: Gender
+  patientGender: Gender,
+  dateOfBirth?: Date | null
 ): Promise<ResolvedRange> {
-  const now = new Date();
-  const patientAgeDays = Math.floor(
-    (now.getTime() - new Date(yearOfBirth, 0, 1).getTime()) / (1000 * 60 * 60 * 24)
-  );
+  const patientAgeDays = calculateAgeDays(yearOfBirth, dateOfBirth);
 
   const ageRanges = await prisma.testAgeRange.findMany({
     where: {
@@ -109,8 +126,8 @@ export async function resolveReferenceRange(
       ],
     },
     orderBy: [
-      { gender: 'asc' },
-      { minAgeDays: 'asc' },
+      { gender: 'desc' },
+      { minAgeDays: 'desc' },
     ],
   });
 
@@ -124,6 +141,8 @@ export async function resolveReferenceRange(
         referenceMax: range.referenceMax,
         referenceUnit: range.referenceUnit,
         referenceText: range.referenceText,
+        criticalMin: null,
+        criticalMax: null,
         source: 'age-range',
       };
     }
@@ -144,6 +163,8 @@ export async function resolveReferenceRange(
     referenceMax: test?.referenceMax ?? null,
     referenceUnit: test?.referenceUnit ?? null,
     referenceText: test?.referenceText ?? null,
+    criticalMin: null,
+    criticalMax: null,
     source: 'default',
   };
 }
@@ -157,7 +178,8 @@ export async function resolveReferenceRanges(
   testIds: string[],
   yearOfBirth: number,
   patientGender: Gender,
-  testDefinitionIds?: Map<string, string> // testId → testDefinitionId mapping
+  testDefinitionIds?: Map<string, string>, // testId → testDefinitionId mapping
+  dateOfBirth?: Date | null
 ): Promise<Map<string, ResolvedRange>> {
   const results = new Map<string, ResolvedRange>();
 
@@ -168,10 +190,10 @@ export async function resolveReferenceRanges(
 
       if (defId) {
         // New architecture
-        range = await resolveByTestDefinition(defId, yearOfBirth, patientGender);
+        range = await resolveByTestDefinition(defId, yearOfBirth, patientGender, dateOfBirth);
       } else {
         // Legacy
-        range = await resolveReferenceRange(testId, yearOfBirth, patientGender);
+        range = await resolveReferenceRange(testId, yearOfBirth, patientGender, dateOfBirth);
       }
 
       results.set(testId, range);
