@@ -19,6 +19,7 @@ export interface PatientFormData {
   phone?: string;
   email?: string;
   address?: string;
+  ageUnit?: 'DAYS' | 'MONTHS' | 'YEARS';
 }
 
 /**
@@ -40,7 +41,8 @@ export function validatePatientForm(data: PatientFormData): ValidationErrors {
     errors.name = 'Name can only contain letters, spaces, dots, hyphens, and apostrophes';
   }
 
-  // Age validation
+  // Age validation — unit-aware
+  const ageUnit = data.ageUnit || 'YEARS';
   const age = typeof data.age === 'string' ? parseInt(data.age) : data.age;
   if (data.age === '' || data.age === null || data.age === undefined) {
     errors.age = 'Age is required';
@@ -48,7 +50,11 @@ export function validatePatientForm(data: PatientFormData): ValidationErrors {
     errors.age = 'Age must be a number';
   } else if (age < 0) {
     errors.age = 'Age cannot be negative';
-  } else if (age > 120) {
+  } else if (ageUnit === 'DAYS' && age > 30) {
+    errors.age = 'For ages over 30 days, use Months';
+  } else if (ageUnit === 'MONTHS' && age > 24) {
+    errors.age = 'For ages over 24 months, use Years';
+  } else if (ageUnit === 'YEARS' && age > 120) {
     errors.age = 'Age cannot exceed 120 years';
   }
 
@@ -216,4 +222,50 @@ export function getPatientAge(dateOfBirth: Date | string | null | undefined, yea
     return calculateAgeFromDOB(dob);
   }
   return calculateAgeFromYOB(yearOfBirth);
+}
+
+/**
+ * Compute smart age value + unit from a DOB string.
+ * < 30 days → { age, unit: 'DAYS' }
+ * < 24 months → { age, unit: 'MONTHS' }
+ * else → { age, unit: 'YEARS' }
+ */
+export function computeSmartAge(dob: string): { age: number; unit: 'DAYS' | 'MONTHS' | 'YEARS' } {
+  const dobDate = new Date(dob);
+  const today = new Date();
+  const diffMs = today.getTime() - dobDate.getTime();
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffDays < 30) {
+    return { age: Math.max(0, diffDays), unit: 'DAYS' };
+  }
+
+  // Calculate months difference
+  let months = (today.getFullYear() - dobDate.getFullYear()) * 12
+    + (today.getMonth() - dobDate.getMonth());
+  if (today.getDate() < dobDate.getDate()) months--;
+  if (months < 0) months = 0;
+
+  if (months < 24) {
+    return { age: months, unit: 'MONTHS' };
+  }
+
+  // Years
+  let years = today.getFullYear() - dobDate.getFullYear();
+  const monthDiff = today.getMonth() - dobDate.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dobDate.getDate())) {
+    years--;
+  }
+  return { age: Math.max(0, years), unit: 'YEARS' };
+}
+
+/**
+ * Format age display string from ageDisplay field or age+unit
+ */
+export function formatAgeDisplay(patient: { ageDisplay?: string; age: number; ageUnit?: string }): string {
+  if (patient.ageDisplay) return patient.ageDisplay;
+  const unit = patient.ageUnit || 'YEARS';
+  if (unit === 'DAYS') return `${patient.age} Day${patient.age !== 1 ? 's' : ''}`;
+  if (unit === 'MONTHS') return `${patient.age} Month${patient.age !== 1 ? 's' : ''}`;
+  return `${patient.age} Year${patient.age !== 1 ? 's' : ''}`;
 }

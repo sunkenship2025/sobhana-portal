@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { API_BASE } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import {
   Plus, Pencil, Search, Package, IndianRupee, Trash2,
+  CheckCircle2, AlertCircle, Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -79,6 +80,8 @@ function typeBadgeColor(productType: string) {
   return pt ? pt.color : 'bg-gray-100 text-gray-800';
 }
 
+const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
+
 /* ───────── Component ───────── */
 
 export default function ManageBillableProducts() {
@@ -112,6 +115,11 @@ export default function ManageBillableProducts() {
   const [formDescription, setFormDescription] = useState('');
   const [formPanels, setFormPanels] = useState<ProductPanel[]>([]);
 
+  // Code validation
+  const [codeAvailable, setCodeAvailable] = useState<boolean | null>(null);
+  const [codeChecking, setCodeChecking] = useState(false);
+  const codeCheckTimer = useRef<ReturnType<typeof setTimeout>>(null);
+
   // ─── Data fetching ──────────────────────────────────────────────────────
 
   const fetchProducts = useCallback(async () => {
@@ -119,6 +127,7 @@ export default function ManageBillableProducts() {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
       if (selectedBranch?.id) params.set('branchId', selectedBranch.id);
+      params.set('active', 'all'); // Show active and inactive products in management view
       const res = await fetch(`${API_BASE}/billable-products?${params}`, { headers });
       if (!res.ok) throw new Error('Failed to fetch');
       setProducts(await res.json());
@@ -143,12 +152,34 @@ export default function ManageBillableProducts() {
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
   useEffect(() => { fetchDependencies(); }, []);
 
+  // ─── Debounced code uniqueness check ──────────────────────────────────
+
+  useEffect(() => {
+    if (editingProduct) { setCodeAvailable(null); return; }
+    const code = formCode.trim().toUpperCase();
+    if (!code || !CODE_REGEX.test(code)) { setCodeAvailable(null); return; }
+    if (codeCheckTimer.current) clearTimeout(codeCheckTimer.current);
+    setCodeChecking(true);
+    codeCheckTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/billable-products/check-code?code=${encodeURIComponent(code)}`, { headers });
+        if (res.ok) {
+          const data = await res.json();
+          setCodeAvailable(data.available);
+        }
+      } catch { /* ignore */ }
+      setCodeChecking(false);
+    }, 400);
+    return () => { if (codeCheckTimer.current) clearTimeout(codeCheckTimer.current); };
+  }, [formCode, editingProduct]);
+
   // ─── Form helpers ───────────────────────────────────────────────────────
 
   const resetForm = () => {
     setFormName(''); setFormCode(''); setFormType('INDIVIDUAL_TEST');
     setFormBasePrice(''); setFormActive(true); setFormDescription('');
     setFormPanels([]); setEditingProduct(null);
+    setCodeAvailable(null); setCodeChecking(false);
   };
 
   const populateForm = (p: BillableProduct) => {
@@ -206,6 +237,28 @@ export default function ManageBillableProducts() {
       toast.error('Name and code are required');
       return;
     }
+
+    if (!editingProduct && !CODE_REGEX.test(formCode.trim().toUpperCase())) {
+      toast.error('Code must be 2-20 uppercase alphanumeric characters or underscores');
+      return;
+    }
+
+    if (!editingProduct && codeAvailable === false) {
+      toast.error('Code is already in use');
+      return;
+    }
+
+    // Panel count validation
+    const validPanels = formPanels.filter(p => p.panelId);
+    if (formType === 'INDIVIDUAL_TEST' && validPanels.length > 1) {
+      toast.error('Individual Test products can have at most 1 panel');
+      return;
+    }
+    if (formType === 'PANEL_BUNDLE' && validPanels.length < 1) {
+      toast.error('Panel Bundle products must have at least 1 panel');
+      return;
+    }
+
     if (!formBasePrice || isNaN(parseFloat(formBasePrice))) {
       toast.error('Valid base price is required');
       return;
@@ -263,6 +316,32 @@ export default function ManageBillableProducts() {
       fetchProducts();
     } catch (err: any) {
       toast.error(err.message);
+    }
+  };
+
+  // ─── Delete product ────────────────────────────────────────────────────
+
+  const [deleteConfirm, setDeleteConfirm] = useState<BillableProduct | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`${API_BASE}/billable-products/${deleteConfirm.id}`, {
+        method: 'DELETE', headers,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || 'Delete failed');
+      }
+      toast.success(`Product "${deleteConfirm.name}" deleted`);
+      setDeleteConfirm(null);
+      fetchProducts();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -405,6 +484,9 @@ export default function ManageBillableProducts() {
                       <Button size="sm" variant="ghost" onClick={() => openPricing(product)} title="Branch Pricing" className="h-7 w-7 p-0">
                         <IndianRupee className="h-3.5 w-3.5" />
                       </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(product)} title="Delete product" className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
                       <Switch
                         checked={product.isActive}
                         onCheckedChange={() => toggleActive(product)}
@@ -444,7 +526,28 @@ export default function ManageBillableProducts() {
             </div>
             <div>
               <Label>Code *</Label>
-              <Input value={formCode} onChange={e => setFormCode(e.target.value)} />
+              <div className="relative">
+                <Input
+                  value={formCode}
+                  onChange={e => setFormCode(e.target.value.toUpperCase())}
+                  className="font-mono pr-8"
+                  disabled={!!editingProduct}
+                />
+                {!editingProduct && formCode.trim() && (
+                  <span className="absolute right-2 top-2.5">
+                    {codeChecking ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> :
+                     !CODE_REGEX.test(formCode.trim()) ? <AlertCircle className="h-4 w-4 text-red-500" /> :
+                     codeAvailable === true ? <CheckCircle2 className="h-4 w-4 text-green-600" /> :
+                     codeAvailable === false ? <AlertCircle className="h-4 w-4 text-red-500" /> : null}
+                  </span>
+                )}
+              </div>
+              {!editingProduct && formCode.trim() && !CODE_REGEX.test(formCode.trim()) && (
+                <p className="text-xs text-red-500 mt-0.5">2-20 uppercase letters, digits, or underscores</p>
+              )}
+              {!editingProduct && codeAvailable === false && (
+                <p className="text-xs text-red-500 mt-0.5">Code already in use</p>
+              )}
             </div>
             <div>
               <Label>Product Type</Label>
@@ -568,6 +671,25 @@ export default function ManageBillableProducts() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setPricingOpen(false)}>Cancel</Button>
             <Button onClick={savePricing}>Save Pricing</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Delete Confirmation Dialog ──────────────────────────────────── */}
+      <Dialog open={!!deleteConfirm} onOpenChange={open => { if (!open) setDeleteConfirm(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Product</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to permanently delete <strong>{deleteConfirm?.name}</strong>?
+              This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirm(null)} disabled={deleting}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? 'Deleting...' : 'Delete'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

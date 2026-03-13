@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 import type { Patient, PaymentType, VisitType, ClinicVisitView, ClinicDoctor } from '@/types';
 import { Search, UserPlus, CheckCircle2, Printer, MessageCircle, RotateCcw } from 'lucide-react';
 import { ClinicPrescriptionPrint } from '@/components/print/ClinicPrescriptionPrint';
-import { validatePatientForm, type ValidationErrors } from '@/lib/validation';
+import { validatePatientForm, computeSmartAge, type ValidationErrors } from '@/lib/validation';
 import { Checkbox } from '@/components/ui/checkbox';
 
 const ClinicNewVisit = () => {
@@ -55,6 +55,7 @@ const ClinicNewVisit = () => {
   const [newPatient, setNewPatient] = useState({
     name: '',
     age: '',
+    ageUnit: 'YEARS' as 'DAYS' | 'MONTHS' | 'YEARS',
     dateOfBirth: '', // E2-09: Optional DOB field
     gender: 'M' as 'M' | 'F' | 'O',
     whatsappOptIn: true, // Default: opted in for WhatsApp notifications
@@ -184,6 +185,7 @@ const ClinicNewVisit = () => {
         age: newPatient.age,
         gender: newPatient.gender,
         phone,
+        ageUnit: newPatient.ageUnit,
       });
 
       if (Object.keys(errors).length > 0) {
@@ -208,6 +210,7 @@ const ClinicNewVisit = () => {
           body: JSON.stringify({
             name: newPatient.name,
             age: newPatient.age ? parseInt(newPatient.age) : undefined, // E2-09: Age optional if DOB provided
+            ageUnit: newPatient.ageUnit, // Smart age unit
             dateOfBirth: newPatient.dateOfBirth ? newPatient.dateOfBirth.split('T')[0] : undefined, // E2-09: Send date-only (YYYY-MM-DD)
             gender: newPatient.gender,
             identifiers: [{ type: 'PHONE', value: phone, isPrimary: true }],
@@ -225,7 +228,7 @@ const ClinicNewVisit = () => {
             `⚠️ Potential Duplicate Detected\n\n` +
             `Existing Patient: ${existing.patientNumber}\n` +
             `Name: ${existing.name}\n` +
-            `Age: ${existing.age}, Gender: ${existing.gender}\n` +
+            `Age: ${existing.ageDisplay || existing.age}, Gender: ${existing.gender}\n` +
             `Phone: ${existing.phone}\n\n` +
             `This looks like the same person. Do you want to:\n` +
             `• Click OK to USE EXISTING patient\n` +
@@ -248,6 +251,7 @@ const ClinicNewVisit = () => {
               body: JSON.stringify({
                 name: newPatient.name,
                 age: newPatient.age ? parseInt(newPatient.age) : undefined, // E2-09: Age optional if DOB provided
+                ageUnit: newPatient.ageUnit, // Smart age unit
                 dateOfBirth: newPatient.dateOfBirth || undefined, // E2-09: DOB if provided
                 gender: newPatient.gender,
                 identifiers: [{ type: 'PHONE', value: phone, isPrimary: true }],
@@ -429,7 +433,7 @@ const ClinicNewVisit = () => {
                     setShowNewPatientForm(false);
                     setConsultationFee('500');
                     setRevisitInfo(null);
-                    setNewPatient({ name: '', age: '', dateOfBirth: '', gender: 'M', whatsappOptIn: true }); // E2-09: Reset form
+                    setNewPatient({ name: '', age: '', ageUnit: 'YEARS', dateOfBirth: '', gender: 'M', whatsappOptIn: true }); // E2-09: Reset form
                     setValidationErrors({});
                     setWhatsappOptIn(true);
                   }}>
@@ -513,7 +517,7 @@ const ClinicNewVisit = () => {
                     <Label htmlFor={patient.id} className="flex-1 cursor-pointer">
                       <span className="font-medium">{patient.name}</span>
                       <span className="text-muted-foreground ml-2">
-                        | {patient.age} | {patient.gender}
+                        | {(patient as any).ageDisplay || `${patient.age} Years`} | {patient.gender}
                       </span>
                     </Label>
                   </div>
@@ -567,18 +571,11 @@ const ClinicNewVisit = () => {
                     value={newPatient.dateOfBirth}
                     onChange={(e) => {
                       const dob = e.target.value;
-                      setNewPatient({ ...newPatient, dateOfBirth: dob });
-                      
-                      // E2-09: Auto-calculate age from DOB
                       if (dob) {
-                        const dobDate = new Date(dob);
-                        const today = new Date();
-                        let calculatedAge = today.getFullYear() - dobDate.getFullYear();
-                        const monthDiff = today.getMonth() - dobDate.getMonth();
-                        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dobDate.getDate())) {
-                          calculatedAge--;
-                        }
-                        setNewPatient({ ...newPatient, dateOfBirth: dob, age: calculatedAge.toString() });
+                        const smart = computeSmartAge(dob);
+                        setNewPatient({ ...newPatient, dateOfBirth: dob, age: smart.age.toString(), ageUnit: smart.unit });
+                      } else {
+                        setNewPatient({ ...newPatient, dateOfBirth: dob });
                       }
                     }}
                   />
@@ -586,20 +583,34 @@ const ClinicNewVisit = () => {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="age">Age *</Label>
-                  <Input
-                    id="age"
-                    type="number"
-                    placeholder="Age"
-                    value={newPatient.age}
-                    onChange={(e) => {
-                      setNewPatient({ ...newPatient, age: e.target.value });
-                      // Clear error when user types
-                      if (validationErrors.age) {
-                        setValidationErrors({ ...validationErrors, age: undefined });
-                      }
-                    }}
-                    className={validationErrors.age ? 'border-red-500' : ''}
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      id="age"
+                      type="number"
+                      placeholder="Age"
+                      value={newPatient.age}
+                      onChange={(e) => {
+                        setNewPatient({ ...newPatient, age: e.target.value });
+                        if (validationErrors.age) {
+                          setValidationErrors({ ...validationErrors, age: undefined });
+                        }
+                      }}
+                      className={`flex-1 ${validationErrors.age ? 'border-red-500' : ''}`}
+                    />
+                    <Select
+                      value={newPatient.ageUnit}
+                      onValueChange={(v) => setNewPatient({ ...newPatient, ageUnit: v as 'DAYS' | 'MONTHS' | 'YEARS' })}
+                    >
+                      <SelectTrigger className="w-[110px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="DAYS">Days</SelectItem>
+                        <SelectItem value="MONTHS">Months</SelectItem>
+                        <SelectItem value="YEARS">Years</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   {validationErrors.age && (
                     <p className="text-sm text-red-500">{validationErrors.age}</p>
                   )}

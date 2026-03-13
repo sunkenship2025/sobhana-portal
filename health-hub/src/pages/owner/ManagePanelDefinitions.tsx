@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback, Fragment } from 'react';
+import { useState, useEffect, useCallback, Fragment, useRef } from 'react';
 import { API_BASE } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
 import {
   Plus, Pencil, Search, Eye, LayoutGrid, GripVertical, Trash2,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, CheckCircle2, AlertCircle, Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -58,6 +58,7 @@ interface ClinicalPanel {
   name: string;
   code: string;
   layoutType: string;
+  sampleType: string | null;
   departmentId: string | null;
   isActive: boolean;
   showMethodColumn: boolean;
@@ -83,6 +84,10 @@ function layoutBadge(layoutType: string) {
   const lt = LAYOUT_TYPES.find(l => l.value === layoutType);
   return lt ? lt.color : 'bg-gray-100 text-gray-800';
 }
+
+const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
+
+const SAMPLE_TYPES = ['WB-EDTA', 'Serum', 'Plasma', 'Urine', 'CSF', 'Synovial Fluid', 'Other'];
 
 /* ───────── Component ───────── */
 
@@ -110,9 +115,15 @@ export default function ManagePanelDefinitions() {
   const [formCode, setFormCode] = useState('');
   const [formLayout, setFormLayout] = useState('STANDARD_TABLE');
   const [formDeptId, setFormDeptId] = useState('');
+  const [formSampleType, setFormSampleType] = useState('');
   const [formActive, setFormActive] = useState(true);
   const [formTemplate, setFormTemplate] = useState('');
   const [formItems, setFormItems] = useState<ClinicalPanelItem[]>([]);
+
+  // Code validation
+  const [codeAvailable, setCodeAvailable] = useState<boolean | null>(null);
+  const [codeChecking, setCodeChecking] = useState(false);
+  const codeCheckTimer = useRef<ReturnType<typeof setTimeout>>(null);
 
   // Layout config flags
   const [formShowMethod, setFormShowMethod] = useState(false);
@@ -169,6 +180,7 @@ export default function ManagePanelDefinitions() {
     try {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
+      params.set('active', 'all'); // Show active and inactive panels in management view
       const res = await fetch(`${API_BASE}/clinical-panels?${params}`, { headers });
       if (!res.ok) throw new Error('Failed to fetch');
       setPanels(await res.json());
@@ -198,16 +210,38 @@ export default function ManagePanelDefinitions() {
   useEffect(() => { fetchPanels(); }, [fetchPanels]);
   useEffect(() => { fetchDepartments(); fetchAvailableDefs(); }, []);
 
+  // ─── Debounced code uniqueness check ──────────────────────────────────
+
+  useEffect(() => {
+    if (editingPanel) { setCodeAvailable(null); return; }
+    const code = formCode.trim().toUpperCase();
+    if (!code || !CODE_REGEX.test(code)) { setCodeAvailable(null); return; }
+    if (codeCheckTimer.current) clearTimeout(codeCheckTimer.current);
+    setCodeChecking(true);
+    codeCheckTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/clinical-panels/check-code?code=${encodeURIComponent(code)}`, { headers });
+        if (res.ok) {
+          const data = await res.json();
+          setCodeAvailable(data.available);
+        }
+      } catch { /* ignore */ }
+      setCodeChecking(false);
+    }, 400);
+    return () => { if (codeCheckTimer.current) clearTimeout(codeCheckTimer.current); };
+  }, [formCode, editingPanel]);
+
   // ─── Form helpers ───────────────────────────────────────────────────────
 
   const resetForm = () => {
     setFormName(''); setFormCode(''); setFormLayout('STANDARD_TABLE'); setFormDeptId('');
-    setFormActive(true); setFormTemplate(''); setFormItems([]);
+    setFormSampleType(''); setFormActive(true); setFormTemplate(''); setFormItems([]);
     setFormShowMethod(false); setFormShowSubgroups(false);
     setFormShowInterpretation(false); setFormValuePrefix('');
     setFormSubgroups([]); setNewSubgroupInput('');
     setExpandedItems(new Set());
     setEditingPanel(null);
+    setCodeAvailable(null); setCodeChecking(false);
   };
 
   const populateForm = (p: ClinicalPanel) => {
@@ -215,6 +249,7 @@ export default function ManagePanelDefinitions() {
     setFormCode(p.code);
     setFormLayout(p.layoutType);
     setFormDeptId(p.departmentId || '');
+    setFormSampleType(p.sampleType || '');
     setFormActive(p.isActive);
     setFormTemplate(p.summaryInterpretationTemplate || '');
     setFormShowMethod(p.showMethodColumn ?? false);
@@ -276,6 +311,13 @@ export default function ManagePanelDefinitions() {
   };
 
   const updateItem = (idx: number, field: string, val: any) => {
+    // Warn on duplicate test selection
+    if (field === 'testDefinitionId' && val) {
+      const alreadyExists = formItems.some((item, i) => i !== idx && item.testDefinitionId === val);
+      if (alreadyExists) {
+        toast.warning('This test is already in this panel. Adding duplicate.');
+      }
+    }
     const updated = [...formItems];
     (updated[idx] as any)[field] = val;
     setFormItems(updated);
@@ -365,6 +407,16 @@ export default function ManagePanelDefinitions() {
       return;
     }
 
+    if (!editingPanel && !CODE_REGEX.test(formCode.trim().toUpperCase())) {
+      toast.error('Code must be 2-20 uppercase alphanumeric characters or underscores');
+      return;
+    }
+
+    if (!editingPanel && codeAvailable === false) {
+      toast.error('Code is already in use');
+      return;
+    }
+
     if (formItems.some(item => !item.testDefinitionId)) {
       toast.error('All items must have a test definition selected');
       return;
@@ -383,6 +435,7 @@ export default function ManagePanelDefinitions() {
         displayName: formName.trim(),
         layoutType: formLayout,
         departmentId: formDeptId,
+        sampleType: formSampleType || null,
         isActive: formActive,
         showMethodColumn: formShowMethod,
         showSubgroups: formShowSubgroups,
@@ -455,6 +508,32 @@ export default function ManagePanelDefinitions() {
     }
   };
 
+  // ─── Delete panel ───────────────────────────────────────────────────
+
+  const [deleteConfirm, setDeleteConfirm] = useState<ClinicalPanel | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`${API_BASE}/clinical-panels/${deleteConfirm.id}`, {
+        method: 'DELETE', headers,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || 'Delete failed');
+      }
+      toast.success(`Panel "${deleteConfirm.name}" deleted`);
+      setDeleteConfirm(null);
+      fetchPanels();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   // ─── Render ─────────────────────────────────────────────────────────────
 
   return (
@@ -496,6 +575,7 @@ export default function ManagePanelDefinitions() {
                 <TableHead>Code</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Layout</TableHead>
+                <TableHead>Sample</TableHead>
                 <TableHead className="text-center">Items</TableHead>
                 <TableHead>Department</TableHead>
                 <TableHead>Status</TableHead>
@@ -512,6 +592,9 @@ export default function ManagePanelDefinitions() {
                   <TableCell>
                     <Badge className={layoutBadge(panel.layoutType)}>{panel.layoutType.replace(/_/g, ' ')}</Badge>
                   </TableCell>
+                  <TableCell className="text-sm">
+                    {panel.sampleType || <span className="text-muted-foreground">—</span>}
+                  </TableCell>
                   <TableCell className="text-center">
                     <Badge variant="outline" className="text-xs">{panel.items?.length || 0}</Badge>
                   </TableCell>
@@ -526,8 +609,11 @@ export default function ManagePanelDefinitions() {
                       <Button size="sm" variant="ghost" onClick={() => openEdit(panel)} title="Edit" className="h-7 w-7 p-0">
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => handlePreview(panel)} title="Preview" className="h-7 w-7 p-0">
-                        <Eye className="h-3.5 w-3.5" />
+                      <Button size="sm" variant="ghost" onClick={() => handlePreview(panel)} title="Preview panel structure" className="h-7 px-2 gap-1 text-xs">
+                        <Eye className="h-3.5 w-3.5" /> Preview
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(panel)} title="Delete panel" className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50">
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                       <Switch
                         checked={panel.isActive}
@@ -573,7 +659,28 @@ export default function ManagePanelDefinitions() {
                 </div>
                 <div>
                   <Label>Code *</Label>
-                  <Input value={formCode} onChange={e => setFormCode(e.target.value)} />
+                  <div className="relative">
+                    <Input
+                      value={formCode}
+                      onChange={e => setFormCode(e.target.value.toUpperCase())}
+                      className="font-mono pr-8"
+                      disabled={!!editingPanel}
+                    />
+                    {!editingPanel && formCode.trim() && (
+                      <span className="absolute right-2 top-2.5">
+                        {codeChecking ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> :
+                         !CODE_REGEX.test(formCode.trim()) ? <AlertCircle className="h-4 w-4 text-red-500" /> :
+                         codeAvailable === true ? <CheckCircle2 className="h-4 w-4 text-green-600" /> :
+                         codeAvailable === false ? <AlertCircle className="h-4 w-4 text-red-500" /> : null}
+                      </span>
+                    )}
+                  </div>
+                  {!editingPanel && formCode.trim() && !CODE_REGEX.test(formCode.trim()) && (
+                    <p className="text-xs text-red-500 mt-0.5">2-20 uppercase letters, digits, or underscores</p>
+                  )}
+                  {!editingPanel && codeAvailable === false && (
+                    <p className="text-xs text-red-500 mt-0.5">Code already in use</p>
+                  )}
                 </div>
                 <div>
                   <Label>Layout Type</Label>
@@ -601,6 +708,18 @@ export default function ManagePanelDefinitions() {
                 </div>
               </div>
 
+              {/* Sample Type */}
+              <div className="max-w-xs">
+                <Label>Sample Type</Label>
+                <Select value={formSampleType || '__none__'} onValueChange={v => setFormSampleType(v === '__none__' ? '' : v)}>
+                  <SelectTrigger><SelectValue placeholder="Select sample type..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
+                    {SAMPLE_TYPES.map(st => <SelectItem key={st} value={st}>{st}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
               {/* Active */}
               <div className="flex items-center gap-2">
                 <Switch checked={formActive} onCheckedChange={setFormActive} />
@@ -616,10 +735,17 @@ export default function ManagePanelDefinitions() {
 
                 <div className="grid grid-cols-2 gap-x-6 gap-y-2">
                   {supportsMethodColumn && (
-                    <div className="flex items-center gap-2">
-                      <Switch checked={formShowMethod} onCheckedChange={setFormShowMethod} />
-                      <Label className="text-sm">Show Method Column</Label>
-                    </div>
+                    <>
+                      <div className="flex items-center gap-2">
+                        <Switch checked={formShowMethod} onCheckedChange={setFormShowMethod} />
+                        <Label className="text-sm">Show Method Column</Label>
+                      </div>
+                      {formShowMethod && formItems.length > 0 && !formItems.some(item => item.methodText) && (
+                        <p className="text-xs text-amber-600 col-span-2">
+                          No tests in this panel have methods configured
+                        </p>
+                      )}
+                    </>
                   )}
                   {supportsSubgroups && (
                     <div className="flex items-center gap-2">
@@ -721,7 +847,7 @@ export default function ManagePanelDefinitions() {
 
                 {formItems.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded">
-                    No items yet. Add test definitions to this panel.
+                    Add clinical tests to this panel.
                   </p>
                 ) : (
                   <div className="space-y-1">
@@ -1105,6 +1231,25 @@ export default function ManagePanelDefinitions() {
           ) : (
             <p className="text-muted-foreground">No preview available</p>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Delete Confirmation Dialog ──────────────────────────────────── */}
+      <Dialog open={!!deleteConfirm} onOpenChange={open => { if (!open) setDeleteConfirm(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Panel</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to permanently delete <strong>{deleteConfirm?.name}</strong>?
+              This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirm(null)} disabled={deleting}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
