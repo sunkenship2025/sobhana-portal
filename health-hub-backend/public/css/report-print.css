@@ -91,7 +91,7 @@ body.report-body {
 .info-item .label {
   font-weight: bold;
   display: inline-block;
-  min-width: 90pt;
+  min-width: 95pt;
 }
 
 .info-item .label::after {
@@ -234,13 +234,13 @@ body.report-body {
 
 .smear-label {
   font-weight: 600;
-  min-width: 100pt;
+  min-width: 120pt;
   flex-shrink: 0;
 }
 
 .smear-sep {
-  margin: 0 6pt;
-  color: #666;
+  margin: 0 3pt 0 0;
+  color: #444;
 }
 
 .smear-value {
