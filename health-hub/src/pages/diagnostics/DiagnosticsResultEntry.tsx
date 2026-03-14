@@ -258,8 +258,9 @@ const DiagnosticsResultEntry = () => {
           return {
             testId: test.testId,
             value: isNumeric ? parsedValue : null,
+            textValue: isNumeric ? null : valueStr,
             flag: flag || 'NORMAL',
-            notes: isNumeric ? '' : valueStr, // Text-based values go into notes
+            notes: null,
           };
         });
 
