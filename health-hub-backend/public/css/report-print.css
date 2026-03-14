@@ -149,17 +149,18 @@ body.report-body {
 }
 
 .results-table th {
-  background: #e0e0e0;
+  background: #1a3e6e;
+  color: white;
   font-weight: bold;
   text-align: left;
-  padding: 2pt var(--spacing-sm);
+  padding: 3pt var(--spacing-sm);
   font-size: 7.5pt;
   text-transform: uppercase;
-  border: 0.5pt solid var(--color-border);
+  border: 0.5pt solid #1a3e6e;
 }
 
 .results-table td {
-  padding: 2pt var(--spacing-sm);
+  padding: 4pt var(--spacing-sm);
   border: 0.5pt solid #ccc;
   vertical-align: middle;
 }
@@ -191,13 +192,17 @@ body.report-body {
 
 /* Section dividers */
 .section-divider td {
-  background: #eee;
+  background: #d8e3f0;
   font-weight: bold;
   font-size: 8pt;
   text-transform: uppercase;
-  padding: var(--spacing-sm) var(--spacing-sm) 2pt;
-  border-top: 0.5pt solid var(--color-border);
-  color: #000;
+  padding: var(--spacing-sm);
+  border-top: 0.5pt solid #1a3e6e;
+  border-bottom: 0.5pt solid #ccc;
+  color: #1a3e6e;
+}
+.section-divider td:first-child {
+  border-left: 2pt solid #1a3e6e;
 }
 
 /* ============================================================================
