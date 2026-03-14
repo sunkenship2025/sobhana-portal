@@ -125,7 +125,7 @@ function renderTestRow(test: TestResultSnapshot, indent: boolean = false): strin
   return `
       <tr class="data-row${indentClass}">
         <td class="col-test">${escapeHtml(test.testName)}</td>
-        <td class="col-value${isAbnormal ? ' abnormal' : ''}">${escapeHtml(valueDisplay)}</td>
+        <td class="col-value">${escapeHtml(valueDisplay)}</td>
         <td class="col-unit">${escapeHtml(test.referenceUnit) || ''}</td>
         <td class="col-ref">${formatReference(test.referenceMin, test.referenceMax)}</td>
         <td class="col-flag${isAbnormal ? ' abnormal' : ''}">${flag}</td>
@@ -205,14 +205,13 @@ function renderCBPTable(panel: PanelSnapshot): string {
   let diffSection = '';
   if (diffTests.length > 0) {
     const diffRows = diffTests.map(t => {
-      // Use test unit or default to %
       const flag = computeFlag(t.value, t.referenceMin, t.referenceMax);
       const isAbnormal = flag === 'H' || flag === 'L';
       const valueDisplay = t.textValue || formatNumericValue(t.value);
       return `
       <tr class="data-row indent-1">
         <td class="col-test">${escapeHtml(t.testName)}</td>
-        <td class="col-value${isAbnormal ? ' abnormal' : ''}">${escapeHtml(valueDisplay)}</td>
+        <td class="col-value">${escapeHtml(valueDisplay)}</td>
         <td class="col-unit">${escapeHtml(t.referenceUnit) || '%'}</td>
         <td class="col-ref">${formatReference(t.referenceMin, t.referenceMax)}</td>
         <td class="col-flag${isAbnormal ? ' abnormal' : ''}">${flag}</td>
@@ -553,35 +552,33 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
             </div>
           </div>
           <div class="info-row">
-            ${snapshot.visit.referralDoctorName ? `
-            <div class="info-item">
-              <span class="label">Ref. Doctor</span>
-              <span class="value">${escapeHtml(snapshot.visit.referralDoctorName)}</span>
-            </div>` : `
             <div class="info-item">
               <span class="label">Sample Type</span>
               <span class="value">${sampleTypes.length > 0 ? escapeHtml(sampleTypes.join(', ')) : '\u2014'}</span>
-            </div>`}
+            </div>
             <div class="info-item">
               <span class="label">Registered On</span>
               <span class="value">${formatDateTime(snapshot.visit.createdAt)}</span>
             </div>
           </div>
           <div class="info-row">
-            ${snapshot.visit.referralDoctorName && sampleTypes.length > 0 ? `
-            <div class="info-item">
-              <span class="label">Sample Type</span>
-              <span class="value">${escapeHtml(sampleTypes.join(', '))}</span>
-            </div>` : `
             <div class="info-item">
               <span class="label">Collected On</span>
               <span class="value">${formatDateTime(snapshot.visit.collectedAt || snapshot.visit.createdAt)}</span>
-            </div>`}
+            </div>
             <div class="info-item">
-              <span class="label">Reporting On</span>
+              <span class="label">Reported On</span>
               <span class="value">${formatDateTime(snapshot.visit.finalizedAt)}</span>
             </div>
           </div>
+          ${snapshot.visit.referralDoctorName ? `
+          <div class="info-row">
+            <div class="info-item">
+              <span class="label">Ref. Doctor</span>
+              <span class="value">${escapeHtml(snapshot.visit.referralDoctorName)}</span>
+            </div>
+            <div class="info-item"></div>
+          </div>` : ''}
         </div>
       </section>
 
