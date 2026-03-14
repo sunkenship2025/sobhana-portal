@@ -1,13 +1,12 @@
 /**
  * E3-10: Report HTML Renderer
- * 
+ *
  * Renders diagnostic reports from snapshot data to HTML.
  * Uses SAME template for screen and print - CSS controls visibility.
- * 
- * CRITICAL RULES:
- * - NEVER read live database during rendering
- * - ALL data comes from snapshot
- * - Same HTML, different CSS modes
+ *
+ * LIS-standard format: Test | Value | Unit | Reference Range | Flag
+ * Flag column: H (high), L (low), empty (normal)
+ * Abnormal values: red text with flag. Normal: black.
  */
 
 import { ReportSnapshot, PanelSnapshot, TestResultSnapshot } from './reportSnapshotService';
@@ -16,7 +15,6 @@ import path from 'path';
 
 // ============================================================================
 // INLINE ASSETS — loaded once at startup, embedded in every report HTML
-// Eliminates external CSS/image dependencies (fixes mixed-content on Render)
 // ============================================================================
 
 const CSS_DIR = path.join(__dirname, '../../public/css');
@@ -41,12 +39,6 @@ try {
   console.error('Failed to load logo for inlining:', err);
 }
 
-/**
- * Inline a signature image from disk as a base64 data URI.
- * Returns data URI string, or empty string if file not found.
- * This ensures Puppeteer doesn't need to HTTP-fetch signature images
- * from the same server (which can fail/timeout in Docker).
- */
 function inlineSignatureImage(signatureImagePath: string | null): string {
   if (!signatureImagePath) return '';
   try {
@@ -77,82 +69,26 @@ function escapeHtml(text: string | null | undefined): string {
     .replace(/'/g, '&#039;');
 }
 
-function formatValue(
-  value: number | null,
-  unit: string | null,
-  textValue?: string | null,
-  prefix?: string | null
-): string {
-  // textValue takes priority (narrative/text results)
-  if (textValue) return textValue;
+function formatNumericValue(value: number | null): string {
   if (value === null) return '-';
-  // Format: strip unnecessary trailing zeros (13.20 → 13.2, 40.00 → 40, 4.0 → 4)
-  // Labs prefer clean numbers: integer results as integers, decimals with minimal places
   const rounded = parseFloat(value.toFixed(2));
-  const formatted = rounded.toString();
-  const withPrefix = prefix ? `${prefix}${formatted}` : formatted;
-  return unit ? `${withPrefix} ${unit}` : withPrefix;
+  return rounded.toString();
 }
 
-function formatReference(min: number | null, max: number | null, unit: string | null): string {
-  if (min === null && max === null) return '-';
-  if (min === null) return `< ${max}${unit ? ' ' + unit : ''}`;
-  if (max === null) return `> ${min}${unit ? ' ' + unit : ''}`;
-  return `${min} - ${max}${unit ? ' ' + unit : ''}`;
+function formatReference(min: number | null, max: number | null): string {
+  if (min === null && max === null) return '';
+  if (min === null && max !== null) return `< ${max}`;
+  if (max === null && min !== null) return `> ${min}`;
+  return `${min} \u2013 ${max}`;
 }
 
-/**
- * 3-tier value coloring:
- * - value-normal (green): within reference range
- * - value-warning (orange): out of range but not critical
- * - value-critical (red): beyond critical thresholds (or legacy 20% heuristic)
- *
- * When criticalMin/criticalMax are set, they are used as hard boundaries.
- * Otherwise, falls back to the 20% deviation heuristic.
- */
-function getValueClass(
-  value: number | null,
-  min: number | null,
-  max: number | null,
-  criticalMin?: number | null,
-  criticalMax?: number | null,
-): string {
+/** Compute flag: H, L, or empty string */
+function computeFlag(value: number | null, min: number | null, max: number | null): string {
   if (value === null) return '';
   if (min === null && max === null) return '';
-
-  // Check if in normal range
-  const aboveMax = max !== null && value > max;
-  const belowMin = min !== null && value < min;
-
-  if (!aboveMax && !belowMin) return 'value-normal';
-
-  // If critical thresholds are defined, use them directly
-  const hasCriticalThresholds = criticalMin !== null && criticalMin !== undefined
-    || criticalMax !== null && criticalMax !== undefined;
-
-  if (hasCriticalThresholds) {
-    if (criticalMax != null && value > criticalMax) return 'value-critical';
-    if (criticalMin != null && value < criticalMin) return 'value-critical';
-    // Out of normal range but not beyond critical → warning
-    return 'value-warning';
-  }
-
-  // Fallback: legacy 20% deviation heuristic
-  const range = (max !== null && min !== null) ? max - min : null;
-
-  if (aboveMax && max !== null) {
-    const deviation = value - max;
-    const threshold = range !== null ? range * 0.2 : max * 0.2;
-    return deviation <= threshold ? 'value-warning' : 'value-critical';
-  }
-
-  if (belowMin && min !== null) {
-    const deviation = min - value;
-    const threshold = range !== null ? range * 0.2 : min * 0.2;
-    return deviation <= threshold ? 'value-warning' : 'value-critical';
-  }
-
-  return 'value-warning';
+  if (max !== null && value > max) return 'H';
+  if (min !== null && value < min) return 'L';
+  return '';
 }
 
 function formatGender(gender: string): string {
@@ -162,15 +98,6 @@ function formatGender(gender: string): string {
     case 'O': return 'Other';
     default: return gender;
   }
-}
-
-function formatDate(isoDate: string): string {
-  const date = new Date(isoDate);
-  return date.toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
 }
 
 function formatDateTime(isoDate: string): string {
@@ -185,38 +112,32 @@ function formatDateTime(isoDate: string): string {
 }
 
 // ============================================================================
-// PANEL RENDERERS
+// PANEL RENDERERS — LIS standard format
 // ============================================================================
 
+/** Render a single numeric test row: Test | Value | Unit | Reference | Flag */
+function renderTestRow(test: TestResultSnapshot, indent: boolean = false): string {
+  const flag = computeFlag(test.value, test.referenceMin, test.referenceMax);
+  const isAbnormal = flag === 'H' || flag === 'L';
+  const valueDisplay = test.textValue || formatNumericValue(test.value);
+  const indentClass = indent || test.indentLevel > 0 ? ' indent-1' : '';
+
+  return `
+      <tr class="data-row${indentClass}">
+        <td class="col-test">${escapeHtml(test.testName)}</td>
+        <td class="col-value${isAbnormal ? ' abnormal' : ''}">${escapeHtml(valueDisplay)}</td>
+        <td class="col-unit">${escapeHtml(test.referenceUnit) || ''}</td>
+        <td class="col-ref">${formatReference(test.referenceMin, test.referenceMax)}</td>
+        <td class="col-flag${isAbnormal ? ' abnormal' : ''}">${flag}</td>
+      </tr>`;
+}
+
+/** Standard table for most panels */
 function renderStandardTable(panel: PanelSnapshot): string {
   const useSubgroups = panel.showSubgroups === true;
-  const prefix = panel.valueDisplayPrefix ?? null;
-
-  // Group by subGroup if enabled
-  const renderRow = (test: TestResultSnapshot) => {
-    const indent = test.indentLevel > 0 ? 'indent-' + test.indentLevel : '';
-    const valueClass = getValueClass(test.value, test.referenceMin, test.referenceMax, test.criticalMin, test.criticalMax);
-    const bold = test.isBold ? 'font-weight: bold;' : '';
-    const italic = test.isItalic ? 'font-style: italic;' : '';
-    const style = (bold || italic) ? ` style="${bold}${italic}"` : '';
-
-    return `
-      <tr class="${indent}"${style}>
-        <td class="test-name">
-          ${escapeHtml(test.testName)}
-          ${test.methodText ? `<div class="method-text">${escapeHtml(test.methodText)}</div>` : ''}
-        </td>
-        <td class="test-value ${valueClass}">${formatValue(test.value, null, test.textValue, prefix)}</td>
-        <td class="test-unit">${escapeHtml(test.referenceUnit) || ''}</td>
-        <td class="test-reference">${formatReference(test.referenceMin, test.referenceMax, null)}</td>
-      </tr>
-    `;
-  };
-
   let rowsHtml = '';
 
   if (useSubgroups) {
-    // Group tests by subGroup, render section headers between groups
     const groups = new Map<string, TestResultSnapshot[]>();
     for (const test of panel.tests) {
       const group = test.subGroup || '__default__';
@@ -225,157 +146,144 @@ function renderStandardTable(panel: PanelSnapshot): string {
     }
     for (const [group, tests] of groups) {
       if (group !== '__default__') {
-        rowsHtml += `<tr class="section-header"><td colspan="4"><strong>${escapeHtml(group)}</strong></td></tr>`;
+        rowsHtml += `
+      <tr class="section-divider">
+        <td colspan="5">${escapeHtml(group)}</td>
+      </tr>`;
       }
-      rowsHtml += tests.map(renderRow).join('');
+      rowsHtml += tests.map(t => renderTestRow(t)).join('');
     }
   } else {
-    rowsHtml = panel.tests.map(renderRow).join('');
+    rowsHtml = panel.tests.map(t => renderTestRow(t)).join('');
   }
 
-  // Add interpretation block if panel has showInterpretation flag
   let interpretBlock = '';
   if (panel.showInterpretation && panel.interpretationHtml) {
     interpretBlock = `
-      <div class="interpretation-block">
-        <strong>Interpretation:</strong>
-        <p>${escapeHtml(panel.interpretationHtml)}</p>
-      </div>`;
+    <div class="interpretation-block">
+      <strong>Interpretation:</strong>
+      <p>${escapeHtml(panel.interpretationHtml)}</p>
+    </div>`;
   }
 
   return `
-    <table class="results-table standard-table">
+    <table class="results-table">
       <thead>
         <tr>
-          <th class="col-test">TEST</th>
-          <th class="col-value">VALUE</th>
-          <th class="col-unit">UNIT</th>
-          <th class="col-reference">REFERENCE RANGE</th>
+          <th class="col-test">Test</th>
+          <th class="col-value">Result</th>
+          <th class="col-unit">Unit</th>
+          <th class="col-ref">Reference Range</th>
+          <th class="col-flag">Flag</th>
         </tr>
       </thead>
       <tbody>
         ${rowsHtml}
       </tbody>
     </table>
-    ${interpretBlock}
-  `;
+    ${interpretBlock}`;
 }
 
+/** CBP table: main tests + differential count section + peripheral smear (separate) */
 function renderCBPTable(panel: PanelSnapshot): string {
-  // Use subGroup metadata to categorize tests (data-driven, not hardcoded)
-  // Fallback to legacy testCode matching for old snapshots without subGroup
   const DIFF_CODES = ['NEUTRO', 'LYMPH', 'MONO', 'EOSINO', 'BASO'];
-  
-  const mainTests = panel.tests.filter((t: TestResultSnapshot) => 
-    t.subGroup ? t.subGroup === 'MAIN' : (!DIFF_CODES.includes(t.testCode) && t.testCode !== 'PS')
+
+  const mainTests = panel.tests.filter((t: TestResultSnapshot) =>
+    t.subGroup ? t.subGroup === 'MAIN' : (!DIFF_CODES.includes(t.testCode) && t.testCode !== 'PS' && t.subGroup !== 'SMEAR')
   );
-  const diffTests = panel.tests.filter((t: TestResultSnapshot) => 
+  const diffTests = panel.tests.filter((t: TestResultSnapshot) =>
     t.subGroup ? t.subGroup === 'DIFFERENTIAL' : DIFF_CODES.includes(t.testCode)
   );
   const smearTests = panel.tests.filter((t: TestResultSnapshot) =>
     t.subGroup ? t.subGroup === 'SMEAR' : t.testCode === 'PS'
   );
 
-  // Main table
-  const mainRows = mainTests.map((test: TestResultSnapshot) => {
-    const valueClass = getValueClass(test.value, test.referenceMin, test.referenceMax, test.criticalMin, test.criticalMax);
-    return `
-      <tr>
-        <td class="test-name">${escapeHtml(test.testName)}</td>
-        <td class="test-value ${valueClass}">${formatValue(test.value, null, test.textValue)}</td>
-        <td class="test-unit">${escapeHtml(test.referenceUnit) || ''}</td>
-        <td class="test-reference">${formatReference(test.referenceMin, test.referenceMax, null)}</td>
-      </tr>
-    `;
-  }).join('');
+  // Main rows
+  const mainRows = mainTests.map(t => renderTestRow(t)).join('');
 
   // Differential count section
   let diffSection = '';
   if (diffTests.length > 0) {
-    const diffRows = diffTests.map((test: TestResultSnapshot) => {
-      const valueClass = getValueClass(test.value, test.referenceMin, test.referenceMax, test.criticalMin, test.criticalMax);
+    const diffRows = diffTests.map(t => {
+      // Use test unit or default to %
+      const flag = computeFlag(t.value, t.referenceMin, t.referenceMax);
+      const isAbnormal = flag === 'H' || flag === 'L';
+      const valueDisplay = t.textValue || formatNumericValue(t.value);
       return `
-        <tr>
-          <td class="test-name indent-1">${escapeHtml(test.testName)}</td>
-          <td class="test-value ${valueClass}">${formatValue(test.value, null, test.textValue)}</td>
-          <td class="test-unit">${escapeHtml(test.referenceUnit) || '%'}</td>
-          <td class="test-reference">${formatReference(test.referenceMin, test.referenceMax, null)}</td>
-        </tr>
-      `;
+      <tr class="data-row indent-1">
+        <td class="col-test">${escapeHtml(t.testName)}</td>
+        <td class="col-value${isAbnormal ? ' abnormal' : ''}">${escapeHtml(valueDisplay)}</td>
+        <td class="col-unit">${escapeHtml(t.referenceUnit) || '%'}</td>
+        <td class="col-ref">${formatReference(t.referenceMin, t.referenceMax)}</td>
+        <td class="col-flag${isAbnormal ? ' abnormal' : ''}">${flag}</td>
+      </tr>`;
     }).join('');
 
     diffSection = `
-      <tr class="section-header">
-        <td colspan="4"><strong>DIFFERENTIAL COUNT</strong></td>
+      <tr class="section-divider">
+        <td colspan="5">DIFFERENTIAL COUNT</td>
       </tr>
-      ${diffRows}
-    `;
+      ${diffRows}`;
   }
 
-  // Peripheral smear — supports multiple smear items (RBC Morphology, WBC, Platelets)
-  let smearSection = '';
+  // Peripheral smear — rendered OUTSIDE the numeric table
+  let smearHtml = '';
   if (smearTests.length > 0) {
-    // Check if any smear test has a value (textValue, notes, or value)
-    const hasSmearData = smearTests.some((t: TestResultSnapshot) => t.textValue || t.notes || t.value !== null);
+    const hasSmearData = smearTests.some(t => t.textValue || t.notes || t.value !== null);
     if (hasSmearData) {
-      const smearRows = smearTests.map((t: TestResultSnapshot) => {
-        const displayValue = t.textValue || t.notes || (t.value !== null ? String(t.value) : '-');
+      const smearRows = smearTests.map(t => {
+        const displayValue = t.textValue || t.notes || (t.value !== null ? String(t.value) : '\u2014');
         return `
-          <tr>
-            <td class="test-name smear-label">${escapeHtml(t.testName)}</td>
-            <td colspan="3" class="smear-value">${escapeHtml(displayValue)}</td>
-          </tr>
-        `;
+        <div class="smear-row">
+          <span class="smear-label">${escapeHtml(t.testName)}</span>
+          <span class="smear-sep">:</span>
+          <span class="smear-value">${escapeHtml(displayValue)}</span>
+        </div>`;
       }).join('');
 
-      smearSection = `
-        <tr class="section-header">
-          <td colspan="4"><strong>PERIPHERAL SMEAR EXAMINATION</strong></td>
-        </tr>
-        ${smearRows}
-      `;
+      smearHtml = `
+    <div class="smear-section">
+      <div class="smear-header">PERIPHERAL SMEAR EXAMINATION</div>
+      ${smearRows}
+    </div>`;
     }
   }
 
   return `
-    <table class="results-table cbp-table">
+    <table class="results-table">
       <thead>
         <tr>
-          <th class="col-test">TEST</th>
-          <th class="col-value">VALUE</th>
-          <th class="col-unit">UNIT</th>
-          <th class="col-reference">REFERENCE RANGE</th>
+          <th class="col-test">Test</th>
+          <th class="col-value">Result</th>
+          <th class="col-unit">Unit</th>
+          <th class="col-ref">Reference Range</th>
+          <th class="col-flag">Flag</th>
         </tr>
       </thead>
       <tbody>
         ${mainRows}
         ${diffSection}
-        ${smearSection}
       </tbody>
     </table>
-  `;
+    ${smearHtml}`;
 }
 
 function renderWidalTable(panel: PanelSnapshot): string {
-  // Widal uses dilution format
   const rows = panel.tests.map((test: TestResultSnapshot) => {
-    // Value is stored as dilution (e.g., 40 means 1:40)
     const dilution = test.value !== null ? `1:${test.value}` : 'Negative';
-    
     return `
-      <tr>
-        <td class="test-name">${escapeHtml(test.testName)}</td>
-        <td class="test-value">${dilution}</td>
-      </tr>
-    `;
+      <tr class="data-row">
+        <td class="col-test">${escapeHtml(test.testName)}</td>
+        <td class="col-value">${dilution}</td>
+      </tr>`;
   }).join('');
 
   return `
     <table class="results-table widal-table">
       <thead>
         <tr>
-          <th class="col-antigen">ANTIGEN</th>
-          <th class="col-titre">TITRE</th>
+          <th class="col-antigen">Antigen</th>
+          <th class="col-titre">Titre</th>
         </tr>
       </thead>
       <tbody>
@@ -384,45 +292,33 @@ function renderWidalTable(panel: PanelSnapshot): string {
     </table>
     <div class="widal-note">
       <em>Note: Titre of 1:80 or above is considered significant for diagnosis.</em>
-    </div>
-  `;
+    </div>`;
 }
 
 function renderInterpretationSingle(panel: PanelSnapshot): string {
   const test = panel.tests[0];
   if (!test) return '';
 
-  const valueClass = getValueClass(test.value, test.referenceMin, test.referenceMax, test.criticalMin, test.criticalMax);
-  
   return `
-    <table class="results-table interpretation-table">
+    <table class="results-table">
       <thead>
         <tr>
-          <th class="col-test">TEST</th>
-          <th class="col-value">VALUE</th>
-          <th class="col-unit">UNIT</th>
-          <th class="col-reference">REFERENCE RANGE</th>
+          <th class="col-test">Test</th>
+          <th class="col-value">Result</th>
+          <th class="col-unit">Unit</th>
+          <th class="col-ref">Reference Range</th>
+          <th class="col-flag">Flag</th>
         </tr>
       </thead>
       <tbody>
-        <tr>
-          <td class="test-name">
-            ${escapeHtml(test.testName)}
-            ${test.methodText ? `<div class="method-text">${escapeHtml(test.methodText)}</div>` : ''}
-          </td>
-          <td class="test-value ${valueClass}">${formatValue(test.value, null)}</td>
-          <td class="test-unit">${escapeHtml(test.referenceUnit) || ''}</td>
-          <td class="test-reference">${formatReference(test.referenceMin, test.referenceMax, null)}</td>
-        </tr>
+        ${renderTestRow(test)}
       </tbody>
     </table>
     ${panel.interpretationHtml ? `
-      <div class="interpretation-block">
-        <strong>Interpretation:</strong>
-        <p>${escapeHtml(panel.interpretationHtml)}</p>
-      </div>
-    ` : ''}
-  `;
+    <div class="interpretation-block">
+      <strong>Interpretation:</strong>
+      <p>${escapeHtml(panel.interpretationHtml)}</p>
+    </div>` : ''}`;
 }
 
 function renderTextOnly(panel: PanelSnapshot): string {
@@ -432,15 +328,10 @@ function renderTextOnly(panel: PanelSnapshot): string {
   return `
     <div class="text-only-result">
       <strong>${escapeHtml(test.testName)}:</strong>
-      <span class="result-text">${escapeHtml(test.textValue ?? test.notes ?? '') || formatValue(test.value, test.referenceUnit)}</span>
-    </div>
-  `;
+      <span class="result-text">${escapeHtml(test.textValue ?? test.notes ?? '') || formatNumericValue(test.value)}</span>
+    </div>`;
 }
 
-/**
- * Imaging narrative: free-text report (e.g., ultrasound, X-ray findings).
- * Shows test name as heading, textValue/notes as narrative body.
- */
 function renderImagingNarrative(panel: PanelSnapshot): string {
   const sections = panel.tests.map((test: TestResultSnapshot) => {
     const content = test.textValue || test.notes || '';
@@ -448,67 +339,55 @@ function renderImagingNarrative(panel: PanelSnapshot): string {
       <div class="imaging-section">
         <h4 class="imaging-title">${escapeHtml(test.testName)}</h4>
         <div class="imaging-narrative">${escapeHtml(content)}</div>
-      </div>
-    `;
+      </div>`;
   }).join('');
 
   let interpretBlock = '';
   if (panel.showInterpretation && panel.interpretationHtml) {
     interpretBlock = `
-      <div class="interpretation-block">
-        <strong>Impression:</strong>
-        <p>${escapeHtml(panel.interpretationHtml)}</p>
-      </div>`;
+    <div class="interpretation-block">
+      <strong>Impression:</strong>
+      <p>${escapeHtml(panel.interpretationHtml)}</p>
+    </div>`;
   }
 
   return `
     <div class="imaging-report">
       ${sections}
       ${interpretBlock}
-    </div>
-  `;
+    </div>`;
 }
 
-/**
- * Procedure structured: key-value pairs for procedure results.
- * Similar to standard table but without reference ranges.
- */
 function renderProcedureStructured(panel: PanelSnapshot): string {
   const rows = panel.tests.map((test: TestResultSnapshot) => {
-    const bold = test.isBold ? 'font-weight: bold;' : '';
-    const italic = test.isItalic ? 'font-style: italic;' : '';
-    const style = (bold || italic) ? ` style="${bold}${italic}"` : '';
-    const indent = test.indentLevel > 0 ? 'indent-' + test.indentLevel : '';
-    const displayValue = test.textValue || test.notes || formatValue(test.value, test.referenceUnit);
+    const indent = test.indentLevel > 0 ? ' indent-1' : '';
+    const displayValue = test.textValue || test.notes || formatNumericValue(test.value);
 
     return `
-      <tr class="${indent}"${style}>
-        <td class="test-name">${escapeHtml(test.testName)}</td>
-        <td class="test-value">${escapeHtml(displayValue)}</td>
-      </tr>
-    `;
+      <tr class="data-row${indent}">
+        <td class="col-param">${escapeHtml(test.testName)}</td>
+        <td class="col-result">${escapeHtml(displayValue)}</td>
+      </tr>`;
   }).join('');
 
   return `
     <table class="results-table procedure-table">
       <thead>
         <tr>
-          <th class="col-param">PARAMETER</th>
-          <th class="col-result">RESULT</th>
+          <th class="col-param">Parameter</th>
+          <th class="col-result">Result</th>
         </tr>
       </thead>
       <tbody>
         ${rows}
       </tbody>
-    </table>
-  `;
+    </table>`;
 }
 
 function renderPanel(panel: PanelSnapshot): string {
   let content = '';
-  
+
   switch (panel.layoutType) {
-    // ━━ New architecture layout types ━━
     case 'STANDARD_TABLE':
       content = renderStandardTable(panel);
       break;
@@ -521,7 +400,6 @@ function renderPanel(panel: PanelSnapshot): string {
     case 'PROCEDURE_STRUCTURED':
       content = renderProcedureStructured(panel);
       break;
-    // ━━ Legacy layout types (backward compat for existing snapshots) ━━
     case 'CBP':
       content = renderCBPTable(panel);
       break;
@@ -537,10 +415,9 @@ function renderPanel(panel: PanelSnapshot): string {
 
   return `
     <div class="panel" data-panel="${escapeHtml(panel.panelName)}">
-      <h3 class="panel-title">${escapeHtml(panel.displayName)}</h3>
+      <div class="panel-title">${escapeHtml(panel.displayName)}</div>
       ${content}
-    </div>
-  `;
+    </div>`;
 }
 
 // ============================================================================
@@ -553,32 +430,26 @@ export interface RenderOptions {
   reportToken?: string;
   hideActions?: boolean;
   includePdfStyles?: boolean;
-  /** Pre-generated QR code as base64 data URI (avoids external API dependency) */
   qrDataUrl?: string;
-  /** When true, forces header/footer visible even in print context (for Puppeteer digital PDF) */
   forPdfDigital?: boolean;
 }
 
 export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOptions): string {
-  const { mode, baseUrl = '', reportToken = '', includePdfStyles = false, qrDataUrl = '', forPdfDigital = false } = options;
-  
+  const { mode, baseUrl = '', includePdfStyles = false, qrDataUrl = '', forPdfDigital = false } = options;
+
   // Render departments and panels
   const departmentSections = snapshot.departments.map(dept => {
     const panelHtml = dept.panels.map(panel => renderPanel(panel)).join('');
-    
+
     return `
       <section class="department" data-department="${escapeHtml(dept.departmentName)}">
-        <h2 class="department-header">${escapeHtml(dept.departmentHeaderText)}</h2>
+        <div class="department-header">${escapeHtml(dept.departmentHeaderText || dept.departmentName)}</div>
         ${panelHtml}
-      </section>
-    `;
+      </section>`;
   }).join('');
 
-  // Render signature blocks — all signing doctors on the right side
-  // Lab Incharge blank space is separately rendered on the left
-  const signatureBlocks = snapshot.signatures
-    .map(sig => {
-    // Inline signature image as base64 data URI (avoids Puppeteer HTTP fetch issues)
+  // Signature blocks
+  const signatureBlocks = snapshot.signatures.map(sig => {
     const sigDataUri = inlineSignatureImage(sig.signatureImagePath);
     const sigImgSrc = sigDataUri || (sig.signatureImagePath ? `${baseUrl}${escapeHtml(sig.signatureImagePath)}` : '');
     return `
@@ -588,20 +459,17 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
       <div class="doctor-degrees">${escapeHtml(sig.degrees)}</div>
       <div class="doctor-designation">${escapeHtml(sig.designation)}</div>
       ${sig.registrationNumber ? `<div class="doctor-reg">Reg. No: ${escapeHtml(sig.registrationNumber)}</div>` : ''}
-    </div>
-  `;
+    </div>`;
   }).join('');
 
-  // Use pre-generated QR data URI if provided, otherwise skip QR
   const qrImgSrc = qrDataUrl || '';
 
-  // Inline CSS directly into HTML — no external stylesheet dependencies
-  // This fixes mixed-content blocking on Render (http CSS links on https page)
-  // and makes Puppeteer PDF generation fully self-contained
+  // Sample types
+  const sampleTypes = [...new Set(snapshot.departments.flatMap(d => d.panels.map(p => p.sampleType)).filter(Boolean))];
+
+  // Inline CSS
   let inlineCss = '';
   if (forPdfDigital) {
-    // Digital PDF (WhatsApp download): only screen CSS, NO print CSS
-    // Header/footer must remain visible in the PDF
     inlineCss = `<style>${SCREEN_CSS}</style>`;
   } else if (includePdfStyles) {
     inlineCss = `<style>${SCREEN_CSS}</style>\n<style media="print">${PRINT_CSS}</style>`;
@@ -611,7 +479,6 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
     inlineCss = `<style>${SCREEN_CSS}</style>`;
   }
 
-  // Build full HTML — structure matches the Sobhana pre-printed letterhead
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -620,7 +487,6 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
   <title>Diagnostic Report - ${escapeHtml(snapshot.patient.name)} - ${escapeHtml(snapshot.visit.billNumber)}</title>
   ${inlineCss}
   <style>
-    /* Inline critical styles for print reliability */
     @media print {
       @page {
         size: A4;
@@ -633,9 +499,6 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
       .no-print { display: none !important; }
     }
     ${forPdfDigital ? `
-    /* Digital PDF: Puppeteer uses emulateMediaType('screen') so @media print
-       rules never fire. These non-print rules do cosmetic cleanup for PDF output
-       while preserving all screen colors, fonts, and header/footer. */
     .report-page { box-shadow: none; margin: 0; min-height: auto; }
     body.report-body { background: white; padding: 0; }
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
@@ -646,7 +509,7 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
 
   <div class="report-page">
 
-    <!-- HEADER — Replicates Sobhana pre-printed letterhead (hidden in print) -->
+    <!-- HEADER -->
     <header class="header">
       <div class="header-logo-row">
         <img src="${LOGO_DATA_URI || (baseUrl + '/images/sobhana-logo-cropped.png')}" alt="Sobhana Diagnostic Centre" class="header-logo" />
@@ -665,51 +528,59 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
 
     <!-- MAIN CONTENT -->
     <main class="report-content">
-      
+
       <!-- Patient Information -->
       <section class="patient-info">
         <div class="info-grid">
-          <div class="info-item">
-            <span class="label">Patient Name:</span>
-            <span class="value">${escapeHtml(snapshot.patient.name)}</span>
+          <div class="info-row">
+            <div class="info-item">
+              <span class="label">Patient Name</span>
+              <span class="value">${escapeHtml(snapshot.patient.name)}</span>
+            </div>
+            <div class="info-item">
+              <span class="label">Bill No</span>
+              <span class="value">${escapeHtml(snapshot.visit.billNumber)}</span>
+            </div>
           </div>
-          <div class="info-item">
-            <span class="label">Bill No:</span>
-            <span class="value">${escapeHtml(snapshot.visit.billNumber)}</span>
+          <div class="info-row">
+            <div class="info-item">
+              <span class="label">Age / Gender</span>
+              <span class="value">${snapshot.patient.ageDisplay || (snapshot.patient.age + ' Years')} / ${formatGender(snapshot.patient.gender)}</span>
+            </div>
+            <div class="info-item">
+              <span class="label">Patient ID</span>
+              <span class="value">${escapeHtml(snapshot.patient.patientNumber)}</span>
+            </div>
           </div>
-          <div class="info-item">
-            <span class="label">Age / Gender:</span>
-            <span class="value">${snapshot.patient.ageDisplay || (snapshot.patient.age + ' Years')} / ${formatGender(snapshot.patient.gender)}</span>
+          <div class="info-row">
+            ${snapshot.visit.referralDoctorName ? `
+            <div class="info-item">
+              <span class="label">Ref. Doctor</span>
+              <span class="value">${escapeHtml(snapshot.visit.referralDoctorName)}</span>
+            </div>` : `
+            <div class="info-item">
+              <span class="label">Sample Type</span>
+              <span class="value">${sampleTypes.length > 0 ? escapeHtml(sampleTypes.join(', ')) : '\u2014'}</span>
+            </div>`}
+            <div class="info-item">
+              <span class="label">Registered On</span>
+              <span class="value">${formatDateTime(snapshot.visit.createdAt)}</span>
+            </div>
           </div>
-          <div class="info-item">
-            <span class="label">Patient ID:</span>
-            <span class="value">${escapeHtml(snapshot.patient.patientNumber)}</span>
-          </div>
-          ${snapshot.visit.referralDoctorName ? `
-          <div class="info-item">
-            <span class="label">Ref. Doctor:</span>
-            <span class="value">${escapeHtml(snapshot.visit.referralDoctorName)}</span>
-          </div>
-          ` : ''}
-          ${(() => {
-            const sampleTypes = [...new Set(snapshot.departments.flatMap(d => d.panels.map(p => p.sampleType)).filter(Boolean))];
-            return sampleTypes.length > 0 ? `
-          <div class="info-item">
-            <span class="label">Sample Type:</span>
-            <span class="value">${escapeHtml(sampleTypes.join(', '))}</span>
-          </div>` : '';
-          })()}
-          <div class="info-item">
-            <span class="label">Registered On:</span>
-            <span class="value">${formatDateTime(snapshot.visit.createdAt)}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">Collected On:</span>
-            <span class="value">${formatDateTime(snapshot.visit.collectedAt || snapshot.visit.createdAt)}</span>
-          </div>
-          <div class="info-item">
-            <span class="label">Reporting On:</span>
-            <span class="value">${formatDateTime(snapshot.visit.finalizedAt)}</span>
+          <div class="info-row">
+            ${snapshot.visit.referralDoctorName && sampleTypes.length > 0 ? `
+            <div class="info-item">
+              <span class="label">Sample Type</span>
+              <span class="value">${escapeHtml(sampleTypes.join(', '))}</span>
+            </div>` : `
+            <div class="info-item">
+              <span class="label">Collected On</span>
+              <span class="value">${formatDateTime(snapshot.visit.collectedAt || snapshot.visit.createdAt)}</span>
+            </div>`}
+            <div class="info-item">
+              <span class="label">Reporting On</span>
+              <span class="value">${formatDateTime(snapshot.visit.finalizedAt)}</span>
+            </div>
           </div>
         </div>
       </section>
@@ -719,15 +590,14 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
         ${departmentSections}
       </div>
 
-      <!-- Clinical Note — directly below results table -->
+      <!-- Clinical Note -->
       <div class="report-note">
         Note: Please correlate clinically if necessary.
       </div>
 
-      <!-- Bottom Section — pushed to bottom of page via flexbox margin-top:auto -->
+      <!-- Bottom Section -->
       <div class="report-bottom-section">
 
-      <!-- Signature Section -->
       <div class="authorized-signatory-label">Authorized Signatory</div>
       <section class="signatures-section">
         ${snapshot.signatures.some(s => s.showLabInchargeNote) ? `
@@ -743,7 +613,6 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
         </div>
       </section>
 
-      <!-- QR for print mode (hidden on screen, visible in print) -->
       ${qrImgSrc ? `
       <div class="print-qr">
         <img src="${qrImgSrc}" alt="QR" class="print-qr-img" />
@@ -757,7 +626,7 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
 
     </main>
 
-    <!-- FOOTER — Replicates Sobhana pre-printed letterhead footer (hidden in print) -->
+    <!-- FOOTER -->
     <footer class="footer">
       <div class="footer-stripe"></div>
       <div class="footer-content">
@@ -773,8 +642,6 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
     </footer>
 
   </div>
-
-
 
 </body>
 </html>`;

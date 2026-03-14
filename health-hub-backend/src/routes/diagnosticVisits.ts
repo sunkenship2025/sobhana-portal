@@ -198,6 +198,51 @@ router.get('/:id', async (req: AuthRequest, res) => {
       });
     }
 
+    // Resolve age/gender-aware reference ranges for all tests (including child tests)
+    const patient = visit.patient;
+    const allTestIds: string[] = [];
+    for (const to of visit.testOrders) {
+      allTestIds.push(to.testId);
+      if (to.test.isPanel && to.test.childTests) {
+        for (const ct of to.test.childTests) {
+          allTestIds.push(ct.id);
+        }
+      }
+    }
+    const uniqueTestIds = [...new Set(allTestIds)];
+
+    // Build testDefinitionId map from testOrders
+    const testDefIdMap = new Map<string, string>();
+    for (const to of visit.testOrders) {
+      if (to.testDefinitionId) {
+        testDefIdMap.set(to.testId, to.testDefinitionId);
+      }
+    }
+
+    const resolvedRanges = await resolveReferenceRanges(
+      uniqueTestIds,
+      patient.yearOfBirth,
+      patient.gender as any,
+      testDefIdMap.size > 0 ? testDefIdMap : undefined,
+      patient.dateOfBirth
+    );
+
+    // Helper to build referenceRange from resolved + fallback data
+    const buildRange = (
+      testId: string,
+      defaultMin: number | null,
+      defaultMax: number | null,
+      defaultUnit: string | null,
+      defaultText?: string | null
+    ) => {
+      const resolved = resolvedRanges.get(testId);
+      return {
+        min: resolved?.referenceMin ?? defaultMin ?? 0,
+        max: resolved?.referenceMax ?? defaultMax ?? 0,
+        unit: resolved?.referenceUnit || defaultUnit || '',
+        text: defaultText || '',
+      };
+    };
     // Transform to frontend format
     const transformed = {
       id: visit.id,
@@ -216,41 +261,30 @@ router.get('/:id', async (req: AuthRequest, res) => {
         id: to.id,
         visitId: to.visitId,
         testId: to.testId,
-        // E3-03: Use snapshotted metadata (fallback to live data for backward compatibility)
         testName: to.testNameSnapshot || to.test.name,
         testCode: to.testCodeSnapshot || to.test.code,
         price: to.priceInPaise / 100,
         isPanel: to.test.isPanel,
-        referenceRange: {
-          min: to.referenceMinSnapshot ?? to.testDefinition?.referenceMin ?? to.test.referenceMin ?? 0,
-          max: to.referenceMaxSnapshot ?? to.testDefinition?.referenceMax ?? to.test.referenceMax ?? 0,
-          unit: to.referenceUnitSnapshot || to.testDefinition?.referenceUnit || to.test.referenceUnit || '',
-          text: to.testDefinition?.referenceText || to.test.referenceText || '',
-        },
-        // Include child tests for panels
+        referenceRange: buildRange(
+          to.testId,
+          to.referenceMinSnapshot ?? to.testDefinition?.referenceMin ?? to.test.referenceMin,
+          to.referenceMaxSnapshot ?? to.testDefinition?.referenceMax ?? to.test.referenceMax,
+          to.referenceUnitSnapshot || to.testDefinition?.referenceUnit || to.test.referenceUnit,
+          to.testDefinition?.referenceText || to.test.referenceText
+        ),
         childTests: to.test.isPanel ? to.test.childTests.map((ct: any) => ({
           id: ct.id,
           name: ct.name,
           code: ct.code,
           displayOrder: ct.displayOrder,
           isDerived: !!ct.derivedParameter,
-          referenceRange: {
-            min: ct.referenceMin ?? 0,
-            max: ct.referenceMax ?? 0,
-            unit: ct.referenceUnit || '',
-            text: ct.referenceText || '',
-          },
+          referenceRange: buildRange(ct.id, ct.referenceMin, ct.referenceMax, ct.referenceUnit, ct.referenceText),
         })) : [],
         results: to.testResults.map((tr: any) => ({
           ...tr,
           testName: tr.test?.name || '',
           testCode: tr.test?.code || '',
-          referenceRange: {
-            min: tr.test?.referenceMin ?? 0,
-            max: tr.test?.referenceMax ?? 0,
-            unit: tr.test?.referenceUnit || '',
-            text: tr.test?.referenceText || '',
-          },
+          referenceRange: buildRange(tr.testId, tr.test?.referenceMin, tr.test?.referenceMax, tr.test?.referenceUnit, tr.test?.referenceText),
         })),
       })),
       report: visit.report
@@ -266,12 +300,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
                 ...tr,
                 testName: tr.test?.name || '',
                 testCode: tr.test?.code || '',
-                referenceRange: {
-                  min: tr.test?.referenceMin ?? 0,
-                  max: tr.test?.referenceMax ?? 0,
-                  unit: tr.test?.referenceUnit || '',
-                  text: tr.test?.referenceText || '',
-                },
+                referenceRange: buildRange(tr.testId, tr.test?.referenceMin, tr.test?.referenceMax, tr.test?.referenceUnit, tr.test?.referenceText),
               })),
             })),
           }

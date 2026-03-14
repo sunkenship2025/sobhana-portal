@@ -1,9 +1,9 @@
 /**
- * E3-10: Report Print CSS
- * 
+ * E3-10: Report Print CSS — LIS Standard Format
+ *
  * Used for: Physical printing on pre-printed letterhead paper.
  * Header and footer are HIDDEN — they already exist on the paper.
- * 
+ *
  * CRITICAL MEASUREMENTS (from actual Sobhana letterhead):
  * - Header (pre-printed): 3.2 cm = 32mm
  * - Footer (pre-printed): 1.55 cm = 15.5mm
@@ -31,6 +31,7 @@
   --color-text: #000000;
   --color-text-light: #333333;
   --color-border: #000000;
+  --color-abnormal: #cc0000;
   --spacing-xs: 2pt;
   --spacing-sm: 4pt;
   --spacing-md: 8pt;
@@ -45,15 +46,15 @@
 
 body.report-body {
   font-family: var(--font-primary);
-  font-size: 10pt;
-  line-height: 1.3;
+  font-size: 9pt;
+  line-height: 1.25;
   color: var(--color-text);
   background: white;
 }
 
 .report-page { width: 100%; }
 .report-content { width: 100%; }
-.report-bottom-section { margin-top: 20px; }
+.report-bottom-section { margin-top: 16pt; }
 
 /* ============================================================================
    HIDDEN ELEMENTS (Pre-printed on letterhead)
@@ -72,21 +73,32 @@ body.report-body {
    ============================================================================ */
 
 .patient-info {
-  border: 1pt solid var(--color-border);
+  border: 0.5pt solid var(--color-border);
   padding: var(--spacing-sm);
   margin-bottom: var(--spacing-md);
 }
 
 .info-grid { display: table; width: 100%; }
+.info-row { display: table-row; }
 
 .info-item {
-  display: inline-block;
-  width: 48%;
-  padding: var(--spacing-xs);
-  font-size: 9pt;
+  display: table-cell;
+  width: 50%;
+  padding: 1pt 0;
+  font-size: 8.5pt;
 }
 
-.info-item .label { font-weight: bold; }
+.info-item .label {
+  font-weight: bold;
+  display: inline-block;
+  min-width: 80pt;
+}
+
+.info-item .label::after {
+  content: ':';
+  margin-right: 6pt;
+}
+
 .info-item .value { font-weight: normal; }
 
 /* ============================================================================
@@ -99,9 +111,9 @@ body.report-body {
 }
 
 .department-header {
-  font-size: 11pt;
+  font-size: 10pt;
   font-weight: bold;
-  border-bottom: 1pt solid var(--color-border);
+  border-bottom: 0.5pt solid var(--color-border);
   padding-bottom: var(--spacing-xs);
   margin-bottom: var(--spacing-sm);
   text-transform: uppercase;
@@ -117,7 +129,7 @@ body.report-body {
 }
 
 .panel-title {
-  font-size: 10pt;
+  font-size: 9pt;
   font-weight: bold;
   margin-bottom: var(--spacing-xs);
   padding: var(--spacing-xs);
@@ -126,67 +138,107 @@ body.report-body {
 }
 
 /* ============================================================================
-   RESULTS TABLES
+   RESULTS TABLE — LIS Standard: Test | Result | Unit | Ref Range | Flag
    ============================================================================ */
 
 .results-table {
   width: 100%;
   border-collapse: collapse;
   margin-bottom: var(--spacing-sm);
-  font-size: 9pt;
+  font-size: 8.5pt;
 }
 
 .results-table th {
   background: #e0e0e0;
   font-weight: bold;
   text-align: left;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  font-size: 8pt;
+  padding: 2pt var(--spacing-sm);
+  font-size: 7.5pt;
   text-transform: uppercase;
   border: 0.5pt solid var(--color-border);
 }
 
 .results-table td {
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border: 0.5pt solid var(--color-border);
-  vertical-align: top;
+  padding: 2pt var(--spacing-sm);
+  border: 0.5pt solid #ccc;
+  vertical-align: middle;
 }
 
-.col-test { width: 40%; }
-.col-value { width: 15%; text-align: center; }
-.col-unit { width: 15%; }
-.col-reference { width: 30%; }
+/* Column widths */
+.results-table .col-test { width: 40%; }
+.results-table .col-value { width: 14%; text-align: center; }
+.results-table .col-unit { width: 14%; }
+.results-table .col-ref { width: 22%; }
+.results-table .col-flag { width: 10%; text-align: center; font-weight: bold; }
 
-.test-name { font-weight: normal; }
-.method-text { font-size: 8pt; font-style: italic; margin-top: 1pt; }
-.indent-1 .test-name { padding-left: var(--spacing-md); }
-
-.test-value { font-weight: bold; text-align: center; }
-.test-value.value-normal { color: #1a8a3f; }
-.test-value.value-warning { color: #b87000; font-weight: bold; }
-.test-value.value-critical { color: #cc0000; font-weight: bold; }
-
-.section-header td {
+/* Zebra striping */
+.results-table tbody tr.data-row:nth-child(even) {
   background: #f5f5f5;
-  border-top: 1pt solid var(--color-border);
-  padding-top: var(--spacing-sm);
 }
 
-.smear-comment {
-  font-style: italic;
-  padding: var(--spacing-sm) !important;
-  line-height: 1.4;
+/* Abnormal values + flags in red */
+.results-table .col-value.abnormal,
+.results-table .col-flag.abnormal {
+  color: var(--color-abnormal);
+  font-weight: bold;
 }
 
-/* Smear rows: label + observation text */
+/* Indentation for sub-tests */
+.results-table tr.indent-1 .col-test { padding-left: var(--spacing-md); }
+
+.results-table .col-value { font-weight: bold; }
+
+/* Section dividers */
+.section-divider td {
+  background: #eee;
+  font-weight: bold;
+  font-size: 8pt;
+  text-transform: uppercase;
+  padding: var(--spacing-sm) var(--spacing-sm) 2pt;
+  border-top: 0.5pt solid var(--color-border);
+  color: #000;
+}
+
+/* ============================================================================
+   PERIPHERAL SMEAR — Separate section
+   ============================================================================ */
+
+.smear-section {
+  margin-top: 4pt;
+  margin-bottom: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  border: 0.5pt solid #ccc;
+}
+
+.smear-header {
+  font-weight: bold;
+  font-size: 8pt;
+  text-transform: uppercase;
+  padding-bottom: 2pt;
+  margin-bottom: 2pt;
+  border-bottom: 0.5pt solid #ccc;
+}
+
+.smear-row {
+  display: flex;
+  align-items: baseline;
+  padding: 1pt 0;
+  font-size: 8.5pt;
+}
+
 .smear-label {
   font-weight: 600;
-  width: 40%;
+  min-width: 100pt;
+  flex-shrink: 0;
+}
+
+.smear-sep {
+  margin: 0 6pt;
+  color: #666;
 }
 
 .smear-value {
-  font-weight: 500;
-  padding: var(--spacing-xs) var(--spacing-sm);
+  font-weight: 400;
 }
 
 /* ============================================================================
@@ -196,7 +248,7 @@ body.report-body {
 .widal-table { width: 60%; margin: 0 auto var(--spacing-sm); }
 .widal-table .col-antigen { width: 60%; }
 .widal-table .col-titre { width: 40%; text-align: center; }
-.widal-note { text-align: center; font-size: 8pt; margin-bottom: var(--spacing-sm); }
+.widal-note { text-align: center; font-size: 7.5pt; margin-bottom: var(--spacing-sm); }
 
 /* ============================================================================
    INTERPRETATION BLOCK
@@ -209,8 +261,8 @@ body.report-body {
   background: #fafafa;
 }
 
-.interpretation-block strong { display: block; margin-bottom: var(--spacing-xs); font-size: 9pt; }
-.interpretation-block p { line-height: 1.4; font-size: 9pt; }
+.interpretation-block strong { display: block; margin-bottom: var(--spacing-xs); font-size: 8.5pt; }
+.interpretation-block p { line-height: 1.3; font-size: 8.5pt; }
 
 /* ============================================================================
    TEXT-ONLY RESULTS
@@ -227,13 +279,14 @@ body.report-body {
    ============================================================================ */
 
 .report-note {
-  font-size: 8pt;
+  font-size: 7.5pt;
   color: #555;
   text-align: left;
   padding: 0;
-  margin-top: 14pt;
+  margin-top: 10pt;
   margin-bottom: 0;
   font-weight: 400;
+  font-style: italic;
 }
 
 /* ============================================================================
@@ -241,11 +294,11 @@ body.report-body {
    ============================================================================ */
 
 .authorized-signatory-label {
-  font-size: 8pt;
+  font-size: 7.5pt;
   font-weight: 600;
   color: #555;
   text-align: right;
-  margin-bottom: 6pt;
+  margin-bottom: 4pt;
 }
 
 .signatures-section {
@@ -259,7 +312,7 @@ body.report-body {
 .report-divider {
   height: 0.5pt;
   background: #999;
-  margin-top: 10pt;
+  margin-top: 8pt;
   margin-bottom: 0;
 }
 
@@ -274,42 +327,40 @@ body.report-body {
 
 .signature-block {
   text-align: center;
-  min-width: 100pt;
+  min-width: 80pt;
 }
 
-.lab-incharge-block { min-width: 100pt; }
+.lab-incharge-block { min-width: 80pt; }
 .lab-incharge-line {
   width: 100%;
-  height: 35pt;
+  height: 30pt;
   border-bottom: 0.5pt solid #000;
-  margin-bottom: 3pt;
+  margin-bottom: 2pt;
 }
 .lab-incharge-label {
-  font-size: 9pt;
+  font-size: 8.5pt;
   font-weight: bold;
 }
 
-.signature-image { height: 40pt; width: auto; margin-bottom: var(--spacing-xs); }
-.doctor-name { font-weight: bold; font-size: 10pt; }
-.doctor-degrees { font-size: 8pt; }
-.doctor-designation { font-size: 8pt; }
-.doctor-reg { font-size: 7pt; }
-.lab-incharge { font-size: 8pt; font-weight: bold; margin-top: var(--spacing-xs); }
+.signature-image { height: 35pt; width: auto; margin-bottom: var(--spacing-xs); }
+.doctor-name { font-weight: bold; font-size: 9pt; }
+.doctor-degrees { font-size: 7.5pt; }
+.doctor-designation { font-size: 7.5pt; }
+.doctor-reg { font-size: 6.5pt; }
 
 /* ============================================================================
-   END OF REPORT
+   QR CODE — visible on physical letterhead
    ============================================================================ */
 
-/* QR code for print — visible on physical letterhead too */
 .print-qr {
   display: flex !important;
   align-items: center;
   gap: 6pt;
   justify-content: flex-end;
-  margin-top: 8pt;
+  margin-top: 6pt;
 }
-.print-qr-img { width: 50pt; height: 50pt; }
-.print-qr-text { font-size: 7pt; color: #666; }
+.print-qr-img { width: 45pt; height: 45pt; }
+.print-qr-text { font-size: 6.5pt; color: #666; }
 
 /* ============================================================================
    PAGE BREAKS
