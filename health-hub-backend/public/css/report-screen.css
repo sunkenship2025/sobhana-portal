@@ -641,8 +641,8 @@ body.report-body {
 
   @page {
     size: A4;
-    margin-top: 32mm;
-    margin-bottom: 15.5mm;
+    margin-top: 10mm;
+    margin-bottom: 10mm;
     margin-left: 15mm;
     margin-right: 15mm;
   }

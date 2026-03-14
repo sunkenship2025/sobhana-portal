@@ -264,9 +264,14 @@ router.post('/:id/upload-signature', uploadSignature.single('signature'), async 
     // Store relative path from public/
     const relativePath = `/images/signatures/${req.file.filename}`;
 
+    // Encode to base64 immediately — survives Render's ephemeral filesystem across deploys
+    const ext = path.extname(req.file.filename).toLowerCase();
+    const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+    const imageBase64 = `data:${mime};base64,${fs.readFileSync(req.file.path).toString('base64')}`;
+
     const updated = await prisma.signingDoctor.update({
       where: { id },
-      data: { signatureImagePath: relativePath },
+      data: { signatureImagePath: relativePath, signatureImageBase64: imageBase64 },
     });
 
     return res.json({

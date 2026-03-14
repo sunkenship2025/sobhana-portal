@@ -149,17 +149,23 @@ router.get('/:token/view', async (req: Request, res: Response) => {
       qrDataUrl,
     });
 
+    // If ?print=true, inject auto-print script (avoids cross-origin window.print issues)
+    const autoPrint = req.query.print === 'true';
+    const finalHtml = autoPrint
+      ? html.replace('</body>', '<script>window.onload=function(){setTimeout(function(){window.print()},600)}</script></body>')
+      : html;
+
     // Log access
     await recordAccess(
       token,
-      'VIEW',
+      autoPrint ? 'PRINT' : 'VIEW',
       req.ip,
       req.headers['user-agent'],
     );
 
     res.setHeader('Content-Type', 'text/html');
     res.setHeader('Cache-Control', 'no-store');
-    return res.send(html);
+    return res.send(finalHtml);
 
   } catch (error) {
     console.error('Error generating report HTML view:', error);
