@@ -34,6 +34,7 @@ interface TestDefinitionSummary {
   code: string;
   version: number;
   status: string;
+  method?: string | null;
   referenceUnit?: string;
   referenceMin?: number | null;
   referenceMax?: number | null;
@@ -260,7 +261,7 @@ export default function ManagePanelDefinitions() {
       testDefinitionId: item.testDefinitionId,
       displayOrder: item.displayOrder,
       showMethod: item.showMethod ?? false,
-      methodText: item.methodText ?? null,
+      methodText: item.methodText ?? item.testDefinition?.method ?? null,
       indentLevel: item.indentLevel ?? 0,
       isBold: item.isBold ?? false,
       isItalic: item.isItalic ?? false,
@@ -316,6 +317,16 @@ export default function ManagePanelDefinitions() {
       const alreadyExists = formItems.some((item, i) => i !== idx && item.testDefinitionId === val);
       if (alreadyExists) {
         toast.warning('This test is already in this panel. Adding duplicate.');
+      }
+      // Auto-populate methodText from test definition when selecting a test
+      const def = availableDefs.find(d => d.id === val);
+      if (def?.method) {
+        const updated = [...formItems];
+        (updated[idx] as any)['testDefinitionId'] = val;
+        (updated[idx] as any)['methodText'] = (updated[idx] as any)['methodText'] || def.method;
+        (updated[idx] as any)['testDefinition'] = def;
+        setFormItems(updated);
+        return;
       }
     }
     const updated = [...formItems];
