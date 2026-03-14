@@ -15,7 +15,7 @@
  *   - /webhooks/whatsapp     — public; verified by Meta's hub.verify_token
  *
  * Environment variables consumed here:
- *   PORT                — HTTP port (default: 3000)
+ *   PORT                — HTTP port (default: 10000, matches Render + Dockerfile EXPOSE)
  *   FRONTEND_URL        — comma-separated CORS origin whitelist
  *   JWT_SECRET          — required for authMiddleware to verify tokens
  *   PUPPETEER_*         — consumed by pdfGenerationService (see that file)
@@ -62,7 +62,7 @@ import { warmupPdfService, closeBrowser } from './services/pdfGenerationService'
 import prisma from './lib/prisma';
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
 // Trust reverse proxy (Render) — ensures req.protocol returns 'https'
 app.set('trust proxy', true);
