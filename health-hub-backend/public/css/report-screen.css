@@ -323,6 +323,17 @@ body.report-body {
   line-height: 1.6;
 }
 
+/* Smear rows: label + observation text (e.g. Normocytic Normochromic, Leucocytosis) */
+.smear-label {
+  font-weight: 600;
+  width: 40%;
+}
+
+.smear-value {
+  font-weight: 500;
+  padding: 5px 10px;
+}
+
 /* ============================================================================
    WIDAL TABLE
    ============================================================================ */

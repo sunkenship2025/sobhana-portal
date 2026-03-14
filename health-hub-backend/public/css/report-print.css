@@ -178,6 +178,17 @@ body.report-body {
   line-height: 1.4;
 }
 
+/* Smear rows: label + observation text */
+.smear-label {
+  font-weight: 600;
+  width: 40%;
+}
+
+.smear-value {
+  font-weight: 500;
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
 /* ============================================================================
    WIDAL TABLE
    ============================================================================ */

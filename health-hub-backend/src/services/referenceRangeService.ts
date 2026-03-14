@@ -69,10 +69,20 @@ export async function resolveByTestDefinition(
     const maxOk = range.maxAgeDays === null || patientAgeDays <= range.maxAgeDays;
 
     if (minOk && maxOk) {
+      // If the matching range doesn't have a unit, fall back to TestDefinition default
+      let unit = range.referenceUnit;
+      if (!unit) {
+        const def = await prisma.testDefinition.findUnique({
+          where: { id: testDefinitionId },
+          select: { referenceUnit: true },
+        });
+        unit = def?.referenceUnit ?? null;
+      }
+
       return {
         referenceMin: range.referenceMin,
         referenceMax: range.referenceMax,
-        referenceUnit: range.referenceUnit,
+        referenceUnit: unit,
         referenceText: range.referenceText,
         criticalMin: range.criticalMin,
         criticalMax: range.criticalMax,
@@ -136,10 +146,20 @@ export async function resolveReferenceRange(
     const maxOk = range.maxAgeDays === null || patientAgeDays <= range.maxAgeDays;
 
     if (minOk && maxOk) {
+      // If the matching range doesn't have a unit, fall back to LabTest default
+      let unit = range.referenceUnit;
+      if (!unit) {
+        const labTest = await prisma.labTest.findUnique({
+          where: { id: testId },
+          select: { referenceUnit: true },
+        });
+        unit = labTest?.referenceUnit ?? null;
+      }
+
       return {
         referenceMin: range.referenceMin,
         referenceMax: range.referenceMax,
-        referenceUnit: range.referenceUnit,
+        referenceUnit: unit,
         referenceText: range.referenceText,
         criticalMin: null,
         criticalMax: null,
