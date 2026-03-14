@@ -190,8 +190,8 @@ body.report-body {
 .results-table tr.indent-1 .col-test { padding-left: var(--spacing-md); }
 
 .results-table .col-value { font-weight: bold; }
-.results-table .col-unit { color: #666; }
-.results-table .col-ref { color: #6b7280; font-size: 8pt; }
+.results-table td.col-unit { color: #666; }
+.results-table td.col-ref { color: #6b7280; font-size: 8pt; }
 
 /* Section dividers */
 .section-divider td {
