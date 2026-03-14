@@ -131,6 +131,7 @@ export interface VisitSnapshot {
   branchCode: string;
   referralDoctorName: string | null;
   createdAt: string;
+  collectedAt: string | null;
   finalizedAt: string;
 }
 
@@ -282,11 +283,11 @@ function buildPanelsAndDepartments(
           textValue: result.textValue ?? null,
           flag: result.flag,
           notes: result.notes,
-          referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
-          referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
-          referenceUnit: resolvedRanges.get(test.id)?.referenceUnit ?? test.referenceUnit,
-          criticalMin: resolvedRanges.get(test.id)?.criticalMin ?? null,
-          criticalMax: resolvedRanges.get(test.id)?.criticalMax ?? null,
+          referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? testDef.referenceMin ?? test.referenceMin,
+          referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? testDef.referenceMax ?? test.referenceMax,
+          referenceUnit: resolvedRanges.get(test.id)?.referenceUnit || testDef.referenceUnit || test.referenceUnit,
+          criticalMin: resolvedRanges.get(test.id)?.criticalMin ?? testDef.criticalMin ?? null,
+          criticalMax: resolvedRanges.get(test.id)?.criticalMax ?? testDef.criticalMax ?? null,
           sampleType: panel.sampleType ?? testDef.sampleType ?? test.sampleType ?? null,
           methodText: panelItem.methodText ?? testDef.method ?? null,
           displayOrder: panelItem.displayOrder,
@@ -323,7 +324,7 @@ function buildPanelsAndDepartments(
           notes: result.notes,
           referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
           referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
-          referenceUnit: resolvedRanges.get(test.id)?.referenceUnit ?? test.referenceUnit,
+          referenceUnit: resolvedRanges.get(test.id)?.referenceUnit || test.referenceUnit,
           criticalMin: resolvedRanges.get(test.id)?.criticalMin ?? null,
           criticalMax: resolvedRanges.get(test.id)?.criticalMax ?? null,
           sampleType: test.sampleType ?? null,
@@ -371,7 +372,7 @@ function buildPanelsAndDepartments(
         notes: result.notes,
         referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
         referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
-        referenceUnit: resolvedRanges.get(test.id)?.referenceUnit ?? test.referenceUnit,
+        referenceUnit: resolvedRanges.get(test.id)?.referenceUnit || test.referenceUnit,
         criticalMin: resolvedRanges.get(test.id)?.criticalMin ?? null,
         criticalMax: resolvedRanges.get(test.id)?.criticalMax ?? null,
         sampleType: test.sampleType ?? null,
@@ -594,6 +595,7 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
     branchCode: visit.branch.code,
     referralDoctorName: visit.referrals[0]?.referralDoctor.name || null,
     createdAt: visit.createdAt.toISOString(),
+    collectedAt: visit.createdAt.toISOString(), // Sample collection time defaults to registration
     finalizedAt: new Date().toISOString(),
   };
 
@@ -739,6 +741,7 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
     branchCode: visit.branch.code,
     referralDoctorName: visit.referrals[0]?.referralDoctor.name || null,
     createdAt: visit.createdAt.toISOString(),
+    collectedAt: visit.createdAt.toISOString(),
     finalizedAt: new Date().toISOString(),
   };
 
