@@ -953,9 +953,14 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
 
     // Build a map: testId -> testOrderId (includes sub-tests)
     const testToOrderMap = new Map<string, string>();
+    // Build a map: testId -> testDefinitionId (from testOrder, for new-arch linking)
+    const testToDefIdMap = new Map<string, string>();
     for (const testOrder of visit.testOrders) {
       // Map the ordered test itself
       testToOrderMap.set(testOrder.testId, testOrder.id);
+      if (testOrder.testDefinitionId) {
+        testToDefIdMap.set(testOrder.testId, testOrder.testDefinitionId);
+      }
       // For panels, also map all child tests to the parent order
       if (testOrder.test.isPanel && testOrder.test.childTests) {
         for (const childTest of testOrder.test.childTests) {
@@ -982,16 +987,21 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
           },
         });
 
-        // Create new result
-        if (result.value !== null && result.value !== undefined) {
+        // Create new result (either numeric value or text notes)
+        if (result.value !== null && result.value !== undefined || (result.notes && result.notes.trim())) {
+          const numericValue = result.value != null ? parseFloat(result.value) : NaN;
+          const isText = isNaN(numericValue);
+          const defId = testToDefIdMap.get(result.testId) ?? null;
           await tx.testResult.create({
             data: {
               testOrderId,
-              testId: result.testId, // Store the actual test ID (can be sub-test)
+              testId: result.testId,
               reportVersionId: draftVersion.id,
-              value: parseFloat(result.value),
+              value: isText ? null : numericValue,
+              textValue: isText ? (result.notes || String(result.value ?? '')) : null,
               flag: result.flag || null,
               notes: result.notes || null,
+              testDefinitionId: defId,
             },
           });
         }
