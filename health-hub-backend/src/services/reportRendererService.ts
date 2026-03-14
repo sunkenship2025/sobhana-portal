@@ -136,6 +136,7 @@ function renderTestRow(test: TestResultSnapshot, indent: boolean = false): strin
 function renderStandardTable(panel: PanelSnapshot): string {
   const useSubgroups = panel.showSubgroups === true;
   let rowsHtml = '';
+  let smearHtml = '';
 
   if (useSubgroups) {
     const groups = new Map<string, TestResultSnapshot[]>();
@@ -145,13 +146,37 @@ function renderStandardTable(panel: PanelSnapshot): string {
       groups.get(group)!.push(test);
     }
     for (const [group, tests] of groups) {
-      if (group !== '__default__') {
-        rowsHtml += `
+      // Detect smear subgroups — render outside the numeric table
+      const isSmear = group.toUpperCase().includes('SMEAR');
+
+      if (isSmear) {
+        const hasSmearData = tests.some(t => t.textValue || t.notes || t.value !== null);
+        if (hasSmearData) {
+          const smearRows = tests.map(t => {
+            const displayValue = t.textValue || t.notes || (t.value !== null ? String(t.value) : '\u2014');
+            return `
+        <div class="smear-row">
+          <span class="smear-label">${escapeHtml(t.testName)}</span>
+          <span class="smear-sep">:</span>
+          <span class="smear-value">${escapeHtml(displayValue)}</span>
+        </div>`;
+          }).join('');
+
+          smearHtml = `
+    <div class="smear-section">
+      <div class="smear-header">${escapeHtml(group)}</div>
+      ${smearRows}
+    </div>`;
+        }
+      } else {
+        if (group !== '__default__') {
+          rowsHtml += `
       <tr class="section-divider">
         <td colspan="5">${escapeHtml(group)}</td>
       </tr>`;
+        }
+        rowsHtml += tests.map(t => renderTestRow(t)).join('');
       }
-      rowsHtml += tests.map(t => renderTestRow(t)).join('');
     }
   } else {
     rowsHtml = panel.tests.map(t => renderTestRow(t)).join('');
@@ -181,6 +206,7 @@ function renderStandardTable(panel: PanelSnapshot): string {
         ${rowsHtml}
       </tbody>
     </table>
+    ${smearHtml}
     ${interpretBlock}`;
 }
 
