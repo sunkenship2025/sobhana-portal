@@ -257,7 +257,7 @@ body.report-body {
 }
 
 .results-table td {
-  padding: 3px 8px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--color-border-light);
   vertical-align: middle;
 }
@@ -301,15 +301,18 @@ body.report-body {
 
 /* Section divider rows (DIFFERENTIAL COUNT, etc.) */
 .section-divider td {
-  background: var(--color-section-bg);
+  background: #d8e3f0;
   font-weight: bold;
   font-size: 8.5pt;
   text-transform: uppercase;
   letter-spacing: 0.3px;
-  padding: 6px 8px 4px;
-  border-top: 1px solid var(--color-border);
+  padding: 6px 8px;
+  border-top: 1.5px solid var(--color-primary);
   border-bottom: 1px solid var(--color-border);
   color: var(--color-primary);
+}
+.section-divider td:first-child {
+  border-left: 3px solid var(--color-primary);
 }
 
 /* ============================================================================
@@ -601,8 +604,8 @@ body.report-body {
   .panel-title { font-size: 8.5pt; margin-bottom: 2px; padding: 2px 6px; background: #eee; border-left: 2px solid #333; color: #000; }
 
   .results-table { font-size: 8pt; margin-bottom: 3px; }
-  .results-table th { background: #333; padding: 2px 4px; font-size: 7pt; }
-  .results-table td { padding: 2px 4px; border-bottom: 0.5px solid #ccc; }
+  .results-table th { background: #1a3e6e; color: white; padding: 3px 4px; font-size: 7pt; border: 0.5px solid #1a3e6e; }
+  .results-table td { padding: 4px; border-bottom: 0.5px solid #ccc; }
   .results-table tbody tr.data-row:nth-child(even) { background: #f5f5f5; }
 
   .col-flag.abnormal { color: #cc0000; }
