@@ -1,14 +1,11 @@
 /**
- * E3-10: Report Screen CSS
- * 
- * Used for: WhatsApp links, Browser view, Digital PDF download
- * Header and footer VISIBLE — replicates the pre-printed letterhead digitally.
- * 
- * Design matches the actual Sobhana Diagnostic Centre pre-printed paper:
- * - Logo top-left with "SOBHANA DIAGNOSTIC CENTRE"
- * - Blue horizontal stripe band
- * - Red "REPORT" badge centered below
- * - Footer with address, phone, T&C
+ * E3-10: Report Screen CSS — LIS Standard Format
+ *
+ * Clean, scannable lab report layout.
+ * - 5-column table: Test | Result | Unit | Reference Range | Flag
+ * - Zebra striping for readability
+ * - Flag column (H/L) in red for abnormal values
+ * - Peripheral smear as separate non-table section
  */
 
 /* ============================================================================
@@ -18,27 +15,18 @@
 :root {
   --font-primary: 'Times New Roman', Times, serif;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  
+
   --color-primary: #1a3a6e;
   --color-primary-dark: #122b52;
-  --color-secondary: #2c5282;
   --color-red: #cc2222;
   --color-text: #1a202c;
   --color-text-light: #4a5568;
-  --color-border: #d0d5dd;
-  --color-border-light: #e8ecf0;
+  --color-border: #ccc;
+  --color-border-light: #e2e2e2;
   --color-bg: #ffffff;
-  --color-bg-alt: #f8f9fa;
-  
-  --color-value-normal: #1a8a3f;
-  --color-value-warning: #d4850a;
-  --color-value-critical: #cc2222;
-  
-  --spacing-xs: 4px;
-  --spacing-sm: 8px;
-  --spacing-md: 16px;
-  --spacing-lg: 24px;
-  --spacing-xl: 32px;
+  --color-zebra: #f7f8fa;
+  --color-section-bg: #eef1f5;
+  --color-abnormal: #cc2222;
 }
 
 /* ============================================================================
@@ -53,8 +41,8 @@
 
 body.report-body {
   font-family: var(--font-primary);
-  font-size: 10.5pt;
-  line-height: 1.4;
+  font-size: 10pt;
+  line-height: 1.35;
   color: var(--color-text);
   background: #e8e8e8;
 }
@@ -71,20 +59,18 @@ body.report-body {
 }
 
 .report-content {
-  padding: 20px 28px 20px 28px;
+  padding: 16px 24px 16px 24px;
   flex: 1;
   display: flex;
   flex-direction: column;
 }
 
-/* Push signatures + end-of-report to the bottom of the page.
-   Works because report-page is flex-column and report-content has flex:1. */
 .report-bottom-section {
   margin-top: auto;
 }
 
 /* ============================================================================
-   HEADER — Replicates Sobhana pre-printed letterhead
+   HEADER
    ============================================================================ */
 
 .header {
@@ -104,7 +90,6 @@ body.report-body {
   height: 55px;
 }
 
-/* QR code in header top-right */
 .header-qr {
   display: flex;
   align-items: center;
@@ -124,12 +109,10 @@ body.report-body {
   text-align: center;
 }
 
-/* QR for print mode — hidden on screen, shown when printing */
 .print-qr {
   display: none;
 }
 
-/* Blue stripe band — 3 distinct lines matching the physical letterhead */
 .header-stripe-band {
   height: 10px;
   background: repeating-linear-gradient(
@@ -148,7 +131,6 @@ body.report-body {
   margin: 0;
 }
 
-/* Red REPORT badge — centered below stripes */
 .report-badge-row {
   text-align: center;
   padding: 3px 0 6px 0;
@@ -166,37 +148,47 @@ body.report-body {
 }
 
 /* ============================================================================
-   PATIENT INFORMATION
+   PATIENT INFORMATION — Aligned grid layout
    ============================================================================ */
 
 .patient-info {
-  border: 1.5px solid var(--color-border);
-  padding: 12px 16px;
-  margin-bottom: 18px;
+  border: 1px solid var(--color-border);
+  padding: 8px 14px;
+  margin-bottom: 14px;
 }
 
 .info-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px 30px;
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.info-row {
+  display: table-row;
 }
 
 .info-item {
-  display: flex;
-  gap: 8px;
-  font-size: 10pt;
-  line-height: 1.6;
+  display: table-cell;
+  width: 50%;
+  padding: 2px 0;
+  font-size: 9pt;
+  line-height: 1.5;
 }
 
 .info-item .label {
   font-weight: bold;
   color: #333;
-  min-width: 95px;
-  flex-shrink: 0;
+  display: inline-block;
+  min-width: 100px;
+}
+
+.info-item .label::after {
+  content: ':';
+  margin-right: 8px;
 }
 
 .info-item .value {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--color-text);
 }
 
@@ -205,17 +197,17 @@ body.report-body {
    ============================================================================ */
 
 .department {
-  margin-bottom: 22px;
+  margin-bottom: 16px;
   page-break-inside: avoid;
 }
 
 .department-header {
-  font-size: 11.5pt;
+  font-size: 10.5pt;
   font-weight: bold;
   color: var(--color-primary);
   border-bottom: 1.5px solid var(--color-primary);
-  padding-bottom: 4px;
-  margin-bottom: 12px;
+  padding-bottom: 3px;
+  margin-bottom: 8px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -225,113 +217,146 @@ body.report-body {
    ============================================================================ */
 
 .panel {
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 
 .panel-title {
-  font-size: 10.5pt;
+  font-size: 9.5pt;
   font-weight: bold;
-  color: var(--color-secondary);
-  margin-bottom: 6px;
-  padding: 4px 8px;
-  background: var(--color-bg-alt);
-  border-left: 3px solid var(--color-secondary);
+  color: var(--color-primary);
+  margin-bottom: 4px;
+  padding: 3px 8px;
+  background: var(--color-section-bg);
+  border-left: 3px solid var(--color-primary);
 }
 
 /* ============================================================================
-   RESULTS TABLES
+   RESULTS TABLE — LIS Standard: Test | Result | Unit | Ref Range | Flag
    ============================================================================ */
 
 .results-table {
   width: 100%;
   border-collapse: collapse;
-  margin-bottom: 10px;
-  font-size: 9.5pt;
+  margin-bottom: 6px;
+  font-size: 9pt;
+}
+
+.results-table thead tr {
+  background: var(--color-primary);
 }
 
 .results-table th {
-  background: var(--color-primary);
   color: white;
-  font-weight: bold;
+  font-weight: 600;
   text-align: left;
-  padding: 6px 10px;
-  font-size: 8.5pt;
+  padding: 4px 8px;
+  font-size: 8pt;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
+  border: none;
 }
 
 .results-table td {
-  padding: 5px 10px;
+  padding: 3px 8px;
   border-bottom: 1px solid var(--color-border-light);
-  vertical-align: top;
+  vertical-align: middle;
 }
 
-.results-table tbody tr:nth-child(even) {
-  background: #fafbfc;
+/* Column widths — LIS proportions */
+.results-table .col-test { width: 40%; }
+.results-table .col-value { width: 14%; text-align: center; }
+.results-table .col-unit { width: 14%; }
+.results-table .col-ref { width: 22%; }
+.results-table .col-flag { width: 10%; text-align: center; font-weight: bold; }
+
+/* Zebra striping */
+.results-table tbody tr.data-row:nth-child(even) {
+  background: var(--color-zebra);
 }
 
-/* Column widths */
-.col-test { width: 40%; }
-.col-value { width: 15%; text-align: center; }
-.col-unit { width: 15%; }
-.col-reference { width: 30%; }
-
-.test-name { font-weight: 500; }
-
-.method-text {
-  font-size: 8.5pt;
-  font-style: italic;
-  color: var(--color-text-light);
-  margin-top: 1px;
+/* Test name */
+.results-table .col-test {
+  font-weight: 400;
+  color: var(--color-text);
 }
 
-.indent-1 .test-name { padding-left: 20px; }
-.indent-2 .test-name { padding-left: 40px; }
-
-.test-value {
+/* Values — clean black text */
+.results-table .col-value {
   font-weight: 600;
-  text-align: center;
+  color: var(--color-text);
 }
 
-.test-value.value-normal {
-  color: var(--color-value-normal);
-}
-
-.test-value.value-warning {
-  color: var(--color-value-warning);
+/* Abnormal values + flags in red */
+.results-table .col-value.abnormal,
+.results-table .col-flag.abnormal {
+  color: var(--color-abnormal);
   font-weight: bold;
 }
 
-.test-value.value-critical {
-  color: var(--color-value-critical);
+.results-table .col-unit { color: #555; }
+.results-table .col-ref { color: #555; font-size: 8.5pt; }
+
+/* Indent for sub-tests (e.g. diff count under CBP) */
+.results-table tr.indent-1 .col-test { padding-left: 24px; }
+.results-table tr.indent-2 .col-test { padding-left: 40px; }
+
+/* Section divider rows (DIFFERENTIAL COUNT, etc.) */
+.section-divider td {
+  background: var(--color-section-bg);
   font-weight: bold;
+  font-size: 8.5pt;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 6px 8px 4px;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-primary);
 }
 
-.test-unit { color: #555; }
-.test-reference { color: #555; font-size: 9pt; }
+/* ============================================================================
+   PERIPHERAL SMEAR — Separate non-table section
+   ============================================================================ */
 
-.section-header td {
-  background: var(--color-bg-alt);
-  border-top: 1.5px solid var(--color-border);
-  padding-top: 10px;
+.smear-section {
+  margin-top: 6px;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 2px;
+}
+
+.smear-header {
   font-weight: bold;
+  font-size: 8.5pt;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--color-primary);
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--color-border-light);
 }
 
-.smear-comment {
-  font-style: italic;
-  padding: 10px !important;
-  line-height: 1.6;
+.smear-row {
+  display: flex;
+  align-items: baseline;
+  padding: 2px 0;
+  font-size: 9pt;
 }
 
-/* Smear rows: label + observation text (e.g. Normocytic Normochromic, Leucocytosis) */
 .smear-label {
   font-weight: 600;
-  width: 40%;
+  min-width: 140px;
+  flex-shrink: 0;
+}
+
+.smear-sep {
+  margin: 0 8px;
+  color: #999;
 }
 
 .smear-value {
-  font-weight: 500;
-  padding: 5px 10px;
+  font-weight: 400;
+  color: var(--color-text);
 }
 
 /* ============================================================================
@@ -344,9 +369,9 @@ body.report-body {
 
 .widal-note {
   text-align: center;
-  font-size: 8.5pt;
+  font-size: 8pt;
   color: var(--color-text-light);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 /* ============================================================================
@@ -356,31 +381,34 @@ body.report-body {
 .interpretation-block {
   background: #fffaf0;
   border: 1px solid #ed8936;
-  border-radius: 3px;
-  padding: 10px;
-  margin-top: 6px;
+  border-radius: 2px;
+  padding: 8px;
+  margin-top: 4px;
+  font-size: 9pt;
 }
 
 .interpretation-block strong {
   color: #c05621;
   display: block;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+  font-size: 8.5pt;
 }
 
-.interpretation-block p { line-height: 1.6; }
+.interpretation-block p { line-height: 1.4; }
 
 /* ============================================================================
    TEXT-ONLY RESULTS
    ============================================================================ */
 
 .text-only-result {
-  padding: 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 3px;
-  margin-bottom: 10px;
+  padding: 8px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 2px;
+  margin-bottom: 6px;
+  font-size: 9pt;
 }
 
-.text-only-result strong { color: var(--color-secondary); }
+.text-only-result strong { color: var(--color-primary); }
 .result-text { margin-left: 6px; }
 
 /* ============================================================================
@@ -388,26 +416,26 @@ body.report-body {
    ============================================================================ */
 
 .report-note {
-  font-size: 9pt;
+  font-size: 8pt;
   color: #555;
   text-align: left;
   padding: 0;
-  margin-top: 25px;
+  margin-top: 16px;
   margin-bottom: 0;
   font-weight: 400;
+  font-style: italic;
 }
 
 /* ============================================================================
    SIGNATURES
    ============================================================================ */
 
-/* Authorized Signatory label */
 .authorized-signatory-label {
-  font-size: 9pt;
+  font-size: 8pt;
   font-weight: 600;
   color: var(--color-text-light);
   text-align: right;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .signatures-section {
@@ -418,11 +446,10 @@ body.report-body {
   padding-top: 0;
 }
 
-/* Thin divider between signatures and footer */
 .report-divider {
   height: 1px;
   background: var(--color-border);
-  margin-top: 16px;
+  margin-top: 12px;
   margin-bottom: 0;
 }
 
@@ -432,53 +459,46 @@ body.report-body {
 
 .signatures-right {
   display: flex;
-  gap: 40px;
+  gap: 30px;
 }
 
 .signature-block {
   text-align: center;
-  min-width: 140px;
+  min-width: 120px;
   flex-shrink: 0;
 }
 
 .signature-image {
-  height: 50px;
+  height: 45px;
   width: auto;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
-.doctor-name { font-weight: bold; font-size: 10.5pt; color: var(--color-text); }
-.doctor-degrees { font-size: 8.5pt; color: var(--color-text-light); }
-.doctor-designation { font-size: 8.5pt; color: var(--color-secondary); font-weight: 500; }
-.doctor-reg { font-size: 7.5pt; color: var(--color-text-light); }
+.doctor-name { font-weight: bold; font-size: 9.5pt; color: var(--color-text); }
+.doctor-degrees { font-size: 8pt; color: var(--color-text-light); }
+.doctor-designation { font-size: 8pt; color: var(--color-primary); font-weight: 500; }
+.doctor-reg { font-size: 7pt; color: var(--color-text-light); }
 
-/* Lab Incharge — blank space for physical pen signing */
-.lab-incharge-block { min-width: 160px; }
+.lab-incharge-block { min-width: 140px; }
 .lab-incharge-line {
   width: 100%;
-  height: 50px;
+  height: 45px;
   border-bottom: 1px solid #999;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 .lab-incharge-label {
-  font-size: 9.5pt;
+  font-size: 9pt;
   font-weight: bold;
   color: var(--color-primary);
 }
 
 /* ============================================================================
-   QR CODE (Digital Only)
-   ============================================================================ */
-
-/* QR section removed from bottom — now in header top-right */
-
-/* ============================================================================
-   FOOTER — Replicates Sobhana pre-printed letterhead footer
+   FOOTER
    ============================================================================ */
 
 .footer {
   margin-top: 0;
-  padding-top: 30px;
+  padding-top: 20px;
   font-size: 7.5pt;
   color: #333;
 }
@@ -504,7 +524,7 @@ body.report-body {
 .footer-right .phone-text { font-weight: 600; font-size: 7.5pt; }
 
 /* ============================================================================
-   ACTION BUTTONS (Screen Only — hidden during print)
+   ACTION BUTTONS (Screen Only)
    ============================================================================ */
 
 .action-buttons {
@@ -520,7 +540,7 @@ body.report-body {
   padding: 8px 16px;
   border: none;
   border-radius: 4px;
-  font-size: 10.5pt;
+  font-size: 10pt;
   cursor: pointer;
   text-decoration: none;
   display: inline-flex;
@@ -541,23 +561,21 @@ body.report-body {
 
 @media (max-width: 480px) {
   body.report-body { background: white; }
-  
+
   .report-page { box-shadow: none; margin: 0; min-height: auto; }
   .header-logo { height: 35px; }
-  .report-content { padding: 12px 14px; }
-  .info-grid { grid-template-columns: 1fr; }
-  .signatures-section { flex-direction: column; gap: 24px; }
-  .signatures-left { flex-wrap: wrap; justify-content: center; gap: 20px; }
-  .signatures-right { flex-wrap: wrap; justify-content: center; gap: 20px; }
+  .report-content { padding: 10px 12px; }
+  .info-row { display: block; }
+  .info-item { display: block; width: 100%; }
+  .signatures-section { flex-direction: column; gap: 20px; }
+  .signatures-right { flex-wrap: wrap; justify-content: center; gap: 16px; }
   .action-buttons { bottom: 10px; right: 10px; }
   .footer-content { flex-direction: column; gap: 6px; }
   .footer-left, .footer-right { max-width: 100%; text-align: center; }
 }
 
 /* ============================================================================
-   PRINT MEDIA QUERY
-   When printing from the digital report view (browser Ctrl+P),
-   hide header/footer since they print on pre-printed letterhead paper.
+   PRINT MEDIA QUERY (browser Ctrl+P)
    ============================================================================ */
 
 @media print {
@@ -567,72 +585,57 @@ body.report-body {
   .no-print {
     display: none !important;
   }
-  
-  body.report-body { padding: 0; background: white; font-size: 9pt; line-height: 1.25; }
+
+  body.report-body { padding: 0; background: white; font-size: 9pt; line-height: 1.2; }
   .report-page { box-shadow: none; margin: 0; min-height: auto; max-width: none; }
   .report-content { padding: 0; max-width: none; display: block; }
-  .report-bottom-section { margin-top: 20px; }
-  
-  /* Compact patient info */
-  .patient-info { padding: 6px 10px; margin-bottom: 8px; border: 1px solid #333; }
-  .info-grid { gap: 2px 20px; }
-  .info-item { font-size: 8.5pt; line-height: 1.4; }
-  .info-item .label { min-width: 80px; }
-  
-  /* Compact department sections */
-  .department { margin-bottom: 8px; }
-  .department-header { font-size: 10pt; padding-bottom: 2px; margin-bottom: 6px; border-bottom: 1px solid #333; color: #000; }
-  
-  /* Compact panels */
-  .panel { margin-bottom: 8px; }
-  .panel-title { font-size: 9pt; margin-bottom: 3px; padding: 2px 6px; background: #eee; border-left: 2px solid #333; color: #000; }
-  
-  /* Compact tables */
-  .results-table { font-size: 8.5pt; margin-bottom: 4px; }
-  .results-table th { background: #333; padding: 3px 6px; font-size: 7.5pt; }
-  .results-table td { padding: 2px 6px; border-bottom: 0.5px solid #ccc; }
-  .results-table tbody tr:nth-child(even) { background: transparent; }
-  .method-text { font-size: 7.5pt; }
-  .test-reference { font-size: 8pt; }
-  
-  /* Value colors for print (use darker shades for B&W printers) */
-  .test-value.value-normal { color: #1a8a3f; }
-  .test-value.value-warning { color: #b87000; }
-  .test-value.value-critical { color: #cc0000; }
-  
-  /* Section headers */
-  .section-header td { padding-top: 4px; }
-  
-  /* Compact note */
-  .report-note { font-size: 7.5pt; margin-top: 6px; margin-bottom: 0; }
-  
-  /* Compact signatures */
-  .authorized-signatory-label { font-size: 7.5pt; margin-bottom: 4px; }
-  .signatures-section { margin-top: 0; padding-top: 4px; }
-  .report-divider { margin-top: 8px; }
-  .signature-image { height: 35px; }
-  .doctor-name { font-size: 9pt; }
-  .doctor-degrees { font-size: 7.5pt; }
-  .doctor-designation { font-size: 7.5pt; }
-  .lab-incharge-line { height: 35px; }
-  .lab-incharge-label { font-size: 8.5pt; }
-  
-  /* QR code visible in print — positioned at bottom-right */
+  .report-bottom-section { margin-top: 14px; }
+
+  .patient-info { padding: 4px 8px; margin-bottom: 6px; border: 1px solid #333; }
+  .info-item { font-size: 8pt; line-height: 1.3; }
+  .info-item .label { min-width: 75px; }
+
+  .department { margin-bottom: 6px; }
+  .department-header { font-size: 9.5pt; padding-bottom: 2px; margin-bottom: 4px; border-bottom: 1px solid #333; color: #000; }
+
+  .panel { margin-bottom: 6px; }
+  .panel-title { font-size: 8.5pt; margin-bottom: 2px; padding: 2px 6px; background: #eee; border-left: 2px solid #333; color: #000; }
+
+  .results-table { font-size: 8pt; margin-bottom: 3px; }
+  .results-table th { background: #333; padding: 2px 4px; font-size: 7pt; }
+  .results-table td { padding: 2px 4px; border-bottom: 0.5px solid #ccc; }
+  .results-table tbody tr.data-row:nth-child(even) { background: #f5f5f5; }
+
+  .col-value.abnormal, .col-flag.abnormal { color: #cc0000; }
+
+  .section-divider td { padding: 3px 4px; }
+
+  .report-note { font-size: 7pt; margin-top: 4px; }
+
+  .authorized-signatory-label { font-size: 7pt; margin-bottom: 3px; }
+  .signatures-section { margin-top: 0; padding-top: 2px; }
+  .report-divider { margin-top: 6px; }
+  .signature-image { height: 30px; }
+  .doctor-name { font-size: 8.5pt; }
+  .doctor-degrees { font-size: 7pt; }
+  .doctor-designation { font-size: 7pt; }
+  .lab-incharge-line { height: 30px; }
+  .lab-incharge-label { font-size: 8pt; }
+
   .print-qr {
     display: flex !important;
     align-items: center;
     gap: 6px;
     justify-content: flex-end;
-    margin-top: 10px;
+    margin-top: 6px;
   }
-  .print-qr-img { width: 50px; height: 50px; }
-  .print-qr-text { font-size: 7pt; color: #666; }
-  
-  /* Page break control */
+  .print-qr-img { width: 45px; height: 45px; }
+  .print-qr-text { font-size: 6.5pt; color: #666; }
+
   .department { page-break-inside: avoid; }
   .panel { page-break-inside: avoid; }
   .signatures-section { page-break-inside: avoid; }
-  
+
   @page {
     size: A4;
     margin-top: 32mm;
