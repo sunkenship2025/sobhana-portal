@@ -113,10 +113,12 @@ body.report-body {
 .department-header {
   font-size: 10pt;
   font-weight: bold;
+  color: #1f3e6e;
   border-bottom: 0.5pt solid var(--color-border);
   padding-bottom: var(--spacing-xs);
   margin-bottom: var(--spacing-sm);
   text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 /* ============================================================================
@@ -151,11 +153,12 @@ body.report-body {
 .results-table th {
   background: #1f3e6e;
   color: white;
-  font-weight: bold;
+  font-weight: 600;
   text-align: left;
   padding: 3pt var(--spacing-sm);
   font-size: 7.5pt;
   text-transform: uppercase;
+  letter-spacing: 0.3px;
   border: 0.5pt solid #1f3e6e;
 }
 
@@ -196,6 +199,7 @@ body.report-body {
   font-weight: bold;
   font-size: 8pt;
   text-transform: uppercase;
+  letter-spacing: 0.3px;
   padding: var(--spacing-sm);
   border-top: 0.5pt solid #2c5aa0;
   border-bottom: 0.5pt solid #ccc;
@@ -220,6 +224,8 @@ body.report-body {
   font-weight: bold;
   font-size: 8pt;
   text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: #1f3e6e;
   padding-bottom: 2pt;
   margin-bottom: 2pt;
   border-bottom: 0.5pt solid #ccc;
