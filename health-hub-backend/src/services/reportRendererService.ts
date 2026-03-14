@@ -86,7 +86,8 @@ function formatValue(
   // textValue takes priority (narrative/text results)
   if (textValue) return textValue;
   if (value === null) return '-';
-  const formatted = Number.isInteger(value) ? value.toString() : value.toFixed(2);
+  // Format: integers as-is, decimals with up to 2 places (no trailing zeros)
+  const formatted = Number.isInteger(value) ? value.toString() : parseFloat(value.toFixed(2)).toString();
   const withPrefix = prefix ? `${prefix}${formatted}` : formatted;
   return unit ? `${withPrefix} ${unit}` : withPrefix;
 }
@@ -685,6 +686,18 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
             <span class="value">${escapeHtml(snapshot.visit.branchName)}</span>
           </div>
           `}
+          ${(() => {
+            const sampleTypes = [...new Set(snapshot.departments.flatMap(d => d.panels.map(p => p.sampleType)).filter(Boolean))];
+            return sampleTypes.length > 0 ? `
+          <div class="info-item">
+            <span class="label">Sample Type:</span>
+            <span class="value">${escapeHtml(sampleTypes.join(', '))}</span>
+          </div>` : '';
+          })()}
+          <div class="info-item">
+            <span class="label">Reporting On:</span>
+            <span class="value">${formatDateTime(snapshot.visit.finalizedAt)}</span>
+          </div>
         </div>
       </section>
 
@@ -695,7 +708,7 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
 
       <!-- Clinical Note — directly below results table -->
       <div class="report-note">
-        This report should be interpreted in conjunction with clinical findings.
+        Note: Please Correlate Clinically if necessary kindly discuss.
       </div>
 
       <!-- Bottom Section — pushed to bottom of page via flexbox margin-top:auto -->
