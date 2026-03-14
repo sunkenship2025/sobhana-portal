@@ -179,7 +179,7 @@ body.report-body {
   font-weight: bold;
   color: #333;
   display: inline-block;
-  min-width: 110px;
+  min-width: 120px;
 }
 
 .info-item .label::after {
@@ -348,13 +348,13 @@ body.report-body {
 
 .smear-label {
   font-weight: 600;
-  min-width: 140px;
+  min-width: 160px;
   flex-shrink: 0;
 }
 
 .smear-sep {
-  margin: 0 8px;
-  color: #999;
+  margin: 0 4px 0 0;
+  color: #555;
 }
 
 .smear-value {
