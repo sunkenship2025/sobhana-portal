@@ -134,6 +134,11 @@ app.use('/css', express.static(path.join(__dirname, '../public/css')));
 app.use('/images', express.static(path.join(__dirname, '../public/images')));
 app.use('/fonts', express.static(path.join(__dirname, '../public/fonts')));
 
+// Root route — returns 200 so Render's default port-detection and health checks succeed
+app.get('/', (_req, res) => {
+  res.json({ status: 'ok', service: 'sobhana-health-hub', timestamp: new Date().toISOString() });
+});
+
 // Health check (no auth required)
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -192,13 +197,13 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   });
 });
 
-// Start server
-app.listen(PORT, async () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📊 Health check: http://localhost:${PORT}/health`);
-  console.log(`🔐 Auth endpoint: http://localhost:${PORT}/api/auth/login`);
-  console.log(`📄 Report download: http://localhost:${PORT}/reports/:token`);
-  console.log(`📱 WhatsApp webhook: http://localhost:${PORT}/webhooks/whatsapp`);
+// Start server — bind to 0.0.0.0 explicitly so Render can detect the open port
+app.listen(Number(PORT), '0.0.0.0', async () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
+  console.log(`Health check: http://0.0.0.0:${PORT}/health`);
+  console.log(`Auth endpoint: http://0.0.0.0:${PORT}/api/auth/login`);
+  console.log(`Report download: http://0.0.0.0:${PORT}/reports/:token`);
+  console.log(`WhatsApp webhook: http://0.0.0.0:${PORT}/webhooks/whatsapp`);
   
   // Warmup PDF service for faster first generation
   await warmupPdfService();

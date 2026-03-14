@@ -276,13 +276,13 @@ body.report-body {
 }
 
 /* Test name */
-.results-table .col-test {
+.results-table td.col-test {
   font-weight: 400;
   color: var(--color-text);
 }
 
 /* Values — clean black text */
-.results-table .col-value {
+.results-table td.col-value {
   font-weight: 600;
   color: var(--color-text);
 }
@@ -293,8 +293,8 @@ body.report-body {
   font-weight: bold;
 }
 
-.results-table .col-unit { color: #777; }
-.results-table .col-ref { color: #6b7280; font-size: 8.5pt; }
+.results-table td.col-unit { color: #777; }
+.results-table td.col-ref { color: #6b7280; font-size: 8.5pt; }
 
 /* Indent for sub-tests (e.g. diff count under CBP) */
 .results-table tr.indent-1 .col-test { padding-left: 24px; }
