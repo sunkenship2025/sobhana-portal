@@ -64,7 +64,8 @@ COPY --from=builder /app/dist ./dist/
 # Copy public assets (report templates, etc.)
 COPY public ./public/
 
-EXPOSE 3000
+EXPOSE 10000
 
 # Run migrations then start
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
+# CMD uses exec form via sh -c so Node reads Render's PORT env var
+CMD ["sh", "-c", "npx prisma migrate deploy && exec node dist/index.js"]
