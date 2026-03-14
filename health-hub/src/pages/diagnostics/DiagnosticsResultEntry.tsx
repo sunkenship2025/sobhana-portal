@@ -69,6 +69,8 @@ interface Visit {
       testResults?: Array<{
         testId: string;
         value: number;
+        textValue?: string | null;
+        notes?: string | null;
         flag: string;
       }>;
     }>;
@@ -121,7 +123,9 @@ const DiagnosticsResultEntry = () => {
             const initialResults: Record<string, string> = {};
             const latestVersion = data.report.versions[0];
             latestVersion.testResults.forEach((r: any) => {
-              if (r.value !== null) {
+              if (r.textValue) {
+                initialResults[r.testId] = r.textValue;
+              } else if (r.value !== null) {
                 initialResults[r.testId] = r.value.toString();
               }
             });
