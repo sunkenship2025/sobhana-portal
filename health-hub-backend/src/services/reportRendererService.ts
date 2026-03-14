@@ -78,16 +78,18 @@ function escapeHtml(text: string | null | undefined): string {
 }
 
 function formatValue(
-  value: number | null, 
-  unit: string | null, 
-  textValue?: string | null, 
+  value: number | null,
+  unit: string | null,
+  textValue?: string | null,
   prefix?: string | null
 ): string {
   // textValue takes priority (narrative/text results)
   if (textValue) return textValue;
   if (value === null) return '-';
-  // Format: integers as-is, decimals with up to 2 places (no trailing zeros)
-  const formatted = Number.isInteger(value) ? value.toString() : parseFloat(value.toFixed(2)).toString();
+  // Format: strip unnecessary trailing zeros (13.20 → 13.2, 40.00 → 40, 4.0 → 4)
+  // Labs prefer clean numbers: integer results as integers, decimals with minimal places
+  const rounded = parseFloat(value.toFixed(2));
+  const formatted = rounded.toString();
   const withPrefix = prefix ? `${prefix}${formatted}` : formatted;
   return unit ? `${withPrefix} ${unit}` : withPrefix;
 }
@@ -270,7 +272,7 @@ function renderCBPTable(panel: PanelSnapshot): string {
   const diffTests = panel.tests.filter((t: TestResultSnapshot) => 
     t.subGroup ? t.subGroup === 'DIFFERENTIAL' : DIFF_CODES.includes(t.testCode)
   );
-  const smearTest = panel.tests.find((t: TestResultSnapshot) => 
+  const smearTests = panel.tests.filter((t: TestResultSnapshot) =>
     t.subGroup ? t.subGroup === 'SMEAR' : t.testCode === 'PS'
   );
 
@@ -280,7 +282,7 @@ function renderCBPTable(panel: PanelSnapshot): string {
     return `
       <tr>
         <td class="test-name">${escapeHtml(test.testName)}</td>
-        <td class="test-value ${valueClass}">${formatValue(test.value, null)}</td>
+        <td class="test-value ${valueClass}">${formatValue(test.value, null, test.textValue)}</td>
         <td class="test-unit">${escapeHtml(test.referenceUnit) || ''}</td>
         <td class="test-reference">${formatReference(test.referenceMin, test.referenceMax, null)}</td>
       </tr>
@@ -295,8 +297,8 @@ function renderCBPTable(panel: PanelSnapshot): string {
       return `
         <tr>
           <td class="test-name indent-1">${escapeHtml(test.testName)}</td>
-          <td class="test-value ${valueClass}">${formatValue(test.value, null)}</td>
-          <td class="test-unit">%</td>
+          <td class="test-value ${valueClass}">${formatValue(test.value, null, test.textValue)}</td>
+          <td class="test-unit">${escapeHtml(test.referenceUnit) || '%'}</td>
           <td class="test-reference">${formatReference(test.referenceMin, test.referenceMax, null)}</td>
         </tr>
       `;
@@ -310,17 +312,29 @@ function renderCBPTable(panel: PanelSnapshot): string {
     `;
   }
 
-  // Peripheral smear
+  // Peripheral smear — supports multiple smear items (RBC Morphology, WBC, Platelets)
   let smearSection = '';
-  if (smearTest && smearTest.notes) {
-    smearSection = `
-      <tr class="section-header">
-        <td colspan="4"><strong>PERIPHERAL SMEAR EXAMINATION</strong></td>
-      </tr>
-      <tr>
-        <td colspan="4" class="smear-comment">${escapeHtml(smearTest.notes)}</td>
-      </tr>
-    `;
+  if (smearTests.length > 0) {
+    // Check if any smear test has a value (textValue, notes, or value)
+    const hasSmearData = smearTests.some((t: TestResultSnapshot) => t.textValue || t.notes || t.value !== null);
+    if (hasSmearData) {
+      const smearRows = smearTests.map((t: TestResultSnapshot) => {
+        const displayValue = t.textValue || t.notes || (t.value !== null ? String(t.value) : '-');
+        return `
+          <tr>
+            <td class="test-name smear-label">${escapeHtml(t.testName)}</td>
+            <td colspan="3" class="smear-value">${escapeHtml(displayValue)}</td>
+          </tr>
+        `;
+      }).join('');
+
+      smearSection = `
+        <tr class="section-header">
+          <td colspan="4"><strong>PERIPHERAL SMEAR EXAMINATION</strong></td>
+        </tr>
+        ${smearRows}
+      `;
+    }
   }
 
   return `
@@ -668,10 +682,6 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
             <span class="value">${snapshot.patient.ageDisplay || (snapshot.patient.age + ' Years')} / ${formatGender(snapshot.patient.gender)}</span>
           </div>
           <div class="info-item">
-            <span class="label">Date:</span>
-            <span class="value">${formatDate(snapshot.visit.createdAt)}</span>
-          </div>
-          <div class="info-item">
             <span class="label">Patient ID:</span>
             <span class="value">${escapeHtml(snapshot.patient.patientNumber)}</span>
           </div>
@@ -680,12 +690,7 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
             <span class="label">Ref. Doctor:</span>
             <span class="value">${escapeHtml(snapshot.visit.referralDoctorName)}</span>
           </div>
-          ` : `
-          <div class="info-item">
-            <span class="label">Branch:</span>
-            <span class="value">${escapeHtml(snapshot.visit.branchName)}</span>
-          </div>
-          `}
+          ` : ''}
           ${(() => {
             const sampleTypes = [...new Set(snapshot.departments.flatMap(d => d.panels.map(p => p.sampleType)).filter(Boolean))];
             return sampleTypes.length > 0 ? `
@@ -694,6 +699,14 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
             <span class="value">${escapeHtml(sampleTypes.join(', '))}</span>
           </div>` : '';
           })()}
+          <div class="info-item">
+            <span class="label">Registered On:</span>
+            <span class="value">${formatDateTime(snapshot.visit.createdAt)}</span>
+          </div>
+          <div class="info-item">
+            <span class="label">Collected On:</span>
+            <span class="value">${formatDateTime(snapshot.visit.collectedAt || snapshot.visit.createdAt)}</span>
+          </div>
           <div class="info-item">
             <span class="label">Reporting On:</span>
             <span class="value">${formatDateTime(snapshot.visit.finalizedAt)}</span>
@@ -708,7 +721,7 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
 
       <!-- Clinical Note — directly below results table -->
       <div class="report-note">
-        Note: Please Correlate Clinically if necessary kindly discuss.
+        Note: Please correlate clinically if necessary.
       </div>
 
       <!-- Bottom Section — pushed to bottom of page via flexbox margin-top:auto -->

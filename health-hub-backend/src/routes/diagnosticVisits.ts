@@ -160,6 +160,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
                 },
               },
             },
+            testDefinition: true,
             testResults: {
               include: {
                 test: true, // Include test info for each result
@@ -221,10 +222,10 @@ router.get('/:id', async (req: AuthRequest, res) => {
         price: to.priceInPaise / 100,
         isPanel: to.test.isPanel,
         referenceRange: {
-          min: to.referenceMinSnapshot ?? to.test.referenceMin ?? 0,
-          max: to.referenceMaxSnapshot ?? to.test.referenceMax ?? 0,
-          unit: to.referenceUnitSnapshot || to.test.referenceUnit || '',
-          text: to.test.referenceText || '',
+          min: to.referenceMinSnapshot ?? to.testDefinition?.referenceMin ?? to.test.referenceMin ?? 0,
+          max: to.referenceMaxSnapshot ?? to.testDefinition?.referenceMax ?? to.test.referenceMax ?? 0,
+          unit: to.referenceUnitSnapshot || to.testDefinition?.referenceUnit || to.test.referenceUnit || '',
+          text: to.testDefinition?.referenceText || to.test.referenceText || '',
         },
         // Include child tests for panels
         childTests: to.test.isPanel ? to.test.childTests.map((ct: any) => ({
@@ -987,18 +988,20 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
           },
         });
 
-        // Create new result (either numeric value or text notes)
-        if (result.value !== null && result.value !== undefined || (result.notes && result.notes.trim())) {
+        // Create new result (either numeric value, textValue, or text notes)
+        if (result.value !== null && result.value !== undefined || result.textValue || (result.notes && result.notes.trim())) {
           const numericValue = result.value != null ? parseFloat(result.value) : NaN;
           const isText = isNaN(numericValue);
           const defId = testToDefIdMap.get(result.testId) ?? null;
+          // Prefer explicit textValue from frontend; fall back to notes for legacy clients
+          const textVal = result.textValue || (isText ? (result.notes || String(result.value ?? '')) : null);
           await tx.testResult.create({
             data: {
               testOrderId,
               testId: result.testId,
               reportVersionId: draftVersion.id,
               value: isText ? null : numericValue,
-              textValue: isText ? (result.notes || String(result.value ?? '')) : null,
+              textValue: textVal || null,
               flag: result.flag || null,
               notes: result.notes || null,
               testDefinitionId: defId,
