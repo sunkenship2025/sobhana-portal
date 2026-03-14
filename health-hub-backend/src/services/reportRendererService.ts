@@ -146,12 +146,15 @@ function renderStandardTable(panel: PanelSnapshot): string {
       groups.get(group)!.push(test);
     }
     for (const [group, tests] of groups) {
-      // Detect smear subgroups — render outside the numeric table
-      const isSmear = group.toUpperCase().includes('SMEAR');
+      // A group is qualitative (render outside the numeric table) when every test
+      // in it has no reference range — i.e. it carries observations, not numbers.
+      // This is data-driven: no string matching, works for any future qualitative group.
+      const isQualitative = group !== '__default__' &&
+        tests.every(t => t.referenceMin === null && t.referenceMax === null);
 
-      if (isSmear) {
-        const hasSmearData = tests.some(t => t.textValue || t.notes || t.value !== null);
-        if (hasSmearData) {
+      if (isQualitative) {
+        const hasData = tests.some(t => t.textValue || t.notes || t.value !== null);
+        if (hasData) {
           const smearRows = tests.map(t => {
             const displayValue = t.textValue || t.notes || (t.value !== null ? String(t.value) : '\u2014');
             return `
@@ -162,7 +165,7 @@ function renderStandardTable(panel: PanelSnapshot): string {
         </div>`;
           }).join('');
 
-          smearHtml = `
+          smearHtml += `
     <div class="smear-section">
       <div class="smear-header">${escapeHtml(group)}</div>
       ${smearRows}
@@ -475,8 +478,10 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
 
   // Signature blocks
   const signatureBlocks = snapshot.signatures.map(sig => {
-    const sigDataUri = inlineSignatureImage(sig.signatureImagePath);
-    const sigImgSrc = sigDataUri || (sig.signatureImagePath ? `${baseUrl}${escapeHtml(sig.signatureImagePath)}` : '');
+    // Priority: base64 from DB (Render-safe) → inline from disk (local dev) → absolute URL fallback
+    const sigImgSrc = sig.signatureImageBase64
+      || inlineSignatureImage(sig.signatureImagePath)
+      || (sig.signatureImagePath ? `${baseUrl}${escapeHtml(sig.signatureImagePath)}` : '');
     return `
     <div class="signature-block">
       ${sigImgSrc ? `<img src="${sigImgSrc}" alt="Signature" class="signature-image" onerror="this.style.display='none'" />` : ''}

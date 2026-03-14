@@ -83,6 +83,7 @@ export interface SignatureSnapshot {
   designation: string;
   registrationNumber: string | null;
   signatureImagePath: string | null;
+  signatureImageBase64: string | null;
   showLabInchargeNote: boolean;
   displayOrder: number;
 }
@@ -558,12 +559,13 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
         designation: doc.designation,
         registrationNumber: doc.registrationNumber,
         signatureImagePath: doc.signatureImagePath,
+        signatureImageBase64: doc.signatureImageBase64 || null,
         showLabInchargeNote: rule.showLabInchargeNote,
         displayOrder: rule.displayOrder,
       });
     }
   }
-  
+
   const signatures = Array.from(signatureMap.values())
     .sort((a, b) => a.displayOrder - b.displayOrder);
 
@@ -706,6 +708,7 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
         designation: doc.designation,
         registrationNumber: doc.registrationNumber,
         signatureImagePath: doc.signatureImagePath,
+        signatureImageBase64: doc.signatureImageBase64 || null,
         showLabInchargeNote: rule.showLabInchargeNote,
         displayOrder: rule.displayOrder,
       });
