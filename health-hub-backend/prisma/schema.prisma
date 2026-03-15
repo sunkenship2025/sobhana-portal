@@ -857,7 +857,7 @@ model SigningDoctor {
   degrees            String            // e.g., "MBBS, MD (Pathology)"
   designation        String            // e.g., "Consultant Pathologist"
   registrationNumber String?           // Medical council registration
-  signatureImagePath   String            // Path to signature PNG in storage
+  signatureImagePath   String?           // Path to signature PNG in storage (set after upload)
   signatureImageBase64 String?           // Base64 data URI — persists across deploys (Render safe)
   isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())
