@@ -1137,6 +1137,7 @@ model ClinicalPanel {
   valueDisplayPrefix String?                         // e.g., "1:" for Widal dilution format
   
   summaryInterpretationTemplate String?              // Template for panel-level interpretation
+  subgroupMethods   Json?                            // Map<subgroupName, methodString> e.g. {"PHYSICAL EXAMINATION": "Transmission refractometry"}
   isActive          Boolean         @default(true)
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt

@@ -231,6 +231,22 @@ body.report-body {
   border-bottom: 0.5pt solid #ccc;
 }
 
+.smear-method {
+  font-size: 7pt;
+  font-style: italic;
+  color: #555;
+  padding: 0 0 2pt 0;
+}
+
+/* Subgroup method row (inside table) */
+.method-row td {
+  font-size: 7pt;
+  font-style: italic;
+  color: #555;
+  padding: 1pt 8pt 2pt 12pt;
+  border-bottom: 0.5pt solid #ccc;
+}
+
 .smear-row {
   display: flex;
   align-items: baseline;

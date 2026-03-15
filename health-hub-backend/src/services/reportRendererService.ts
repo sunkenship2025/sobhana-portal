@@ -165,9 +165,11 @@ function renderStandardTable(panel: PanelSnapshot): string {
         </div>`;
           }).join('');
 
+          const sgMethod = panel.subgroupMethods?.[group];
           smearHtml += `
     <div class="smear-section">
       <div class="smear-header">${escapeHtml(group)}</div>
+      ${sgMethod ? `<div class="smear-method">Method : ${escapeHtml(sgMethod)}</div>` : ''}
       ${smearRows}
     </div>`;
         }
@@ -177,6 +179,13 @@ function renderStandardTable(panel: PanelSnapshot): string {
       <tr class="section-divider">
         <td colspan="5">${escapeHtml(group)}</td>
       </tr>`;
+          const sgMethod = panel.subgroupMethods?.[group];
+          if (sgMethod) {
+            rowsHtml += `
+      <tr class="method-row">
+        <td colspan="5">Method : ${escapeHtml(sgMethod)}</td>
+      </tr>`;
+          }
         }
         rowsHtml += tests.map(t => renderTestRow(t)).join('');
       }
