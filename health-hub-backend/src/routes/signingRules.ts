@@ -118,6 +118,27 @@ router.post('/', async (req: AuthRequest, res) => {
   } catch (error: any) {
     // Handle unique constraint violation (department + doctor already linked)
     if (error.code === 'P2002') {
+      // Check if there's a soft-deleted rule — reactivate it
+      const existing = await prisma.signingRule.findFirst({
+        where: { departmentId: req.body.departmentId, signingDoctorId: req.body.signingDoctorId },
+      });
+      if (existing && !existing.isActive) {
+        const reactivated = await prisma.signingRule.update({
+          where: { id: existing.id },
+          data: {
+            isActive: true,
+            showLabInchargeNote: req.body.showLabInchargeNote ?? false,
+            displayOrder: req.body.displayOrder ?? 0,
+          },
+          include: {
+            department: { select: { id: true, name: true } },
+            signingDoctor: {
+              select: { id: true, name: true, degrees: true, designation: true },
+            },
+          },
+        });
+        return res.status(201).json(reactivated);
+      }
       return res.status(409).json({
         error: 'DUPLICATE_RULE',
         message: 'This doctor is already assigned to this department',
@@ -164,7 +185,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
 });
 
 // ─── DELETE /api/signing-rules/:id ──────────────────────────────────
-// Soft-delete a signing rule
+// Hard-delete a signing rule (rules are just assignments, not historical data)
 router.delete('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
@@ -174,12 +195,11 @@ router.delete('/:id', async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Signing rule not found' });
     }
 
-    await prisma.signingRule.update({
+    await prisma.signingRule.delete({
       where: { id },
-      data: { isActive: false },
     });
 
-    return res.json({ message: 'Signing rule deactivated' });
+    return res.json({ message: 'Signing rule deleted' });
   } catch (error) {
     console.error('Error deleting signing rule:', error);
     return res.status(500).json({ error: 'DELETE_FAILED', message: 'Failed to delete signing rule' });

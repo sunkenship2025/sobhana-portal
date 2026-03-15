@@ -118,7 +118,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
 // Create a new signing doctor
 router.post('/', async (req: AuthRequest, res) => {
   try {
-    const { name, degrees, designation, registrationNumber, signatureImagePath } = req.body;
+    const { name, degrees, designation, registrationNumber, signatureImagePath, isActive } = req.body;
 
     if (!name || !degrees || !designation) {
       return res.status(400).json({
@@ -127,9 +127,9 @@ router.post('/', async (req: AuthRequest, res) => {
       });
     }
 
-    // Check for duplicate name
+    // Check for duplicate name (only among active doctors)
     const existing = await prisma.signingDoctor.findFirst({
-      where: { name: { equals: name, mode: 'insensitive' } },
+      where: { name: { equals: name, mode: 'insensitive' }, isActive: true },
     });
 
     if (existing) {
@@ -146,6 +146,7 @@ router.post('/', async (req: AuthRequest, res) => {
         designation: designation.trim(),
         registrationNumber: registrationNumber?.trim() || null,
         signatureImagePath: signatureImagePath?.trim() || '',
+        isActive: isActive ?? true,
       },
     });
 
@@ -175,6 +176,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
         where: {
           name: { equals: name, mode: 'insensitive' },
           id: { not: id },
+          isActive: true,
         },
       });
       if (duplicate) {
