@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { API_BASE } from '@/lib/api';
+import { API_BASE, API_BASE_URL } from '@/lib/api';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -193,10 +193,17 @@ const DiagnosticsFinalizedReports = () => {
                       >
                         <Eye className="h-4 w-4" />
                       </Button>
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         size="icon"
-                        onClick={() => window.print()}
+                        onClick={() => {
+                          const reportToken = visit.reportToken;
+                          if (reportToken) {
+                            window.open(`${API_BASE_URL}/reports/${reportToken}/view?print=true`, '_blank');
+                          } else {
+                            toast.error('Report not available');
+                          }
+                        }}
                         title="Print"
                       >
                         <Printer className="h-4 w-4" />
