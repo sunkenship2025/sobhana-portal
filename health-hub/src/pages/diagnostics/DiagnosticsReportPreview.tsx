@@ -232,13 +232,7 @@ const DiagnosticsReportPreview = () => {
 
   const handlePrint = () => {
     if (reportToken) {
-      // Open the report HTML in a new window and trigger browser print dialog
-      const printWindow = window.open(`${API_BASE_URL}/reports/${reportToken}/view`, '_blank');
-      if (printWindow) {
-        printWindow.addEventListener('load', () => {
-          setTimeout(() => printWindow.print(), 500);
-        });
-      }
+      window.open(`${API_BASE_URL}/reports/${reportToken}/view?print=true`, '_blank');
     } else {
       toast.error('Report token not available. Please finalize the report first.');
     }
