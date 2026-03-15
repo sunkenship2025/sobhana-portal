@@ -121,12 +121,7 @@ function VisitDetailDrawer({ visit, open, onClose, patientPhone, patientName, on
       toast.error('Report not available.');
       return;
     }
-    const printWindow = window.open(`${API_BASE_URL}/reports/${visit.reportAccessToken}/view`, '_blank');
-    if (printWindow) {
-      printWindow.addEventListener('load', () => {
-        setTimeout(() => printWindow.print(), 500);
-      });
-    }
+    window.open(`${API_BASE_URL}/reports/${visit.reportAccessToken}/view?print=true`, '_blank');
   };
 
   const handleWhatsAppReport = async () => {

@@ -178,6 +178,7 @@ export default function ManageSigningDoctors() {
         degrees: doctorForm.degrees.trim(),
         designation: doctorForm.designation.trim(),
         registrationNumber: doctorForm.registrationNumber.trim() || null,
+        isActive: doctorForm.isActive,
       };
 
       if (editingDoctorId) {
@@ -361,10 +362,10 @@ export default function ManageSigningDoctors() {
       const res = await fetch(`${API_BASE}/signing-rules/${ruleId}`, {
         method: 'DELETE', headers: getHeaders(),
       });
-      if (!res.ok) { toast.error('Failed to deactivate rule'); return; }
-      toast.success('Rule deactivated');
+      if (!res.ok) { toast.error('Failed to delete rule'); return; }
+      toast.success('Rule deleted');
       await fetchAll();
-    } catch { toast.error('Failed to deactivate rule'); }
+    } catch { toast.error('Failed to delete rule'); }
   };
 
   // ─── Filter ──────────────────────────────────────────────────────
@@ -557,7 +558,7 @@ export default function ManageSigningDoctors() {
 
       {/* ── Doctor Sheet (Side Panel) ───────────────────────────── */}
       <Sheet open={sheetOpen} onOpenChange={(open) => { if (!open) resetDoctorForm(); }}>
-        <SheetContent className="sm:max-w-md overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto overflow-x-hidden">
           <SheetHeader>
             <SheetTitle>{editingDoctorId ? 'Edit Signing Doctor' : 'Add Signing Doctor'}</SheetTitle>
             <SheetDescription>
