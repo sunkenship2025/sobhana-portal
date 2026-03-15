@@ -63,6 +63,7 @@ export interface PanelSnapshot {
   departmentHeaderText: string;
   showSubgroups?: boolean;
   showInterpretation?: boolean;
+  subgroupMethods?: Record<string, string> | null;
   valueDisplayPrefix?: string | null;
   tests: TestResultSnapshot[];
   interpretationHtml?: string;
@@ -433,6 +434,7 @@ function buildPanelsAndDepartments(
       departmentHeaderText: dept.reportHeaderText,
       showSubgroups: panel.showSubgroups ?? undefined,
       showInterpretation: panel.showInterpretation ?? undefined,
+      subgroupMethods: (panel.subgroupMethods as Record<string, string>) ?? null,
       valueDisplayPrefix: panel.valueDisplayPrefix ?? null,
       tests: results,
       interpretationHtml,
