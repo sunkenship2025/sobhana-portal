@@ -35,6 +35,7 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
         testOrders: {
           include: {
             test: true,
+            product: true,
           },
         },
         referrals: {
@@ -116,14 +117,45 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
     };
 
     if (domain === 'DIAGNOSTICS') {
-      // For diagnostics, items are test orders
-      billData.items = visit.testOrders.map((order) => ({
-        id: order.id,
-        name: order.test.name,
-        code: order.test.code,
-        price: order.priceInPaise / 100,
-        referralCommissionPercent: order.referralCommissionPercentage,
-      }));
+      // Group test orders by productId to show billable products, not individual tests
+      const productGroups = new Map<string, { name: string; code: string; totalPrice: number; referralPercent?: number | null }>();
+      const ungrouped: typeof billData.items = [];
+
+      for (const order of visit.testOrders) {
+        if (order.productId && order.product) {
+          const existing = productGroups.get(order.productId);
+          if (existing) {
+            existing.totalPrice += order.priceInPaise / 100;
+          } else {
+            productGroups.set(order.productId, {
+              name: order.product.name,
+              code: order.product.code,
+              totalPrice: order.priceInPaise / 100,
+              referralPercent: order.referralCommissionPercentage,
+            });
+          }
+        } else {
+          // Legacy orders without product linkage — fall back to individual test
+          ungrouped.push({
+            id: order.id,
+            name: order.test.name,
+            code: order.test.code,
+            price: order.priceInPaise / 100,
+            referralCommissionPercent: order.referralCommissionPercentage,
+          });
+        }
+      }
+
+      billData.items = [
+        ...Array.from(productGroups.entries()).map(([productId, p]) => ({
+          id: productId,
+          name: p.name,
+          code: p.code,
+          price: p.totalPrice,
+          referralCommissionPercent: p.referralPercent ?? undefined,
+        })),
+        ...ungrouped,
+      ];
     } else {
       // For clinic, items are consultation fees
       if (visit.clinicVisit) {
