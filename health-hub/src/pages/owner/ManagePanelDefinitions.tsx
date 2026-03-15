@@ -67,6 +67,7 @@ interface ClinicalPanel {
   showInterpretation: boolean;
   valueDisplayPrefix: string | null;
   summaryInterpretationTemplate: string | null;
+  subgroupMethods: Record<string, string> | null;
   createdAt: string;
   updatedAt: string;
   department?: { id: string; name: string } | null;
@@ -142,6 +143,9 @@ export default function ManagePanelDefinitions() {
   // Subgroup management (panel-level defined groups)
   const [formSubgroups, setFormSubgroups] = useState<string[]>([]);
   const [newSubgroupInput, setNewSubgroupInput] = useState('');
+  const [formSubgroupMethods, setFormSubgroupMethods] = useState<Record<string, string>>({});
+  const [formShowSubgroupMethods, setFormShowSubgroupMethods] = useState(false);
+  const [newSubgroupMethodInput, setNewSubgroupMethodInput] = useState('');
 
   // ─── Display style helpers ──────────────────────────────────────────────
 
@@ -167,12 +171,23 @@ export default function ManagePanelDefinitions() {
     if (!sg) return;
     if (formSubgroups.includes(sg)) { toast.error('Subgroup already exists'); return; }
     setFormSubgroups(prev => [...prev, sg]);
+    // Capture optional method
+    const method = newSubgroupMethodInput.trim();
+    if (method) {
+      setFormSubgroupMethods(prev => ({ ...prev, [sg]: method }));
+    }
     setNewSubgroupInput('');
+    setNewSubgroupMethodInput('');
   };
 
   const removeSubgroup = (sg: string) => {
     setFormSubgroups(prev => prev.filter(s => s !== sg));
     setFormItems(prev => prev.map(item => item.subGroup === sg ? { ...item, subGroup: null } : item));
+    setFormSubgroupMethods(prev => {
+      const next = { ...prev };
+      delete next[sg];
+      return next;
+    });
   };
 
   // ─── Data fetching ──────────────────────────────────────────────────────
@@ -240,6 +255,7 @@ export default function ManagePanelDefinitions() {
     setFormShowMethod(false); setFormShowSubgroups(false);
     setFormShowInterpretation(false); setFormValuePrefix('');
     setFormSubgroups([]); setNewSubgroupInput('');
+    setFormSubgroupMethods({}); setFormShowSubgroupMethods(false); setNewSubgroupMethodInput('');
     setExpandedItems(new Set());
     setEditingPanel(null);
     setCodeAvailable(null); setCodeChecking(false);
@@ -273,6 +289,13 @@ export default function ManagePanelDefinitions() {
     const uniqueSubgroups = [...new Set(items.map(i => i.subGroup).filter(Boolean) as string[])];
     setFormSubgroups(uniqueSubgroups);
     setNewSubgroupInput('');
+    // Load subgroup methods
+    const methods = (p.subgroupMethods && typeof p.subgroupMethods === 'object')
+      ? p.subgroupMethods as Record<string, string>
+      : {};
+    setFormSubgroupMethods(methods);
+    setFormShowSubgroupMethods(Object.keys(methods).length > 0);
+    setNewSubgroupMethodInput('');
     setExpandedItems(new Set());
   };
 
@@ -453,6 +476,13 @@ export default function ManagePanelDefinitions() {
         showInterpretation: formShowInterpretation,
         valueDisplayPrefix: formValuePrefix || null,
         summaryInterpretationTemplate: formTemplate || null,
+        subgroupMethods: (() => {
+          // Filter out empty method strings
+          const filtered = Object.fromEntries(
+            Object.entries(formSubgroupMethods).filter(([, v]) => v.trim())
+          );
+          return Object.keys(filtered).length > 0 ? filtered : null;
+        })(),
         items: formItems.map((item, i) => ({
           testDefinitionId: item.testDefinitionId,
           displayOrder: i,
@@ -794,21 +824,45 @@ export default function ManagePanelDefinitions() {
                     <p className="text-[10px] text-muted-foreground -mt-1">
                       Define the subgroup names for this panel. Items below can be assigned to one of these groups.
                     </p>
+
+                    {/* Enable Subgroup Methods toggle */}
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={formShowSubgroupMethods}
+                        onCheckedChange={setFormShowSubgroupMethods}
+                        className="scale-75"
+                      />
+                      <Label className="text-[11px] text-muted-foreground cursor-pointer" onClick={() => setFormShowSubgroupMethods(prev => !prev)}>
+                        Enable Subgroup Methods
+                      </Label>
+                    </div>
+
+                    {/* Chips */}
                     {formSubgroups.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {formSubgroups.map(sg => (
-                          <Badge key={sg} variant="secondary" className="text-xs gap-1 pr-1">
-                            {sg}
-                            <button
-                              onClick={() => removeSubgroup(sg)}
-                              className="text-red-400 hover:text-red-600 ml-0.5 leading-none"
-                            >
-                              ×
-                            </button>
-                          </Badge>
-                        ))}
+                      <div className="flex flex-wrap gap-1.5">
+                        {formSubgroups.map(sg => {
+                          const method = formSubgroupMethods[sg];
+                          return (
+                            <Badge key={sg} variant="secondary" className="text-xs gap-1 pr-1 max-w-full">
+                              <span className="font-semibold">{sg}</span>
+                              {formShowSubgroupMethods && method && (
+                                <span className="text-muted-foreground font-normal truncate max-w-[140px]" title={method}>
+                                  · {method}
+                                </span>
+                              )}
+                              <button
+                                onClick={() => removeSubgroup(sg)}
+                                className="text-red-400 hover:text-red-600 ml-0.5 leading-none shrink-0"
+                              >
+                                ×
+                              </button>
+                            </Badge>
+                          );
+                        })}
                       </div>
                     )}
+
+                    {/* Input row */}
                     <div className="flex gap-1.5">
                       <Input
                         value={newSubgroupInput}
@@ -817,10 +871,25 @@ export default function ManagePanelDefinitions() {
                         placeholder="e.g. DIFFERENTIAL"
                         className="h-7 text-xs flex-1"
                       />
-                      <Button size="sm" variant="outline" onClick={addSubgroup} className="h-7 text-xs" disabled={!newSubgroupInput.trim()}>
+                      {formShowSubgroupMethods && (
+                        <Input
+                          value={newSubgroupMethodInput}
+                          onChange={e => setNewSubgroupMethodInput(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSubgroup(); } }}
+                          placeholder="Method (optional)"
+                          className="h-7 text-xs flex-1"
+                        />
+                      )}
+                      <Button size="sm" variant="outline" onClick={addSubgroup} className="h-7 text-xs shrink-0" disabled={!newSubgroupInput.trim()}>
                         Add
                       </Button>
                     </div>
+
+                    {formShowSubgroupMethods && (
+                      <p className="text-[10px] text-muted-foreground -mt-1">
+                        Method is optional. Displays as "Method : ..." under the subgroup header on the report.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -1093,6 +1162,13 @@ export default function ManagePanelDefinitions() {
                                     <tr>
                                       <td colSpan={colCount} className="py-1 font-bold bg-gray-50 text-[10px] uppercase tracking-wide">
                                         {group}
+                                      </td>
+                                    </tr>
+                                  )}
+                                  {group && formSubgroupMethods[group] && (
+                                    <tr>
+                                      <td colSpan={colCount} className="py-0.5 text-[9px] italic text-muted-foreground pl-3">
+                                        Method : {formSubgroupMethods[group]}
                                       </td>
                                     </tr>
                                   )}
