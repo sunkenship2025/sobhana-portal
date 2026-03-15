@@ -145,7 +145,6 @@ router.post('/', async (req: AuthRequest, res) => {
         degrees: degrees.trim(),
         designation: designation.trim(),
         registrationNumber: registrationNumber?.trim() || null,
-        signatureImagePath: signatureImagePath?.trim() || '',
         isActive: isActive ?? true,
       },
     });
@@ -192,7 +191,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     if (degrees !== undefined) data.degrees = degrees.trim();
     if (designation !== undefined) data.designation = designation.trim();
     if (registrationNumber !== undefined) data.registrationNumber = registrationNumber?.trim() || null;
-    if (signatureImagePath !== undefined) data.signatureImagePath = signatureImagePath?.trim() || '';
+    if (signatureImagePath !== undefined) data.signatureImagePath = signatureImagePath?.trim() || null;
     if (isActive !== undefined) data.isActive = isActive;
 
     const doctor = await prisma.signingDoctor.update({
@@ -224,10 +223,10 @@ router.delete('/:id', async (req: AuthRequest, res) => {
       data: { isActive: false },
     });
 
-    // Also deactivate all their signing rules
-    await prisma.signingRule.updateMany({
+    // Hard-delete their signing rules — removes the unique constraint rows
+    // so the same department can be re-assigned to any doctor in future
+    await prisma.signingRule.deleteMany({
       where: { signingDoctorId: id },
-      data: { isActive: false },
     });
 
     return res.json({ message: 'Signing doctor deactivated' });
