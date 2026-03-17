@@ -64,6 +64,7 @@ export interface PanelSnapshot {
   showSubgroups?: boolean;
   showInterpretation?: boolean;
   subgroupMethods?: Record<string, string> | null;
+  subgroupTableOverrides?: Record<string, boolean> | null;
   valueDisplayPrefix?: string | null;
   tests: TestResultSnapshot[];
   interpretationHtml?: string;
@@ -435,6 +436,7 @@ function buildPanelsAndDepartments(
       showSubgroups: panel.showSubgroups ?? undefined,
       showInterpretation: panel.showInterpretation ?? undefined,
       subgroupMethods: (panel.subgroupMethods as Record<string, string>) ?? null,
+      subgroupTableOverrides: (panel.subgroupTableOverrides as Record<string, boolean>) ?? null,
       valueDisplayPrefix: panel.valueDisplayPrefix ?? null,
       tests: results,
       interpretationHtml,

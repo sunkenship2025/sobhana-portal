@@ -155,7 +155,7 @@ router.post('/', async (req: AuthRequest, res) => {
     const {
       name, displayName, departmentId, layoutType, sampleType,
       displayOrder, showMethodColumn, showSubgroups, showInterpretation, valueDisplayPrefix,
-      summaryInterpretationTemplate, subgroupMethods, items,
+      summaryInterpretationTemplate, subgroupMethods, subgroupTableOverrides, items,
     } = req.body;
 
     if (!name || !displayName || !departmentId || !layoutType) {
@@ -219,6 +219,7 @@ router.post('/', async (req: AuthRequest, res) => {
         valueDisplayPrefix: valueDisplayPrefix ?? null,
         summaryInterpretationTemplate: summaryInterpretationTemplate ?? null,
         subgroupMethods: subgroupMethods ?? null,
+        subgroupTableOverrides: subgroupTableOverrides ?? null,
         items: items?.length ? {
           create: items.map((item: any, idx: number) => ({
             testDefinitionId: item.testDefinitionId,
@@ -261,7 +262,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
     const {
       name, displayName, departmentId, layoutType, sampleType,
       displayOrder, showMethodColumn, showSubgroups, showInterpretation, valueDisplayPrefix,
-      summaryInterpretationTemplate, subgroupMethods, items,
+      summaryInterpretationTemplate, subgroupMethods, subgroupTableOverrides, items,
     } = req.body;
 
     const existing = await prisma.clinicalPanel.findUnique({ where: { id: req.params.id } });
@@ -300,6 +301,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
             ? summaryInterpretationTemplate
             : existing.summaryInterpretationTemplate,
           subgroupMethods: subgroupMethods !== undefined ? subgroupMethods : existing.subgroupMethods,
+          subgroupTableOverrides: subgroupTableOverrides !== undefined ? subgroupTableOverrides : existing.subgroupTableOverrides,
           items: items ? {
             create: items.map((item: any, idx: number) => ({
               testDefinitionId: item.testDefinitionId,
