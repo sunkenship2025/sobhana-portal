@@ -461,18 +461,58 @@ function renderPanel(panel: PanelSnapshot): string {
 // MAIN RENDER FUNCTION
 // ============================================================================
 
+export type RenderProfile = 'screen' | 'pdf-digital' | 'pdf-physical';
+
 export interface RenderOptions {
-  mode: 'screen' | 'print';
+  profile: RenderProfile;
   baseUrl?: string;
-  reportToken?: string;
-  hideActions?: boolean;
-  includePdfStyles?: boolean;
   qrDataUrl?: string;
-  forPdfDigital?: boolean;
+}
+
+interface ResolvedProfile {
+  cssBlock: string;
+  extraStyles: string;
+  bodyClass: string;
+}
+
+function resolveProfile(profile: RenderProfile): ResolvedProfile {
+  switch (profile) {
+    case 'screen':
+      return {
+        cssBlock: `<style>${SCREEN_CSS}</style>`,
+        extraStyles: `
+          @media print {
+            @page { size: A4; margin: 32mm 15mm 15.5mm 15mm; }
+            .header, .footer { display: none !important; }
+            .no-print { display: none !important; }
+          }`,
+        bodyClass: 'screen-mode',
+      };
+    case 'pdf-digital':
+      return {
+        cssBlock: `<style>${SCREEN_CSS}</style>`,
+        extraStyles: `
+          @media print {
+            @page { size: A4; margin: 32mm 15mm 15.5mm 15mm; }
+            .no-print { display: none !important; }
+          }
+          .report-page { box-shadow: none; margin: 0; min-height: auto; }
+          body.report-body { background: white; padding: 0; }
+          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }`,
+        bodyClass: 'screen-mode',
+      };
+    case 'pdf-physical':
+      return {
+        cssBlock: `<style>${PRINT_CSS}</style>`,
+        extraStyles: '',
+        bodyClass: 'print-mode',
+      };
+  }
 }
 
 export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOptions): string {
-  const { mode, baseUrl = '', includePdfStyles = false, qrDataUrl = '', forPdfDigital = false } = options;
+  const { profile, baseUrl = '', qrDataUrl = '' } = options;
+  const resolved = resolveProfile(profile);
 
   // Render departments and panels
   const departmentSections = snapshot.departments.map(dept => {
@@ -507,16 +547,7 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
   const sampleTypes = [...new Set(snapshot.departments.flatMap(d => d.panels.map(p => p.sampleType)).filter(Boolean))];
 
   // Inline CSS
-  let inlineCss = '';
-  if (forPdfDigital) {
-    inlineCss = `<style>${SCREEN_CSS}</style>`;
-  } else if (includePdfStyles) {
-    inlineCss = `<style>${SCREEN_CSS}</style>\n<style media="print">${PRINT_CSS}</style>`;
-  } else if (mode === 'print') {
-    inlineCss = `<style>${PRINT_CSS}</style>`;
-  } else {
-    inlineCss = `<style>${SCREEN_CSS}</style>`;
-  }
+  const inlineCss = resolved.cssBlock;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -525,26 +556,9 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Diagnostic Report - ${escapeHtml(snapshot.patient.name)} - ${escapeHtml(snapshot.visit.billNumber)}</title>
   ${inlineCss}
-  <style>
-    @media print {
-      @page {
-        size: A4;
-        margin-top: 32mm;
-        margin-bottom: 15.5mm;
-        margin-left: 15mm;
-        margin-right: 15mm;
-      }
-      ${forPdfDigital ? '' : '.header, .footer { display: none !important; }'}
-      .no-print { display: none !important; }
-    }
-    ${forPdfDigital ? `
-    .report-page { box-shadow: none; margin: 0; min-height: auto; }
-    body.report-body { background: white; padding: 0; }
-    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-    ` : ''}
-  </style>
+  ${resolved.extraStyles ? `<style>${resolved.extraStyles}</style>` : ''}
 </head>
-<body class="report-body ${mode}-mode">
+<body class="report-body ${resolved.bodyClass}">
 
   <div class="report-page">
 

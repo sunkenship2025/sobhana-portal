@@ -9,8 +9,6 @@
  */
 
 import puppeteer, { Browser, PDFOptions } from 'puppeteer';
-import { renderReportHtml } from './reportRendererService';
-import { getReportSnapshot } from './reportSnapshotService';
 import path from 'path';
 
 // Singleton browser instance for performance
@@ -88,60 +86,6 @@ export interface PdfGenerationOptions {
    * Optional: Base URL for resolving relative paths (CSS, images)
    */
   baseUrl?: string;
-}
-
-/**
- * Generates PDF from a report version ID.
- * Returns the PDF as a Buffer.
- */
-export async function generateReportPdf(
-  reportVersionId: string,
-  options: PdfGenerationOptions = { mode: 'digital' }
-): Promise<Buffer> {
-  // 1. Get snapshot data
-  const snapshot = await getReportSnapshot(reportVersionId);
-  
-  if (!snapshot) {
-    throw new Error(`Snapshot not found for report ${reportVersionId}`);
-  }
-
-  // 2. Render HTML
-  const renderMode = options.mode === 'physical' ? 'print' : 'screen';
-  const html = renderReportHtml(snapshot, { 
-    mode: renderMode,
-    baseUrl: options.baseUrl,
-    includePdfStyles: true,
-  });
-
-  // 3. Generate PDF
-  const browser = await getBrowser();
-  const page = await browser.newPage();
-
-  try {
-    // Digital PDFs use screen media type to prevent @media print rules from
-    // firing — preserves full colors, header/footer, and normal font sizes.
-    if (options.mode === 'digital') {
-      await page.emulateMediaType('screen');
-    }
-
-    // Set content with base URL for resource resolution
-    await page.setContent(html, {
-      waitUntil: 'networkidle0',
-      timeout: 30000,
-    });
-
-    // Select PDF options based on mode
-    const pdfOptions = options.mode === 'physical' 
-      ? PDF_OPTIONS 
-      : PDF_OPTIONS_DIGITAL;
-
-    // Generate PDF
-    const pdfBuffer = await page.pdf(pdfOptions);
-
-    return Buffer.from(pdfBuffer);
-  } finally {
-    await page.close();
-  }
 }
 
 /**
