@@ -63,13 +63,10 @@ router.get('/:token', async (req: Request, res: Response) => {
     });
 
     // 4. Render HTML from snapshot
-    const renderMode = mode === 'physical' ? 'print' : 'screen';
+    const profile = mode === 'physical' ? 'pdf-physical' : 'pdf-digital';
     const html = renderReportHtml(snapshot, {
-      mode: renderMode,
+      profile,
       baseUrl,
-      reportToken: token,
-      includePdfStyles: mode === 'physical',
-      forPdfDigital: mode === 'digital',
       qrDataUrl,
     });
 
@@ -142,10 +139,8 @@ router.get('/:token/view', async (req: Request, res: Response) => {
     });
 
     const html = renderReportHtml(snapshot, {
-      mode: 'screen',
+      profile: 'screen',
       baseUrl,
-      reportToken: token,
-      includePdfStyles: true,
       qrDataUrl,
     });
 
