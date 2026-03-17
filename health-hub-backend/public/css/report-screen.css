@@ -575,25 +575,6 @@ body.report-body {
 .btn-download:hover { background: #2f855a; }
 
 /* ============================================================================
-   RESPONSIVE (Mobile-friendly for WhatsApp links)
-   ============================================================================ */
-
-@media (max-width: 480px) {
-  body.report-body { background: white; }
-
-  .report-page { box-shadow: none; margin: 0; min-height: auto; }
-  .header-logo { height: 35px; }
-  .report-content { padding: 10px 12px; }
-  .info-row { display: block; }
-  .info-item { display: block; width: 100%; }
-  .signatures-section { flex-direction: column; gap: 20px; }
-  .signatures-right { flex-wrap: wrap; justify-content: center; gap: 16px; }
-  .action-buttons { bottom: 10px; right: 10px; }
-  .footer-content { flex-direction: column; gap: 6px; }
-  .footer-left, .footer-right { max-width: 100%; text-align: center; }
-}
-
-/* ============================================================================
    PRINT MEDIA QUERY (browser Ctrl+P)
    ============================================================================ */
 
