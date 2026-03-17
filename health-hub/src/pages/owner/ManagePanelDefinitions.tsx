@@ -860,7 +860,7 @@ export default function ManagePanelDefinitions() {
                       <div className="flex flex-col gap-1.5">
                         {formSubgroups.map(sg => {
                           const method = formSubgroupMethods[sg];
-                          const forceTable = formSubgroupTableOverrides[sg] ?? false;
+                          const keyValue = formSubgroupTableOverrides[sg] ?? false;
                           return (
                             <div key={sg} className="flex items-center gap-2">
                               <Badge variant="secondary" className="text-xs gap-1 pr-1 max-w-full">
@@ -879,14 +879,14 @@ export default function ManagePanelDefinitions() {
                               </Badge>
                               <div className="flex items-center gap-1 shrink-0">
                                 <Switch
-                                  checked={forceTable}
+                                  checked={keyValue}
                                   onCheckedChange={(val) =>
                                     setFormSubgroupTableOverrides(prev => ({ ...prev, [sg]: val }))
                                   }
                                   className="scale-[0.6]"
                                 />
-                                <span className={`text-[10px] ${forceTable ? 'text-green-600 font-medium' : 'text-muted-foreground'}`}>
-                                  Force table
+                                <span className={`text-[10px] ${keyValue ? 'text-green-600 font-medium' : 'text-muted-foreground'}`}>
+                                  Key-value
                                 </span>
                               </div>
                             </div>
