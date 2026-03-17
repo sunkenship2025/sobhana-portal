@@ -68,6 +68,7 @@ interface ClinicalPanel {
   valueDisplayPrefix: string | null;
   summaryInterpretationTemplate: string | null;
   subgroupMethods: Record<string, string> | null;
+  subgroupTableOverrides: Record<string, boolean> | null;
   createdAt: string;
   updatedAt: string;
   department?: { id: string; name: string } | null;
@@ -144,6 +145,7 @@ export default function ManagePanelDefinitions() {
   const [formSubgroups, setFormSubgroups] = useState<string[]>([]);
   const [newSubgroupInput, setNewSubgroupInput] = useState('');
   const [formSubgroupMethods, setFormSubgroupMethods] = useState<Record<string, string>>({});
+  const [formSubgroupTableOverrides, setFormSubgroupTableOverrides] = useState<Record<string, boolean>>({});
   const [formShowSubgroupMethods, setFormShowSubgroupMethods] = useState(false);
   const [newSubgroupMethodInput, setNewSubgroupMethodInput] = useState('');
 
@@ -184,6 +186,11 @@ export default function ManagePanelDefinitions() {
     setFormSubgroups(prev => prev.filter(s => s !== sg));
     setFormItems(prev => prev.map(item => item.subGroup === sg ? { ...item, subGroup: null } : item));
     setFormSubgroupMethods(prev => {
+      const next = { ...prev };
+      delete next[sg];
+      return next;
+    });
+    setFormSubgroupTableOverrides(prev => {
       const next = { ...prev };
       delete next[sg];
       return next;
@@ -256,6 +263,7 @@ export default function ManagePanelDefinitions() {
     setFormShowInterpretation(false); setFormValuePrefix('');
     setFormSubgroups([]); setNewSubgroupInput('');
     setFormSubgroupMethods({}); setFormShowSubgroupMethods(false); setNewSubgroupMethodInput('');
+    setFormSubgroupTableOverrides({});
     setExpandedItems(new Set());
     setEditingPanel(null);
     setCodeAvailable(null); setCodeChecking(false);
@@ -295,6 +303,10 @@ export default function ManagePanelDefinitions() {
       : {};
     setFormSubgroupMethods(methods);
     setFormShowSubgroupMethods(Object.keys(methods).length > 0);
+    const overrides = (p.subgroupTableOverrides && typeof p.subgroupTableOverrides === 'object')
+      ? p.subgroupTableOverrides as Record<string, boolean>
+      : {};
+    setFormSubgroupTableOverrides(overrides);
     setNewSubgroupMethodInput('');
     setExpandedItems(new Set());
   };
@@ -482,6 +494,12 @@ export default function ManagePanelDefinitions() {
             Object.entries(formSubgroupMethods).filter(([, v]) => v.trim())
           );
           return Object.keys(filtered).length > 0 ? filtered : null;
+        })(),
+        subgroupTableOverrides: (() => {
+          const active = Object.fromEntries(
+            Object.entries(formSubgroupTableOverrides).filter(([, v]) => v)
+          );
+          return Object.keys(active).length > 0 ? active : null;
         })(),
         items: formItems.map((item, i) => ({
           testDefinitionId: item.testDefinitionId,
@@ -839,24 +857,39 @@ export default function ManagePanelDefinitions() {
 
                     {/* Chips */}
                     {formSubgroups.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="flex flex-col gap-1.5">
                         {formSubgroups.map(sg => {
                           const method = formSubgroupMethods[sg];
+                          const forceTable = formSubgroupTableOverrides[sg] ?? false;
                           return (
-                            <Badge key={sg} variant="secondary" className="text-xs gap-1 pr-1 max-w-full">
-                              <span className="font-semibold">{sg}</span>
-                              {formShowSubgroupMethods && method && (
-                                <span className="text-muted-foreground font-normal truncate max-w-[140px]" title={method}>
-                                  · {method}
+                            <div key={sg} className="flex items-center gap-2">
+                              <Badge variant="secondary" className="text-xs gap-1 pr-1 max-w-full">
+                                <span className="font-semibold">{sg}</span>
+                                {formShowSubgroupMethods && method && (
+                                  <span className="text-muted-foreground font-normal truncate max-w-[140px]" title={method}>
+                                    · {method}
+                                  </span>
+                                )}
+                                <button
+                                  onClick={() => removeSubgroup(sg)}
+                                  className="text-red-400 hover:text-red-600 ml-0.5 leading-none shrink-0"
+                                >
+                                  ×
+                                </button>
+                              </Badge>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <Switch
+                                  checked={forceTable}
+                                  onCheckedChange={(val) =>
+                                    setFormSubgroupTableOverrides(prev => ({ ...prev, [sg]: val }))
+                                  }
+                                  className="scale-[0.6]"
+                                />
+                                <span className={`text-[10px] ${forceTable ? 'text-green-600 font-medium' : 'text-muted-foreground'}`}>
+                                  Force table
                                 </span>
-                              )}
-                              <button
-                                onClick={() => removeSubgroup(sg)}
-                                className="text-red-400 hover:text-red-600 ml-0.5 leading-none shrink-0"
-                              >
-                                ×
-                              </button>
-                            </Badge>
+                              </div>
+                            </div>
                           );
                         })}
                       </div>
