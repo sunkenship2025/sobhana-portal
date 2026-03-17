@@ -1293,7 +1293,7 @@ router.get('/:id/preview-report', async (req: AuthRequest, res) => {
     // Render HTML using the same renderer as the PDF pipeline
     const { renderReportHtml } = await import('../services/reportRendererService');
     const html = renderReportHtml(snapshot, {
-      mode: 'screen',
+      profile: 'screen',
       baseUrl: `${req.protocol}://${req.get('host')}`,
     });
 
