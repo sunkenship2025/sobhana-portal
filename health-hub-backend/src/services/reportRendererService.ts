@@ -146,12 +146,10 @@ function renderStandardTable(panel: PanelSnapshot): string {
       groups.get(group)!.push(test);
     }
     for (const [group, tests] of groups) {
-      // A group is qualitative (render outside the numeric table) when every test
-      // in it has no reference range — i.e. it carries observations, not numbers.
-      // This is data-driven: no string matching, works for any future qualitative group.
-      const forceTable = panel.subgroupTableOverrides?.[group] === true;
-      const isQualitative = !forceTable && group !== '__default__' &&
-        tests.every(t => t.referenceMin === null && t.referenceMax === null);
+      // By default all subgroups render as table rows.
+      // Toggle "Key-value layout" in panel config opts a subgroup into the compact smear view.
+      const forceKeyValue = panel.subgroupTableOverrides?.[group] === true;
+      const isQualitative = forceKeyValue && group !== '__default__';
 
       if (isQualitative) {
         const hasData = tests.some(t => t.textValue || t.notes || t.value !== null);
