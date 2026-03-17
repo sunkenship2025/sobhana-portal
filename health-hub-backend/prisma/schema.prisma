@@ -1138,6 +1138,7 @@ model ClinicalPanel {
   
   summaryInterpretationTemplate String?              // Template for panel-level interpretation
   subgroupMethods   Json?                            // Map<subgroupName, methodString> e.g. {"PHYSICAL EXAMINATION": "Transmission refractometry"}
+  subgroupTableOverrides Json?                       // Map<subgroupName, true> — force table rendering even when heuristic says key-value
   isActive          Boolean         @default(true)
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
