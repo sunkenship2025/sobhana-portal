@@ -553,7 +553,7 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=800">
   <title>Diagnostic Report - ${escapeHtml(snapshot.patient.name)} - ${escapeHtml(snapshot.visit.billNumber)}</title>
   ${inlineCss}
   ${resolved.extraStyles ? `<style>${resolved.extraStyles}</style>` : ''}
