@@ -149,7 +149,8 @@ function renderStandardTable(panel: PanelSnapshot): string {
       // A group is qualitative (render outside the numeric table) when every test
       // in it has no reference range — i.e. it carries observations, not numbers.
       // This is data-driven: no string matching, works for any future qualitative group.
-      const isQualitative = group !== '__default__' &&
+      const forceTable = panel.subgroupTableOverrides?.[group] === true;
+      const isQualitative = !forceTable && group !== '__default__' &&
         tests.every(t => t.referenceMin === null && t.referenceMax === null);
 
       if (isQualitative) {
