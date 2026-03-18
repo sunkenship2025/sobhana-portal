@@ -4,3 +4,5 @@
 📄 Report download: http://localhost:3000/reports/:token
 📱 WhatsApp webhook: http://localhost:3000/webhooks/whatsapp
 PDF service warmed up
+
+🛑 Shutting down gracefully...

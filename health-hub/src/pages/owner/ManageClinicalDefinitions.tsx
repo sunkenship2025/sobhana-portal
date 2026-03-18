@@ -976,7 +976,7 @@ export default function ManageClinicalDefinitions() {
                   </div>
                   <div className="space-y-1.5">
                     <Label>Reference Text</Label>
-                    <Input value={formRefText} onChange={e => setFormRefText(e.target.value)} placeholder="e.g., Negative, Non-reactive" />
+                    <Textarea value={formRefText} onChange={e => setFormRefText(e.target.value)} placeholder="e.g., Negative, Non-reactive" rows={3} />
                     <p className="text-xs text-muted-foreground">For qualitative tests, use text instead of min/max values</p>
                   </div>
                 </div>
@@ -1111,7 +1111,7 @@ export default function ManageClinicalDefinitions() {
                               <Input type="number" placeholder="Crit High" value={r.criticalMax ?? ''} onChange={e => updateRange(i, 'criticalMax', e.target.value ? parseFloat(e.target.value) : null)} className="h-8 text-xs border-red-200 focus:border-red-400" />
                             </>
                           )}
-                          <Input placeholder="Text" value={r.referenceText ?? ''} onChange={e => updateRange(i, 'referenceText', e.target.value || null)} className="h-8 text-xs" />
+                          <Textarea placeholder="Text" value={r.referenceText ?? ''} onChange={e => updateRange(i, 'referenceText', e.target.value || null)} className="text-xs min-h-[32px] py-1.5 resize-y" rows={2} />
                           <Button size="sm" variant="ghost" onClick={() => removeRange(i)} className="h-8 w-7 p-0 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">✕</Button>
                         </div>
                       ))}
