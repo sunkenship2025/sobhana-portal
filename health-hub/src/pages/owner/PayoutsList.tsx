@@ -591,9 +591,6 @@ const PayoutsList = () => {
                   {availableDoctors.map((doc) => (
                     <SelectItem key={doc.id} value={doc.id}>
                       {doc.name}
-                      {deriveForm.doctorType === 'REFERRAL' && doc.commissionPercent && (
-                        <span className="text-gray-500 ml-2">({doc.commissionPercent}%)</span>
-                      )}
                     </SelectItem>
                   ))}
                 </SelectContent>

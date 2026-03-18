@@ -12,8 +12,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
@@ -31,6 +33,16 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import type { BillableProduct, ReferralDoctor } from '@/types';
+import {
+  formatReferralPayout,
+  toReferralPayoutDraft,
+  toReferralPayoutPayload,
+  type ReferralPayoutDraft,
+} from '@/lib/referralPayouts';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -61,13 +73,27 @@ const EMPTY_CENTER_FORM = {
   name: '', contactPerson: '', phone: '', email: '', address: '', commissionPercent: '0',
 };
 
+type ReferralRuleFormItem = ReferralPayoutDraft & {
+  productId: string;
+};
+
+const EMPTY_REFERRAL_FORM = {
+  name: '',
+  phone: '',
+  commissionType: 'PERCENTAGE' as const,
+  commissionPercent: '',
+  commissionAmount: '',
+  productRules: [] as ReferralRuleFormItem[],
+};
+
 // ─── main component ──────────────────────────────────────────────────────────
 
 export default function ManageDoctorsAndReferrals() {
   const { token } = useAuthStore();
 
   // ── Referral Doctors state ────────────────────────────────────────────────
-  const [referralDoctors, setReferralDoctors] = useState<any[]>([]);
+  const [referralDoctors, setReferralDoctors] = useState<ReferralDoctor[]>([]);
+  const [billableProducts, setBillableProducts] = useState<BillableProduct[]>([]);
   const [refLoading, setRefLoading] = useState(true);
   const [refShowForm, setRefShowForm] = useState(false);
   const [refEditingId, setRefEditingId] = useState<string | null>(null);
@@ -75,7 +101,7 @@ export default function ManageDoctorsAndReferrals() {
   const [refExistingDoctor, setRefExistingDoctor] = useState<any>(null);
   const [refLinkedDoctorId, setRefLinkedDoctorId] = useState<string | null>(null);
   const refSearchTimeout = useRef<NodeJS.Timeout | null>(null);
-  const [refForm, setRefForm] = useState({ name: '', phone: '', commissionPercent: '' });
+  const [refForm, setRefForm] = useState({ ...EMPTY_REFERRAL_FORM });
 
   // ── Clinic Doctors state ──────────────────────────────────────────────────
   const [clinicDoctors, setClinicDoctors] = useState<any[]>([]);
@@ -105,7 +131,7 @@ export default function ManageDoctorsAndReferrals() {
     if (!token) return;
     try {
       const res = await fetch(`${API_BASE}/referral-doctors`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: branchHeaders(token),
       });
       if (res.ok) setReferralDoctors(await res.json());
     } catch (err) {
@@ -116,6 +142,20 @@ export default function ManageDoctorsAndReferrals() {
   };
 
   useEffect(() => { fetchReferralDoctors(); }, [token]);
+
+  const fetchBillableProducts = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/billable-products`, {
+        headers: branchHeaders(token),
+      });
+      if (res.ok) setBillableProducts(await res.json());
+    } catch (err) {
+      console.error('Error fetching billable products:', err);
+    }
+  };
+
+  useEffect(() => { fetchBillableProducts(); }, [token]);
 
   const refCheckPhone = async (phone: string) => {
     if (phone.length >= 10 && token) {
@@ -168,8 +208,50 @@ export default function ManageDoctorsAndReferrals() {
     }
   };
 
+  const addProductRule = (productId: string) => {
+    if (!productId) return;
+
+    const product = billableProducts.find((item) => item.id === productId);
+    if (!product) return;
+
+    setRefForm((current) => {
+      if (current.productRules.some((rule) => rule.productId === productId)) {
+        return current;
+      }
+
+      return {
+        ...current,
+        productRules: [
+          ...current.productRules,
+          {
+            productId,
+            commissionType: current.commissionType,
+            commissionPercent: current.commissionPercent,
+            commissionAmount: current.commissionAmount,
+          },
+        ],
+      };
+    });
+  };
+
+  const updateProductRule = (productId: string, patch: Partial<ReferralRuleFormItem>) => {
+    setRefForm((current) => ({
+      ...current,
+      productRules: current.productRules.map((rule) =>
+        rule.productId === productId ? { ...rule, ...patch } : rule
+      ),
+    }));
+  };
+
+  const removeProductRule = (productId: string) => {
+    setRefForm((current) => ({
+      ...current,
+      productRules: current.productRules.filter((rule) => rule.productId !== productId),
+    }));
+  };
+
   const refResetForm = () => {
-    setRefForm({ name: '', phone: '', commissionPercent: '' });
+    setRefForm({ ...EMPTY_REFERRAL_FORM });
     setRefShowForm(false);
     setRefEditingId(null);
     setRefExistingDoctor(null);
@@ -177,19 +259,53 @@ export default function ManageDoctorsAndReferrals() {
   };
 
   const handleRefSubmit = async () => {
-    if (!refForm.name || !refForm.phone || !refForm.commissionPercent) {
+    if (!refForm.name || !refForm.phone) {
       toast.error('Please fill all fields'); return;
     }
-    const commission = parseFloat(refForm.commissionPercent);
-    if (isNaN(commission) || commission < 0 || commission > 100) {
-      toast.error('Commission must be 0–100'); return;
+
+    if (refForm.commissionType === 'PERCENTAGE') {
+      const commission = parseFloat(refForm.commissionPercent);
+      if (isNaN(commission) || commission < 0 || commission > 100) {
+        toast.error('Percentage must be between 0 and 100'); return;
+      }
+    } else {
+      const amount = parseFloat(refForm.commissionAmount);
+      if (isNaN(amount) || amount < 0) {
+        toast.error('Amount must be a non-negative number'); return;
+      }
     }
+
+    for (const rule of refForm.productRules) {
+      if (rule.commissionType === 'PERCENTAGE') {
+        const commission = parseFloat(rule.commissionPercent);
+        if (isNaN(commission) || commission < 0 || commission > 100) {
+          toast.error('Each product percentage must be between 0 and 100'); return;
+        }
+      } else {
+        const amount = parseFloat(rule.commissionAmount);
+        if (isNaN(amount) || amount < 0) {
+          toast.error('Each product amount must be a non-negative number'); return;
+        }
+      }
+    }
+
+    const payload = {
+      name: refForm.name,
+      phone: refForm.phone,
+      clinicDoctorId: refLinkedDoctorId,
+      ...toReferralPayoutPayload(refForm),
+      productRules: refForm.productRules.map((rule) => ({
+        productId: rule.productId,
+        ...toReferralPayoutPayload(rule),
+      })),
+    };
+
     try {
       if (refEditingId) {
         const res = await fetch(`${API_BASE}/referral-doctors/${refEditingId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ name: refForm.name, phone: refForm.phone, commissionPercent: commission }),
+          body: JSON.stringify(payload),
         });
         if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed'); return; }
         toast.success('Doctor updated');
@@ -197,7 +313,7 @@ export default function ManageDoctorsAndReferrals() {
         const res = await fetch(`${API_BASE}/referral-doctors`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ name: refForm.name, phone: refForm.phone, commissionPercent: commission, clinicDoctorId: refLinkedDoctorId }),
+          body: JSON.stringify(payload),
         });
         if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed'); return; }
         toast.success('Doctor added');
@@ -208,7 +324,15 @@ export default function ManageDoctorsAndReferrals() {
   };
 
   const handleRefEdit = (doc: any) => {
-    setRefForm({ name: doc.name, phone: doc.phone, commissionPercent: doc.commissionPercent.toString() });
+    setRefForm({
+      name: doc.name,
+      phone: doc.phone || '',
+      ...toReferralPayoutDraft(doc),
+      productRules: (doc.productRules || []).map((rule: any) => ({
+        productId: rule.productId,
+        ...toReferralPayoutDraft(rule),
+      })),
+    });
     setRefEditingId(doc.id);
     setRefShowForm(true);
   };
@@ -455,7 +579,7 @@ export default function ManageDoctorsAndReferrals() {
       <TabsContent value="referral" className="space-y-4">
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
-            Add doctors with commission percentages for referrals.
+            Set a saved default payout for each referral doctor and override it for specific billable products.
           </p>
           {!refShowForm && (
             <Button onClick={() => setRefShowForm(true)}>
@@ -469,22 +593,90 @@ export default function ManageDoctorsAndReferrals() {
             <CardHeader>
               <CardTitle>{refEditingId ? 'Edit Doctor' : 'Add Referral Doctor'}</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label>Doctor Name *</Label>
-                  <Input placeholder="Dr. Name (type to search)" value={refForm.name}
-                    onChange={(e) => handleRefNameChange(e.target.value)} />
+            <CardContent className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Doctor Name *</Label>
+                    <Input placeholder="Dr. Name (type to search)" value={refForm.name}
+                      onChange={(e) => handleRefNameChange(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Phone *</Label>
+                    <Input placeholder="10-digit phone" value={refForm.phone} maxLength={10}
+                      onChange={(e) => {
+                        const next = e.target.value.replace(/\D/g, '').slice(0, 10);
+                        setRefForm((f) => ({ ...f, phone: next }));
+                        refCheckPhone(next);
+                      }} />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Phone *</Label>
-                  <Input placeholder="10-digit phone" value={refForm.phone} maxLength={10}
-                    onChange={(e) => { setRefForm(f => ({ ...f, phone: e.target.value })); refCheckPhone(e.target.value); }} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Commission % *</Label>
-                  <Input type="number" placeholder="e.g. 10" value={refForm.commissionPercent} min={0} max={100}
-                    onChange={(e) => setRefForm(f => ({ ...f, commissionPercent: e.target.value }))} />
+
+                <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+                  <div>
+                    <p className="text-sm font-medium">Default Payout</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Used for future bills unless a product-specific value is saved below.
+                    </p>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-[160px_minmax(0,1fr)]">
+                    <Select
+                      value={refForm.commissionType}
+                      onValueChange={(value) =>
+                        setRefForm((current) => ({
+                          ...current,
+                          commissionType: value as ReferralPayoutDraft['commissionType'],
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PERCENTAGE">Percentage</SelectItem>
+                        <SelectItem value="FIXED_AMOUNT">Amount</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={refForm.commissionType === 'PERCENTAGE' ? 100 : undefined}
+                      step={refForm.commissionType === 'PERCENTAGE' ? '0.01' : '1'}
+                      placeholder={refForm.commissionType === 'PERCENTAGE' ? 'e.g. 10' : 'e.g. 150'}
+                      value={
+                        refForm.commissionType === 'PERCENTAGE'
+                          ? refForm.commissionPercent
+                          : refForm.commissionAmount
+                      }
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setRefForm((current) => ({
+                          ...current,
+                          commissionPercent:
+                            current.commissionType === 'PERCENTAGE'
+                              ? next
+                              : current.commissionPercent,
+                          commissionAmount:
+                            current.commissionType === 'FIXED_AMOUNT'
+                              ? next
+                              : current.commissionAmount,
+                        }));
+                      }}
+                    />
+                  </div>
+                  <p className="text-sm font-medium">
+                    {formatReferralPayout({
+                      commissionType: refForm.commissionType,
+                      commissionPercent:
+                        refForm.commissionType === 'PERCENTAGE'
+                          ? Number(refForm.commissionPercent || 0)
+                          : null,
+                      commissionAmountInPaise:
+                        refForm.commissionType === 'FIXED_AMOUNT'
+                          ? Math.round(Number(refForm.commissionAmount || 0) * 100)
+                          : null,
+                    })}
+                  </p>
                 </div>
               </div>
 
@@ -511,6 +703,101 @@ export default function ManageDoctorsAndReferrals() {
                 </Alert>
               )}
 
+              <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <p className="font-medium">Product-Specific Payouts</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Save percentage or amount rules for selected billable products.
+                    </p>
+                  </div>
+                  <div className="w-full max-w-md">
+                    <SearchableSelect
+                      onValueChange={addProductRule}
+                      options={billableProducts
+                        .filter((product) => !refForm.productRules.some((rule) => rule.productId === product.id))
+                        .map((product) => ({
+                          value: product.id,
+                          label: product.name,
+                          description: [product.code, `₹${(product.effectivePrice ?? product.basePrice).toLocaleString('en-IN')}`].join(' · '),
+                          keywords: [product.name, product.code].join(' '),
+                        }))}
+                      placeholder="Add billable product rule"
+                      searchPlaceholder="Search product by name or code"
+                      emptyText="All active products already have a rule."
+                    />
+                  </div>
+                </div>
+
+                {refForm.productRules.length === 0 ? (
+                  <div className="rounded-lg border border-dashed bg-background px-4 py-6 text-sm text-muted-foreground">
+                    No product-specific rules yet. Bills will use the doctor default for every product.
+                  </div>
+                ) : (
+                  <div className="grid gap-3">
+                    {refForm.productRules.map((rule) => {
+                      const product = billableProducts.find((item) => item.id === rule.productId);
+                      return (
+                        <div key={rule.productId} className="rounded-lg border bg-background p-4">
+                          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px_160px_auto] md:items-start">
+                            <div className="space-y-1">
+                              <p className="font-medium">{product?.name || 'Unknown product'}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {product?.code || rule.productId}
+                              </p>
+                            </div>
+                            <Select
+                              value={rule.commissionType}
+                              onValueChange={(value) =>
+                                updateProductRule(rule.productId, {
+                                  commissionType: value as ReferralPayoutDraft['commissionType'],
+                                })
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="PERCENTAGE">Percentage</SelectItem>
+                                <SelectItem value="FIXED_AMOUNT">Amount</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <Input
+                              type="number"
+                              min={0}
+                              max={rule.commissionType === 'PERCENTAGE' ? 100 : undefined}
+                              step={rule.commissionType === 'PERCENTAGE' ? '0.01' : '1'}
+                              placeholder={rule.commissionType === 'PERCENTAGE' ? 'Enter %' : 'Enter amount'}
+                              value={rule.commissionType === 'PERCENTAGE' ? rule.commissionPercent : rule.commissionAmount}
+                              onChange={(e) =>
+                                updateProductRule(rule.productId, {
+                                  commissionPercent:
+                                    rule.commissionType === 'PERCENTAGE'
+                                      ? e.target.value
+                                      : rule.commissionPercent,
+                                  commissionAmount:
+                                    rule.commissionType === 'FIXED_AMOUNT'
+                                      ? e.target.value
+                                      : rule.commissionAmount,
+                                })
+                              }
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => removeProductRule(rule.productId)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={refResetForm}><X className="h-4 w-4 mr-2" />Cancel</Button>
                 <Button onClick={handleRefSubmit}><Check className="h-4 w-4 mr-2" />{refEditingId ? 'Update' : 'Add'}</Button>
@@ -529,16 +816,36 @@ export default function ManageDoctorsAndReferrals() {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Phone</TableHead>
-                <TableHead className="text-right">Commission %</TableHead>
+                <TableHead>Default Payout</TableHead>
+                <TableHead>Product Rules</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {referralDoctors.map((doc) => (
                 <TableRow key={doc.id}>
-                  <TableCell className="font-medium">{doc.name}</TableCell>
-                  <TableCell>{doc.phone}</TableCell>
-                  <TableCell className="text-right font-mono">{doc.commissionPercent}%</TableCell>
+                  <TableCell className="font-medium">
+                    <div>{doc.name}</div>
+                    <div className="text-xs text-muted-foreground">{doc.doctorNumber}</div>
+                  </TableCell>
+                  <TableCell>{doc.phone || '—'}</TableCell>
+                  <TableCell className="font-medium">{formatReferralPayout(doc)}</TableCell>
+                  <TableCell>
+                    {doc.productRules?.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {doc.productRules.slice(0, 3).map((rule) => (
+                          <Badge key={rule.id} variant="secondary" className="font-normal">
+                            {(rule.product?.code || rule.product?.name || 'Product')}: {formatReferralPayout(rule)}
+                          </Badge>
+                        ))}
+                        {doc.productRules.length > 3 && (
+                          <Badge variant="outline">+{doc.productRules.length - 3} more</Badge>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">Uses default for all products</span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-right">
                     <div className="flex gap-2 justify-end">
                       <Button variant="ghost" size="icon" onClick={() => handleRefEdit(doc)}><Pencil className="h-4 w-4" /></Button>
@@ -628,7 +935,7 @@ export default function ManageDoctorsAndReferrals() {
                     <div>
                       <p className="font-medium text-yellow-800">Referral Doctor Found</p>
                       <p className="text-sm text-yellow-700">
-                        {clinicExistingDoctor.doctor.name} ({clinicExistingDoctor.doctor.doctorNumber}) — {clinicExistingDoctor.doctor.commissionPercent}% commission
+                        {clinicExistingDoctor.doctor.name} ({clinicExistingDoctor.doctor.doctorNumber}) — {formatReferralPayout(clinicExistingDoctor.doctor)} payout
                       </p>
                     </div>
                     {!clinicLinkedDoctorId ? (

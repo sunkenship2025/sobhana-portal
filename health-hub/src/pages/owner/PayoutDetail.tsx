@@ -46,6 +46,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { PayoutDetail as PayoutDetailType, PaymentType } from '@/types';
+import { formatReferralPayout } from '@/lib/referralPayouts';
 
 // Helper to format amount in Rupees
 const formatRupees = (paise: number): string => {
@@ -353,7 +354,7 @@ const PayoutDetailPage = () => {
                     <TableHead>{payout.doctorType === 'REFERRAL' ? 'Test' : 'Service'}</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
                     {payout.doctorType === 'REFERRAL' && (
-                      <TableHead className="text-right">Commission %</TableHead>
+                      <TableHead className="text-right">Commission</TableHead>
                     )}
                     <TableHead className="text-right">Derived</TableHead>
                   </TableRow>
@@ -367,7 +368,13 @@ const PayoutDetailPage = () => {
                       <TableCell>{item.testOrFee}</TableCell>
                       <TableCell className="text-right">{formatRupees(item.amountInPaise)}</TableCell>
                       {payout.doctorType === 'REFERRAL' && (
-                        <TableCell className="text-right">{item.commissionPercentage}%</TableCell>
+                        <TableCell className="text-right">
+                          {formatReferralPayout({
+                            commissionType: item.commissionType,
+                            commissionPercent: item.commissionPercentage,
+                            commissionAmountInPaise: item.commissionAmountInPaise,
+                          })}
+                        </TableCell>
                       )}
                       <TableCell className="text-right font-semibold">
                         {formatRupees(item.derivedCommissionInPaise)}

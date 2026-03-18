@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, X, Check, AlertTriangle, Link as LinkIcon } from 'lucide-react';
+import { formatReferralPayout } from '@/lib/referralPayouts';
 import {
   Table,
   TableBody,
@@ -347,7 +348,7 @@ const ManageClinicDoctors = () => {
                         <div>
                           <p className="font-medium text-yellow-800">Referral Doctor Found</p>
                           <p className="text-sm text-yellow-700">
-                            {existingDoctor.doctor.name} ({existingDoctor.doctor.doctorNumber}) - {existingDoctor.doctor.commissionPercent}% commission
+                            {existingDoctor.doctor.name} ({existingDoctor.doctor.doctorNumber}) - {formatReferralPayout(existingDoctor.doctor)} payout
                           </p>
                         </div>
                         {!linkedDoctorId && (
