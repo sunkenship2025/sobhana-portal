@@ -75,11 +75,14 @@ function formatNumericValue(value: number | null): string {
   return rounded.toString();
 }
 
-function formatReference(min: number | null, max: number | null): string {
-  if (min === null && max === null) return '';
-  if (min === null && max !== null) return `< ${max}`;
-  if (max === null && min !== null) return `> ${min}`;
-  return `${min} \u2013 ${max}`;
+function formatReference(min: number | null, max: number | null, text?: string | null): string {
+  if (min !== null || max !== null) {
+    if (min === null) return `< ${max}`;
+    if (max === null) return `> ${min}`;
+    return `${min} \u2013 ${max}`;
+  }
+  if (text) return escapeHtml(text).replace(/\n/g, '<br>');
+  return '';
 }
 
 /** Compute flag: H, L, or empty string */
@@ -127,7 +130,7 @@ function renderTestRow(test: TestResultSnapshot, indent: boolean = false): strin
         <td class="col-test">${escapeHtml(test.testName)}</td>
         <td class="col-value">${escapeHtml(valueDisplay)}</td>
         <td class="col-unit">${escapeHtml(test.referenceUnit) || ''}</td>
-        <td class="col-ref">${formatReference(test.referenceMin, test.referenceMax)}</td>
+        <td class="col-ref">${formatReference(test.referenceMin, test.referenceMax, test.referenceText)}</td>
         <td class="col-flag${isAbnormal ? ' abnormal' : ''}">${flag}</td>
       </tr>`;
 }
@@ -250,7 +253,7 @@ function renderCBPTable(panel: PanelSnapshot): string {
         <td class="col-test">${escapeHtml(t.testName)}</td>
         <td class="col-value">${escapeHtml(valueDisplay)}</td>
         <td class="col-unit">${escapeHtml(t.referenceUnit) || '%'}</td>
-        <td class="col-ref">${formatReference(t.referenceMin, t.referenceMax)}</td>
+        <td class="col-ref">${formatReference(t.referenceMin, t.referenceMax, t.referenceText)}</td>
         <td class="col-flag${isAbnormal ? ' abnormal' : ''}">${flag}</td>
       </tr>`;
     }).join('');
