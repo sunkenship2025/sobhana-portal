@@ -1,5 +1,6 @@
 import type { BillReceiptData } from '@/types';
 import { API_BASE_URL } from '@/lib/api';
+import { formatReferralPayout } from '@/lib/referralPayouts';
 
 interface BillReceiptProps {
   data: BillReceiptData;
@@ -15,7 +16,12 @@ interface BillReceiptProps {
  */
 export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
   const isDiagnostic = data.domain === 'DIAGNOSTICS';
-  const hasReferral = data.items.some((item) => item.referralPercent !== undefined);
+  const hasReferral = data.items.some(
+    (item) =>
+      item.referralType !== undefined ||
+      item.referralPercent !== undefined ||
+      item.referralAmountInPaise !== undefined
+  );
 
   const dateStr = new Date(data.date).toLocaleDateString('en-IN', {
     day: '2-digit',
@@ -104,7 +110,7 @@ export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
               {isDiagnostic ? 'TEST NAME' : 'SERVICE DESCRIPTION'}
             </th>
             {hasReferral && (
-              <th className="border-r border-black p-2 text-right w-20">REF %</th>
+              <th className="border-r border-black p-2 text-right w-24">REF</th>
             )}
             <th className="p-2 text-right w-32">AMOUNT (₹)</th>
           </tr>
@@ -116,7 +122,13 @@ export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
               <td className="border-r border-black p-2">{item.name}</td>
               {hasReferral && (
                 <td className="border-r border-black p-2 text-right">
-                  {item.referralPercent !== undefined ? `${item.referralPercent}%` : '—'}
+                  {item.referralType || item.referralPercent !== undefined || item.referralAmountInPaise !== undefined
+                    ? formatReferralPayout({
+                        commissionType: item.referralType,
+                        commissionPercent: item.referralPercent,
+                        commissionAmountInPaise: item.referralAmountInPaise,
+                      })
+                    : '—'}
                 </td>
               )}
               <td className="p-2 text-right">{item.price.toFixed(2)}</td>

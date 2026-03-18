@@ -58,13 +58,31 @@ export interface Patient {
 // ============================================
 // DOCTOR (Referral Doctor - external)
 // ============================================
+export type ReferralPayoutType = 'PERCENTAGE' | 'FIXED_AMOUNT';
+
+export interface ReferralProductRule {
+  id: string;
+  productId: string;
+  commissionType: ReferralPayoutType;
+  commissionPercent?: number | null;
+  commissionAmountInPaise?: number | null;
+  product?: {
+    id: string;
+    name: string;
+    code: string;
+  };
+}
+
 export interface ReferralDoctor {
   id: string;
   doctorNumber: string;      // RD-00001, RD-00002, etc.
   name: string;
-  phone: string;
+  phone?: string | null;
+  commissionType?: ReferralPayoutType;
   commissionPercent: number;
+  commissionAmountInPaise?: number | null;
   clinicDoctorId?: string;   // Link if also a clinic doctor
+  productRules?: ReferralProductRule[];
 }
 
 // ============================================
@@ -233,7 +251,9 @@ export interface TestOrder {
     unit: string;
   };
   referenceText?: string | null;      // For qualitative tests
+  referralCommissionType?: ReferralPayoutType;
   referralCommissionPercent?: number;
+  referralCommissionAmountInPaise?: number | null;
 }
 
 // ============================================
@@ -435,7 +455,9 @@ export interface PayoutLineItem {
   date: string;
   testOrFee: string;
   amountInPaise: number;
+  commissionType?: ReferralPayoutType;
   commissionPercentage?: number;
+  commissionAmountInPaise?: number;
   derivedCommissionInPaise: number;
 }
 
@@ -469,7 +491,9 @@ export interface BillReceiptItem {
   id: string;
   name: string;
   price: number;            // Already in rupees (not paise)
+  referralType?: ReferralPayoutType;
   referralPercent?: number;
+  referralAmountInPaise?: number;
 }
 
 export interface BillReceiptData {

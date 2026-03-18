@@ -22,6 +22,7 @@ interface ApiBillData {
   patient: {
     name: string;
     age: number;
+    ageDisplay?: string;
     gender: string;
     phone: string;
   };
@@ -45,7 +46,9 @@ interface ApiBillData {
     name: string;
     code: string;
     price: number;
+    referralCommissionType?: 'PERCENTAGE' | 'FIXED_AMOUNT';
     referralCommissionPercent?: number;
+    referralCommissionAmountInPaise?: number;
   }>;
 }
 
@@ -74,7 +77,9 @@ function toBillReceiptData(api: ApiBillData): BillReceiptData {
       id: item.id,
       name: item.name,
       price: item.price,
+      referralType: item.referralCommissionType,
       referralPercent: item.referralCommissionPercent,
+      referralAmountInPaise: item.referralCommissionAmountInPaise,
     })),
   };
 }
