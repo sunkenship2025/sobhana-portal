@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import * as doctorService from '../services/doctorService';
+import { normalizeReferralPayoutInput } from '../services/referralPayoutService';
 
 const router = Router();
 
@@ -14,12 +15,39 @@ router.use(branchContextMiddleware);
 // POST /api/referral-doctors - Create referral doctor
 router.post('/', async (req: AuthRequest, res) => {
   try {
-    const { name, phone, email, commissionPercent, clinicDoctorId } = req.body;
+    const { name, phone, email, clinicDoctorId, productRules } = req.body;
 
-    if (!name || commissionPercent === undefined) {
+    if (!name) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'Name and commissionPercent are required'
+        message: 'Name is required'
+      });
+    }
+
+    let normalizedPayout;
+    let normalizedProductRules;
+    try {
+      normalizedPayout = normalizeReferralPayoutInput({
+        commissionType: req.body.commissionType,
+        commissionPercent: req.body.commissionPercent,
+        commissionAmount: req.body.commissionAmount,
+        commissionAmountInPaise: req.body.commissionAmountInPaise,
+      });
+      normalizedProductRules = Array.isArray(productRules)
+        ? productRules.map((rule: any) => ({
+            productId: rule.productId,
+            ...normalizeReferralPayoutInput({
+              commissionType: rule.commissionType,
+              commissionPercent: rule.commissionPercent,
+              commissionAmount: rule.commissionAmount,
+              commissionAmountInPaise: rule.commissionAmountInPaise,
+            }),
+          }))
+        : undefined;
+    } catch (validationErr: any) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: validationErr.message,
       });
     }
 
@@ -45,7 +73,8 @@ router.post('/', async (req: AuthRequest, res) => {
       name,
       phone,
       email,
-      commissionPercent,
+      ...normalizedPayout,
+      productRules: normalizedProductRules,
       clinicDoctorId,
       branchId: req.branchId!,
       userId: req.user?.id
@@ -86,11 +115,45 @@ router.get('/', async (req: AuthRequest, res) => {
 router.patch('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { name, phone, email, commissionPercent, isActive } = req.body;
+    const { name, phone, email, isActive, productRules } = req.body;
+
+    let normalizedPayout;
+    let normalizedProductRules;
+    try {
+      normalizedPayout =
+        req.body.commissionType !== undefined ||
+        req.body.commissionPercent !== undefined ||
+        req.body.commissionAmount !== undefined ||
+        req.body.commissionAmountInPaise !== undefined
+          ? normalizeReferralPayoutInput({
+              commissionType: req.body.commissionType,
+              commissionPercent: req.body.commissionPercent,
+              commissionAmount: req.body.commissionAmount,
+              commissionAmountInPaise: req.body.commissionAmountInPaise,
+            })
+          : undefined;
+
+      normalizedProductRules = Array.isArray(productRules)
+        ? productRules.map((rule: any) => ({
+            productId: rule.productId,
+            ...normalizeReferralPayoutInput({
+              commissionType: rule.commissionType,
+              commissionPercent: rule.commissionPercent,
+              commissionAmount: rule.commissionAmount,
+              commissionAmountInPaise: rule.commissionAmountInPaise,
+            }),
+          }))
+        : undefined;
+    } catch (validationErr: any) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: validationErr.message,
+      });
+    }
 
     const updated = await doctorService.updateReferralDoctor(
       id,
-      { name, phone, email, commissionPercent, isActive },
+      { name, phone, email, isActive, ...normalizedPayout, productRules: normalizedProductRules },
       req.branchId!,
       req.user?.id
     );
