@@ -120,6 +120,11 @@ enum ReferralSourceType {
   REFERRED_FROM  // Referred FROM another diagnostic center to us
 }
 
+enum ReferralPayoutType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
 enum MessageStatus {
   PENDING
   SENT
@@ -261,7 +266,9 @@ model ReferralDoctor {
   name               String
   phone              String?
   email              String?
+  commissionType     ReferralPayoutType @default(PERCENTAGE)
   commissionPercent  Float    @default(10.0) // 0-100, can be overridden per test
+  commissionAmountInPaise Int?
   clinicDoctorId     String?  // Link if this person is also a clinic doctor
   isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())
@@ -272,9 +279,29 @@ model ReferralDoctor {
 
   /// Payout ledger
   payoutLedger DoctorPayoutLedger[]
+  productRules ReferralDoctorProductRule[]
 
   @@index([isActive])
   @@index([createdAt])
+}
+
+model ReferralDoctorProductRule {
+  id                     String             @id @default(cuid())
+  referralDoctorId       String
+  productId              String
+  commissionType         ReferralPayoutType @default(PERCENTAGE)
+  commissionPercent      Float?
+  commissionAmountInPaise Int?
+  isActive               Boolean            @default(true)
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  referralDoctor ReferralDoctor  @relation(fields: [referralDoctorId], references: [id], onDelete: Cascade)
+  product        BillableProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([referralDoctorId, productId])
+  @@index([referralDoctorId])
+  @@index([productId])
 }
 
 /// ClinicDoctor: In-house doctors (letterhead, registration, specialty)
@@ -491,7 +518,7 @@ model Bill {
 }
 
 /// TestOrder: Individual test in a diagnostic visit
-/// Supports per-test commission override (null = use referral doctor's base %).
+/// Supports per-test commission override snapshots for immutable payout derivation.
 /// E3-03: Test metadata is snapshotted at order time for immutability.
 /// DUAL FK: testId (old LabTest) + testDefinitionId (new TestDefinition) during migration.
 model TestOrder {
@@ -500,7 +527,9 @@ model TestOrder {
   testId                         String
   branchId                       String
   priceInPaise                   Int      // Snapshot of test price at order time
-  referralCommissionPercentage   Float    // 0-100, overridable per test
+  referralCommissionType         ReferralPayoutType @default(PERCENTAGE)
+  referralCommissionPercentage   Float?   // 0-100 when payout type = PERCENTAGE
+  referralCommissionAmountInPaise Int?    // Fixed payout snapshot when payout type = FIXED_AMOUNT
   createdAt                      DateTime @default(now())
 
   // E3-03: Test metadata snapshot (frozen at order time)
@@ -1192,6 +1221,7 @@ model BillableProduct {
   panels         BillableProductPanel[]
   branchPricing  ProductBranchPricing[]
   testOrders     TestOrder[]
+  referralDoctorRules ReferralDoctorProductRule[]
 
   @@index([code])
   @@index([isActive])
