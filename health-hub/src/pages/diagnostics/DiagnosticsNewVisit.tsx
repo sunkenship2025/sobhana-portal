@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ProductSelector, type ProductForSelector } from '@/components/diagnostics/ProductSelector';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -17,6 +18,14 @@ import type { Patient, PatientSearchResult, PaymentType, DiagnosticVisitView, Te
 import { Search, UserPlus, CheckCircle2, Printer, MessageCircle } from 'lucide-react';
 import { BillReceipt } from '@/components/print/BillReceipt';
 import { validatePatientForm, computeSmartAge, formatAgeDisplay, type ValidationErrors } from '@/lib/validation';
+import {
+  areReferralPayoutsEqual,
+  formatReferralPayout,
+  getEffectiveDoctorPayout,
+  toReferralPayoutDraft,
+  toReferralPayoutPayload,
+  type ReferralPayoutDraft,
+} from '@/lib/referralPayouts';
 import {
   Select,
   SelectContent,
@@ -48,7 +57,7 @@ const DiagnosticsNewVisit = () => {
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [paymentType, setPaymentType] = useState<PaymentType>('CASH');
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>('');
-  const [referralOverrides, setReferralOverrides] = useState<Record<string, string>>({});
+  const [referralOverrides, setReferralOverrides] = useState<Record<string, ReferralPayoutDraft>>({});
   const [successData, setSuccessData] = useState<{ visitView: DiagnosticVisitView } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [whatsappOptIn, setWhatsappOptIn] = useState(true); // For existing patients
@@ -105,6 +114,24 @@ const DiagnosticsNewVisit = () => {
 
     fetchData();
   }, [token, activeBranch]);
+
+  const selectedDoctor = referralDoctors.find((doctor) => doctor.id === selectedDoctorId);
+
+  const buildOverridesForProducts = (
+    productIds: string[],
+    doctor: ReferralDoctor | undefined,
+    existing: Record<string, ReferralPayoutDraft> = {}
+  ) => {
+    const next: Record<string, ReferralPayoutDraft> = {};
+
+    for (const productId of productIds) {
+      next[productId] =
+        existing[productId] ??
+        toReferralPayoutDraft(getEffectiveDoctorPayout(doctor, productId));
+    }
+
+    return next;
+  };
 
   // Search patients via API
   const handleSearch = async () => {
@@ -303,9 +330,20 @@ const DiagnosticsNewVisit = () => {
           referralType: selectedCenterId ? referralType : undefined,
           referralOverrides: selectedDoctorId
             ? Object.fromEntries(
-                Object.entries(referralOverrides)
-                  .filter(([, v]) => v !== '')
-                  .map(([k, v]) => [k, parseFloat(v)])
+                selectedProducts
+                  .map((productId) => {
+                    const draft =
+                      referralOverrides[productId] ??
+                      toReferralPayoutDraft(getEffectiveDoctorPayout(selectedDoctor, productId));
+                    const savedPayout = getEffectiveDoctorPayout(selectedDoctor, productId);
+                    return {
+                      productId,
+                      payload: toReferralPayoutPayload(draft),
+                      hasChanged: !areReferralPayoutsEqual(draft, savedPayout),
+                    };
+                  })
+                  .filter((item) => item.hasChanged)
+                  .map((item) => [item.productId, item.payload])
               )
             : undefined,
           productIds: selectedProducts,
@@ -321,9 +359,7 @@ const DiagnosticsNewVisit = () => {
       }
 
       const visit = await res.json();
-      const referralDoctor = selectedDoctorId 
-        ? referralDoctors.find(d => d.id === selectedDoctorId) 
-        : undefined;
+      const referralDoctor = selectedDoctorId ? selectedDoctor : undefined;
 
       // Calculate total amount in paise from selected products
       const totalAmountInPaise = Math.round(selectedProducts.reduce((sum, prodId) => {
@@ -334,6 +370,10 @@ const DiagnosticsNewVisit = () => {
       // Use test orders from backend response if available, otherwise build from products
       const testOrders: TestOrder[] = visit.testOrders ?? selectedProducts.map((prodId, index) => {
         const product = products.find((p) => p.id === prodId)!;
+        const payoutDraft =
+          referralOverrides[prodId] ??
+          toReferralPayoutDraft(getEffectiveDoctorPayout(selectedDoctor, prodId));
+        const payoutPayload = selectedDoctorId ? toReferralPayoutPayload(payoutDraft) : undefined;
         return {
           id: `${visit.id}-to-${index}`,
           visitId: visit.id,
@@ -342,6 +382,12 @@ const DiagnosticsNewVisit = () => {
           testCode: product.code,
           priceInPaise: Math.round(product.effectivePrice * 100),
           referenceRange: { min: 0, max: 0, unit: '' },
+          referralCommissionType: payoutPayload?.commissionType,
+          referralCommissionPercent: payoutPayload?.commissionPercent,
+          referralCommissionAmountInPaise:
+            payoutPayload?.commissionType === 'FIXED_AMOUNT'
+              ? Math.round((payoutPayload.commissionAmount ?? 0) * 100)
+              : null,
         };
       });
 
@@ -490,7 +536,11 @@ const DiagnosticsNewVisit = () => {
               id: order.id,
               name: order.testName,
               price: order.priceInPaise / 100,
-              referralPercent: order.referralCommissionPercent,
+              referralType: successData.visitView.referralDoctor ? order.referralCommissionType : undefined,
+              referralPercent: successData.visitView.referralDoctor ? order.referralCommissionPercent : undefined,
+              referralAmountInPaise: successData.visitView.referralDoctor
+                ? order.referralCommissionAmountInPaise ?? undefined
+                : undefined,
             })),
           }} />
         </div>
@@ -727,17 +777,15 @@ const DiagnosticsNewVisit = () => {
                 products={products}
                 selectedProductIds={selectedProducts}
                 onSelectionChange={(productIds) => {
-                  // Update selected products
                   setSelectedProducts(productIds);
-                  // Clean up referral overrides for removed products
-                  const removedIds = selectedProducts.filter(id => !productIds.includes(id));
-                  if (removedIds.length > 0) {
-                    setReferralOverrides(prev => {
-                      const updated = { ...prev };
-                      removedIds.forEach(id => delete updated[id]);
-                      return updated;
-                    });
-                  }
+                  setReferralOverrides((prev) => {
+                    if (!selectedDoctor) {
+                      return Object.fromEntries(
+                        Object.entries(prev).filter(([productId]) => productIds.includes(productId))
+                      );
+                    }
+                    return buildOverridesForProducts(productIds, selectedDoctor, prev);
+                  });
                 }}
                 disabled={isSubmitting}
               />
@@ -806,65 +854,150 @@ const DiagnosticsNewVisit = () => {
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Referral Doctor */}
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <Label>Referral Doctor (optional)</Label>
-                <Select
-                  value={selectedDoctorId}
-                  onValueChange={(value) => {
-                    setSelectedDoctorId(value);
-                    const doctor = referralDoctors.find(d => d.id === value);
-                    if (doctor) {
-                      const nextOverrides: Record<string, string> = {};
-                      selectedProducts.forEach((productId) => {
-                        nextOverrides[productId] = doctor.commissionPercent.toString();
-                      });
-                      setReferralOverrides(nextOverrides);
-                    } else {
-                      setReferralOverrides({});
-                    }
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select referral doctor" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {referralDoctors.map((doctor) => (
-                      <SelectItem key={doctor.id} value={doctor.id}>
-                        {doctor.name} ({doctor.commissionPercent}%)
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <SearchableSelect
+                    value={selectedDoctorId}
+                    onValueChange={(value) => {
+                      setSelectedDoctorId(value);
+                      const doctor = referralDoctors.find((item) => item.id === value);
+                      setReferralOverrides(buildOverridesForProducts(selectedProducts, doctor));
+                    }}
+                    options={referralDoctors.map((doctor) => ({
+                      value: doctor.id,
+                      label: doctor.name,
+                      description: [doctor.doctorNumber, doctor.phone].filter(Boolean).join(' · '),
+                      keywords: [doctor.name, doctor.doctorNumber, doctor.phone].filter(Boolean).join(' '),
+                    }))}
+                    placeholder="Search referral doctor"
+                    searchPlaceholder="Search by doctor name, phone or number"
+                    emptyText="No referral doctors found."
+                    className="h-11"
+                  />
+                  {selectedDoctorId && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setSelectedDoctorId('');
+                        setReferralOverrides({});
+                      }}
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
               </div>
 
               {selectedDoctorId && selectedProducts.length > 0 && (
-                <div className="space-y-3">
-                  <Label>Per-product referral % (optional override)</Label>
-                  <div className="grid gap-2">
+                <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div className="space-y-1">
+                      <Label className="text-base">Doctor payout by product</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Saved defaults come from Config Center. Any changes here will be applied to this bill and saved for future bills.
+                      </p>
+                    </div>
+                    {selectedDoctor && (
+                      <div className="rounded-lg border bg-background px-3 py-2 text-sm">
+                        <p className="text-muted-foreground">Doctor default</p>
+                        <p className="font-semibold">
+                          {formatReferralPayout(selectedDoctor)}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid gap-3">
                     {selectedProducts.map((productId) => {
                       const product = products.find((p) => p.id === productId);
                       if (!product) return null;
-                      const value = referralOverrides[productId] ?? '';
-                      const baseDoctor = referralDoctors.find(d => d.id === selectedDoctorId);
-                      const base = baseDoctor?.commissionPercent ?? 0;
+                      const savedPayout = getEffectiveDoctorPayout(selectedDoctor, productId);
+                      const draft =
+                        referralOverrides[productId] ??
+                        toReferralPayoutDraft(savedPayout);
                       return (
-                        <div key={productId} className="flex items-center gap-3">
-                          <div className="flex-1">
-                            <p className="font-medium">{product.name}</p>
-                            <p className="text-sm text-muted-foreground">Base: {base}%</p>
+                        <div key={productId} className="rounded-lg border bg-background p-4">
+                          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_160px] md:items-start">
+                            <div className="space-y-1">
+                              <p className="font-medium">{product.name}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {product.code} · Config Center: {formatReferralPayout(savedPayout ?? undefined)}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Payout now: {formatReferralPayout({
+                                  commissionType: draft.commissionType,
+                                  commissionPercent:
+                                    draft.commissionType === 'PERCENTAGE'
+                                      ? Number(draft.commissionPercent || 0)
+                                      : null,
+                                  commissionAmountInPaise:
+                                    draft.commissionType === 'FIXED_AMOUNT'
+                                      ? Math.round(Number(draft.commissionAmount || 0) * 100)
+                                      : null,
+                                })}
+                              </p>
+                            </div>
+
+                            <Select
+                              value={draft.commissionType}
+                              onValueChange={(value) => {
+                                setReferralOverrides((prev) => ({
+                                  ...prev,
+                                  [productId]: {
+                                    ...(prev[productId] ?? draft),
+                                    commissionType: value as ReferralPayoutDraft['commissionType'],
+                                  },
+                                }));
+                              }}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="PERCENTAGE">Percentage</SelectItem>
+                                <SelectItem value="FIXED_AMOUNT">Amount</SelectItem>
+                              </SelectContent>
+                            </Select>
+
+                            <div className="space-y-2">
+                              <Input
+                                type="number"
+                                min={0}
+                                max={draft.commissionType === 'PERCENTAGE' ? 100 : undefined}
+                                step={draft.commissionType === 'PERCENTAGE' ? '0.01' : '1'}
+                                placeholder={draft.commissionType === 'PERCENTAGE' ? 'Enter %' : 'Enter amount'}
+                                value={
+                                  draft.commissionType === 'PERCENTAGE'
+                                    ? draft.commissionPercent
+                                    : draft.commissionAmount
+                                }
+                                onChange={(e) => {
+                                  const next = e.target.value;
+                                  setReferralOverrides((prev) => ({
+                                    ...prev,
+                                    [productId]: {
+                                      ...(prev[productId] ?? draft),
+                                      commissionPercent:
+                                        draft.commissionType === 'PERCENTAGE'
+                                          ? next
+                                          : (prev[productId] ?? draft).commissionPercent,
+                                      commissionAmount:
+                                        draft.commissionType === 'FIXED_AMOUNT'
+                                          ? next
+                                          : (prev[productId] ?? draft).commissionAmount,
+                                    },
+                                  }));
+                                }}
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                {draft.commissionType === 'PERCENTAGE'
+                                  ? 'Enter the doctor share as a percentage of this product.'
+                                  : 'Enter the exact rupee amount the doctor should get for this product.'}
+                              </p>
+                            </div>
                           </div>
-                          <Input
-                            className="w-28"
-                            type="number"
-                            min={0}
-                            max={100}
-                            placeholder="%"
-                            value={value}
-                            onChange={(e) => {
-                              const next = e.target.value;
-                              setReferralOverrides((prev) => ({ ...prev, [productId]: next }));
-                            }}
-                          />
                         </div>
                       );
                     })}
