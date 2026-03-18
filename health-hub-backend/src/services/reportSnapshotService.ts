@@ -40,6 +40,7 @@ export interface TestResultSnapshot {
   referenceMin: number | null;
   referenceMax: number | null;
   referenceUnit: string | null;
+  referenceText: string | null;
   criticalMin: number | null;
   criticalMax: number | null;
   sampleType: string | null;
@@ -249,7 +250,7 @@ export const testResultInclude = {
  */
 function buildPanelsAndDepartments(
   testResults: any[],
-  resolvedRanges: Map<string, { referenceMin: number | null; referenceMax: number | null; referenceUnit: string | null; criticalMin: number | null; criticalMax: number | null }>
+  resolvedRanges: Map<string, { referenceMin: number | null; referenceMax: number | null; referenceUnit: string | null; referenceText: string | null; criticalMin: number | null; criticalMax: number | null }>
 ): DepartmentSnapshot[] {
   const panelMap = new Map<string, { panel: any; results: any[] }>();
 
@@ -289,6 +290,7 @@ function buildPanelsAndDepartments(
           referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? testDef.referenceMin ?? test.referenceMin,
           referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? testDef.referenceMax ?? test.referenceMax,
           referenceUnit: resolvedRanges.get(test.id)?.referenceUnit || testDef.referenceUnit || test.referenceUnit,
+          referenceText: resolvedRanges.get(test.id)?.referenceText ?? testDef.referenceText ?? test.referenceText ?? null,
           criticalMin: resolvedRanges.get(test.id)?.criticalMin ?? testDef.criticalMin ?? null,
           criticalMax: resolvedRanges.get(test.id)?.criticalMax ?? testDef.criticalMax ?? null,
           sampleType: panel.sampleType ?? testDef.sampleType ?? test.sampleType ?? null,
@@ -328,6 +330,7 @@ function buildPanelsAndDepartments(
           referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
           referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
           referenceUnit: resolvedRanges.get(test.id)?.referenceUnit || test.referenceUnit,
+          referenceText: resolvedRanges.get(test.id)?.referenceText ?? test.referenceText ?? null,
           criticalMin: resolvedRanges.get(test.id)?.criticalMin ?? null,
           criticalMax: resolvedRanges.get(test.id)?.criticalMax ?? null,
           sampleType: test.sampleType ?? null,
@@ -376,6 +379,7 @@ function buildPanelsAndDepartments(
         referenceMin: resolvedRanges.get(test.id)?.referenceMin ?? test.referenceMin,
         referenceMax: resolvedRanges.get(test.id)?.referenceMax ?? test.referenceMax,
         referenceUnit: resolvedRanges.get(test.id)?.referenceUnit || test.referenceUnit,
+        referenceText: resolvedRanges.get(test.id)?.referenceText ?? test.referenceText ?? null,
         criticalMin: resolvedRanges.get(test.id)?.criticalMin ?? null,
         criticalMax: resolvedRanges.get(test.id)?.criticalMax ?? null,
         sampleType: test.sampleType ?? null,
