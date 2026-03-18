@@ -1,5 +1,6 @@
 import { PrismaClient, PayoutDoctorType, PaymentType } from '@prisma/client';
 import prisma from '../lib/prisma';
+import { computeReferralPayoutInPaise } from './referralPayoutService';
 
 
 // ===========================================================================
@@ -14,6 +15,8 @@ export interface PayoutLineItem {
   testOrFee: string; // Test name for referral, "Consultation Fee" for clinic
   amountInPaise: number;
   commissionPercentage?: number; // Only for referral/diagnostic center
+  commissionType?: 'PERCENTAGE' | 'FIXED_AMOUNT';
+  commissionAmountInPaise?: number;
   derivedCommissionInPaise: number;
 }
 
@@ -56,7 +59,9 @@ export interface PayoutDetail extends PayoutSummary {
 
 /**
  * Derive payout for a referral doctor.
- * Formula: Sum of (testOrder.priceInPaise × testOrder.referralCommissionPercentage / 100)
+ * Formula:
+ *   - percentage rules: testOrder.priceInPaise × referralCommissionPercentage / 100
+ *   - fixed rules: referralCommissionAmountInPaise snapshot
  * for all tests in visits where:
  *   - Visit has a finalized report
  *   - Visit is linked to this referral doctor
@@ -125,9 +130,7 @@ async function deriveReferralPayout(
     const finalizedAt = visit.report?.versions[0]?.finalizedAt;
 
     for (const testOrder of visit.testOrders) {
-      const commissionInPaise = Math.round(
-        (testOrder.priceInPaise * testOrder.referralCommissionPercentage) / 100
-      );
+      const commissionInPaise = computeReferralPayoutInPaise(testOrder);
       totalDerivedInPaise += commissionInPaise;
 
       lineItems.push({
@@ -135,9 +138,17 @@ async function deriveReferralPayout(
         billNumber: visit.billNumber,
         patientName: visit.patient.name,
         date: finalizedAt || visit.createdAt,
-        testOrFee: testOrder.test.name,
+        testOrFee: testOrder.testNameSnapshot || testOrder.test.name,
         amountInPaise: testOrder.priceInPaise,
-        commissionPercentage: testOrder.referralCommissionPercentage,
+        commissionType: testOrder.referralCommissionType,
+        commissionPercentage:
+          testOrder.referralCommissionType === 'PERCENTAGE'
+            ? testOrder.referralCommissionPercentage ?? undefined
+            : undefined,
+        commissionAmountInPaise:
+          testOrder.referralCommissionType === 'FIXED_AMOUNT'
+            ? testOrder.referralCommissionAmountInPaise ?? undefined
+            : undefined,
         derivedCommissionInPaise: commissionInPaise,
       });
     }
@@ -641,7 +652,9 @@ export async function getReferralDoctors(isActive?: boolean) {
       id: true,
       doctorNumber: true,
       name: true,
+      commissionType: true,
       commissionPercent: true,
+      commissionAmountInPaise: true,
       isActive: true,
     },
     orderBy: { name: 'asc' },

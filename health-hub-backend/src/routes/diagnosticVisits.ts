@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import { generateDiagnosticBillNumber } from '../services/numberService';
@@ -7,13 +6,61 @@ import { logAction } from '../services/auditService';
 import { evaluateDerivedParameters } from '../services/derivedParameterService';
 import { resolveReferenceRanges } from '../services/referenceRangeService';
 import { resolveProducts, ProductResolutionError } from '../services/productOrderService';
+import prisma from '../lib/prisma';
+import {
+  areReferralPayoutsEqual,
+  distributeFixedAmountInPaise,
+  normalizeReferralOverrideInput,
+  type NormalizedReferralPayout,
+} from '../services/referralPayoutService';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // All routes require auth + branch context
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
+
+type ReferralSnapshot = {
+  referralCommissionType: 'PERCENTAGE' | 'FIXED_AMOUNT';
+  referralCommissionPercentage: number | null;
+  referralCommissionAmountInPaise: number | null;
+};
+
+function zeroReferralSnapshot(): ReferralSnapshot {
+  return {
+    referralCommissionType: 'PERCENTAGE',
+    referralCommissionPercentage: 0,
+    referralCommissionAmountInPaise: null,
+  };
+}
+
+function applyReferralRuleToPrices(
+  pricesInPaise: number[],
+  rule: NormalizedReferralPayout | null
+): ReferralSnapshot[] {
+  if (!rule) {
+    return pricesInPaise.map(() => zeroReferralSnapshot());
+  }
+
+  if (rule.commissionType === 'FIXED_AMOUNT') {
+    const distributed = distributeFixedAmountInPaise(
+      rule.commissionAmountInPaise ?? 0,
+      pricesInPaise
+    );
+
+    return distributed.map((commissionAmountInPaise) => ({
+      referralCommissionType: 'FIXED_AMOUNT',
+      referralCommissionPercentage: null,
+      referralCommissionAmountInPaise: commissionAmountInPaise,
+    }));
+  }
+
+  return pricesInPaise.map(() => ({
+    referralCommissionType: 'PERCENTAGE',
+    referralCommissionPercentage: rule.commissionPercent ?? 0,
+    referralCommissionAmountInPaise: null,
+  }));
+}
 
 // GET /api/visits/diagnostic - List diagnostic visits
 // When patientId is provided: Returns ALL visits for that patient across ALL branches (Patient 360 view)
@@ -96,10 +143,16 @@ router.get('/', async (req: AuthRequest, res) => {
         id: to.id,
         visitId: to.visitId,
         testId: to.testId,
+        productId: to.productId,
+        testDefinitionId: to.testDefinitionId,
         // E3-03: Use snapshotted metadata (fallback to live data for backward compatibility)
         testName: to.testNameSnapshot || to.test.name,
         testCode: to.testCodeSnapshot || to.test.code,
         price: to.priceInPaise / 100,
+        priceInPaise: to.priceInPaise,
+        referralCommissionType: to.referralCommissionType,
+        referralCommissionPercent: to.referralCommissionPercentage,
+        referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
         referenceRange: {
           min: to.referenceMinSnapshot ?? to.test.referenceMin ?? 0,
           max: to.referenceMaxSnapshot ?? to.test.referenceMax ?? 0,
@@ -261,9 +314,15 @@ router.get('/:id', async (req: AuthRequest, res) => {
         id: to.id,
         visitId: to.visitId,
         testId: to.testId,
+        productId: to.productId,
+        testDefinitionId: to.testDefinitionId,
         testName: to.testNameSnapshot || to.test.name,
         testCode: to.testCodeSnapshot || to.test.code,
         price: to.priceInPaise / 100,
+        priceInPaise: to.priceInPaise,
+        referralCommissionType: to.referralCommissionType,
+        referralCommissionPercent: to.referralCommissionPercentage,
+        referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
         isPanel: to.test.isPanel,
         referenceRange: buildRange(
           to.testId,
@@ -359,14 +418,55 @@ router.post('/', async (req: AuthRequest, res) => {
       });
     }
 
-    // Get referral doctor commission if applicable
-    let commissionPercent = 0;
+    let defaultReferralRule: NormalizedReferralPayout | null = null;
+    const referralRuleByProductId = new Map<string, NormalizedReferralPayout>();
+
     if (referralDoctorId) {
       const referralDoc = await prisma.referralDoctor.findUnique({
         where: { id: referralDoctorId },
+        include: {
+          productRules: {
+            where: { isActive: true },
+          },
+        },
       });
-      if (referralDoc) {
-        commissionPercent = referralDoc.commissionPercent;
+
+      if (!referralDoc) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: 'Referral doctor not found',
+        });
+      }
+
+      defaultReferralRule = {
+        commissionType: referralDoc.commissionType,
+        commissionPercent: referralDoc.commissionPercent,
+        commissionAmountInPaise: referralDoc.commissionAmountInPaise,
+      };
+
+      for (const rule of referralDoc.productRules) {
+        referralRuleByProductId.set(rule.productId, {
+          commissionType: rule.commissionType,
+          commissionPercent: rule.commissionPercent,
+          commissionAmountInPaise: rule.commissionAmountInPaise,
+        });
+      }
+    }
+
+    const overrides = new Map<string, NormalizedReferralPayout>();
+    if (referralOverrides && typeof referralOverrides === 'object') {
+      try {
+        for (const [key, value] of Object.entries(referralOverrides)) {
+          const normalized = normalizeReferralOverrideInput(value);
+          if (normalized) {
+            overrides.set(key, normalized);
+          }
+        }
+      } catch (validationErr: any) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: validationErr.message,
+        });
       }
     }
 
@@ -383,6 +483,9 @@ router.post('/', async (req: AuthRequest, res) => {
       referenceMinSnapshot: number | null;
       referenceMaxSnapshot: number | null;
       referenceUnitSnapshot: string | null;
+      referralCommissionType: 'PERCENTAGE' | 'FIXED_AMOUNT';
+      referralCommissionPercentage: number | null;
+      referralCommissionAmountInPaise: number | null;
     }> = [];
 
     if (hasProducts) {
@@ -391,7 +494,16 @@ router.post('/', async (req: AuthRequest, res) => {
         const resolved = await resolveProducts(productIds, req.branchId!);
 
         for (const rp of resolved) {
-          for (const to of rp.testOrders) {
+          const effectiveRule =
+            overrides.get(rp.productId) ??
+            referralRuleByProductId.get(rp.productId) ??
+            defaultReferralRule;
+          const referralSnapshots = applyReferralRuleToPrices(
+            rp.testOrders.map((to) => to.priceInPaise),
+            effectiveRule
+          );
+
+          for (const [index, to] of rp.testOrders.entries()) {
             testOrderData.push({
               testId: to.labTestId,
               testDefinitionId: to.testDefinitionId,
@@ -402,6 +514,9 @@ router.post('/', async (req: AuthRequest, res) => {
               referenceMinSnapshot: to.referenceMin,
               referenceMaxSnapshot: to.referenceMax,
               referenceUnitSnapshot: to.referenceUnit,
+              referralCommissionType: referralSnapshots[index].referralCommissionType,
+              referralCommissionPercentage: referralSnapshots[index].referralCommissionPercentage,
+              referralCommissionAmountInPaise: referralSnapshots[index].referralCommissionAmountInPaise,
             });
           }
           totalAmountInPaise += rp.effectivePrice;
@@ -431,21 +546,27 @@ router.post('/', async (req: AuthRequest, res) => {
 
       totalAmountInPaise = tests.reduce((sum, t) => sum + t.priceInPaise, 0);
 
-      testOrderData = tests.map((test) => ({
-        testId: test.id,
-        priceInPaise: test.priceInPaise,
-        testNameSnapshot: test.name,
-        testCodeSnapshot: test.code,
-        referenceMinSnapshot: test.referenceMin,
-        referenceMaxSnapshot: test.referenceMax,
-        referenceUnitSnapshot: test.referenceUnit,
-      }));
+      testOrderData = tests.map((test) => {
+        const effectiveRule = overrides.get(test.id) ?? defaultReferralRule;
+        const referralSnapshot = applyReferralRuleToPrices([test.priceInPaise], effectiveRule)[0];
+
+        return {
+          testId: test.id,
+          priceInPaise: test.priceInPaise,
+          testNameSnapshot: test.name,
+          testCodeSnapshot: test.code,
+          referenceMinSnapshot: test.referenceMin,
+          referenceMaxSnapshot: test.referenceMax,
+          referenceUnitSnapshot: test.referenceUnit,
+          referralCommissionType: referralSnapshot.referralCommissionType,
+          referralCommissionPercentage: referralSnapshot.referralCommissionPercentage,
+          referralCommissionAmountInPaise: referralSnapshot.referralCommissionAmountInPaise,
+        };
+      });
     }
 
     // Generate bill number
     const billNumber = await generateDiagnosticBillNumber(branch.code);
-
-    const overrides: Record<string, number> = referralOverrides || {};
 
     // Create visit with all related records in a transaction
     const result = await prisma.$transaction(async (tx) => {
@@ -496,6 +617,46 @@ router.post('/', async (req: AuthRequest, res) => {
         });
       }
 
+      if (referralDoctorId && hasProducts && overrides.size > 0) {
+        for (const productId of productIds.filter((id: string) => overrides.has(id))) {
+          const override = overrides.get(productId);
+          if (!override) continue;
+
+          if (areReferralPayoutsEqual(override, defaultReferralRule)) {
+            await tx.referralDoctorProductRule.deleteMany({
+              where: {
+                referralDoctorId,
+                productId,
+              },
+            });
+            continue;
+          }
+
+          await tx.referralDoctorProductRule.upsert({
+            where: {
+              referralDoctorId_productId: {
+                referralDoctorId,
+                productId,
+              },
+            },
+            update: {
+              commissionType: override.commissionType,
+              commissionPercent: override.commissionPercent,
+              commissionAmountInPaise: override.commissionAmountInPaise,
+              isActive: true,
+            },
+            create: {
+              referralDoctorId,
+              productId,
+              commissionType: override.commissionType,
+              commissionPercent: override.commissionPercent,
+              commissionAmountInPaise: override.commissionAmountInPaise,
+              isActive: true,
+            },
+          });
+        }
+      }
+
       // Create test orders with metadata snapshot (E3-03)
       await tx.testOrder.createMany({
         data: testOrderData.map((tod) => ({
@@ -503,7 +664,9 @@ router.post('/', async (req: AuthRequest, res) => {
           testId: tod.testId,
           branchId: req.branchId!,
           priceInPaise: tod.priceInPaise,
-          referralCommissionPercentage: overrides[tod.testId] ?? commissionPercent,
+          referralCommissionType: tod.referralCommissionType,
+          referralCommissionPercentage: tod.referralCommissionPercentage,
+          referralCommissionAmountInPaise: tod.referralCommissionAmountInPaise,
           testNameSnapshot: tod.testNameSnapshot,
           testCodeSnapshot: tod.testCodeSnapshot,
           referenceMinSnapshot: tod.referenceMinSnapshot,
@@ -572,6 +735,20 @@ router.post('/', async (req: AuthRequest, res) => {
       totalAmount: completeVisit!.totalAmountInPaise / 100,
       status: completeVisit!.status,
       createdAt: completeVisit!.createdAt,
+      referralDoctor: completeVisit!.referrals[0]?.referralDoctor || null,
+      testOrders: completeVisit!.testOrders.map((to) => ({
+        id: to.id,
+        visitId: to.visitId,
+        testId: to.testId,
+        productId: to.productId,
+        testDefinitionId: to.testDefinitionId,
+        testName: to.testNameSnapshot || to.test.name,
+        testCode: to.testCodeSnapshot || to.test.code,
+        priceInPaise: to.priceInPaise,
+        referralCommissionType: to.referralCommissionType,
+        referralCommissionPercent: to.referralCommissionPercentage,
+        referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
+      })),
     });
   } catch (err: any) {
     console.error('Create diagnostic visit error:', err);
@@ -723,26 +900,34 @@ router.post('/:id/tests', async (req: AuthRequest, res) => {
       });
     }
 
-    // Get referral commission if applicable
-    let commissionPercent = 0;
-    if (visit.referrals.length > 0 && visit.referrals[0].referralDoctor) {
-      commissionPercent = visit.referrals[0].referralDoctor.commissionPercent;
-    }
+    const defaultReferralRule =
+      visit.referrals.length > 0 && visit.referrals[0].referralDoctor
+        ? {
+            commissionType: visit.referrals[0].referralDoctor.commissionType,
+            commissionPercent: visit.referrals[0].referralDoctor.commissionPercent,
+            commissionAmountInPaise: visit.referrals[0].referralDoctor.commissionAmountInPaise,
+          }
+        : null;
 
     // Calculate additional amount
     const additionalAmountInPaise = tests.reduce((sum, t) => sum + t.priceInPaise, 0);
     const newTotalAmountInPaise = visit.totalAmountInPaise + additionalAmountInPaise;
+    const referralSnapshots = tests.map((test) =>
+      applyReferralRuleToPrices([test.priceInPaise], defaultReferralRule)[0]
+    );
 
     // Create test orders with metadata snapshot in a transaction
     const result = await prisma.$transaction(async (tx) => {
       // Create test orders with snapshotted metadata (E3-03)
       await tx.testOrder.createMany({
-        data: tests.map((test) => ({
+        data: tests.map((test, index) => ({
           visitId: visit.id,
           testId: test.id,
           branchId: req.branchId!,
           priceInPaise: test.priceInPaise,
-          referralCommissionPercentage: commissionPercent,
+          referralCommissionType: referralSnapshots[index].referralCommissionType,
+          referralCommissionPercentage: referralSnapshots[index].referralCommissionPercentage,
+          referralCommissionAmountInPaise: referralSnapshots[index].referralCommissionAmountInPaise,
           testNameSnapshot: test.name,
           testCodeSnapshot: test.code,
           referenceMinSnapshot: test.referenceMin,
