@@ -59,6 +59,7 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
     }
 
     const phone = visit.patient.identifiers.find((id) => id.type === 'PHONE')?.value || '';
+    const hasReferralDoctor = visit.referrals.length > 0;
 
     // Transform data for printing
     const billData: {
@@ -74,6 +75,8 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
         code: string;
         price: number;
         referralCommissionPercent?: number;
+        referralCommissionType?: 'PERCENTAGE' | 'FIXED_AMOUNT';
+        referralCommissionAmountInPaise?: number;
       }>;
     } = {
       visit: {
@@ -118,7 +121,17 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
 
     if (domain === 'DIAGNOSTICS') {
       // Group test orders by productId to show billable products, not individual tests
-      const productGroups = new Map<string, { name: string; code: string; totalPrice: number; referralPercent?: number | null }>();
+      const productGroups = new Map<
+        string,
+        {
+          name: string;
+          code: string;
+          totalPrice: number;
+          referralType?: 'PERCENTAGE' | 'FIXED_AMOUNT';
+          referralPercent?: number | null;
+          referralAmountInPaise?: number;
+        }
+      >();
       const ungrouped: typeof billData.items = [];
 
       for (const order of visit.testOrders) {
@@ -126,22 +139,35 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
           const existing = productGroups.get(order.productId);
           if (existing) {
             existing.totalPrice += order.priceInPaise / 100;
+            if (hasReferralDoctor && order.referralCommissionType === 'FIXED_AMOUNT') {
+              existing.referralAmountInPaise =
+                (existing.referralAmountInPaise ?? 0) + (order.referralCommissionAmountInPaise ?? 0);
+            }
           } else {
             productGroups.set(order.productId, {
               name: order.product.name,
               code: order.product.code,
               totalPrice: order.priceInPaise / 100,
-              referralPercent: order.referralCommissionPercentage,
+              referralType: hasReferralDoctor ? order.referralCommissionType : undefined,
+              referralPercent: hasReferralDoctor ? order.referralCommissionPercentage : undefined,
+              referralAmountInPaise: hasReferralDoctor && order.referralCommissionType === 'FIXED_AMOUNT'
+                ? order.referralCommissionAmountInPaise ?? 0
+                : undefined,
             });
           }
         } else {
           // Legacy orders without product linkage — fall back to individual test
           ungrouped.push({
             id: order.id,
-            name: order.test.name,
+            name: order.testNameSnapshot || order.test.name,
             code: order.test.code,
             price: order.priceInPaise / 100,
-            referralCommissionPercent: order.referralCommissionPercentage,
+            referralCommissionType: hasReferralDoctor ? order.referralCommissionType : undefined,
+            referralCommissionPercent: hasReferralDoctor ? order.referralCommissionPercentage ?? undefined : undefined,
+            referralCommissionAmountInPaise:
+              hasReferralDoctor && order.referralCommissionType === 'FIXED_AMOUNT'
+                ? order.referralCommissionAmountInPaise ?? undefined
+                : undefined,
           });
         }
       }
@@ -152,7 +178,9 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
           name: p.name,
           code: p.code,
           price: p.totalPrice,
+          referralCommissionType: p.referralType,
           referralCommissionPercent: p.referralPercent ?? undefined,
+          referralCommissionAmountInPaise: p.referralAmountInPaise,
         })),
         ...ungrouped,
       ];
