@@ -190,15 +190,7 @@ sobhana-portal/
 
 ## 🔧 Configuration
 
-### Environment Variables
 
-**Backend** (`.env` in `health-hub-backend/`)
-```env
-DATABASE_URL="postgresql://user:pass@localhost:5432/sobhana_db"
-JWT_SECRET="min-32-character-secret-key-here"
-PORT=3000
-NODE_ENV=development
-```
 
 **Frontend** (no `.env` needed for development)
 - API URL is hardcoded to `http://localhost:3000` for development
@@ -227,11 +219,7 @@ View schema: `health-hub-backend/prisma/schema.prisma`
 **Login**
 ```bash
 POST /api/auth/login
-Content-Type: application/json
-
-{
-  "email": "owner@sobhana.com",
-  "password": "password123"
+Content-Type: 
 }
 
 Response: { "token": "jwt-token", "user": {...} }
