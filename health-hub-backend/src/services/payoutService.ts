@@ -1,6 +1,6 @@
-import { PrismaClient, PayoutDoctorType, PaymentType } from '@prisma/client';
+import { PayoutDoctorType, PaymentType } from '@prisma/client';
 import prisma from '../lib/prisma';
-import { computeReferralPayoutInPaise } from './referralPayoutService';
+import { computeCommissionInPaise, computeReferralPayoutInPaise } from './referralPayoutService';
 
 
 // ===========================================================================
@@ -247,8 +247,11 @@ async function deriveClinicPayout(
 
 /**
  * Derive payout for a diagnostic center.
- * Formula: Sum of (visit.totalAmountInPaise × center.commissionPercent / 100)
- * for visits linked via DiagnosticCenter_Visit with finalized reports in period.
+ * Formula:
+ *   - snapshot percentage rules: testOrder.priceInPaise × diagnosticCenterCommissionPercentage / 100
+ *   - snapshot fixed rules: diagnosticCenterCommissionAmountInPaise
+ * for all finalized diagnostic-center-linked visits in the period.
+ * Older records created before snapshot support fall back to the center's legacy percentage.
  */
 async function deriveDiagnosticCenterPayout(
   diagnosticCenterId: string,
@@ -270,7 +273,11 @@ async function deriveDiagnosticCenterPayout(
     where: {
       diagnosticCenterId,
       branchId,
+      referralType: {
+        not: 'SELF',
+      },
       visit: {
+        domain: 'DIAGNOSTICS',
         report: {
           versions: {
             some: {
@@ -291,6 +298,7 @@ async function deriveDiagnosticCenterPayout(
           testOrders: {
             include: {
               test: { select: { name: true } },
+              product: { select: { id: true, name: true, code: true } },
             },
           },
           report: {
@@ -313,23 +321,45 @@ async function deriveDiagnosticCenterPayout(
   for (const cv of centerVisits) {
     const visit = cv.visit;
     const finalizedAt = visit.report?.versions[0]?.finalizedAt;
-    const billTotal = visit.totalAmountInPaise;
-    const commissionInPaise = Math.round(
-      (billTotal * center.commissionPercent) / 100
-    );
-    totalDerivedInPaise += commissionInPaise;
+    for (const testOrder of visit.testOrders) {
+      const hasSnapshot = testOrder.diagnosticCenterCommissionType !== null;
+      const commissionInPaise = hasSnapshot
+        ? computeCommissionInPaise({
+            priceInPaise: testOrder.priceInPaise,
+            commissionType: testOrder.diagnosticCenterCommissionType,
+            commissionPercentage: testOrder.diagnosticCenterCommissionPercentage,
+            commissionAmountInPaise: testOrder.diagnosticCenterCommissionAmountInPaise,
+          })
+        : Math.round((testOrder.priceInPaise * center.commissionPercent) / 100);
 
-    // Create one line item per visit (not per test order)
-    lineItems.push({
-      visitId: visit.id,
-      billNumber: visit.billNumber,
-      patientName: visit.patient.name,
-      date: finalizedAt || visit.createdAt,
-      testOrFee: visit.testOrders.map((to) => to.test.name).join(', '),
-      amountInPaise: billTotal,
-      commissionPercentage: center.commissionPercent,
-      derivedCommissionInPaise: commissionInPaise,
-    });
+      totalDerivedInPaise += commissionInPaise;
+
+      lineItems.push({
+        visitId: visit.id,
+        billNumber: visit.billNumber,
+        patientName: visit.patient.name,
+        date: finalizedAt || visit.createdAt,
+        testOrFee:
+          testOrder.product?.name ||
+          testOrder.testNameSnapshot ||
+          testOrder.test.name,
+        amountInPaise: testOrder.priceInPaise,
+        commissionType: hasSnapshot
+          ? testOrder.diagnosticCenterCommissionType ?? undefined
+          : 'PERCENTAGE',
+        commissionPercentage:
+          hasSnapshot && testOrder.diagnosticCenterCommissionType === 'PERCENTAGE'
+            ? testOrder.diagnosticCenterCommissionPercentage ?? undefined
+            : !hasSnapshot
+              ? center.commissionPercent
+              : undefined,
+        commissionAmountInPaise:
+          hasSnapshot && testOrder.diagnosticCenterCommissionType === 'FIXED_AMOUNT'
+            ? testOrder.diagnosticCenterCommissionAmountInPaise ?? undefined
+            : undefined,
+        derivedCommissionInPaise: commissionInPaise,
+      });
+    }
   }
 
   return {
@@ -688,7 +718,9 @@ export async function getDiagnosticCenters(isActive?: boolean) {
       id: true,
       centerNumber: true,
       name: true,
+      commissionType: true,
       commissionPercent: true,
+      commissionAmountInPaise: true,
       isActive: true,
     },
     orderBy: { name: 'asc' },
