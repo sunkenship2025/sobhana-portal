@@ -844,88 +844,6 @@ const DiagnosticsNewVisit = () => {
           </Card>
         )}
 
-        {/* Diagnostic Center (optional) */}
-        {selectedProducts.length > 0 && diagnosticCenters.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Diagnostic Center (optional)</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <SearchableSelect
-                  value={selectedCenterId}
-                  onValueChange={(value) => {
-                    setSelectedCenterId(value);
-                    const center = diagnosticCenters.find((item) => item.id === value);
-                    setDiagnosticCenterOverrides(
-                      buildOverridesForProducts(
-                        selectedProducts,
-                        (productId) => getEffectiveDiagnosticCenterPayout(center, productId)
-                      )
-                    );
-                  }}
-                  options={diagnosticCenters.map((center) => ({
-                    value: center.id,
-                    label: center.name,
-                    description: [center.centerNumber, center.contactPerson, center.phone].filter(Boolean).join(' · '),
-                    keywords: [center.name, center.centerNumber, center.contactPerson, center.phone]
-                      .filter(Boolean)
-                      .join(' '),
-                  }))}
-                  placeholder="Search external diagnostic center"
-                  searchPlaceholder="Search by center name, number, contact or phone"
-                  emptyText="No diagnostic centers found."
-                  className="h-11"
-                />
-                {selectedCenterId && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setSelectedCenterId('');
-                      setReferralType('SELF');
-                      setDiagnosticCenterOverrides({});
-                    }}
-                  >
-                    Clear
-                  </Button>
-                )}
-              </div>
-              {selectedCenterId && (
-                <div className="space-y-3 mt-3">
-                  <Label>Referral Direction</Label>
-                  <RadioGroup
-                    value={referralType}
-                    onValueChange={setReferralType}
-                    className="flex gap-4"
-                  >
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="SELF" id="ref-self" />
-                      <Label htmlFor="ref-self">Self</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="REFERRED_TO" id="ref-to" />
-                      <Label htmlFor="ref-to">Referred To</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="REFERRED_FROM" id="ref-from" />
-                      <Label htmlFor="ref-from">Referred From</Label>
-                    </div>
-                  </RadioGroup>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground"
-                    onClick={() => {
-                      setSelectedCenterId('');
-                      setReferralType('SELF');
-                      setDiagnosticCenterOverrides({});
-                    }}>
-                    Clear selection
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
         {/* Billing */}
         {selectedProducts.length > 0 && (
           <Card>
@@ -974,6 +892,75 @@ const DiagnosticsNewVisit = () => {
                   )}
                 </div>
               </div>
+
+              {diagnosticCenters.length > 0 && (
+                <div className="space-y-3">
+                  <Label>Diagnostic Referral (optional)</Label>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <SearchableSelect
+                      value={selectedCenterId}
+                      onValueChange={(value) => {
+                        setSelectedCenterId(value);
+                        const center = diagnosticCenters.find((item) => item.id === value);
+                        setDiagnosticCenterOverrides(
+                          buildOverridesForProducts(
+                            selectedProducts,
+                            (productId) => getEffectiveDiagnosticCenterPayout(center, productId)
+                          )
+                        );
+                      }}
+                      options={diagnosticCenters.map((center) => ({
+                        value: center.id,
+                        label: center.name,
+                        description: [center.centerNumber, center.contactPerson, center.phone].filter(Boolean).join(' · '),
+                        keywords: [center.name, center.centerNumber, center.contactPerson, center.phone]
+                          .filter(Boolean)
+                          .join(' '),
+                      }))}
+                      placeholder="Search external diagnostic center"
+                      searchPlaceholder="Search by center name, number, contact or phone"
+                      emptyText="No diagnostic centers found."
+                      className="h-11"
+                    />
+                    {selectedCenterId && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setSelectedCenterId('');
+                          setReferralType('SELF');
+                          setDiagnosticCenterOverrides({});
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                  {selectedCenterId && (
+                    <div className="space-y-3">
+                      <Label>Referral Direction</Label>
+                      <RadioGroup
+                        value={referralType}
+                        onValueChange={setReferralType}
+                        className="flex gap-4"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <RadioGroupItem value="SELF" id="ref-self" />
+                          <Label htmlFor="ref-self">Self</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <RadioGroupItem value="REFERRED_TO" id="ref-to" />
+                          <Label htmlFor="ref-to">Referred To</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <RadioGroupItem value="REFERRED_FROM" id="ref-from" />
+                          <Label htmlFor="ref-from">Referred From</Label>
+                        </div>
+                      </RadioGroup>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {selectedDoctorId && selectedProducts.length > 0 && (
                 <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
