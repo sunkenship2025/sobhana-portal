@@ -87,11 +87,25 @@ export function computeReferralPayoutInPaise(order: {
   referralCommissionPercentage?: number | null;
   referralCommissionAmountInPaise?: number | null;
 }): number {
-  if (order.referralCommissionType === 'FIXED_AMOUNT') {
-    return Math.max(0, Math.round(order.referralCommissionAmountInPaise ?? 0));
+  return computeCommissionInPaise({
+    priceInPaise: order.priceInPaise,
+    commissionType: order.referralCommissionType,
+    commissionPercentage: order.referralCommissionPercentage,
+    commissionAmountInPaise: order.referralCommissionAmountInPaise,
+  });
+}
+
+export function computeCommissionInPaise(input: {
+  priceInPaise: number;
+  commissionType?: ReferralPayoutType | null;
+  commissionPercentage?: number | null;
+  commissionAmountInPaise?: number | null;
+}) {
+  if (input.commissionType === 'FIXED_AMOUNT') {
+    return Math.max(0, Math.round(input.commissionAmountInPaise ?? 0));
   }
 
-  return Math.round((order.priceInPaise * (order.referralCommissionPercentage ?? 0)) / 100);
+  return Math.round((input.priceInPaise * (input.commissionPercentage ?? 0)) / 100);
 }
 
 export function areReferralPayoutsEqual(
