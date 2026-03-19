@@ -498,7 +498,17 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
             @page { size: A4; margin: 32mm 15mm 15.5mm 15mm; }
             .no-print { display: none !important; }
           }
-          .report-page { box-shadow: none; margin: 0; min-height: auto; }
+          /*
+           * Digital PDF still needs a fixed page-height flex container.
+           * If min-height becomes auto, the footer sits right after the
+           * content and the remaining A4 page turns into blank whitespace.
+           */
+          .report-page {
+            box-shadow: none;
+            margin: 0;
+            max-width: none;
+            min-height: 277mm;
+          }
           body.report-body { background: white; padding: 0; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }`,
         bodyClass: 'screen-mode',

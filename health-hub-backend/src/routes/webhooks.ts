@@ -12,6 +12,7 @@
 
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { whatsappWebhookRateLimit } from '../middleware/rateLimit';
 
 const router = Router();
 
@@ -58,7 +59,7 @@ router.get('/', (req: Request, res: Response) => {
  *   }]
  * }
  */
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', whatsappWebhookRateLimit, async (req: Request, res: Response) => {
   // Always return 200 immediately — Meta retries on non-200
   res.status(200).json({ status: 'received' });
 
