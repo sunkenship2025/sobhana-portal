@@ -24,7 +24,7 @@ import type {
   DiagnosticCenter,
   BillReceiptData,
 } from '@/types';
-import { Search, UserPlus, CheckCircle2, Printer, MessageCircle } from 'lucide-react';
+import { Search, UserPlus, CheckCircle2, Printer, MessageCircle, Plus } from 'lucide-react';
 import { BillReceipt } from '@/components/print/BillReceipt';
 import { validatePatientForm, computeSmartAge, formatAgeDisplay, type ValidationErrors } from '@/lib/validation';
 import {
@@ -43,6 +43,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 
 const DiagnosticsNewVisit = () => {
   const navigate = useNavigate();
@@ -84,6 +91,16 @@ const DiagnosticsNewVisit = () => {
   
   // E2-10: Validation errors
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
+
+  // Quick-add dialogs
+  const [showAddDoctorDialog, setShowAddDoctorDialog] = useState(false);
+  const [showAddCenterDialog, setShowAddCenterDialog] = useState(false);
+  const [newDoctorName, setNewDoctorName] = useState('');
+  const [newDoctorPhone, setNewDoctorPhone] = useState('');
+  const [newCenterName, setNewCenterName] = useState('');
+  const [newCenterPhone, setNewCenterPhone] = useState('');
+  const [isCreatingDoctor, setIsCreatingDoctor] = useState(false);
+  const [isCreatingCenter, setIsCreatingCenter] = useState(false);
 
   // Fetch lab tests and referral doctors from API
   useEffect(() => {
@@ -146,6 +163,96 @@ const DiagnosticsNewVisit = () => {
     }
 
     return next;
+  };
+
+  // Quick-add referral doctor
+  const handleCreateDoctor = async () => {
+    if (!newDoctorName.trim() || !token || !activeBranch) return;
+
+    setIsCreatingDoctor(true);
+    try {
+      const res = await fetch(`${API_BASE}/referral-doctors`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-Branch-Id': activeBranch.id,
+        },
+        body: JSON.stringify({
+          name: newDoctorName.trim(),
+          phone: newDoctorPhone.trim() || undefined,
+        }),
+      });
+
+      if (res.ok) {
+        const doctor = await res.json();
+        setReferralDoctors((prev) => [...prev, doctor]);
+        setSelectedDoctorId(doctor.id);
+        setReferralOverrides(
+          buildOverridesForProducts(
+            selectedProducts,
+            (productId) => getEffectiveDoctorPayout(doctor, productId)
+          )
+        );
+        setShowAddDoctorDialog(false);
+        setNewDoctorName('');
+        setNewDoctorPhone('');
+        toast.success(`Added ${doctor.name}`);
+      } else {
+        const err = await res.json();
+        toast.error(err.message || 'Failed to create doctor');
+      }
+    } catch (error) {
+      console.error('Create doctor failed:', error);
+      toast.error('Failed to create doctor');
+    } finally {
+      setIsCreatingDoctor(false);
+    }
+  };
+
+  // Quick-add diagnostic center
+  const handleCreateCenter = async () => {
+    if (!newCenterName.trim() || !token || !activeBranch) return;
+
+    setIsCreatingCenter(true);
+    try {
+      const res = await fetch(`${API_BASE}/diagnostic-centers`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-Branch-Id': activeBranch.id,
+        },
+        body: JSON.stringify({
+          name: newCenterName.trim(),
+          phone: newCenterPhone.trim() || undefined,
+        }),
+      });
+
+      if (res.ok) {
+        const center = await res.json();
+        setDiagnosticCenters((prev) => [...prev, center]);
+        setSelectedCenterId(center.id);
+        setDiagnosticCenterOverrides(
+          buildOverridesForProducts(
+            selectedProducts,
+            (productId) => getEffectiveDiagnosticCenterPayout(center, productId)
+          )
+        );
+        setShowAddCenterDialog(false);
+        setNewCenterName('');
+        setNewCenterPhone('');
+        toast.success(`Added ${center.name}`);
+      } else {
+        const err = await res.json();
+        toast.error(err.message || 'Failed to create center');
+      }
+    } catch (error) {
+      console.error('Create center failed:', error);
+      toast.error('Failed to create center');
+    } finally {
+      setIsCreatingCenter(false);
+    }
   };
 
   // Search patients via API
@@ -888,53 +995,65 @@ const DiagnosticsNewVisit = () => {
                       Clear
                     </Button>
                   )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowAddDoctorDialog(true)}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
 
-              {diagnosticCenters.length > 0 && (
-                <div className="space-y-3">
-                  <Label>Diagnostic Referral (optional)</Label>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <SearchableSelect
-                      value={selectedCenterId}
-                      onValueChange={(value) => {
-                        setSelectedCenterId(value);
-                        const center = diagnosticCenters.find((item) => item.id === value);
-                        setDiagnosticCenterOverrides(
-                          buildOverridesForProducts(
-                            selectedProducts,
-                            (productId) => getEffectiveDiagnosticCenterPayout(center, productId)
-                          )
-                        );
+              <div className="space-y-3">
+                <Label>Diagnostic Referral (optional)</Label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <SearchableSelect
+                    value={selectedCenterId}
+                    onValueChange={(value) => {
+                      setSelectedCenterId(value);
+                      const center = diagnosticCenters.find((item) => item.id === value);
+                      setDiagnosticCenterOverrides(
+                        buildOverridesForProducts(
+                          selectedProducts,
+                          (productId) => getEffectiveDiagnosticCenterPayout(center, productId)
+                        )
+                      );
+                    }}
+                    options={diagnosticCenters.map((center) => ({
+                      value: center.id,
+                      label: center.name,
+                      description: [center.centerNumber, center.contactPerson, center.phone].filter(Boolean).join(' · '),
+                      keywords: [center.name, center.centerNumber, center.contactPerson, center.phone]
+                        .filter(Boolean)
+                        .join(' '),
+                    }))}
+                    placeholder="Search external diagnostic center"
+                    searchPlaceholder="Search by center name, number, contact or phone"
+                    emptyText="No diagnostic centers found."
+                    className="h-11"
+                  />
+                  {selectedCenterId && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setSelectedCenterId('');
+                        setDiagnosticCenterOverrides({});
                       }}
-                      options={diagnosticCenters.map((center) => ({
-                        value: center.id,
-                        label: center.name,
-                        description: [center.centerNumber, center.contactPerson, center.phone].filter(Boolean).join(' · '),
-                        keywords: [center.name, center.centerNumber, center.contactPerson, center.phone]
-                          .filter(Boolean)
-                          .join(' '),
-                      }))}
-                      placeholder="Search external diagnostic center"
-                      searchPlaceholder="Search by center name, number, contact or phone"
-                      emptyText="No diagnostic centers found."
-                      className="h-11"
-                    />
-                    {selectedCenterId && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          setSelectedCenterId('');
-                          setDiagnosticCenterOverrides({});
-                        }}
-                      >
-                        Clear
-                      </Button>
-                    )}
-                  </div>
+                    >
+                      Clear
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowAddCenterDialog(true)}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
                 </div>
-              )}
+              </div>
 
               {selectedDoctorId && selectedProducts.length > 0 && (
                 <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
@@ -1215,6 +1334,80 @@ const DiagnosticsNewVisit = () => {
           </Card>
         )}
       </div>
+
+      {/* Quick-add Doctor Dialog */}
+      <Dialog open={showAddDoctorDialog} onOpenChange={setShowAddDoctorDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Referral Doctor</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="newDoctorName">Name *</Label>
+              <Input
+                id="newDoctorName"
+                value={newDoctorName}
+                onChange={(e) => setNewDoctorName(e.target.value)}
+                placeholder="Dr. Name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="newDoctorPhone">Phone (optional)</Label>
+              <Input
+                id="newDoctorPhone"
+                value={newDoctorPhone}
+                onChange={(e) => setNewDoctorPhone(e.target.value)}
+                placeholder="Phone number"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddDoctorDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateDoctor} disabled={!newDoctorName.trim() || isCreatingDoctor}>
+              {isCreatingDoctor ? 'Adding...' : 'Add Doctor'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick-add Center Dialog */}
+      <Dialog open={showAddCenterDialog} onOpenChange={setShowAddCenterDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Diagnostic Center</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="newCenterName">Name *</Label>
+              <Input
+                id="newCenterName"
+                value={newCenterName}
+                onChange={(e) => setNewCenterName(e.target.value)}
+                placeholder="Center name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="newCenterPhone">Phone (optional)</Label>
+              <Input
+                id="newCenterPhone"
+                value={newCenterPhone}
+                onChange={(e) => setNewCenterPhone(e.target.value)}
+                placeholder="Phone number"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddCenterDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateCenter} disabled={!newCenterName.trim() || isCreatingCenter}>
+              {isCreatingCenter ? 'Adding...' : 'Add Center'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 };
