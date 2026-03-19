@@ -273,9 +273,6 @@ async function deriveDiagnosticCenterPayout(
     where: {
       diagnosticCenterId,
       branchId,
-      referralType: {
-        not: 'SELF',
-      },
       visit: {
         domain: 'DIAGNOSTICS',
         report: {
