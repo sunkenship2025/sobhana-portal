@@ -1,4 +1,10 @@
-import type { ReferralDoctor, ReferralPayoutType, ReferralProductRule } from '@/types';
+import type {
+  DiagnosticCenter,
+  DiagnosticCenterProductRule,
+  ReferralDoctor,
+  ReferralPayoutType,
+  ReferralProductRule,
+} from '@/types';
 
 export interface ReferralPayoutDraft {
   commissionType: ReferralPayoutType;
@@ -31,28 +37,31 @@ export function formatReferralPayout(input: {
   return formatPercent(input.commissionPercent);
 }
 
-export function getDoctorDefaultPayout(doctor?: ReferralDoctor | null) {
-  if (!doctor) return null;
+type PayoutProductRule = ReferralProductRule | DiagnosticCenterProductRule;
+type ProductPayoutEntity = ReferralDoctor | DiagnosticCenter;
+
+function getDefaultPayout(entity?: ProductPayoutEntity | null) {
+  if (!entity) return null;
 
   return {
-    commissionType: doctor.commissionType ?? 'PERCENTAGE',
-    commissionPercent: doctor.commissionPercent,
-    commissionAmountInPaise: doctor.commissionAmountInPaise ?? null,
+    commissionType: entity.commissionType ?? 'PERCENTAGE',
+    commissionPercent: entity.commissionPercent,
+    commissionAmountInPaise: entity.commissionAmountInPaise ?? null,
   };
 }
 
-export function getDoctorProductRule(
-  doctor: ReferralDoctor | null | undefined,
+function getProductRule(
+  entity: ProductPayoutEntity | null | undefined,
   productId: string
-): ReferralProductRule | undefined {
-  return doctor?.productRules?.find((rule) => rule.productId === productId);
+): PayoutProductRule | undefined {
+  return entity?.productRules?.find((rule) => rule.productId === productId);
 }
 
-export function getEffectiveDoctorPayout(
-  doctor: ReferralDoctor | null | undefined,
+function getEffectiveProductPayout(
+  entity: ProductPayoutEntity | null | undefined,
   productId: string
 ) {
-  const productRule = getDoctorProductRule(doctor, productId);
+  const productRule = getProductRule(entity, productId);
   if (productRule) {
     return {
       commissionType: productRule.commissionType,
@@ -61,7 +70,43 @@ export function getEffectiveDoctorPayout(
     };
   }
 
-  return getDoctorDefaultPayout(doctor);
+  return getDefaultPayout(entity);
+}
+
+export function getDoctorDefaultPayout(doctor?: ReferralDoctor | null) {
+  return getDefaultPayout(doctor);
+}
+
+export function getDoctorProductRule(
+  doctor: ReferralDoctor | null | undefined,
+  productId: string
+): ReferralProductRule | undefined {
+  return getProductRule(doctor, productId) as ReferralProductRule | undefined;
+}
+
+export function getEffectiveDoctorPayout(
+  doctor: ReferralDoctor | null | undefined,
+  productId: string
+) {
+  return getEffectiveProductPayout(doctor, productId);
+}
+
+export function getDiagnosticCenterDefaultPayout(center?: DiagnosticCenter | null) {
+  return getDefaultPayout(center);
+}
+
+export function getDiagnosticCenterProductRule(
+  center: DiagnosticCenter | null | undefined,
+  productId: string
+): DiagnosticCenterProductRule | undefined {
+  return getProductRule(center, productId) as DiagnosticCenterProductRule | undefined;
+}
+
+export function getEffectiveDiagnosticCenterPayout(
+  center: DiagnosticCenter | null | undefined,
+  productId: string
+) {
+  return getEffectiveProductPayout(center, productId);
 }
 
 export function toReferralPayoutDraft(input?: {
