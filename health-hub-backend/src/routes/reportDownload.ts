@@ -212,20 +212,19 @@ function renderLoadingPage(pdfUrl: string): string {
     <style>
       :root {
         color-scheme: light;
-        --bg: #f5f8fc;
-        --bg-glow-a: rgba(197, 33, 39, 0.08);
-        --bg-glow-b: rgba(38, 91, 153, 0.08);
+        --bg: #f6f8fb;
+        --bg-glow-a: rgba(201, 29, 29, 0.04);
+        --bg-glow-b: rgba(36, 61, 99, 0.05);
         --card: rgba(255, 255, 255, 0.96);
         --text: #1f2633;
         --heading: #243d63;
         --muted: #5f6675;
         --muted-soft: #8992a3;
         --line: rgba(36, 61, 99, 0.12);
-        --shadow: 0 26px 80px rgba(25, 40, 68, 0.12);
+        --shadow: 0 22px 60px rgba(25, 40, 68, 0.1);
         --primary: #c91d1d;
         --primary-dark: #ad1717;
         --success: #29b15d;
-        --success-soft: rgba(41, 177, 93, 0.12);
         --warning-soft: rgba(201, 29, 29, 0.08);
       }
 
@@ -240,10 +239,9 @@ function renderLoadingPage(pdfUrl: string): string {
         font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
         color: var(--text);
         background:
-          radial-gradient(circle at top left, var(--bg-glow-b), transparent 30%),
-          radial-gradient(circle at top right, var(--bg-glow-a), transparent 28%),
-          radial-gradient(circle at bottom center, rgba(36, 61, 99, 0.06), transparent 34%),
-          linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
+          radial-gradient(circle at top left, var(--bg-glow-b), transparent 28%),
+          radial-gradient(circle at top right, var(--bg-glow-a), transparent 24%),
+          linear-gradient(180deg, #f9fbfd 0%, var(--bg) 100%);
       }
 
       .page {
@@ -264,13 +262,12 @@ function renderLoadingPage(pdfUrl: string): string {
 
       .card {
         width: min(100%, 540px);
-        min-height: 640px;
-        padding: 42px 38px 34px;
+        min-height: 620px;
+        padding: 42px 40px 34px;
         border-radius: 26px;
-        border: 1px solid rgba(255, 255, 255, 0.85);
+        border: 1px solid rgba(36, 61, 99, 0.08);
         background: var(--card);
         box-shadow: var(--shadow);
-        backdrop-filter: blur(12px);
         text-align: center;
         position: relative;
         overflow: hidden;
@@ -281,8 +278,7 @@ function renderLoadingPage(pdfUrl: string): string {
         position: absolute;
         inset: 0;
         background:
-          radial-gradient(circle at top center, rgba(38, 91, 153, 0.07), transparent 38%),
-          linear-gradient(180deg, rgba(255, 255, 255, 0.4), transparent 34%);
+          radial-gradient(circle at top center, rgba(36, 61, 99, 0.045), transparent 40%);
         pointer-events: none;
       }
 
@@ -297,14 +293,14 @@ function renderLoadingPage(pdfUrl: string): string {
 
       .logo-wrap {
         margin-top: 8px;
-        margin-bottom: 52px;
+        margin-bottom: 44px;
       }
 
       .brand-logo {
         display: block;
-        width: min(220px, 62vw);
+        width: min(176px, 54vw);
         height: auto;
-        max-height: 78px;
+        max-height: 58px;
         object-fit: contain;
         margin: 0 auto;
       }
@@ -379,12 +375,12 @@ function renderLoadingPage(pdfUrl: string): string {
         margin: 16px auto 0;
         max-width: 380px;
         color: var(--muted);
-        font-size: 1.05rem;
-        line-height: 1.7;
+        font-size: 1rem;
+        line-height: 1.65;
       }
 
       .steps {
-        margin: 54px auto 0;
+        margin: 46px auto 0;
         width: min(100%, 320px);
         display: grid;
         gap: 18px;
@@ -433,9 +429,9 @@ function renderLoadingPage(pdfUrl: string): string {
       }
 
       .helper {
-        margin-top: 54px;
+        margin-top: 48px;
         color: var(--muted);
-        font-size: 1.1rem;
+        font-size: 1rem;
         line-height: 1.6;
       }
 
@@ -532,7 +528,7 @@ function renderLoadingPage(pdfUrl: string): string {
       }
 
       .footer {
-        margin-top: 10px;
+        margin-top: 6px;
         padding-top: 26px;
         border-top: 1px solid rgba(36, 61, 99, 0.08);
         text-align: center;
@@ -618,8 +614,8 @@ function renderLoadingPage(pdfUrl: string): string {
         }
 
         .brand-logo {
-          width: min(186px, 64vw);
-          max-height: 64px;
+          width: min(158px, 60vw);
+          max-height: 52px;
         }
 
         h1 {
@@ -658,21 +654,22 @@ function renderLoadingPage(pdfUrl: string): string {
 
             <section id="loading-state" class="state active" aria-live="polite">
               <h1>Preparing Medical Report</h1>
+              <p class="subtitle">Please wait while we prepare your secure report download.</p>
               <div class="steps">
-                <div class="step complete" id="step-verify">
+                <div class="step loading" id="step-verify">
                   <span class="step-indicator" aria-hidden="true"></span>
                   <span>Verifying report data...</span>
                 </div>
-                <div class="step complete" id="step-secure">
+                <div class="step pending" id="step-secure">
                   <span class="step-indicator" aria-hidden="true"></span>
                   <span>Securing file...</span>
                 </div>
-                <div class="step loading" id="step-download">
+                <div class="step pending" id="step-download">
                   <span class="step-indicator" aria-hidden="true"></span>
                   <span>Preparing download...</span>
                 </div>
               </div>
-              <p class="helper">Please keep this page open.</p>
+              <p class="helper">Please keep this page open until your report starts downloading.</p>
             </section>
 
             <section id="ready-state" class="state" aria-live="polite">
@@ -683,7 +680,7 @@ function renderLoadingPage(pdfUrl: string): string {
                 Your report has been generated successfully.
               </p>
               <div class="actions">
-                <a id="download-link" class="button primary" href="#" hidden>
+                <a id="download-link" class="button primary" href="${escapeHtml(pdfUrl)}" hidden>
                   <svg viewBox="0 0 24 24" class="button-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M12 3v11"></path>
                     <path d="m7 11 5 5 5-5"></path>
@@ -781,8 +778,12 @@ function renderLoadingPage(pdfUrl: string): string {
         const errorMessageEl = document.getElementById('error-message');
         const retrySuccessButtonEl = document.getElementById('retry-success-button');
         const retryErrorButtonEl = document.getElementById('retry-error-button');
+        const stepVerifyEl = document.getElementById('step-verify');
+        const stepSecureEl = document.getElementById('step-secure');
         const stepDownloadEl = document.getElementById('step-download');
-        let objectUrl = null;
+        let progressTimers = [];
+        let frameEl = null;
+        let flowId = 0;
 
         function setActiveState(state) {
           loadingStateEl.classList.toggle('active', state === 'loading');
@@ -794,91 +795,99 @@ function renderLoadingPage(pdfUrl: string): string {
           element.className = 'step ' + state;
         }
 
-        function startBrowserDownload(url) {
-          const anchor = document.createElement('a');
-          anchor.href = url;
-          anchor.download = 'report.pdf';
-          anchor.rel = 'noopener';
-          anchor.style.display = 'none';
-          document.body.appendChild(anchor);
-          anchor.click();
-          anchor.remove();
+        function clearProgressTimers() {
+          for (const timer of progressTimers) {
+            window.clearTimeout(timer);
+          }
+          progressTimers = [];
         }
 
-        function resetForRetry() {
-          if (objectUrl) {
-            URL.revokeObjectURL(objectUrl);
-            objectUrl = null;
+        function buildAttemptUrl() {
+          const separator = pdfUrl.includes('?') ? '&' : '?';
+          return pdfUrl + separator + 'attempt=' + Date.now();
+        }
+
+        function triggerDownload() {
+          const attemptUrl = buildAttemptUrl();
+          downloadLinkEl.href = attemptUrl;
+
+          if (frameEl) {
+            frameEl.remove();
           }
 
+          frameEl = document.createElement('iframe');
+          frameEl.setAttribute('aria-hidden', 'true');
+          frameEl.style.display = 'none';
+          frameEl.src = attemptUrl;
+          document.body.appendChild(frameEl);
+        }
+
+        function resetFlow() {
+          clearProgressTimers();
+          if (frameEl) {
+            frameEl.remove();
+            frameEl = null;
+          }
+          setStepState(stepVerifyEl, 'loading');
+          setStepState(stepSecureEl, 'pending');
+          setStepState(stepDownloadEl, 'pending');
           downloadLinkEl.hidden = true;
-          downloadLinkEl.removeAttribute('href');
-          setStepState(stepDownloadEl, 'loading');
+          downloadLinkEl.href = pdfUrl;
           setActiveState('loading');
         }
 
-        async function loadReport() {
-          try {
-            resetForRetry();
-            const response = await fetch(pdfUrl, {
-              cache: 'no-store',
-              credentials: 'same-origin',
-            });
+        function startFlow() {
+          flowId += 1;
+          const currentFlowId = flowId;
+          resetFlow();
 
-            if (!response.ok) {
-              let message = 'Failed to generate report. Please try again.';
-              const contentType = response.headers.get('content-type') || '';
+          progressTimers.push(window.setTimeout(() => {
+            if (currentFlowId !== flowId) return;
+            setStepState(stepVerifyEl, 'complete');
+            setStepState(stepSecureEl, 'loading');
+          }, 650));
 
-              if (contentType.includes('application/json')) {
-                try {
-                  const data = await response.json();
-                  if (data && typeof data.message === 'string' && data.message.trim()) {
-                    message = data.message;
-                  }
-                } catch (_error) {
-                  // Ignore JSON parsing errors and fall back to the default message.
-                }
-              }
+          progressTimers.push(window.setTimeout(() => {
+            if (currentFlowId !== flowId) return;
+            setStepState(stepSecureEl, 'complete');
+            setStepState(stepDownloadEl, 'loading');
+            triggerDownload();
+          }, 1350));
 
-              throw new Error(message);
-            }
-
-            const blob = await response.blob();
-            objectUrl = URL.createObjectURL(blob);
-            downloadLinkEl.href = objectUrl;
-            downloadLinkEl.hidden = false;
+          progressTimers.push(window.setTimeout(() => {
+            if (currentFlowId !== flowId) return;
             setStepState(stepDownloadEl, 'complete');
+            downloadLinkEl.hidden = false;
             setActiveState('ready');
-            startBrowserDownload(objectUrl);
-          } catch (error) {
-            setStepState(stepDownloadEl, 'pending');
-            errorMessageEl.textContent = error instanceof Error
-              ? error.message
-              : 'Please try again in a moment.';
-            setActiveState('error');
-          }
+          }, 2350));
         }
 
         retrySuccessButtonEl.addEventListener('click', () => {
-          if (objectUrl) {
-            startBrowserDownload(objectUrl);
-            return;
-          }
-
-          loadReport();
+          triggerDownload();
         });
 
         retryErrorButtonEl.addEventListener('click', () => {
-          loadReport();
+          startFlow();
+        });
+
+        downloadLinkEl.addEventListener('click', () => {
+          downloadLinkEl.hidden = false;
         });
 
         window.addEventListener('pagehide', () => {
-          if (objectUrl) {
-            URL.revokeObjectURL(objectUrl);
+          clearProgressTimers();
+          if (frameEl) {
+            frameEl.remove();
           }
         });
 
-        loadReport();
+        window.addEventListener('error', (event) => {
+          clearProgressTimers();
+          errorMessageEl.textContent = event.message || 'Please try again in a moment.';
+          setActiveState('error');
+        });
+
+        startFlow();
       })();
     </script>
 
