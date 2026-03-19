@@ -580,26 +580,20 @@ body.report-body {
 
 @media print {
   /*
-   * Browser print should mirror the on-screen digital preview, not the
-   * physical pre-printed letterhead layout used by report-print.css.
+   * Browser print targets physical Sobhana letterhead paper.
+   * Keep the same content flow as preview, but hide the HTML header/footer
+   * because those are already printed on the paper itself.
    */
   * {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
 
+  .header,
+  .footer,
   .action-buttons,
   .no-print {
     display: none !important;
-  }
-
-  .header,
-  .footer {
-    display: block !important;
-  }
-
-  .header-qr.no-print {
-    display: flex !important;
   }
 
   body.report-body {
@@ -609,15 +603,15 @@ body.report-body {
 
   .report-page {
     box-shadow: none !important;
-    margin: 0 auto !important;
+    margin: 0 !important;
     max-width: none !important;
-    min-height: 277mm !important;
+    min-height: 249.5mm !important;
     display: flex !important;
     flex-direction: column !important;
   }
 
   .report-content {
-    padding: 16px 24px !important;
+    padding: 0 !important;
     max-width: none !important;
     flex: 1 1 auto !important;
     display: flex !important;
@@ -634,27 +628,25 @@ body.report-body {
     align-items: flex-end !important;
   }
 
-  .signature-image {
-    height: 45px !important;
-  }
-
-  .lab-incharge-line {
-    height: 45px !important;
-  }
-
   .print-qr {
-    display: none !important;
+    display: flex !important;
+    align-items: center;
+    gap: 6px;
+    justify-content: flex-end;
+    margin-top: 6px;
   }
 
   .department,
   .panel,
-  .signatures-section,
-  .footer {
+  .signatures-section {
     page-break-inside: avoid;
   }
 
   @page {
     size: A4;
-    margin: 10mm;
+    margin-top: 32mm;
+    margin-bottom: 15.5mm;
+    margin-left: 15mm;
+    margin-right: 15mm;
   }
 }
