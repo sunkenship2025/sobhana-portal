@@ -651,16 +651,13 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
       <!-- Bottom Section -->
       <div class="report-bottom-section">
 
-      <div class="authorized-signatory-label">Authorized Signatory</div>
       <section class="signatures-section">
-        ${snapshot.signatures.some(s => s.showLabInchargeNote) ? `
         <div class="signatures-left">
           <div class="signature-block lab-incharge-block">
             <div class="lab-incharge-line"></div>
             <div class="lab-incharge-label">Lab Incharge</div>
           </div>
         </div>
-        ` : ''}
         <div class="signatures-right">
           ${signatureBlocks}
         </div>
