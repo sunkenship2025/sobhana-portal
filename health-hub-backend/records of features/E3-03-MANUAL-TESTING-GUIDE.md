@@ -12,8 +12,8 @@
 ✅ Backend server is running (`npm start` or `npx ts-node src/index.ts`)  
 ✅ Database is seeded with test data  
 ✅ You have these credentials ready:
-- **Email:** tirupati@sobhana.com
-- **Password:** Use `STAFF_ACCOUNT_PASSWORD` from `health-hub-backend/.env`
+- **Email:** staff@sobhana.com
+- **Password:** password123
 
 ---
 
@@ -29,8 +29,8 @@
    - Body:
      ```json
      {
-       "email": "tirupati@sobhana.com",
-       "password": "<STAFF_ACCOUNT_PASSWORD>"
+       "email": "staff@sobhana.com",
+       "password": "password123"
      }
      ```
    - **Expected Result:** 

@@ -9,7 +9,6 @@
 
 const axios = require('axios');
 const { PrismaClient } = require('@prisma/client');
-const { STAFF_CREDS } = require('./authTestConfig');
 
 const BASE_URL = 'http://localhost:3000';
 const prisma = new PrismaClient();
@@ -23,7 +22,10 @@ async function testE317() {
   try {
     // Login
     console.log('Step 1: Login...');
-    const auth = await axios.post(`${BASE_URL}/api/auth/login`, STAFF_CREDS);
+    const auth = await axios.post(`${BASE_URL}/api/auth/login`, {
+      email: 'staff@sobhana.com',
+      password: 'password123'
+    });
     const token = auth.data.token;
     const userId = auth.data.user.id;
     const userRole = auth.data.user.role;

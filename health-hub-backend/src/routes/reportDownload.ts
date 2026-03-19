@@ -8,6 +8,8 @@
  */
 
 import { Router, Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import QRCode from 'qrcode';
 import {
   createRateLimiter,
@@ -21,6 +23,16 @@ import { renderReportHtml } from '../services/reportRendererService';
 import { generatePdfFromHtml } from '../services/pdfGenerationService';
 
 const router = Router();
+const LOGO_PATH = path.join(__dirname, '../../public/images/sobhana-logo-cropped.png');
+
+let PUBLIC_REPORT_LOGO_SRC = '/images/sobhana-logo-cropped.png';
+
+try {
+  const logoBuffer = fs.readFileSync(LOGO_PATH);
+  PUBLIC_REPORT_LOGO_SRC = `data:image/png;base64,${logoBuffer.toString('base64')}`;
+} catch (error) {
+  console.error('Failed to load public report logo:', error);
+}
 
 const publicReportLandingIpRateLimit = createRateLimiter({
   namespace: 'public-report-ip',
@@ -190,6 +202,7 @@ function renderStatusPage(title: string, message: string): string {
 }
 
 function renderLoadingPage(pdfUrl: string): string {
+  const logoSrc = PUBLIC_REPORT_LOGO_SRC;
   return `<!DOCTYPE html>
 <html lang="en">
   <head>
@@ -199,15 +212,21 @@ function renderLoadingPage(pdfUrl: string): string {
     <style>
       :root {
         color-scheme: light;
-        --bg-a: #fff6e8;
-        --bg-b: #eefbf8;
-        --card: rgba(255, 255, 255, 0.92);
-        --text: #172033;
-        --muted: #5f6b7a;
-        --accent: #0f766e;
-        --accent-strong: #115e59;
-        --border: rgba(23, 32, 51, 0.1);
-        --shadow: 0 28px 80px rgba(23, 32, 51, 0.12);
+        --bg: #f5f8fc;
+        --bg-glow-a: rgba(197, 33, 39, 0.08);
+        --bg-glow-b: rgba(38, 91, 153, 0.08);
+        --card: rgba(255, 255, 255, 0.96);
+        --text: #1f2633;
+        --heading: #243d63;
+        --muted: #5f6675;
+        --muted-soft: #8992a3;
+        --line: rgba(36, 61, 99, 0.12);
+        --shadow: 0 26px 80px rgba(25, 40, 68, 0.12);
+        --primary: #c91d1d;
+        --primary-dark: #ad1717;
+        --success: #29b15d;
+        --success-soft: rgba(41, 177, 93, 0.12);
+        --warning-soft: rgba(201, 29, 29, 0.08);
       }
 
       * {
@@ -217,103 +236,349 @@ function renderLoadingPage(pdfUrl: string): string {
       body {
         margin: 0;
         min-height: 100vh;
-        display: grid;
-        place-items: center;
-        padding: 24px;
-        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        padding: 32px 18px 28px;
+        font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
         color: var(--text);
         background:
-          radial-gradient(circle at top left, rgba(15, 118, 110, 0.15), transparent 34%),
-          radial-gradient(circle at bottom right, rgba(245, 158, 11, 0.18), transparent 30%),
-          linear-gradient(135deg, var(--bg-a), var(--bg-b));
+          radial-gradient(circle at top left, var(--bg-glow-b), transparent 30%),
+          radial-gradient(circle at top right, var(--bg-glow-a), transparent 28%),
+          radial-gradient(circle at bottom center, rgba(36, 61, 99, 0.06), transparent 34%),
+          linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
+      }
+
+      .page {
+        max-width: 900px;
+        margin: 0 auto;
+        min-height: calc(100vh - 60px);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+
+      .hero {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 22px;
       }
 
       .card {
-        width: min(100%, 520px);
-        border: 1px solid var(--border);
-        border-radius: 28px;
-        padding: 34px 28px;
+        width: min(100%, 540px);
+        min-height: 640px;
+        padding: 42px 38px 34px;
+        border-radius: 26px;
+        border: 1px solid rgba(255, 255, 255, 0.85);
         background: var(--card);
         box-shadow: var(--shadow);
-        backdrop-filter: blur(10px);
+        backdrop-filter: blur(12px);
         text-align: center;
+        position: relative;
+        overflow: hidden;
       }
 
-      .pill {
-        display: inline-flex;
+      .card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at top center, rgba(38, 91, 153, 0.07), transparent 38%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.4), transparent 34%);
+        pointer-events: none;
+      }
+
+      .card-inner {
+        position: relative;
+        z-index: 1;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
         align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        border-radius: 999px;
-        background: rgba(15, 118, 110, 0.08);
-        color: var(--accent-strong);
-        font-size: 0.9rem;
-        font-weight: 600;
-        letter-spacing: 0.02em;
       }
 
-      .spinner {
-        width: 54px;
-        height: 54px;
-        margin: 22px auto 18px;
-        border-radius: 999px;
-        border: 4px solid rgba(15, 118, 110, 0.18);
-        border-top-color: var(--accent);
-        animation: spin 0.9s linear infinite;
+      .logo-wrap {
+        margin-top: 8px;
+        margin-bottom: 52px;
       }
 
-      .spinner.done {
-        animation: none;
-        border-color: rgba(15, 118, 110, 0.14);
-        background:
-          radial-gradient(circle at center, rgba(15, 118, 110, 0.16) 0 45%, transparent 46%),
-          linear-gradient(135deg, rgba(15, 118, 110, 0.18), rgba(245, 158, 11, 0.2));
+      .brand-logo {
+        display: block;
+        width: min(220px, 62vw);
+        height: auto;
+        max-height: 78px;
+        object-fit: contain;
+        margin: 0 auto;
       }
 
-      .spinner.error {
-        animation: none;
-        border-color: rgba(190, 24, 93, 0.14);
-        background:
-          radial-gradient(circle at center, rgba(190, 24, 93, 0.16) 0 45%, transparent 46%),
-          linear-gradient(135deg, rgba(190, 24, 93, 0.18), rgba(245, 158, 11, 0.2));
+      .state {
+        width: 100%;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        animation: fade-in 0.35s ease;
+      }
+
+      .state.active {
+        display: flex;
+      }
+
+      .state-icon {
+        width: 58px;
+        height: 58px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        margin-bottom: 22px;
+      }
+
+      .state-icon.success {
+        background: #eaf9ef;
+        box-shadow: inset 0 0 0 1px rgba(41, 177, 93, 0.12);
+      }
+
+      .state-icon.success::before {
+        content: "✓";
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--success);
+        color: white;
+        font-size: 1.35rem;
+        font-weight: 700;
+      }
+
+      .state-icon.error {
+        background: #fff1f1;
+        box-shadow: inset 0 0 0 1px rgba(201, 29, 29, 0.12);
+      }
+
+      .state-icon.error::before {
+        content: "!";
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--primary);
+        color: white;
+        font-size: 1.15rem;
+        font-weight: 800;
       }
 
       h1 {
         margin: 0;
-        font-size: clamp(1.8rem, 4vw, 2.4rem);
+        color: var(--heading);
+        font-size: clamp(2.1rem, 4.8vw, 2.85rem);
         line-height: 1.08;
+        letter-spacing: -0.03em;
+        font-weight: 700;
       }
 
-      p {
-        margin: 12px 0 0;
+      .subtitle {
+        margin: 16px auto 0;
+        max-width: 380px;
         color: var(--muted);
+        font-size: 1.05rem;
+        line-height: 1.7;
+      }
+
+      .steps {
+        margin: 54px auto 0;
+        width: min(100%, 320px);
+        display: grid;
+        gap: 18px;
+        text-align: left;
+      }
+
+      .step {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        color: var(--text);
         font-size: 1rem;
+        line-height: 1.4;
+      }
+
+      .step-indicator {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        display: grid;
+        place-items: center;
+        position: relative;
+      }
+
+      .step.complete .step-indicator {
+        background: linear-gradient(180deg, #56cb7d, #29b15d);
+        box-shadow: 0 8px 18px rgba(41, 177, 93, 0.22);
+      }
+
+      .step.complete .step-indicator::before {
+        content: "✓";
+        color: white;
+        font-size: 0.95rem;
+        font-weight: 700;
+      }
+
+      .step.loading .step-indicator {
+        border: 3px solid rgba(36, 61, 99, 0.12);
+        border-top-color: #d7dce5;
+        animation: spin 0.9s linear infinite;
+      }
+
+      .step.pending .step-indicator {
+        border: 3px solid rgba(36, 61, 99, 0.12);
+      }
+
+      .helper {
+        margin-top: 54px;
+        color: var(--muted);
+        font-size: 1.1rem;
         line-height: 1.6;
       }
 
       .actions {
-        margin-top: 24px;
+        width: min(100%, 290px);
+        margin-top: 28px;
         display: grid;
-        gap: 12px;
+        gap: 14px;
       }
 
-      .link {
+      .button,
+      .button:visited {
         display: inline-flex;
-        justify-content: center;
         align-items: center;
-        min-height: 48px;
-        padding: 12px 18px;
-        border-radius: 16px;
-        border: 1px solid rgba(15, 118, 110, 0.18);
-        background: rgba(255, 255, 255, 0.8);
-        color: var(--accent-strong);
+        justify-content: center;
+        gap: 10px;
+        min-height: 56px;
+        width: 100%;
+        border-radius: 12px;
         text-decoration: none;
+        font-size: 1rem;
         font-weight: 700;
+        transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+        cursor: pointer;
       }
 
-      .helper {
-        margin-top: 18px;
+      .button:hover {
+        transform: translateY(-1px);
+      }
+
+      .button.primary {
+        border: 0;
+        background: linear-gradient(180deg, #d52323, var(--primary));
+        color: white;
+        box-shadow: 0 14px 28px rgba(201, 29, 29, 0.22);
+      }
+
+      .button.primary:hover {
+        background: linear-gradient(180deg, #c61f1f, var(--primary-dark));
+      }
+
+      .button.secondary {
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.9);
+        color: #41506a;
+      }
+
+      .button-icon {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+      }
+
+      .auto-note {
+        margin-top: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: #7b8595;
         font-size: 0.92rem;
+        font-style: italic;
+      }
+
+      .auto-note-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #9be4b4;
+        box-shadow: 0 0 0 4px rgba(155, 228, 180, 0.18);
+      }
+
+      .trust-row {
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 20px;
+        color: var(--muted-soft);
+        font-size: 0.84rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .trust-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        white-space: nowrap;
+      }
+
+      .trust-icon {
+        width: 14px;
+        height: 14px;
+        color: currentColor;
+      }
+
+      .footer {
+        margin-top: 10px;
+        padding-top: 26px;
+        border-top: 1px solid rgba(36, 61, 99, 0.08);
+        text-align: center;
+      }
+
+      .footer-title {
+        color: var(--heading);
+        font-size: 1.05rem;
+        font-weight: 600;
+      }
+
+      .secure-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 16px;
+        padding: 10px 16px;
+        border-radius: 999px;
+        background: var(--warning-soft);
+        color: #b32727;
+        font-size: 0.9rem;
+      }
+
+      .footer-links {
+        margin-top: 20px;
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 22px;
+        color: #7f8897;
+        font-size: 0.88rem;
+      }
+
+      .footer-link {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .footer-copy {
+        margin-top: 16px;
+        color: #a0a8b5;
+        font-size: 0.78rem;
+      }
+
+      [hidden] {
+        display: none !important;
       }
 
       @keyframes spin {
@@ -321,32 +586,213 @@ function renderLoadingPage(pdfUrl: string): string {
           transform: rotate(360deg);
         }
       }
+
+      @keyframes fade-in {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (max-width: 640px) {
+        body {
+          padding: 18px 14px 22px;
+        }
+
+        .page {
+          min-height: calc(100vh - 40px);
+        }
+
+        .card {
+          min-height: 0;
+          padding: 30px 22px 26px;
+          border-radius: 22px;
+        }
+
+        .logo-wrap {
+          margin-bottom: 34px;
+        }
+
+        .brand-logo {
+          width: min(186px, 64vw);
+          max-height: 64px;
+        }
+
+        h1 {
+          font-size: clamp(1.8rem, 8vw, 2.2rem);
+        }
+
+        .subtitle {
+          font-size: 0.98rem;
+        }
+
+        .steps {
+          margin-top: 40px;
+          width: 100%;
+        }
+
+        .helper {
+          margin-top: 42px;
+          font-size: 1rem;
+        }
+
+        .trust-row {
+          gap: 14px;
+          font-size: 0.76rem;
+        }
+      }
     </style>
   </head>
   <body>
-    <main class="card">
-      <div class="pill">Secure report download</div>
-      <div id="spinner" class="spinner" aria-hidden="true"></div>
-      <h1 id="title">Getting your report ready...</h1>
-      <p id="subtitle">This may take a few seconds</p>
+    <div class="page">
+      <section class="hero">
+        <main class="card">
+          <div class="card-inner">
+            <div class="logo-wrap">
+              <img src="${logoSrc}" alt="Sobhana Diagnostic Centre" class="brand-logo" />
+            </div>
 
-      <div class="actions">
-        <a id="backup-link" class="link" href="#" hidden>Tap here if it doesn't start automatically</a>
-        <a id="retry-link" class="link" href="${escapeHtml(pdfUrl)}" hidden>Tap here to try again</a>
-      </div>
+            <section id="loading-state" class="state active" aria-live="polite">
+              <h1>Preparing Medical Report</h1>
+              <div class="steps">
+                <div class="step complete" id="step-verify">
+                  <span class="step-indicator" aria-hidden="true"></span>
+                  <span>Verifying report data...</span>
+                </div>
+                <div class="step complete" id="step-secure">
+                  <span class="step-indicator" aria-hidden="true"></span>
+                  <span>Securing file...</span>
+                </div>
+                <div class="step loading" id="step-download">
+                  <span class="step-indicator" aria-hidden="true"></span>
+                  <span>Preparing download...</span>
+                </div>
+              </div>
+              <p class="helper">Please keep this page open.</p>
+            </section>
 
-      <p class="helper">Please keep this page open until the download starts.</p>
-    </main>
+            <section id="ready-state" class="state" aria-live="polite">
+              <div class="state-icon success" aria-hidden="true"></div>
+              <h1>Your Medical Report is Ready</h1>
+              <p class="subtitle">
+                Generated securely by Sobhana Diagnostic Centre.<br />
+                Your report has been generated successfully.
+              </p>
+              <div class="actions">
+                <a id="download-link" class="button primary" href="#" hidden>
+                  <svg viewBox="0 0 24 24" class="button-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 3v11"></path>
+                    <path d="m7 11 5 5 5-5"></path>
+                    <path d="M5 21h14"></path>
+                  </svg>
+                  <span>Download Report</span>
+                </a>
+                <button id="retry-success-button" class="button secondary" type="button">
+                  <svg viewBox="0 0 24 24" class="button-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M3 12a9 9 0 0 0 15.17 6.364L21 15.5"></path>
+                    <path d="M21 21v-5.5h-5.5"></path>
+                    <path d="M21 12A9 9 0 0 0 5.64 5.64L3 8.5"></path>
+                    <path d="M3 3v5.5h5.5"></path>
+                  </svg>
+                  <span>Retry Download</span>
+                </button>
+              </div>
+              <div class="auto-note">
+                <span class="auto-note-dot" aria-hidden="true"></span>
+                <span>Downloading automatically...</span>
+              </div>
+            </section>
+
+            <section id="error-state" class="state" aria-live="polite">
+              <div class="state-icon error" aria-hidden="true"></div>
+              <h1>We could not prepare your report</h1>
+              <p id="error-message" class="subtitle">Please try again in a moment.</p>
+              <div class="actions">
+                <button id="retry-error-button" class="button primary" type="button">
+                  <svg viewBox="0 0 24 24" class="button-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M3 12a9 9 0 0 0 15.17 6.364L21 15.5"></path>
+                    <path d="M21 21v-5.5h-5.5"></path>
+                    <path d="M21 12A9 9 0 0 0 5.64 5.64L3 8.5"></path>
+                    <path d="M3 3v5.5h5.5"></path>
+                  </svg>
+                  <span>Try Again</span>
+                </button>
+                <a class="button secondary" href="${escapeHtml(pdfUrl)}">Open Report Link</a>
+              </div>
+            </section>
+          </div>
+        </main>
+
+        <div class="trust-row" aria-label="Security and compliance">
+          <div class="trust-item">
+            <svg viewBox="0 0 24 24" class="trust-icon" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-3z"></path>
+            </svg>
+            <span>NABL Accredited</span>
+          </div>
+          <div class="trust-item">
+            <svg viewBox="0 0 24 24" class="trust-icon" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <rect x="5" y="11" width="14" height="10" rx="2"></rect>
+              <path d="M8 11V8a4 4 0 1 1 8 0v3"></path>
+            </svg>
+            <span>SSL Encrypted</span>
+          </div>
+          <div class="trust-item">
+            <svg viewBox="0 0 24 24" class="trust-icon" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M12 2v20"></path>
+              <path d="M5 7a7 7 0 0 1 14 0"></path>
+              <path d="M7 22h10"></path>
+            </svg>
+            <span>HIPAA Compliant</span>
+          </div>
+        </div>
+
+        <footer class="footer">
+          <div class="footer-title">Sobhana Diagnostic Centre</div>
+          <div class="secure-pill">
+            <svg viewBox="0 0 24 24" class="trust-icon" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M12 9v4"></path>
+              <path d="M12 17h.01"></path>
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            </svg>
+            <span>This is a secure report link. Please do not share.</span>
+          </div>
+          <div class="footer-links">
+            <span class="footer-link">Privacy Policy</span>
+            <span class="footer-link">Terms of Service</span>
+            <span class="footer-link">Security Standards</span>
+          </div>
+          <div class="footer-copy">&copy; 2026 Sobhana Diagnostic Centre. NABL Accredited Laboratory.</div>
+        </footer>
+      </section>
+    </div>
 
     <script>
       (() => {
         const pdfUrl = ${JSON.stringify(pdfUrl)};
-        const titleEl = document.getElementById('title');
-        const subtitleEl = document.getElementById('subtitle');
-        const backupLinkEl = document.getElementById('backup-link');
-        const retryLinkEl = document.getElementById('retry-link');
-        const spinnerEl = document.getElementById('spinner');
+        const loadingStateEl = document.getElementById('loading-state');
+        const readyStateEl = document.getElementById('ready-state');
+        const errorStateEl = document.getElementById('error-state');
+        const downloadLinkEl = document.getElementById('download-link');
+        const errorMessageEl = document.getElementById('error-message');
+        const retrySuccessButtonEl = document.getElementById('retry-success-button');
+        const retryErrorButtonEl = document.getElementById('retry-error-button');
+        const stepDownloadEl = document.getElementById('step-download');
         let objectUrl = null;
+
+        function setActiveState(state) {
+          loadingStateEl.classList.toggle('active', state === 'loading');
+          readyStateEl.classList.toggle('active', state === 'ready');
+          errorStateEl.classList.toggle('active', state === 'error');
+        }
+
+        function setStepState(element, state) {
+          element.className = 'step ' + state;
+        }
 
         function startBrowserDownload(url) {
           const anchor = document.createElement('a');
@@ -359,8 +805,21 @@ function renderLoadingPage(pdfUrl: string): string {
           anchor.remove();
         }
 
+        function resetForRetry() {
+          if (objectUrl) {
+            URL.revokeObjectURL(objectUrl);
+            objectUrl = null;
+          }
+
+          downloadLinkEl.hidden = true;
+          downloadLinkEl.removeAttribute('href');
+          setStepState(stepDownloadEl, 'loading');
+          setActiveState('loading');
+        }
+
         async function loadReport() {
           try {
+            resetForRetry();
             const response = await fetch(pdfUrl, {
               cache: 'no-store',
               credentials: 'same-origin',
@@ -386,22 +845,32 @@ function renderLoadingPage(pdfUrl: string): string {
 
             const blob = await response.blob();
             objectUrl = URL.createObjectURL(blob);
-            backupLinkEl.href = objectUrl;
-            backupLinkEl.hidden = false;
-            spinnerEl.className = 'spinner done';
-            titleEl.textContent = 'Your report is ready';
-            subtitleEl.textContent = 'The download should begin automatically now.';
-
+            downloadLinkEl.href = objectUrl;
+            downloadLinkEl.hidden = false;
+            setStepState(stepDownloadEl, 'complete');
+            setActiveState('ready');
             startBrowserDownload(objectUrl);
           } catch (error) {
-            spinnerEl.className = 'spinner error';
-            titleEl.textContent = 'We could not prepare your report';
-            subtitleEl.textContent = error instanceof Error
+            setStepState(stepDownloadEl, 'pending');
+            errorMessageEl.textContent = error instanceof Error
               ? error.message
               : 'Please try again in a moment.';
-            retryLinkEl.hidden = false;
+            setActiveState('error');
           }
         }
+
+        retrySuccessButtonEl.addEventListener('click', () => {
+          if (objectUrl) {
+            startBrowserDownload(objectUrl);
+            return;
+          }
+
+          loadReport();
+        });
+
+        retryErrorButtonEl.addEventListener('click', () => {
+          loadReport();
+        });
 
         window.addEventListener('pagehide', () => {
           if (objectUrl) {
@@ -414,8 +883,8 @@ function renderLoadingPage(pdfUrl: string): string {
     </script>
 
     <noscript>
-      <div style="margin-top: 16px; text-align: center;">
-        <a class="link" href="${escapeHtml(pdfUrl)}">Tap here to download your report</a>
+      <div style="text-align:center; margin-top: 18px;">
+        <a class="button primary" href="${escapeHtml(pdfUrl)}" style="max-width: 290px; margin: 0 auto;">Download Report</a>
       </div>
     </noscript>
   </body>
