@@ -26,9 +26,6 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from '@/components/ui/dialog';
-import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
@@ -36,7 +33,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import type { BillableProduct, ReferralDoctor } from '@/types';
+import type { BillableProduct, DiagnosticCenter, ReferralDoctor } from '@/types';
 import {
   formatReferralPayout,
   toReferralPayoutDraft,
@@ -55,26 +52,24 @@ function branchHeaders(token: string | null) {
   };
 }
 
-// ─── interfaces ─────────────────────────────────────────────────────────────
-
-interface DiagnosticCenter {
-  id: string;
-  centerNumber: string;
-  name: string;
-  contactPerson: string | null;
-  phone: string | null;
-  email: string | null;
-  address: string | null;
-  commissionPercent: number;
-  isActive: boolean;
-}
-
-const EMPTY_CENTER_FORM = {
-  name: '', contactPerson: '', phone: '', email: '', address: '', commissionPercent: '0',
-};
-
 type ReferralRuleFormItem = ReferralPayoutDraft & {
   productId: string;
+};
+
+type CenterRuleFormItem = ReferralPayoutDraft & {
+  productId: string;
+};
+
+const EMPTY_CENTER_FORM = {
+  name: '',
+  contactPerson: '',
+  phone: '',
+  email: '',
+  address: '',
+  commissionType: 'PERCENTAGE' as const,
+  commissionPercent: '',
+  commissionAmount: '',
+  productRules: [] as CenterRuleFormItem[],
 };
 
 const EMPTY_REFERRAL_FORM = {
@@ -118,7 +113,7 @@ export default function ManageDoctorsAndReferrals() {
   // ── Diagnostic Centers state ──────────────────────────────────────────────
   const [centers, setCenters] = useState<DiagnosticCenter[]>([]);
   const [centersLoading, setCentersLoading] = useState(true);
-  const [centerDialogOpen, setCenterDialogOpen] = useState(false);
+  const [centerShowForm, setCenterShowForm] = useState(false);
   const [centerEditingId, setCenterEditingId] = useState<string | null>(null);
   const [centerDeleteId, setCenterDeleteId] = useState<string | null>(null);
   const [centerForm, setCenterForm] = useState({ ...EMPTY_CENTER_FORM });
@@ -499,25 +494,94 @@ export default function ManageDoctorsAndReferrals() {
 
   useEffect(() => { fetchCenters(); }, [token]);
 
+  const addCenterProductRule = (productId: string) => {
+    if (!productId) return;
+
+    const product = billableProducts.find((item) => item.id === productId);
+    if (!product) return;
+
+    setCenterForm((current) => {
+      if (current.productRules.some((rule) => rule.productId === productId)) {
+        return current;
+      }
+
+      return {
+        ...current,
+        productRules: [
+          ...current.productRules,
+          {
+            productId,
+            commissionType: current.commissionType,
+            commissionPercent: current.commissionPercent,
+            commissionAmount: current.commissionAmount,
+          },
+        ],
+      };
+    });
+  };
+
+  const updateCenterProductRule = (productId: string, patch: Partial<CenterRuleFormItem>) => {
+    setCenterForm((current) => ({
+      ...current,
+      productRules: current.productRules.map((rule) =>
+        rule.productId === productId ? { ...rule, ...patch } : rule
+      ),
+    }));
+  };
+
+  const removeCenterProductRule = (productId: string) => {
+    setCenterForm((current) => ({
+      ...current,
+      productRules: current.productRules.filter((rule) => rule.productId !== productId),
+    }));
+  };
+
   const centerResetForm = () => {
     setCenterForm({ ...EMPTY_CENTER_FORM });
-    setCenterDialogOpen(false);
+    setCenterShowForm(false);
     setCenterEditingId(null);
   };
 
   const handleCenterSubmit = async () => {
     if (!centerForm.name.trim()) { toast.error('Center name is required'); return; }
-    const commission = parseFloat(centerForm.commissionPercent);
-    if (isNaN(commission) || commission < 0 || commission > 100) {
-      toast.error('Commission must be 0–100'); return;
+
+    if (centerForm.commissionType === 'PERCENTAGE') {
+      const commission = parseFloat(centerForm.commissionPercent);
+      if (isNaN(commission) || commission < 0 || commission > 100) {
+        toast.error('Percentage must be between 0 and 100'); return;
+      }
+    } else {
+      const amount = parseFloat(centerForm.commissionAmount);
+      if (isNaN(amount) || amount < 0) {
+        toast.error('Amount must be a non-negative number'); return;
+      }
     }
+
+    for (const rule of centerForm.productRules) {
+      if (rule.commissionType === 'PERCENTAGE') {
+        const commission = parseFloat(rule.commissionPercent);
+        if (isNaN(commission) || commission < 0 || commission > 100) {
+          toast.error('Each product percentage must be between 0 and 100'); return;
+        }
+      } else {
+        const amount = parseFloat(rule.commissionAmount);
+        if (isNaN(amount) || amount < 0) {
+          toast.error('Each product amount must be a non-negative number'); return;
+        }
+      }
+    }
+
     const payload = {
       name: centerForm.name.trim(),
       contactPerson: centerForm.contactPerson.trim() || null,
       phone: centerForm.phone.trim() || null,
       email: centerForm.email.trim() || null,
       address: centerForm.address.trim() || null,
-      commissionPercent: commission,
+      ...toReferralPayoutPayload(centerForm),
+      productRules: centerForm.productRules.map((rule) => ({
+        productId: rule.productId,
+        ...toReferralPayoutPayload(rule),
+      })),
     };
     try {
       if (centerEditingId) {
@@ -536,6 +600,23 @@ export default function ManageDoctorsAndReferrals() {
       await fetchCenters();
       centerResetForm();
     } catch { toast.error('Failed to save center'); }
+  };
+
+  const handleCenterEdit = (center: DiagnosticCenter) => {
+    setCenterForm({
+      name: center.name,
+      contactPerson: center.contactPerson || '',
+      phone: center.phone || '',
+      email: center.email || '',
+      address: center.address || '',
+      ...toReferralPayoutDraft(center),
+      productRules: (center.productRules || []).map((rule) => ({
+        productId: rule.productId,
+        ...toReferralPayoutDraft(rule),
+      })),
+    });
+    setCenterEditingId(center.id);
+    setCenterShowForm(true);
   };
 
   const handleCenterToggle = async (center: DiagnosticCenter) => {
@@ -1013,12 +1094,240 @@ export default function ManageDoctorsAndReferrals() {
       <TabsContent value="centers" className="space-y-4">
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
-            External diagnostic referral centers and their commission rates.
+            Set a saved default payout for each external diagnostic center and override it for specific billable products.
           </p>
-          <Button onClick={() => { setCenterForm({ ...EMPTY_CENTER_FORM }); setCenterEditingId(null); setCenterDialogOpen(true); }}>
-            <Plus className="h-4 w-4 mr-2" /> Add Center
-          </Button>
+          {!centerShowForm && (
+            <Button onClick={() => { setCenterForm({ ...EMPTY_CENTER_FORM }); setCenterEditingId(null); setCenterShowForm(true); }}>
+              <Plus className="h-4 w-4 mr-2" /> Add Center
+            </Button>
+          )}
         </div>
+
+        {centerShowForm && (
+          <Card className="border-primary/30">
+            <CardHeader>
+              <CardTitle>{centerEditingId ? 'Edit Diagnostic Center' : 'Add Diagnostic Center'}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>Center Name *</Label>
+                    <Input
+                      placeholder="e.g. City Diagnostics Lab"
+                      value={centerForm.name}
+                      onChange={(e) => setCenterForm((current) => ({ ...current, name: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Contact Person</Label>
+                    <Input
+                      placeholder="e.g. Dr. Sharma"
+                      value={centerForm.contactPerson}
+                      onChange={(e) => setCenterForm((current) => ({ ...current, contactPerson: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Phone</Label>
+                    <Input
+                      placeholder="10-digit phone"
+                      value={centerForm.phone}
+                      maxLength={10}
+                      onChange={(e) => {
+                        const next = e.target.value.replace(/\D/g, '').slice(0, 10);
+                        setCenterForm((current) => ({ ...current, phone: next }));
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Email</Label>
+                    <Input
+                      type="email"
+                      placeholder="e.g. info@citydiag.com"
+                      value={centerForm.email}
+                      onChange={(e) => setCenterForm((current) => ({ ...current, email: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Address</Label>
+                    <Input
+                      placeholder="e.g. 123 Main Street, City"
+                      value={centerForm.address}
+                      onChange={(e) => setCenterForm((current) => ({ ...current, address: e.target.value }))}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+                  <div>
+                    <p className="text-sm font-medium">Default Payout</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Used for future bills unless a product-specific value is saved below.
+                    </p>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-[160px_minmax(0,1fr)]">
+                    <Select
+                      value={centerForm.commissionType}
+                      onValueChange={(value) =>
+                        setCenterForm((current) => ({
+                          ...current,
+                          commissionType: value as ReferralPayoutDraft['commissionType'],
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PERCENTAGE">Percentage</SelectItem>
+                        <SelectItem value="FIXED_AMOUNT">Amount</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={centerForm.commissionType === 'PERCENTAGE' ? 100 : undefined}
+                      step={centerForm.commissionType === 'PERCENTAGE' ? '0.01' : '1'}
+                      placeholder={centerForm.commissionType === 'PERCENTAGE' ? 'e.g. 12' : 'e.g. 180'}
+                      value={
+                        centerForm.commissionType === 'PERCENTAGE'
+                          ? centerForm.commissionPercent
+                          : centerForm.commissionAmount
+                      }
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setCenterForm((current) => ({
+                          ...current,
+                          commissionPercent:
+                            current.commissionType === 'PERCENTAGE'
+                              ? next
+                              : current.commissionPercent,
+                          commissionAmount:
+                            current.commissionType === 'FIXED_AMOUNT'
+                              ? next
+                              : current.commissionAmount,
+                        }));
+                      }}
+                    />
+                  </div>
+                  <p className="text-sm font-medium">
+                    {formatReferralPayout({
+                      commissionType: centerForm.commissionType,
+                      commissionPercent:
+                        centerForm.commissionType === 'PERCENTAGE'
+                          ? Number(centerForm.commissionPercent || 0)
+                          : null,
+                      commissionAmountInPaise:
+                        centerForm.commissionType === 'FIXED_AMOUNT'
+                          ? Math.round(Number(centerForm.commissionAmount || 0) * 100)
+                          : null,
+                    })}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <p className="font-medium">Product-Specific Payouts</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Save percentage or amount rules for selected billable products.
+                    </p>
+                  </div>
+                  <div className="w-full max-w-md">
+                    <SearchableSelect
+                      onValueChange={addCenterProductRule}
+                      options={billableProducts
+                        .filter((product) => !centerForm.productRules.some((rule) => rule.productId === product.id))
+                        .map((product) => ({
+                          value: product.id,
+                          label: product.name,
+                          description: [product.code, `₹${(product.effectivePrice ?? product.basePrice).toLocaleString('en-IN')}`].join(' · '),
+                          keywords: [product.name, product.code].join(' '),
+                        }))}
+                      placeholder="Add billable product rule"
+                      searchPlaceholder="Search product by name or code"
+                      emptyText="All active products already have a rule."
+                    />
+                  </div>
+                </div>
+
+                {centerForm.productRules.length === 0 ? (
+                  <div className="rounded-lg border border-dashed bg-background px-4 py-6 text-sm text-muted-foreground">
+                    No product-specific rules yet. Bills will use the center default for every product.
+                  </div>
+                ) : (
+                  <div className="grid gap-3">
+                    {centerForm.productRules.map((rule) => {
+                      const product = billableProducts.find((item) => item.id === rule.productId);
+                      return (
+                        <div key={rule.productId} className="rounded-lg border bg-background p-4">
+                          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px_160px_auto] md:items-start">
+                            <div className="space-y-1">
+                              <p className="font-medium">{product?.name || 'Unknown product'}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {product?.code || rule.productId}
+                              </p>
+                            </div>
+                            <Select
+                              value={rule.commissionType}
+                              onValueChange={(value) =>
+                                updateCenterProductRule(rule.productId, {
+                                  commissionType: value as ReferralPayoutDraft['commissionType'],
+                                })
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="PERCENTAGE">Percentage</SelectItem>
+                                <SelectItem value="FIXED_AMOUNT">Amount</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <Input
+                              type="number"
+                              min={0}
+                              max={rule.commissionType === 'PERCENTAGE' ? 100 : undefined}
+                              step={rule.commissionType === 'PERCENTAGE' ? '0.01' : '1'}
+                              placeholder={rule.commissionType === 'PERCENTAGE' ? 'Enter %' : 'Enter amount'}
+                              value={rule.commissionType === 'PERCENTAGE' ? rule.commissionPercent : rule.commissionAmount}
+                              onChange={(e) =>
+                                updateCenterProductRule(rule.productId, {
+                                  commissionPercent:
+                                    rule.commissionType === 'PERCENTAGE'
+                                      ? e.target.value
+                                      : rule.commissionPercent,
+                                  commissionAmount:
+                                    rule.commissionType === 'FIXED_AMOUNT'
+                                      ? e.target.value
+                                      : rule.commissionAmount,
+                                })
+                              }
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => removeCenterProductRule(rule.productId)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={centerResetForm}><X className="h-4 w-4 mr-2" />Cancel</Button>
+                <Button onClick={handleCenterSubmit}><Check className="h-4 w-4 mr-2" />{centerEditingId ? 'Update' : 'Add'}</Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {centersLoading ? (
           <p className="text-center text-muted-foreground py-6">Loading...</p>
@@ -1028,11 +1337,10 @@ export default function ManageDoctorsAndReferrals() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Center #</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Contact Person</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead className="text-right">Commission %</TableHead>
+                <TableHead>Center</TableHead>
+                <TableHead>Contact</TableHead>
+                <TableHead>Default Payout</TableHead>
+                <TableHead>Product Rules</TableHead>
                 <TableHead className="text-center">Active</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -1040,21 +1348,37 @@ export default function ManageDoctorsAndReferrals() {
             <TableBody>
               {centers.map((center) => (
                 <TableRow key={center.id} className={!center.isActive ? 'opacity-50' : ''}>
-                  <TableCell className="font-mono">{center.centerNumber}</TableCell>
-                  <TableCell className="font-medium">{center.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{center.contactPerson || '—'}</TableCell>
-                  <TableCell>{center.phone || '—'}</TableCell>
-                  <TableCell className="text-right font-mono">{center.commissionPercent}%</TableCell>
+                  <TableCell className="font-medium">
+                    <div>{center.name}</div>
+                    <div className="text-xs text-muted-foreground">{center.centerNumber}</div>
+                  </TableCell>
+                  <TableCell>
+                    <div>{center.contactPerson || '—'}</div>
+                    <div className="text-xs text-muted-foreground">{center.phone || center.email || '—'}</div>
+                  </TableCell>
+                  <TableCell className="font-medium">{formatReferralPayout(center)}</TableCell>
+                  <TableCell>
+                    {center.productRules?.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {center.productRules.slice(0, 3).map((rule) => (
+                          <Badge key={rule.id} variant="secondary" className="font-normal">
+                            {(rule.product?.code || rule.product?.name || 'Product')}: {formatReferralPayout(rule)}
+                          </Badge>
+                        ))}
+                        {center.productRules.length > 3 && (
+                          <Badge variant="outline">+{center.productRules.length - 3} more</Badge>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">Uses default for all products</span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-center">
                     <Switch checked={center.isActive} onCheckedChange={() => handleCenterToggle(center)} />
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex gap-2 justify-end">
-                      <Button variant="ghost" size="icon" onClick={() => {
-                        setCenterForm({ name: center.name, contactPerson: center.contactPerson || '', phone: center.phone || '', email: center.email || '', address: center.address || '', commissionPercent: center.commissionPercent.toString() });
-                        setCenterEditingId(center.id);
-                        setCenterDialogOpen(true);
-                      }}><Pencil className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => handleCenterEdit(center)}><Pencil className="h-4 w-4" /></Button>
                       <Button variant="ghost" size="icon" onClick={() => setCenterDeleteId(center.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                     </div>
                   </TableCell>
@@ -1063,53 +1387,6 @@ export default function ManageDoctorsAndReferrals() {
             </TableBody>
           </Table>
         )}
-
-        {/* Center Dialog */}
-        <Dialog open={centerDialogOpen} onOpenChange={(open) => { if (!open) centerResetForm(); }}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{centerEditingId ? 'Edit Diagnostic Center' : 'Add Diagnostic Center'}</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 py-2">
-              <div className="space-y-2">
-                <Label>Name *</Label>
-                <Input placeholder="e.g. City Diagnostics Lab" value={centerForm.name}
-                  onChange={(e) => setCenterForm(f => ({ ...f, name: e.target.value }))} />
-              </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Contact Person</Label>
-                  <Input placeholder="e.g. Dr. Sharma" value={centerForm.contactPerson}
-                    onChange={(e) => setCenterForm(f => ({ ...f, contactPerson: e.target.value }))} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Phone</Label>
-                  <Input placeholder="e.g. 9876543210" value={centerForm.phone} maxLength={10}
-                    onChange={(e) => setCenterForm(f => ({ ...f, phone: e.target.value }))} />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Email</Label>
-                <Input type="email" placeholder="e.g. info@citydiag.com" value={centerForm.email}
-                  onChange={(e) => setCenterForm(f => ({ ...f, email: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Address</Label>
-                <Input placeholder="e.g. 123 Main Street, City" value={centerForm.address}
-                  onChange={(e) => setCenterForm(f => ({ ...f, address: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Commission %</Label>
-                <Input type="number" placeholder="0" value={centerForm.commissionPercent} min={0} max={100}
-                  onChange={(e) => setCenterForm(f => ({ ...f, commissionPercent: e.target.value }))} />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={centerResetForm}>Cancel</Button>
-              <Button onClick={handleCenterSubmit}>{centerEditingId ? 'Update' : 'Create'}</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
 
         {/* Center Delete Confirmation */}
         <AlertDialog open={!!centerDeleteId} onOpenChange={() => setCenterDeleteId(null)}>
