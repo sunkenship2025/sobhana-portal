@@ -8,13 +8,10 @@
 
 const axios = require('axios');
 const { PrismaClient } = require('@prisma/client');
+const { STAFF_CREDS, ADMIN_CREDS } = require('./authTestConfig');
 
 const prisma = new PrismaClient();
 const BASE_URL = 'http://localhost:3000';
-
-// Test credentials
-const STAFF_CREDS = { email: 'staff@sobhana.com', password: 'password123' };
-const ADMIN_CREDS = { email: 'admin@sobhana.com', password: 'password123' };
 
 let staffToken, adminToken, branchId, patientId, testId;
 

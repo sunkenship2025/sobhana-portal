@@ -8,6 +8,7 @@
  */
 
 const axios = require('axios');
+const { STAFF_CREDS, ADMIN_CREDS } = require('./authTestConfig');
 
 const BASE_URL = 'http://localhost:3000';
 
@@ -20,15 +21,9 @@ async function testE316() {
   try {
     // Step 1: Login to both branches
     console.log('Step 1: Login to Branch A (Sobhana - Chintal) and Branch B (IDPL)...');
-    const authA = await axios.post(`${BASE_URL}/api/auth/login`, {
-      email: 'staff@sobhana.com',
-      password: 'password123'
-    });
+    const authA = await axios.post(`${BASE_URL}/api/auth/login`, STAFF_CREDS);
     
-    const authB = await axios.post(`${BASE_URL}/api/auth/login`, {
-      email: 'admin@sobhana.com',
-      password: 'password123'
-    });
+    const authB = await axios.post(`${BASE_URL}/api/auth/login`, ADMIN_CREDS);
 
     const tokenA = authA.data.token;
     const tokenB = authB.data.token;
