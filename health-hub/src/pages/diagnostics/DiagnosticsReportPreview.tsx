@@ -10,7 +10,6 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { FlagBadge } from '@/components/ui/flag-badge';
 import { toast } from 'sonner';
 import { AlertTriangle, ArrowLeft, CheckCircle2, Lock, Printer, MessageCircle, Loader2, Eye, X } from 'lucide-react';
-import { ReportPrint } from '@/components/print/ReportPrint';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -434,7 +433,7 @@ const DiagnosticsReportPreview = () => {
                   </p>
                   {reportToken && (
                     <a 
-                      href={`${API_BASE_URL}/reports/${reportToken}`}
+                      href={`${API_BASE_URL}/reports/${reportToken}/pdf`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-sm text-primary hover:underline mt-1 inline-block"

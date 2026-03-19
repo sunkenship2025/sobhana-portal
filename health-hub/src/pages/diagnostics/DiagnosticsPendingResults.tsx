@@ -12,6 +12,34 @@ import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Clock, Search, Loader2 } from 'lucide-react';
 
+const matchesDateFilter = (filter: string, value: string) => {
+  if (filter === 'all') return true;
+
+  const visitDate = new Date(value);
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrowStart = new Date(todayStart);
+  tomorrowStart.setDate(todayStart.getDate() + 1);
+  const yesterdayStart = new Date(todayStart);
+  yesterdayStart.setDate(todayStart.getDate() - 1);
+  const weekStart = new Date(todayStart);
+  weekStart.setDate(todayStart.getDate() - 6);
+
+  if (filter === 'today') {
+    return visitDate >= todayStart && visitDate < tomorrowStart;
+  }
+
+  if (filter === 'yesterday') {
+    return visitDate >= yesterdayStart && visitDate < todayStart;
+  }
+
+  if (filter === 'week') {
+    return visitDate >= weekStart && visitDate < tomorrowStart;
+  }
+
+  return true;
+};
+
 const DiagnosticsPendingResults = () => {
   const navigate = useNavigate();
   const { activeBranchId } = useBranchStore();
@@ -73,16 +101,22 @@ const DiagnosticsPendingResults = () => {
       }));
   }, [pendingVisits, activeBranchId]);
 
-  const filteredVisits = visitsWithDetails.filter(({ patient, visit }) => {
-    if (!search) return true;
-    const searchLower = search.toLowerCase();
-    const phone = patient?.identifiers?.find((id: any) => id.type === 'PHONE')?.value || '';
-    return (
-      phone.includes(search) ||
-      patient?.name.toLowerCase().includes(searchLower) ||
-      visit.billNumber.toLowerCase().includes(searchLower)
-    );
-  });
+  const filteredVisits = useMemo(() => {
+    return visitsWithDetails.filter(({ patient, visit }) => {
+      if (!matchesDateFilter(dateFilter, visit.createdAt)) {
+        return false;
+      }
+
+      if (!search) return true;
+      const searchLower = search.toLowerCase();
+      const phone = patient?.identifiers?.find((id: any) => id.type === 'PHONE')?.value || '';
+      return (
+        phone.includes(search) ||
+        patient?.name.toLowerCase().includes(searchLower) ||
+        visit.billNumber.toLowerCase().includes(searchLower)
+      );
+    });
+  }, [visitsWithDetails, dateFilter, search]);
 
   if (loading) {
     return (
@@ -116,6 +150,7 @@ const DiagnosticsPendingResults = () => {
                     <SelectItem value="today">Today</SelectItem>
                     <SelectItem value="yesterday">Yesterday</SelectItem>
                     <SelectItem value="week">This Week</SelectItem>
+                    <SelectItem value="all">All Time</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
