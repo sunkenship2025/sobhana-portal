@@ -1,11 +1,21 @@
 import { Router } from 'express';
+import QRCode from 'qrcode';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import { generateDiagnosticBillNumber } from '../services/numberService';
 import { logAction } from '../services/auditService';
 import { evaluateDerivedParameters } from '../services/derivedParameterService';
+import { generatePdfFromHtml } from '../services/pdfGenerationService';
 import { resolveReferenceRanges } from '../services/referenceRangeService';
+import { createAccessToken, recordAccessByReportVersionId } from '../services/reportAccessService';
+import {
+  buildEphemeralSnapshot,
+  createReportSnapshot,
+  getReportSnapshot,
+  saveReportSnapshot,
+} from '../services/reportSnapshotService';
 import { resolveProducts, ProductResolutionError } from '../services/productOrderService';
+import { renderReportHtml } from '../services/reportRendererService';
 import prisma from '../lib/prisma';
 import {
   areReferralPayoutsEqual,
@@ -15,6 +25,7 @@ import {
 } from '../services/referralPayoutService';
 
 const router = Router();
+const TRANSPARENT_PIXEL_DATA_URL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
 
 // All routes require auth + branch context
 router.use(authMiddleware);
@@ -91,6 +102,66 @@ function applyOptionalReferralRuleToPrices(
   }));
 }
 
+async function loadFinalizedReportSnapshotForVisit(visitId: string) {
+  const visit = await prisma.visit.findFirst({
+    where: {
+      id: visitId,
+      domain: 'DIAGNOSTICS',
+    },
+    select: {
+      billNumber: true,
+      report: {
+        select: {
+          versions: {
+            where: { status: 'FINALIZED' },
+            orderBy: { versionNum: 'desc' },
+            take: 1,
+            select: {
+              id: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!visit) {
+    return {
+      ok: false as const,
+      status: 404,
+      error: 'NOT_FOUND',
+      message: 'Diagnostic visit not found',
+    };
+  }
+
+  const reportVersionId = visit.report?.versions?.[0]?.id;
+  if (!reportVersionId) {
+    return {
+      ok: false as const,
+      status: 404,
+      error: 'REPORT_NOT_FOUND',
+      message: 'Finalized report not found',
+    };
+  }
+
+  const snapshot = await getReportSnapshot(reportVersionId);
+  if (!snapshot) {
+    return {
+      ok: false as const,
+      status: 404,
+      error: 'REPORT_NOT_AVAILABLE',
+      message: 'Finalized report snapshot not found',
+    };
+  }
+
+  return {
+    ok: true as const,
+    billNumber: visit.billNumber,
+    reportVersionId,
+    snapshot,
+  };
+}
+
 // GET /api/visits/diagnostic - List diagnostic visits
 // When patientId is provided: Returns ALL visits for that patient across ALL branches (Patient 360 view)
 // When patientId is omitted: Returns visits for current branch only (daily operations)
@@ -139,13 +210,6 @@ router.get('/', async (req: AuthRequest, res) => {
             versions: {
               orderBy: { versionNum: 'desc' },
               take: 1,
-              include: {
-                accessTokens: {
-                  take: 1,
-                  orderBy: { createdAt: 'desc' },
-                  select: { token: true },
-                },
-              },
             },
           },
         },
@@ -165,7 +229,6 @@ router.get('/', async (req: AuthRequest, res) => {
       totalAmount: v.totalAmountInPaise / 100,
       paymentType: v.bill?.paymentType || 'CASH',
       paymentStatus: v.bill?.paymentStatus || 'PENDING',
-      reportToken: (v.report?.versions?.[0] as any)?.accessTokens?.[0]?.token || null,
       referralDoctorId: v.referrals[0]?.referralDoctorId || null,
       referralDoctor: v.referrals[0]?.referralDoctor || null,
       testOrders: v.testOrders.map((to) => ({
@@ -259,11 +322,6 @@ router.get('/:id', async (req: AuthRequest, res) => {
                   include: {
                     test: true, // Include test info for each result
                   },
-                },
-                accessTokens: {
-                  take: 1, // Only need the first/current token
-                  orderBy: { createdAt: 'desc' },
-                  select: { token: true },
                 },
               },
               orderBy: { versionNum: 'desc' },
@@ -383,7 +441,6 @@ router.get('/:id', async (req: AuthRequest, res) => {
               versionNumber: v.versionNum,
               status: v.status,
               finalizedAt: v.finalizedAt,
-              accessToken: v.accessTokens?.[0]?.token || null, // Include token for finalized reports
               testResults: v.testResults.map((tr: any) => ({
                 ...tr,
                 testName: tr.test?.name || '',
@@ -1641,11 +1698,9 @@ router.get('/:id/preview-report', async (req: AuthRequest, res) => {
     }
 
     // Build ephemeral snapshot from live data (no persistence)
-    const { buildEphemeralSnapshot } = await import('../services/reportSnapshotService');
     const snapshot = await buildEphemeralSnapshot(id);
 
     // Render HTML using the same renderer as the PDF pipeline
-    const { renderReportHtml } = await import('../services/reportRendererService');
     const html = renderReportHtml(snapshot, {
       profile: 'screen',
       baseUrl: `${req.protocol}://${req.get('host')}`,
@@ -1659,6 +1714,114 @@ router.get('/:id/preview-report', async (req: AuthRequest, res) => {
     return res.status(500).json({
       error: 'PREVIEW_FAILED',
       message: err.message || 'Failed to generate report preview',
+    });
+  }
+});
+
+// GET /api/visits/diagnostic/:id/finalized-report - Staff-only HTML view of the finalized report
+router.get('/:id/finalized-report', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const loaded = await loadFinalizedReportSnapshotForVisit(id);
+
+    if (!loaded.ok) {
+      return res.status(loaded.status).json({
+        error: loaded.error,
+        message: loaded.message,
+      });
+    }
+
+    const autoPrint = req.query.print === 'true';
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const qrDataUrl = autoPrint
+      ? await QRCode.toDataURL(`${baseUrl}/reports/${await createAccessToken(loaded.reportVersionId)}`, {
+          width: 100,
+          margin: 1,
+          color: { dark: '#000000', light: '#ffffff' },
+        })
+      : TRANSPARENT_PIXEL_DATA_URL;
+
+    const html = renderReportHtml(loaded.snapshot, {
+      profile: 'screen',
+      baseUrl,
+      qrDataUrl,
+    });
+    const finalHtml = autoPrint
+      ? html.replace('</body>', '<script>window.onload=function(){setTimeout(function(){window.print()},600)}</script></body>')
+      : html;
+
+    await recordAccessByReportVersionId(
+      loaded.reportVersionId,
+      autoPrint ? 'PRINT' : 'VIEW',
+      req.ip,
+      req.get('user-agent'),
+      req.user?.id
+    );
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    return res.send(finalHtml);
+  } catch (err: any) {
+    console.error('Finalized report view error:', err);
+    return res.status(500).json({
+      error: 'GENERATION_FAILED',
+      message: 'Failed to generate finalized report view',
+    });
+  }
+});
+
+// GET /api/visits/diagnostic/:id/finalized-report/pdf - Staff-only finalized report PDF
+router.get('/:id/finalized-report/pdf', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const mode = req.query.mode === 'physical' ? 'physical' : 'digital';
+    const loaded = await loadFinalizedReportSnapshotForVisit(id);
+
+    if (!loaded.ok) {
+      return res.status(loaded.status).json({
+        error: loaded.error,
+        message: loaded.message,
+      });
+    }
+
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const reportToken = await createAccessToken(loaded.reportVersionId);
+    const reportUrl = `${baseUrl}/reports/${reportToken}`;
+    const qrDataUrl = await QRCode.toDataURL(reportUrl, {
+      width: 100,
+      margin: 1,
+      color: { dark: '#000000', light: '#ffffff' },
+    });
+
+    const html = renderReportHtml(loaded.snapshot, {
+      profile: mode === 'physical' ? 'pdf-physical' : 'pdf-digital',
+      baseUrl,
+      qrDataUrl,
+    });
+    const pdfBuffer = await generatePdfFromHtml(html, { mode });
+
+    await recordAccessByReportVersionId(
+      loaded.reportVersionId,
+      mode === 'physical' ? 'PRINT' : 'DOWNLOAD',
+      req.ip,
+      req.get('user-agent'),
+      req.user?.id
+    );
+
+    const filename = mode === 'physical'
+      ? `Report-${loaded.billNumber}-print.pdf`
+      : `Report-${loaded.billNumber}.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.send(pdfBuffer);
+  } catch (err: any) {
+    console.error('Finalized report PDF error:', err);
+    return res.status(500).json({
+      error: 'GENERATION_FAILED',
+      message: 'Failed to generate finalized report PDF',
     });
   }
 });
@@ -1733,17 +1896,12 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
 
     // E3-10: Create snapshot and access token after successful finalization
     try {
-      const { createReportSnapshot, saveReportSnapshot } = await import('../services/reportSnapshotService');
-      const { createAccessToken } = await import('../services/reportAccessService');
-
       // Create immutable snapshot
       const snapshot = await createReportSnapshot(draftVersion.id);
       await saveReportSnapshot(draftVersion.id, snapshot);
 
       // Create access token for report URL
       accessToken = await createAccessToken(draftVersion.id);
-
-      console.log(`📄 Report ${draftVersion.id} finalized with token: ${accessToken}`);
     } catch (snapshotErr) {
       // Log but don't fail - snapshot can be recreated later
       console.error('Failed to create snapshot/token (non-critical):', snapshotErr);
@@ -1764,7 +1922,7 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
         reportVersionId: draftVersion.id,
         visitId: visit.id,
         finalizedAt: new Date().toISOString(),
-        accessToken: accessToken || undefined,
+        reportAccessIssued: !!accessToken,
       },
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
@@ -1772,7 +1930,7 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
 
     // Fire-and-forget: Send report-ready notification via WhatsApp (non-blocking)
     import('../services/notificationService').then(({ sendReportReady }) => {
-      sendReportReady(visit.id).catch((err) =>
+      sendReportReady(visit.id, accessToken || undefined).catch((err) =>
         console.error('[Notification] Report notification failed (non-blocking):', err.message)
       );
     });
@@ -1780,7 +1938,6 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
     return res.json({ 
       success: true, 
       status: 'COMPLETED',
-      reportToken: accessToken, // Return token for immediate use
     });
   } catch (err: any) {
     // JIRA-10: Handle race condition gracefully
