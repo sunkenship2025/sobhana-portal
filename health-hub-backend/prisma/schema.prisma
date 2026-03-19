@@ -305,21 +305,24 @@ model ReferralDoctorProductRule {
 }
 
 /// ClinicDoctor: In-house doctors (letterhead, registration, specialty)
-/// Used only for clinic visits, not for referral commission.
+/// Consultation fee commission can be percentage or fixed amount.
 model ClinicDoctor {
-  id                   String   @id @default(cuid())
-  doctorNumber         String   @unique // CD-00001, CD-00002, etc. (user-facing)
-  name                 String
-  qualification        String   // MBBS, MD (Gen Med), etc.
-  specialty            String   // General Medicine, Pediatrics, etc.
-  registrationNumber   String   @unique
-  phone                String?
-  email                String?
-  letterheadNote       String?
-  referralDoctorId     String?  // Link if this person is also a referral doctor
-  isActive             Boolean  @default(true)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  id                      String             @id @default(cuid())
+  doctorNumber            String             @unique // CD-00001, CD-00002, etc. (user-facing)
+  name                    String
+  qualification           String             // MBBS, MD (Gen Med), etc.
+  specialty               String             // General Medicine, Pediatrics, etc.
+  registrationNumber      String             @unique
+  phone                   String?
+  email                   String?
+  letterheadNote          String?
+  commissionType          ReferralPayoutType @default(PERCENTAGE)
+  commissionPercent       Float              @default(100.0) // 0-100, percentage of consultation fee
+  commissionAmountInPaise Int?               // Fixed amount per consultation (if commissionType = FIXED_AMOUNT)
+  referralDoctorId        String?            // Link if this person is also a referral doctor
+  isActive                Boolean            @default(true)
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
 
   /// Clinic visits (not referral-based)
   clinicVisits  ClinicVisit[]
