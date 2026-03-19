@@ -305,13 +305,6 @@ export async function getPatient360View(patientId: string) {
               versions: {
                 orderBy: { versionNum: 'desc' },
                 take: 1,
-                include: {
-                  accessTokens: {
-                    take: 1,
-                    orderBy: { createdAt: 'desc' },
-                    select: { token: true },
-                  },
-                },
               }
             }
           },
@@ -370,7 +363,6 @@ export async function getPatient360View(patientId: string) {
       const latestVersion = visit.report.versions[0];
       timelineItem.reportStatus = latestVersion.status;
       timelineItem.reportVersionId = latestVersion.id;
-      timelineItem.reportAccessToken = (latestVersion as any).accessTokens?.[0]?.token || null;
       timelineItem.finalizedAt = latestVersion.finalizedAt;
     }
 

@@ -945,7 +945,7 @@ model InterpretationTemplate {
 /// Token maps to specific finalized ReportVersion
 model ReportAccessToken {
   id              String    @id @default(cuid())
-  token           String    @unique  // Cryptographically random
+  token           String    @unique  // SHA-256 hash of the bearer token
   reportVersionId String
   expiresAt       DateTime?          // NULL = never expires
   accessCount     Int       @default(0)
