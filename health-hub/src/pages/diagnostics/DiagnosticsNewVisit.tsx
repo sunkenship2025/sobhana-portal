@@ -57,7 +57,6 @@ const DiagnosticsNewVisit = () => {
   const [diagnosticCenters, setDiagnosticCenters] = useState<DiagnosticCenter[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCenterId, setSelectedCenterId] = useState<string>('');
-  const [referralType, setReferralType] = useState<string>('SELF');
 
   const [phone, setPhone] = useState('');
   const [billSearch, setBillSearch] = useState('');
@@ -343,7 +342,6 @@ const DiagnosticsNewVisit = () => {
           patientId: patient.id,
           referralDoctorId: selectedDoctorId || null,
           diagnosticCenterId: selectedCenterId || null,
-          referralType: selectedCenterId ? referralType : undefined,
           referralOverrides: selectedDoctorId
             ? Object.fromEntries(
                 selectedProducts
@@ -928,7 +926,6 @@ const DiagnosticsNewVisit = () => {
                         variant="outline"
                         onClick={() => {
                           setSelectedCenterId('');
-                          setReferralType('SELF');
                           setDiagnosticCenterOverrides({});
                         }}
                       >
@@ -936,29 +933,6 @@ const DiagnosticsNewVisit = () => {
                       </Button>
                     )}
                   </div>
-                  {selectedCenterId && (
-                    <div className="space-y-3">
-                      <Label>Referral Direction</Label>
-                      <RadioGroup
-                        value={referralType}
-                        onValueChange={setReferralType}
-                        className="flex gap-4"
-                      >
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="SELF" id="ref-self" />
-                          <Label htmlFor="ref-self">Self</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="REFERRED_TO" id="ref-to" />
-                          <Label htmlFor="ref-to">Referred To</Label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="REFERRED_FROM" id="ref-from" />
-                          <Label htmlFor="ref-from">Referred From</Label>
-                        </div>
-                      </RadioGroup>
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -1085,11 +1059,6 @@ const DiagnosticsNewVisit = () => {
                       <p className="text-sm text-muted-foreground">
                         Saved defaults come from Config Center. Any changes here will be applied to this bill and saved for future bills.
                       </p>
-                      {referralType === 'SELF' && (
-                        <p className="text-xs text-muted-foreground">
-                          This visit is marked as self, so the center payout will stay out of payouts unless you change the referral direction.
-                        </p>
-                      )}
                     </div>
                     {selectedCenter && (
                       <div className="rounded-lg border bg-background px-3 py-2 text-sm">
