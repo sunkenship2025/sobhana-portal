@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { API_BASE, API_BASE_URL } from '@/lib/api';
+import { API_BASE } from '@/lib/api';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,6 +9,7 @@ import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { FlagBadge } from '@/components/ui/flag-badge';
 import { toast } from 'sonner';
+import { downloadFinalizedReportPdf, openFinalizedReportWindow } from '@/lib/reportAccess';
 import { AlertTriangle, ArrowLeft, CheckCircle2, Lock, Printer, MessageCircle, Loader2, Eye, X } from 'lucide-react';
 import {
   AlertDialog,
@@ -79,7 +80,6 @@ const DiagnosticsReportPreview = () => {
   const [loading, setLoading] = useState(true);
   const [finalizing, setFinalizing] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [reportToken, setReportToken] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);  // blob URL for iframe
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -101,12 +101,6 @@ const DiagnosticsReportPreview = () => {
         if (response.ok) {
           const data = await response.json();
           setVisit(data);
-          
-          // E3-10: Check if report is finalized and has an access token
-          const latestVersion = data.report?.versions?.[0];
-          if (latestVersion?.status === 'FINALIZED' && latestVersion?.accessToken) {
-            setReportToken(latestVersion.accessToken);
-          }
         } else {
           toast.error('Failed to load visit');
         }
@@ -187,15 +181,8 @@ const DiagnosticsReportPreview = () => {
       });
 
       if (response.ok) {
-        const data = await response.json();
-        const newReportToken = data.reportToken;
-        
-        if (newReportToken) {
-          setReportToken(newReportToken);
-          toast.success('Report finalized successfully');
-        } else {
-          toast.warning('Report finalized but access link generation failed');
-        }
+        await response.json();
+        toast.success('Report finalized successfully');
         
         setShowConfirm(false);
         
@@ -230,11 +217,20 @@ const DiagnosticsReportPreview = () => {
   };
 
   const handlePrint = () => {
-    if (reportToken) {
-      window.open(`${API_BASE_URL}/reports/${reportToken}/view?print=true`, '_blank');
-    } else {
-      toast.error('Report token not available. Please finalize the report first.');
+    if (!visitId) {
+      toast.error('Report not available. Please finalize the report first.');
+      return;
     }
+
+    openFinalizedReportWindow({
+      visitId,
+      token,
+      branchId: activeBranchId,
+      autoPrint: true,
+    }).catch((error) => {
+      console.error('Print failed:', error);
+      toast.error('Failed to open print view');
+    });
   };
 
   const handleWhatsApp = async () => {
@@ -431,16 +427,27 @@ const DiagnosticsReportPreview = () => {
                   <p className="text-sm text-muted-foreground">
                     This report is now locked and cannot be edited.
                   </p>
-                  {reportToken && (
-                    <a 
-                      href={`${API_BASE_URL}/reports/${reportToken}/pdf`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-primary hover:underline mt-1 inline-block"
-                    >
-                      Download Report →
-                    </a>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!visitId) {
+                        toast.error('Report not available');
+                        return;
+                      }
+
+                      downloadFinalizedReportPdf({
+                        visitId,
+                        token,
+                        branchId: activeBranchId,
+                      }).catch((error) => {
+                        console.error('Download failed:', error);
+                        toast.error('Failed to download report');
+                      });
+                    }}
+                    className="text-sm text-primary hover:underline mt-1 inline-block"
+                  >
+                    Download Report →
+                  </button>
                 </div>
               </div>
             </CardContent>
