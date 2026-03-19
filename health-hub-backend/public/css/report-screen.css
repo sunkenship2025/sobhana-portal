@@ -449,18 +449,11 @@ body.report-body {
    SIGNATURES
    ============================================================================ */
 
-.authorized-signatory-label {
-  font-size: 8pt;
-  font-weight: 600;
-  color: var(--color-text-light);
-  text-align: right;
-  margin-bottom: 6px;
-}
-
 .signatures-section {
   display: flex;
-  justify-content: space-between;
   align-items: flex-end;
+  justify-content: space-between;
+  gap: 32px;
   margin-top: 0;
   padding-top: 0;
 }
@@ -473,12 +466,19 @@ body.report-body {
 }
 
 .signatures-left {
-  text-align: center;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: flex-end;
+  justify-content: flex-start;
 }
 
 .signatures-right {
   display: flex;
   gap: 30px;
+  align-items: flex-end;
+  justify-content: flex-end;
+  margin-left: auto;
+  text-align: center;
 }
 
 .signature-block {

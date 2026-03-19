@@ -559,15 +559,29 @@ export async function listPayouts(
   branchId: string,
   filters?: {
     doctorType?: PayoutDoctorType;
+    doctorId?: string;
     isPaid?: boolean;
     startDate?: Date;
     endDate?: Date;
   }
 ): Promise<PayoutSummary[]> {
+  const doctorIdFilter = filters?.doctorId
+    ? filters.doctorType
+      ? doctorIdWhereClause(filters.doctorType, filters.doctorId)
+      : {
+          OR: [
+            { referralDoctorId: filters.doctorId },
+            { clinicDoctorId: filters.doctorId },
+            { diagnosticCenterId: filters.doctorId },
+          ],
+        }
+    : {};
+
   const payouts = await prisma.doctorPayoutLedger.findMany({
     where: {
       branchId,
       ...(filters?.doctorType && { doctorType: filters.doctorType }),
+      ...doctorIdFilter,
       ...(filters?.isPaid !== undefined && {
         paidAt: filters.isPaid ? { not: null } : null,
       }),

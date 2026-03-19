@@ -53,6 +53,25 @@ router.get('/', async (req: AuthRequest, res) => {
       orderBy: { createdAt: 'desc' },
     });
 
+    const originalVisitIds = visits
+      .map((visit) => visit.clinicVisit?.originalVisitId)
+      .filter((visitId): visitId is string => Boolean(visitId));
+
+    const originalVisits = originalVisitIds.length > 0
+      ? await prisma.visit.findMany({
+          where: { id: { in: originalVisitIds } },
+          select: {
+            id: true,
+            billNumber: true,
+            createdAt: true,
+          },
+        })
+      : [];
+
+    const originalVisitMap = new Map(
+      originalVisits.map((visit) => [visit.id, visit]),
+    );
+
     // Filter by doctor if specified
     let filteredVisits = visits;
     if (doctorId) {
@@ -76,6 +95,10 @@ router.get('/', async (req: AuthRequest, res) => {
       consultationFee: (v.clinicVisit?.consultationFeeInPaise || 0) / 100,
       isRevisit: v.clinicVisit?.isRevisit || false,
       originalVisitId: v.clinicVisit?.originalVisitId || null,
+      originalVisitBillNumber:
+        (v.clinicVisit?.originalVisitId && originalVisitMap.get(v.clinicVisit.originalVisitId)?.billNumber) || null,
+      originalVisitDate:
+        (v.clinicVisit?.originalVisitId && originalVisitMap.get(v.clinicVisit.originalVisitId)?.createdAt) || null,
       paymentType: v.bill?.paymentType || 'CASH',
       paymentStatus: v.bill?.paymentStatus || 'PENDING',
       createdAt: v.createdAt,
@@ -125,7 +148,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
       });
     }
 
-    const transformed = {
+    const transformed: any = {
       id: visit.id,
       branchId: visit.branchId,
       billNumber: visit.billNumber,
@@ -141,11 +164,26 @@ router.get('/:id', async (req: AuthRequest, res) => {
       consultationFee: (visit.clinicVisit?.consultationFeeInPaise || 0) / 100,
       isRevisit: visit.clinicVisit?.isRevisit || false,
       originalVisitId: visit.clinicVisit?.originalVisitId || null,
+      originalVisitBillNumber: null,
+      originalVisitDate: null,
       paymentType: visit.bill?.paymentType || 'CASH',
       paymentStatus: visit.bill?.paymentStatus || 'PENDING',
       createdAt: visit.createdAt,
       updatedAt: visit.updatedAt,
     };
+
+    if (visit.clinicVisit?.originalVisitId) {
+      const originalVisit = await prisma.visit.findUnique({
+        where: { id: visit.clinicVisit.originalVisitId },
+        select: {
+          billNumber: true,
+          createdAt: true,
+        },
+      });
+
+      transformed.originalVisitBillNumber = originalVisit?.billNumber || null;
+      transformed.originalVisitDate = originalVisit?.createdAt || null;
+    }
 
     return res.json(transformed);
   } catch (err: any) {
