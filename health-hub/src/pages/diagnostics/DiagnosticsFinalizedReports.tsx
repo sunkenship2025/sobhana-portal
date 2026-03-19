@@ -7,16 +7,44 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useAppStore } from '@/store/appStore';
 import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { toast } from 'sonner';
 import { CheckCircle2, Search, Eye, Printer, MessageCircle, Loader2 } from 'lucide-react';
 
+const matchesDateFilter = (filter: string, value: string | null | undefined) => {
+  if (filter === 'all') return true;
+
+  const source = value ? new Date(value) : null;
+  if (!source) return false;
+
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrowStart = new Date(todayStart);
+  tomorrowStart.setDate(todayStart.getDate() + 1);
+  const yesterdayStart = new Date(todayStart);
+  yesterdayStart.setDate(todayStart.getDate() - 1);
+  const weekStart = new Date(todayStart);
+  weekStart.setDate(todayStart.getDate() - 6);
+
+  if (filter === 'today') {
+    return source >= todayStart && source < tomorrowStart;
+  }
+
+  if (filter === 'yesterday') {
+    return source >= yesterdayStart && source < todayStart;
+  }
+
+  if (filter === 'week') {
+    return source >= weekStart && source < tomorrowStart;
+  }
+
+  return true;
+};
+
 const DiagnosticsFinalizedReports = () => {
   const navigate = useNavigate();
-  const { getPatientById, getTestOrdersByVisitId } = useAppStore();
   const { activeBranchId } = useBranchStore();
   const { token } = useAuthStore();
   const [dateFilter, setDateFilter] = useState('today');
@@ -63,16 +91,28 @@ const DiagnosticsFinalizedReports = () => {
       }));
   }, [finalizedVisits, activeBranchId]);
 
-  const filteredVisits = visitsWithDetails.filter(({ patient, visit }) => {
-    if (!search) return true;
-    const searchLower = search.toLowerCase();
-    const phone = patient?.identifiers?.find((id: any) => id.type === 'PHONE')?.value || '';
-    return (
-      phone.includes(search) ||
-      patient?.name.toLowerCase().includes(searchLower) ||
-      visit.billNumber.toLowerCase().includes(searchLower)
-    );
-  });
+  const filteredVisits = useMemo(() => {
+    return visitsWithDetails.filter(({ patient, visit }) => {
+      const finalizedAt =
+        visit.report?.currentVersion?.finalizedAt ||
+        visit.report?.versions?.[0]?.finalizedAt ||
+        visit.updatedAt ||
+        visit.createdAt;
+
+      if (!matchesDateFilter(dateFilter, finalizedAt)) {
+        return false;
+      }
+
+      if (!search) return true;
+      const searchLower = search.toLowerCase();
+      const phone = patient?.identifiers?.find((id: any) => id.type === 'PHONE')?.value || '';
+      return (
+        phone.includes(search) ||
+        patient?.name.toLowerCase().includes(searchLower) ||
+        visit.billNumber.toLowerCase().includes(searchLower)
+      );
+    });
+  }, [visitsWithDetails, dateFilter, search]);
 
   const handleWhatsApp = async (visitId: string) => {
     try {
