@@ -4,8 +4,10 @@ import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuthStore } from '@/store/authStore';
+import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import { 
   ArrowUpDown, 
@@ -41,7 +43,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { PayoutSummary, PayoutDoctorType } from '@/types';
+import { PayoutSummary, PayoutDoctorType, PaymentType } from '@/types';
 
 // Helper to format amount in Rupees
 const formatRupees = (paise: number): string => {
@@ -61,11 +63,22 @@ const formatDate = (dateStr: string): string => {
 const formatPeriod = (start: string, end: string): string => {
   const startDate = new Date(start);
   const endDate = new Date(end);
-  return `${startDate.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}`;
+  const startLabel = startDate.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+  const endLabel = endDate.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+  return startLabel === endLabel ? startLabel : `${startLabel} - ${endLabel}`;
 };
 
 const PayoutsList = () => {
   const { token, user } = useAuthStore();
+  const { activeBranchId } = useBranchStore();
   const navigate = useNavigate();
 
   // State
@@ -76,14 +89,30 @@ const PayoutsList = () => {
 
   // Filters
   const [doctorTypeFilter, setDoctorTypeFilter] = useState<string>('all');
+  const [doctorFilter, setDoctorFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [startDateFilter, setStartDateFilter] = useState('');
+  const [endDateFilter, setEndDateFilter] = useState('');
   
   // Derive form state
+  const defaultDeriveStartDate = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+    .toISOString()
+    .slice(0, 10);
+  const defaultDeriveEndDate = new Date().toISOString().slice(0, 10);
   const [deriveForm, setDeriveForm] = useState({
     doctorType: 'REFERRAL' as PayoutDoctorType,
     doctorId: '',
-    month: new Date().getMonth(),
-    year: new Date().getFullYear(),
+    startDate: defaultDeriveStartDate,
+    endDate: defaultDeriveEndDate,
+  });
+
+  const [showPayDialog, setShowPayDialog] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [selectedPayoutForPay, setSelectedPayoutForPay] = useState<PayoutSummary | null>(null);
+  const [payForm, setPayForm] = useState({
+    paymentMethod: 'CASH' as PaymentType,
+    paymentReferenceId: '',
+    notes: '',
   });
 
   // Doctors for dropdown
@@ -101,7 +130,10 @@ const PayoutsList = () => {
 
   // Fetch payouts
   const fetchPayouts = async () => {
-    if (!token) return;
+    if (!token || !activeBranchId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       let url = `${API_BASE}/payouts`;
@@ -109,15 +141,27 @@ const PayoutsList = () => {
       if (doctorTypeFilter !== 'all') {
         params.append('doctorType', doctorTypeFilter);
       }
+      if (doctorFilter !== 'all') {
+        params.append('doctorId', doctorFilter);
+      }
       if (statusFilter !== 'all') {
         params.append('isPaid', statusFilter === 'paid' ? 'true' : 'false');
+      }
+      if (startDateFilter) {
+        params.append('startDate', startDateFilter);
+      }
+      if (endDateFilter) {
+        params.append('endDate', endDateFilter);
       }
       if (params.toString()) {
         url += `?${params.toString()}`;
       }
 
       const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'X-Branch-Id': activeBranchId,
+        },
       });
 
       if (res.ok) {
@@ -136,17 +180,26 @@ const PayoutsList = () => {
 
   // Fetch doctors for dropdown
   const fetchDoctors = async () => {
-    if (!token) return;
+    if (!token || !activeBranchId) return;
     try {
       const [refRes, clinicRes, dcRes] = await Promise.all([
         fetch(`${API_BASE}/payouts/doctors/referral`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-Branch-Id': activeBranchId,
+          },
         }),
         fetch(`${API_BASE}/payouts/doctors/clinic`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-Branch-Id': activeBranchId,
+          },
         }),
         fetch(`${API_BASE}/payouts/doctors/diagnostic-centers`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-Branch-Id': activeBranchId,
+          },
         }),
       ]);
 
@@ -170,7 +223,11 @@ const PayoutsList = () => {
   useEffect(() => {
     fetchPayouts();
     fetchDoctors();
-  }, [token, doctorTypeFilter, statusFilter]);
+  }, [token, activeBranchId, doctorTypeFilter, doctorFilter, statusFilter, startDateFilter, endDateFilter]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [doctorTypeFilter, doctorFilter, statusFilter, startDateFilter, endDateFilter]);
 
   // Sorted and filtered payouts
   const sortedPayouts = useMemo(() => {
@@ -222,31 +279,41 @@ const PayoutsList = () => {
     }
   };
 
-  // Get period dates for derivation
-  const getPeriodDates = () => {
-    const year = deriveForm.year;
-    const month = deriveForm.month;
-    const startDate = new Date(year, month, 1);
-    const endDate = new Date(year, month + 1, 0, 23, 59, 59, 999);
-    return { startDate, endDate };
-  };
-
   // Derive payout
   const handleDerive = async () => {
+    if (!token || !activeBranchId) return;
+
     if (!deriveForm.doctorId) {
       toast.error('Please select a doctor');
       return;
     }
 
+    if (!deriveForm.startDate || !deriveForm.endDate) {
+      toast.error('Please select a start and end date');
+      return;
+    }
+
     setDeriving(true);
     try {
-      const { startDate, endDate } = getPeriodDates();
+      const startDate = new Date(`${deriveForm.startDate}T00:00:00`);
+      const endDate = new Date(`${deriveForm.endDate}T23:59:59.999`);
+
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        toast.error('Please enter a valid date range');
+        return;
+      }
+
+      if (startDate > endDate) {
+        toast.error('Start date must be before end date');
+        return;
+      }
 
       const res = await fetch(`${API_BASE}/payouts/derive`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
+          'X-Branch-Id': activeBranchId,
         },
         body: JSON.stringify({
           doctorType: deriveForm.doctorType,
@@ -282,20 +349,82 @@ const PayoutsList = () => {
     ? clinicDoctors
     : diagnosticCenters;
 
+  const filterDoctorOptions = useMemo(() => {
+    if (doctorTypeFilter === 'REFERRAL') {
+      return referralDoctors.map((doc) => ({ id: doc.id, name: doc.name }));
+    }
+    if (doctorTypeFilter === 'CLINIC') {
+      return clinicDoctors.map((doc) => ({ id: doc.id, name: doc.name }));
+    }
+    if (doctorTypeFilter === 'DIAGNOSTIC_CENTER') {
+      return diagnosticCenters.map((doc) => ({ id: doc.id, name: doc.name }));
+    }
+
+    return [
+      ...referralDoctors.map((doc) => ({ id: doc.id, name: `${doc.name} (Referral)` })),
+      ...clinicDoctors.map((doc) => ({ id: doc.id, name: `${doc.name} (Clinic)` })),
+      ...diagnosticCenters.map((doc) => ({ id: doc.id, name: `${doc.name} (Center)` })),
+    ];
+  }, [doctorTypeFilter, referralDoctors, clinicDoctors, diagnosticCenters]);
+
   // Reset doctor selection when type changes
   useEffect(() => {
     setDeriveForm(prev => ({ ...prev, doctorId: '' }));
   }, [deriveForm.doctorType]);
 
-  // Month options
-  const months = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ];
+  useEffect(() => {
+    setDoctorFilter('all');
+  }, [doctorTypeFilter]);
 
-  // Year options (last 2 years + current year)
-  const currentYear = new Date().getFullYear();
-  const years = [currentYear - 2, currentYear - 1, currentYear];
+  const handleOpenMarkPaid = (payout: PayoutSummary) => {
+    setSelectedPayoutForPay(payout);
+    setPayForm({
+      paymentMethod: 'CASH',
+      paymentReferenceId: '',
+      notes: '',
+    });
+    setShowPayDialog(true);
+  };
+
+  const handleMarkPaid = async () => {
+    if (!token || !activeBranchId || !selectedPayoutForPay) return;
+
+    setPaying(true);
+    try {
+      const res = await fetch(`${API_BASE}/payouts/${selectedPayoutForPay.id}/mark-paid`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'X-Branch-Id': activeBranchId,
+        },
+        body: JSON.stringify({
+          paymentMethod: payForm.paymentMethod,
+          paymentReferenceId: payForm.paymentReferenceId || undefined,
+          notes: payForm.notes || undefined,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        toast.success('Payout marked as paid successfully');
+        setShowPayDialog(false);
+        setSelectedPayoutForPay(null);
+        await fetchPayouts();
+      } else if (res.status === 409) {
+        toast.error('This payout has already been paid');
+        await fetchPayouts();
+      } else {
+        toast.error(data.message || 'Failed to mark payout as paid');
+      }
+    } catch (err) {
+      console.error('Error marking payout as paid:', err);
+      toast.error('Error marking payout as paid');
+    } finally {
+      setPaying(false);
+    }
+  };
 
   return (
     <AppLayout context="owner" subContext="payouts">
@@ -307,7 +436,7 @@ const PayoutsList = () => {
             <p className="text-gray-500">Manage commissions for referral doctors, clinic doctors, and diagnostic centers</p>
           </div>
           
-          {user?.role === 'owner' && (
+          {(user?.role === 'owner' || user?.role === 'staff') && (
             <Button onClick={() => setShowDeriveDialog(true)}>
               <Calculator className="h-4 w-4 mr-2" />
               Derive Payout
@@ -399,6 +528,23 @@ const PayoutsList = () => {
                 </Select>
               </div>
 
+              <div className="w-56">
+                <Label>Doctor / Center</Label>
+                <Select value={doctorFilter} onValueChange={setDoctorFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Doctors / Centers" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Doctors / Centers</SelectItem>
+                    {filterDoctorOptions.map((doctor) => (
+                      <SelectItem key={doctor.id} value={doctor.id}>
+                        {doctor.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="w-48">
                 <Label>Status</Label>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -412,6 +558,24 @@ const PayoutsList = () => {
                   </SelectContent>
                 </Select>
               </div>
+
+              <div className="w-44">
+                <Label>Date From</Label>
+                <Input
+                  type="date"
+                  value={startDateFilter}
+                  onChange={(e) => setStartDateFilter(e.target.value)}
+                />
+              </div>
+
+              <div className="w-44">
+                <Label>Date To</Label>
+                <Input
+                  type="date"
+                  value={endDateFilter}
+                  onChange={(e) => setEndDateFilter(e.target.value)}
+                />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -423,7 +587,7 @@ const PayoutsList = () => {
               <div className="text-center py-8 text-gray-500">Loading payouts...</div>
             ) : sortedPayouts.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
-                No payouts found. Click "Derive Payout" to calculate a new payout.
+                No payouts found for the selected filters. Use "Derive Payout" to calculate a doctor or center payout for a date range.
               </div>
             ) : (
               <>
@@ -495,13 +659,23 @@ const PayoutsList = () => {
                         </TableCell>
                         <TableCell className="text-gray-500">{formatDate(payout.derivedAt)}</TableCell>
                         <TableCell>
-                          <Button 
-                            variant="outline" 
-                            size="sm"
-                            onClick={() => navigate(`/owner/payouts/${payout.id}`)}
-                          >
-                            View Details
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => navigate(`/owner/payouts/${payout.id}`)}
+                            >
+                              View Details
+                            </Button>
+                            {!payout.paidAt && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleOpenMarkPaid(payout)}
+                              >
+                                Mark Paid
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -553,7 +727,7 @@ const PayoutsList = () => {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
+            <div className="space-y-4">
             <div>
               <Label>Doctor Type</Label>
               <Select 
@@ -599,36 +773,20 @@ const PayoutsList = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Month</Label>
-                <Select 
-                  value={String(deriveForm.month)} 
-                  onValueChange={(v) => setDeriveForm(prev => ({ ...prev, month: parseInt(v) }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {months.map((month, idx) => (
-                      <SelectItem key={idx} value={String(idx)}>{month}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Start Date</Label>
+                <Input
+                  type="date"
+                  value={deriveForm.startDate}
+                  onChange={(e) => setDeriveForm(prev => ({ ...prev, startDate: e.target.value }))}
+                />
               </div>
               <div>
-                <Label>Year</Label>
-                <Select 
-                  value={String(deriveForm.year)} 
-                  onValueChange={(v) => setDeriveForm(prev => ({ ...prev, year: parseInt(v) }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {years.map((year) => (
-                      <SelectItem key={year} value={String(year)}>{year}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>End Date</Label>
+                <Input
+                  type="date"
+                  value={deriveForm.endDate}
+                  onChange={(e) => setDeriveForm(prev => ({ ...prev, endDate: e.target.value }))}
+                />
               </div>
             </div>
           </div>
@@ -637,8 +795,83 @@ const PayoutsList = () => {
             <Button variant="outline" onClick={() => setShowDeriveDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleDerive} disabled={deriving || !deriveForm.doctorId}>
+            <Button
+              onClick={handleDerive}
+              disabled={deriving || !deriveForm.doctorId || !deriveForm.startDate || !deriveForm.endDate}
+            >
               {deriving ? 'Deriving...' : 'Derive Payout'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPayDialog} onOpenChange={setShowPayDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Mark Payout as Paid</DialogTitle>
+            <DialogDescription>
+              Confirm the payment details for this payout.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {selectedPayoutForPay && (
+              <div className="rounded-lg bg-muted p-4 text-sm">
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Doctor / Center</span>
+                  <span className="font-medium text-right">{selectedPayoutForPay.doctorName}</span>
+                </div>
+                <div className="mt-2 flex justify-between gap-3">
+                  <span className="text-muted-foreground">Amount</span>
+                  <span className="font-semibold">{formatRupees(selectedPayoutForPay.derivedAmountInPaise)}</span>
+                </div>
+              </div>
+            )}
+
+            <div>
+              <Label>Payment Method</Label>
+              <Select
+                value={payForm.paymentMethod}
+                onValueChange={(value) =>
+                  setPayForm((prev) => ({ ...prev, paymentMethod: value as PaymentType }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CASH">Cash</SelectItem>
+                  <SelectItem value="ONLINE">Online Transfer</SelectItem>
+                  <SelectItem value="CHEQUE">Cheque</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Reference ID</Label>
+              <Input
+                placeholder={payForm.paymentMethod === 'CHEQUE' ? 'Cheque number' : 'Transaction ID'}
+                value={payForm.paymentReferenceId}
+                onChange={(e) => setPayForm((prev) => ({ ...prev, paymentReferenceId: e.target.value }))}
+              />
+            </div>
+
+            <div>
+              <Label>Notes</Label>
+              <Input
+                placeholder="Optional notes"
+                value={payForm.notes}
+                onChange={(e) => setPayForm((prev) => ({ ...prev, notes: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPayDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleMarkPaid} disabled={paying}>
+              {paying ? 'Processing...' : 'Confirm Payment'}
             </Button>
           </DialogFooter>
         </DialogContent>

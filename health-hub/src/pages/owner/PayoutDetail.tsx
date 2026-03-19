@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuthStore } from '@/store/authStore';
+import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import { 
   ArrowLeft, 
@@ -73,6 +74,7 @@ const formatPeriod = (start: string, end: string): string => {
 const PayoutDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const { token, user } = useAuthStore();
+  const { activeBranchId } = useBranchStore();
   const navigate = useNavigate();
 
   // State
@@ -90,11 +92,17 @@ const PayoutDetailPage = () => {
 
   // Fetch payout detail
   const fetchPayout = async () => {
-    if (!token || !id) return;
+    if (!token || !id || !activeBranchId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/payouts/${id}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'X-Branch-Id': activeBranchId,
+        },
       });
 
       if (res.ok) {
@@ -116,11 +124,11 @@ const PayoutDetailPage = () => {
 
   useEffect(() => {
     fetchPayout();
-  }, [token, id]);
+  }, [token, id, activeBranchId]);
 
   // Mark as paid
   const handleMarkPaid = async () => {
-    if (!id) return;
+    if (!id || !activeBranchId) return;
     setPaying(true);
     try {
       const res = await fetch(`${API_BASE}/payouts/${id}/mark-paid`, {
@@ -128,6 +136,7 @@ const PayoutDetailPage = () => {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
+          'X-Branch-Id': activeBranchId,
         },
         body: JSON.stringify({
           paymentMethod: payForm.paymentMethod,

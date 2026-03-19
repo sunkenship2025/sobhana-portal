@@ -79,11 +79,13 @@ export const ReportPrint = ({ visitView }: ReportPrintProps) => {
       </table>
 
       {/* Signature */}
-      <div className="flex justify-end mt-12">
-        <div className="text-center">
-          <div className="border-t border-black pt-2 px-12">
-            <p className="font-medium">Authorized Signatory</p>
-          </div>
+      <div className="mt-12 flex items-end justify-between gap-8">
+        <div className="min-w-[180px] text-center">
+          <div className="h-10 border-b border-black mb-2" />
+          <p className="font-medium">Lab Incharge</p>
+        </div>
+        <div className="min-w-[180px] ml-auto">
+          <div className="h-10 border-b border-black" />
         </div>
       </div>
 
