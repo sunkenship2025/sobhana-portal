@@ -25,7 +25,6 @@ import {
 } from '../services/referralPayoutService';
 
 const router = Router();
-const TRANSPARENT_PIXEL_DATA_URL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
 
 // All routes require auth + branch context
 router.use(authMiddleware);
@@ -1739,7 +1738,7 @@ router.get('/:id/finalized-report', async (req: AuthRequest, res) => {
           margin: 1,
           color: { dark: '#000000', light: '#ffffff' },
         })
-      : TRANSPARENT_PIXEL_DATA_URL;
+      : '';
 
     const html = renderReportHtml(loaded.snapshot, {
       profile: 'screen',
