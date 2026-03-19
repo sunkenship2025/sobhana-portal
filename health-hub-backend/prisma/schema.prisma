@@ -530,6 +530,9 @@ model TestOrder {
   referralCommissionType         ReferralPayoutType @default(PERCENTAGE)
   referralCommissionPercentage   Float?   // 0-100 when payout type = PERCENTAGE
   referralCommissionAmountInPaise Int?    // Fixed payout snapshot when payout type = FIXED_AMOUNT
+  diagnosticCenterCommissionType ReferralPayoutType?
+  diagnosticCenterCommissionPercentage Float?
+  diagnosticCenterCommissionAmountInPaise Int?
   createdAt                      DateTime @default(now())
 
   // E3-03: Test metadata snapshot (frozen at order time)
@@ -1008,20 +1011,42 @@ model DerivedParameter {
 
 // ─── Diagnostic Referral Centers ─────────────────────────────────
 model DiagnosticReferralCenter {
-  id                String   @id @default(cuid())
-  name              String
-  centerNumber      String   @unique
-  contactPerson     String?
-  phone             String?
-  email             String?
-  address           String?
-  commissionPercent Float    @default(0)
-  isActive          Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                      String             @id @default(cuid())
+  name                    String
+  centerNumber            String             @unique
+  contactPerson           String?
+  phone                   String?
+  email                   String?
+  address                 String?
+  commissionType          ReferralPayoutType @default(PERCENTAGE)
+  commissionPercent       Float              @default(0)
+  commissionAmountInPaise Int?
+  isActive                Boolean            @default(true)
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
 
   payoutLedger   DoctorPayoutLedger[]
   visitReferrals DiagnosticCenter_Visit[]
+  productRules   DiagnosticCenterProductRule[]
+}
+
+model DiagnosticCenterProductRule {
+  id                      String             @id @default(cuid())
+  diagnosticCenterId      String
+  productId               String
+  commissionType          ReferralPayoutType @default(PERCENTAGE)
+  commissionPercent       Float?
+  commissionAmountInPaise Int?
+  isActive                Boolean            @default(true)
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+
+  diagnosticCenter DiagnosticReferralCenter @relation(fields: [diagnosticCenterId], references: [id], onDelete: Cascade)
+  product          BillableProduct          @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([diagnosticCenterId, productId])
+  @@index([diagnosticCenterId])
+  @@index([productId])
 }
 
 // ─── Diagnostic Center ↔ Visit Join Table ────────────────────────
@@ -1222,6 +1247,7 @@ model BillableProduct {
   branchPricing  ProductBranchPricing[]
   testOrders     TestOrder[]
   referralDoctorRules ReferralDoctorProductRule[]
+  diagnosticCenterRules DiagnosticCenterProductRule[]
 
   @@index([code])
   @@index([isActive])
