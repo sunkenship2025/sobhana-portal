@@ -7,7 +7,6 @@
  */
 
 const fetch = require('node-fetch');
-const { ADMIN_CREDS } = require('./authTestConfig');
 
 const API_BASE = 'http://localhost:3000/api';
 let authToken = '';
@@ -19,8 +18,8 @@ async function login() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      email: ADMIN_CREDS.email,
-      password: ADMIN_CREDS.password
+      email: 'admin@sobhana.com',
+      password: 'password123'
     })
   });
   
