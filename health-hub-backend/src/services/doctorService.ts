@@ -345,6 +345,9 @@ export interface CreateClinicDoctorInput {
   phone?: string;
   email?: string;
   letterheadNote?: string;
+  commissionType?: 'PERCENTAGE' | 'FIXED_AMOUNT';
+  commissionPercent?: number;
+  commissionAmountInPaise?: number;
   referralDoctorId?: string; // Link if already exists as referral doctor
   branchId: string;
   userId?: string;
@@ -396,6 +399,9 @@ export async function createClinicDoctor(input: CreateClinicDoctorInput) {
       phone: input.phone,
       email: input.email,
       letterheadNote: input.letterheadNote,
+      commissionType: input.commissionType ?? 'PERCENTAGE',
+      commissionPercent: input.commissionPercent ?? 100,
+      commissionAmountInPaise: input.commissionAmountInPaise,
       referralDoctorId: input.referralDoctorId,
       isActive: true
     }
@@ -430,6 +436,9 @@ export async function updateClinicDoctor(
     phone?: string;
     email?: string;
     letterheadNote?: string;
+    commissionType?: 'PERCENTAGE' | 'FIXED_AMOUNT';
+    commissionPercent?: number;
+    commissionAmountInPaise?: number;
   },
   branchId: string,
   userId?: string
