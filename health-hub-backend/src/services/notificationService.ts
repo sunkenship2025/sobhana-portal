@@ -18,6 +18,7 @@ import {
   type TemplateComponent,
 } from './whatsappCloudService';
 import prisma from '../lib/prisma';
+import { createAccessToken } from './reportAccessService';
 
 
 // ============================================================================
@@ -58,6 +59,38 @@ async function getPatientNotificationInfo(visitId: string) {
   };
 }
 
+async function issueReportLinkForVisit(
+  visitId: string,
+  preIssuedToken?: string
+): Promise<{
+  reportToken: string;
+  reportVersionId: string;
+} | null> {
+  const report = await prisma.diagnosticReport.findUnique({
+    where: { visitId },
+    select: {
+      versions: {
+        where: { status: 'FINALIZED' },
+        orderBy: { versionNum: 'desc' },
+        take: 1,
+        select: { id: true },
+      },
+    },
+  });
+
+  const reportVersionId = report?.versions?.[0]?.id;
+  if (!reportVersionId) {
+    return null;
+  }
+
+  const reportToken = preIssuedToken || await createAccessToken(reportVersionId);
+
+  return {
+    reportToken,
+    reportVersionId,
+  };
+}
+
 /**
  * Auto opt-in a patient if they haven't explicitly opted in yet.
  * Used when staff triggers a manual send — implies consent.
@@ -92,7 +125,7 @@ export async function autoOptIn(patientId: string, source: string) {
  * Params: patient name, bill number, report download URL
  * Tone: Informational only.
  */
-export async function sendReportReady(visitId: string): Promise<void> {
+export async function sendReportReady(visitId: string, preIssuedToken?: string): Promise<void> {
   try {
     if (!isWhatsAppEnabled()) {
       console.log(`[Notification] WhatsApp disabled — skipping report notification for visit ${visitId}`);
@@ -110,31 +143,12 @@ export async function sendReportReady(visitId: string): Promise<void> {
       return;
     }
 
-    // Get report access token
-    const report = await prisma.diagnosticReport.findUnique({
-      where: { visitId },
-      include: {
-        versions: {
-          where: { status: 'FINALIZED' },
-          orderBy: { versionNum: 'desc' },
-          take: 1,
-          include: {
-            accessTokens: {
-              take: 1,
-              orderBy: { createdAt: 'desc' },
-            },
-          },
-        },
-      },
-    });
-
-    const reportToken = report?.versions?.[0]?.accessTokens?.[0]?.token;
-    if (!reportToken) {
+    const link = await issueReportLinkForVisit(visitId, preIssuedToken);
+    if (!link) {
       console.log(`[Notification] No report token for visit ${visitId} — skipping`);
       return;
     }
 
-    const reportUrl = `${process.env.PUBLIC_REPORT_BASE_URL || 'http://localhost:3000/reports'}/${reportToken}`;
     const formattedPhone = formatPhoneForWhatsApp(info.phone);
 
     // Build template components
@@ -154,7 +168,7 @@ export async function sendReportReady(visitId: string): Promise<void> {
         sub_type: 'url',
         index: 0,
         parameters: [
-          { type: 'text', text: reportToken },
+          { type: 'text', text: link.reportToken },
         ],
       },
     ];
@@ -169,7 +183,8 @@ export async function sendReportReady(visitId: string): Promise<void> {
         templateParams: {
           patientName: info.patient.name,
           billNumber: info.visit.billNumber,
-          reportUrl,
+          reportVersionId: link.reportVersionId,
+          hasReportLink: true,
         },
         status: 'PENDING',
         contextType: 'REPORT',
@@ -343,30 +358,11 @@ export async function resendReportNotification(visitId: string, staffUserId?: st
     // Auto opt-in on staff action
     await autoOptIn(info.patient.id, 'STAFF_MANUAL_SEND');
 
-    // Get report token
-    const report = await prisma.diagnosticReport.findUnique({
-      where: { visitId },
-      include: {
-        versions: {
-          where: { status: 'FINALIZED' },
-          orderBy: { versionNum: 'desc' },
-          take: 1,
-          include: {
-            accessTokens: {
-              take: 1,
-              orderBy: { createdAt: 'desc' },
-            },
-          },
-        },
-      },
-    });
-
-    const reportToken = report?.versions?.[0]?.accessTokens?.[0]?.token;
-    if (!reportToken) {
+    const link = await issueReportLinkForVisit(visitId);
+    if (!link) {
       return { success: false, error: 'Report not finalized or no access token' };
     }
 
-    const reportUrl = `${process.env.PUBLIC_REPORT_BASE_URL || 'http://localhost:3000/reports'}/${reportToken}`;
     const formattedPhone = formatPhoneForWhatsApp(info.phone);
 
     const components: TemplateComponent[] = [
@@ -382,7 +378,7 @@ export async function resendReportNotification(visitId: string, staffUserId?: st
         sub_type: 'url',
         index: 0,
         parameters: [
-          { type: 'text', text: reportToken },
+          { type: 'text', text: link.reportToken },
         ],
       },
     ];
@@ -396,7 +392,8 @@ export async function resendReportNotification(visitId: string, staffUserId?: st
         templateParams: {
           patientName: info.patient.name,
           billNumber: info.visit.billNumber,
-          reportUrl,
+          reportVersionId: link.reportVersionId,
+          hasReportLink: true,
           resendBy: staffUserId || 'unknown',
         },
         status: 'PENDING',
