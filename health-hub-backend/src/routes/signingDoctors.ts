@@ -207,17 +207,42 @@ router.patch('/:id', async (req: AuthRequest, res) => {
 });
 
 // ─── DELETE /api/signing-doctors/:id ────────────────────────────────
-// Soft-delete a signing doctor
+// Delete a signing doctor (hard delete if no rules, soft delete if has rules)
 router.delete('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
 
-    const existing = await prisma.signingDoctor.findUnique({ where: { id } });
+    const existing = await prisma.signingDoctor.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: { signingRules: true },
+        },
+      },
+    });
+
     if (!existing) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Signing doctor not found' });
     }
 
-    // Soft-delete: set isActive to false
+    // If doctor has no rules, hard delete
+    if (existing._count.signingRules === 0) {
+      // Delete signature file if it exists
+      if (existing.signatureImagePath) {
+        const signaturePath = path.join(__dirname, '../../public', existing.signatureImagePath);
+        if (fs.existsSync(signaturePath)) {
+          try { fs.unlinkSync(signaturePath); } catch { /* ignore */ }
+        }
+      }
+
+      await prisma.signingDoctor.delete({
+        where: { id },
+      });
+
+      return res.json({ message: 'Signing doctor deleted' });
+    }
+
+    // If doctor has rules, soft-delete
     await prisma.signingDoctor.update({
       where: { id },
       data: { isActive: false },
