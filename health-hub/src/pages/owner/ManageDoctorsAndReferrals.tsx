@@ -108,6 +108,9 @@ export default function ManageDoctorsAndReferrals() {
   const [clinicLinkedDoctorId, setClinicLinkedDoctorId] = useState<string | null>(null);
   const [clinicForm, setClinicForm] = useState({
     name: '', qualification: '', specialty: '', registrationNumber: '', phone: '', letterheadNote: '',
+    commissionType: 'PERCENTAGE' as 'PERCENTAGE' | 'FIXED_AMOUNT',
+    commissionPercent: '100',
+    commissionAmount: '',
   });
 
   // ── Diagnostic Centers state ──────────────────────────────────────────────
@@ -410,7 +413,7 @@ export default function ManageDoctorsAndReferrals() {
   };
 
   const clinicResetForm = () => {
-    setClinicForm({ name: '', qualification: '', specialty: '', registrationNumber: '', phone: '', letterheadNote: '' });
+    setClinicForm({ name: '', qualification: '', specialty: '', registrationNumber: '', phone: '', letterheadNote: '', commissionType: 'PERCENTAGE', commissionPercent: '100', commissionAmount: '' });
     setClinicShowForm(false);
     setClinicEditingId(null);
     setClinicExistingDoctor(null);
@@ -429,6 +432,9 @@ export default function ManageDoctorsAndReferrals() {
       specialty: clinicForm.specialty, registrationNumber: clinicForm.registrationNumber,
       phone: clinicForm.phone, letterheadNote: clinicForm.letterheadNote,
       referralDoctorId: clinicLinkedDoctorId,
+      commissionType: clinicForm.commissionType,
+      commissionPercent: clinicForm.commissionType === 'PERCENTAGE' ? Number(clinicForm.commissionPercent || 100) : undefined,
+      commissionAmount: clinicForm.commissionType === 'FIXED_AMOUNT' ? Number(clinicForm.commissionAmount || 0) : undefined,
     };
     try {
       if (clinicEditingId) {
@@ -457,6 +463,9 @@ export default function ManageDoctorsAndReferrals() {
     setClinicForm({
       name: doc.name, qualification: doc.qualification, specialty: doc.specialty,
       registrationNumber: doc.registrationNumber, phone: doc.phone || '', letterheadNote: doc.letterheadNote || '',
+      commissionType: doc.commissionType || 'PERCENTAGE',
+      commissionPercent: String(doc.commissionPercent ?? 100),
+      commissionAmount: doc.commissionAmountInPaise ? String(doc.commissionAmountInPaise / 100) : '',
     });
     setClinicEditingId(doc.id);
     setClinicShowForm(true);
@@ -1009,6 +1018,43 @@ export default function ManageDoctorsAndReferrals() {
                 </div>
               </div>
 
+              {/* Commission settings */}
+              <div className="space-y-3 rounded-lg border p-4 bg-muted/30">
+                <Label className="text-base font-medium">Consultation Fee Commission</Label>
+                <p className="text-sm text-muted-foreground">Configure the doctor's share of consultation fees</p>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Commission Type</Label>
+                    <Select value={clinicForm.commissionType} onValueChange={(v) => setClinicForm(f => ({ ...f, commissionType: v as 'PERCENTAGE' | 'FIXED_AMOUNT' }))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PERCENTAGE">Percentage of fee</SelectItem>
+                        <SelectItem value="FIXED_AMOUNT">Fixed amount per consultation</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    {clinicForm.commissionType === 'PERCENTAGE' ? (
+                      <>
+                        <Label>Percentage (%)</Label>
+                        <Input type="number" min={0} max={100} step="0.01" placeholder="e.g., 100"
+                          value={clinicForm.commissionPercent}
+                          onChange={(e) => setClinicForm(f => ({ ...f, commissionPercent: e.target.value }))} />
+                      </>
+                    ) : (
+                      <>
+                        <Label>Amount (₹)</Label>
+                        <Input type="number" min={0} step="1" placeholder="e.g., 500"
+                          value={clinicForm.commissionAmount}
+                          onChange={(e) => setClinicForm(f => ({ ...f, commissionAmount: e.target.value }))} />
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {clinicExistingDoctor?.type === 'referral' && (
                 <Alert className="border-yellow-500 bg-yellow-50">
                   <AlertTriangle className="h-4 w-4 text-yellow-600" />
@@ -1051,7 +1097,7 @@ export default function ManageDoctorsAndReferrals() {
                 <TableHead>Name</TableHead>
                 <TableHead>Qualification</TableHead>
                 <TableHead>Specialty</TableHead>
-                <TableHead>Reg. No.</TableHead>
+                <TableHead>Commission</TableHead>
                 <TableHead>Phone</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -1062,7 +1108,11 @@ export default function ManageDoctorsAndReferrals() {
                   <TableCell className="font-medium">{doc.name}</TableCell>
                   <TableCell>{doc.qualification}</TableCell>
                   <TableCell>{doc.specialty}</TableCell>
-                  <TableCell className="font-mono text-sm">{doc.registrationNumber}</TableCell>
+                  <TableCell>
+                    {doc.commissionType === 'FIXED_AMOUNT' && doc.commissionAmountInPaise != null
+                      ? `₹${(doc.commissionAmountInPaise / 100).toLocaleString('en-IN')}`
+                      : `${doc.commissionPercent ?? 100}%`}
+                  </TableCell>
                   <TableCell>{doc.phone || '—'}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex gap-2 justify-end">
