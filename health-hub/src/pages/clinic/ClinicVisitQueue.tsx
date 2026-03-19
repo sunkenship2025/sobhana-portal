@@ -281,12 +281,14 @@ const ClinicVisitQueue = () => {
               <div className="space-y-3">
                 {filteredVisits.map((visit) => {
                   const phone = visit.patient.identifiers.find((i) => i.type === 'PHONE')?.value || '';
+                  const isUpdatingThisVisit = updatingVisitId === visit.id;
+                  const revisitLabel = visit.visitType === 'OP' ? 'Revisit OP' : 'Recurring Visit';
                   return (
                     <div
                       key={visit.id}
-                      className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
+                      className="flex flex-col gap-4 rounded-lg border bg-card p-4 transition-colors hover:bg-muted/50 lg:flex-row lg:items-center lg:justify-between"
                     >
-                      <div className="space-y-1">
+                      <div className="space-y-2">
                         <div className="flex items-center gap-2">
                           <span className="font-semibold">{visit.patient.name}</span>
                           <span className="text-xs px-2 py-0.5 rounded bg-muted font-medium">
@@ -295,7 +297,7 @@ const ClinicVisitQueue = () => {
                           {visit.isRevisit && (
                             <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">
                               <RotateCcw className="h-3 w-3" />
-                              Recurring Visit
+                              {revisitLabel}
                             </span>
                           )}
                         </div>
@@ -318,10 +320,50 @@ const ClinicVisitQueue = () => {
                           <StatusBadge status={visit.paymentStatus} />
                           <StatusBadge status={visit.status} />
                         </div>
+
+                        {visit.isRevisit && (visit.originalVisitBillNumber || visit.originalVisitDate) && (
+                          <div className="text-xs text-blue-700">
+                            Original visit:
+                            {visit.originalVisitBillNumber ? ` Bill #${visit.originalVisitBillNumber}` : ''}
+                            {visit.originalVisitDate
+                              ? ` on ${new Date(visit.originalVisitDate).toLocaleDateString('en-IN')}`
+                              : ''}
+                          </div>
+                        )}
                       </div>
-                      <Button variant="outline" onClick={() => setSelectedVisit(visit)}>
-                        View
-                      </Button>
+
+                      <div className="flex flex-wrap items-center justify-end gap-2 lg:min-w-[320px]">
+                        {visit.status === 'WAITING' && (
+                          <Button
+                            size="sm"
+                            onClick={() => updateVisitStatus(visit, 'IN_PROGRESS')}
+                            disabled={isUpdatingThisVisit}
+                          >
+                            {isUpdatingThisVisit ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : null}
+                            Move To Ongoing
+                          </Button>
+                        )}
+
+                        {visit.status !== 'COMPLETED' && (
+                          <Button
+                            size="sm"
+                            variant={visit.status === 'IN_PROGRESS' ? 'default' : 'outline'}
+                            onClick={() => updateVisitStatus(visit, 'COMPLETED')}
+                            disabled={isUpdatingThisVisit}
+                          >
+                            {isUpdatingThisVisit ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : null}
+                            Mark Done
+                          </Button>
+                        )}
+
+                        <Button variant="outline" size="sm" onClick={() => setSelectedVisit(visit)}>
+                          View
+                        </Button>
+                      </div>
                     </div>
                   );
                 })}
