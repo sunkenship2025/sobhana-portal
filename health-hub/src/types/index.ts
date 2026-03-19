@@ -59,6 +59,7 @@ export interface Patient {
 // DOCTOR (Referral Doctor - external)
 // ============================================
 export type ReferralPayoutType = 'PERCENTAGE' | 'FIXED_AMOUNT';
+export type ReferralSourceType = 'SELF' | 'REFERRED_TO' | 'REFERRED_FROM';
 
 export interface ReferralProductRule {
   id: string;
@@ -83,6 +84,38 @@ export interface ReferralDoctor {
   commissionAmountInPaise?: number | null;
   clinicDoctorId?: string;   // Link if also a clinic doctor
   productRules?: ReferralProductRule[];
+}
+
+export interface DiagnosticCenterProductRule {
+  id: string;
+  productId: string;
+  commissionType: ReferralPayoutType;
+  commissionPercent?: number | null;
+  commissionAmountInPaise?: number | null;
+  product?: {
+    id: string;
+    name: string;
+    code: string;
+  };
+}
+
+export interface DiagnosticCenter {
+  id: string;
+  centerNumber: string;
+  name: string;
+  contactPerson?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  commissionType?: ReferralPayoutType;
+  commissionPercent: number;
+  commissionAmountInPaise?: number | null;
+  isActive: boolean;
+  productRules?: DiagnosticCenterProductRule[];
+  _count?: {
+    visitReferrals: number;
+    payoutLedger: number;
+  };
 }
 
 // ============================================
@@ -254,6 +287,9 @@ export interface TestOrder {
   referralCommissionType?: ReferralPayoutType;
   referralCommissionPercent?: number;
   referralCommissionAmountInPaise?: number | null;
+  diagnosticCenterCommissionType?: ReferralPayoutType | null;
+  diagnosticCenterCommissionPercent?: number | null;
+  diagnosticCenterCommissionAmountInPaise?: number | null;
 }
 
 // ============================================
@@ -383,6 +419,7 @@ export interface DiagnosticVisitView {
   testOrders: TestOrder[];
   referral?: VisitReferral;          // Explicit referral link
   referralDoctor?: ReferralDoctor;   // Denormalized for display
+  diagnosticCenter?: DiagnosticCenter;
   report?: Report;
   currentReportVersion?: ReportVersion;
   results: TestResult[];
