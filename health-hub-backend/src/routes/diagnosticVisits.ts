@@ -415,7 +415,6 @@ router.post('/', async (req: AuthRequest, res) => {
       patientId,
       referralDoctorId,
       diagnosticCenterId,
-      referralType,
       referralOverrides,
       diagnosticCenterOverrides,
       testIds,
@@ -714,7 +713,7 @@ router.post('/', async (req: AuthRequest, res) => {
           data: {
             visitId: visit.id,
             diagnosticCenterId,
-            referralType: referralType || 'SELF',
+            referralType: 'REFERRED_FROM',
             branchId: req.branchId!,
           },
         });
