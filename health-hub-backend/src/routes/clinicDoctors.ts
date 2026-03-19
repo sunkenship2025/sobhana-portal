@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import * as doctorService from '../services/doctorService';
+import { normalizeReferralPayoutInput } from '../services/referralPayoutService';
 
 const router = Router();
 
@@ -27,6 +28,22 @@ router.post('/', async (req: AuthRequest, res) => {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
         message: 'Name, qualification, specialty, and registrationNumber are required'
+      });
+    }
+
+    // Normalize commission fields
+    let normalizedPayout;
+    try {
+      normalizedPayout = normalizeReferralPayoutInput({
+        commissionType: req.body.commissionType,
+        commissionPercent: req.body.commissionPercent,
+        commissionAmount: req.body.commissionAmount,
+        commissionAmountInPaise: req.body.commissionAmountInPaise,
+      });
+    } catch (validationErr: any) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: validationErr.message,
       });
     }
 
@@ -57,6 +74,7 @@ router.post('/', async (req: AuthRequest, res) => {
       email,
       letterheadNote,
       referralDoctorId,
+      ...normalizedPayout,
       branchId: req.branchId!,
       userId: req.user?.id
     });
@@ -98,9 +116,31 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     const { id } = req.params;
     const { name, qualification, specialty, phone, email, letterheadNote } = req.body;
 
+    // Normalize commission fields if provided
+    let normalizedPayout;
+    try {
+      normalizedPayout =
+        req.body.commissionType !== undefined ||
+        req.body.commissionPercent !== undefined ||
+        req.body.commissionAmount !== undefined ||
+        req.body.commissionAmountInPaise !== undefined
+          ? normalizeReferralPayoutInput({
+              commissionType: req.body.commissionType,
+              commissionPercent: req.body.commissionPercent,
+              commissionAmount: req.body.commissionAmount,
+              commissionAmountInPaise: req.body.commissionAmountInPaise,
+            })
+          : undefined;
+    } catch (validationErr: any) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: validationErr.message,
+      });
+    }
+
     const updated = await doctorService.updateClinicDoctor(
       id,
-      { name, qualification, specialty, phone, email, letterheadNote },
+      { name, qualification, specialty, phone, email, letterheadNote, ...normalizedPayout },
       req.branchId!,
       req.user?.id
     );
