@@ -10,7 +10,6 @@
 
 const axios = require('axios');
 const { PrismaClient } = require('@prisma/client');
-const { STAFF_CREDS } = require('./authTestConfig');
 
 const prisma = new PrismaClient();
 const BASE_URL = 'http://localhost:3000';
@@ -18,7 +17,10 @@ const BASE_URL = 'http://localhost:3000';
 let staffToken, branchId, patientId, testId, visitId;
 
 async function login() {
-  const response = await axios.post(`${BASE_URL}/api/auth/login`, STAFF_CREDS);
+  const response = await axios.post(`${BASE_URL}/api/auth/login`, {
+    email: 'staff@sobhana.com',
+    password: 'password123'
+  });
   return response.data.token;
 }
 

@@ -8,10 +8,12 @@
  */
 
 const BASE_URL = 'http://localhost:3000/api';
-const { STAFF_CREDS } = require('./authTestConfig');
 
 // Test credentials (from seed data)
-const TEST_USER = STAFF_CREDS;
+const TEST_USER = {
+  email: 'staff@sobhana.com',
+  password: 'password123'
+};
 
 let authToken = '';
 let branchId = '';
