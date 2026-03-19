@@ -60,6 +60,7 @@ import billableProductRoutes from './routes/billableProducts';
 // PDF Service warmup
 import { warmupPdfService, closeBrowser } from './services/pdfGenerationService';
 import prisma from './lib/prisma';
+import { ensureRedisReady, closeRedisClient, isRedisRequired } from './lib/redis';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -197,29 +198,44 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   });
 });
 
-// Start server — bind to 0.0.0.0 explicitly so Render can detect the open port
-app.listen(Number(PORT), '0.0.0.0', async () => {
-  console.log(`Server running on http://0.0.0.0:${PORT}`);
-  console.log(`Health check: http://0.0.0.0:${PORT}/health`);
-  console.log(`Auth endpoint: http://0.0.0.0:${PORT}/api/auth/login`);
-  console.log(`Report download: http://0.0.0.0:${PORT}/reports/:token`);
-  console.log(`WhatsApp webhook: http://0.0.0.0:${PORT}/webhooks/whatsapp`);
-  
-  // Warmup PDF service for faster first generation
-  await warmupPdfService();
+async function shutdown(): Promise<void> {
+  console.log('\n🛑 Shutting down gracefully...');
+  await closeBrowser();
+  await closeRedisClient();
+  await prisma.$disconnect();
+}
+
+async function startServer(): Promise<void> {
+  if (isRedisRequired()) {
+    await ensureRedisReady();
+    console.log('Redis connection verified for production startup.');
+  }
+
+  app.listen(Number(PORT), '0.0.0.0', async () => {
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
+    console.log(`Health check: http://0.0.0.0:${PORT}/health`);
+    console.log(`Auth endpoint: http://0.0.0.0:${PORT}/api/auth/login`);
+    console.log(`Report download: http://0.0.0.0:${PORT}/reports/:token`);
+    console.log(`WhatsApp webhook: http://0.0.0.0:${PORT}/webhooks/whatsapp`);
+
+    // Warmup PDF service for faster first generation
+    await warmupPdfService();
+  });
+}
+
+startServer().catch(async (error) => {
+  console.error('Failed to start server:', error);
+  await shutdown();
+  process.exit(1);
 });
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
-  console.log('\n🛑 Shutting down gracefully...');
-  await closeBrowser();
-  await prisma.$disconnect();
+  await shutdown();
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
-  console.log('\n🛑 Shutting down gracefully...');
-  await closeBrowser();
-  await prisma.$disconnect();
+  await shutdown();
   process.exit(0);
 });
