@@ -303,8 +303,8 @@ const PayoutsList = () => {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Doctor Payouts</h1>
-            <p className="text-gray-500">Manage referral commissions and clinic doctor fees</p>
+            <h1 className="text-2xl font-bold text-gray-900">Payouts</h1>
+            <p className="text-gray-500">Manage commissions for referral doctors, clinic doctors, and diagnostic centers</p>
           </div>
           
           {user?.role === 'owner' && (
