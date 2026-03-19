@@ -249,7 +249,8 @@ export default function ManageSigningDoctors() {
         method: 'DELETE', headers: getHeaders(),
       });
       if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed'); return; }
-      toast.success('Signing doctor deactivated');
+      const result = await res.json();
+      toast.success(result.message || 'Signing doctor deleted');
       await fetchAll();
     } catch { toast.error('Failed to delete'); }
     setDeleteId(null);
@@ -776,8 +777,11 @@ export default function ManageSigningDoctors() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Signing Doctor?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will deactivate the doctor and all their signing rules.
-              Reports already signed will remain unchanged.
+              {deleteId && doctors.find(d => d.id === deleteId)?._count.signingRules === 0 ? (
+                <>This will permanently delete the doctor. This action cannot be undone.</>
+              ) : (
+                <>This will deactivate the doctor and remove all their signing rules. Reports already signed will remain unchanged.</>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
