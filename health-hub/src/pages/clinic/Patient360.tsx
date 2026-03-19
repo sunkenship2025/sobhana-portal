@@ -17,6 +17,7 @@ import { useBranchStore } from '@/store/branchStore';
 import type { Patient360View, VisitTimelineItem, VisitDomain } from '@/types';
 import { toast } from 'sonner';
 import { PatientEditDialog } from '@/components/patient360/PatientEditDialog';
+import { fetchFinalizedReportHtml, openFinalizedReportWindow } from '@/lib/reportAccess';
 
 /**
  * PATIENT 360 — CANONICAL PATIENT VIEW (Phase-1)
@@ -37,7 +38,7 @@ import { PatientEditDialog } from '@/components/patient360/PatientEditDialog';
  * - No editing allowed (read-only view)
  */
 
-import { API_BASE, API_BASE_URL } from '@/lib/api';
+import { API_BASE } from '@/lib/api';
 
 // API call for Patient 360 data
 const fetchPatient360 = async (
@@ -97,11 +98,10 @@ interface VisitDetailDrawerProps {
   open: boolean;
   onClose: () => void;
   patientPhone?: string;
-  patientName?: string;
-  onPreviewReport?: (token: string) => void;
+  onPreviewReport?: (visitId: string) => void;
 }
 
-function VisitDetailDrawer({ visit, open, onClose, patientPhone, patientName, onPreviewReport }: VisitDetailDrawerProps) {
+function VisitDetailDrawer({ visit, open, onClose, patientPhone, onPreviewReport }: VisitDetailDrawerProps) {
   const { token } = useAuthStore();
   
   if (!visit) return null;
@@ -109,23 +109,32 @@ function VisitDetailDrawer({ visit, open, onClose, patientPhone, patientName, on
   const isDiagnostic = visit.domain === 'DIAGNOSTICS';
 
   const handlePreviewReport = () => {
-    if (!visit.reportAccessToken) {
+    if (visit.reportStatus !== 'FINALIZED') {
       toast.error('Report not available.');
       return;
     }
-    onPreviewReport?.(visit.reportAccessToken);
+    onPreviewReport?.(visit.visitId);
   };
 
-  const handlePrintReport = () => {
-    if (!visit.reportAccessToken) {
+  const handlePrintReport = async () => {
+    if (visit.reportStatus !== 'FINALIZED') {
       toast.error('Report not available.');
       return;
     }
-    window.open(`${API_BASE_URL}/reports/${visit.reportAccessToken}/view?print=true`, '_blank');
+    try {
+      await openFinalizedReportWindow({
+        visitId: visit.visitId,
+        token,
+        branchId: useBranchStore.getState().activeBranchId,
+        autoPrint: true,
+      });
+    } catch (error) {
+      toast.error('Failed to open print view');
+    }
   };
 
   const handleWhatsAppReport = async () => {
-    if (!visit.reportAccessToken) {
+    if (visit.reportStatus !== 'FINALIZED') {
       toast.error('Report link not available.');
       return;
     }
@@ -226,7 +235,7 @@ function VisitDetailDrawer({ visit, open, onClose, patientPhone, patientName, on
                     Finalized on {formatDate(visit.finalizedAt)}
                   </p>
                 )}
-                {visit.reportStatus === 'FINALIZED' && visit.reportAccessToken && (
+                {visit.reportStatus === 'FINALIZED' && (
                   <div className="mt-3 space-y-2">
                     <Button
                       variant="outline"
@@ -333,17 +342,16 @@ export default function Patient360() {
     setDrawerOpen(true);
   };
 
-  const handlePreviewReport = async (reportAccessToken: string) => {
+  const handlePreviewReport = async (visitId: string) => {
     setPreviewLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/reports/${reportAccessToken}/view`);
-      if (response.ok) {
-        const html = await response.text();
-        setPreviewHtml(html);
-        setShowPreview(true);
-      } else {
-        toast.error('Failed to load report preview');
-      }
+      const html = await fetchFinalizedReportHtml({
+        visitId,
+        token,
+        branchId: activeBranchId,
+      });
+      setPreviewHtml(html);
+      setShowPreview(true);
     } catch (error) {
       console.error('Preview failed:', error);
       toast.error('Failed to load report preview');
@@ -538,7 +546,7 @@ export default function Patient360() {
               {visitTimeline.map((visit) => {
                 const isDiagnostic = visit.domain === 'DIAGNOSTICS';
                 const canViewReport =
-                  isDiagnostic && visit.reportStatus === 'FINALIZED' && visit.reportAccessToken;
+                  isDiagnostic && visit.reportStatus === 'FINALIZED';
 
                 return (
                   <Card key={visit.visitId} className="overflow-hidden">
@@ -606,7 +614,7 @@ export default function Patient360() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => handlePreviewReport(visit.reportAccessToken!)}
+                              onClick={() => handlePreviewReport(visit.visitId)}
                               disabled={previewLoading}
                               className="text-xs w-full justify-start"
                             >
@@ -657,10 +665,9 @@ export default function Patient360() {
           setSelectedVisit(null);
         }}
         patientPhone={primaryPhone}
-        patientName={patient.name}
-        onPreviewReport={(token) => {
+        onPreviewReport={(visitId) => {
           setDrawerOpen(false);
-          handlePreviewReport(token);
+          handlePreviewReport(visitId);
         }}
       />
 
@@ -677,7 +684,7 @@ export default function Patient360() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {primaryPhone && selectedVisit?.reportAccessToken && (
+              {primaryPhone && selectedVisit?.reportStatus === 'FINALIZED' && (
                 <Button
                   variant="outline"
                   size="sm"
