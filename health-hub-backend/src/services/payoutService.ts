@@ -172,7 +172,7 @@ async function deriveReferralPayout(
 
 /**
  * Derive payout for a clinic doctor.
- * Formula: Sum of consultationFeeInPaise for all completed clinic visits in the period.
+ * Formula: Commission (percentage or fixed amount) of consultationFeeInPaise for all completed clinic visits in the period.
  */
 async function deriveClinicPayout(
   clinicDoctorId: string,
@@ -180,10 +180,16 @@ async function deriveClinicPayout(
   periodStartDate: Date,
   periodEndDate: Date
 ): Promise<PayoutDerivationResult> {
-  // Get clinic doctor info
+  // Get clinic doctor info with commission settings
   const doctor = await prisma.clinicDoctor.findUnique({
     where: { id: clinicDoctorId },
-    select: { id: true, name: true },
+    select: {
+      id: true,
+      name: true,
+      commissionType: true,
+      commissionPercent: true,
+      commissionAmountInPaise: true,
+    },
   });
 
   if (!doctor) {
@@ -216,7 +222,18 @@ async function deriveClinicPayout(
   let totalDerivedInPaise = 0;
 
   for (const cv of clinicVisits) {
-    totalDerivedInPaise += cv.consultationFeeInPaise;
+    let commissionInPaise: number;
+
+    if (doctor.commissionType === 'FIXED_AMOUNT' && doctor.commissionAmountInPaise != null) {
+      // Fixed amount per consultation
+      commissionInPaise = doctor.commissionAmountInPaise;
+    } else {
+      // Percentage of consultation fee (default)
+      const percent = doctor.commissionPercent ?? 100;
+      commissionInPaise = Math.round(cv.consultationFeeInPaise * percent / 100);
+    }
+
+    totalDerivedInPaise += commissionInPaise;
 
     lineItems.push({
       visitId: cv.visit.id,
@@ -225,7 +242,10 @@ async function deriveClinicPayout(
       date: cv.createdAt,
       testOrFee: 'Consultation Fee',
       amountInPaise: cv.consultationFeeInPaise,
-      derivedCommissionInPaise: cv.consultationFeeInPaise, // Full fee goes to doctor
+      derivedCommissionInPaise: commissionInPaise,
+      commissionType: doctor.commissionType,
+      commissionPercentage: doctor.commissionType === 'PERCENTAGE' ? doctor.commissionPercent ?? undefined : undefined,
+      commissionAmountInPaise: doctor.commissionType === 'FIXED_AMOUNT' ? doctor.commissionAmountInPaise ?? undefined : undefined,
     });
   }
 
