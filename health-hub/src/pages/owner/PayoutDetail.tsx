@@ -182,6 +182,7 @@ const PayoutDetailPage = () => {
   }
 
   const canMarkPaid = !payout.paidAt && (user?.role === 'owner' || user?.role === 'staff');
+  const showsCommission = payout.doctorType !== 'CLINIC';
 
   return (
     <AppLayout context="owner" subContext="payouts">
@@ -351,9 +352,9 @@ const PayoutDetailPage = () => {
                     <TableHead>Date</TableHead>
                     <TableHead>Bill #</TableHead>
                     <TableHead>Patient</TableHead>
-                    <TableHead>{payout.doctorType === 'REFERRAL' ? 'Test' : 'Service'}</TableHead>
+                    <TableHead>{payout.doctorType === 'CLINIC' ? 'Service' : 'Product / Test'}</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
-                    {payout.doctorType === 'REFERRAL' && (
+                    {showsCommission && (
                       <TableHead className="text-right">Commission</TableHead>
                     )}
                     <TableHead className="text-right">Derived</TableHead>
@@ -367,7 +368,7 @@ const PayoutDetailPage = () => {
                       <TableCell>{item.patientName}</TableCell>
                       <TableCell>{item.testOrFee}</TableCell>
                       <TableCell className="text-right">{formatRupees(item.amountInPaise)}</TableCell>
-                      {payout.doctorType === 'REFERRAL' && (
+                      {showsCommission && (
                         <TableCell className="text-right">
                           {formatReferralPayout({
                             commissionType: item.commissionType,

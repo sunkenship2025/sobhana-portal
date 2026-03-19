@@ -14,13 +14,23 @@ import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { toast } from 'sonner';
-import type { Patient, PatientSearchResult, PaymentType, DiagnosticVisitView, TestOrder, ReferralDoctor, BillReceiptData } from '@/types';
+import type {
+  Patient,
+  PatientSearchResult,
+  PaymentType,
+  DiagnosticVisitView,
+  TestOrder,
+  ReferralDoctor,
+  DiagnosticCenter,
+  BillReceiptData,
+} from '@/types';
 import { Search, UserPlus, CheckCircle2, Printer, MessageCircle } from 'lucide-react';
 import { BillReceipt } from '@/components/print/BillReceipt';
 import { validatePatientForm, computeSmartAge, formatAgeDisplay, type ValidationErrors } from '@/lib/validation';
 import {
   areReferralPayoutsEqual,
   formatReferralPayout,
+  getEffectiveDiagnosticCenterPayout,
   getEffectiveDoctorPayout,
   toReferralPayoutDraft,
   toReferralPayoutPayload,
@@ -44,7 +54,7 @@ const DiagnosticsNewVisit = () => {
   // API data state
   const [products, setProducts] = useState<ProductForSelector[]>([]);
   const [referralDoctors, setReferralDoctors] = useState<ReferralDoctor[]>([]);
-  const [diagnosticCenters, setDiagnosticCenters] = useState<any[]>([]);
+  const [diagnosticCenters, setDiagnosticCenters] = useState<DiagnosticCenter[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCenterId, setSelectedCenterId] = useState<string>('');
   const [referralType, setReferralType] = useState<string>('SELF');
@@ -58,6 +68,7 @@ const DiagnosticsNewVisit = () => {
   const [paymentType, setPaymentType] = useState<PaymentType>('CASH');
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>('');
   const [referralOverrides, setReferralOverrides] = useState<Record<string, ReferralPayoutDraft>>({});
+  const [diagnosticCenterOverrides, setDiagnosticCenterOverrides] = useState<Record<string, ReferralPayoutDraft>>({});
   const [successData, setSuccessData] = useState<{ visitView: DiagnosticVisitView } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [whatsappOptIn, setWhatsappOptIn] = useState(true); // For existing patients
@@ -116,10 +127,15 @@ const DiagnosticsNewVisit = () => {
   }, [token, activeBranch]);
 
   const selectedDoctor = referralDoctors.find((doctor) => doctor.id === selectedDoctorId);
+  const selectedCenter = diagnosticCenters.find((center) => center.id === selectedCenterId);
 
   const buildOverridesForProducts = (
     productIds: string[],
-    doctor: ReferralDoctor | undefined,
+    resolveSavedPayout: (productId: string) => {
+      commissionType?: 'PERCENTAGE' | 'FIXED_AMOUNT' | null;
+      commissionPercent?: number | null;
+      commissionAmountInPaise?: number | null;
+    },
     existing: Record<string, ReferralPayoutDraft> = {}
   ) => {
     const next: Record<string, ReferralPayoutDraft> = {};
@@ -127,7 +143,7 @@ const DiagnosticsNewVisit = () => {
     for (const productId of productIds) {
       next[productId] =
         existing[productId] ??
-        toReferralPayoutDraft(getEffectiveDoctorPayout(doctor, productId));
+        toReferralPayoutDraft(resolveSavedPayout(productId));
     }
 
     return next;
@@ -346,6 +362,24 @@ const DiagnosticsNewVisit = () => {
                   .map((item) => [item.productId, item.payload])
               )
             : undefined,
+          diagnosticCenterOverrides: selectedCenterId
+            ? Object.fromEntries(
+                selectedProducts
+                  .map((productId) => {
+                    const draft =
+                      diagnosticCenterOverrides[productId] ??
+                      toReferralPayoutDraft(getEffectiveDiagnosticCenterPayout(selectedCenter, productId));
+                    const savedPayout = getEffectiveDiagnosticCenterPayout(selectedCenter, productId);
+                    return {
+                      productId,
+                      payload: toReferralPayoutPayload(draft),
+                      hasChanged: !areReferralPayoutsEqual(draft, savedPayout),
+                    };
+                  })
+                  .filter((item) => item.hasChanged)
+                  .map((item) => [item.productId, item.payload])
+              )
+            : undefined,
           productIds: selectedProducts,
           paymentType,
           paymentStatus: 'PAID',
@@ -496,6 +530,7 @@ const DiagnosticsNewVisit = () => {
                     setShowNewPatientForm(false);
                     setSelectedDoctorId('');
                     setReferralOverrides({});
+                    setDiagnosticCenterOverrides({});
                     setSelectedCenterId('');
                     setReferralType('SELF');
                     setNewPatient({ name: '', age: '', ageUnit: 'YEARS', dateOfBirth: '', gender: 'M', whatsappOptIn: false }); // E2-09: Reset form
@@ -784,7 +819,23 @@ const DiagnosticsNewVisit = () => {
                         Object.entries(prev).filter(([productId]) => productIds.includes(productId))
                       );
                     }
-                    return buildOverridesForProducts(productIds, selectedDoctor, prev);
+                    return buildOverridesForProducts(
+                      productIds,
+                      (productId) => getEffectiveDoctorPayout(selectedDoctor, productId),
+                      prev
+                    );
+                  });
+                  setDiagnosticCenterOverrides((prev) => {
+                    if (!selectedCenter) {
+                      return Object.fromEntries(
+                        Object.entries(prev).filter(([productId]) => productIds.includes(productId))
+                      );
+                    }
+                    return buildOverridesForProducts(
+                      productIds,
+                      (productId) => getEffectiveDiagnosticCenterPayout(selectedCenter, productId),
+                      prev
+                    );
                   });
                 }}
                 disabled={isSubmitting}
@@ -800,21 +851,46 @@ const DiagnosticsNewVisit = () => {
               <CardTitle>Diagnostic Center (optional)</CardTitle>
             </CardHeader>
             <CardContent>
-              <Select
-                value={selectedCenterId}
-                onValueChange={setSelectedCenterId}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select diagnostic center (if referred)" />
-                </SelectTrigger>
-                <SelectContent>
-                  {diagnosticCenters.map((center: any) => (
-                    <SelectItem key={center.id} value={center.id}>
-                      {center.name} ({center.centerNumber})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <SearchableSelect
+                  value={selectedCenterId}
+                  onValueChange={(value) => {
+                    setSelectedCenterId(value);
+                    const center = diagnosticCenters.find((item) => item.id === value);
+                    setDiagnosticCenterOverrides(
+                      buildOverridesForProducts(
+                        selectedProducts,
+                        (productId) => getEffectiveDiagnosticCenterPayout(center, productId)
+                      )
+                    );
+                  }}
+                  options={diagnosticCenters.map((center) => ({
+                    value: center.id,
+                    label: center.name,
+                    description: [center.centerNumber, center.contactPerson, center.phone].filter(Boolean).join(' · '),
+                    keywords: [center.name, center.centerNumber, center.contactPerson, center.phone]
+                      .filter(Boolean)
+                      .join(' '),
+                  }))}
+                  placeholder="Search external diagnostic center"
+                  searchPlaceholder="Search by center name, number, contact or phone"
+                  emptyText="No diagnostic centers found."
+                  className="h-11"
+                />
+                {selectedCenterId && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setSelectedCenterId('');
+                      setReferralType('SELF');
+                      setDiagnosticCenterOverrides({});
+                    }}
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
               {selectedCenterId && (
                 <div className="space-y-3 mt-3">
                   <Label>Referral Direction</Label>
@@ -837,7 +913,11 @@ const DiagnosticsNewVisit = () => {
                     </div>
                   </RadioGroup>
                   <Button variant="ghost" size="sm" className="text-muted-foreground"
-                    onClick={() => { setSelectedCenterId(''); setReferralType('SELF'); }}>
+                    onClick={() => {
+                      setSelectedCenterId('');
+                      setReferralType('SELF');
+                      setDiagnosticCenterOverrides({});
+                    }}>
                     Clear selection
                   </Button>
                 </div>
@@ -862,7 +942,12 @@ const DiagnosticsNewVisit = () => {
                     onValueChange={(value) => {
                       setSelectedDoctorId(value);
                       const doctor = referralDoctors.find((item) => item.id === value);
-                      setReferralOverrides(buildOverridesForProducts(selectedProducts, doctor));
+                      setReferralOverrides(
+                        buildOverridesForProducts(
+                          selectedProducts,
+                          (productId) => getEffectiveDoctorPayout(doctor, productId)
+                        )
+                      );
                     }}
                     options={referralDoctors.map((doctor) => ({
                       value: doctor.id,
@@ -995,6 +1080,126 @@ const DiagnosticsNewVisit = () => {
                                 {draft.commissionType === 'PERCENTAGE'
                                   ? 'Enter the doctor share as a percentage of this product.'
                                   : 'Enter the exact rupee amount the doctor should get for this product.'}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {selectedCenterId && selectedProducts.length > 0 && (
+                <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div className="space-y-1">
+                      <Label className="text-base">External center payout by product</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Saved defaults come from Config Center. Any changes here will be applied to this bill and saved for future bills.
+                      </p>
+                      {referralType === 'SELF' && (
+                        <p className="text-xs text-muted-foreground">
+                          This visit is marked as self, so the center payout will stay out of payouts unless you change the referral direction.
+                        </p>
+                      )}
+                    </div>
+                    {selectedCenter && (
+                      <div className="rounded-lg border bg-background px-3 py-2 text-sm">
+                        <p className="text-muted-foreground">Center default</p>
+                        <p className="font-semibold">
+                          {formatReferralPayout(selectedCenter)}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid gap-3">
+                    {selectedProducts.map((productId) => {
+                      const product = products.find((p) => p.id === productId);
+                      if (!product) return null;
+                      const savedPayout = getEffectiveDiagnosticCenterPayout(selectedCenter, productId);
+                      const draft =
+                        diagnosticCenterOverrides[productId] ??
+                        toReferralPayoutDraft(savedPayout);
+                      return (
+                        <div key={`center-${productId}`} className="rounded-lg border bg-background p-4">
+                          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_160px] md:items-start">
+                            <div className="space-y-1">
+                              <p className="font-medium">{product.name}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {product.code} · Config Center: {formatReferralPayout(savedPayout ?? undefined)}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Payout now: {formatReferralPayout({
+                                  commissionType: draft.commissionType,
+                                  commissionPercent:
+                                    draft.commissionType === 'PERCENTAGE'
+                                      ? Number(draft.commissionPercent || 0)
+                                      : null,
+                                  commissionAmountInPaise:
+                                    draft.commissionType === 'FIXED_AMOUNT'
+                                      ? Math.round(Number(draft.commissionAmount || 0) * 100)
+                                      : null,
+                                })}
+                              </p>
+                            </div>
+
+                            <Select
+                              value={draft.commissionType}
+                              onValueChange={(value) => {
+                                setDiagnosticCenterOverrides((prev) => ({
+                                  ...prev,
+                                  [productId]: {
+                                    ...(prev[productId] ?? draft),
+                                    commissionType: value as ReferralPayoutDraft['commissionType'],
+                                  },
+                                }));
+                              }}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="PERCENTAGE">Percentage</SelectItem>
+                                <SelectItem value="FIXED_AMOUNT">Amount</SelectItem>
+                              </SelectContent>
+                            </Select>
+
+                            <div className="space-y-2">
+                              <Input
+                                type="number"
+                                min={0}
+                                max={draft.commissionType === 'PERCENTAGE' ? 100 : undefined}
+                                step={draft.commissionType === 'PERCENTAGE' ? '0.01' : '1'}
+                                placeholder={draft.commissionType === 'PERCENTAGE' ? 'Enter %' : 'Enter amount'}
+                                value={
+                                  draft.commissionType === 'PERCENTAGE'
+                                    ? draft.commissionPercent
+                                    : draft.commissionAmount
+                                }
+                                onChange={(e) => {
+                                  const next = e.target.value;
+                                  setDiagnosticCenterOverrides((prev) => ({
+                                    ...prev,
+                                    [productId]: {
+                                      ...(prev[productId] ?? draft),
+                                      commissionPercent:
+                                        draft.commissionType === 'PERCENTAGE'
+                                          ? next
+                                          : (prev[productId] ?? draft).commissionPercent,
+                                      commissionAmount:
+                                        draft.commissionType === 'FIXED_AMOUNT'
+                                          ? next
+                                          : (prev[productId] ?? draft).commissionAmount,
+                                    },
+                                  }));
+                                }}
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                {draft.commissionType === 'PERCENTAGE'
+                                  ? 'Enter the center share as a percentage of this product.'
+                                  : 'Enter the exact rupee amount the external center should get for this product.'}
                               </p>
                             </div>
                           </div>
