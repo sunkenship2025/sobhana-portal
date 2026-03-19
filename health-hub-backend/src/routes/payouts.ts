@@ -14,13 +14,13 @@ router.use(branchContextMiddleware);
 
 // ===========================================================================
 // GET /api/payouts - List payouts for current branch
-// Query params: doctorType, isPaid, startDate, endDate
+// Query params: doctorType, doctorId, isPaid, startDate, endDate
 // Access: owner, staff
 // ===========================================================================
 router.get('/', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
   try {
     const branchId = req.branchId!;
-    const { doctorType, isPaid, startDate, endDate } = req.query;
+    const { doctorType, doctorId, isPaid, startDate, endDate } = req.query;
 
     // Validate doctorType if provided
     let validatedDoctorType: PayoutDoctorType | undefined;
@@ -33,6 +33,13 @@ router.get('/', requireRole('owner', 'staff'), async (req: AuthRequest, res) => 
         });
       }
       validatedDoctorType = doctorType as PayoutDoctorType;
+    }
+
+    if (doctorId && typeof doctorId !== 'string') {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'doctorId must be a string',
+      });
     }
 
     // Parse isPaid
@@ -65,6 +72,7 @@ router.get('/', requireRole('owner', 'staff'), async (req: AuthRequest, res) => 
 
     const payouts = await payoutService.listPayouts(branchId, {
       doctorType: validatedDoctorType,
+      doctorId: doctorId as string | undefined,
       isPaid: validatedIsPaid,
       startDate: validatedStartDate,
       endDate: validatedEndDate,
@@ -86,9 +94,9 @@ router.get('/', requireRole('owner', 'staff'), async (req: AuthRequest, res) => 
 // ===========================================================================
 // POST /api/payouts/derive - Derive a new payout
 // Body: { doctorType, doctorId, periodStartDate, periodEndDate }
-// Access: owner only
+// Access: owner, staff
 // ===========================================================================
-router.post('/derive', requireRole('owner'), async (req: AuthRequest, res) => {
+router.post('/derive', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
   try {
     const branchId = req.branchId!;
     const { doctorType, doctorId, periodStartDate, periodEndDate } = req.body;
