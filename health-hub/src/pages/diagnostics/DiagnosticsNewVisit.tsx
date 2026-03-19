@@ -101,6 +101,8 @@ const DiagnosticsNewVisit = () => {
   const [newCenterPhone, setNewCenterPhone] = useState('');
   const [isCreatingDoctor, setIsCreatingDoctor] = useState(false);
   const [isCreatingCenter, setIsCreatingCenter] = useState(false);
+  const [doctorExistingMatch, setDoctorExistingMatch] = useState<any>(null);
+  const [doctorLinkedId, setDoctorLinkedId] = useState<string | null>(null);
 
   // Fetch lab tests and referral doctors from API
   useEffect(() => {
@@ -181,6 +183,8 @@ const DiagnosticsNewVisit = () => {
         body: JSON.stringify({
           name: newDoctorName.trim(),
           phone: newDoctorPhone.trim() || undefined,
+          commissionType: 'PERCENTAGE',
+          commissionPercent: 10,
         }),
       });
 
@@ -226,6 +230,8 @@ const DiagnosticsNewVisit = () => {
         body: JSON.stringify({
           name: newCenterName.trim(),
           phone: newCenterPhone.trim() || undefined,
+          commissionType: 'PERCENTAGE',
+          commissionPercent: 0,
         }),
       });
 
