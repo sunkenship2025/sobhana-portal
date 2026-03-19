@@ -9,12 +9,52 @@
 
 import { Router, Request, Response } from 'express';
 import QRCode from 'qrcode';
+import {
+  createRateLimiter,
+  getClientIp,
+  publicReportIpRateLimit,
+  publicReportTokenRateLimit,
+} from '../middleware/rateLimit';
 import { validateToken, recordAccess } from '../services/reportAccessService';
 import { getReportSnapshot } from '../services/reportSnapshotService';
 import { renderReportHtml } from '../services/reportRendererService';
 import { generatePdfFromHtml } from '../services/pdfGenerationService';
 
 const router = Router();
+
+const publicReportLandingIpRateLimit = createRateLimiter({
+  namespace: 'public-report-ip',
+  windowMs: 60_000,
+  maxRequests: 30,
+  keyGenerator: (req) => [getClientIp(req)],
+  onLimit: (_req, res, retryAfterSeconds) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(429).send(
+      renderStatusPage(
+        'Too many requests',
+        `This report link is receiving too many requests. Please wait ${retryAfterSeconds} seconds and try again.`
+      )
+    );
+  },
+});
+
+const publicReportLandingTokenRateLimit = createRateLimiter({
+  namespace: 'public-report-token',
+  windowMs: 60_000,
+  maxRequests: 10,
+  keyGenerator: (req) => [getClientIp(req), String(req.params.token || '')],
+  onLimit: (_req, res, retryAfterSeconds) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(429).send(
+      renderStatusPage(
+        'Too many requests',
+        `Please wait ${retryAfterSeconds} seconds before reopening this report.`
+      )
+    );
+  },
+});
 
 type ReportLoadSuccess = {
   ok: true;
@@ -422,7 +462,7 @@ async function buildPdfBuffer(
  * Lightweight status page for WhatsApp / patient browsers.
  * Fetches the actual PDF in the background so users never stare at a blank tab.
  */
-router.get('/:token', async (req: Request, res: Response) => {
+router.get('/:token', publicReportLandingIpRateLimit, publicReportLandingTokenRateLimit, async (req: Request, res: Response) => {
   const { token } = req.params;
 
   try {
@@ -458,7 +498,7 @@ router.get('/:token', async (req: Request, res: Response) => {
  *   ?mode=physical  → PDF for pre-printed letterhead (no header/footer, wider margins)
  *   (default)       → Digital PDF (full header/footer, for patient download)
  */
-router.get('/:token/pdf', async (req: Request, res: Response) => {
+router.get('/:token/pdf', publicReportIpRateLimit, publicReportTokenRateLimit, async (req: Request, res: Response) => {
   const { token } = req.params;
   const mode = req.query.mode === 'physical' ? 'physical' : 'digital';
 
@@ -503,7 +543,7 @@ router.get('/:token/pdf', async (req: Request, res: Response) => {
  * Returns rendered HTML for in-browser viewing and browser print dialog.
  * Used by staff preview (Patient360) and the Print button.
  */
-router.get('/:token/view', async (req: Request, res: Response) => {
+router.get('/:token/view', publicReportIpRateLimit, publicReportTokenRateLimit, async (req: Request, res: Response) => {
   const { token } = req.params;
 
   try {
