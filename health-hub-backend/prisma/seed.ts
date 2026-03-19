@@ -1,42 +1,7 @@
-import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
-
-const DEFAULT_ACCOUNTS = [
-  {
-    email: 'owner@sobhana.com',
-    name: 'Mallikarjun',
-    phone: '9876543212',
-    role: 'owner' as const,
-    passwordEnv: 'OWNER_ACCOUNT_PASSWORD',
-  },
-  {
-    email: 'tirupati@sobhana.com',
-    name: 'Tirupati',
-    phone: '9876543211',
-    role: 'staff' as const,
-    passwordEnv: 'STAFF_ACCOUNT_PASSWORD',
-  },
-  {
-    email: 'cto@sobhana.com',
-    name: 'Pranav Reddy',
-    phone: '9876543210',
-    role: 'admin' as const,
-    passwordEnv: 'CTO_ACCOUNT_PASSWORD',
-  },
-] as const;
-
-function requirePassword(envName: string) {
-  const password = process.env[envName]?.trim();
-
-  if (!password) {
-    throw new Error(`Missing ${envName} in the backend .env file`);
-  }
-
-  return password;
-}
 
 async function main() {
   console.log('🌱 Starting database seed...');
@@ -85,21 +50,45 @@ async function main() {
   console.log(`✅ Created branches: ${chintal.code}, ${idpl.code}, ${jagathgirigutta.code}, ${balanagar.code}`);
 
   // Create users
-  for (const account of DEFAULT_ACCOUNTS) {
-    await prisma.user.create({
-      data: {
-        email: account.email,
-        passwordHash: await bcrypt.hash(requirePassword(account.passwordEnv), 10),
-        name: account.name,
-        phone: account.phone,
-        role: account.role,
-        activeBranchId: chintal.id,
-        isActive: true
-      }
-    });
-  }
+  const hashedPassword = await bcrypt.hash('password123', 10);
 
-  console.log(`✅ Created users: ${DEFAULT_ACCOUNTS.map((account) => account.email).join(', ')}`);
+  await prisma.user.create({
+    data: {
+      email: 'admin@sobhana.com',
+      passwordHash: hashedPassword,
+      name: 'System Admin',
+      phone: '9876543210',
+      role: 'admin',
+      activeBranchId: chintal.id,
+      isActive: true
+    }
+  });
+
+  await prisma.user.create({
+    data: {
+      email: 'staff@sobhana.com',
+      passwordHash: hashedPassword,
+      name: 'Rajesh Kumar',
+      phone: '9876543211',
+      role: 'staff',
+      activeBranchId: chintal.id,
+      isActive: true
+    }
+  });
+
+  await prisma.user.create({
+    data: {
+      email: 'owner@sobhana.com',
+      passwordHash: hashedPassword,
+      name: 'Sobhana Owner',
+      phone: '9876543212',
+      role: 'owner',
+      activeBranchId: chintal.id,
+      isActive: true
+    }
+  });
+
+  console.log(`✅ Created users: admin, staff, owner (password: password123)`);
 
   // Create referral doctors
   const drSharma = await prisma.referralDoctor.create({
@@ -457,10 +446,9 @@ async function main() {
 
   console.log('\\n🎉 Seed complete!');
   console.log('\\n📝 Login credentials:');
-  console.log('   Admin: cto@sobhana.com / CTO_ACCOUNT_PASSWORD');
-  console.log('   Staff: tirupati@sobhana.com / STAFF_ACCOUNT_PASSWORD');
-  console.log('   Owner: owner@sobhana.com / OWNER_ACCOUNT_PASSWORD');
-  console.log('   Alias: mallikarjun.sdc@gmail.com -> owner@sobhana.com');
+  console.log('   Admin: admin@sobhana.com / password123');
+  console.log('   Staff: staff@sobhana.com / password123');
+  console.log('   Owner: owner@sobhana.com / password123');
 }
 
 main()

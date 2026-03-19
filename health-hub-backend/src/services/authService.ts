@@ -15,63 +15,6 @@ import { ValidationError, UnauthorizedError } from '../utils/errors';
 import { logAction } from './auditService';
 import prisma from '../lib/prisma';
 
-const LOGIN_EMAIL_ALIASES: Record<string, string> = {
-  'mallikarjun.sdc@gmail.com': 'owner@sobhana.com',
-};
-
-function normalizeEmail(email: string) {
-  return email.trim().toLowerCase();
-}
-
-function resolvePrimaryEmail(email: string) {
-  const normalizedEmail = normalizeEmail(email);
-  return LOGIN_EMAIL_ALIASES[normalizedEmail] ?? normalizedEmail;
-}
-
-function getEquivalentEmails(email: string) {
-  const primaryEmail = resolvePrimaryEmail(email);
-  const aliases = Object.entries(LOGIN_EMAIL_ALIASES)
-    .filter(([, mappedEmail]) => mappedEmail === primaryEmail)
-    .map(([alias]) => alias);
-
-  return Array.from(new Set([primaryEmail, ...aliases]));
-}
-
-async function findUserByLoginEmail(email: string) {
-  const primaryEmail = resolvePrimaryEmail(email);
-
-  const primaryUser = await prisma.user.findUnique({
-    where: { email: primaryEmail },
-    include: {
-      activeBranch: true
-    }
-  });
-
-  if (primaryUser) {
-    return primaryUser;
-  }
-
-  const aliasEmails = getEquivalentEmails(email).filter((candidateEmail) => candidateEmail !== primaryEmail);
-
-  if (aliasEmails.length === 0) {
-    return null;
-  }
-
-  return prisma.user.findFirst({
-    where: {
-      email: {
-        in: aliasEmails
-      }
-    },
-    include: {
-      activeBranch: true
-    },
-    orderBy: {
-      createdAt: 'asc'
-    }
-  });
-}
-
 /**
  * Authenticates a user by email and password.
  *
@@ -86,15 +29,18 @@ async function findUserByLoginEmail(email: string) {
  * @throws UnauthorizedError  If the user is not found, account is disabled, or password is wrong
  *
  * @example
- * const { token, user } = await login('tirupati@sobhana.com', 'secret', '1.2.3.4');
+ * const { token, user } = await login('staff@sobhana.com', 'secret', '1.2.3.4');
  * // token: 'eyJhbGci...'  (7-day JWT)
  * // user: { id, email, name, role, activeBranch }
  */
 export async function login(email: string, password: string, ipAddress?: string, userAgent?: string) {
-  const normalizedEmail = normalizeEmail(email);
-
-  // Find user, allowing reserved aliases to resolve to the same account.
-  const user = await findUserByLoginEmail(normalizedEmail);
+  // Find user
+  const user = await prisma.user.findUnique({
+    where: { email },
+    include: {
+      activeBranch: true
+    }
+  });
 
   if (!user) {
     // Audit log: Failed login attempt
@@ -109,7 +55,7 @@ export async function login(email: string, password: string, ipAddress?: string,
         userId: null,
         newValues: {
           action: 'LOGIN_FAILED',
-          email: normalizedEmail,
+          email,
           reason: 'USER_NOT_FOUND',
         },
         ipAddress,
@@ -129,8 +75,7 @@ export async function login(email: string, password: string, ipAddress?: string,
       userId: user.id,
       newValues: {
         action: 'LOGIN_FAILED',
-        email: normalizedEmail,
-        accountEmail: user.email,
+        email,
         reason: 'ACCOUNT_DISABLED',
       },
       ipAddress,
@@ -152,8 +97,7 @@ export async function login(email: string, password: string, ipAddress?: string,
       userId: user.id,
       newValues: {
         action: 'LOGIN_FAILED',
-        email: normalizedEmail,
-        accountEmail: user.email,
+        email,
         reason: 'INVALID_PASSWORD',
       },
       ipAddress,
@@ -229,20 +173,9 @@ export async function register(data: {
   role: string;
   activeBranchId: string;
 }) {
-  const normalizedEmail = normalizeEmail(data.email);
-  const primaryEmail = resolvePrimaryEmail(normalizedEmail);
-
-  if (normalizedEmail !== primaryEmail) {
-    throw new ValidationError(`${normalizedEmail} is reserved as a login alias for ${primaryEmail}`);
-  }
-
   // Check if user exists
-  const existing = await prisma.user.findFirst({
-    where: {
-      email: {
-        in: getEquivalentEmails(normalizedEmail)
-      }
-    }
+  const existing = await prisma.user.findUnique({
+    where: { email: data.email }
   });
 
   if (existing) {
@@ -255,7 +188,7 @@ export async function register(data: {
   // Create user
   const user = await prisma.user.create({
     data: {
-      email: normalizedEmail,
+      email: data.email,
       passwordHash,
       name: data.name,
       phone: data.phone,
