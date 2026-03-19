@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import type { Request, RequestHandler, Response } from 'express';
-import { getRedisClient } from '../lib/redis';
+import { getRedisClient, isRedisRequired } from '../lib/redis';
 
 type RateLimitState = {
   count: number;
@@ -56,6 +56,9 @@ async function incrementRateLimitKey(key: string, windowMs: number): Promise<Rat
   const redis = getRedisClient();
 
   if (!redis) {
+    if (isRedisRequired()) {
+      throw new Error('Redis rate limiting is unavailable in production.');
+    }
     return incrementInMemory(key, windowMs);
   }
 
@@ -71,6 +74,9 @@ async function incrementRateLimitKey(key: string, windowMs: number): Promise<Rat
 
     return { count, ttlMs };
   } catch (error) {
+    if (isRedisRequired()) {
+      throw error;
+    }
     return incrementInMemory(key, windowMs);
   }
 }
@@ -108,6 +114,13 @@ export function createRateLimiter(options: RateLimitOptions): RequestHandler {
         message: 'Too many requests. Please try again later.',
       });
     } catch (error) {
+      if (isRedisRequired()) {
+        res.status(503).json({
+          error: 'RATE_LIMIT_UNAVAILABLE',
+          message: 'Request throttling is temporarily unavailable.',
+        });
+        return;
+      }
       next();
     }
   };
