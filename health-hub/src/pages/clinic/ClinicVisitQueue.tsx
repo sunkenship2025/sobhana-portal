@@ -10,6 +10,7 @@ import { useBranchStore } from '@/store/branchStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Search, Users, RotateCcw, Loader2 } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
+import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
@@ -47,6 +48,8 @@ interface QueueVisit {
   consultationFee: number;
   isRevisit: boolean;
   originalVisitId?: string | null;
+  originalVisitBillNumber?: string | null;
+  originalVisitDate?: string | null;
   paymentType: string;
   paymentStatus: string;
   createdAt: string;
@@ -63,29 +66,34 @@ const ClinicVisitQueue = () => {
   const [doctorFilter, setDoctorFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [selectedVisit, setSelectedVisit] = useState<QueueVisit | null>(null);
+  const [updatingVisitId, setUpdatingVisitId] = useState<string | null>(null);
+
+  const fetchVisits = async () => {
+    if (!activeBranchId) {
+      setLoading(false);
+      return;
+    }
+    try {
+      setLoading(true);
+      const res = await fetch(`${API_BASE}/visits/clinic`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-branch-id': activeBranchId,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setVisits(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch clinic visits:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Fetch visits from API
   useEffect(() => {
-    const fetchVisits = async () => {
-      if (!activeBranchId) return;
-      try {
-        setLoading(true);
-        const res = await fetch(`${API_BASE}/visits/clinic`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'x-branch-id': activeBranchId,
-          },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setVisits(data);
-        }
-      } catch (err) {
-        console.error('Failed to fetch clinic visits:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchVisits();
   }, [activeBranchId, token]);
 
@@ -105,7 +113,11 @@ const ClinicVisitQueue = () => {
 
   // Filter visits
   const filteredVisits = useMemo(() => {
-    return visits.filter((visit) => {
+    const queueVisits = visits.filter((visit) =>
+      visit.status === 'WAITING' || visit.status === 'IN_PROGRESS',
+    );
+
+    return queueVisits.filter((visit) => {
       // Visit type filter
       if (visitTypeFilter !== 'all' && visit.visitType !== visitTypeFilter) return false;
 
@@ -124,8 +136,75 @@ const ClinicVisitQueue = () => {
       }
 
       return true;
+    }).sort((a, b) => {
+      const statusOrder = { WAITING: 0, IN_PROGRESS: 1 } as Record<string, number>;
+      const statusDelta = (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
+      if (statusDelta !== 0) {
+        return statusDelta;
+      }
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     });
   }, [visits, visitTypeFilter, doctorFilter, search]);
+
+  const updateVisitStatus = async (visit: QueueVisit, status: 'IN_PROGRESS' | 'COMPLETED') => {
+    if (!activeBranchId) return;
+
+    setUpdatingVisitId(visit.id);
+    try {
+      const res = await fetch(`${API_BASE}/visits/clinic/${visit.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-Branch-Id': activeBranchId,
+        },
+        body: JSON.stringify({ status }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to update visit status');
+      }
+
+      setVisits((currentVisits) =>
+        currentVisits.map((currentVisit) =>
+          currentVisit.id === visit.id
+            ? {
+                ...currentVisit,
+                status: data.status,
+                updatedAt: new Date().toISOString(),
+              }
+            : currentVisit,
+        ),
+      );
+
+      setSelectedVisit((currentVisit) =>
+        currentVisit?.id === visit.id
+          ? {
+              ...currentVisit,
+              status: data.status,
+              updatedAt: new Date().toISOString(),
+            }
+          : currentVisit,
+      );
+
+      toast.success(
+        status === 'IN_PROGRESS'
+          ? 'Visit moved to ongoing'
+          : 'Visit marked as done',
+      );
+
+      if (status === 'COMPLETED') {
+        setSelectedVisit(null);
+      }
+    } catch (error: any) {
+      console.error('Failed to update visit status:', error);
+      toast.error(error.message || 'Failed to update visit status');
+    } finally {
+      setUpdatingVisitId(null);
+    }
+  };
 
   return (
     <AppLayout context="clinic" subContext="Reception">
@@ -216,7 +295,7 @@ const ClinicVisitQueue = () => {
                           {visit.isRevisit && (
                             <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">
                               <RotateCcw className="h-3 w-3" />
-                              Revisit
+                              Recurring Visit
                             </span>
                           )}
                         </div>
@@ -315,10 +394,46 @@ const ClinicVisitQueue = () => {
               {selectedVisit.isRevisit && (
                 <div className="bg-blue-50 dark:bg-blue-950/30 p-3 rounded-lg">
                   <p className="text-sm text-blue-700 dark:text-blue-300 font-medium flex items-center gap-1">
-                    <RotateCcw className="h-3 w-3" /> This is a revisit (free follow-up)
+                    <RotateCcw className="h-3 w-3" /> This is a recurring / revisit consultation with free follow-up
                   </p>
+                  {(selectedVisit.originalVisitBillNumber || selectedVisit.originalVisitDate) && (
+                    <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-300/80">
+                      Original visit:
+                      {selectedVisit.originalVisitBillNumber ? ` Bill #${selectedVisit.originalVisitBillNumber}` : ''}
+                      {selectedVisit.originalVisitDate
+                        ? ` on ${new Date(selectedVisit.originalVisitDate).toLocaleDateString('en-IN')}`
+                        : ''}
+                    </p>
+                  )}
                 </div>
               )}
+
+              <div className="flex gap-2 pt-2">
+                {selectedVisit.status === 'WAITING' && (
+                  <Button
+                    onClick={() => updateVisitStatus(selectedVisit, 'IN_PROGRESS')}
+                    disabled={updatingVisitId === selectedVisit.id}
+                  >
+                    {updatingVisitId === selectedVisit.id ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : null}
+                    Move To Ongoing
+                  </Button>
+                )}
+
+                {selectedVisit.status !== 'COMPLETED' && (
+                  <Button
+                    variant={selectedVisit.status === 'IN_PROGRESS' ? 'default' : 'outline'}
+                    onClick={() => updateVisitStatus(selectedVisit, 'COMPLETED')}
+                    disabled={updatingVisitId === selectedVisit.id}
+                  >
+                    {updatingVisitId === selectedVisit.id ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : null}
+                    Mark Done
+                  </Button>
+                )}
+              </div>
             </div>
           )}
         </DialogContent>
