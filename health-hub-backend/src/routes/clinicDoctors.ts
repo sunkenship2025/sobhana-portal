@@ -6,6 +6,20 @@ import { normalizeReferralPayoutInput } from '../services/referralPayoutService'
 
 const router = Router();
 
+function toClinicDoctorPayoutInput(
+  payout: {
+    commissionType: 'PERCENTAGE' | 'FIXED_AMOUNT';
+    commissionPercent: number | null;
+    commissionAmountInPaise: number | null;
+  }
+) {
+  return {
+    commissionType: payout.commissionType,
+    commissionPercent: payout.commissionPercent ?? undefined,
+    commissionAmountInPaise: payout.commissionAmountInPaise ?? undefined,
+  };
+}
+
 // All routes require auth + branch context
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
@@ -74,7 +88,7 @@ router.post('/', async (req: AuthRequest, res) => {
       email,
       letterheadNote,
       referralDoctorId,
-      ...normalizedPayout,
+      ...toClinicDoctorPayoutInput(normalizedPayout),
       branchId: req.branchId!,
       userId: req.user?.id
     });
@@ -140,7 +154,15 @@ router.patch('/:id', async (req: AuthRequest, res) => {
 
     const updated = await doctorService.updateClinicDoctor(
       id,
-      { name, qualification, specialty, phone, email, letterheadNote, ...normalizedPayout },
+      {
+        name,
+        qualification,
+        specialty,
+        phone,
+        email,
+        letterheadNote,
+        ...(normalizedPayout ? toClinicDoctorPayoutInput(normalizedPayout) : {}),
+      },
       req.branchId!,
       req.user?.id
     );
