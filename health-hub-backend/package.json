@@ -12,7 +12,6 @@
     "db:migrate": "prisma migrate dev",
     "db:migrate:prod": "prisma migrate deploy",
     "db:seed": "ts-node prisma/seed.ts",
-    "accounts:harden": "ts-node prisma/harden-accounts.ts",
     "seed:catalog": "tsx prisma/seed-full-catalog.ts",
     "db:studio": "prisma studio",
     "lint": "eslint src --ext .ts",

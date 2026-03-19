@@ -8,14 +8,19 @@
  */
 
 const axios = require('axios');
-const { STAFF_CREDS, ADMIN_CREDS } = require('./authTestConfig');
 
 const BASE_URL = 'http://localhost:3000';
 
 // Test credentials for different branches
-const BRANCH_A_USER = STAFF_CREDS;
+const BRANCH_A_USER = {
+  email: 'staff@sobhana.com',
+  password: 'password123'
+};
 
-const BRANCH_B_USER = ADMIN_CREDS;
+const BRANCH_B_USER = {
+  email: 'admin@sobhana.com',
+  password: 'password123'
+};
 
 let tokenBranchA;
 let tokenBranchB;
