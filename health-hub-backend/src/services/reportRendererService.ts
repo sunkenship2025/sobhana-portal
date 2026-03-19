@@ -484,9 +484,8 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
         cssBlock: `<style>${SCREEN_CSS}</style>`,
         extraStyles: `
           @media print {
-            @page { size: A4; margin: 32mm 15mm 15.5mm 15mm; }
-            .header, .footer { display: none !important; }
-            .no-print { display: none !important; }
+            @page { size: A4; margin: 10mm; }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           }`,
         bodyClass: 'screen-mode',
       };
