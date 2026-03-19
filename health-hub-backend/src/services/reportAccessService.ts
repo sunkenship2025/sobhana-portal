@@ -23,6 +23,77 @@ function generateToken(): string {
     .substring(0, 12);
 }
 
+function hashToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+type TokenLookup = {
+  id: string;
+  reportVersionId: string;
+  expiresAt: Date | null;
+};
+
+async function findTokenRecord(rawToken: string): Promise<TokenLookup | null> {
+  const tokenHash = hashToken(rawToken);
+
+  const hashedRecord = await prisma.reportAccessToken.findUnique({
+    where: { token: tokenHash },
+    select: {
+      id: true,
+      reportVersionId: true,
+      expiresAt: true,
+    },
+  });
+
+  if (hashedRecord) {
+    return hashedRecord;
+  }
+
+  const legacyRecord = await prisma.reportAccessToken.findUnique({
+    where: { token: rawToken },
+    select: {
+      id: true,
+      reportVersionId: true,
+      expiresAt: true,
+    },
+  });
+
+  if (!legacyRecord) {
+    return null;
+  }
+
+  try {
+    await prisma.reportAccessToken.update({
+      where: { id: legacyRecord.id },
+      data: { token: tokenHash },
+    });
+  } catch (error) {
+    console.error('[ReportAccess] Failed to migrate legacy plaintext token:', error);
+  }
+
+  return legacyRecord;
+}
+
+async function appendAccessLog(
+  reportVersionId: string,
+  accessType: 'VIEW' | 'DOWNLOAD' | 'PRINT',
+  accessedVia: 'TOKEN' | 'STAFF_PORTAL',
+  ipAddress?: string,
+  userAgent?: string,
+  userId?: string
+): Promise<void> {
+  await prisma.reportAccessLog.create({
+    data: {
+      reportVersionId,
+      accessType,
+      accessedVia,
+      ipAddress,
+      userAgent,
+      userId,
+    },
+  });
+}
+
 /**
  * Creates a new access token for a finalized report.
  * Called during report finalization.
@@ -45,28 +116,20 @@ export async function createAccessToken(
     throw new Error('Cannot create access token for non-finalized report');
   }
 
-  // Check if token already exists
-  const existing = await prisma.reportAccessToken.findFirst({
-    where: { reportVersionId },
-    select: { token: true },
-  });
-
-  if (existing) {
-    return existing.token;
-  }
-
   // Generate unique token
   let token = generateToken();
+  let tokenHash = hashToken(token);
   let attempts = 0;
   const maxAttempts = 10;
 
   while (attempts < maxAttempts) {
     const exists = await prisma.reportAccessToken.findUnique({
-      where: { token },
+      where: { token: tokenHash },
     });
     
     if (!exists) break;
     token = generateToken();
+    tokenHash = hashToken(token);
     attempts++;
   }
 
@@ -77,7 +140,7 @@ export async function createAccessToken(
   // Create token record
   await prisma.reportAccessToken.create({
     data: {
-      token,
+      token: tokenHash,
       reportVersionId,
       expiresAt: expiresAt || null, // null = never expires
     },
@@ -91,13 +154,7 @@ export async function createAccessToken(
  * Returns null if token is invalid or expired.
  */
 export async function validateToken(token: string): Promise<string | null> {
-  const accessToken = await prisma.reportAccessToken.findUnique({
-    where: { token },
-    select: {
-      reportVersionId: true,
-      expiresAt: true,
-    },
-  });
+  const accessToken = await findTokenRecord(token);
 
   if (!accessToken) {
     return null;
@@ -122,10 +179,7 @@ export async function recordAccess(
   userAgent?: string,
   userId?: string
 ): Promise<void> {
-  const accessToken = await prisma.reportAccessToken.findUnique({
-    where: { token },
-    select: { id: true, reportVersionId: true },
-  });
+  const accessToken = await findTokenRecord(token);
 
   if (!accessToken) return;
 
@@ -139,17 +193,34 @@ export async function recordAccess(
     },
   });
 
-  // Create access log entry
-  await prisma.reportAccessLog.create({
-    data: {
-      reportVersionId: accessToken.reportVersionId,
-      accessType,
-      accessedVia: userId ? 'STAFF_PORTAL' : 'TOKEN',
-      ipAddress,
-      userAgent,
-      userId,
-    },
-  });
+  await appendAccessLog(
+    accessToken.reportVersionId,
+    accessType,
+    userId ? 'STAFF_PORTAL' : 'TOKEN',
+    ipAddress,
+    userAgent,
+    userId
+  );
+}
+
+/**
+ * Records a staff-portal access event without relying on a bearer token.
+ */
+export async function recordAccessByReportVersionId(
+  reportVersionId: string,
+  accessType: 'VIEW' | 'DOWNLOAD' | 'PRINT',
+  ipAddress?: string,
+  userAgent?: string,
+  userId?: string
+): Promise<void> {
+  await appendAccessLog(
+    reportVersionId,
+    accessType,
+    'STAFF_PORTAL',
+    ipAddress,
+    userAgent,
+    userId
+  );
 }
 
 /**
@@ -165,12 +236,8 @@ export async function getAccessStats(reportVersionId: string): Promise<{
     ip: string | null;
   }[];
 }> {
-  const token = await prisma.reportAccessToken.findFirst({
+  const totalViews = await prisma.reportAccessLog.count({
     where: { reportVersionId },
-    select: {
-      accessCount: true,
-      lastAccessedAt: true,
-    },
   });
 
   const logs = await prisma.reportAccessLog.findMany({
@@ -186,8 +253,8 @@ export async function getAccessStats(reportVersionId: string): Promise<{
   });
 
   return {
-    totalViews: token?.accessCount || 0,
-    lastAccessed: token?.lastAccessedAt || null,
+    totalViews,
+    lastAccessed: logs[0]?.createdAt || null,
     accessHistory: logs.map(l => ({
       type: l.accessType,
       via: l.accessedVia,
