@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { API_BASE, API_BASE_URL } from '@/lib/api';
+import { API_BASE } from '@/lib/api';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,6 +12,7 @@ import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { toast } from 'sonner';
 import { CheckCircle2, Search, Eye, Printer, MessageCircle, Loader2 } from 'lucide-react';
+import { openFinalizedReportWindow } from '@/lib/reportAccess';
 
 const matchesDateFilter = (filter: string, value: string | null | undefined) => {
   if (filter === 'all') return true;
@@ -237,12 +238,15 @@ const DiagnosticsFinalizedReports = () => {
                         variant="outline"
                         size="icon"
                         onClick={() => {
-                          const reportToken = visit.reportToken;
-                          if (reportToken) {
-                            window.open(`${API_BASE_URL}/reports/${reportToken}/view?print=true`, '_blank');
-                          } else {
+                          openFinalizedReportWindow({
+                            visitId: visit.id,
+                            token,
+                            branchId: activeBranchId,
+                            autoPrint: true,
+                          }).catch((error) => {
+                            console.error('Print failed:', error);
                             toast.error('Report not available');
-                          }
+                          });
                         }}
                         title="Print"
                       >
