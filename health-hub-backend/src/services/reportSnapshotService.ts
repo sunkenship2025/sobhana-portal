@@ -149,6 +149,85 @@ export interface ReportSnapshot {
   visit: VisitSnapshot;
 }
 
+async function getLiveSignatureSnapshotsForDepartments(departmentIds: string[]): Promise<SignatureSnapshot[]> {
+  const uniqueDepartmentIds = [...new Set(departmentIds.filter(Boolean))];
+  if (uniqueDepartmentIds.length === 0) {
+    return [];
+  }
+
+  const signingRules = await prisma.signingRule.findMany({
+    where: {
+      departmentId: { in: uniqueDepartmentIds },
+      isActive: true,
+    },
+    include: {
+      signingDoctor: true,
+    },
+    orderBy: { displayOrder: 'asc' },
+  });
+
+  const signatureMap = new Map<string, SignatureSnapshot>();
+
+  for (const rule of signingRules) {
+    const doc = rule.signingDoctor;
+    if (!signatureMap.has(doc.id)) {
+      signatureMap.set(doc.id, {
+        doctorId: doc.id,
+        doctorName: doc.name,
+        degrees: doc.degrees,
+        designation: doc.designation,
+        registrationNumber: doc.registrationNumber,
+        signatureImagePath: doc.signatureImagePath,
+        signatureImageBase64: doc.signatureImageBase64 || null,
+        showLabInchargeNote: rule.showLabInchargeNote,
+        displayOrder: rule.displayOrder,
+      });
+    }
+  }
+
+  return Array.from(signatureMap.values())
+    .sort((a, b) => a.displayOrder - b.displayOrder);
+}
+
+async function backfillStoredSignatureAssets(signatures: SignatureSnapshot[]): Promise<SignatureSnapshot[]> {
+  const uniqueDoctorIds = [...new Set(signatures.map(signature => signature.doctorId).filter(Boolean))];
+  if (uniqueDoctorIds.length === 0) {
+    return signatures;
+  }
+
+  const doctors = await prisma.signingDoctor.findMany({
+    where: { id: { in: uniqueDoctorIds } },
+    select: {
+      id: true,
+      name: true,
+      degrees: true,
+      designation: true,
+      registrationNumber: true,
+      signatureImagePath: true,
+      signatureImageBase64: true,
+    },
+  });
+
+  const doctorMap = new Map(doctors.map(doctor => [doctor.id, doctor]));
+
+  return signatures.map((signature) => {
+    const currentDoctor = doctorMap.get(signature.doctorId);
+    if (!currentDoctor) {
+      return signature;
+    }
+
+    return {
+      ...signature,
+      doctorName: signature.doctorName || currentDoctor.name,
+      degrees: signature.degrees || currentDoctor.degrees,
+      designation: signature.designation || currentDoctor.designation,
+      registrationNumber: signature.registrationNumber || currentDoctor.registrationNumber,
+      signatureImagePath: signature.signatureImagePath || currentDoctor.signatureImagePath,
+      signatureImageBase64: signature.signatureImageBase64 || currentDoctor.signatureImageBase64 || null,
+    };
+  });
+}
+
 // ============================================================================
 // INTERPRETATION MATCHING HELPERS
 // ============================================================================
@@ -539,43 +618,9 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
   // BUILD SIGNATURE SNAPSHOTS
   // ============================================================================
   
-  // Get unique department IDs from the report
-  const reportDeptIds = new Set(departments.map(d => d.departmentId));
-  
-  // Fetch signing rules for these departments
-  const signingRules = await prisma.signingRule.findMany({
-    where: {
-      departmentId: { in: Array.from(reportDeptIds) },
-      isActive: true,
-    },
-    include: {
-      signingDoctor: true,
-    },
-    orderBy: { displayOrder: 'asc' },
-  });
-  
-  // Deduplicate doctors (same doctor may sign multiple departments)
-  const signatureMap = new Map<string, SignatureSnapshot>();
-  
-  for (const rule of signingRules) {
-    const doc = rule.signingDoctor;
-    if (!signatureMap.has(doc.id)) {
-      signatureMap.set(doc.id, {
-        doctorId: doc.id,
-        doctorName: doc.name,
-        degrees: doc.degrees,
-        designation: doc.designation,
-        registrationNumber: doc.registrationNumber,
-        signatureImagePath: doc.signatureImagePath,
-        signatureImageBase64: doc.signatureImageBase64 || null,
-        showLabInchargeNote: rule.showLabInchargeNote,
-        displayOrder: rule.displayOrder,
-      });
-    }
-  }
-
-  const signatures = Array.from(signatureMap.values())
-    .sort((a, b) => a.displayOrder - b.displayOrder);
+  const signatures = await getLiveSignatureSnapshotsForDepartments(
+    departments.map(department => department.departmentId),
+  );
 
   // ============================================================================
   // BUILD PATIENT SNAPSHOT
@@ -695,36 +740,9 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
 
   // Build panel snapshots — shared helper handles dual architecture
   const departments = buildPanelsAndDepartments(reportVersion.testResults as any[], resolvedRanges);
-  const reportDeptIds = new Set(departments.map(d => d.departmentId));
-  const signingRules = await prisma.signingRule.findMany({
-    where: {
-      departmentId: { in: Array.from(reportDeptIds) },
-      isActive: true,
-    },
-    include: { signingDoctor: true },
-    orderBy: { displayOrder: 'asc' },
-  });
-
-  const signatureMap = new Map<string, SignatureSnapshot>();
-  for (const rule of signingRules) {
-    const doc = rule.signingDoctor;
-    if (!signatureMap.has(doc.id)) {
-      signatureMap.set(doc.id, {
-        doctorId: doc.id,
-        doctorName: doc.name,
-        degrees: doc.degrees,
-        designation: doc.designation,
-        registrationNumber: doc.registrationNumber,
-        signatureImagePath: doc.signatureImagePath,
-        signatureImageBase64: doc.signatureImageBase64 || null,
-        showLabInchargeNote: rule.showLabInchargeNote,
-        displayOrder: rule.displayOrder,
-      });
-    }
-  }
-
-  const signatures = Array.from(signatureMap.values())
-    .sort((a, b) => a.displayOrder - b.displayOrder);
+  const signatures = await getLiveSignatureSnapshotsForDepartments(
+    departments.map(department => department.departmentId),
+  );
 
   // Build patient snapshot
   const currentYear = new Date().getFullYear();
@@ -812,12 +830,18 @@ export async function getReportSnapshot(reportVersionId: string): Promise<Report
     return null;
   }
 
+  const departments = reportVersion.panelsSnapshot as unknown as DepartmentSnapshot[];
+  const storedSignatures = (reportVersion.signaturesSnapshot || []) as unknown as SignatureSnapshot[];
+  const signatures = storedSignatures.length > 0
+    ? await backfillStoredSignatureAssets(storedSignatures)
+    : await getLiveSignatureSnapshotsForDepartments(departments.map(department => department.departmentId));
+
   return {
     snapshotVersion: (reportVersion.panelsSnapshot as any)?.snapshotVersion ?? 1,
     reportVersionId: reportVersion.id,
     versionNum: reportVersion.versionNum,
-    departments: reportVersion.panelsSnapshot as unknown as DepartmentSnapshot[],
-    signatures: (reportVersion.signaturesSnapshot || []) as unknown as SignatureSnapshot[],
+    departments,
+    signatures,
     patient: reportVersion.patientSnapshot as unknown as PatientSnapshot,
     visit: reportVersion.visitSnapshot as unknown as VisitSnapshot,
   };
