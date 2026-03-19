@@ -2,11 +2,12 @@ import { Router } from 'express';
 import * as authService from '../services/authService';
 import { requireRole } from '../middleware/rbac';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { loginCredentialRateLimit, loginIpRateLimit } from '../middleware/rateLimit';
 
 const router = Router();
 
 // POST /api/auth/login - Public
-router.post('/login', async (req, res) => {
+router.post('/login', loginIpRateLimit, loginCredentialRateLimit, async (req, res) => {
   try {
     const { email, password } = req.body;
 
