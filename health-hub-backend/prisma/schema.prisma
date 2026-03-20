@@ -60,7 +60,7 @@ enum PaymentType {
 }
 
 enum ReportStatus {
-  DRAFT//why??
+  DRAFT //why??
   FINALIZED
 }
 
@@ -81,8 +81,8 @@ enum RangeCategory {
 }
 
 enum ClinicVisitType {
-  OP      // Outpatient
-  IP      // Inpatient
+  OP // Outpatient
+  IP // Inpatient
 }
 
 enum IdentifierType {
@@ -115,9 +115,9 @@ enum PayoutDoctorType {
 }
 
 enum ReferralSourceType {
-  SELF           // In-house test
-  REFERRED_TO    // We refer TO another diagnostic center
-  REFERRED_FROM  // Referred FROM another diagnostic center to us
+  SELF // In-house test
+  REFERRED_TO // We refer TO another diagnostic center
+  REFERRED_FROM // Referred FROM another diagnostic center to us
 }
 
 enum ReferralPayoutType {
@@ -150,10 +150,10 @@ enum MessageContextType {
 // Collapsed from 5 → 2 active + 2 future. CBP/WIDAL/INTERPRETATION_SINGLE are now
 // STANDARD_TABLE with config flags (showSubgroups, showInterpretation, valueDisplayPrefix).
 enum PanelLayoutType {
-  STANDARD_TABLE           // Configurable table: test | value | unit | reference
-  TEXT_ONLY                // Free-text result (peripheral smear, MP result)
-  IMAGING_NARRATIVE        // Future: radiology narrative reports
-  PROCEDURE_STRUCTURED     // Future: procedure-based structured reports
+  STANDARD_TABLE // Configurable table: test | value | unit | reference
+  TEXT_ONLY // Free-text result (peripheral smear, MP result)
+  IMAGING_NARRATIVE // Future: radiology narrative reports
+  PROCEDURE_STRUCTURED // Future: procedure-based structured reports
 }
 
 // ─── New Architecture Enums ──────────────────────────────────────
@@ -195,7 +195,7 @@ enum InterpretationRuleType {
 /// Must be updated within database transaction to prevent race conditions
 model NumberSequence {
   id        String   @id // e.g., "patient", "referralDoctor", "clinicDoctor", "diagnostic-MPR", "clinic-KPY"
-  prefix    String   // e.g., "P", "RD", "CD", "D-MPR", "C-KPY"
+  prefix    String // e.g., "P", "RD", "CD", "D-MPR", "C-KPY"
   lastValue Int      @default(0)
   updatedAt DateTime @updatedAt
 
@@ -212,7 +212,7 @@ model Patient {
   id            String    @id @default(cuid())
   patientNumber String    @unique // P-00001, P-00002, etc. (user-facing)
   name          String
-  yearOfBirth   Int       // E2-09: Required - calculated from age or DOB
+  yearOfBirth   Int // E2-09: Required - calculated from age or DOB
   dateOfBirth   DateTime? // E2-09: Optional - if user knows exact DOB
   ageUnit       String    @default("YEARS") // DAYS, MONTHS, YEARS — for smart age display
   gender        Gender
@@ -222,19 +222,19 @@ model Patient {
   // WhatsApp notification consent
   whatsappOptIn       Boolean   @default(false)
   whatsappOptInAt     DateTime?
-  whatsappOptInSource String?   // PATIENT_REGISTRATION_FORM, STAFF_MANUAL_SEND, POST_FINALIZE_AUTO
+  whatsappOptInSource String? // PATIENT_REGISTRATION_FORM, STAFF_MANUAL_SEND, POST_FINALIZE_AUTO
 
   /// Extensible identifiers (phone, email, Aadhar, etc.)
   identifiers PatientIdentifier[]
-  
+
   /// All visits across all branches
-  visits      Visit[]
+  visits Visit[]
 
   /// Patient change history (identity field tracking)
-  changeLogs  PatientChangeLog[]
+  changeLogs PatientChangeLog[]
 
   /// Message delivery history
-  messages    MessageLog[]
+  messages MessageLog[]
 
   @@index([createdAt])
 }
@@ -261,18 +261,18 @@ model PatientIdentifier {
 /// ReferralDoctor: Registered doctors who refer patients (typically external practitioners)
 /// Base commission % can be overridden per test.
 model ReferralDoctor {
-  id                 String   @id @default(cuid())
-  doctorNumber       String   @unique // RD-00001, RD-00002, etc. (user-facing)
-  name               String
-  phone              String?
-  email              String?
-  commissionType     ReferralPayoutType @default(PERCENTAGE)
-  commissionPercent  Float    @default(10.0) // 0-100, can be overridden per test
+  id                      String             @id @default(cuid())
+  doctorNumber            String             @unique // RD-00001, RD-00002, etc. (user-facing)
+  name                    String
+  phone                   String?
+  email                   String?
+  commissionType          ReferralPayoutType @default(PERCENTAGE)
+  commissionPercent       Float              @default(10.0) // 0-100, can be overridden per test
   commissionAmountInPaise Int?
-  clinicDoctorId     String?  // Link if this person is also a clinic doctor
-  isActive           Boolean  @default(true)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  clinicDoctorId          String? // Link if this person is also a clinic doctor
+  isActive                Boolean            @default(true)
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
 
   /// Referrals to visits (explicit access control)
   referrals ReferralDoctor_Visit[]
@@ -286,15 +286,15 @@ model ReferralDoctor {
 }
 
 model ReferralDoctorProductRule {
-  id                     String             @id @default(cuid())
-  referralDoctorId       String
-  productId              String
-  commissionType         ReferralPayoutType @default(PERCENTAGE)
-  commissionPercent      Float?
+  id                      String             @id @default(cuid())
+  referralDoctorId        String
+  productId               String
+  commissionType          ReferralPayoutType @default(PERCENTAGE)
+  commissionPercent       Float?
   commissionAmountInPaise Int?
-  isActive               Boolean            @default(true)
-  createdAt              DateTime           @default(now())
-  updatedAt              DateTime           @updatedAt
+  isActive                Boolean            @default(true)
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
 
   referralDoctor ReferralDoctor  @relation(fields: [referralDoctorId], references: [id], onDelete: Cascade)
   product        BillableProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -310,23 +310,23 @@ model ClinicDoctor {
   id                      String             @id @default(cuid())
   doctorNumber            String             @unique // CD-00001, CD-00002, etc. (user-facing)
   name                    String
-  qualification           String             // MBBS, MD (Gen Med), etc.
-  specialty               String             // General Medicine, Pediatrics, etc.
+  qualification           String // MBBS, MD (Gen Med), etc.
+  specialty               String // General Medicine, Pediatrics, etc.
   registrationNumber      String             @unique
   phone                   String?
   email                   String?
   letterheadNote          String?
   commissionType          ReferralPayoutType @default(PERCENTAGE)
   commissionPercent       Float              @default(100.0) // 0-100, percentage of consultation fee
-  commissionAmountInPaise Int?               // Fixed amount per consultation (if commissionType = FIXED_AMOUNT)
-  referralDoctorId        String?            // Link if this person is also a referral doctor
+  commissionAmountInPaise Int? // Fixed amount per consultation (if commissionType = FIXED_AMOUNT)
+  referralDoctorId        String? // Link if this person is also a referral doctor
   isActive                Boolean            @default(true)
   createdAt               DateTime           @default(now())
   updatedAt               DateTime           @updatedAt
 
   /// Clinic visits (not referral-based)
-  clinicVisits  ClinicVisit[]
-  payoutLedger  DoctorPayoutLedger[]
+  clinicVisits ClinicVisit[]
+  payoutLedger DoctorPayoutLedger[]
 
   @@index([isActive])
   @@index([createdAt])
@@ -335,49 +335,49 @@ model ClinicDoctor {
 /// LabTest: Diagnostic tests offered at the center
 /// Price fixed globally, can be overridden per visit if needed.
 model LabTest {
-  id              String   @id @default(cuid())
-  name            String
-  code            String   @unique
-  priceInPaise    Int      // Must be > 0, 0 for sub-tests
-  referenceMin    Float?
-  referenceMax    Float?
-  referenceUnit   String?
-  referenceText   String?  // For text-based ranges like "Negative", "Non-reactive"
-  isActive        Boolean  @default(true)
-  displayOrder    Int      @default(0) // Order within parent panel
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id            String   @id @default(cuid())
+  name          String
+  code          String   @unique
+  priceInPaise  Int // Must be > 0, 0 for sub-tests
+  referenceMin  Float?
+  referenceMax  Float?
+  referenceUnit String?
+  referenceText String? // For text-based ranges like "Negative", "Non-reactive"
+  isActive      Boolean  @default(true)
+  displayOrder  Int      @default(0) // Order within parent panel
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   // Panel hierarchy: panels have children, sub-tests have parent
-  parentTestId    String?  // NULL = standalone/panel, set = sub-test
-  parentTest      LabTest?  @relation("TestHierarchy", fields: [parentTestId], references: [id])
-  childTests      LabTest[] @relation("TestHierarchy")
-  
+  parentTestId String? // NULL = standalone/panel, set = sub-test
+  parentTest   LabTest?  @relation("TestHierarchy", fields: [parentTestId], references: [id])
+  childTests   LabTest[] @relation("TestHierarchy")
+
   // Is this a panel (has children) or individual test?
-  isPanel         Boolean  @default(false)
+  isPanel Boolean @default(false)
 
   // Extended fields for test management overhaul
-  sampleType          String?              // e.g., "Blood", "Serum", "Urine" — display on report
-  method              String?              // e.g., "ECLIA", "GOD-POD" — global default method
-  departmentId        String?              // Direct link to department for admin grouping
-  defaultReferralType ReferralSourceType   @default(SELF) // Default referral type, overridable at billing
+  sampleType          String? // e.g., "Blood", "Serum", "Urine" — display on report
+  method              String? // e.g., "ECLIA", "GOD-POD" — global default method
+  departmentId        String? // Direct link to department for admin grouping
+  defaultReferralType ReferralSourceType @default(SELF) // Default referral type, overridable at billing
 
   // Department relation
   department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
 
   /// Test orders in visits
   testOrders TestOrder[]
-  
+
   /// Test results (for sub-tests within panels)
   testResults TestResult[]
-  
+
   // E3-10: Panel and interpretation relations
   panelItems      PanelTestItem[]
   interpretations InterpretationTemplate[]
 
   // Extended relations
-  ageRanges         TestAgeRange[]
-  derivedParameter  DerivedParameter?
+  ageRanges        TestAgeRange[]
+  derivedParameter DerivedParameter?
 
   @@index([isActive])
   @@index([code])
@@ -416,16 +416,16 @@ model Branch {
 
 /// User: Staff, doctor, owner
 model User {
-  id              String   @id @default(cuid())
-  email           String   @unique
-  passwordHash    String   // bcrypt hash
-  name            String
-  phone           String?
-  role            UserRole
-  activeBranchId  String
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String   @id @default(cuid())
+  email          String   @unique
+  passwordHash   String // bcrypt hash
+  name           String
+  phone          String?
+  role           UserRole
+  activeBranchId String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   activeBranch Branch @relation(fields: [activeBranchId], references: [id], onDelete: Restrict)
 
@@ -442,19 +442,19 @@ model User {
 /// All tests, results, bills, clinic data references this.
 /// branchId + billNumber is unique per branch (auto-generated sequence).
 model Visit {
-  id              String      @id @default(cuid())
-  branchId        String
-  patientId       String
-  domain          VisitDomain // DIAGNOSTICS | CLINIC
-  status          VisitStatus @default(DRAFT)
-  billNumber      String      // Format: D-{BRANCH_CODE}-{SEQ} or C-{BRANCH_CODE}-{SEQ}
-  totalAmountInPaise Int      // Sum of bill items
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  id                 String      @id @default(cuid())
+  branchId           String
+  patientId          String
+  domain             VisitDomain // DIAGNOSTICS | CLINIC
+  status             VisitStatus @default(DRAFT)
+  billNumber         String // Format: D-{BRANCH_CODE}-{SEQ} or C-{BRANCH_CODE}-{SEQ}
+  totalAmountInPaise Int // Sum of bill items
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
 
   // Relations
-  branch   Branch  @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  patient  Patient @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  branch  Branch  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Restrict)
 
   /// Explicit referrals (for diagnostics)
   referrals ReferralDoctor_Visit[]
@@ -463,7 +463,7 @@ model Visit {
   diagnosticCenterReferrals DiagnosticCenter_Visit[]
 
   /// Bill (one per visit)
-  bill   Bill?
+  bill Bill?
 
   /// Diagnostics data (if domain = DIAGNOSTICS)
   testOrders TestOrder[]
@@ -490,9 +490,9 @@ model ReferralDoctor_Visit {
   branchId         String
   createdAt        DateTime @default(now())
 
-  visit           Visit           @relation(fields: [visitId], references: [id], onDelete: Cascade)
-  referralDoctor  ReferralDoctor  @relation(fields: [referralDoctorId], references: [id], onDelete: Cascade)
-  branch          Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  visit          Visit          @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  referralDoctor ReferralDoctor @relation(fields: [referralDoctorId], references: [id], onDelete: Cascade)
+  branch         Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   @@unique([visitId, referralDoctorId])
   @@index([referralDoctorId])
@@ -501,21 +501,23 @@ model ReferralDoctor_Visit {
 
 /// Bill: Single bill per visit (financial anchor)
 model Bill {
-  id                  String        @id @default(cuid())
-  visitId             String        @unique
-  billNumber          String        // Duplicated for direct queries; should match Visit.billNumber
-  branchId            String
-  totalAmountInPaise  Int
-  paymentType         PaymentType   @default(CASH)
-  paymentStatus       PaymentStatus @default(PENDING)
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  id                 String        @id @default(cuid())
+  visitId            String        @unique
+  billNumber         String // Duplicated for direct queries; should match Visit.billNumber
+  branchId           String
+  totalAmountInPaise Int
+  billedAt           DateTime      @default(now()) // Explicit billing timestamp; remains stable after payment updates
+  paymentType        PaymentType   @default(CASH)
+  paymentStatus      PaymentStatus @default(PENDING)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
-  visit  Visit   @relation(fields: [visitId], references: [id], onDelete: Cascade)
-  branch Branch  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  visit  Visit  @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
 
   @@unique([branchId, billNumber])
   @@index([billNumber])
+  @@index([billedAt])
   @@index([paymentStatus])
   @@index([createdAt])
 }
@@ -525,29 +527,29 @@ model Bill {
 /// E3-03: Test metadata is snapshotted at order time for immutability.
 /// DUAL FK: testId (old LabTest) + testDefinitionId (new TestDefinition) during migration.
 model TestOrder {
-  id                             String   @id @default(cuid())
-  visitId                        String
-  testId                         String
-  branchId                       String
-  priceInPaise                   Int      // Snapshot of test price at order time
-  referralCommissionType         ReferralPayoutType @default(PERCENTAGE)
-  referralCommissionPercentage   Float?   // 0-100 when payout type = PERCENTAGE
-  referralCommissionAmountInPaise Int?    // Fixed payout snapshot when payout type = FIXED_AMOUNT
-  diagnosticCenterCommissionType ReferralPayoutType?
-  diagnosticCenterCommissionPercentage Float?
+  id                                      String              @id @default(cuid())
+  visitId                                 String
+  testId                                  String
+  branchId                                String
+  priceInPaise                            Int // Snapshot of test price at order time
+  referralCommissionType                  ReferralPayoutType  @default(PERCENTAGE)
+  referralCommissionPercentage            Float? // 0-100 when payout type = PERCENTAGE
+  referralCommissionAmountInPaise         Int? // Fixed payout snapshot when payout type = FIXED_AMOUNT
+  diagnosticCenterCommissionType          ReferralPayoutType?
+  diagnosticCenterCommissionPercentage    Float?
   diagnosticCenterCommissionAmountInPaise Int?
-  createdAt                      DateTime @default(now())
+  createdAt                               DateTime            @default(now())
 
   // E3-03: Test metadata snapshot (frozen at order time)
-  testNameSnapshot               String   // Test name at time of order
-  testCodeSnapshot               String   // Test code at time of order
-  referenceMinSnapshot           Float?   // Reference min at time of order
-  referenceMaxSnapshot           Float?   // Reference max at time of order
-  referenceUnitSnapshot          String?  // Reference unit at time of order
+  testNameSnapshot      String // Test name at time of order
+  testCodeSnapshot      String // Test code at time of order
+  referenceMinSnapshot  Float? // Reference min at time of order
+  referenceMaxSnapshot  Float? // Reference max at time of order
+  referenceUnitSnapshot String? // Reference unit at time of order
 
   // New architecture: dual FK for migration period
-  testDefinitionId               String?  // New-arch FK (nullable during migration)
-  productId                      String?  // Which BillableProduct was ordered
+  testDefinitionId String? // New-arch FK (nullable during migration)
+  productId        String? // Which BillableProduct was ordered
 
   visit          Visit            @relation(fields: [visitId], references: [id], onDelete: Cascade)
   test           LabTest          @relation(fields: [testId], references: [id], onDelete: Restrict)
@@ -566,10 +568,10 @@ model TestOrder {
 
 /// DiagnosticReport: Container for report versions
 model DiagnosticReport {
-  id          String   @id @default(cuid())
-  visitId     String   @unique
-  branchId    String
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  visitId   String   @unique
+  branchId  String
+  createdAt DateTime @default(now())
 
   visit Visit @relation(fields: [visitId], references: [id], onDelete: Cascade)
 
@@ -588,22 +590,22 @@ model ReportVersion {
   reportId    String
   versionNum  Int
   status      ReportStatus @default(DRAFT) // DRAFT | FINALIZED
-  finalizedAt DateTime?    // Set when FINALIZED
+  finalizedAt DateTime? // Set when FINALIZED
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt // Allowed only before FINALIZED
 
   // E3-10: Snapshot fields (frozen at finalization, NULL while DRAFT)
-  panelsSnapshot          Json?  // Panel layout + test groupings
-  signaturesSnapshot      Json?  // Signing doctor details + images
-  patientSnapshot         Json?  // Patient demographics at finalization
-  visitSnapshot           Json?  // Visit metadata at finalization
-  interpretationsSnapshot Json?  // Resolved interpretation texts
+  panelsSnapshot          Json? // Panel layout + test groupings
+  signaturesSnapshot      Json? // Signing doctor details + images
+  patientSnapshot         Json? // Patient demographics at finalization
+  visitSnapshot           Json? // Visit metadata at finalization
+  interpretationsSnapshot Json? // Resolved interpretation texts
 
   report DiagnosticReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
 
   /// Test results for this version
-  testResults  TestResult[]
-  
+  testResults TestResult[]
+
   // E3-10: Access control
   accessTokens ReportAccessToken[]
   accessLogs   ReportAccessLog[]
@@ -617,23 +619,23 @@ model ReportVersion {
 /// IMMUTABLE once report is finalized.
 /// DUAL FK: testId (old LabTest) + testDefinitionId (new TestDefinition) during migration.
 model TestResult {
-  id              String         @id @default(cuid())
+  id              String          @id @default(cuid())
   testOrderId     String
-  testId          String         // The actual test (can be sub-test of ordered panel)
+  testId          String // The actual test (can be sub-test of ordered panel)
   reportVersionId String
-  value           Float?         // Numeric result (can be null)
-  textValue       String?        // Text-based result (e.g., "Positive", "Negative")
+  value           Float? // Numeric result (can be null)
+  textValue       String? // Text-based result (e.g., "Positive", "Negative")
   flag            TestResultFlag? // NORMAL | HIGH | LOW
   notes           String?
-  createdAt       DateTime       @default(now())
+  createdAt       DateTime        @default(now())
 
   // New architecture: dual FK
-  testDefinitionId String?       // New-arch FK (nullable during migration)
+  testDefinitionId String? // New-arch FK (nullable during migration)
 
-  testOrder        TestOrder      @relation(fields: [testOrderId], references: [id], onDelete: Cascade)
-  test             LabTest        @relation(fields: [testId], references: [id], onDelete: Restrict)
-  testDefinition   TestDefinition? @relation(fields: [testDefinitionId], references: [id], onDelete: Restrict)
-  reportVersion    ReportVersion  @relation(fields: [reportVersionId], references: [id], onDelete: Cascade)
+  testOrder      TestOrder       @relation(fields: [testOrderId], references: [id], onDelete: Cascade)
+  test           LabTest         @relation(fields: [testId], references: [id], onDelete: Restrict)
+  testDefinition TestDefinition? @relation(fields: [testDefinitionId], references: [id], onDelete: Restrict)
+  reportVersion  ReportVersion   @relation(fields: [reportVersionId], references: [id], onDelete: Cascade)
 
   @@index([testOrderId])
   @@index([testId])
@@ -645,24 +647,28 @@ model TestResult {
 /// NOTE: ClinicVisit.status = queue state (WAITING/IN_PROGRESS/COMPLETED)
 ///       Visit.status = overall lifecycle (DRAFT/WAITING/IN_PROGRESS/COMPLETED/CANCELLED)
 model ClinicVisit {
-  id                     String         @id @default(cuid())
-  visitId                String         @unique
+  id                     String          @id @default(cuid())
+  visitId                String          @unique
   clinicDoctorId         String
   visitType              ClinicVisitType
   hospitalWard           String?
   consultationFeeInPaise Int
-  isRevisit              Boolean        @default(false)
-  originalVisitId        String?        // Points to the original Visit.id this is a follow-up of
-  status                 VisitStatus    @default(WAITING) // Queue state: WAITING | IN_PROGRESS | COMPLETED
-  createdAt              DateTime       @default(now())
-  updatedAt              DateTime       @updatedAt
+  isRevisit              Boolean         @default(false)
+  originalVisitId        String? // Points to the original Visit.id this is a follow-up of
+  status                 VisitStatus     @default(WAITING) // Queue state: WAITING | IN_PROGRESS | COMPLETED
+  startedAt              DateTime? // First transition to IN_PROGRESS
+  completedAt            DateTime? // First transition to COMPLETED
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
 
-  visit        Visit       @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  visit        Visit        @relation(fields: [visitId], references: [id], onDelete: Cascade)
   clinicDoctor ClinicDoctor @relation(fields: [clinicDoctorId], references: [id], onDelete: Restrict)
 
   @@index([visitId])
   @@index([clinicDoctorId])
   @@index([status])
+  @@index([startedAt])
+  @@index([completedAt])
 }
 
 // ============================================================================
@@ -671,12 +677,12 @@ model ClinicVisit {
 
 /// DoctorPayoutRule: Configuration for payout derivation (future use)
 model DoctorPayoutRule {
-  id                String   @id @default(cuid())
-  referralDoctorId  String
-  baseCommissionPercent Float @default(10.0)
-  isActive          Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  referralDoctorId      String
+  baseCommissionPercent Float    @default(10.0)
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   @@index([referralDoctorId])
 }
@@ -687,27 +693,27 @@ model DoctorPayoutRule {
 ///   - REFERRAL: Sum of (test price × commission %) for all finalized tests in period
 ///   - CLINIC: Sum of consultation fees for all completed visits in period
 model DoctorPayoutLedger {
-  id                    String           @id @default(cuid())
-  doctorType            PayoutDoctorType // REFERRAL | CLINIC | DIAGNOSTIC_CENTER
-  referralDoctorId      String?          // Set when doctorType = REFERRAL
-  clinicDoctorId        String?          // Set when doctorType = CLINIC
-  diagnosticCenterId    String?          // Set when doctorType = DIAGNOSTIC_CENTER
-  branchId              String
-  periodStartDate       DateTime
-  periodEndDate         DateTime
-  derivedAmountInPaise  Int              // Fully derived, not manual
-  derivedAt             DateTime         // When calculation was done
-  reviewedAt            DateTime?        // When reviewed by owner
-  paidAt                DateTime?        // When marked paid (immutable after)
-  paymentMethod         PaymentType?     // Cash, Online, Cheque
-  paymentReferenceId    String?          // Cheque #, transaction ID, etc.
-  notes                 String?
-  createdAt             DateTime         @default(now())
+  id                   String           @id @default(cuid())
+  doctorType           PayoutDoctorType // REFERRAL | CLINIC | DIAGNOSTIC_CENTER
+  referralDoctorId     String? // Set when doctorType = REFERRAL
+  clinicDoctorId       String? // Set when doctorType = CLINIC
+  diagnosticCenterId   String? // Set when doctorType = DIAGNOSTIC_CENTER
+  branchId             String
+  periodStartDate      DateTime
+  periodEndDate        DateTime
+  derivedAmountInPaise Int // Fully derived, not manual
+  derivedAt            DateTime // When calculation was done
+  reviewedAt           DateTime? // When reviewed by owner
+  paidAt               DateTime? // When marked paid (immutable after)
+  paymentMethod        PaymentType? // Cash, Online, Cheque
+  paymentReferenceId   String? // Cheque #, transaction ID, etc.
+  notes                String?
+  createdAt            DateTime         @default(now())
 
-  referralDoctor   ReferralDoctor?          @relation(fields: [referralDoctorId], references: [id], onDelete: Restrict)
-  clinicDoctor     ClinicDoctor?            @relation(fields: [clinicDoctorId], references: [id], onDelete: Restrict)
+  referralDoctor   ReferralDoctor?           @relation(fields: [referralDoctorId], references: [id], onDelete: Restrict)
+  clinicDoctor     ClinicDoctor?             @relation(fields: [clinicDoctorId], references: [id], onDelete: Restrict)
   diagnosticCenter DiagnosticReferralCenter? @relation(fields: [diagnosticCenterId], references: [id], onDelete: Restrict)
-  branch           Branch                   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  branch           Branch                    @relation(fields: [branchId], references: [id], onDelete: Restrict)
 
   @@unique([doctorType, referralDoctorId, clinicDoctorId, diagnosticCenterId, branchId, periodStartDate, periodEndDate])
   @@index([doctorType])
@@ -726,17 +732,17 @@ model DoctorPayoutLedger {
 /// RULE: Insert only. No updates. No deletes.
 /// ENFORCEMENT: Declare as insert-only in code; never update/delete.
 model AuditLog {
-  id          String              @id @default(cuid())
-  branchId    String
-  actionType  AuditActionType
-  entityType  String              // Visit, TestOrder, ReportVersion, etc.
-  entityId    String
-  userId      String?
-  oldValues   String?             // JSON string (if applicable)
-  newValues   String?             // JSON string (if applicable)
-  ipAddress   String?
-  userAgent   String?
-  createdAt   DateTime            @default(now())
+  id         String          @id @default(cuid())
+  branchId   String
+  actionType AuditActionType
+  entityType String // Visit, TestOrder, ReportVersion, etc.
+  entityId   String
+  userId     String?
+  oldValues  String? // JSON string (if applicable)
+  newValues  String? // JSON string (if applicable)
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime        @default(now())
 
   branch Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
 
@@ -755,17 +761,17 @@ model AuditLog {
 /// RULE: Insert only. No updates. No deletes.
 /// PURPOSE: Track identity field changes with mandatory reasons (staff)
 model PatientChangeLog {
-  id            String   @id @default(cuid())
-  patientId     String
-  fieldName     String
-  oldValue      String?
-  newValue      String?
-  changeType    PatientChangeType  // IDENTITY or NON_IDENTITY
-  changeReason  String?            // Mandatory for IDENTITY changes by staff
-  changedBy     String             // User ID
-  changedRole   String             // staff, admin, owner
-  requestId     String?            // Optional: group multiple field changes
-  createdAt     DateTime @default(now())
+  id           String            @id @default(cuid())
+  patientId    String
+  fieldName    String
+  oldValue     String?
+  newValue     String?
+  changeType   PatientChangeType // IDENTITY or NON_IDENTITY
+  changeReason String? // Mandatory for IDENTITY changes by staff
+  changedBy    String // User ID
+  changedRole  String // staff, admin, owner
+  requestId    String? // Optional: group multiple field changes
+  createdAt    DateTime          @default(now())
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Restrict)
 
@@ -788,22 +794,22 @@ enum PatientChangeType {
 /// MessageLog: Track all outbound messages (WhatsApp, SMS)
 /// Generic enough for reports, bills, reminders, campaigns — contextType + contextId
 model MessageLog {
-  id              String             @id @default(cuid())
-  patientId       String
-  phone           String
-  channel         MessageChannel     // WHATSAPP | SMS
-  templateName    String             // e.g., lab_report_ready, bill_receipt
-  templateParams  Json?              // Template variable values
-  waMessageId     String?            // WhatsApp Cloud API message ID
-  status          MessageStatus      @default(PENDING)
-  failureReason   String?
-  sentAt          DateTime?
-  deliveredAt     DateTime?
-  readAt          DateTime?
-  contextType     MessageContextType // REPORT | BILL | REMINDER | CAMPAIGN | PAYMENT
-  contextId       String             // visitId, billId, etc.
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  id             String             @id @default(cuid())
+  patientId      String
+  phone          String
+  channel        MessageChannel // WHATSAPP | SMS
+  templateName   String // e.g., lab_report_ready, bill_receipt
+  templateParams Json? // Template variable values
+  waMessageId    String? // WhatsApp Cloud API message ID
+  status         MessageStatus      @default(PENDING)
+  failureReason  String?
+  sentAt         DateTime?
+  deliveredAt    DateTime?
+  readAt         DateTime?
+  contextType    MessageContextType // REPORT | BILL | REMINDER | CAMPAIGN | PAYMENT
+  contextId      String // visitId, billId, etc.
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Restrict)
 
@@ -822,8 +828,8 @@ model MessageLog {
 /// e.g., "DEPARTMENT OF HAEMATOLOGY", "DEPARTMENT OF BIOCHEMISTRY"
 model Department {
   id               String   @id @default(cuid())
-  name             String   @unique  // e.g., "HAEMATOLOGY", "BIOCHEMISTRY"
-  reportHeaderText String            // e.g., "DEPARTMENT OF HAEMATOLOGY"
+  name             String   @unique // e.g., "HAEMATOLOGY", "BIOCHEMISTRY"
+  reportHeaderText String // e.g., "DEPARTMENT OF HAEMATOLOGY"
   displayOrder     Int      @default(0)
   isActive         Boolean  @default(true)
   createdAt        DateTime @default(now())
@@ -843,10 +849,10 @@ model Department {
 /// Each panel has a layout type that determines how tests are rendered
 model PanelDefinition {
   id               String          @id @default(cuid())
-  name             String          @unique  // e.g., "LFT", "CBP", "WIDAL"
-  displayName      String                   // e.g., "LIVER FUNCTION TEST"
+  name             String          @unique // e.g., "LFT", "CBP", "WIDAL"
+  displayName      String // e.g., "LIVER FUNCTION TEST"
   departmentId     String
-  layoutType       PanelLayoutType          // Determines rendering strategy
+  layoutType       PanelLayoutType // Determines rendering strategy
   displayOrder     Int             @default(0)
   showMethodColumn Boolean         @default(false)
   isActive         Boolean         @default(true)
@@ -869,11 +875,11 @@ model PanelTestItem {
   testId       String
   displayOrder Int      @default(0)
   showMethod   Boolean  @default(false)
-  methodText   String?                    // e.g., "Method: ECLIA"
-  indentLevel  Int      @default(0)       // 0=main, 1=sub-test
+  methodText   String? // e.g., "Method: ECLIA"
+  indentLevel  Int      @default(0) // 0=main, 1=sub-test
   isBold       Boolean  @default(false)
   isItalic     Boolean  @default(false)
-  subGroup     String?                    // e.g., "MAIN", "DIFFERENTIAL", "SMEAR" for CBP layout
+  subGroup     String? // e.g., "MAIN", "DIFFERENTIAL", "SMEAR" for CBP layout
   createdAt    DateTime @default(now())
 
   panel PanelDefinition @relation(fields: [panelId], references: [id], onDelete: Cascade)
@@ -887,16 +893,16 @@ model PanelTestItem {
 /// SigningDoctor: Doctors who sign diagnostic reports
 /// Stores credentials and signature image reference
 model SigningDoctor {
-  id                 String   @id @default(cuid())
-  name               String
-  degrees            String            // e.g., "MBBS, MD (Pathology)"
-  designation        String            // e.g., "Consultant Pathologist"
-  registrationNumber String?           // Medical council registration
-  signatureImagePath   String?           // Path to signature PNG in storage (set after upload)
-  signatureImageBase64 String?           // Base64 data URI — persists across deploys (Render safe)
-  isActive           Boolean  @default(true)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                   String   @id @default(cuid())
+  name                 String
+  degrees              String // e.g., "MBBS, MD (Pathology)"
+  designation          String // e.g., "Consultant Pathologist"
+  registrationNumber   String? // Medical council registration
+  signatureImagePath   String? // Path to signature PNG in storage (set after upload)
+  signatureImageBase64 String? // Base64 data URI — persists across deploys (Render safe)
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   signingRules SigningRule[]
 
@@ -909,8 +915,8 @@ model SigningRule {
   id                  String   @id @default(cuid())
   departmentId        String
   signingDoctorId     String
-  showLabInchargeNote Boolean  @default(false)  // Show "Lab Incharge" text
-  displayOrder        Int      @default(0)      // Multiple signers order
+  showLabInchargeNote Boolean  @default(false) // Show "Lab Incharge" text
+  displayOrder        Int      @default(0) // Multiple signers order
   isActive            Boolean  @default(true)
   createdAt           DateTime @default(now())
 
@@ -927,9 +933,9 @@ model SigningRule {
 model InterpretationTemplate {
   id                 String   @id @default(cuid())
   testId             String
-  minValue           Float?            // NULL = no lower bound
-  maxValue           Float?            // NULL = no upper bound
-  interpretationText String            // The interpretation text
+  minValue           Float? // NULL = no lower bound
+  maxValue           Float? // NULL = no upper bound
+  interpretationText String // The interpretation text
   displayOrder       Int      @default(0)
   isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())
@@ -945,9 +951,9 @@ model InterpretationTemplate {
 /// Token maps to specific finalized ReportVersion
 model ReportAccessToken {
   id              String    @id @default(cuid())
-  token           String    @unique  // SHA-256 hash of the bearer token
+  token           String    @unique // SHA-256 hash of the bearer token
   reportVersionId String
-  expiresAt       DateTime?          // NULL = never expires
+  expiresAt       DateTime? // NULL = never expires
   accessCount     Int       @default(0)
   lastAccessedAt  DateTime?
   lastAccessedIp  String?
@@ -964,11 +970,11 @@ model ReportAccessToken {
 model ReportAccessLog {
   id              String   @id @default(cuid())
   reportVersionId String
-  accessType      String            // 'VIEW', 'DOWNLOAD', 'PRINT'
-  accessedVia     String            // 'TOKEN', 'STAFF_PORTAL', 'DIRECT'
+  accessType      String // 'VIEW', 'DOWNLOAD', 'PRINT'
+  accessedVia     String // 'TOKEN', 'STAFF_PORTAL', 'DIRECT'
   ipAddress       String?
   userAgent       String?
-  userId          String?           // Staff user if authenticated
+  userId          String? // Staff user if authenticated
   createdAt       DateTime @default(now())
 
   reportVersion ReportVersion @relation(fields: [reportVersionId], references: [id], onDelete: Cascade)
@@ -982,8 +988,8 @@ model ReportAccessLog {
 model TestAgeRange {
   id            String   @id @default(cuid())
   testId        String
-  minAgeDays    Int?     // age stored in total days (0 = newborn). Helpers: 1y=365, 1m=30
-  maxAgeDays    Int?     // null = no upper limit
+  minAgeDays    Int? // age stored in total days (0 = newborn). Helpers: 1y=365, 1m=30
+  maxAgeDays    Int? // null = no upper limit
   gender        Gender?
   referenceMin  Float?
   referenceMax  Float?
@@ -1000,14 +1006,14 @@ model TestAgeRange {
 
 // ─── Derived Parameters (formula-based calculated values) ────────
 model DerivedParameter {
-  id                  String   @id @default(cuid())
-  testId              String   @unique
-  parameterName       String
-  formula             String
-  dependsOnTestCodes  Json
-  displayOrder        Int      @default(0)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  testId             String   @unique
+  parameterName      String
+  formula            String
+  dependsOnTestCodes Json
+  displayOrder       Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   test LabTest @relation(fields: [testId], references: [id], onDelete: Cascade)
 }
@@ -1054,16 +1060,16 @@ model DiagnosticCenterProductRule {
 
 // ─── Diagnostic Center ↔ Visit Join Table ────────────────────────
 model DiagnosticCenter_Visit {
-  id                   String             @id @default(cuid())
-  visitId              String
-  diagnosticCenterId   String
-  branchId             String
-  referralType         ReferralSourceType @default(SELF)
-  createdAt            DateTime           @default(now())
+  id                 String             @id @default(cuid())
+  visitId            String
+  diagnosticCenterId String
+  branchId           String
+  referralType       ReferralSourceType @default(SELF)
+  createdAt          DateTime           @default(now())
 
-  visit              Visit                    @relation(fields: [visitId], references: [id], onDelete: Cascade)
-  diagnosticCenter   DiagnosticReferralCenter @relation(fields: [diagnosticCenterId], references: [id])
-  branch             Branch                   @relation(fields: [branchId], references: [id])
+  visit            Visit                    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  diagnosticCenter DiagnosticReferralCenter @relation(fields: [diagnosticCenterId], references: [id])
+  branch           Branch                   @relation(fields: [branchId], references: [id])
 
   @@unique([visitId, diagnosticCenterId])
   @@index([diagnosticCenterId])
@@ -1078,47 +1084,47 @@ model DiagnosticCenter_Visit {
 /// Uses clone-on-edit semantics: active version is isLatest=true.
 /// Status lifecycle: ACTIVE → LOCKED → DEPRECATED → ARCHIVED
 model TestDefinition {
-  id                 String               @id @default(cuid())
-  rootDefinitionId   String               // Points to first version's ID (groups versions)
-  version            Int                  @default(1)
-  previousVersionId  String?              // Previous version ID (null for v1)
-  isLatest           Boolean              @default(true)
-  status             TestDefinitionStatus @default(ACTIVE)
-  
-  name               String
-  code               String               // Unique among isLatest=true
-  sampleType         String?              // e.g., "Blood", "Serum", "Urine"
-  method             String?              // e.g., "ECLIA", "GOD-POD"
-  referenceUnit      String?              // e.g., "g/dL", "mg/dL"
-  departmentId       String?
-  
+  id                String               @id @default(cuid())
+  rootDefinitionId  String // Points to first version's ID (groups versions)
+  version           Int                  @default(1)
+  previousVersionId String? // Previous version ID (null for v1)
+  isLatest          Boolean              @default(true)
+  status            TestDefinitionStatus @default(ACTIVE)
+
+  name          String
+  code          String // Unique among isLatest=true
+  sampleType    String? // e.g., "Blood", "Serum", "Urine"
+  method        String? // e.g., "ECLIA", "GOD-POD"
+  referenceUnit String? // e.g., "g/dL", "mg/dL"
+  departmentId  String?
+
   // Default reference range (fallback if no age/gender-specific range matches)
-  referenceMin       Float?
-  referenceMax       Float?
-  referenceText      String?              // For text-based ranges like "Negative"
-  criticalMin        Float?               // Critical low threshold for general range
-  criticalMax        Float?               // Critical high threshold for general range
-  
+  referenceMin  Float?
+  referenceMax  Float?
+  referenceText String? // For text-based ranges like "Negative"
+  criticalMin   Float? // Critical low threshold for general range
+  criticalMax   Float? // Critical high threshold for general range
+
   // Derived parameter support
-  formulaExpression  String?              // e.g., "ALB / GLOB"
-  dependsOnCodes     Json                 @default("[]") // String array of test codes
-  
+  formulaExpression String? // e.g., "ALB / GLOB"
+  dependsOnCodes    Json    @default("[]") // String array of test codes
+
   // Interpretation
-  interpretationMode InterpretationMode   @default(NONE)
-  
-  displayOrder       Int                  @default(0)
-  isActive           Boolean              @default(true) // Visibility flag — controls whether this definition appears in clinical forms
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
+  interpretationMode InterpretationMode @default(NONE)
+
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true) // Visibility flag — controls whether this definition appears in clinical forms
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   // Relations
-  department         Department?          @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  ranges             TestDefinitionRange[]
+  department          Department?            @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  ranges              TestDefinitionRange[]
   interpretationRules InterpretationRule[]
-  panelItems         ClinicalPanelItem[]
-  testOrders         TestOrder[]
-  testResults        TestResult[]
-  productPanels      BillableProductPanel[] // Products that include this (via panels)
+  panelItems          ClinicalPanelItem[]
+  testOrders          TestOrder[]
+  testResults         TestResult[]
+  productPanels       BillableProductPanel[] // Products that include this (via panels)
 
   @@unique([rootDefinitionId, version]) // Each root can only have one of each version number
   @@index([code, isLatest]) // Fast lookup for code uniqueness among latest
@@ -1134,16 +1140,16 @@ model TestDefinitionRange {
   id               String         @id @default(cuid())
   testDefinitionId String
   category         RangeCategory? // UI selector: MALE, FEMALE, INFANT, CHILD, OTHER
-  categoryLabel    String?        // Custom label for OTHER category (e.g., "Pregnant")
-  minAgeDays       Int?           // age in total days (0 = newborn). null = no lower bound
-  maxAgeDays       Int?           // null = no upper limit
-  gender           Gender?        // null = gender-neutral
+  categoryLabel    String? // Custom label for OTHER category (e.g., "Pregnant")
+  minAgeDays       Int? // age in total days (0 = newborn). null = no lower bound
+  maxAgeDays       Int? // null = no upper limit
+  gender           Gender? // null = gender-neutral
   referenceMin     Float?
   referenceMax     Float?
   referenceUnit    String?
   referenceText    String?
-  criticalMin      Float?         // Critical low threshold
-  criticalMax      Float?         // Critical high threshold
+  criticalMin      Float? // Critical low threshold
+  criticalMax      Float? // Critical high threshold
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
@@ -1156,19 +1162,19 @@ model TestDefinitionRange {
 /// InterpretationRule: Configurable interpretation rules for test results
 /// Supports numeric range matching, text matching, and category matching
 model InterpretationRule {
-  id                 String               @id @default(cuid())
+  id                 String                 @id @default(cuid())
   testDefinitionId   String
   ruleType           InterpretationRuleType
   operator           ComparisonOperator
-  value1             Float?               // Primary comparison value
-  value2             Float?               // Secondary value (for BETWEEN operator)
-  textMatch          String?              // For TEXT_MATCH / CATEGORY_MATCH rules
-  interpretationText String               // The interpretation text to display
-  severity           String?              // e.g., "normal", "caution", "critical"
-  displayOrder       Int                  @default(0)
-  isActive           Boolean              @default(true)
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
+  value1             Float? // Primary comparison value
+  value2             Float? // Secondary value (for BETWEEN operator)
+  textMatch          String? // For TEXT_MATCH / CATEGORY_MATCH rules
+  interpretationText String // The interpretation text to display
+  severity           String? // e.g., "normal", "caution", "critical"
+  displayOrder       Int                    @default(0)
+  isActive           Boolean                @default(true)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
 
   testDefinition TestDefinition @relation(fields: [testDefinitionId], references: [id], onDelete: Cascade)
 
@@ -1179,29 +1185,29 @@ model InterpretationRule {
 /// ClinicalPanel: Report rendering groups (replaces PanelDefinition for new data)
 /// Each panel has a layout type and config flags that control rendering
 model ClinicalPanel {
-  id                String          @id @default(cuid())
-  name              String          @unique
-  displayName       String          // e.g., "LIVER FUNCTION TEST"
-  departmentId      String
-  layoutType        PanelLayoutType @default(STANDARD_TABLE)
-  displayOrder      Int             @default(0)
-  showMethodColumn  Boolean         @default(false)
-  sampleType        String?                          // e.g., "WB-EDTA", "Serum", "Urine"
+  id               String          @id @default(cuid())
+  name             String          @unique
+  displayName      String // e.g., "LIVER FUNCTION TEST"
+  departmentId     String
+  layoutType       PanelLayoutType @default(STANDARD_TABLE)
+  displayOrder     Int             @default(0)
+  showMethodColumn Boolean         @default(false)
+  sampleType       String? // e.g., "WB-EDTA", "Serum", "Urine"
 
   // Config flags for STANDARD_TABLE rendering variants
-  showSubgroups     Boolean         @default(false)  // true = render subGroup sections (e.g., CBP: MAIN/DIFFERENTIAL/SMEAR)
-  showInterpretation Boolean        @default(false)  // true = render interpretation block below results
-  valueDisplayPrefix String?                         // e.g., "1:" for Widal dilution format
-  
-  summaryInterpretationTemplate String?              // Template for panel-level interpretation
-  subgroupMethods   Json?                            // Map<subgroupName, methodString> e.g. {"PHYSICAL EXAMINATION": "Transmission refractometry"}
-  subgroupTableOverrides Json?                       // Map<subgroupName, true> — force table rendering even when heuristic says key-value
-  isActive          Boolean         @default(true)
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  showSubgroups      Boolean @default(false) // true = render subGroup sections (e.g., CBP: MAIN/DIFFERENTIAL/SMEAR)
+  showInterpretation Boolean @default(false) // true = render interpretation block below results
+  valueDisplayPrefix String? // e.g., "1:" for Widal dilution format
 
-  department Department          @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  items      ClinicalPanelItem[]
+  summaryInterpretationTemplate String? // Template for panel-level interpretation
+  subgroupMethods               Json? // Map<subgroupName, methodString> e.g. {"PHYSICAL EXAMINATION": "Transmission refractometry"}
+  subgroupTableOverrides        Json? // Map<subgroupName, true> — force table rendering even when heuristic says key-value
+  isActive                      Boolean  @default(true)
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+
+  department    Department             @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  items         ClinicalPanelItem[]
   productPanels BillableProductPanel[]
 
   @@index([departmentId])
@@ -1216,11 +1222,11 @@ model ClinicalPanelItem {
   testDefinitionId String
   displayOrder     Int      @default(0)
   showMethod       Boolean  @default(false)
-  methodText       String?  // Override method text for this panel context
+  methodText       String? // Override method text for this panel context
   indentLevel      Int      @default(0)
   isBold           Boolean  @default(false)
   isItalic         Boolean  @default(false)
-  subGroup         String?  // e.g., "MAIN", "DIFFERENTIAL", "SMEAR" for subgroup rendering
+  subGroup         String? // e.g., "MAIN", "DIFFERENTIAL", "SMEAR" for subgroup rendering
   createdAt        DateTime @default(now())
 
   panel          ClinicalPanel  @relation(fields: [panelId], references: [id], onDelete: Cascade)
@@ -1239,17 +1245,17 @@ model BillableProduct {
   name             String
   code             String   @unique
   description      String?
-  basePriceInPaise Int      // Default price (can be overridden per branch)
-  isBundle         Boolean  @default(false)  // true = package of multiple panels
+  basePriceInPaise Int // Default price (can be overridden per branch)
+  isBundle         Boolean  @default(false) // true = package of multiple panels
   displayOrder     Int      @default(0)
   isActive         Boolean  @default(true)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  panels         BillableProductPanel[]
-  branchPricing  ProductBranchPricing[]
-  testOrders     TestOrder[]
-  referralDoctorRules ReferralDoctorProductRule[]
+  panels                BillableProductPanel[]
+  branchPricing         ProductBranchPricing[]
+  testOrders            TestOrder[]
+  referralDoctorRules   ReferralDoctorProductRule[]
   diagnosticCenterRules DiagnosticCenterProductRule[]
 
   @@index([code])
@@ -1260,11 +1266,11 @@ model BillableProduct {
 /// BillableProductPanel: Join table linking products to clinical panels
 /// Product → Panel → PanelItems → TestDefinitions (no direct TestDefinition link)
 model BillableProductPanel {
-  id               String @id @default(cuid())
+  id               String   @id @default(cuid())
   productId        String
   panelId          String
-  testDefinitionId String?  // Optional: direct test reference for single-test products
-  displayOrder     Int    @default(0)
+  testDefinitionId String? // Optional: direct test reference for single-test products
+  displayOrder     Int      @default(0)
   createdAt        DateTime @default(now())
 
   product        BillableProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -1298,11 +1304,11 @@ model ProductBranchPricing {
 /// Separate from TestDefinition for clarity, but linked 1:1
 model DerivedParameterDef {
   id                 String   @id @default(cuid())
-  testDefinitionCode String   @unique  // Code of the test definition this derives
+  testDefinitionCode String   @unique // Code of the test definition this derives
   parameterName      String
-  formula            String            // e.g., "ALB / GLOB"
-  dependsOnTestCodes Json              // String array: ["ALB", "GLOB"]
-  displayOrder       Int               @default(0)
+  formula            String // e.g., "ALB / GLOB"
+  dependsOnTestCodes Json // String array: ["ALB", "GLOB"]
+  displayOrder       Int      @default(0)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 }
