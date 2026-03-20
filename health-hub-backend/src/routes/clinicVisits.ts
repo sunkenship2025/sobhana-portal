@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { VisitStatus } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import { generateClinicBillNumber } from '../services/numberService';
@@ -101,6 +102,9 @@ router.get('/', async (req: AuthRequest, res) => {
         (v.clinicVisit?.originalVisitId && originalVisitMap.get(v.clinicVisit.originalVisitId)?.createdAt) || null,
       paymentType: v.bill?.paymentType || 'CASH',
       paymentStatus: v.bill?.paymentStatus || 'PENDING',
+      billedAt: v.bill?.billedAt || v.bill?.createdAt || null,
+      startedAt: v.clinicVisit?.startedAt || null,
+      completedAt: v.clinicVisit?.completedAt || null,
       createdAt: v.createdAt,
       updatedAt: v.updatedAt,
     }));
@@ -168,6 +172,9 @@ router.get('/:id', async (req: AuthRequest, res) => {
       originalVisitDate: null,
       paymentType: visit.bill?.paymentType || 'CASH',
       paymentStatus: visit.bill?.paymentStatus || 'PENDING',
+      billedAt: visit.bill?.billedAt || visit.bill?.createdAt || null,
+      startedAt: visit.clinicVisit?.startedAt || null,
+      completedAt: visit.clinicVisit?.completedAt || null,
       createdAt: visit.createdAt,
       updatedAt: visit.updatedAt,
     };
@@ -385,6 +392,9 @@ router.post('/', async (req: AuthRequest, res) => {
       patientId: completeVisit!.patientId,
       totalAmount: completeVisit!.totalAmountInPaise / 100,
       status: completeVisit!.clinicVisit?.status || 'WAITING',
+      billedAt: completeVisit!.bill?.billedAt || completeVisit!.bill?.createdAt || null,
+      startedAt: completeVisit!.clinicVisit?.startedAt || null,
+      completedAt: completeVisit!.clinicVisit?.completedAt || null,
       createdAt: completeVisit!.createdAt,
     });
   } catch (err: any) {
@@ -451,10 +461,27 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     // Update visit
     const updated = await prisma.$transaction(async (tx) => {
       if (status) {
+        const nextStatus = status as VisitStatus;
+        const clinicVisitStatusData: {
+          status: VisitStatus;
+          startedAt?: Date;
+          completedAt?: Date;
+        } = { status: nextStatus };
+
+        if (existing.clinicVisit) {
+          if (nextStatus === 'IN_PROGRESS' && !existing.clinicVisit.startedAt) {
+            clinicVisitStatusData.startedAt = new Date();
+          }
+
+          if (nextStatus === 'COMPLETED' && !existing.clinicVisit.completedAt) {
+            clinicVisitStatusData.completedAt = new Date();
+          }
+        }
+
         // Update both visit and clinic visit status
         await tx.visit.update({
           where: { id },
-          data: { status },
+          data: { status: nextStatus },
         });
 
         // Audit log for status change
@@ -465,7 +492,15 @@ router.patch('/:id', async (req: AuthRequest, res) => {
           entityId: id,
           branchId: req.branchId!,
           oldValues: { status: existing.status },
-          newValues: { status: status },
+          newValues: {
+            status: nextStatus,
+            ...(clinicVisitStatusData.startedAt && {
+              startedAt: clinicVisitStatusData.startedAt.toISOString(),
+            }),
+            ...(clinicVisitStatusData.completedAt && {
+              completedAt: clinicVisitStatusData.completedAt.toISOString(),
+            }),
+          },
           ipAddress: req.ip,
           userAgent: req.get('user-agent'),
         });
@@ -473,7 +508,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
         if (existing.clinicVisit) {
           await tx.clinicVisit.update({
             where: { id: existing.clinicVisit.id },
-            data: { status },
+            data: clinicVisitStatusData,
           });
 
           // Create ledger entry when visit is completed
@@ -540,6 +575,9 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       status: updated!.clinicVisit?.status || updated!.status,
       paymentStatus: updated!.bill?.paymentStatus,
       paymentType: updated!.bill?.paymentType,
+      billedAt: updated!.bill?.billedAt || updated!.bill?.createdAt || null,
+      startedAt: updated!.clinicVisit?.startedAt || null,
+      completedAt: updated!.clinicVisit?.completedAt || null,
     });
   } catch (err: any) {
     console.error('Update clinic visit error:', err);

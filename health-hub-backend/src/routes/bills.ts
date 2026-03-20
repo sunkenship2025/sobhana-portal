@@ -85,6 +85,7 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
         domain: visit.domain,
         status: visit.status,
         createdAt: visit.createdAt,
+        billedAt: visit.bill?.billedAt || visit.bill?.createdAt || visit.createdAt,
         totalAmount: visit.totalAmountInPaise / 100,
         visitType: visit.clinicVisit?.visitType,
         isRevisit: visit.clinicVisit?.isRevisit ?? false,
