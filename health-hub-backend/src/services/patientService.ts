@@ -298,7 +298,7 @@ export async function getPatient360View(patientId: string) {
             select: { id: true, name: true, code: true }
           },
           bill: {
-            select: { paymentType: true, paymentStatus: true }
+            select: { paymentType: true, paymentStatus: true, billedAt: true }
           },
           report: {
             include: {
@@ -349,6 +349,7 @@ export async function getPatient360View(patientId: string) {
       totalAmountInPaise: visit.totalAmountInPaise,
       paymentType: visit.bill?.paymentType || 'CASH',
       paymentStatus: visit.bill?.paymentStatus || 'PENDING',
+      billedAt: visit.bill?.billedAt || null,
       createdAt: visit.createdAt
     };
 
@@ -356,6 +357,8 @@ export async function getPatient360View(patientId: string) {
     if (visit.domain === 'CLINIC' && visit.clinicVisit) {
       timelineItem.visitType = visit.clinicVisit.visitType;
       timelineItem.doctorName = visit.clinicVisit.clinicDoctor?.name;
+      timelineItem.startedAt = visit.clinicVisit.startedAt;
+      timelineItem.completedAt = visit.clinicVisit.completedAt;
     }
 
     // Diagnostic-specific fields - report status
@@ -364,6 +367,7 @@ export async function getPatient360View(patientId: string) {
       timelineItem.reportStatus = latestVersion.status;
       timelineItem.reportVersionId = latestVersion.id;
       timelineItem.finalizedAt = latestVersion.finalizedAt;
+      timelineItem.reportFinalizedAt = latestVersion.finalizedAt;
     }
 
     return timelineItem;

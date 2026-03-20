@@ -217,48 +217,54 @@ router.get('/', async (req: AuthRequest, res) => {
     });
 
     // Transform to frontend format
-    const transformed = visits.map((v) => ({
-      id: v.id,
-      branchId: v.branchId,
-      billNumber: v.billNumber,
-      patientId: v.patientId,
-      patient: v.patient,
-      domain: v.domain,
-      status: v.status,
-      totalAmount: v.totalAmountInPaise / 100,
-      paymentType: v.bill?.paymentType || 'CASH',
-      paymentStatus: v.bill?.paymentStatus || 'PENDING',
-      referralDoctorId: v.referrals[0]?.referralDoctorId || null,
-      referralDoctor: v.referrals[0]?.referralDoctor || null,
-      testOrders: v.testOrders.map((to) => ({
-        id: to.id,
-        visitId: to.visitId,
-        testId: to.testId,
-        productId: to.productId,
-        testDefinitionId: to.testDefinitionId,
-        // E3-03: Use snapshotted metadata (fallback to live data for backward compatibility)
-        testName: to.testNameSnapshot || to.test.name,
-        testCode: to.testCodeSnapshot || to.test.code,
-        price: to.priceInPaise / 100,
-        priceInPaise: to.priceInPaise,
-        referralCommissionType: to.referralCommissionType,
-        referralCommissionPercent: to.referralCommissionPercentage,
-        referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
-        referenceRange: {
-          min: to.referenceMinSnapshot ?? to.test.referenceMin ?? 0,
-          max: to.referenceMaxSnapshot ?? to.test.referenceMax ?? 0,
-          unit: to.referenceUnitSnapshot || to.test.referenceUnit || '',
-        },
-      })),
-      report: v.report
-        ? {
-            id: v.report.id,
-            currentVersion: v.report.versions[0] || null,
-          }
-        : null,
-      createdAt: v.createdAt,
-      updatedAt: v.updatedAt,
-    }));
+    const transformed = visits.map((v) => {
+      const currentVersion = v.report?.versions[0] || null;
+
+      return {
+        id: v.id,
+        branchId: v.branchId,
+        billNumber: v.billNumber,
+        patientId: v.patientId,
+        patient: v.patient,
+        domain: v.domain,
+        status: v.status,
+        totalAmount: v.totalAmountInPaise / 100,
+        paymentType: v.bill?.paymentType || 'CASH',
+        paymentStatus: v.bill?.paymentStatus || 'PENDING',
+        billedAt: v.bill?.billedAt || v.bill?.createdAt || null,
+        reportFinalizedAt: currentVersion?.status === 'FINALIZED' ? currentVersion.finalizedAt : null,
+        referralDoctorId: v.referrals[0]?.referralDoctorId || null,
+        referralDoctor: v.referrals[0]?.referralDoctor || null,
+        testOrders: v.testOrders.map((to) => ({
+          id: to.id,
+          visitId: to.visitId,
+          testId: to.testId,
+          productId: to.productId,
+          testDefinitionId: to.testDefinitionId,
+          // E3-03: Use snapshotted metadata (fallback to live data for backward compatibility)
+          testName: to.testNameSnapshot || to.test.name,
+          testCode: to.testCodeSnapshot || to.test.code,
+          price: to.priceInPaise / 100,
+          priceInPaise: to.priceInPaise,
+          referralCommissionType: to.referralCommissionType,
+          referralCommissionPercent: to.referralCommissionPercentage,
+          referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
+          referenceRange: {
+            min: to.referenceMinSnapshot ?? to.test.referenceMin ?? 0,
+            max: to.referenceMaxSnapshot ?? to.test.referenceMax ?? 0,
+            unit: to.referenceUnitSnapshot || to.test.referenceUnit || '',
+          },
+        })),
+        report: v.report
+          ? {
+              id: v.report.id,
+              currentVersion,
+            }
+          : null,
+        createdAt: v.createdAt,
+        updatedAt: v.updatedAt,
+      };
+    });
 
     return res.json(transformed);
   } catch (err: any) {
@@ -383,6 +389,8 @@ router.get('/:id', async (req: AuthRequest, res) => {
       };
     };
     // Transform to frontend format
+    const latestFinalizedVersion = visit.report?.versions.find((version: any) => version.status === 'FINALIZED') || null;
+
     const transformed = {
       id: visit.id,
       branchId: visit.branchId,
@@ -394,6 +402,8 @@ router.get('/:id', async (req: AuthRequest, res) => {
       totalAmount: visit.totalAmountInPaise / 100,
       paymentType: visit.bill?.paymentType || 'CASH',
       paymentStatus: visit.bill?.paymentStatus || 'PENDING',
+      billedAt: visit.bill?.billedAt || visit.bill?.createdAt || null,
+      reportFinalizedAt: latestFinalizedVersion?.finalizedAt || null,
       referralDoctorId: visit.referrals[0]?.referralDoctorId || null,
       referralDoctor: visit.referrals[0]?.referralDoctor || null,
       testOrders: visit.testOrders.map((to) => ({
@@ -935,6 +945,8 @@ router.post('/', async (req: AuthRequest, res) => {
       patientId: completeVisit!.patientId,
       totalAmount: completeVisit!.totalAmountInPaise / 100,
       status: completeVisit!.status,
+      billedAt: completeVisit!.bill?.billedAt || completeVisit!.bill?.createdAt || null,
+      reportFinalizedAt: null,
       createdAt: completeVisit!.createdAt,
       referralDoctor: completeVisit!.referrals[0]?.referralDoctor || null,
       testOrders: completeVisit!.testOrders.map((to) => ({
@@ -1015,6 +1027,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       status: updated!.status,
       paymentStatus: updated!.bill?.paymentStatus,
       paymentType: updated!.bill?.paymentType,
+      billedAt: updated!.bill?.billedAt || updated!.bill?.createdAt || null,
     });
   } catch (err: any) {
     console.error('Update diagnostic visit error:', err);
@@ -1865,6 +1878,7 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
     }
 
     let accessToken: string | null = null;
+    const finalizedAt = new Date();
 
     // JIRA-10: Atomic conditional update to prevent race conditions
     // Only finalize if status is still DRAFT (updateMany returns count=0 if condition not met)
@@ -1876,7 +1890,7 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
         },
         data: {
           status: 'FINALIZED',
-          finalizedAt: new Date(),
+          finalizedAt,
         },
       });
 
@@ -1920,7 +1934,7 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
         status: 'FINALIZED',
         reportVersionId: draftVersion.id,
         visitId: visit.id,
-        finalizedAt: new Date().toISOString(),
+        finalizedAt: finalizedAt.toISOString(),
         reportAccessIssued: !!accessToken,
       },
       ipAddress: req.ip,
@@ -1937,6 +1951,7 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
     return res.json({ 
       success: true, 
       status: 'COMPLETED',
+      reportFinalizedAt: finalizedAt,
     });
   } catch (err: any) {
     // JIRA-10: Handle race condition gracefully
