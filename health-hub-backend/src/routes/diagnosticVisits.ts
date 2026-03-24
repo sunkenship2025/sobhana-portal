@@ -64,6 +64,9 @@ type LatestDefinitionFormula = {
   dependsOnCodes: unknown;
 };
 
+const DERIVED_MANUAL_OVERRIDE_NOTE = '__DERIVED_MANUAL_OVERRIDE__';
+const DERIVED_AUTO_NOTE_PREFIX = 'Auto-calculated: ';
+
 function zeroPayoutSnapshot(): PayoutSnapshot {
   return {
     commissionType: 'PERCENTAGE',
@@ -126,6 +129,10 @@ function determineResultFlag(
     return 'NORMAL';
   }
   return null;
+}
+
+function isManualDerivedOverrideNote(notes: string | null | undefined): boolean {
+  return notes?.trim() === DERIVED_MANUAL_OVERRIDE_NOTE;
 }
 
 async function loadLatestDefinitionFormulasByCode(
@@ -632,6 +639,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
           }) : [],
           results: to.testResults.map((tr: any) => ({
             ...tr,
+            manualOverride: isManualDerivedOverrideNote(tr.notes),
             testName: tr.test?.name || '',
             testCode: tr.test?.code || '',
             referenceRange: buildRange(tr.testId, tr.test?.referenceMin, tr.test?.referenceMax, tr.test?.referenceUnit, tr.test?.referenceText),
@@ -648,6 +656,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
               finalizedAt: v.finalizedAt,
               testResults: v.testResults.map((tr: any) => ({
                 ...tr,
+                manualOverride: isManualDerivedOverrideNote(tr.notes),
                 testName: tr.test?.name || '',
                 testCode: tr.test?.code || '',
                 referenceRange: buildRange(tr.testId, tr.test?.referenceMin, tr.test?.referenceMax, tr.test?.referenceUnit, tr.test?.referenceText),
@@ -1627,6 +1636,12 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
       });
     }
 
+    const manualDerivedOverrideTestIds = new Set<string>(
+      results
+        .filter((result: any) => result?.manualOverride === true && result?.testId)
+        .map((result: any) => result.testId)
+    );
+
     // Build a map: testId -> testOrderId (includes sub-tests)
     const testToOrderMap = new Map<string, string>();
     // Build a map: testId -> testDefinitionId (from testOrder, for new-arch linking)
@@ -1668,8 +1683,11 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
           const numericValue = result.value != null ? parseFloat(result.value) : NaN;
           const isText = isNaN(numericValue);
           const defId = testToDefIdMap.get(result.testId) ?? null;
+          const normalizedNotes = manualDerivedOverrideTestIds.has(result.testId)
+            ? DERIVED_MANUAL_OVERRIDE_NOTE
+            : (result.notes || null);
           // Prefer explicit textValue from frontend; fall back to notes for legacy clients
-          const textVal = result.textValue || (isText ? (result.notes || String(result.value ?? '')) : null);
+          const textVal = result.textValue || (isText ? (normalizedNotes || String(result.value ?? '')) : null);
           await tx.testResult.create({
             data: {
               testOrderId,
@@ -1678,7 +1696,7 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
               value: isText ? null : numericValue,
               textValue: textVal || null,
               flag: result.flag || null,
-              notes: result.notes || null,
+              notes: normalizedNotes,
               testDefinitionId: defId,
             },
           });
@@ -1889,6 +1907,10 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
             const orderIdForDerived = testToOrderMap.get(dr.testId);
             if (!orderIdForDerived) continue;
 
+            if (manualDerivedOverrideTestIds.has(dr.testId)) {
+              continue;
+            }
+
             // Upsert derived result
             await prisma.testResult.deleteMany({
               where: {
@@ -1914,7 +1936,7 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
                 reportVersionId: draftVer.id,
                 value: dr.value,
                 flag: derivedFlag,
-                notes: `Auto-calculated: ${dr.parameterName}`,
+                notes: `${DERIVED_AUTO_NOTE_PREFIX}${dr.parameterName}`,
                 testDefinitionId:
                   dr.testDefinitionId ??
                   testToDefIdMap.get(dr.testId) ??
