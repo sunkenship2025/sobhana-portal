@@ -541,6 +541,14 @@ const OwnerDashboard = () => {
   }
 
   const data = dashboardQuery.data;
+  const todayRevenueMix = data.advanced_breakdown.extended_analytics.revenue_mix;
+  const hasTodayRevenue = (todayRevenueMix.clinic + todayRevenueMix.diagnostics) > 0;
+  const hasTodayOperationalActivity = data.advanced_breakdown.full_branch_table.some(
+    (branch) => branch.patients > 0 || branch.revenue > 0 || branch.diagnostics > 0 || branch.clinic > 0,
+  );
+  const hasComparisonData = compositionChartData.some(
+    (segment) => segment.current_percent > 0 || segment.baseline_percent > 0,
+  );
 
   return (
     <AppLayout context="owner" hideContextBanner>
@@ -598,7 +606,7 @@ const OwnerDashboard = () => {
         </section>
 
         <section className="grid gap-4 xl:grid-cols-[1.05fr_1.95fr]">
-          <Card className="border-border/70 shadow-sm">
+          <Card className="overflow-hidden border-border/70 shadow-sm">
             <CardHeader className="space-y-3">
               <LayerHeading
                 layer="Comparison Layer"
@@ -607,23 +615,36 @@ const OwnerDashboard = () => {
               />
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={compositionChartData} margin={{ top: 12, right: 8, left: -12, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.2} />
-                    <XAxis dataKey="name" tickLine={false} axisLine={false} />
-                    <YAxis
-                      tickFormatter={(value) => `${value}%`}
-                      tickLine={false}
-                      axisLine={false}
-                      width={40}
-                    />
-                    <Tooltip content={<ComparisonTooltipContent />} />
-                    <Bar dataKey="current_percent" name="Current" fill="#1d4ed8" radius={[8, 8, 0, 0]} />
-                    <Bar dataKey="baseline_percent" name="Baseline" fill="#bfdbfe" radius={[8, 8, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+              {hasComparisonData ? (
+                <div className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={compositionChartData} margin={{ top: 12, right: 12, left: 12, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.2} />
+                      <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                      <YAxis
+                        tickFormatter={(value) => `${value}%`}
+                        tickLine={false}
+                        axisLine={false}
+                        width={56}
+                        tickMargin={8}
+                        allowDecimals={false}
+                        domain={[0, 100]}
+                        ticks={[0, 25, 50, 75, 100]}
+                      />
+                      <Tooltip content={<ComparisonTooltipContent />} />
+                      <Bar dataKey="current_percent" name="Current" fill="#1d4ed8" radius={[8, 8, 0, 0]} />
+                      <Bar dataKey="baseline_percent" name="Baseline" fill="#bfdbfe" radius={[8, 8, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-border px-4 py-10 text-center">
+                  <p className="text-sm font-medium text-foreground">No billed revenue in the current comparison window yet.</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    The owner API is connected, but today has no clinic or diagnostics bills yet, so there is no mix shift to compare.
+                  </p>
+                </div>
+              )}
 
               <div className="grid gap-2 sm:grid-cols-2">
                 {data.composition.segments.map((segment) => (
@@ -838,11 +859,16 @@ const OwnerDashboard = () => {
 
                   <div className="grid gap-4 xl:grid-cols-[1.4fr_0.6fr]">
                     <Card className="border-border/70">
-                      <CardHeader className="pb-3">
+                    <CardHeader className="pb-3">
                         <CardTitle className="text-base">Full branch table</CardTitle>
                         <CardDescription>All active branches with today&apos;s revenue, volume, and branch-level signal.</CardDescription>
                       </CardHeader>
                       <CardContent>
+                        {!hasTodayOperationalActivity && (
+                          <div className="mb-4 rounded-2xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+                            No branch activity has been recorded yet today. These rows are live from the owner API, but they&apos;re correctly showing zero until visits or bills come in.
+                          </div>
+                        )}
                         <Table>
                           <TableHeader>
                             <TableRow>
@@ -895,15 +921,20 @@ const OwnerDashboard = () => {
                           <div className="rounded-2xl bg-muted/40 px-4 py-3">
                             <p className="text-sm text-muted-foreground">Clinic</p>
                             <p className="mt-1 text-xl font-semibold text-foreground">
-                              {currencyFormatter.format(data.advanced_breakdown.extended_analytics.revenue_mix.clinic)}
+                              {currencyFormatter.format(todayRevenueMix.clinic)}
                             </p>
                           </div>
                           <div className="rounded-2xl bg-muted/40 px-4 py-3">
                             <p className="text-sm text-muted-foreground">Diagnostics</p>
                             <p className="mt-1 text-xl font-semibold text-foreground">
-                              {currencyFormatter.format(data.advanced_breakdown.extended_analytics.revenue_mix.diagnostics)}
+                              {currencyFormatter.format(todayRevenueMix.diagnostics)}
                             </p>
                           </div>
+                          {!hasTodayRevenue && (
+                            <p className="text-sm text-muted-foreground">
+                              No billed revenue has been recorded yet for today.
+                            </p>
+                          )}
                         </CardContent>
                       </Card>
 
