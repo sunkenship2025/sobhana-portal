@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { 
@@ -6,20 +7,20 @@ import {
   Stethoscope, 
   UserRound, 
   Building2,
-  ChevronDown,
   LogOut,
+  Menu,
   Microscope,
-  Search,
   User
 } from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { useAuthStore, UserRole } from '@/store/authStore';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
 
 interface NavItem {
   label: string;
@@ -85,9 +86,11 @@ export function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const handleLogout = () => {
     logout();
+    setMobileOpen(false);
     navigate('/login');
   };
 
@@ -95,89 +98,159 @@ export function Sidebar() {
   const filteredNavItems = navItems.filter((item) => 
     user ? item.roles.includes(user.role) : false
   );
-  
-  return (
-    <aside className="fixed left-0 top-0 z-40 h-screen w-64 text-white border-r border-white/10 flex flex-col" style={{ backgroundColor: 'var(--branch-sidebar-bg)' }}>
-      <div className="flex h-16 items-center px-6 border-b border-white/10">
-        <Microscope className="h-8 w-8 text-white" />
-        <span className="ml-3 text-xl font-bold text-white">SOBHANA</span>
-      </div>
-      
-      <nav className="mt-6 px-3 flex-1">
+
+  const isItemActive = (href: string) =>
+    location.pathname === href || location.pathname.startsWith(`${href}/`);
+
+  const renderNavContent = (onNavigate?: () => void) => (
+    <nav className="mt-6 flex-1 px-3">
+      <div className="space-y-2">
         {filteredNavItems.map((item) => {
           const Icon = item.icon;
-          const isActive = location.pathname === item.href || 
-            location.pathname.startsWith(item.href + '/');
-          
-          if (item.subItems) {
+          const isActive = isItemActive(item.href);
+          const isGroupActive = item.subItems?.some((subItem) => location.pathname === subItem.href) ?? false;
+
+          if (!item.subItems) {
             return (
-              <DropdownMenu key={item.href}>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    className={cn(
-                      'flex w-full items-center justify-between rounded-lg px-4 py-3 text-sm font-medium transition-colors',
-                      isActive 
-                        ? 'text-white' 
-                        : 'text-white/70 hover:text-white'
-                    )}
-                    style={isActive ? { backgroundColor: 'var(--branch-sidebar-active)' } : undefined}
-                  >
-                    <span className="flex items-center gap-3">
-                      <Icon className="h-5 w-5" />
-                      {item.label}
-                    </span>
-                    <ChevronDown className="h-4 w-4" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent side="right" align="start" className="w-48">
-                  {item.subItems.map((subItem) => (
-                    <DropdownMenuItem key={subItem.href} asChild>
-                      <Link to={subItem.href} className="cursor-pointer">
-                        {subItem.label}
-                      </Link>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <Link
+                key={item.href}
+                to={item.href}
+                onClick={onNavigate}
+                className={cn(
+                  'flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors',
+                  isActive ? 'text-white' : 'text-white/70 hover:text-white'
+                )}
+                style={isActive ? { backgroundColor: 'var(--branch-sidebar-active)' } : undefined}
+              >
+                <Icon className="h-5 w-5 shrink-0" />
+                <span className="min-w-0 truncate">{item.label}</span>
+              </Link>
             );
           }
-          
+
           return (
-            <Link
-              key={item.href}
-              to={item.href}
-              className={cn(
-                'flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors',
-                isActive 
-                  ? 'text-white' 
-                  : 'text-white/70 hover:text-white'
-              )}
-              style={isActive ? { backgroundColor: 'var(--branch-sidebar-active)' } : undefined}
-            >
-              <Icon className="h-5 w-5" />
-              {item.label}
-            </Link>
+            <div key={item.href} className="space-y-1">
+              <div
+                className={cn(
+                  'flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium',
+                  isActive || isGroupActive ? 'text-white' : 'text-white/70'
+                )}
+                style={isActive || isGroupActive ? { backgroundColor: 'var(--branch-sidebar-active)' } : undefined}
+              >
+                <Icon className="h-5 w-5 shrink-0" />
+                <span className="min-w-0 truncate">{item.label}</span>
+              </div>
+
+              <div className="ml-6 space-y-1 border-l border-white/10 pl-4">
+                {item.subItems.map((subItem) => {
+                  const isSubActive = location.pathname === subItem.href;
+                  return (
+                    <Link
+                      key={subItem.href}
+                      to={subItem.href}
+                      onClick={onNavigate}
+                      className={cn(
+                        'block rounded-lg px-3 py-2 text-sm transition-colors',
+                        isSubActive ? 'text-white' : 'text-white/70 hover:text-white'
+                      )}
+                      style={isSubActive ? { backgroundColor: 'var(--branch-sidebar-active)' } : undefined}
+                    >
+                      {subItem.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
           );
         })}
-      </nav>
-
-      {/* User info & Logout */}
-      <div className="p-3 border-t border-white/10">
-        {user && (
-          <div className="px-4 py-2 mb-2">
-            <p className="text-sm font-medium text-white">{user.name}</p>
-            <p className="text-xs text-white/60 capitalize">{user.role}</p>
-          </div>
-        )}
-        <Button 
-          variant="ghost" 
-          className="w-full justify-start text-white/70 hover:bg-white/10 hover:text-white"
-          onClick={handleLogout}
-        >
-          <LogOut className="mr-3 h-4 w-4" />
-          Sign Out
-        </Button>
       </div>
-    </aside>
+    </nav>
+  );
+  
+  return (
+    <>
+      <div
+        className="flex h-16 items-center justify-between border-b border-white/10 px-4 text-white md:hidden"
+        style={{ backgroundColor: 'var(--branch-sidebar-bg)' }}
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <Microscope className="h-7 w-7 shrink-0 text-white" />
+          <span className="truncate text-lg font-bold text-white">SOBHANA</span>
+        </div>
+
+        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+          <SheetTrigger asChild>
+            <Button variant="ghost" size="icon" className="text-white hover:bg-white/10 hover:text-white">
+              <Menu className="h-5 w-5" />
+              <span className="sr-only">Open navigation menu</span>
+            </Button>
+          </SheetTrigger>
+          <SheetContent
+            side="left"
+            className="w-[88vw] max-w-xs border-r border-white/10 p-0 text-white"
+            style={{ backgroundColor: 'var(--branch-sidebar-bg)' }}
+          >
+            <SheetHeader className="sr-only">
+              <SheetTitle>Navigation Menu</SheetTitle>
+            </SheetHeader>
+
+            <div className="flex h-full flex-col">
+              <div className="flex h-16 items-center border-b border-white/10 px-6">
+                <Microscope className="h-8 w-8 text-white" />
+                <span className="ml-3 text-xl font-bold text-white">SOBHANA</span>
+              </div>
+
+              {renderNavContent(() => setMobileOpen(false))}
+
+              <div className="border-t border-white/10 p-3">
+                {user && (
+                  <div className="mb-2 px-4 py-2">
+                    <p className="truncate text-sm font-medium text-white">{user.name}</p>
+                    <p className="text-xs capitalize text-white/60">{user.role}</p>
+                  </div>
+                )}
+                <Button 
+                  variant="ghost" 
+                  className="w-full justify-start text-white/70 hover:bg-white/10 hover:text-white"
+                  onClick={handleLogout}
+                >
+                  <LogOut className="mr-3 h-4 w-4" />
+                  Sign Out
+                </Button>
+              </div>
+            </div>
+          </SheetContent>
+        </Sheet>
+      </div>
+      
+      <aside
+        className="fixed left-0 top-0 z-40 hidden h-screen w-64 flex-col border-r border-white/10 text-white md:flex"
+        style={{ backgroundColor: 'var(--branch-sidebar-bg)' }}
+      >
+        <div className="flex h-16 items-center border-b border-white/10 px-6">
+          <Microscope className="h-8 w-8 text-white" />
+          <span className="ml-3 text-xl font-bold text-white">SOBHANA</span>
+        </div>
+        
+        {renderNavContent()}
+
+        <div className="border-t border-white/10 p-3">
+          {user && (
+            <div className="mb-2 px-4 py-2">
+              <p className="truncate text-sm font-medium text-white">{user.name}</p>
+              <p className="text-xs capitalize text-white/60">{user.role}</p>
+            </div>
+          )}
+          <Button 
+            variant="ghost" 
+            className="w-full justify-start text-white/70 hover:bg-white/10 hover:text-white"
+            onClick={handleLogout}
+          >
+            <LogOut className="mr-3 h-4 w-4" />
+            Sign Out
+          </Button>
+        </div>
+      </aside>
+    </>
   );
 }
