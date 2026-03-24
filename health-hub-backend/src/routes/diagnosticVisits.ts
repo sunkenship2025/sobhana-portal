@@ -29,6 +29,7 @@ import {
   normalizeReferralOverrideInput,
   type NormalizedReferralPayout,
 } from '../services/referralPayoutService';
+import { derivePayout } from '../services/payoutService';
 
 const router = Router();
 
@@ -2249,6 +2250,16 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
         domain: 'DIAGNOSTICS',
       },
       include: {
+        referrals: {
+          select: {
+            referralDoctorId: true,
+          },
+        },
+        diagnosticCenterReferrals: {
+          select: {
+            diagnosticCenterId: true,
+          },
+        },
         report: {
           include: {
             versions: {
@@ -2339,6 +2350,42 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
     });
+
+    const periodStartDate = new Date(finalizedAt);
+    periodStartDate.setHours(0, 0, 0, 0);
+    const periodEndDate = new Date(finalizedAt);
+    periodEndDate.setHours(23, 59, 59, 999);
+
+    const payoutRefreshTasks: Array<Promise<unknown>> = [];
+    const referralDoctorId = visit.referrals[0]?.referralDoctorId;
+    const diagnosticCenterId = visit.diagnosticCenterReferrals[0]?.diagnosticCenterId;
+
+    if (referralDoctorId) {
+      payoutRefreshTasks.push(
+        derivePayout('REFERRAL', referralDoctorId, visit.branchId, periodStartDate, periodEndDate)
+      );
+    }
+
+    if (diagnosticCenterId) {
+      payoutRefreshTasks.push(
+        derivePayout(
+          'DIAGNOSTIC_CENTER',
+          diagnosticCenterId,
+          visit.branchId,
+          periodStartDate,
+          periodEndDate
+        )
+      );
+    }
+
+    if (payoutRefreshTasks.length > 0) {
+      const refreshResults = await Promise.allSettled(payoutRefreshTasks);
+      for (const result of refreshResults) {
+        if (result.status === 'rejected') {
+          console.error('Auto-refresh payout after diagnostic finalization failed:', result.reason);
+        }
+      }
+    }
 
     // Fire-and-forget: Send report-ready notification via WhatsApp (non-blocking)
     import('../services/notificationService').then(({ sendReportReady }) => {
