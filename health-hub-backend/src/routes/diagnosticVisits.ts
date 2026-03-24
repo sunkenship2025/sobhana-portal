@@ -305,7 +305,13 @@ router.get('/:id', async (req: AuthRequest, res) => {
                 department: { select: { id: true, name: true, reportHeaderText: true } },
                 childTests: {
                   include: {
-                    derivedParameter: { select: { id: true } },
+                    derivedParameter: {
+                      select: {
+                        id: true,
+                        formula: true,
+                        dependsOnTestCodes: true,
+                      },
+                    },
                   },
                   orderBy: { displayOrder: 'asc' },
                 },
@@ -438,6 +444,8 @@ router.get('/:id', async (req: AuthRequest, res) => {
           code: ct.code,
           displayOrder: ct.displayOrder,
           isDerived: !!ct.derivedParameter,
+          formulaExpression: ct.derivedParameter?.formula || null,
+          dependsOnCodes: ct.derivedParameter?.dependsOnTestCodes || null,
           referenceRange: buildRange(ct.id, ct.referenceMin, ct.referenceMax, ct.referenceUnit, ct.referenceText),
         })) : [],
         results: to.testResults.map((tr: any) => ({
