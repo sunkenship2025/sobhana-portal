@@ -55,6 +55,15 @@ type ResolvedNumericRange = {
   criticalMax: number | null;
 };
 
+type LatestDefinitionFormula = {
+  id: string;
+  code: string;
+  name: string;
+  displayOrder: number;
+  formulaExpression: string | null;
+  dependsOnCodes: unknown;
+};
+
 function zeroPayoutSnapshot(): PayoutSnapshot {
   return {
     commissionType: 'PERCENTAGE',
@@ -117,6 +126,32 @@ function determineResultFlag(
     return 'NORMAL';
   }
   return null;
+}
+
+async function loadLatestDefinitionFormulasByCode(
+  codes: Iterable<string>
+): Promise<Map<string, LatestDefinitionFormula>> {
+  const uniqueCodes = [...new Set(Array.from(codes).map((code) => code.trim()).filter(Boolean))];
+  if (uniqueCodes.length === 0) {
+    return new Map();
+  }
+
+  const definitions = await prisma.testDefinition.findMany({
+    where: {
+      code: { in: uniqueCodes },
+      isLatest: true,
+    },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      displayOrder: true,
+      formulaExpression: true,
+      dependsOnCodes: true,
+    },
+  });
+
+  return new Map(definitions.map((definition) => [definition.code, definition]));
 }
 
 function applyReferralRuleToPrices(
@@ -473,6 +508,13 @@ router.get('/:id', async (req: AuthRequest, res) => {
       patient.dateOfBirth
     );
 
+    const latestDefinitionFormulasByCode = await loadLatestDefinitionFormulasByCode(
+      visit.testOrders.flatMap((to) => [
+        to.testCodeSnapshot || to.testDefinition?.code || to.test.code,
+        ...to.test.childTests.map((child) => child.code),
+      ])
+    );
+
     // Helper to build referenceRange from resolved + fallback data
     const buildRange = (
       testId: string,
@@ -508,16 +550,24 @@ router.get('/:id', async (req: AuthRequest, res) => {
       referralDoctorId: visit.referrals[0]?.referralDoctorId || null,
       referralDoctor: visit.referrals[0]?.referralDoctor || null,
       testOrders: visit.testOrders.map((to) => {
+        const orderCode =
+          to.testCodeSnapshot || to.testDefinition?.code || to.test.code;
+        const latestOrderDefinition = latestDefinitionFormulasByCode.get(orderCode);
         const orderDerived =
           to.testDefinition?.formulaExpression
             ? buildDerivedMetadata(
                 to.testDefinition.formulaExpression,
                 to.testDefinition.dependsOnCodes
               )
-            : buildDerivedMetadata(
-                to.test.derivedParameter?.formula,
-                to.test.derivedParameter?.dependsOnTestCodes
-              );
+            : to.test.derivedParameter?.formula
+              ? buildDerivedMetadata(
+                  to.test.derivedParameter.formula,
+                  to.test.derivedParameter.dependsOnTestCodes
+                )
+              : buildDerivedMetadata(
+                  latestOrderDefinition?.formulaExpression,
+                  latestOrderDefinition?.dependsOnCodes
+                );
 
         return {
           id: to.id,
@@ -563,9 +613,10 @@ router.get('/:id', async (req: AuthRequest, res) => {
             to.testDefinition?.referenceText || to.test.referenceText
           ),
           childTests: to.test.isPanel ? to.test.childTests.map((ct: any) => {
+            const latestChildDefinition = latestDefinitionFormulasByCode.get(ct.code);
             const childDerived = buildDerivedMetadata(
-              ct.derivedParameter?.formula,
-              ct.derivedParameter?.dependsOnTestCodes
+              ct.derivedParameter?.formula || latestChildDefinition?.formulaExpression,
+              ct.derivedParameter?.dependsOnTestCodes || latestChildDefinition?.dependsOnCodes
             );
 
             return {
@@ -1699,6 +1750,15 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
 
     // --- Derived Parameters: auto-calculate formula-based values ---
     try {
+      const latestDefinitionFormulasByCode = await loadLatestDefinitionFormulasByCode(
+        visit.testOrders.flatMap((testOrder) => [
+          testOrder.testDefinition?.code ||
+            testOrder.testCodeSnapshot ||
+            testOrder.test.code,
+          ...testOrder.test.childTests.map((child) => child.code),
+        ])
+      );
+
       const resultsByTestCode = new Map<string, number>();
       for (const r of results) {
         if (r.value === null || r.value === undefined) continue;
@@ -1728,43 +1788,53 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
 
       const derivedTargets: DerivedFormulaTarget[] = [];
       for (const testOrder of visit.testOrders) {
+        const orderCode =
+          testOrder.testDefinition?.code ||
+          testOrder.testCodeSnapshot ||
+          testOrder.test.code;
+        const latestOrderDefinition = latestDefinitionFormulasByCode.get(orderCode);
         const orderDerived =
           testOrder.testDefinition?.formulaExpression
             ? buildDerivedMetadata(
                 testOrder.testDefinition.formulaExpression,
                 testOrder.testDefinition.dependsOnCodes
               )
-            : buildDerivedMetadata(
-                testOrder.test.derivedParameter?.formula,
-                testOrder.test.derivedParameter?.dependsOnTestCodes
-              );
+            : testOrder.test.derivedParameter?.formula
+              ? buildDerivedMetadata(
+                  testOrder.test.derivedParameter.formula,
+                  testOrder.test.derivedParameter.dependsOnTestCodes
+                )
+              : buildDerivedMetadata(
+                  latestOrderDefinition?.formulaExpression,
+                  latestOrderDefinition?.dependsOnCodes
+                );
 
         if (orderDerived.isDerived && orderDerived.formulaExpression && orderDerived.dependsOnCodes) {
           derivedTargets.push({
             testId: testOrder.testId,
             testDefinitionId: testOrder.testDefinitionId ?? null,
-            code:
-              testOrder.testDefinition?.code ||
-              testOrder.testCodeSnapshot ||
-              testOrder.test.code,
+            code: orderCode,
             parameterName:
               testOrder.testDefinition?.name ||
               testOrder.test.derivedParameter?.parameterName ||
+              latestOrderDefinition?.name ||
               testOrder.testNameSnapshot ||
               testOrder.test.name,
             formula: orderDerived.formulaExpression,
             dependsOnCodes: orderDerived.dependsOnCodes,
             displayOrder:
               testOrder.testDefinition?.displayOrder ??
+              latestOrderDefinition?.displayOrder ??
               testOrder.test.displayOrder ??
               0,
           });
         }
 
         for (const childTest of testOrder.test.childTests) {
+          const latestChildDefinition = latestDefinitionFormulasByCode.get(childTest.code);
           const childDerived = buildDerivedMetadata(
-            childTest.derivedParameter?.formula,
-            childTest.derivedParameter?.dependsOnTestCodes
+            childTest.derivedParameter?.formula || latestChildDefinition?.formulaExpression,
+            childTest.derivedParameter?.dependsOnTestCodes || latestChildDefinition?.dependsOnCodes
           );
 
           if (childDerived.isDerived && childDerived.formulaExpression && childDerived.dependsOnCodes) {
@@ -1774,10 +1844,14 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
               code: childTest.code,
               parameterName:
                 childTest.derivedParameter?.parameterName ||
+                latestChildDefinition?.name ||
                 childTest.name,
               formula: childDerived.formulaExpression,
               dependsOnCodes: childDerived.dependsOnCodes,
-              displayOrder: childTest.displayOrder ?? 0,
+              displayOrder:
+                latestChildDefinition?.displayOrder ??
+                childTest.displayOrder ??
+                0,
             });
           }
         }
