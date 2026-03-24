@@ -4,10 +4,13 @@ import { cn } from '@/lib/utils';
 import {
   BriefcaseMedical,
   Building2,
+  FlaskConical,
   LayoutDashboard,
   LogOut,
   Menu,
   Microscope,
+  Stethoscope,
+  Users,
   UserRound,
   WalletCards,
 } from 'lucide-react';
@@ -27,6 +30,7 @@ interface NavSubItem {
   roles?: UserRole[];
   section?: string;
   matchPrefixes?: string[];
+  exact?: boolean;
 }
 
 interface NavItem {
@@ -36,9 +40,10 @@ interface NavItem {
   roles: UserRole[];
   subItems?: NavSubItem[];
   exact?: boolean;
+  matchPrefixes?: string[];
 }
 
-const navItems: NavItem[] = [
+const ownerNavItems: NavItem[] = [
   {
     label: 'Dashboard',
     icon: LayoutDashboard,
@@ -47,17 +52,10 @@ const navItems: NavItem[] = [
     exact: true,
   },
   {
-    label: 'Dashboard',
-    icon: LayoutDashboard,
-    href: '/',
-    roles: ['staff'],
-    exact: true,
-  },
-  {
     label: 'Operations',
     icon: BriefcaseMedical,
     href: '/operations',
-    roles: ['staff', 'owner'],
+    roles: ['owner'],
     subItems: [
       {
         label: 'Patient 360',
@@ -86,19 +84,75 @@ const navItems: NavItem[] = [
     label: 'My Reports',
     icon: UserRound,
     href: '/doctor',
-    roles: ['doctor', 'owner'],
+    roles: ['owner'],
   },
   {
     label: 'Payouts',
     icon: WalletCards,
     href: '/owner/payouts',
-    roles: ['staff', 'owner'],
+    roles: ['owner'],
   },
   {
     label: 'Admin',
     icon: Building2,
     href: '/owner/config',
-    roles: ['staff', 'owner'],
+    roles: ['owner'],
+  },
+];
+
+const staffNavItems: NavItem[] = [
+  {
+    label: 'Dashboard',
+    icon: LayoutDashboard,
+    href: '/',
+    roles: ['staff'],
+    exact: true,
+  },
+  {
+    label: 'Patient 360',
+    icon: Users,
+    href: '/clinic/patient-search',
+    roles: ['staff'],
+    matchPrefixes: ['/clinic/patient-search', '/clinic/patient-360/'],
+  },
+  {
+    label: 'Diagnostics',
+    icon: FlaskConical,
+    href: '/diagnostics',
+    roles: ['staff'],
+    subItems: [
+      { label: 'New Visit', href: '/diagnostics/new' },
+      {
+        label: 'Pending Results',
+        href: '/diagnostics/pending',
+        matchPrefixes: ['/diagnostics/pending', '/diagnostics/results/'],
+      },
+      {
+        label: 'Finalized Reports',
+        href: '/diagnostics/finalized',
+        matchPrefixes: ['/diagnostics/finalized', '/diagnostics/preview/'],
+      },
+    ],
+  },
+  {
+    label: 'Clinic',
+    icon: Stethoscope,
+    href: '/clinic',
+    roles: ['staff'],
+    subItems: [
+      { label: 'New Visit', href: '/clinic/new' },
+      { label: 'OP / IP Queue', href: '/clinic/queue' },
+    ],
+  },
+  {
+    label: 'Admin',
+    icon: Building2,
+    href: '/owner/config',
+    roles: ['staff'],
+    subItems: [
+      { label: 'Config Center', href: '/owner/config' },
+      { label: 'Payouts', href: '/owner/payouts', matchPrefixes: ['/owner/payouts'] },
+    ],
   },
 ];
 
@@ -114,17 +168,22 @@ export function Sidebar() {
     navigate('/login');
   };
 
-  const filteredNavItems = navItems.filter((item) =>
+  const navItems = (user?.role === 'owner' ? ownerNavItems : staffNavItems).filter((item) =>
     user ? item.roles.includes(user.role) : false,
   );
 
   const isItemActive = (item: NavItem) =>
     item.exact
       ? location.pathname === item.href
-      : location.pathname === item.href || location.pathname.startsWith(`${item.href}/`);
+      : location.pathname === item.href
+        || location.pathname.startsWith(`${item.href}/`)
+        || item.matchPrefixes?.some((prefix) => location.pathname.startsWith(prefix))
+        || false;
 
   const isSubItemActive = (subItem: NavSubItem) =>
-    location.pathname === subItem.href
+    subItem.exact
+      ? location.pathname === subItem.href
+      : location.pathname === subItem.href
     || location.pathname.startsWith(`${subItem.href}/`)
     || subItem.matchPrefixes?.some((prefix) => location.pathname.startsWith(prefix))
     || false;
@@ -132,7 +191,7 @@ export function Sidebar() {
   const renderNavContent = (onNavigate?: () => void) => (
     <nav className="mt-6 flex-1 px-3">
       <div className="space-y-2">
-        {filteredNavItems.map((item) => {
+        {navItems.map((item) => {
           const Icon = item.icon;
           const visibleSubItems = item.subItems?.filter((subItem) =>
             user ? (subItem.roles ? subItem.roles.includes(user.role) : true) : false,

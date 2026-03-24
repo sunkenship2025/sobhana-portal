@@ -486,6 +486,7 @@ export type PayoutDoctorType = 'REFERRAL' | 'CLINIC' | 'DIAGNOSTIC_CENTER';
 
 export interface PayoutLineItem {
   visitId: string;
+  productId?: string | null;
   billNumber: string;
   patientName: string;
   date: string;
@@ -494,6 +495,7 @@ export interface PayoutLineItem {
   commissionType?: ReferralPayoutType;
   commissionPercentage?: number;
   commissionAmountInPaise?: number;
+  commissionLabel?: string;
   derivedCommissionInPaise: number;
 }
 
