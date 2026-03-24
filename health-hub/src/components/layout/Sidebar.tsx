@@ -27,7 +27,7 @@ interface NavItem {
   icon: React.ElementType;
   href: string;
   roles: UserRole[];
-  subItems?: { label: string; href: string }[];
+  subItems?: { label: string; href: string; roles?: UserRole[] }[];
 }
 
 const navItems: NavItem[] = [
@@ -76,8 +76,9 @@ const navItems: NavItem[] = [
     href: '/owner',
     roles: ['staff', 'owner'],
     subItems: [
-      { label: 'Config Center', href: '/owner/config' },
-      { label: 'Payouts', href: '/owner/payouts' },
+      { label: 'Dashboard', href: '/owner', roles: ['owner'] },
+      { label: 'Config Center', href: '/owner/config', roles: ['staff', 'owner'] },
+      { label: 'Payouts', href: '/owner/payouts', roles: ['staff', 'owner'] },
     ]
   },
 ];
@@ -108,9 +109,12 @@ export function Sidebar() {
         {filteredNavItems.map((item) => {
           const Icon = item.icon;
           const isActive = isItemActive(item.href);
-          const isGroupActive = item.subItems?.some((subItem) => location.pathname === subItem.href) ?? false;
+          const visibleSubItems = item.subItems?.filter((subItem) =>
+            user ? (subItem.roles ? subItem.roles.includes(user.role) : true) : false,
+          ) ?? [];
+          const isGroupActive = visibleSubItems.some((subItem) => location.pathname === subItem.href);
 
-          if (!item.subItems) {
+          if (visibleSubItems.length === 0) {
             return (
               <Link
                 key={item.href}
@@ -142,7 +146,7 @@ export function Sidebar() {
               </div>
 
               <div className="ml-6 space-y-1 border-l border-white/10 pl-4">
-                {item.subItems.map((subItem) => {
+                {visibleSubItems.map((subItem) => {
                   const isSubActive = location.pathname === subItem.href;
                   return (
                     <Link
