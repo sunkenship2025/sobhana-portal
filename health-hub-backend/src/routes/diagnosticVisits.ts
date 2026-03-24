@@ -311,7 +311,21 @@ router.get('/:id', async (req: AuthRequest, res) => {
                 },
               },
             },
-            testDefinition: true,
+            testDefinition: {
+              include: {
+                department: { select: { id: true, name: true } },
+                panelItems: {
+                  include: {
+                    panel: {
+                      include: {
+                        department: { select: { id: true, name: true } },
+                      },
+                    },
+                  },
+                  take: 1,
+                },
+              },
+            },
             testResults: {
               include: {
                 test: true, // Include test info for each result
@@ -421,10 +435,13 @@ router.get('/:id', async (req: AuthRequest, res) => {
         referralCommissionPercent: to.referralCommissionPercentage,
         referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
         isPanel: to.test.isPanel,
-        department: to.test.department ? {
-          id: to.test.department.id,
-          name: to.test.department.name,
-        } : null,
+        department: (() => {
+          // Try multiple sources for department: testDefinition.department, ClinicalPanel, or test.department
+          const dept = to.testDefinition?.department
+            || to.testDefinition?.panelItems?.[0]?.panel?.department
+            || to.test.department;
+          return dept ? { id: dept.id, name: dept.name } : null;
+        })(),
         referenceRange: buildRange(
           to.testId,
           to.referenceMinSnapshot ?? to.testDefinition?.referenceMin ?? to.test.referenceMin,
