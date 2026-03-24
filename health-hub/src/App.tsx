@@ -33,7 +33,7 @@ import NotFound from "./pages/NotFound";
 const queryClient = new QueryClient();
 
 function AppRoutes() {
-  const { isAuthenticated, checkTokenExpiration } = useAuthStore();
+  const { isAuthenticated, user, checkTokenExpiration } = useAuthStore();
 
   // Check token expiration on app load and periodically
   useEffect(() => {
@@ -52,12 +52,16 @@ function AppRoutes() {
     <Routes>
       <Route 
         path="/login" 
-        element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} 
+        element={
+          isAuthenticated
+            ? <Navigate to={user?.role === 'owner' ? '/owner' : user?.role === 'doctor' ? '/doctor' : '/'} replace />
+            : <Login />
+        } 
       />
       
-      {/* Staff & Owner routes */}
+      {/* Staff routes */}
       <Route path="/" element={
-        <ProtectedRoute allowedRoles={['staff', 'owner']}>
+        <ProtectedRoute allowedRoles={['staff']}>
           <Dashboard />
         </ProtectedRoute>
       } />
