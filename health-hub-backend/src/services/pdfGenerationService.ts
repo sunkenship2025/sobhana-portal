@@ -130,19 +130,20 @@ const PDF_OPTIONS: PDFOptions = {
 };
 
 /**
- * PDF options for digital-first PDF (includes header/footer in content).
- * When headerTemplate/footerTemplate are provided, displayHeaderFooter is enabled.
+ * PDF options for digital-first PDF.
+ * Header/footer are rendered inside the HTML so preview and download match.
  */
-const PDF_OPTIONS_DIGITAL_BASE: Omit<PDFOptions, 'displayHeaderFooter' | 'headerTemplate' | 'footerTemplate'> = {
+const PDF_OPTIONS_DIGITAL_BASE: PDFOptions = {
   format: 'A4',
   printBackground: true,
   preferCSSPageSize: false,
   margin: {
-    top: '30mm',    // Space for header template
-    bottom: '20mm', // Space for footer template
-    left: '10mm',
-    right: '10mm',
+    top: '0',
+    bottom: '0',
+    left: '0',
+    right: '0',
   },
+  displayHeaderFooter: false,
 };
 
 export interface PdfGenerationOptions {
@@ -190,18 +191,9 @@ export async function generatePdfFromHtml(
         timeout: 30000,
       });
 
-      let pdfOptions: PDFOptions;
-      if (options.mode === 'physical') {
-        pdfOptions = PDF_OPTIONS;
-      } else {
-        // Digital PDF - use templates if provided
-        pdfOptions = {
-          ...PDF_OPTIONS_DIGITAL_BASE,
-          displayHeaderFooter: !!(options.headerTemplate || options.footerTemplate),
-          headerTemplate: options.headerTemplate || '<span></span>',
-          footerTemplate: options.footerTemplate || '<span></span>',
-        };
-      }
+      const pdfOptions: PDFOptions = options.mode === 'physical'
+        ? PDF_OPTIONS
+        : PDF_OPTIONS_DIGITAL_BASE;
 
       const pdfBuffer = await page.pdf(pdfOptions);
       return Buffer.from(pdfBuffer);
