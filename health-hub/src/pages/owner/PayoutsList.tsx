@@ -76,6 +76,18 @@ const formatPeriod = (start: string, end: string): string => {
   return startLabel === endLabel ? startLabel : `${startLabel} - ${endLabel}`;
 };
 
+const isCoveredByAnotherPayout = (candidate: PayoutSummary, covering: PayoutSummary): boolean => {
+  if (candidate.id === covering.id) return false;
+  if (candidate.branchId !== covering.branchId) return false;
+  if (candidate.doctorType !== covering.doctorType) return false;
+  if (candidate.doctorId !== covering.doctorId) return false;
+
+  return (
+    new Date(candidate.periodStartDate).getTime() >= new Date(covering.periodStartDate).getTime() &&
+    new Date(candidate.periodEndDate).getTime() <= new Date(covering.periodEndDate).getTime()
+  );
+};
+
 const PayoutsList = () => {
   const { token, user } = useAuthStore();
   const { activeBranchId } = useBranchStore();
@@ -258,16 +270,21 @@ const PayoutsList = () => {
   const totalPages = Math.ceil(sortedPayouts.length / itemsPerPage);
 
   // Summary calculations
+  const canonicalPayouts = useMemo(
+    () => payouts.filter((payout) => !payouts.some((other) => isCoveredByAnotherPayout(payout, other))),
+    [payouts]
+  );
+
   const summary = useMemo(() => {
-    const pending = payouts.filter(p => !p.paidAt);
-    const paid = payouts.filter(p => p.paidAt);
+    const pending = canonicalPayouts.filter(p => !p.paidAt);
+    const paid = canonicalPayouts.filter(p => p.paidAt);
     return {
       totalPending: pending.reduce((sum, p) => sum + p.derivedAmountInPaise, 0),
       totalPaid: paid.reduce((sum, p) => sum + p.derivedAmountInPaise, 0),
       pendingCount: pending.length,
       paidCount: paid.length,
     };
-  }, [payouts]);
+  }, [canonicalPayouts]);
 
   // Handle sort toggle
   const toggleSort = (field: 'derivedAt' | 'doctorName' | 'amount') => {

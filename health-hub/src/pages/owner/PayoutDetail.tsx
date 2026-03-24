@@ -195,7 +195,7 @@ const PayoutDetailPage = () => {
 
   return (
     <AppLayout context="owner" subContext="payouts">
-      <div className="space-y-6 print:p-4">
+      <div className="print-content space-y-6 print:p-4">
         {/* Header */}
         <div className="flex items-center justify-between print:hidden">
           <div className="flex items-center gap-4">
