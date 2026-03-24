@@ -395,7 +395,17 @@ body.report-body {
    PAGE BREAKS
    ============================================================================ */
 
+/* Departments don't split internally */
 .department { page-break-inside: avoid; }
+
+/* Each new department starts on a fresh page (except first) */
+.department:not(:first-child) { page-break-before: always; }
+
+/* Keep department header with its first panel (no orphaned headers) */
+.department-header { page-break-after: avoid; }
+
+/* Panels don't split internally, flow naturally within department */
 .panel { page-break-inside: avoid; }
+
+/* Signatures stay together, can share page with last content */
 .signatures-section { page-break-inside: avoid; }
-.department:not(:first-child) { page-break-before: auto; }
