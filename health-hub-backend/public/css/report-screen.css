@@ -644,12 +644,27 @@ body.report-body {
     margin-top: 6px;
   }
 
-  /* Page break rules */
-  .department { page-break-inside: avoid; }
-  .department:not(:first-child) { page-break-before: always; }
-  .department-header { page-break-after: avoid; }
-  .panel { page-break-inside: avoid; }
-  .signatures-section { page-break-inside: avoid; }
+  /* Page break rules - using both legacy and modern syntax for compatibility */
+  .department {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .department:not(:first-child) {
+    page-break-before: always !important;
+    break-before: page !important;
+  }
+  .department-header {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+  .panel {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .signatures-section {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
 
   @page {
     size: A4;
