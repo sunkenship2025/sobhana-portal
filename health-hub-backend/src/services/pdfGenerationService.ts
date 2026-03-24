@@ -113,10 +113,10 @@ async function getBrowser(): Promise<Browser> {
 }
 
 /**
- * PDF Options matching print CSS specifications.
- * Margins match pre-printed letterhead requirements.
+ * PDF options for physical printing on pre-printed letterhead.
+ * Margins match the real paper stock measurements.
  */
-const PDF_OPTIONS: PDFOptions = {
+const PHYSICAL_PDF_OPTIONS: PDFOptions = {
   format: 'A4',
   printBackground: true,
   preferCSSPageSize: false,
@@ -126,14 +126,14 @@ const PDF_OPTIONS: PDFOptions = {
     left: '15mm',
     right: '15mm',
   },
-  displayHeaderFooter: false, // Header/footer handled in template or pre-printed
+  displayHeaderFooter: false, // Header/footer handled inside HTML or on the paper stock
 };
 
 /**
- * PDF options for digital-first PDF.
- * Header/footer are rendered inside the HTML so preview and download match.
+ * PDF options for digital-first PDFs.
+ * Header and footer are rendered inside the HTML so preview and download match.
  */
-const PDF_OPTIONS_DIGITAL_BASE: PDFOptions = {
+const DIGITAL_PDF_OPTIONS: PDFOptions = {
   format: 'A4',
   printBackground: true,
   preferCSSPageSize: false,
@@ -151,21 +151,6 @@ export interface PdfGenerationOptions {
    * Mode: 'physical' for pre-printed letterhead, 'digital' for standalone PDF
    */
   mode: 'physical' | 'digital';
-
-  /**
-   * Optional: Base URL for resolving relative paths (CSS, images)
-   */
-  baseUrl?: string;
-
-  /**
-   * Optional: Header template HTML for digital PDFs (repeated on each page)
-   */
-  headerTemplate?: string;
-
-  /**
-   * Optional: Footer template HTML for digital PDFs (repeated on each page)
-   */
-  footerTemplate?: string;
 }
 
 /**
@@ -181,10 +166,8 @@ export async function generatePdfFromHtml(
     const page = await browser.newPage();
 
     try {
-      // Digital PDFs: screen media type prevents @media print from firing
-      if (options.mode === 'digital') {
-        await page.emulateMediaType('screen');
-      }
+      const mediaType = options.mode === 'digital' ? 'screen' : 'print';
+      await page.emulateMediaType(mediaType);
 
       await page.setContent(html, {
         waitUntil: 'networkidle0',
@@ -192,8 +175,8 @@ export async function generatePdfFromHtml(
       });
 
       const pdfOptions: PDFOptions = options.mode === 'physical'
-        ? PDF_OPTIONS
-        : PDF_OPTIONS_DIGITAL_BASE;
+        ? PHYSICAL_PDF_OPTIONS
+        : DIGITAL_PDF_OPTIONS;
 
       const pdfBuffer = await page.pdf(pdfOptions);
       return Buffer.from(pdfBuffer);
