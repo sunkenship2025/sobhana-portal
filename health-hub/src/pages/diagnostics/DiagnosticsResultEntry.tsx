@@ -320,11 +320,11 @@ const DiagnosticsResultEntry = () => {
       <div
         key={testId}
         className={cn(
-          'grid gap-4 items-center py-3 border-b last:border-0',
-          isSubTest ? 'grid-cols-[1fr_120px_180px_80px] pl-4' : 'grid-cols-[1fr_120px_180px_80px]'
+          'grid gap-3 border-b py-3 last:border-0 md:grid-cols-[1fr_120px_180px_80px] md:items-center md:gap-4',
+          isSubTest ? 'md:pl-4' : ''
         )}
       >
-        <div>
+        <div className="min-w-0">
           <Label className={cn('font-medium', isSubTest ? 'text-sm' : 'text-base')}>
             {testName}
           </Label>
@@ -336,7 +336,10 @@ const DiagnosticsResultEntry = () => {
           )}
         </div>
 
-        <div>
+        <div className="space-y-1">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground md:hidden">
+            Value
+          </span>
           <Input
             type={hasNumericRange ? 'number' : 'text'}
             step="0.01"
@@ -347,22 +350,32 @@ const DiagnosticsResultEntry = () => {
           />
         </div>
 
-        <div className="text-sm text-muted-foreground text-center">
-          {referenceRange.text ? (
-            referenceRange.text
-          ) : hasNumericRange ? (
-            `${referenceRange.min || ''} – ${referenceRange.max || ''} ${referenceRange.unit}`
-          ) : (
-            '—'
-          )}
+        <div className="space-y-1 text-sm text-muted-foreground md:text-center">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground md:hidden">
+            Reference Range
+          </span>
+          <div>
+            {referenceRange.text ? (
+              referenceRange.text
+            ) : hasNumericRange ? (
+              `${referenceRange.min || ''} – ${referenceRange.max || ''} ${referenceRange.unit}`
+            ) : (
+              '—'
+            )}
+          </div>
         </div>
 
-        <div className="flex justify-center">
-          {flag ? (
-            <FlagBadge flag={flag} />
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          )}
+        <div className="space-y-1">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground md:hidden">
+            Flag
+          </span>
+          <div className="flex md:justify-center">
+            {flag ? (
+              <FlagBadge flag={flag} />
+            ) : (
+              <span className="text-muted-foreground">—</span>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -388,7 +401,7 @@ const DiagnosticsResultEntry = () => {
         {/* Visit Summary - Pinned */}
         <Card className="border-primary/20 bg-accent/30">
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-xl font-bold">{patient.name}</h2>
                 <p className="text-muted-foreground">
@@ -407,7 +420,7 @@ const DiagnosticsResultEntry = () => {
         <Card>
           <CardHeader>
             <CardTitle>Enter Test Results</CardTitle>
-            <div className="grid grid-cols-[1fr_120px_180px_80px] gap-4 text-xs text-muted-foreground uppercase tracking-wide pt-4 border-b pb-2">
+            <div className="hidden border-b pb-2 pt-4 text-xs uppercase tracking-wide text-muted-foreground md:grid md:grid-cols-[1fr_120px_180px_80px] md:gap-4">
               <div>Test Name</div>
               <div className="text-center">Value</div>
               <div className="text-center">Reference Range</div>
@@ -428,9 +441,9 @@ const DiagnosticsResultEntry = () => {
                       {/* Panel Header */}
                       <button
                         onClick={() => togglePanel(order.id)}
-                        className="w-full flex items-center justify-between p-4 bg-muted/50 hover:bg-muted/70 transition-colors"
+                        className="flex w-full flex-col gap-3 bg-muted/50 p-4 text-left transition-colors hover:bg-muted/70 sm:flex-row sm:items-center sm:justify-between"
                       >
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-3">
                           <span className="font-semibold text-lg">{order.testName}</span>
                           <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
                             {order.childTests.length} parameters
@@ -439,11 +452,13 @@ const DiagnosticsResultEntry = () => {
                             ({filled}/{total} filled)
                           </span>
                         </div>
-                        {isExpanded ? (
-                          <ChevronUp className="h-5 w-5 text-muted-foreground" />
-                        ) : (
-                          <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                        )}
+                        <div className="flex justify-end">
+                          {isExpanded ? (
+                            <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                          ) : (
+                            <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                          )}
+                        </div>
                       </button>
 
                       {/* Panel Sub-tests */}

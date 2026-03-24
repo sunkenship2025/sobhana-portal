@@ -98,7 +98,7 @@ export default function GlobalPatientSearch() {
         <Card>
           <CardContent className="pt-6">
             {/* Search Type Tabs */}
-            <div className="flex gap-4 mb-6">
+            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:gap-4">
               <Button
                 variant={searchType === 'phone' ? 'default' : 'outline'}
                 onClick={() => setSearchType('phone')}
@@ -118,7 +118,7 @@ export default function GlobalPatientSearch() {
             </div>
 
             {/* Search Input */}
-            <div className="flex gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row">
               <Input
                 placeholder={
                   searchType === 'phone'
@@ -130,7 +130,7 @@ export default function GlobalPatientSearch() {
                 onKeyDown={handleKeyDown}
                 className="flex-1"
               />
-              <Button onClick={handleSearch} disabled={isSearching || !query.trim()}>
+              <Button className="w-full sm:w-auto" onClick={handleSearch} disabled={isSearching || !query.trim()}>
                 <Search className="h-4 w-4 mr-2" />
                 {isSearching ? 'Searching...' : 'Search'}
               </Button>
@@ -140,7 +140,7 @@ export default function GlobalPatientSearch() {
 
         {/* Results Header */}
         {hasSearched && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground border-b pb-2">
+          <div className="flex flex-wrap items-center gap-2 border-b pb-2 text-sm text-muted-foreground">
             <span className="font-medium">SEARCH RESULTS</span>
             <span>•</span>
             <span>GLOBAL</span>
@@ -170,9 +170,9 @@ export default function GlobalPatientSearch() {
           {results.map((result) => (
             <Card key={result.patient.id} className="overflow-hidden">
               <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle className="text-lg flex items-center gap-2">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
                       {result.patient.name}
                       <span className="text-muted-foreground font-normal">|</span>
                       <span className="text-muted-foreground font-normal">
@@ -183,12 +183,12 @@ export default function GlobalPatientSearch() {
                         {result.patient.gender}
                       </span>
                     </CardTitle>
-                    <p className="text-sm text-muted-foreground mt-1">
+                    <p className="mt-1 text-sm text-muted-foreground">
                       Phone:{' '}
                       {result.patient.identifiers.find((i) => i.type === 'PHONE')?.value || 'N/A'}
                     </p>
                   </div>
-                  <Badge variant="outline" className="text-xs">
+                  <Badge variant="outline" className="w-fit text-xs">
                     {result.patient.patientNumber}
                   </Badge>
                 </div>
@@ -203,7 +203,7 @@ export default function GlobalPatientSearch() {
                   {result.historySnapshot.length > 0 ? (
                     <ul className="space-y-2">
                       {result.historySnapshot.slice(0, 3).map((visit, idx) => (
-                        <li key={idx} className="text-sm flex items-center gap-2">
+                        <li key={idx} className="flex flex-wrap items-center gap-2 text-sm">
                           <span className="text-muted-foreground">•</span>
                           <span className="font-medium">
                             {getDomainLabel(visit.domain, visit.visitType)}
