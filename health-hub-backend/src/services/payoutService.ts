@@ -9,6 +9,7 @@ import { computeCommissionInPaise, computeReferralPayoutInPaise } from './referr
 
 export interface PayoutLineItem {
   visitId: string;
+  productId?: string | null;
   billNumber: string;
   patientName: string;
   date: Date;
@@ -17,6 +18,7 @@ export interface PayoutLineItem {
   commissionPercentage?: number; // Only for referral/diagnostic center
   commissionType?: 'PERCENTAGE' | 'FIXED_AMOUNT';
   commissionAmountInPaise?: number;
+  commissionLabel?: string;
   derivedCommissionInPaise: number;
 }
 
@@ -51,6 +53,69 @@ export interface PayoutDetail extends PayoutSummary {
   notes: string | null;
   reviewedAt: Date | null;
   lineItems: PayoutLineItem[];
+}
+
+function markCommissionAsMixed(lineItem: PayoutLineItem) {
+  lineItem.commissionType = undefined;
+  lineItem.commissionPercentage = undefined;
+  lineItem.commissionAmountInPaise = undefined;
+  lineItem.commissionLabel = 'Mixed';
+}
+
+function mergeGroupedCommission(target: PayoutLineItem, incoming: PayoutLineItem) {
+  if (target.commissionLabel === 'Mixed' || incoming.commissionLabel === 'Mixed') {
+    markCommissionAsMixed(target);
+    return;
+  }
+
+  if (!target.commissionType && !incoming.commissionType) {
+    return;
+  }
+
+  if (target.commissionType === 'FIXED_AMOUNT' && incoming.commissionType === 'FIXED_AMOUNT') {
+    target.commissionAmountInPaise =
+      (target.commissionAmountInPaise ?? 0) + (incoming.commissionAmountInPaise ?? 0);
+    return;
+  }
+
+  if (target.commissionType === 'PERCENTAGE' && incoming.commissionType === 'PERCENTAGE') {
+    const targetPercent = target.commissionPercentage ?? 0;
+    const incomingPercent = incoming.commissionPercentage ?? 0;
+
+    if (Math.abs(targetPercent - incomingPercent) <= 0.0001) {
+      return;
+    }
+  }
+
+  markCommissionAsMixed(target);
+}
+
+function groupDiagnosticLineItemsByBillableProduct(lineItems: PayoutLineItem[]) {
+  const groupedLineItems: PayoutLineItem[] = [];
+  const groupedProductLineItems = new Map<string, PayoutLineItem>();
+
+  for (const lineItem of lineItems) {
+    if (!lineItem.productId) {
+      groupedLineItems.push(lineItem);
+      continue;
+    }
+
+    const groupingKey = `${lineItem.visitId}:${lineItem.productId}`;
+    const existing = groupedProductLineItems.get(groupingKey);
+
+    if (!existing) {
+      const groupedItem = { ...lineItem };
+      groupedProductLineItems.set(groupingKey, groupedItem);
+      groupedLineItems.push(groupedItem);
+      continue;
+    }
+
+    existing.amountInPaise += lineItem.amountInPaise;
+    existing.derivedCommissionInPaise += lineItem.derivedCommissionInPaise;
+    mergeGroupedCommission(existing, lineItem);
+  }
+
+  return groupedLineItems;
 }
 
 // ===========================================================================
@@ -109,6 +174,7 @@ async function deriveReferralPayout(
       testOrders: {
         include: {
           test: { select: { name: true } },
+          product: { select: { id: true, name: true, code: true } },
         },
       },
       report: {
@@ -135,10 +201,14 @@ async function deriveReferralPayout(
 
       lineItems.push({
         visitId: visit.id,
+        productId: testOrder.productId,
         billNumber: visit.billNumber,
         patientName: visit.patient.name,
         date: finalizedAt || visit.createdAt,
-        testOrFee: testOrder.testNameSnapshot || testOrder.test.name,
+        testOrFee:
+          testOrder.product?.name ||
+          testOrder.testNameSnapshot ||
+          testOrder.test.name,
         amountInPaise: testOrder.priceInPaise,
         commissionType: testOrder.referralCommissionType,
         commissionPercentage:
@@ -161,7 +231,7 @@ async function deriveReferralPayout(
     branchId,
     periodStartDate,
     periodEndDate,
-    lineItems,
+    lineItems: groupDiagnosticLineItemsByBillableProduct(lineItems),
     derivedAmountInPaise: totalDerivedInPaise,
   };
 }
@@ -353,6 +423,7 @@ async function deriveDiagnosticCenterPayout(
 
       lineItems.push({
         visitId: visit.id,
+        productId: testOrder.productId,
         billNumber: visit.billNumber,
         patientName: visit.patient.name,
         date: finalizedAt || visit.createdAt,
@@ -386,7 +457,7 @@ async function deriveDiagnosticCenterPayout(
     branchId,
     periodStartDate,
     periodEndDate,
-    lineItems,
+    lineItems: groupDiagnosticLineItemsByBillableProduct(lineItems),
     derivedAmountInPaise: totalDerivedInPaise,
   };
 }
