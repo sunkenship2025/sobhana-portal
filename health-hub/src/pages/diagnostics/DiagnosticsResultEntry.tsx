@@ -345,18 +345,15 @@ const DiagnosticsResultEntry = () => {
     return 'NORMAL';
   };
 
-  const handleValueChange = useCallback(
-    (testId: string, value: string) => {
-      setResults((prev) => {
-        const updated = { ...prev, [testId]: value };
-        const changedCode = testIdToCodeMap.get(testId);
-        return changedCode
-          ? recalculateDerivedResults(updated, changedCode)
-          : updated;
-      });
-    },
-    [recalculateDerivedResults, testIdToCodeMap]
-  );
+  const handleValueChange = (testId: string, value: string) => {
+    setResults((prev) => {
+      const updated = { ...prev, [testId]: value };
+      const changedCode = testIdToCodeMap.get(testId);
+      return changedCode
+        ? recalculateDerivedResults(updated, changedCode)
+        : updated;
+    });
+  };
 
   const togglePanel = (orderId: string) => {
     setExpandedPanels((prev) => ({
