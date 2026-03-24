@@ -392,20 +392,35 @@ body.report-body {
 .print-qr-text { font-size: 6.5pt; color: #666; }
 
 /* ============================================================================
-   PAGE BREAKS
+   PAGE BREAKS - using both legacy and modern syntax for compatibility
    ============================================================================ */
 
 /* Departments don't split internally */
-.department { page-break-inside: avoid; }
+.department {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
 
 /* Each new department starts on a fresh page (except first) */
-.department:not(:first-child) { page-break-before: always; }
+.department:not(:first-child) {
+  page-break-before: always !important;
+  break-before: page !important;
+}
 
 /* Keep department header with its first panel (no orphaned headers) */
-.department-header { page-break-after: avoid; }
+.department-header {
+  page-break-after: avoid;
+  break-after: avoid;
+}
 
 /* Panels don't split internally, flow naturally within department */
-.panel { page-break-inside: avoid; }
+.panel {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
 
 /* Signatures stay together, can share page with last content */
-.signatures-section { page-break-inside: avoid; }
+.signatures-section {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
