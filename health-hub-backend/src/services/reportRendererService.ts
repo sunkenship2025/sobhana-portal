@@ -2,7 +2,8 @@
  * E3-10: Report HTML Renderer
  *
  * Renders diagnostic reports from snapshot data to HTML.
- * Uses SAME template for screen and print - CSS controls visibility.
+ * Screen, digital PDF, and physical PDF share the same report fragments,
+ * while the selected profile controls page grouping and stylesheet behavior.
  *
  * LIS-standard format: Test | Value | Unit | Reference Range | Flag
  * Flag column: H (high), L (low), empty (normal)
@@ -477,6 +478,19 @@ interface ResolvedProfile {
   bodyClass: string;
 }
 
+interface ReportFragments {
+  headerHtml: string;
+  patientInfoHtml: string;
+  reportBottomHtml: string;
+  footerHtml: string;
+}
+
+interface ReportPageModel {
+  departmentHtml: string;
+  includePatientInfo: boolean;
+  includeReportBottom: boolean;
+}
+
 function resolveProfile(profile: RenderProfile): ResolvedProfile {
   switch (profile) {
     case 'screen':
@@ -516,48 +530,13 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
   }
 }
 
-export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOptions): string {
-  const { profile, baseUrl = '', qrDataUrl = '' } = options;
-  const resolved = resolveProfile(profile);
+function renderHeaderHtml(baseUrl: string, qrImgSrc: string): string {
+  const logoSrc = LOGO_DATA_URI || `${baseUrl}/images/sobhana-logo-cropped.png`;
 
-  const renderDepartmentSection = (dept: ReportSnapshot['departments'][number]) => {
-    const panelHtml = dept.panels.map(panel => renderPanel(panel)).join('');
-
-    return `
-      <section class="department" data-department="${escapeHtml(dept.departmentName)}">
-        <div class="department-header">${escapeHtml(dept.departmentHeaderText || dept.departmentName)}</div>
-        ${panelHtml}
-      </section>`;
-  };
-
-  // Signature blocks
-  const signatureBlocks = snapshot.signatures.map(sig => {
-    // Priority: base64 from DB (Render-safe) → inline from disk (local dev) → absolute URL fallback
-    const sigImgSrc = sig.signatureImageBase64
-      || inlineSignatureImage(sig.signatureImagePath)
-      || (sig.signatureImagePath ? `${baseUrl}${escapeHtml(sig.signatureImagePath)}` : '');
-    return `
-    <div class="signature-block">
-      ${sigImgSrc ? `<img src="${sigImgSrc}" alt="Signature" class="signature-image" onerror="this.style.display='none'" />` : ''}
-      <div class="doctor-name">${escapeHtml(sig.doctorName)}</div>
-      <div class="doctor-degrees">${escapeHtml(sig.degrees)}</div>
-      <div class="doctor-designation">${escapeHtml(sig.designation)}</div>
-      ${sig.registrationNumber ? `<div class="doctor-reg">Reg. No: ${escapeHtml(sig.registrationNumber)}</div>` : ''}
-    </div>`;
-  }).join('');
-
-  const qrImgSrc = qrDataUrl || '';
-
-  // Sample types
-  const sampleTypes = [...new Set(snapshot.departments.flatMap(d => d.panels.map(p => p.sampleType)).filter(Boolean))];
-
-  // Inline CSS
-  const inlineCss = resolved.cssBlock;
-
-  const headerHtml = `
+  return `
     <header class="header">
       <div class="header-logo-row">
-        <img src="${LOGO_DATA_URI || (baseUrl + '/images/sobhana-logo-cropped.png')}" alt="Sobhana Diagnostic Centre" class="header-logo" />
+        <img src="${logoSrc}" alt="Sobhana Diagnostic Centre" class="header-logo" />
         ${qrImgSrc ? `
         <div class="header-qr no-print">
           <img src="${qrImgSrc}" alt="QR" class="header-qr-img" />
@@ -570,8 +549,10 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
         <span class="report-badge">REPORT</span>
       </div>
     </header>`;
+}
 
-  const patientInfoHtml = `
+function renderPatientInfoHtml(snapshot: ReportSnapshot, sampleTypes: string[]): string {
+  return `
       <section class="patient-info">
         <div class="info-grid">
           <div class="info-row">
@@ -624,8 +605,10 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
           </div>` : ''}
         </div>
       </section>`;
+}
 
-  const reportBottomHtml = `
+function renderReportBottomHtml(signatureBlocks: string, qrImgSrc: string): string {
+  return `
       <div class="report-note">
         Note: Please correlate clinically if necessary.
       </div>
@@ -652,8 +635,10 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
 
         <div class="report-divider"></div>
       </div>`;
+}
 
-  const footerHtml = `
+function renderFooterHtml(): string {
+  return `
     <footer class="footer">
       <div class="footer-stripe"></div>
       <div class="footer-content">
@@ -667,178 +652,122 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
         </div>
       </div>
     </footer>`;
+}
 
-  if (profile !== 'pdf-physical') {
-    const pages = (snapshot.departments.length > 0 ? snapshot.departments : [null]).map((dept, index, arr) => {
-      const isFirstPage = index === 0;
-      const isLastPage = index === arr.length - 1;
+function buildReportFragments(snapshot: ReportSnapshot, baseUrl: string, qrDataUrl: string): ReportFragments {
+  const signatureBlocks = snapshot.signatures.map(sig => {
+    // Priority: base64 from DB (Render-safe) → inline from disk (local dev) → absolute URL fallback
+    const sigImgSrc = sig.signatureImageBase64
+      || inlineSignatureImage(sig.signatureImagePath)
+      || (sig.signatureImagePath ? `${baseUrl}${escapeHtml(sig.signatureImagePath)}` : '');
 
-      return `
-  <div class="report-page">
-    ${headerHtml}
-    <main class="report-content">
-      ${isFirstPage ? patientInfoHtml : ''}
-      <div class="results-container">
-        ${dept ? renderDepartmentSection(dept) : ''}
-      </div>
-      ${isLastPage ? reportBottomHtml : ''}
-    </main>
-    ${footerHtml}
-  </div>`;
-    }).join('');
+    return `
+    <div class="signature-block">
+      ${sigImgSrc ? `<img src="${sigImgSrc}" alt="Signature" class="signature-image" onerror="this.style.display='none'" />` : ''}
+      <div class="doctor-name">${escapeHtml(sig.doctorName)}</div>
+      <div class="doctor-degrees">${escapeHtml(sig.degrees)}</div>
+      <div class="doctor-designation">${escapeHtml(sig.designation)}</div>
+      ${sig.registrationNumber ? `<div class="doctor-reg">Reg. No: ${escapeHtml(sig.registrationNumber)}</div>` : ''}
+    </div>`;
+  }).join('');
 
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=800">
-  <title>Diagnostic Report - ${escapeHtml(snapshot.patient.name)} - ${escapeHtml(snapshot.visit.billNumber)}</title>
-  ${inlineCss}
-  ${resolved.extraStyles ? `<style>${resolved.extraStyles}</style>` : ''}
-</head>
-<body class="report-body ${resolved.bodyClass}">
-${pages}
-</body>
-</html>`;
+  const sampleTypes = [...new Set(
+    snapshot.departments
+      .flatMap(department => department.panels.map(panel => panel.sampleType))
+      .filter((sampleType): sampleType is string => Boolean(sampleType)),
+  )];
+
+  return {
+    headerHtml: renderHeaderHtml(baseUrl, qrDataUrl),
+    patientInfoHtml: renderPatientInfoHtml(snapshot, sampleTypes),
+    reportBottomHtml: renderReportBottomHtml(signatureBlocks, qrDataUrl),
+    footerHtml: renderFooterHtml(),
+  };
+}
+
+function buildReportPages(
+  snapshot: ReportSnapshot,
+  profile: RenderProfile,
+  renderDepartmentSection: (department: ReportSnapshot['departments'][number]) => string,
+): ReportPageModel[] {
+  const departmentHtml = snapshot.departments.map(renderDepartmentSection);
+
+  if (profile === 'pdf-physical') {
+    return [{
+      departmentHtml: departmentHtml.join(''),
+      includePatientInfo: true,
+      includeReportBottom: true,
+    }];
   }
 
-  const departmentSections = snapshot.departments.map(renderDepartmentSection).join('');
+  if (departmentHtml.length === 0) {
+    return [{
+      departmentHtml: '',
+      includePatientInfo: true,
+      includeReportBottom: true,
+    }];
+  }
 
+  return departmentHtml.map((departmentSection, index, allDepartments) => ({
+    departmentHtml: departmentSection,
+    includePatientInfo: index === 0,
+    includeReportBottom: index === allDepartments.length - 1,
+  }));
+}
+
+function renderReportPage(page: ReportPageModel, fragments: ReportFragments): string {
+  return `
+  <div class="report-page">
+    ${fragments.headerHtml}
+    <main class="report-content">
+      ${page.includePatientInfo ? fragments.patientInfoHtml : ''}
+      <div class="results-container">
+        ${page.departmentHtml}
+      </div>
+      ${page.includeReportBottom ? fragments.reportBottomHtml : ''}
+    </main>
+    ${fragments.footerHtml}
+  </div>`;
+}
+
+function renderDocumentHtml(
+  snapshot: ReportSnapshot,
+  resolved: ResolvedProfile,
+  pagesHtml: string,
+): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=800">
   <title>Diagnostic Report - ${escapeHtml(snapshot.patient.name)} - ${escapeHtml(snapshot.visit.billNumber)}</title>
-  ${inlineCss}
+  ${resolved.cssBlock}
   ${resolved.extraStyles ? `<style>${resolved.extraStyles}</style>` : ''}
 </head>
 <body class="report-body ${resolved.bodyClass}">
-
-  <div class="report-page">
-    ${headerHtml}
-    <main class="report-content">
-      ${patientInfoHtml}
-      <div class="results-container">
-        ${departmentSections}
-      </div>
-      ${reportBottomHtml}
-    </main>
-    ${footerHtml}
-  </div>
+${pagesHtml}
 </body>
 </html>`;
 }
 
-// ============================================================================
-// PUPPETEER PDF HEADER/FOOTER TEMPLATES
-// These are rendered separately by Puppeteer and repeated on each PDF page.
-// ============================================================================
+export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOptions): string {
+  const { profile, baseUrl = '', qrDataUrl = '' } = options;
+  const resolved = resolveProfile(profile);
 
-/**
- * Generates the header template HTML for Puppeteer PDF.
- * This will be repeated on each page of the PDF.
- */
-export function generatePdfHeaderTemplate(): string {
-  // Puppeteer templates need explicit font-size as default is very small
-  return `
-    <style>
-      .pdf-header {
-        width: 100%;
-        padding: 0 10mm;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        font-size: 10px;
-      }
-      .pdf-header-logo-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding-top: 2.5mm;
-      }
-      .pdf-header-logo {
-        height: 14mm;
-        width: auto;
-      }
-      .pdf-header-badge {
-        background: linear-gradient(135deg, #2c5282 0%, #1a365d 100%);
-        color: white;
-        padding: 3px 12px;
-        border-radius: 4px;
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 1.5px;
-      }
-      .pdf-header-stripe {
-        height: 3px;
-        background: linear-gradient(90deg, #2c5282 0%, #38a169 50%, #d69e2e 100%);
-        margin-top: 2mm;
-      }
-    </style>
-    <div class="pdf-header">
-      <div class="pdf-header-logo-row">
-        <img src="${LOGO_DATA_URI}" alt="Sobhana" class="pdf-header-logo" />
-        <span class="pdf-header-badge">REPORT</span>
-      </div>
-      <div class="pdf-header-stripe"></div>
-    </div>
-  `;
-}
+  const renderDepartmentSection = (department: ReportSnapshot['departments'][number]) => {
+    const panelHtml = department.panels.map(panel => renderPanel(panel)).join('');
 
-/**
- * Generates the footer template HTML for Puppeteer PDF.
- * This will be repeated on each page of the PDF.
- */
-export function generatePdfFooterTemplate(): string {
-  return `
-    <style>
-      .pdf-footer {
-        width: 100%;
-        padding: 0 10mm 1mm;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        font-size: 7px;
-        color: #4a5568;
-      }
-      .pdf-footer-stripe {
-        height: 2px;
-        background: linear-gradient(90deg, #2c5282 0%, #38a169 50%, #d69e2e 100%);
-        margin-bottom: 1.5mm;
-      }
-      .pdf-footer-content {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-      }
-      .pdf-footer-left {
-        max-width: 55%;
-      }
-      .pdf-footer-right {
-        text-align: right;
-        max-width: 45%;
-      }
-      .pdf-footer-note {
-        font-size: 6px;
-        color: #718096;
-      }
-      .pdf-footer-page {
-        font-size: 7px;
-        color: #4a5568;
-        margin-top: 1mm;
-        text-align: right;
-      }
-    </style>
-    <div class="pdf-footer">
-      <div class="pdf-footer-stripe"></div>
-      <div class="pdf-footer-content">
-        <div class="pdf-footer-left">
-          <div class="pdf-footer-note">Note: This report is subject to the terms and conditions overleaf.</div>
-          <div class="pdf-footer-note">Partial reproduction of this report is not permitted.</div>
-        </div>
-        <div class="pdf-footer-right">
-          <div>Balanagar: # 3-67, Sobhana Complex, Balanagar, Hyderabad-500042.</div>
-          <div>Ph: 040-2377 2929, 4016 3301</div>
-        </div>
-      </div>
-      <div class="pdf-footer-page">Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>
-    </div>
-  `;
+    return `
+      <section class="department" data-department="${escapeHtml(department.departmentName)}">
+        <div class="department-header">${escapeHtml(department.departmentHeaderText || department.departmentName)}</div>
+        ${panelHtml}
+      </section>`;
+  };
+
+  const fragments = buildReportFragments(snapshot, baseUrl, qrDataUrl);
+  const pages = buildReportPages(snapshot, profile, renderDepartmentSection)
+    .map(page => renderReportPage(page, fragments))
+    .join('');
+
+  return renderDocumentHtml(snapshot, resolved, pages);
 }
