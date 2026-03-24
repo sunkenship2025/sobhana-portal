@@ -217,11 +217,11 @@ const ClinicVisitQueue = () => {
         {/* Filters */}
         <Card>
           <CardContent className="pt-6">
-            <div className="flex flex-wrap gap-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap">
               <div className="space-y-2">
                 <Label>Visit Type</Label>
                 <Select value={visitTypeFilter} onValueChange={setVisitTypeFilter}>
-                  <SelectTrigger className="w-[140px]">
+                  <SelectTrigger className="w-full sm:w-[140px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -234,7 +234,7 @@ const ClinicVisitQueue = () => {
               <div className="space-y-2">
                 <Label>Doctor</Label>
                 <Select value={doctorFilter} onValueChange={setDoctorFilter}>
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-full sm:w-[180px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -244,7 +244,7 @@ const ClinicVisitQueue = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2 flex-1 max-w-sm">
+              <div className="space-y-2 w-full flex-1 sm:max-w-sm">
                 <Label>Search</Label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -289,7 +289,7 @@ const ClinicVisitQueue = () => {
                       className="flex flex-col gap-4 rounded-lg border bg-card p-4 transition-colors hover:bg-muted/50 lg:flex-row lg:items-center lg:justify-between"
                     >
                       <div className="space-y-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="font-semibold">{visit.patient.name}</span>
                           <span className="text-xs px-2 py-0.5 rounded bg-muted font-medium">
                             {visit.visitType}
@@ -301,7 +301,7 @@ const ClinicVisitQueue = () => {
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-4 text-sm">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                           <span className="text-muted-foreground">
                             Doctor: <span className="text-foreground">{visit.doctor?.name || '—'}</span>
                           </span>
@@ -314,7 +314,7 @@ const ClinicVisitQueue = () => {
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-3">
                           <span className="text-sm">₹{visit.totalAmount.toLocaleString('en-IN')}</span>
                           <span className="text-sm text-muted-foreground">{visit.paymentType}</span>
                           <StatusBadge status={visit.paymentStatus} />
@@ -332,10 +332,11 @@ const ClinicVisitQueue = () => {
                         )}
                       </div>
 
-                      <div className="flex flex-wrap items-center justify-end gap-2 lg:min-w-[320px]">
+                      <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end lg:min-w-[320px]">
                         {visit.status === 'WAITING' && (
                           <Button
                             size="sm"
+                            className="w-full sm:w-auto"
                             onClick={() => updateVisitStatus(visit, 'IN_PROGRESS')}
                             disabled={isUpdatingThisVisit}
                           >
@@ -349,6 +350,7 @@ const ClinicVisitQueue = () => {
                         {visit.status !== 'COMPLETED' && (
                           <Button
                             size="sm"
+                            className="w-full sm:w-auto"
                             variant={visit.status === 'IN_PROGRESS' ? 'default' : 'outline'}
                             onClick={() => updateVisitStatus(visit, 'COMPLETED')}
                             disabled={isUpdatingThisVisit}
@@ -360,7 +362,7 @@ const ClinicVisitQueue = () => {
                           </Button>
                         )}
 
-                        <Button variant="outline" size="sm" onClick={() => setSelectedVisit(visit)}>
+                        <Button className="w-full sm:w-auto" variant="outline" size="sm" onClick={() => setSelectedVisit(visit)}>
                           View
                         </Button>
                       </div>
@@ -381,7 +383,7 @@ const ClinicVisitQueue = () => {
           </DialogHeader>
           {selectedVisit && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <p className="text-sm text-muted-foreground">Patient</p>
                   <p className="font-medium">{selectedVisit.patient.name}</p>
@@ -396,7 +398,7 @@ const ClinicVisitQueue = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <p className="text-sm text-muted-foreground">Visit Type</p>
                   <p className="font-medium">{selectedVisit.visitType}</p>
@@ -414,7 +416,7 @@ const ClinicVisitQueue = () => {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <p className="text-sm text-muted-foreground">Consultation Fee</p>
                   <p className="font-bold">₹{selectedVisit.consultationFee.toLocaleString('en-IN')}</p>
