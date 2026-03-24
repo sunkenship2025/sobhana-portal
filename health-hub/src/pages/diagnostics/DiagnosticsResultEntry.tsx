@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { API_BASE } from '@/lib/api';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -22,6 +22,12 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { cn } from '@/lib/utils';
+import {
+  safeEvaluateFormula,
+  topologicalSortDerivedTests,
+  buildReverseDependencyMap,
+  DerivedTestInfo,
+} from '@/lib/formulaUtils';
 
 interface ReferenceRange {
   min: number;
@@ -36,6 +42,8 @@ interface ChildTest {
   code: string;
   displayOrder: number;
   isDerived?: boolean;
+  formulaExpression?: string | null;
+  dependsOnCodes?: string[] | null;
   referenceRange: ReferenceRange;
 }
 
@@ -52,6 +60,11 @@ interface TestOrder {
   department?: {
     id: string;
     name: string;
+  } | null;
+  panel?: {
+    id: string;
+    name: string;
+    displayName: string;
   } | null;
 }
 
@@ -94,6 +107,57 @@ const DiagnosticsResultEntry = () => {
   const [showWarning, setShowWarning] = useState(false);
   const [extremeValues, setExtremeValues] = useState<string[]>([]);
   const [expandedPanels, setExpandedPanels] = useState<Record<string, boolean>>({});
+
+  // Build derived test metadata from all child tests
+  const derivedTestsInfo = useMemo((): DerivedTestInfo[] => {
+    if (!visit) return [];
+
+    const derived: DerivedTestInfo[] = [];
+
+    visit.testOrders.forEach((order) => {
+      if (order.isPanel && order.childTests) {
+        order.childTests.forEach((child) => {
+          if (child.isDerived && child.formulaExpression && child.dependsOnCodes) {
+            derived.push({
+              testId: child.id,
+              code: child.code,
+              formulaExpression: child.formulaExpression,
+              dependsOnCodes: child.dependsOnCodes,
+            });
+          }
+        });
+      }
+    });
+
+    return derived;
+  }, [visit]);
+
+  // Build testId-to-code map
+  const testIdToCodeMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (!visit) return map;
+
+    visit.testOrders.forEach((order) => {
+      map.set(order.testId, order.testCode);
+      if (order.isPanel && order.childTests) {
+        order.childTests.forEach((child) => {
+          map.set(child.id, child.code);
+        });
+      }
+    });
+
+    return map;
+  }, [visit]);
+
+  // Build reverse dependency map
+  const reverseDependencyMap = useMemo(() => {
+    return buildReverseDependencyMap(derivedTestsInfo);
+  }, [derivedTestsInfo]);
+
+  // Topologically sorted derived tests
+  const sortedDerivedTests = useMemo(() => {
+    return topologicalSortDerivedTests(derivedTestsInfo);
+  }, [derivedTestsInfo]);
 
   // Fetch visit from API
   useEffect(() => {
@@ -183,12 +247,67 @@ const DiagnosticsResultEntry = () => {
     return 'NORMAL';
   };
 
-  const handleValueChange = (testId: string, value: string) => {
-    setResults((prev) => ({
-      ...prev,
-      [testId]: value,
-    }));
-  };
+  const handleValueChange = useCallback(
+    (testId: string, value: string) => {
+      setResults((prev) => {
+        const updated = { ...prev, [testId]: value };
+
+        // Get the code for the changed test
+        const changedCode = testIdToCodeMap.get(testId);
+        if (!changedCode) return updated;
+
+        // Build current values map (code -> numeric value)
+        const valuesByCode = new Map<string, number>();
+        for (const [id, valStr] of Object.entries(updated)) {
+          const code = testIdToCodeMap.get(id);
+          const numVal = parseFloat(valStr);
+          if (code && !isNaN(numVal)) {
+            valuesByCode.set(code, numVal);
+          }
+        }
+
+        // Find all derived tests that need recalculation
+        // Use topological order to handle cascading dependencies
+        const testsToRecalculate = new Set<string>();
+
+        // Start with tests directly depending on changed code
+        const directDependents = reverseDependencyMap.get(changedCode) || [];
+        directDependents.forEach((t) => testsToRecalculate.add(t.code));
+
+        // Process in topological order to handle cascading
+        for (const derivedTest of sortedDerivedTests) {
+          // Check if any dependency was just updated
+          const needsRecalc = derivedTest.dependsOnCodes.some(
+            (depCode) =>
+              testsToRecalculate.has(depCode) || depCode === changedCode
+          );
+
+          if (needsRecalc) {
+            testsToRecalculate.add(derivedTest.code);
+
+            // Calculate the new value
+            const calculatedValue = safeEvaluateFormula(
+              derivedTest.formulaExpression,
+              valuesByCode
+            );
+
+            // Update the result
+            if (calculatedValue !== null) {
+              updated[derivedTest.testId] = calculatedValue.toString();
+              // Also update valuesByCode for cascading calculations
+              valuesByCode.set(derivedTest.code, calculatedValue);
+            } else {
+              // Clear the value if calculation fails (missing dependencies or error)
+              updated[derivedTest.testId] = '';
+            }
+          }
+        }
+
+        return updated;
+      });
+    },
+    [testIdToCodeMap, reverseDependencyMap, sortedDerivedTests]
+  );
 
   const togglePanel = (orderId: string) => {
     setExpandedPanels((prev) => ({
@@ -347,10 +466,15 @@ const DiagnosticsResultEntry = () => {
           <Input
             type={hasNumericRange ? 'number' : 'text'}
             step="0.01"
-            placeholder="Value"
+            placeholder={isDerived ? 'Auto-calculated' : 'Value'}
             value={valueStr}
             onChange={(e) => handleValueChange(testId, e.target.value)}
-            className="text-center"
+            readOnly={isDerived}
+            disabled={isDerived}
+            className={cn(
+              'text-center',
+              isDerived && 'bg-muted cursor-not-allowed text-muted-foreground'
+            )}
           />
         </div>
 
@@ -399,6 +523,35 @@ const DiagnosticsResultEntry = () => {
     return 1;
   };
 
+  const departmentGroups = Array.from(
+    testOrders.reduce((groups, order) => {
+      const groupKey = order.department?.id || order.department?.name || 'other-tests';
+      const groupName = order.department?.name || 'Other Tests';
+
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, {
+          id: groupKey,
+          name: groupName,
+          orders: [],
+        });
+      }
+
+      groups.get(groupKey)!.orders.push(order);
+      return groups;
+    }, new Map<string, { id: string; name: string; orders: TestOrder[] }>())
+  ).map(([, group]) => group);
+
+  const getPanelTitle = (order: TestOrder) =>
+    order.panel?.displayName || order.panel?.name || order.testName;
+
+  const getPanelSubtitle = (order: TestOrder) => {
+    const panelTitle = getPanelTitle(order);
+    if (panelTitle !== order.testName) {
+      return order.testName;
+    }
+    return null;
+  };
+
   return (
     <AppLayout context="diagnostics">
       <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
@@ -432,83 +585,78 @@ const DiagnosticsResultEntry = () => {
             </div>
           </CardHeader>
           <CardContent className="space-y-6 pt-0">
-            {/* Group tests by department */}
-            {(() => {
-              const grouped = testOrders.reduce((acc, order) => {
-                const deptName = order.department?.name || 'Other Tests';
-                if (!acc[deptName]) acc[deptName] = [];
-                acc[deptName].push(order);
-                return acc;
-              }, {} as Record<string, TestOrder[]>);
+            {departmentGroups.map((department) => (
+              <div key={department.id} className="space-y-3">
+                <div className="flex items-center gap-3 pt-2">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    {department.name}
+                  </h3>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
 
-              const deptOrder = Object.keys(grouped).sort((a, b) => {
-                if (a === 'Other Tests') return 1;
-                if (b === 'Other Tests') return -1;
-                return a.localeCompare(b);
-              });
+                <div className="space-y-3">
+                  {department.orders.map((order) => {
+                    const isPanel = order.isPanel && order.childTests && order.childTests.length > 0;
+                    const isExpanded = expandedPanels[order.id] ?? false;
+                    const filled = countFilledResults(order);
+                    const total = getTotalTests(order);
+                    const panelTitle = getPanelTitle(order);
+                    const panelSubtitle = getPanelSubtitle(order);
 
-              return deptOrder.map((deptName) => (
-                <div key={deptName} className="space-y-3">
-                  {/* Department Header */}
-                  <div className="flex items-center gap-3 pt-2">
-                    <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                      {deptName}
-                    </h3>
-                    <div className="flex-1 h-px bg-border" />
-                  </div>
-
-                  {/* Tests in this department */}
-                  <div className="space-y-3">
-                    {grouped[deptName].map((order) => {
-                      const isPanel = order.isPanel && order.childTests && order.childTests.length > 0;
-                      const isExpanded = expandedPanels[order.id] ?? false;
-                      const filled = countFilledResults(order);
-                      const total = getTotalTests(order);
-
-                      return (
-                        <div key={order.id} className="border rounded-lg overflow-hidden">
-                          {isPanel ? (
-                            <>
-                              {/* Panel Header */}
-                              <button
-                                onClick={() => togglePanel(order.id)}
-                                className="flex w-full flex-col gap-3 bg-muted/50 p-4 text-left transition-colors hover:bg-muted/70 sm:flex-row sm:items-center sm:justify-between"
-                              >
-                                <div className="flex flex-wrap items-center gap-3">
-                                  <span className="font-semibold text-lg">{order.testName}</span>
-                                  <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
-                                    {order.childTests.length} parameters
+                    return (
+                      <div key={order.id} className="overflow-hidden rounded-lg border">
+                        {isPanel ? (
+                          <>
+                            <button
+                              onClick={() => togglePanel(order.id)}
+                              className="flex w-full flex-col gap-3 bg-muted/50 p-4 text-left transition-colors hover:bg-muted/70 sm:flex-row sm:items-center sm:justify-between"
+                            >
+                              <div className="flex flex-wrap items-center gap-3">
+                                <span className="text-lg font-semibold">{panelTitle}</span>
+                                {panelSubtitle && (
+                                  <span className="text-sm text-muted-foreground">
+                                    {panelSubtitle}
                                   </span>
-                                  <span className="text-xs text-muted-foreground">
-                                    ({filled}/{total} filled)
-                                  </span>
-                                </div>
-                                <div className="flex justify-end">
-                                  {isExpanded ? (
-                                    <ChevronUp className="h-5 w-5 text-muted-foreground" />
-                                  ) : (
-                                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                                  )}
-                                </div>
-                              </button>
+                                )}
+                                <span className="rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">
+                                  {order.childTests.length} parameters
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  ({filled}/{total} filled)
+                                </span>
+                              </div>
+                              <div className="flex justify-end">
+                                {isExpanded ? (
+                                  <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                                ) : (
+                                  <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                                )}
+                              </div>
+                            </button>
 
-                              {/* Panel Sub-tests */}
-                              {isExpanded && (
-                                <div className="p-4 bg-card">
-                                  {order.childTests.map((child) =>
-                                    renderTestInput(
-                                      child.id,
-                                      child.name,
-                                      child.code,
-                                      child.referenceRange,
-                                      true,
-                                      !!child.isDerived
-                                    )
-                                  )}
-                                </div>
+                            {isExpanded && (
+                              <div className="bg-card p-4">
+                                {order.childTests.map((child) =>
+                                  renderTestInput(
+                                    child.id,
+                                    child.name,
+                                    child.code,
+                                    child.referenceRange,
+                                    true,
+                                    !!child.isDerived
+                                  )
+                                )}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <div className="border-b bg-muted/30 px-4 py-3">
+                              <div className="font-semibold">{panelTitle}</div>
+                              {panelSubtitle && (
+                                <div className="text-xs text-muted-foreground">{panelSubtitle}</div>
                               )}
-                            </>
-                          ) : (
+                            </div>
                             <div className="p-4">
                               {renderTestInput(
                                 order.testId,
@@ -518,14 +666,14 @@ const DiagnosticsResultEntry = () => {
                                 false
                               )}
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              ));
-            })()}
+              </div>
+            ))}
 
             <Button className="w-full mt-6" size="lg" onClick={handleSaveDraft} disabled={saving}>
               {saving ? (
