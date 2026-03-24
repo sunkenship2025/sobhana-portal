@@ -309,6 +309,16 @@ router.get('/:id', async (req: AuthRequest, res) => {
                   },
                   orderBy: { displayOrder: 'asc' },
                 },
+                panelItems: {
+                  include: {
+                    panel: {
+                      include: {
+                        department: { select: { id: true, name: true } },
+                      },
+                    },
+                  },
+                  take: 1,
+                },
               },
             },
             testDefinition: {
@@ -436,9 +446,13 @@ router.get('/:id', async (req: AuthRequest, res) => {
         referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
         isPanel: to.test.isPanel,
         department: (() => {
-          // Try multiple sources for department: testDefinition.department, ClinicalPanel, or test.department
-          const dept = to.testDefinition?.department
-            || to.testDefinition?.panelItems?.[0]?.panel?.department
+          // Try multiple sources for department (mirrors reportSnapshotService logic):
+          // 1. New architecture: testDefinition -> ClinicalPanelItem -> ClinicalPanel -> department
+          // 2. Legacy architecture: test -> PanelTestItem -> PanelDefinition -> department
+          // 3. Direct: testDefinition.department or test.department
+          const dept = to.testDefinition?.panelItems?.[0]?.panel?.department
+            || to.test.panelItems?.[0]?.panel?.department
+            || to.testDefinition?.department
             || to.test.department;
           return dept ? { id: dept.id, name: dept.name } : null;
         })(),
