@@ -513,22 +513,74 @@ router.patch('/:id', async (req: AuthRequest, res) => {
 
           // Create ledger entry when visit is completed
           if (status === 'COMPLETED' && existing.status !== 'COMPLETED') {
-            const visitDate = new Date();
+            const visitDate = clinicVisitStatusData.completedAt ?? new Date();
             const startOfDay = new Date(visitDate.setHours(0, 0, 0, 0));
             const endOfDay = new Date(visitDate.setHours(23, 59, 59, 999));
-            
-            await tx.doctorPayoutLedger.create({
-              data: {
+            const consultationAmountInPaise =
+              existing.clinicVisit.consultationFeeInPaise || existing.totalAmountInPaise || 0;
+
+            const existingDayLedger = await tx.doctorPayoutLedger.findFirst({
+              where: {
                 branchId: existing.branchId,
                 doctorType: 'CLINIC',
                 clinicDoctorId: existing.clinicVisit.clinicDoctorId,
                 periodStartDate: startOfDay,
                 periodEndDate: endOfDay,
-                derivedAmountInPaise: existing.totalAmountInPaise || 0,
-                derivedAt: new Date(),
-                notes: `Clinic consultation - ${existing.billNumber}`,
               },
+              orderBy: { derivedAt: 'desc' },
             });
+
+            const coveringPaidLedger = await tx.doctorPayoutLedger.findFirst({
+              where: {
+                branchId: existing.branchId,
+                doctorType: 'CLINIC',
+                clinicDoctorId: existing.clinicVisit.clinicDoctorId,
+                paidAt: { not: null },
+                periodStartDate: { lte: startOfDay },
+                periodEndDate: { gte: endOfDay },
+              },
+              orderBy: [
+                { periodStartDate: 'desc' },
+                { periodEndDate: 'asc' },
+                { paidAt: 'desc' },
+              ],
+            });
+
+            if (existingDayLedger) {
+              await tx.doctorPayoutLedger.update({
+                where: { id: existingDayLedger.id },
+                data: {
+                  derivedAmountInPaise:
+                    existingDayLedger.derivedAmountInPaise + consultationAmountInPaise,
+                  derivedAt: new Date(),
+                  notes: `Clinic consultations - ${startOfDay.toISOString().slice(0, 10)}`,
+                  ...(!existingDayLedger.paidAt &&
+                    coveringPaidLedger?.paidAt && {
+                      paidAt: coveringPaidLedger.paidAt,
+                      paymentMethod: coveringPaidLedger.paymentMethod,
+                      paymentReferenceId: coveringPaidLedger.paymentReferenceId,
+                    }),
+                },
+              });
+            } else {
+              await tx.doctorPayoutLedger.create({
+                data: {
+                  branchId: existing.branchId,
+                  doctorType: 'CLINIC',
+                  clinicDoctorId: existing.clinicVisit.clinicDoctorId,
+                  periodStartDate: startOfDay,
+                  periodEndDate: endOfDay,
+                  derivedAmountInPaise: consultationAmountInPaise,
+                  derivedAt: new Date(),
+                  notes: coveringPaidLedger?.notes || `Clinic consultation - ${existing.billNumber}`,
+                  ...(coveringPaidLedger?.paidAt && {
+                    paidAt: coveringPaidLedger.paidAt,
+                    paymentMethod: coveringPaidLedger.paymentMethod,
+                    paymentReferenceId: coveringPaidLedger.paymentReferenceId,
+                  }),
+                },
+              });
+            }
           }
         }
       }
