@@ -55,6 +55,9 @@ interface TestOrder {
   testCode: string;
   price: number;
   isPanel: boolean;
+  isDerived?: boolean;
+  formulaExpression?: string | null;
+  dependsOnCodes?: string[] | null;
   referenceRange: ReferenceRange;
   childTests: ChildTest[];
   department?: {
@@ -94,6 +97,20 @@ interface Visit {
   };
 }
 
+function areResultsEqual(
+  left: Record<string, string>,
+  right: Record<string, string>
+): boolean {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+
+  return leftKeys.every((key) => left[key] === right[key]);
+}
+
 const DiagnosticsResultEntry = () => {
   const { visitId } = useParams();
   const navigate = useNavigate();
@@ -108,13 +125,22 @@ const DiagnosticsResultEntry = () => {
   const [extremeValues, setExtremeValues] = useState<string[]>([]);
   const [expandedPanels, setExpandedPanels] = useState<Record<string, boolean>>({});
 
-  // Build derived test metadata from all child tests
+  // Build derived test metadata from both standalone and panel tests
   const derivedTestsInfo = useMemo((): DerivedTestInfo[] => {
     if (!visit) return [];
 
     const derived: DerivedTestInfo[] = [];
 
     visit.testOrders.forEach((order) => {
+      if (order.isDerived && order.formulaExpression && order.dependsOnCodes) {
+        derived.push({
+          testId: order.testId,
+          code: order.testCode,
+          formulaExpression: order.formulaExpression,
+          dependsOnCodes: order.dependsOnCodes,
+        });
+      }
+
       if (order.isPanel && order.childTests) {
         order.childTests.forEach((child) => {
           if (child.isDerived && child.formulaExpression && child.dependsOnCodes) {
@@ -158,6 +184,69 @@ const DiagnosticsResultEntry = () => {
   const sortedDerivedTests = useMemo(() => {
     return topologicalSortDerivedTests(derivedTestsInfo);
   }, [derivedTestsInfo]);
+
+  const recalculateDerivedResults = useCallback(
+    (
+      currentResults: Record<string, string>,
+      changedCode?: string
+    ): Record<string, string> => {
+      if (sortedDerivedTests.length === 0) {
+        return currentResults;
+      }
+
+      const updated = { ...currentResults };
+      const valuesByCode = new Map<string, number>();
+
+      for (const [id, valueStr] of Object.entries(updated)) {
+        const code = testIdToCodeMap.get(id);
+        const numericValue = parseFloat(valueStr);
+        if (code && !isNaN(numericValue)) {
+          valuesByCode.set(code, numericValue);
+        }
+      }
+
+      const testsToRecalculate = new Set<string>();
+      if (changedCode) {
+        const directDependents = reverseDependencyMap.get(changedCode) || [];
+        directDependents.forEach((test) => testsToRecalculate.add(test.code));
+
+        if (testsToRecalculate.size === 0) {
+          return updated;
+        }
+      }
+
+      for (const derivedTest of sortedDerivedTests) {
+        const needsRecalc =
+          !changedCode ||
+          derivedTest.dependsOnCodes.some(
+            (depCode) =>
+              testsToRecalculate.has(depCode) || depCode === changedCode
+          );
+
+        if (!needsRecalc) {
+          continue;
+        }
+
+        testsToRecalculate.add(derivedTest.code);
+
+        const calculatedValue = safeEvaluateFormula(
+          derivedTest.formulaExpression,
+          valuesByCode
+        );
+
+        if (calculatedValue !== null) {
+          updated[derivedTest.testId] = calculatedValue.toString();
+          valuesByCode.set(derivedTest.code, calculatedValue);
+        } else {
+          delete updated[derivedTest.testId];
+          valuesByCode.delete(derivedTest.code);
+        }
+      }
+
+      return updated;
+    },
+    [reverseDependencyMap, sortedDerivedTests, testIdToCodeMap]
+  );
 
   // Fetch visit from API
   useEffect(() => {
@@ -213,6 +302,15 @@ const DiagnosticsResultEntry = () => {
     fetchVisit();
   }, [visitId, token, activeBranchId]);
 
+  useEffect(() => {
+    if (!visit) return;
+
+    setResults((prev) => {
+      const recalculated = recalculateDerivedResults(prev);
+      return areResultsEqual(prev, recalculated) ? prev : recalculated;
+    });
+  }, [visit, recalculateDerivedResults]);
+
   if (loading) {
     return (
       <AppLayout context="diagnostics">
@@ -251,62 +349,13 @@ const DiagnosticsResultEntry = () => {
     (testId: string, value: string) => {
       setResults((prev) => {
         const updated = { ...prev, [testId]: value };
-
-        // Get the code for the changed test
         const changedCode = testIdToCodeMap.get(testId);
-        if (!changedCode) return updated;
-
-        // Build current values map (code -> numeric value)
-        const valuesByCode = new Map<string, number>();
-        for (const [id, valStr] of Object.entries(updated)) {
-          const code = testIdToCodeMap.get(id);
-          const numVal = parseFloat(valStr);
-          if (code && !isNaN(numVal)) {
-            valuesByCode.set(code, numVal);
-          }
-        }
-
-        // Find all derived tests that need recalculation
-        // Use topological order to handle cascading dependencies
-        const testsToRecalculate = new Set<string>();
-
-        // Start with tests directly depending on changed code
-        const directDependents = reverseDependencyMap.get(changedCode) || [];
-        directDependents.forEach((t) => testsToRecalculate.add(t.code));
-
-        // Process in topological order to handle cascading
-        for (const derivedTest of sortedDerivedTests) {
-          // Check if any dependency was just updated
-          const needsRecalc = derivedTest.dependsOnCodes.some(
-            (depCode) =>
-              testsToRecalculate.has(depCode) || depCode === changedCode
-          );
-
-          if (needsRecalc) {
-            testsToRecalculate.add(derivedTest.code);
-
-            // Calculate the new value
-            const calculatedValue = safeEvaluateFormula(
-              derivedTest.formulaExpression,
-              valuesByCode
-            );
-
-            // Update the result
-            if (calculatedValue !== null) {
-              updated[derivedTest.testId] = calculatedValue.toString();
-              // Also update valuesByCode for cascading calculations
-              valuesByCode.set(derivedTest.code, calculatedValue);
-            } else {
-              // Clear the value if calculation fails (missing dependencies or error)
-              updated[derivedTest.testId] = '';
-            }
-          }
-        }
-
-        return updated;
+        return changedCode
+          ? recalculateDerivedResults(updated, changedCode)
+          : updated;
       });
     },
-    [testIdToCodeMap, reverseDependencyMap, sortedDerivedTests]
+    [recalculateDerivedResults, testIdToCodeMap]
   );
 
   const togglePanel = (orderId: string) => {
@@ -663,7 +712,8 @@ const DiagnosticsResultEntry = () => {
                                 order.testName,
                                 order.testCode,
                                 order.referenceRange,
-                                false
+                                false,
+                                !!order.isDerived
                               )}
                             </div>
                           </>
