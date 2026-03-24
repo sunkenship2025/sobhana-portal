@@ -18,9 +18,9 @@ export function AppLayout({ children, context, subContext }: AppLayoutProps) {
   return (
     <div className="min-h-screen bg-background" style={branchVars as React.CSSProperties}>
       <Sidebar />
-      <main className="ml-64">
+      <main className="min-h-screen md:ml-64">
         <ContextBanner />
-        <div className="p-6">
+        <div className="px-4 py-4 sm:px-6 sm:py-6">
           {children}
         </div>
       </main>

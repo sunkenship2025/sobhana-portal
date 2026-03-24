@@ -139,11 +139,11 @@ const DiagnosticsPendingResults = () => {
         {/* Filters */}
         <Card>
           <CardContent className="pt-6">
-            <div className="flex flex-wrap gap-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap">
               <div className="space-y-2">
                 <Label>Date</Label>
                 <Select value={dateFilter} onValueChange={setDateFilter}>
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-full sm:w-[180px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -154,7 +154,7 @@ const DiagnosticsPendingResults = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2 flex-1 max-w-sm">
+              <div className="space-y-2 w-full flex-1 sm:max-w-sm">
                 <Label>Search</Label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -188,16 +188,16 @@ const DiagnosticsPendingResults = () => {
                 {filteredVisits.map(({ visit, patient, testOrders }) => (
                   <div
                     key={visit.id}
-                    className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
+                    className="flex flex-col gap-4 rounded-lg border bg-card p-4 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
                   >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="font-semibold">{patient?.name || 'Unknown'}</span>
                         <span className="text-muted-foreground">
                           | {patient?.age} | {patient?.gender}
                         </span>
                       </div>
-                      <div className="flex items-center gap-4 text-sm">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                         <span className="text-muted-foreground">
                           Bill #: <span className="font-mono">{visit.billNumber}</span>
                         </span>
@@ -207,7 +207,7 @@ const DiagnosticsPendingResults = () => {
                       </div>
                       <StatusBadge status={visit.status} />
                     </div>
-                    <Button onClick={() => navigate(`/diagnostics/results/${visit.id}`)}>
+                    <Button className="w-full sm:w-auto" onClick={() => navigate(`/diagnostics/results/${visit.id}`)}>
                       Enter Results
                     </Button>
                   </div>

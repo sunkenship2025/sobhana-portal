@@ -6,14 +6,16 @@ export function ContextBanner() {
   const activeBranch = getActiveBranch();
   
   return (
-    <div className="context-banner flex items-center justify-between">
-      <div className="flex items-center gap-4">
-        <div>
-          <span className="font-semibold">Branch:</span>{' '}
-          <span className="opacity-90">{activeBranch?.name || 'Not Selected'}</span>
+    <div className="context-banner flex flex-col items-start gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold shrink-0">Branch:</span>
+          <span className="min-w-0 truncate opacity-90">{activeBranch?.name || 'Not Selected'}</span>
         </div>
       </div>
-      <BranchSelector />
+      <div className="w-full sm:w-auto">
+        <BranchSelector />
+      </div>
     </div>
   );
 }
