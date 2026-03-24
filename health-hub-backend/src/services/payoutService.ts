@@ -204,7 +204,7 @@ async function deriveClinicPayout(
       visit: {
         branchId,
       },
-      createdAt: {
+      completedAt: {
         gte: periodStartDate,
         lte: periodEndDate,
       },
@@ -239,7 +239,7 @@ async function deriveClinicPayout(
       visitId: cv.visit.id,
       billNumber: cv.visit.billNumber,
       patientName: cv.visit.patient.name,
-      date: cv.createdAt,
+      date: cv.completedAt || cv.createdAt,
       testOrFee: 'Consultation Fee',
       amountInPaise: cv.consultationFeeInPaise,
       derivedCommissionInPaise: commissionInPaise,
@@ -449,13 +449,246 @@ function extractDoctorName(payout: any): string {
   );
 }
 
+function buildDayPeriod(date: Date) {
+  const periodStartDate = new Date(date);
+  periodStartDate.setHours(0, 0, 0, 0);
+
+  const periodEndDate = new Date(date);
+  periodEndDate.setHours(23, 59, 59, 999);
+
+  return {
+    periodStartDate,
+    periodEndDate,
+  };
+}
+
+async function findCoveringPaidPayout(
+  doctorType: PayoutDoctorType,
+  doctorId: string,
+  branchId: string,
+  periodStartDate: Date,
+  periodEndDate: Date,
+  excludePayoutId?: string
+) {
+  return prisma.doctorPayoutLedger.findFirst({
+    where: {
+      doctorType,
+      ...doctorIdWhereClause(doctorType, doctorId),
+      branchId,
+      paidAt: { not: null },
+      periodStartDate: { lte: periodStartDate },
+      periodEndDate: { gte: periodEndDate },
+      ...(excludePayoutId && { id: { not: excludePayoutId } }),
+    },
+    orderBy: [
+      { periodStartDate: 'desc' },
+      { periodEndDate: 'asc' },
+      { paidAt: 'desc' },
+    ],
+  });
+}
+
+async function syncReferralPayoutsForBranch(
+  branchId: string,
+  filters?: {
+    doctorType?: PayoutDoctorType;
+    doctorId?: string;
+    isPaid?: boolean;
+    startDate?: Date;
+    endDate?: Date;
+  }
+) {
+  if (filters?.doctorType && filters.doctorType !== 'REFERRAL') return;
+
+  const finalizedAtFilter =
+    filters?.startDate || filters?.endDate
+      ? {
+          finalizedAt: {
+            ...(filters.startDate && { gte: filters.startDate }),
+            ...(filters.endDate && { lte: filters.endDate }),
+          },
+        }
+      : {};
+
+  const visits = await prisma.visit.findMany({
+    where: {
+      branchId,
+      domain: 'DIAGNOSTICS',
+      referrals: {
+        some: filters?.doctorId
+          ? { referralDoctorId: filters.doctorId }
+          : {},
+      },
+      report: {
+        versions: {
+          some: {
+            status: 'FINALIZED',
+            ...finalizedAtFilter,
+          },
+        },
+      },
+    },
+    select: {
+      referrals: {
+        select: {
+          referralDoctorId: true,
+        },
+      },
+      report: {
+        select: {
+          versions: {
+            where: {
+              status: 'FINALIZED',
+              ...finalizedAtFilter,
+            },
+            orderBy: {
+              versionNum: 'desc',
+            },
+            take: 1,
+            select: {
+              finalizedAt: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const periods = new Map<
+    string,
+    { doctorId: string; periodStartDate: Date; periodEndDate: Date }
+  >();
+
+  for (const visit of visits) {
+    const referralDoctorId = visit.referrals[0]?.referralDoctorId;
+    const finalizedAt = visit.report?.versions[0]?.finalizedAt;
+
+    if (!referralDoctorId || !finalizedAt) {
+      continue;
+    }
+
+    const { periodStartDate, periodEndDate } = buildDayPeriod(finalizedAt);
+    periods.set(`${referralDoctorId}:${periodStartDate.toISOString()}`, {
+      doctorId: referralDoctorId,
+      periodStartDate,
+      periodEndDate,
+    });
+  }
+
+  for (const period of periods.values()) {
+    await derivePayout(
+      'REFERRAL',
+      period.doctorId,
+      branchId,
+      period.periodStartDate,
+      period.periodEndDate
+    );
+  }
+}
+
+async function syncDiagnosticCenterPayoutsForBranch(
+  branchId: string,
+  filters?: {
+    doctorType?: PayoutDoctorType;
+    doctorId?: string;
+    isPaid?: boolean;
+    startDate?: Date;
+    endDate?: Date;
+  }
+) {
+  if (filters?.doctorType && filters.doctorType !== 'DIAGNOSTIC_CENTER') return;
+
+  const finalizedAtFilter =
+    filters?.startDate || filters?.endDate
+      ? {
+          finalizedAt: {
+            ...(filters.startDate && { gte: filters.startDate }),
+            ...(filters.endDate && { lte: filters.endDate }),
+          },
+        }
+      : {};
+
+  const centerVisits = await prisma.diagnosticCenter_Visit.findMany({
+    where: {
+      branchId,
+      ...(filters?.doctorId && { diagnosticCenterId: filters.doctorId }),
+      visit: {
+        domain: 'DIAGNOSTICS',
+        report: {
+          versions: {
+            some: {
+              status: 'FINALIZED',
+              ...finalizedAtFilter,
+            },
+          },
+        },
+      },
+    },
+    select: {
+      diagnosticCenterId: true,
+      visit: {
+        select: {
+          report: {
+            select: {
+              versions: {
+                where: {
+                  status: 'FINALIZED',
+                  ...finalizedAtFilter,
+                },
+                orderBy: {
+                  versionNum: 'desc',
+                },
+                take: 1,
+                select: {
+                  finalizedAt: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const periods = new Map<
+    string,
+    { doctorId: string; periodStartDate: Date; periodEndDate: Date }
+  >();
+
+  for (const centerVisit of centerVisits) {
+    const finalizedAt = centerVisit.visit.report?.versions[0]?.finalizedAt;
+
+    if (!centerVisit.diagnosticCenterId || !finalizedAt) {
+      continue;
+    }
+
+    const { periodStartDate, periodEndDate } = buildDayPeriod(finalizedAt);
+    periods.set(`${centerVisit.diagnosticCenterId}:${periodStartDate.toISOString()}`, {
+      doctorId: centerVisit.diagnosticCenterId,
+      periodStartDate,
+      periodEndDate,
+    });
+  }
+
+  for (const period of periods.values()) {
+    await derivePayout(
+      'DIAGNOSTIC_CENTER',
+      period.doctorId,
+      branchId,
+      period.periodStartDate,
+      period.periodEndDate
+    );
+  }
+}
+
 // ===========================================================================
 // EXPORTED SERVICE FUNCTIONS
 // ===========================================================================
 
 /**
  * Derive and save a new payout ledger entry.
- * Returns existing entry if already derived for this period.
+ * Existing unpaid entries are refreshed so the ledger stays in sync with
+ * newly completed/finalized work in the same period.
  */
 export async function derivePayout(
   doctorType: PayoutDoctorType,
@@ -482,26 +715,69 @@ export async function derivePayout(
   });
 
   if (existing) {
-    // Return existing with line items recalculated (for display only)
     const derivation = await deriveByType(doctorType, doctorId, branchId, periodStartDate, periodEndDate);
+    const coveringPaidPayout = existing.paidAt
+      ? null
+      : await findCoveringPaidPayout(
+          doctorType,
+          doctorId,
+          branchId,
+          periodStartDate,
+          periodEndDate,
+          existing.id
+        );
+    const nextData: {
+      derivedAmountInPaise?: number;
+      derivedAt?: Date;
+      paidAt?: Date | null;
+      paymentMethod?: PaymentType | null;
+      paymentReferenceId?: string | null;
+      notes?: string | null;
+    } = {};
+
+    if (!existing.paidAt && existing.derivedAmountInPaise !== derivation.derivedAmountInPaise) {
+      nextData.derivedAmountInPaise = derivation.derivedAmountInPaise;
+      nextData.derivedAt = new Date();
+    }
+
+    if (!existing.paidAt && coveringPaidPayout?.paidAt) {
+      nextData.paidAt = coveringPaidPayout.paidAt;
+      nextData.paymentMethod = coveringPaidPayout.paymentMethod;
+      nextData.paymentReferenceId = coveringPaidPayout.paymentReferenceId;
+      nextData.notes = existing.notes ?? coveringPaidPayout.notes;
+    }
+
+    const refreshedExisting =
+      Object.keys(nextData).length > 0
+        ? await prisma.doctorPayoutLedger.update({
+            where: { id: existing.id },
+            data: nextData,
+            include: {
+              referralDoctor: { select: { name: true } },
+              clinicDoctor: { select: { name: true } },
+              diagnosticCenter: { select: { name: true } },
+              branch: { select: { name: true } },
+            },
+          })
+        : existing;
 
     return {
       payout: {
-        id: existing.id,
-        doctorType: existing.doctorType,
-        doctorId: extractDoctorId(existing),
-        doctorName: extractDoctorName(existing),
-        branchId: existing.branchId,
-        branchName: existing.branch.name,
-        periodStartDate: existing.periodStartDate,
-        periodEndDate: existing.periodEndDate,
-        derivedAmountInPaise: existing.derivedAmountInPaise,
-        derivedAt: existing.derivedAt,
-        paidAt: existing.paidAt,
-        paymentMethod: existing.paymentMethod,
-        paymentReferenceId: existing.paymentReferenceId,
-        notes: existing.notes,
-        reviewedAt: existing.reviewedAt,
+        id: refreshedExisting.id,
+        doctorType: refreshedExisting.doctorType,
+        doctorId: extractDoctorId(refreshedExisting),
+        doctorName: extractDoctorName(refreshedExisting),
+        branchId: refreshedExisting.branchId,
+        branchName: refreshedExisting.branch.name,
+        periodStartDate: refreshedExisting.periodStartDate,
+        periodEndDate: refreshedExisting.periodEndDate,
+        derivedAmountInPaise: refreshedExisting.derivedAmountInPaise,
+        derivedAt: refreshedExisting.derivedAt,
+        paidAt: refreshedExisting.paidAt,
+        paymentMethod: refreshedExisting.paymentMethod,
+        paymentReferenceId: refreshedExisting.paymentReferenceId,
+        notes: refreshedExisting.notes,
+        reviewedAt: refreshedExisting.reviewedAt,
         lineItems: derivation.lineItems,
       },
       isNew: false,
@@ -510,6 +786,13 @@ export async function derivePayout(
 
   // Derive new payout
   const derivation = await deriveByType(doctorType, doctorId, branchId, periodStartDate, periodEndDate);
+  const coveringPaidPayout = await findCoveringPaidPayout(
+    doctorType,
+    doctorId,
+    branchId,
+    periodStartDate,
+    periodEndDate
+  );
 
   // Create new ledger entry
   const newPayout = await prisma.doctorPayoutLedger.create({
@@ -523,6 +806,12 @@ export async function derivePayout(
       periodEndDate,
       derivedAmountInPaise: derivation.derivedAmountInPaise,
       derivedAt: new Date(),
+      ...(coveringPaidPayout?.paidAt && {
+        paidAt: coveringPaidPayout.paidAt,
+        paymentMethod: coveringPaidPayout.paymentMethod,
+        paymentReferenceId: coveringPaidPayout.paymentReferenceId,
+        notes: coveringPaidPayout.notes,
+      }),
     },
     include: {
       branch: { select: { name: true } },
@@ -565,6 +854,9 @@ export async function listPayouts(
     endDate?: Date;
   }
 ): Promise<PayoutSummary[]> {
+  await syncReferralPayoutsForBranch(branchId, filters);
+  await syncDiagnosticCenterPayoutsForBranch(branchId, filters);
+
   const doctorIdFilter = filters?.doctorId
     ? filters.doctorType
       ? doctorIdWhereClause(filters.doctorType, filters.doctorId)
@@ -597,7 +889,7 @@ export async function listPayouts(
     orderBy: { derivedAt: 'desc' },
   });
 
-  return payouts.map((p) => ({
+  const summaries = payouts.map((p) => ({
     id: p.id,
     doctorType: p.doctorType,
     doctorId: extractDoctorId(p),
@@ -611,6 +903,8 @@ export async function listPayouts(
     paidAt: p.paidAt,
     paymentMethod: p.paymentMethod,
   }));
+
+  return summaries;
 }
 
 /**
@@ -683,15 +977,38 @@ export async function markPayoutPaid(
     throw new Error('Payout already marked as paid - cannot modify');
   }
 
+  const paidAt = new Date();
+  const doctorId = extractDoctorId(existing);
+
   // Update with payment info
-  await prisma.doctorPayoutLedger.update({
-    where: { id: payoutId },
-    data: {
-      paidAt: new Date(),
-      paymentMethod,
-      paymentReferenceId,
-      notes,
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.doctorPayoutLedger.update({
+      where: { id: payoutId },
+      data: {
+        paidAt,
+        paymentMethod,
+        paymentReferenceId,
+        notes,
+      },
+    });
+
+    await tx.doctorPayoutLedger.updateMany({
+      where: {
+        id: { not: payoutId },
+        doctorType: existing.doctorType,
+        ...doctorIdWhereClause(existing.doctorType, doctorId),
+        branchId: existing.branchId,
+        paidAt: null,
+        periodStartDate: { gte: existing.periodStartDate },
+        periodEndDate: { lte: existing.periodEndDate },
+      },
+      data: {
+        paidAt,
+        paymentMethod,
+        paymentReferenceId,
+        notes,
+      },
+    });
   });
 
   // Return full detail
