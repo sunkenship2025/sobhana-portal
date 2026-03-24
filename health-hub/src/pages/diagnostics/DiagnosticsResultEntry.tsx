@@ -204,7 +204,8 @@ const DiagnosticsResultEntry = () => {
   const recalculateDerivedResults = useCallback(
     (
       currentResults: Record<string, string>,
-      changedCode?: string
+      changedCode?: string,
+      manualOverrides: Record<string, boolean> = derivedManualOverrides
     ): Record<string, string> => {
       if (sortedDerivedTests.length === 0) {
         return currentResults;
@@ -243,7 +244,7 @@ const DiagnosticsResultEntry = () => {
           continue;
         }
 
-        if (derivedManualOverrides[derivedTest.testId]) {
+        if (manualOverrides[derivedTest.testId]) {
           testsToRecalculate.add(derivedTest.code);
           continue;
         }
@@ -285,16 +286,12 @@ const DiagnosticsResultEntry = () => {
 
         if (response.ok) {
           const data = await response.json();
-          setVisit(data);
-
-          // Auto-expand all panels
           const panelExpansion: Record<string, boolean> = {};
           data.testOrders.forEach((order: TestOrder) => {
             if (order.isPanel) {
               panelExpansion[order.id] = true;
             }
           });
-          setExpandedPanels(panelExpansion);
 
           // Initialize results from existing test results if any
           if (data.report?.versions?.[0]?.testResults) {
@@ -312,11 +309,15 @@ const DiagnosticsResultEntry = () => {
                 initialManualOverrides[r.testId] = true;
               }
             });
-            setResults(initialResults);
+            setResults(recalculateDerivedResults(initialResults, undefined, initialManualOverrides));
             setDerivedManualOverrides(initialManualOverrides);
           } else {
+            setResults({});
             setDerivedManualOverrides({});
           }
+
+          setExpandedPanels(panelExpansion);
+          setVisit(data);
         } else {
           toast.error('Failed to load visit');
         }
@@ -330,16 +331,6 @@ const DiagnosticsResultEntry = () => {
 
     fetchVisit();
   }, [visitId, token, activeBranchId]);
-
-  useEffect(() => {
-    if (!visit) return;
-
-    setResults((prev) => {
-      const recalculated = recalculateDerivedResults(prev);
-      return areResultsEqual(prev, recalculated) ? prev : recalculated;
-    });
-  }, [visit, recalculateDerivedResults]);
-
   if (loading) {
     return (
       <AppLayout context="diagnostics">
@@ -560,17 +551,6 @@ const DiagnosticsResultEntry = () => {
                 {isManualDerived ? 'Manual' : 'Auto'}
               </span>
             )}
-            {isDerived && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 px-2 text-[11px]"
-                onClick={() => handleDerivedModeToggle(testId, !isManualDerived)}
-              >
-                {isManualDerived ? 'Use Auto' : 'Edit'}
-              </Button>
-            )}
           </div>
         </div>
 
@@ -578,19 +558,32 @@ const DiagnosticsResultEntry = () => {
           <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground md:hidden">
             Value
           </span>
-          <Input
-            type={hasNumericRange ? 'number' : 'text'}
-            step="0.01"
-            placeholder={isAutoDerived ? 'Auto-calculated' : 'Value'}
-            value={valueStr}
-            onChange={(e) => handleValueChange(testId, e.target.value)}
-            readOnly={isAutoDerived}
-            disabled={isAutoDerived}
-            className={cn(
-              'text-center',
-              isAutoDerived && 'bg-muted cursor-not-allowed text-muted-foreground'
+          <div className="flex items-center gap-2">
+            <Input
+              type={hasNumericRange ? 'number' : 'text'}
+              step="0.01"
+              placeholder={isAutoDerived ? 'Auto-calculated' : 'Value'}
+              value={valueStr}
+              onChange={(e) => handleValueChange(testId, e.target.value)}
+              readOnly={isAutoDerived}
+              disabled={isAutoDerived}
+              className={cn(
+                'text-center',
+                isAutoDerived && 'bg-muted cursor-not-allowed text-muted-foreground'
+              )}
+            />
+            {isDerived && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 shrink-0 px-2 text-[11px]"
+                onClick={() => handleDerivedModeToggle(testId, !isManualDerived)}
+              >
+                {isManualDerived ? 'Auto' : 'Edit'}
+              </Button>
             )}
-          />
+          </div>
         </div>
 
         <div className="space-y-1 text-sm text-muted-foreground md:text-center">
