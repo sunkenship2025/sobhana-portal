@@ -4,7 +4,11 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import { generateDiagnosticBillNumber } from '../services/numberService';
 import { logAction } from '../services/auditService';
-import { evaluateDerivedParameters } from '../services/derivedParameterService';
+import {
+  evaluateDerivedTargets,
+  normalizeDependencyCodes,
+  type DerivedFormulaTarget,
+} from '../services/derivedParameterService';
 import { generatePdfFromHtml } from '../services/pdfGenerationService';
 import { resolveReferenceRanges } from '../services/referenceRangeService';
 import { createAccessToken, recordAccessByReportVersionId } from '../services/reportAccessService';
@@ -42,6 +46,13 @@ type OptionalPayoutSnapshot = {
   commissionAmountInPaise: number | null;
 };
 
+type ResolvedNumericRange = {
+  referenceMin: number | null;
+  referenceMax: number | null;
+  criticalMin: number | null;
+  criticalMax: number | null;
+};
+
 function zeroPayoutSnapshot(): PayoutSnapshot {
   return {
     commissionType: 'PERCENTAGE',
@@ -56,6 +67,54 @@ function emptyOptionalPayoutSnapshot(): OptionalPayoutSnapshot {
     commissionPercentage: null,
     commissionAmountInPaise: null,
   };
+}
+
+function buildDerivedMetadata(
+  formula: string | null | undefined,
+  dependsOnCodesRaw: unknown
+): {
+  isDerived: boolean;
+  formulaExpression: string | null;
+  dependsOnCodes: string[] | null;
+} {
+  const formulaExpression = formula?.trim() || null;
+  const dependsOnCodes = normalizeDependencyCodes(dependsOnCodesRaw);
+
+  if (!formulaExpression || dependsOnCodes.length === 0) {
+    return {
+      isDerived: false,
+      formulaExpression: null,
+      dependsOnCodes: null,
+    };
+  }
+
+  return {
+    isDerived: true,
+    formulaExpression,
+    dependsOnCodes,
+  };
+}
+
+function determineResultFlag(
+  numValue: number,
+  range: ResolvedNumericRange
+): 'CRITICAL_HIGH' | 'CRITICAL_LOW' | 'HIGH' | 'LOW' | 'NORMAL' | null {
+  if (range.criticalMax !== null && numValue > range.criticalMax) {
+    return 'CRITICAL_HIGH';
+  }
+  if (range.criticalMin !== null && numValue < range.criticalMin) {
+    return 'CRITICAL_LOW';
+  }
+  if (range.referenceMax !== null && numValue > range.referenceMax) {
+    return 'HIGH';
+  }
+  if (range.referenceMin !== null && numValue < range.referenceMin) {
+    return 'LOW';
+  }
+  if (range.referenceMin !== null || range.referenceMax !== null) {
+    return 'NORMAL';
+  }
+  return null;
 }
 
 function applyReferralRuleToPrices(
@@ -303,11 +362,20 @@ router.get('/:id', async (req: AuthRequest, res) => {
             test: {
               include: {
                 department: { select: { id: true, name: true, reportHeaderText: true } },
+                derivedParameter: {
+                  select: {
+                    id: true,
+                    parameterName: true,
+                    formula: true,
+                    dependsOnTestCodes: true,
+                  },
+                },
                 childTests: {
                   include: {
                     derivedParameter: {
                       select: {
                         id: true,
+                        parameterName: true,
                         formula: true,
                         dependsOnTestCodes: true,
                       },
@@ -413,48 +481,71 @@ router.get('/:id', async (req: AuthRequest, res) => {
       reportFinalizedAt: latestFinalizedVersion?.finalizedAt || null,
       referralDoctorId: visit.referrals[0]?.referralDoctorId || null,
       referralDoctor: visit.referrals[0]?.referralDoctor || null,
-      testOrders: visit.testOrders.map((to) => ({
-        id: to.id,
-        visitId: to.visitId,
-        testId: to.testId,
-        productId: to.productId,
-        testDefinitionId: to.testDefinitionId,
-        testName: to.testNameSnapshot || to.test.name,
-        testCode: to.testCodeSnapshot || to.test.code,
-        price: to.priceInPaise / 100,
-        priceInPaise: to.priceInPaise,
-        referralCommissionType: to.referralCommissionType,
-        referralCommissionPercent: to.referralCommissionPercentage,
-        referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
-        isPanel: to.test.isPanel,
-        department: to.test.department ? {
-          id: to.test.department.id,
-          name: to.test.department.name,
-        } : null,
-        referenceRange: buildRange(
-          to.testId,
-          to.referenceMinSnapshot ?? to.testDefinition?.referenceMin ?? to.test.referenceMin,
-          to.referenceMaxSnapshot ?? to.testDefinition?.referenceMax ?? to.test.referenceMax,
-          to.referenceUnitSnapshot || to.testDefinition?.referenceUnit || to.test.referenceUnit,
-          to.testDefinition?.referenceText || to.test.referenceText
-        ),
-        childTests: to.test.isPanel ? to.test.childTests.map((ct: any) => ({
-          id: ct.id,
-          name: ct.name,
-          code: ct.code,
-          displayOrder: ct.displayOrder,
-          isDerived: !!ct.derivedParameter,
-          formulaExpression: ct.derivedParameter?.formula || null,
-          dependsOnCodes: ct.derivedParameter?.dependsOnTestCodes || null,
-          referenceRange: buildRange(ct.id, ct.referenceMin, ct.referenceMax, ct.referenceUnit, ct.referenceText),
-        })) : [],
-        results: to.testResults.map((tr: any) => ({
-          ...tr,
-          testName: tr.test?.name || '',
-          testCode: tr.test?.code || '',
-          referenceRange: buildRange(tr.testId, tr.test?.referenceMin, tr.test?.referenceMax, tr.test?.referenceUnit, tr.test?.referenceText),
-        })),
-      })),
+      testOrders: visit.testOrders.map((to) => {
+        const orderDerived =
+          to.testDefinition?.formulaExpression
+            ? buildDerivedMetadata(
+                to.testDefinition.formulaExpression,
+                to.testDefinition.dependsOnCodes
+              )
+            : buildDerivedMetadata(
+                to.test.derivedParameter?.formula,
+                to.test.derivedParameter?.dependsOnTestCodes
+              );
+
+        return {
+          id: to.id,
+          visitId: to.visitId,
+          testId: to.testId,
+          productId: to.productId,
+          testDefinitionId: to.testDefinitionId,
+          testName: to.testNameSnapshot || to.test.name,
+          testCode: to.testCodeSnapshot || to.test.code,
+          price: to.priceInPaise / 100,
+          priceInPaise: to.priceInPaise,
+          referralCommissionType: to.referralCommissionType,
+          referralCommissionPercent: to.referralCommissionPercentage,
+          referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
+          isPanel: to.test.isPanel,
+          isDerived: orderDerived.isDerived,
+          formulaExpression: orderDerived.formulaExpression,
+          dependsOnCodes: orderDerived.dependsOnCodes,
+          department: to.test.department ? {
+            id: to.test.department.id,
+            name: to.test.department.name,
+          } : null,
+          referenceRange: buildRange(
+            to.testId,
+            to.referenceMinSnapshot ?? to.testDefinition?.referenceMin ?? to.test.referenceMin,
+            to.referenceMaxSnapshot ?? to.testDefinition?.referenceMax ?? to.test.referenceMax,
+            to.referenceUnitSnapshot || to.testDefinition?.referenceUnit || to.test.referenceUnit,
+            to.testDefinition?.referenceText || to.test.referenceText
+          ),
+          childTests: to.test.isPanel ? to.test.childTests.map((ct: any) => {
+            const childDerived = buildDerivedMetadata(
+              ct.derivedParameter?.formula,
+              ct.derivedParameter?.dependsOnTestCodes
+            );
+
+            return {
+              id: ct.id,
+              name: ct.name,
+              code: ct.code,
+              displayOrder: ct.displayOrder,
+              isDerived: childDerived.isDerived,
+              formulaExpression: childDerived.formulaExpression,
+              dependsOnCodes: childDerived.dependsOnCodes,
+              referenceRange: buildRange(ct.id, ct.referenceMin, ct.referenceMax, ct.referenceUnit, ct.referenceText),
+            };
+          }) : [],
+          results: to.testResults.map((tr: any) => ({
+            ...tr,
+            testName: tr.test?.name || '',
+            testCode: tr.test?.code || '',
+            referenceRange: buildRange(tr.testId, tr.test?.referenceMin, tr.test?.referenceMax, tr.test?.referenceUnit, tr.test?.referenceText),
+          })),
+        };
+      }),
       report: visit.report
         ? {
             id: visit.report.id,
@@ -1394,7 +1485,34 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
           include: {
             test: {
               include: {
-                childTests: true, // Include child tests for panels
+                derivedParameter: {
+                  select: {
+                    parameterName: true,
+                    formula: true,
+                    dependsOnTestCodes: true,
+                  },
+                },
+                childTests: {
+                  include: {
+                    derivedParameter: {
+                      select: {
+                        parameterName: true,
+                        formula: true,
+                        dependsOnTestCodes: true,
+                      },
+                    },
+                  },
+                }, // Include child tests for panels
+              },
+            },
+            testDefinition: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                displayOrder: true,
+                formulaExpression: true,
+                dependsOnCodes: true,
               },
             },
           },
@@ -1515,18 +1633,7 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
             const numValue = parseFloat(r.value);
             if (isNaN(numValue)) continue;
 
-            let flag: 'CRITICAL_HIGH' | 'CRITICAL_LOW' | 'HIGH' | 'LOW' | 'NORMAL' | null = null;
-            if (range.criticalMax !== null && numValue > range.criticalMax) {
-              flag = 'CRITICAL_HIGH';
-            } else if (range.criticalMin !== null && numValue < range.criticalMin) {
-              flag = 'CRITICAL_LOW';
-            } else if (range.referenceMax !== null && numValue > range.referenceMax) {
-              flag = 'HIGH';
-            } else if (range.referenceMin !== null && numValue < range.referenceMin) {
-              flag = 'LOW';
-            } else if (range.referenceMin !== null || range.referenceMax !== null) {
-              flag = 'NORMAL';
-            }
+            const flag = determineResultFlag(numValue, range);
 
             if (flag) {
               const testOrderId = testToOrderMap.get(r.testId);
@@ -1551,34 +1658,119 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
 
     // --- Derived Parameters: auto-calculate formula-based values ---
     try {
-      // Build resultsByTestCode: { testCode: numericValue }
-      const allTestIds = results.map((r: any) => r.testId).filter(Boolean);
-      const testsWithCodes = await prisma.labTest.findMany({
-        where: { id: { in: allTestIds } },
-        select: { id: true, code: true },
-      });
-      const testIdToCode = new Map(testsWithCodes.map((t) => [t.id, t.code]));
-
-      const resultsByTestCode: Record<string, number> = {};
+      const resultsByTestCode = new Map<string, number>();
       for (const r of results) {
-        const code = testIdToCode.get(r.testId);
-        if (code && r.value !== null && r.value !== undefined) {
-          resultsByTestCode[code] = parseFloat(r.value);
+        if (r.value === null || r.value === undefined) continue;
+
+        const numericValue = parseFloat(r.value);
+        if (isNaN(numericValue)) continue;
+
+        const testOrder = visit.testOrders.find((order) => order.testId === r.testId);
+        if (testOrder) {
+          resultsByTestCode.set(
+            testOrder.testDefinition?.code ||
+              testOrder.testCodeSnapshot ||
+              testOrder.test.code,
+            numericValue
+          );
+          continue;
+        }
+
+        for (const order of visit.testOrders) {
+          const childTest = order.test.childTests.find((child) => child.id === r.testId);
+          if (childTest) {
+            resultsByTestCode.set(childTest.code, numericValue);
+            break;
+          }
         }
       }
 
-      // Get all ordered test IDs (including panel children)
-      const orderedTestIds = Array.from(testToOrderMap.keys());
-      const derivedResults = await evaluateDerivedParameters(
-        orderedTestIds,
-        new Map(Object.entries(resultsByTestCode))
+      const derivedTargets: DerivedFormulaTarget[] = [];
+      for (const testOrder of visit.testOrders) {
+        const orderDerived =
+          testOrder.testDefinition?.formulaExpression
+            ? buildDerivedMetadata(
+                testOrder.testDefinition.formulaExpression,
+                testOrder.testDefinition.dependsOnCodes
+              )
+            : buildDerivedMetadata(
+                testOrder.test.derivedParameter?.formula,
+                testOrder.test.derivedParameter?.dependsOnTestCodes
+              );
+
+        if (orderDerived.isDerived && orderDerived.formulaExpression && orderDerived.dependsOnCodes) {
+          derivedTargets.push({
+            testId: testOrder.testId,
+            testDefinitionId: testOrder.testDefinitionId ?? null,
+            code:
+              testOrder.testDefinition?.code ||
+              testOrder.testCodeSnapshot ||
+              testOrder.test.code,
+            parameterName:
+              testOrder.testDefinition?.name ||
+              testOrder.test.derivedParameter?.parameterName ||
+              testOrder.testNameSnapshot ||
+              testOrder.test.name,
+            formula: orderDerived.formulaExpression,
+            dependsOnCodes: orderDerived.dependsOnCodes,
+            displayOrder:
+              testOrder.testDefinition?.displayOrder ??
+              testOrder.test.displayOrder ??
+              0,
+          });
+        }
+
+        for (const childTest of testOrder.test.childTests) {
+          const childDerived = buildDerivedMetadata(
+            childTest.derivedParameter?.formula,
+            childTest.derivedParameter?.dependsOnTestCodes
+          );
+
+          if (childDerived.isDerived && childDerived.formulaExpression && childDerived.dependsOnCodes) {
+            derivedTargets.push({
+              testId: childTest.id,
+              testDefinitionId: null,
+              code: childTest.code,
+              parameterName:
+                childTest.derivedParameter?.parameterName ||
+                childTest.name,
+              formula: childDerived.formulaExpression,
+              dependsOnCodes: childDerived.dependsOnCodes,
+              displayOrder: childTest.displayOrder ?? 0,
+            });
+          }
+        }
+      }
+
+      const derivedResults = evaluateDerivedTargets(
+        derivedTargets,
+        resultsByTestCode
       );
 
       if (derivedResults.length > 0) {
         const draftVer = visit.report?.versions[0];
         if (draftVer) {
+          const patient = await prisma.patient.findUnique({
+            where: { id: visit.patientId },
+            select: { yearOfBirth: true, dateOfBirth: true, gender: true },
+          });
+
+          const derivedTestIds = derivedResults
+            .filter((dr) => dr.value !== null)
+            .map((dr) => dr.testId);
+
+          const derivedRanges =
+            patient && derivedTestIds.length > 0
+              ? await resolveReferenceRanges(
+                  derivedTestIds,
+                  patient.yearOfBirth,
+                  patient.gender as any,
+                  testToDefIdMap.size > 0 ? testToDefIdMap : undefined,
+                  patient.dateOfBirth
+                )
+              : new Map();
+
           for (const dr of derivedResults) {
-            if (!dr.testId) continue; // skip new-architecture derived results without testId
             const orderIdForDerived = testToOrderMap.get(dr.testId);
             if (!orderIdForDerived) continue;
 
@@ -1590,14 +1782,28 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
                 reportVersionId: draftVer.id,
               },
             });
+
+            if (dr.value === null) {
+              continue;
+            }
+
+            const derivedRange = derivedRanges.get(dr.testId);
+            const derivedFlag = derivedRange
+              ? determineResultFlag(dr.value, derivedRange)
+              : null;
+
             await prisma.testResult.create({
               data: {
                 testOrderId: orderIdForDerived,
                 testId: dr.testId,
                 reportVersionId: draftVer.id,
                 value: dr.value,
-                flag: null,
+                flag: derivedFlag,
                 notes: `Auto-calculated: ${dr.parameterName}`,
+                testDefinitionId:
+                  dr.testDefinitionId ??
+                  testToDefIdMap.get(dr.testId) ??
+                  null,
               },
             });
           }
