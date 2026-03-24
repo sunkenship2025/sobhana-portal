@@ -17,8 +17,6 @@ import {
 import { resolveProducts, ProductResolutionError } from '../services/productOrderService';
 import {
   renderReportHtml,
-  generatePdfHeaderTemplate,
-  generatePdfFooterTemplate,
 } from '../services/reportRendererService';
 import prisma from '../lib/prisma';
 import {
@@ -1870,15 +1868,7 @@ router.get('/:id/finalized-report/pdf', async (req: AuthRequest, res) => {
       baseUrl,
       qrDataUrl,
     });
-    const pdfBuffer = await generatePdfFromHtml(html, {
-      mode,
-      ...(mode === 'digital'
-        ? {
-            headerTemplate: generatePdfHeaderTemplate(),
-            footerTemplate: generatePdfFooterTemplate(),
-          }
-        : {}),
-    });
+    const pdfBuffer = await generatePdfFromHtml(html, { mode });
 
     await recordAccessByReportVersionId(
       loaded.reportVersionId,

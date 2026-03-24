@@ -17,7 +17,7 @@ import {
 } from '../middleware/rateLimit';
 import { validateToken, recordAccess } from '../services/reportAccessService';
 import { getReportSnapshot } from '../services/reportSnapshotService';
-import { renderReportHtml, generatePdfHeaderTemplate, generatePdfFooterTemplate } from '../services/reportRendererService';
+import { renderReportHtml } from '../services/reportRendererService';
 import { generatePdfFromHtml } from '../services/pdfGenerationService';
 
 const router = Router();
@@ -215,15 +215,7 @@ async function buildPdfBuffer(
     qrDataUrl,
   });
 
-  const pdfBuffer = await generatePdfFromHtml(html, {
-    mode,
-    ...(mode === 'digital'
-      ? {
-          headerTemplate: generatePdfHeaderTemplate(),
-          footerTemplate: generatePdfFooterTemplate(),
-        }
-      : {}),
-  });
+  const pdfBuffer = await generatePdfFromHtml(html, { mode });
 
   return {
     ok: true,
