@@ -404,26 +404,26 @@ const ClinicNewVisit = () => {
                   </div>
                 )}
                 <div className="bg-card rounded-lg p-4 space-y-2 text-left">
-                  <div className="flex justify-between">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-muted-foreground">Bill #:</span>
                     <span className="font-mono font-bold">{successData.visitView.visit.billNumber}</span>
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-muted-foreground">Payment Status:</span>
                     <StatusBadge status="PAID" />
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-muted-foreground">Doctor:</span>
                     <span>{successData.visitView.clinicDoctor?.name}</span>
                   </div>
                 </div>
 
-                <div className="flex gap-3 justify-center pt-4">
-                  <Button variant="outline" onClick={handlePrint}>
+                <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:justify-center">
+                  <Button className="w-full sm:w-auto" variant="outline" onClick={handlePrint}>
                     <Printer className="mr-2 h-4 w-4" />
                     Print Prescription & Bill
                   </Button>
-                  <Button onClick={() => {
+                  <Button className="w-full sm:w-auto" onClick={() => {
                     setSuccessData(null);
                     setPhone('');
                     setMatchingPatients([]);
@@ -439,7 +439,7 @@ const ClinicNewVisit = () => {
                   }}>
                     Create Another Visit
                   </Button>
-                  <Button variant="outline" onClick={() => navigate('/clinic/queue')}>
+                  <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate('/clinic/queue')}>
                     View Queue
                   </Button>
                 </div>
@@ -472,16 +472,16 @@ const ClinicNewVisit = () => {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="phone">Phone Number *</Label>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Input
                   id="phone"
                   placeholder="Enter 10-digit phone"
                   value={phone}
                   onChange={(e) => handlePhoneChange(e.target.value.replace(/\D/g, '').slice(0, 10))}
                   maxLength={10}
-                  className="max-w-sm"
+                  className="w-full sm:max-w-sm"
                 />
-                <Button variant="secondary">
+                <Button className="w-full sm:w-auto" variant="secondary">
                   <Search className="h-4 w-4" />
                 </Button>
               </div>
@@ -583,7 +583,7 @@ const ClinicNewVisit = () => {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="age">Age *</Label>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <Input
                       id="age"
                       type="number"
@@ -601,7 +601,7 @@ const ClinicNewVisit = () => {
                       value={newPatient.ageUnit}
                       onValueChange={(v) => setNewPatient({ ...newPatient, ageUnit: v as 'DAYS' | 'MONTHS' | 'YEARS' })}
                     >
-                      <SelectTrigger className="w-[110px]">
+                      <SelectTrigger className="w-full sm:w-[110px]">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -626,7 +626,7 @@ const ClinicNewVisit = () => {
                         setValidationErrors({ ...validationErrors, gender: undefined });
                       }
                     }}
-                    className="flex gap-4"
+                    className="flex flex-wrap gap-4"
                   >
                     {['M', 'F', 'O'].map((g) => (
                       <div key={g} className="flex items-center space-x-2">
@@ -678,7 +678,7 @@ const ClinicNewVisit = () => {
                 <RadioGroup
                   value={visitType}
                   onValueChange={(v) => setVisitType(v as VisitType)}
-                  className="flex gap-6"
+                  className="flex flex-col gap-3 sm:flex-row sm:gap-6"
                 >
                   <div className="flex items-center space-x-2">
                     <RadioGroupItem value="OP" id="op" />

@@ -7,7 +7,7 @@
  *
  * Why bcrypt: passwords are hashed with 10 salt rounds before storage.
  * Why JWT: stateless tokens allow multi-instance horizontal scaling
- * without a shared session store. Tokens expire after 7 days.
+ * without a shared session store. Tokens expire after 1 day.
  */
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -30,7 +30,7 @@ import prisma from '../lib/prisma';
  *
  * @example
  * const { token, user } = await login('staff@sobhana.com', 'secret', '1.2.3.4');
- * // token: 'eyJhbGci...'  (7-day JWT)
+ * // token: 'eyJhbGci...'  (1-day JWT)
  * // user: { id, email, name, role, activeBranch }
  */
 export async function login(email: string, password: string, ipAddress?: string, userAgent?: string) {
@@ -114,7 +114,7 @@ export async function login(email: string, password: string, ipAddress?: string,
       role: user.role
     },
     process.env.JWT_SECRET!,
-    { expiresIn: '7d' }
+    { expiresIn: '1d' }
   );
 
   // Audit log: Successful login

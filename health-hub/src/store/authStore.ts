@@ -13,7 +13,7 @@
  *
  * Token expiry:
  *   Call `checkTokenExpiration()` early in the component tree (done in ProtectedRoute)
- *   to auto-logout when the 7-day JWT expires.
+ *   to auto-logout when the 1-day JWT expires.
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -130,6 +130,7 @@ export const useAuthStore = create<AuthState>()(
       },
       logout: () => {
         set({ user: null, token: null, isAuthenticated: false });
+        localStorage.removeItem('authToken');
       },
     }),
     {
