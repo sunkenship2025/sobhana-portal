@@ -49,6 +49,10 @@ interface TestOrder {
   isPanel: boolean;
   referenceRange: ReferenceRange;
   childTests: ChildTest[];
+  department?: {
+    id: string;
+    name: string;
+  } | null;
 }
 
 interface Visit {
@@ -427,70 +431,101 @@ const DiagnosticsResultEntry = () => {
               <div className="text-center">Flag</div>
             </div>
           </CardHeader>
-          <CardContent className="space-y-4 pt-0">
-            {testOrders.map((order) => {
-              const isPanel = order.isPanel && order.childTests && order.childTests.length > 0;
-              const isExpanded = expandedPanels[order.id] ?? false;
-              const filled = countFilledResults(order);
-              const total = getTotalTests(order);
+          <CardContent className="space-y-6 pt-0">
+            {/* Group tests by department */}
+            {(() => {
+              const grouped = testOrders.reduce((acc, order) => {
+                const deptName = order.department?.name || 'Other Tests';
+                if (!acc[deptName]) acc[deptName] = [];
+                acc[deptName].push(order);
+                return acc;
+              }, {} as Record<string, TestOrder[]>);
 
-              return (
-                <div key={order.id} className="border rounded-lg overflow-hidden">
-                  {isPanel ? (
-                    <>
-                      {/* Panel Header */}
-                      <button
-                        onClick={() => togglePanel(order.id)}
-                        className="flex w-full flex-col gap-3 bg-muted/50 p-4 text-left transition-colors hover:bg-muted/70 sm:flex-row sm:items-center sm:justify-between"
-                      >
-                        <div className="flex flex-wrap items-center gap-3">
-                          <span className="font-semibold text-lg">{order.testName}</span>
-                          <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
-                            {order.childTests.length} parameters
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            ({filled}/{total} filled)
-                          </span>
-                        </div>
-                        <div className="flex justify-end">
-                          {isExpanded ? (
-                            <ChevronUp className="h-5 w-5 text-muted-foreground" />
+              const deptOrder = Object.keys(grouped).sort((a, b) => {
+                if (a === 'Other Tests') return 1;
+                if (b === 'Other Tests') return -1;
+                return a.localeCompare(b);
+              });
+
+              return deptOrder.map((deptName) => (
+                <div key={deptName} className="space-y-3">
+                  {/* Department Header */}
+                  <div className="flex items-center gap-3 pt-2">
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                      {deptName}
+                    </h3>
+                    <div className="flex-1 h-px bg-border" />
+                  </div>
+
+                  {/* Tests in this department */}
+                  <div className="space-y-3">
+                    {grouped[deptName].map((order) => {
+                      const isPanel = order.isPanel && order.childTests && order.childTests.length > 0;
+                      const isExpanded = expandedPanels[order.id] ?? false;
+                      const filled = countFilledResults(order);
+                      const total = getTotalTests(order);
+
+                      return (
+                        <div key={order.id} className="border rounded-lg overflow-hidden">
+                          {isPanel ? (
+                            <>
+                              {/* Panel Header */}
+                              <button
+                                onClick={() => togglePanel(order.id)}
+                                className="flex w-full flex-col gap-3 bg-muted/50 p-4 text-left transition-colors hover:bg-muted/70 sm:flex-row sm:items-center sm:justify-between"
+                              >
+                                <div className="flex flex-wrap items-center gap-3">
+                                  <span className="font-semibold text-lg">{order.testName}</span>
+                                  <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
+                                    {order.childTests.length} parameters
+                                  </span>
+                                  <span className="text-xs text-muted-foreground">
+                                    ({filled}/{total} filled)
+                                  </span>
+                                </div>
+                                <div className="flex justify-end">
+                                  {isExpanded ? (
+                                    <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                                  ) : (
+                                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                                  )}
+                                </div>
+                              </button>
+
+                              {/* Panel Sub-tests */}
+                              {isExpanded && (
+                                <div className="p-4 bg-card">
+                                  {order.childTests.map((child) =>
+                                    renderTestInput(
+                                      child.id,
+                                      child.name,
+                                      child.code,
+                                      child.referenceRange,
+                                      true,
+                                      !!child.isDerived
+                                    )
+                                  )}
+                                </div>
+                              )}
+                            </>
                           ) : (
-                            <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                            <div className="p-4">
+                              {renderTestInput(
+                                order.testId,
+                                order.testName,
+                                order.testCode,
+                                order.referenceRange,
+                                false
+                              )}
+                            </div>
                           )}
                         </div>
-                      </button>
-
-                      {/* Panel Sub-tests */}
-                      {isExpanded && (
-                        <div className="p-4 bg-card">
-                          {order.childTests.map((child) =>
-                            renderTestInput(
-                              child.id,
-                              child.name,
-                              child.code,
-                              child.referenceRange,
-                              true,
-                              !!child.isDerived
-                            )
-                          )}
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="p-4">
-                      {renderTestInput(
-                        order.testId,
-                        order.testName,
-                        order.testCode,
-                        order.referenceRange,
-                        false
-                      )}
-                    </div>
-                  )}
+                      );
+                    })}
+                  </div>
                 </div>
-              );
-            })}
+              ));
+            })()}
 
             <Button className="w-full mt-6" size="lg" onClick={handleSaveDraft} disabled={saving}>
               {saving ? (
