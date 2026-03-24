@@ -21,6 +21,11 @@
 
 import { PrismaClient, ReportVersion, TestResult, Gender } from '@prisma/client';
 import { resolveReferenceRanges } from './referenceRangeService';
+import {
+  evaluateDerivedTargets,
+  normalizeDependencyCodes,
+  type DerivedFormulaTarget,
+} from './derivedParameterService';
 
 const prisma = new PrismaClient();
 
@@ -149,6 +154,25 @@ export interface ReportSnapshot {
   visit: VisitSnapshot;
 }
 
+type LatestDefinitionFormula = {
+  id: string;
+  code: string;
+  name: string;
+  displayOrder: number;
+  formulaExpression: string | null;
+  dependsOnCodes: unknown;
+  panelItems?: any[];
+  interpretationRules?: any[];
+  sampleType?: string | null;
+  method?: string | null;
+  referenceMin?: number | null;
+  referenceMax?: number | null;
+  referenceUnit?: string | null;
+  referenceText?: string | null;
+  criticalMin?: number | null;
+  criticalMax?: number | null;
+};
+
 async function getLiveSignatureSnapshotsForDepartments(departmentIds: string[]): Promise<SignatureSnapshot[]> {
   const uniqueDepartmentIds = [...new Set(departmentIds.filter(Boolean))];
   if (uniqueDepartmentIds.length === 0) {
@@ -276,6 +300,80 @@ function matchLegacyInterpretation(value: number | null, interpretations: any[])
   return null;
 }
 
+function buildDerivedMetadata(
+  formula: string | null | undefined,
+  dependsOnCodesRaw: unknown
+): {
+  isDerived: boolean;
+  formulaExpression: string | null;
+  dependsOnCodes: string[] | null;
+} {
+  const formulaExpression = formula?.trim() || null;
+  const dependsOnCodes = normalizeDependencyCodes(dependsOnCodesRaw);
+
+  if (!formulaExpression || dependsOnCodes.length === 0) {
+    return {
+      isDerived: false,
+      formulaExpression: null,
+      dependsOnCodes: null,
+    };
+  }
+
+  return {
+    isDerived: true,
+    formulaExpression,
+    dependsOnCodes,
+  };
+}
+
+function determineResultFlag(
+  value: number,
+  range: {
+    referenceMin: number | null;
+    referenceMax: number | null;
+    criticalMin: number | null;
+    criticalMax: number | null;
+  }
+): string | null {
+  if (range.criticalMax !== null && value > range.criticalMax) return 'CRITICAL_HIGH';
+  if (range.criticalMin !== null && value < range.criticalMin) return 'CRITICAL_LOW';
+  if (range.referenceMax !== null && value > range.referenceMax) return 'HIGH';
+  if (range.referenceMin !== null && value < range.referenceMin) return 'LOW';
+  if (range.referenceMin !== null || range.referenceMax !== null) return 'NORMAL';
+  return null;
+}
+
+async function loadLatestDefinitionFormulasByCode(
+  codes: Iterable<string>
+): Promise<Map<string, LatestDefinitionFormula>> {
+  const uniqueCodes = [...new Set(Array.from(codes).map((code) => code.trim()).filter(Boolean))];
+  if (uniqueCodes.length === 0) {
+    return new Map();
+  }
+
+  const definitions = await prisma.testDefinition.findMany({
+    where: {
+      code: { in: uniqueCodes },
+      isLatest: true,
+    },
+    include: {
+      panelItems: {
+        include: {
+          panel: {
+            include: { department: true },
+          },
+        },
+      },
+      interpretationRules: {
+        where: { isActive: true },
+        orderBy: { displayOrder: 'asc' },
+      },
+    },
+  });
+
+  return new Map(definitions.map((definition) => [definition.code, definition]));
+}
+
 // ============================================================================
 // SHARED PANEL-BUILDING LOGIC
 // ============================================================================
@@ -320,6 +418,247 @@ export const testResultInclude = {
   },
   testOrder: true,
 } as const;
+
+const testOrderIncludeForDerived = {
+  test: {
+    include: {
+      panelItems: {
+        include: {
+          panel: {
+            include: { department: true },
+          },
+        },
+      },
+      interpretations: {
+        where: { isActive: true },
+        orderBy: { displayOrder: 'asc' as const },
+      },
+      department: true,
+      derivedParameter: true,
+      childTests: {
+        include: {
+          panelItems: {
+            include: {
+              panel: {
+                include: { department: true },
+              },
+            },
+          },
+          interpretations: {
+            where: { isActive: true },
+            orderBy: { displayOrder: 'asc' as const },
+          },
+          department: true,
+          derivedParameter: true,
+        },
+        orderBy: { displayOrder: 'asc' as const },
+      },
+    },
+  },
+  testDefinition: {
+    include: {
+      panelItems: {
+        include: {
+          panel: {
+            include: { department: true },
+          },
+        },
+      },
+      interpretationRules: {
+        where: { isActive: true },
+        orderBy: { displayOrder: 'asc' as const },
+      },
+    },
+  },
+} as const;
+
+async function backfillDerivedResults(
+  testResults: any[],
+  testOrders: any[],
+  reportVersionId: string
+): Promise<any[]> {
+  const existingTestIds = new Set(testResults.map((result) => result.testId));
+  const resultsByCode = new Map<string, number>();
+
+  for (const result of testResults) {
+    if (result.value === null || result.value === undefined) continue;
+    const numericValue = Number(result.value);
+    if (Number.isNaN(numericValue)) continue;
+
+    const code = result.testDefinition?.code || result.test?.code;
+    if (code) {
+      resultsByCode.set(code, numericValue);
+    }
+  }
+
+  const latestDefinitionFormulasByCode = await loadLatestDefinitionFormulasByCode(
+    testOrders.flatMap((testOrder) => [
+      testOrder.testDefinition?.code ||
+        testOrder.testCodeSnapshot ||
+        testOrder.test.code,
+      ...testOrder.test.childTests.map((child: any) => child.code),
+    ])
+  );
+
+  const derivedTargets: DerivedFormulaTarget[] = [];
+  const targetContextByTestId = new Map<string, {
+    test: any;
+    testDefinition: any;
+    testOrder: any;
+  }>();
+
+  for (const testOrder of testOrders) {
+    const orderCode =
+      testOrder.testDefinition?.code ||
+      testOrder.testCodeSnapshot ||
+      testOrder.test.code;
+    const latestOrderDefinition = latestDefinitionFormulasByCode.get(orderCode);
+    const orderDerived =
+      testOrder.testDefinition?.formulaExpression
+        ? buildDerivedMetadata(
+            testOrder.testDefinition.formulaExpression,
+            testOrder.testDefinition.dependsOnCodes
+          )
+        : testOrder.test.derivedParameter?.formula
+          ? buildDerivedMetadata(
+              testOrder.test.derivedParameter.formula,
+              testOrder.test.derivedParameter.dependsOnTestCodes
+            )
+          : buildDerivedMetadata(
+              latestOrderDefinition?.formulaExpression,
+              latestOrderDefinition?.dependsOnCodes
+            );
+
+    if (
+      !existingTestIds.has(testOrder.testId) &&
+      orderDerived.isDerived &&
+      orderDerived.formulaExpression &&
+      orderDerived.dependsOnCodes
+    ) {
+      derivedTargets.push({
+        testId: testOrder.testId,
+        testDefinitionId: testOrder.testDefinitionId ?? null,
+        code: orderCode,
+        parameterName:
+          testOrder.testDefinition?.name ||
+          testOrder.test.derivedParameter?.parameterName ||
+          latestOrderDefinition?.name ||
+          testOrder.testNameSnapshot ||
+          testOrder.test.name,
+        formula: orderDerived.formulaExpression,
+        dependsOnCodes: orderDerived.dependsOnCodes,
+        displayOrder:
+          testOrder.testDefinition?.displayOrder ??
+          latestOrderDefinition?.displayOrder ??
+          testOrder.test.displayOrder ??
+          0,
+      });
+
+      targetContextByTestId.set(testOrder.testId, {
+        test: testOrder.test,
+        testDefinition: testOrder.testDefinition ?? latestOrderDefinition ?? null,
+        testOrder,
+      });
+    }
+
+    for (const childTest of testOrder.test.childTests) {
+      const latestChildDefinition = latestDefinitionFormulasByCode.get(childTest.code);
+      const childDerived = buildDerivedMetadata(
+        childTest.derivedParameter?.formula || latestChildDefinition?.formulaExpression,
+        childTest.derivedParameter?.dependsOnTestCodes || latestChildDefinition?.dependsOnCodes
+      );
+
+      if (
+        !existingTestIds.has(childTest.id) &&
+        childDerived.isDerived &&
+        childDerived.formulaExpression &&
+        childDerived.dependsOnCodes
+      ) {
+        derivedTargets.push({
+          testId: childTest.id,
+          testDefinitionId: null,
+          code: childTest.code,
+          parameterName:
+            childTest.derivedParameter?.parameterName ||
+            latestChildDefinition?.name ||
+            childTest.name,
+          formula: childDerived.formulaExpression,
+          dependsOnCodes: childDerived.dependsOnCodes,
+          displayOrder:
+            latestChildDefinition?.displayOrder ??
+            childTest.displayOrder ??
+            0,
+        });
+
+        targetContextByTestId.set(childTest.id, {
+          test: childTest,
+          testDefinition: latestChildDefinition ?? null,
+          testOrder,
+        });
+      }
+    }
+  }
+
+  const derivedResults = evaluateDerivedTargets(derivedTargets, resultsByCode)
+    .filter((result) => result.value !== null);
+
+  const syntheticResults = derivedResults.map((result) => {
+    const context = targetContextByTestId.get(result.testId);
+    if (!context) {
+      return null;
+    }
+
+    return {
+      id: `derived-${reportVersionId}-${result.testId}`,
+      reportVersionId,
+      testOrderId: context.testOrder.id,
+      testId: result.testId,
+      testDefinitionId: result.testDefinitionId ?? null,
+      value: result.value,
+      textValue: null,
+      flag: null,
+      notes: `Auto-calculated: ${result.parameterName}`,
+      test: context.test,
+      testDefinition: context.testDefinition,
+      testOrder: context.testOrder,
+    };
+  }).filter(Boolean);
+
+  return [...testResults, ...syntheticResults];
+}
+
+function applyResolvedFlagsToResults(
+  testResults: any[],
+  resolvedRanges: Map<string, {
+    referenceMin: number | null;
+    referenceMax: number | null;
+    referenceUnit: string | null;
+    referenceText: string | null;
+    criticalMin: number | null;
+    criticalMax: number | null;
+  }>
+): any[] {
+  return testResults.map((result) => {
+    if (result.flag || result.value === null || result.value === undefined) {
+      return result;
+    }
+
+    const range = resolvedRanges.get(result.test.id);
+    if (!range) {
+      return result;
+    }
+
+    const computedFlag = determineResultFlag(Number(result.value), range);
+    if (!computedFlag) {
+      return result;
+    }
+
+    return {
+      ...result,
+      flag: computedFlag,
+    };
+  });
+}
 
 /**
  * Builds panel map and department snapshots from test results.
@@ -575,6 +914,9 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
                 },
                 take: 1,
               },
+              testOrders: {
+                include: testOrderIncludeForDerived,
+              },
             },
           },
         },
@@ -588,17 +930,22 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
 
   const visit = reportVersion.report.visit;
   const patient = visit.patient;
+  const augmentedTestResults = await backfillDerivedResults(
+    reportVersion.testResults as any[],
+    visit.testOrders as any[],
+    reportVersion.id
+  );
 
   // ============================================================================
   // RESOLVE AGE-AWARE REFERENCE RANGES (dual architecture)
   // ============================================================================
 
-  const allTestIds = reportVersion.testResults.map((r: any) => r.test.id);
+  const allTestIds = augmentedTestResults.map((r: any) => r.test.id);
   const uniqueTestIds = [...new Set(allTestIds)];
 
   // Build testDefinitionId map for results that have new-chain FK
   const testDefIdMap = new Map<string, string>();
-  for (const r of reportVersion.testResults) {
+  for (const r of augmentedTestResults) {
     if ((r as any).testDefinitionId && (r as any).testDefinition) {
       testDefIdMap.set(r.test.id, (r as any).testDefinitionId);
     }
@@ -612,7 +959,12 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
     patient.dateOfBirth
   );
 
-  const departments = buildPanelsAndDepartments(reportVersion.testResults as any[], resolvedRanges);
+  const flaggedResults = applyResolvedFlagsToResults(
+    augmentedTestResults as any[],
+    resolvedRanges
+  );
+
+  const departments = buildPanelsAndDepartments(flaggedResults as any[], resolvedRanges);
 
   // ============================================================================
   // BUILD SIGNATURE SNAPSHOTS
@@ -688,6 +1040,9 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
         include: { referralDoctor: true },
         take: 1,
       },
+      testOrders: {
+        include: testOrderIncludeForDerived,
+      },
       report: {
         include: {
           versions: {
@@ -718,13 +1073,18 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
   }
 
   const patient = visit.patient;
+  const augmentedTestResults = await backfillDerivedResults(
+    reportVersion.testResults as any[],
+    visit.testOrders as any[],
+    reportVersion.id
+  );
 
   // Resolve age-aware reference ranges (dual architecture)
-  const allTestIds = reportVersion.testResults.map((r: any) => r.test.id);
+  const allTestIds = augmentedTestResults.map((r: any) => r.test.id);
   const uniqueTestIds = [...new Set(allTestIds)];
 
   const testDefIdMap = new Map<string, string>();
-  for (const r of reportVersion.testResults) {
+  for (const r of augmentedTestResults) {
     if ((r as any).testDefinitionId && (r as any).testDefinition) {
       testDefIdMap.set((r as any).test.id, (r as any).testDefinitionId);
     }
@@ -739,7 +1099,12 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
   );
 
   // Build panel snapshots — shared helper handles dual architecture
-  const departments = buildPanelsAndDepartments(reportVersion.testResults as any[], resolvedRanges);
+  const flaggedResults = applyResolvedFlagsToResults(
+    augmentedTestResults as any[],
+    resolvedRanges
+  );
+
+  const departments = buildPanelsAndDepartments(flaggedResults as any[], resolvedRanges);
   const signatures = await getLiveSignatureSnapshotsForDepartments(
     departments.map(department => department.departmentId),
   );
