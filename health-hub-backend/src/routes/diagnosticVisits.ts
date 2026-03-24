@@ -1944,6 +1944,49 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
               },
             });
           }
+
+          for (const manualTestId of manualDerivedOverrideTestIds) {
+            const manualInput = results.find((result: any) => result.testId === manualTestId);
+            const manualOrderId = testToOrderMap.get(manualTestId);
+
+            if (!manualInput || !manualOrderId) {
+              continue;
+            }
+
+            const numericValue = manualInput.value !== null && manualInput.value !== undefined
+              ? parseFloat(manualInput.value)
+              : NaN;
+
+            await prisma.testResult.deleteMany({
+              where: {
+                testOrderId: manualOrderId,
+                testId: manualTestId,
+                reportVersionId: draftVer.id,
+              },
+            });
+
+            if (isNaN(numericValue)) {
+              continue;
+            }
+
+            const manualRange = derivedRanges.get(manualTestId);
+            const manualFlag = manualRange
+              ? determineResultFlag(numericValue, manualRange)
+              : null;
+
+            await prisma.testResult.create({
+              data: {
+                testOrderId: manualOrderId,
+                testId: manualTestId,
+                reportVersionId: draftVer.id,
+                value: numericValue,
+                flag: manualFlag,
+                notes: DERIVED_MANUAL_OVERRIDE_NOTE,
+                testDefinitionId:
+                  testToDefIdMap.get(manualTestId) ?? null,
+              },
+            });
+          }
         }
       }
     } catch (derivedErr) {
