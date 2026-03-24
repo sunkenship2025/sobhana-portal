@@ -71,6 +71,24 @@ const formatPeriod = (start: string, end: string): string => {
   return `${startDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} - ${endDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`;
 };
 
+const formatCommissionValue = (item: PayoutDetailType['lineItems'][number]): string => {
+  if (item.commissionLabel) return item.commissionLabel;
+
+  if (
+    !item.commissionType &&
+    item.commissionPercentage == null &&
+    item.commissionAmountInPaise == null
+  ) {
+    return '-';
+  }
+
+  return formatReferralPayout({
+    commissionType: item.commissionType,
+    commissionPercent: item.commissionPercentage,
+    commissionAmountInPaise: item.commissionAmountInPaise,
+  });
+};
+
 const PayoutDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const { token, user } = useAuthStore();
@@ -223,13 +241,18 @@ const PayoutDetailPage = () => {
         </div>
 
         {/* Print Header */}
-        <div className="hidden print:block mb-8">
-          <h1 className="text-2xl font-bold text-center">Sobhana Portal</h1>
-          <h2 className="text-xl text-center mt-2">Payout Statement</h2>
+        <div className="hidden print:block space-y-1">
+          <h1 className="text-xl font-semibold">Payout Statement</h1>
+          <p className="text-sm text-gray-700">
+            {payout.doctorName} ({payout.doctorType}) | {formatPeriod(payout.periodStartDate, payout.periodEndDate)}
+          </p>
+          <p className="text-sm text-gray-700">
+            Branch: {payout.branchName} | Status: {payout.paidAt ? `Paid on ${formatDate(payout.paidAt)}` : 'Pending'}
+          </p>
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4 print:hidden">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">
@@ -307,7 +330,7 @@ const PayoutDetailPage = () => {
 
         {/* Payment Details (if paid) */}
         {payout.paidAt && (
-          <Card>
+          <Card className="print:hidden">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <CreditCard className="h-5 w-5" />
@@ -342,14 +365,14 @@ const PayoutDetailPage = () => {
         )}
 
         {/* Line Items Table */}
-        <Card>
-          <CardHeader>
+        <Card className="print:rounded-none print:border-0 print:shadow-none">
+          <CardHeader className="print:px-0 print:pt-0 print:pb-3">
             <CardTitle className="text-lg flex items-center gap-2">
-              <FileText className="h-5 w-5" />
+              <FileText className="h-5 w-5 print:hidden" />
               Line Items ({payout.lineItems.length})
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="print:px-0 print:pb-0">
             {payout.lineItems.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 No line items found for this period.
@@ -361,7 +384,7 @@ const PayoutDetailPage = () => {
                     <TableHead>Date</TableHead>
                     <TableHead>Bill #</TableHead>
                     <TableHead>Patient</TableHead>
-                    <TableHead>{payout.doctorType === 'CLINIC' ? 'Service' : 'Product / Test'}</TableHead>
+                    <TableHead>{payout.doctorType === 'CLINIC' ? 'Service' : 'Billable Product'}</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
                     {showsCommission && (
                       <TableHead className="text-right">Commission</TableHead>
@@ -379,11 +402,7 @@ const PayoutDetailPage = () => {
                       <TableCell className="text-right">{formatRupees(item.amountInPaise)}</TableCell>
                       {showsCommission && (
                         <TableCell className="text-right">
-                          {formatReferralPayout({
-                            commissionType: item.commissionType,
-                            commissionPercent: item.commissionPercentage,
-                            commissionAmountInPaise: item.commissionAmountInPaise,
-                          })}
+                          {formatCommissionValue(item)}
                         </TableCell>
                       )}
                       <TableCell className="text-right font-semibold">
@@ -396,7 +415,7 @@ const PayoutDetailPage = () => {
             )}
 
             {/* Totals */}
-            <Separator className="my-4" />
+            <Separator className="my-4 print:hidden" />
             <div className="flex justify-end">
               <div className="text-right space-y-2">
                 <div className="flex justify-between gap-12">
