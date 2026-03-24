@@ -58,6 +58,11 @@ body.report-body {
   flex-direction: column;
 }
 
+.report-page:not(:last-child) {
+  page-break-after: always;
+  break-after: page;
+}
+
 .report-content {
   padding: 16px 24px 16px 24px;
   flex: 1;
@@ -639,21 +644,18 @@ body.report-body {
     box-shadow: none !important;
     margin: 0 !important;
     max-width: none !important;
-    min-height: 249.5mm !important;
-    display: flex !important;
-    flex-direction: column !important;
+    min-height: auto !important;
+    display: block !important;
   }
 
   .report-content {
     padding: 0 !important;
     max-width: none !important;
-    flex: 1 1 auto !important;
-    display: flex !important;
-    flex-direction: column !important;
+    display: block !important;
   }
 
   .report-bottom-section {
-    margin-top: auto !important;
+    margin-top: 16pt !important;
   }
 
   .signatures-section {
