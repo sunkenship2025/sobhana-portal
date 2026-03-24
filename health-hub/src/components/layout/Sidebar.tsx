@@ -1,16 +1,15 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import { 
-  LayoutDashboard, 
-  FlaskConical, 
-  Stethoscope, 
-  UserRound, 
+import {
+  BriefcaseMedical,
   Building2,
+  LayoutDashboard,
   LogOut,
   Menu,
   Microscope,
-  User
+  UserRound,
+  WalletCards,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuthStore, UserRole } from '@/store/authStore';
@@ -22,64 +21,84 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 
+interface NavSubItem {
+  label: string;
+  href: string;
+  roles?: UserRole[];
+  section?: string;
+  matchPrefixes?: string[];
+}
+
 interface NavItem {
   label: string;
   icon: React.ElementType;
   href: string;
   roles: UserRole[];
-  subItems?: { label: string; href: string; roles?: UserRole[] }[];
+  subItems?: NavSubItem[];
+  exact?: boolean;
 }
 
 const navItems: NavItem[] = [
-  { 
-    label: 'Dashboard', 
-    icon: LayoutDashboard, 
+  {
+    label: 'Dashboard',
+    icon: LayoutDashboard,
+    href: '/owner',
+    roles: ['owner'],
+    exact: true,
+  },
+  {
+    label: 'Dashboard',
+    icon: LayoutDashboard,
     href: '/',
-    roles: ['staff', 'owner'],
+    roles: ['staff'],
+    exact: true,
   },
-  { 
-    label: 'Patient 360', 
-    icon: User, 
-    href: '/clinic/patient-search',
-    roles: ['staff', 'owner'],
-  },
-  { 
-    label: 'Diagnostics', 
-    icon: FlaskConical, 
-    href: '/diagnostics',
+  {
+    label: 'Operations',
+    icon: BriefcaseMedical,
+    href: '/operations',
     roles: ['staff', 'owner'],
     subItems: [
-      { label: 'New Visit', href: '/diagnostics/new' },
-      { label: 'Pending Results', href: '/diagnostics/pending' },
-      { label: 'Finalized Reports', href: '/diagnostics/finalized' },
-    ]
+      {
+        label: 'Patient 360',
+        href: '/clinic/patient-search',
+        section: 'Patient',
+        matchPrefixes: ['/clinic/patient-search', '/clinic/patient-360/'],
+      },
+      { label: 'New Visit', href: '/diagnostics/new', section: 'Diagnostics' },
+      {
+        label: 'Pending Results',
+        href: '/diagnostics/pending',
+        section: 'Diagnostics',
+        matchPrefixes: ['/diagnostics/pending', '/diagnostics/results/'],
+      },
+      {
+        label: 'Finalized Reports',
+        href: '/diagnostics/finalized',
+        section: 'Diagnostics',
+        matchPrefixes: ['/diagnostics/finalized', '/diagnostics/preview/'],
+      },
+      { label: 'New Visit', href: '/clinic/new', section: 'Clinic Visits' },
+      { label: 'OP / IP Queue', href: '/clinic/queue', section: 'Clinic Visits' },
+    ],
   },
-  { 
-    label: 'Clinic', 
-    icon: Stethoscope, 
-    href: '/clinic',
-    roles: ['staff', 'owner'],
-    subItems: [
-      { label: 'New Visit', href: '/clinic/new' },
-      { label: 'OP / IP Queue', href: '/clinic/queue' },
-    ]
-  },
-  { 
-    label: 'My Reports', 
-    icon: UserRound, 
+  {
+    label: 'My Reports',
+    icon: UserRound,
     href: '/doctor',
     roles: ['doctor', 'owner'],
   },
-  { 
-    label: 'Admin', 
-    icon: Building2, 
-    href: '/owner',
+  {
+    label: 'Payouts',
+    icon: WalletCards,
+    href: '/owner/payouts',
     roles: ['staff', 'owner'],
-    subItems: [
-      { label: 'Dashboard', href: '/owner', roles: ['owner'] },
-      { label: 'Config Center', href: '/owner/config', roles: ['staff', 'owner'] },
-      { label: 'Payouts', href: '/owner/payouts', roles: ['staff', 'owner'] },
-    ]
+  },
+  {
+    label: 'Admin',
+    icon: Building2,
+    href: '/owner/config',
+    roles: ['staff', 'owner'],
   },
 ];
 
@@ -95,24 +114,31 @@ export function Sidebar() {
     navigate('/login');
   };
 
-  // Filter nav items based on user role
-  const filteredNavItems = navItems.filter((item) => 
-    user ? item.roles.includes(user.role) : false
+  const filteredNavItems = navItems.filter((item) =>
+    user ? item.roles.includes(user.role) : false,
   );
 
-  const isItemActive = (href: string) =>
-    location.pathname === href || location.pathname.startsWith(`${href}/`);
+  const isItemActive = (item: NavItem) =>
+    item.exact
+      ? location.pathname === item.href
+      : location.pathname === item.href || location.pathname.startsWith(`${item.href}/`);
+
+  const isSubItemActive = (subItem: NavSubItem) =>
+    location.pathname === subItem.href
+    || location.pathname.startsWith(`${subItem.href}/`)
+    || subItem.matchPrefixes?.some((prefix) => location.pathname.startsWith(prefix))
+    || false;
 
   const renderNavContent = (onNavigate?: () => void) => (
     <nav className="mt-6 flex-1 px-3">
       <div className="space-y-2">
         {filteredNavItems.map((item) => {
           const Icon = item.icon;
-          const isActive = isItemActive(item.href);
           const visibleSubItems = item.subItems?.filter((subItem) =>
             user ? (subItem.roles ? subItem.roles.includes(user.role) : true) : false,
           ) ?? [];
-          const isGroupActive = visibleSubItems.some((subItem) => location.pathname === subItem.href);
+          const isActive = isItemActive(item);
+          const isGroupActive = visibleSubItems.some((subItem) => isSubItemActive(subItem));
 
           if (visibleSubItems.length === 0) {
             return (
@@ -122,7 +148,7 @@ export function Sidebar() {
                 onClick={onNavigate}
                 className={cn(
                   'flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors',
-                  isActive ? 'text-white' : 'text-white/70 hover:text-white'
+                  isActive ? 'text-white' : 'text-white/70 hover:text-white',
                 )}
                 style={isActive ? { backgroundColor: 'var(--branch-sidebar-active)' } : undefined}
               >
@@ -137,30 +163,39 @@ export function Sidebar() {
               <div
                 className={cn(
                   'flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium',
-                  isActive || isGroupActive ? 'text-white' : 'text-white/70'
+                  isGroupActive ? 'text-white' : 'text-white/70',
                 )}
-                style={isActive || isGroupActive ? { backgroundColor: 'var(--branch-sidebar-active)' } : undefined}
+                style={isGroupActive ? { backgroundColor: 'var(--branch-sidebar-active)' } : undefined}
               >
                 <Icon className="h-5 w-5 shrink-0" />
                 <span className="min-w-0 truncate">{item.label}</span>
               </div>
 
               <div className="ml-6 space-y-1 border-l border-white/10 pl-4">
-                {visibleSubItems.map((subItem) => {
-                  const isSubActive = location.pathname === subItem.href;
+                {visibleSubItems.map((subItem, index) => {
+                  const isSubActive = isSubItemActive(subItem);
+                  const previousSection = visibleSubItems[index - 1]?.section;
+                  const showSection = subItem.section && subItem.section !== previousSection;
+
                   return (
-                    <Link
-                      key={subItem.href}
-                      to={subItem.href}
-                      onClick={onNavigate}
-                      className={cn(
-                        'block rounded-lg px-3 py-2 text-sm transition-colors',
-                        isSubActive ? 'text-white' : 'text-white/70 hover:text-white'
+                    <div key={subItem.href} className="space-y-1">
+                      {showSection && (
+                        <p className="px-3 pt-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/40">
+                          {subItem.section}
+                        </p>
                       )}
-                      style={isSubActive ? { backgroundColor: 'var(--branch-sidebar-active)' } : undefined}
-                    >
-                      {subItem.label}
-                    </Link>
+                      <Link
+                        to={subItem.href}
+                        onClick={onNavigate}
+                        className={cn(
+                          'block rounded-lg px-3 py-2 text-sm transition-colors',
+                          isSubActive ? 'text-white' : 'text-white/70 hover:text-white',
+                        )}
+                        style={isSubActive ? { backgroundColor: 'var(--branch-sidebar-active)' } : undefined}
+                      >
+                        {subItem.label}
+                      </Link>
+                    </div>
                   );
                 })}
               </div>
@@ -170,7 +205,7 @@ export function Sidebar() {
       </div>
     </nav>
   );
-  
+
   return (
     <>
       <div
@@ -213,8 +248,8 @@ export function Sidebar() {
                     <p className="text-xs capitalize text-white/60">{user.role}</p>
                   </div>
                 )}
-                <Button 
-                  variant="ghost" 
+                <Button
+                  variant="ghost"
                   className="w-full justify-start text-white/70 hover:bg-white/10 hover:text-white"
                   onClick={handleLogout}
                 >
@@ -226,7 +261,7 @@ export function Sidebar() {
           </SheetContent>
         </Sheet>
       </div>
-      
+
       <aside
         className="fixed left-0 top-0 z-40 hidden h-screen w-64 flex-col border-r border-white/10 text-white md:flex"
         style={{ backgroundColor: 'var(--branch-sidebar-bg)' }}
@@ -235,7 +270,7 @@ export function Sidebar() {
           <Microscope className="h-8 w-8 text-white" />
           <span className="ml-3 text-xl font-bold text-white">SOBHANA</span>
         </div>
-        
+
         {renderNavContent()}
 
         <div className="border-t border-white/10 p-3">
@@ -245,8 +280,8 @@ export function Sidebar() {
               <p className="text-xs capitalize text-white/60">{user.role}</p>
             </div>
           )}
-          <Button 
-            variant="ghost" 
+          <Button
+            variant="ghost"
             className="w-full justify-start text-white/70 hover:bg-white/10 hover:text-white"
             onClick={handleLogout}
           >
