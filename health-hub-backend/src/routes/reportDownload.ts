@@ -28,14 +28,9 @@ const publicReportLandingIpRateLimit = createRateLimiter({
   maxRequests: 30,
   keyGenerator: (req) => [getClientIp(req)],
   onLimit: (_req, res, retryAfterSeconds) => {
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
-    res.status(429).send(
-      renderStatusPage(
-        'Too many requests',
-        `This report link is receiving too many requests. Please wait ${retryAfterSeconds} seconds and try again.`
-      )
-    );
+    res.setHeader('Retry-After', String(retryAfterSeconds));
+    res.status(429).end();
   },
 });
 
@@ -45,14 +40,9 @@ const publicReportLandingTokenRateLimit = createRateLimiter({
   maxRequests: 10,
   keyGenerator: (req) => [getClientIp(req), String(req.params.token || '')],
   onLimit: (_req, res, retryAfterSeconds) => {
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
-    res.status(429).send(
-      renderStatusPage(
-        'Too many requests',
-        `Please wait ${retryAfterSeconds} seconds before reopening this report.`
-      )
-    );
+    res.setHeader('Retry-After', String(retryAfterSeconds));
+    res.status(429).end();
   },
 });
 
@@ -97,96 +87,6 @@ async function loadReportForToken(token: string): Promise<ReportLoadResult> {
     ok: true,
     snapshot,
   };
-}
-
-function escapeHtml(input: string): string {
-  return input
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function renderStatusPage(title: string, message: string): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${escapeHtml(title)}</title>
-    <style>
-      :root {
-        color-scheme: light;
-        --bg-a: #fff6e8;
-        --bg-b: #eefbf8;
-        --card: rgba(255, 255, 255, 0.92);
-        --text: #172033;
-        --muted: #5f6b7a;
-        --accent: #0f766e;
-        --border: rgba(23, 32, 51, 0.1);
-        --shadow: 0 28px 80px rgba(23, 32, 51, 0.12);
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        padding: 24px;
-        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-        color: var(--text);
-        background:
-          radial-gradient(circle at top left, rgba(15, 118, 110, 0.15), transparent 34%),
-          radial-gradient(circle at bottom right, rgba(245, 158, 11, 0.18), transparent 30%),
-          linear-gradient(135deg, var(--bg-a), var(--bg-b));
-      }
-
-      .card {
-        width: min(100%, 480px);
-        border: 1px solid var(--border);
-        border-radius: 24px;
-        padding: 32px 28px;
-        background: var(--card);
-        box-shadow: var(--shadow);
-        backdrop-filter: blur(10px);
-        text-align: center;
-      }
-
-      .dot {
-        width: 16px;
-        height: 16px;
-        margin: 0 auto 18px;
-        border-radius: 999px;
-        background: linear-gradient(135deg, #0f766e, #f59e0b);
-      }
-
-      h1 {
-        margin: 0;
-        font-size: clamp(1.7rem, 4vw, 2.2rem);
-        line-height: 1.1;
-      }
-
-      p {
-        margin: 14px 0 0;
-        color: var(--muted);
-        font-size: 1rem;
-        line-height: 1.6;
-      }
-    </style>
-  </head>
-  <body>
-    <main class="card">
-      <div class="dot"></div>
-      <h1>${escapeHtml(title)}</h1>
-      <p>${escapeHtml(message)}</p>
-    </main>
-  </body>
-</html>`;
 }
 
 async function buildPdfBuffer(
@@ -235,9 +135,8 @@ router.get('/:token', publicReportLandingIpRateLimit, publicReportLandingTokenRa
     const result = await buildPdfBuffer(req, token, 'digital');
 
     if (!result.ok) {
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Cache-Control', 'no-store');
-      return res.status(result.status).send(renderStatusPage('Report not available', result.message));
+      return res.status(result.status).end();
     }
 
     await recordAccess(
@@ -256,11 +155,8 @@ router.get('/:token', publicReportLandingIpRateLimit, publicReportLandingTokenRa
     return res.send(result.pdfBuffer);
   } catch (error) {
     console.error('Error generating report PDF:', error);
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
-    return res.status(500).send(
-      renderStatusPage('Report unavailable', 'Failed to generate your report. Please try again.'),
-    );
+    return res.status(500).end();
   }
 });
 
