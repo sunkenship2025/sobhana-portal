@@ -494,19 +494,22 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
         cssBlock: `<style>${SCREEN_CSS}</style>`,
         extraStyles: `
           @media print {
-            @page { size: A4; margin: 32mm 15mm 15.5mm 15mm; }
+            @page { size: A4; margin: 32mm 15mm 20mm 15mm; }
             .no-print { display: none !important; }
           }
           /*
-           * Digital PDF still needs a fixed page-height flex container.
-           * If min-height becomes auto, the footer sits right after the
-           * content and the remaining A4 page turns into blank whitespace.
+           * Hide HTML header/footer - Puppeteer templates will replace them.
+           * This ensures headers/footers repeat on each PDF page.
+           */
+          .header, .footer, .report-divider { display: none !important; }
+          /*
+           * Adjust report-page layout since header/footer are now Puppeteer-managed.
            */
           .report-page {
             box-shadow: none;
             margin: 0;
             max-width: none;
-            min-height: 277mm;
+            min-height: auto;
           }
           body.report-body { background: white; padding: 0; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }`,
@@ -704,4 +707,117 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
 
 </body>
 </html>`;
+}
+
+// ============================================================================
+// PUPPETEER PDF HEADER/FOOTER TEMPLATES
+// These are rendered separately by Puppeteer and repeated on each PDF page.
+// ============================================================================
+
+/**
+ * Generates the header template HTML for Puppeteer PDF.
+ * This will be repeated on each page of the PDF.
+ */
+export function generatePdfHeaderTemplate(): string {
+  // Puppeteer templates need explicit font-size as default is very small
+  return `
+    <style>
+      .pdf-header {
+        width: 100%;
+        padding: 0 10mm;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-size: 10px;
+      }
+      .pdf-header-logo-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-top: 4mm;
+      }
+      .pdf-header-logo {
+        height: 16mm;
+        width: auto;
+      }
+      .pdf-header-badge {
+        background: linear-gradient(135deg, #2c5282 0%, #1a365d 100%);
+        color: white;
+        padding: 3px 12px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 1.5px;
+      }
+      .pdf-header-stripe {
+        height: 3px;
+        background: linear-gradient(90deg, #2c5282 0%, #38a169 50%, #d69e2e 100%);
+        margin-top: 3mm;
+      }
+    </style>
+    <div class="pdf-header">
+      <div class="pdf-header-logo-row">
+        <img src="${LOGO_DATA_URI}" alt="Sobhana" class="pdf-header-logo" />
+        <span class="pdf-header-badge">REPORT</span>
+      </div>
+      <div class="pdf-header-stripe"></div>
+    </div>
+  `;
+}
+
+/**
+ * Generates the footer template HTML for Puppeteer PDF.
+ * This will be repeated on each page of the PDF.
+ */
+export function generatePdfFooterTemplate(): string {
+  return `
+    <style>
+      .pdf-footer {
+        width: 100%;
+        padding: 0 10mm 2mm;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-size: 7px;
+        color: #4a5568;
+      }
+      .pdf-footer-stripe {
+        height: 2px;
+        background: linear-gradient(90deg, #2c5282 0%, #38a169 50%, #d69e2e 100%);
+        margin-bottom: 2mm;
+      }
+      .pdf-footer-content {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+      }
+      .pdf-footer-left {
+        max-width: 55%;
+      }
+      .pdf-footer-right {
+        text-align: right;
+        max-width: 45%;
+      }
+      .pdf-footer-note {
+        font-size: 6px;
+        color: #718096;
+      }
+      .pdf-footer-page {
+        font-size: 7px;
+        color: #4a5568;
+        margin-top: 1mm;
+        text-align: right;
+      }
+    </style>
+    <div class="pdf-footer">
+      <div class="pdf-footer-stripe"></div>
+      <div class="pdf-footer-content">
+        <div class="pdf-footer-left">
+          <div class="pdf-footer-note">Note: This report is subject to the terms and conditions overleaf.</div>
+          <div class="pdf-footer-note">Partial reproduction of this report is not permitted.</div>
+        </div>
+        <div class="pdf-footer-right">
+          <div>Balanagar: # 3-67, Sobhana Complex, Balanagar, Hyderabad-500042.</div>
+          <div>Ph: 040-2377 2929, 4016 3301</div>
+        </div>
+      </div>
+      <div class="pdf-footer-page">Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>
+    </div>
+  `;
 }

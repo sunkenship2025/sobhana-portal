@@ -583,6 +583,32 @@ body.report-body {
 .btn-download:hover { background: #2f855a; }
 
 /* ============================================================================
+   PAGE BREAK RULES FOR PDF GENERATION
+   These must be OUTSIDE @media print because Puppeteer uses screen media type
+   for digital PDFs.
+   ============================================================================ */
+.department:not(:first-child) {
+  page-break-before: always !important;
+  break-before: page !important;
+}
+.department {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+.department-header {
+  page-break-after: avoid;
+  break-after: avoid;
+}
+.panel {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+.signatures-section {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+/* ============================================================================
    PRINT MEDIA QUERY (browser Ctrl+P)
    ============================================================================ */
 
