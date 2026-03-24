@@ -15,7 +15,11 @@ import {
   saveReportSnapshot,
 } from '../services/reportSnapshotService';
 import { resolveProducts, ProductResolutionError } from '../services/productOrderService';
-import { renderReportHtml } from '../services/reportRendererService';
+import {
+  renderReportHtml,
+  generatePdfHeaderTemplate,
+  generatePdfFooterTemplate,
+} from '../services/reportRendererService';
 import prisma from '../lib/prisma';
 import {
   areReferralPayoutsEqual,
@@ -305,7 +309,13 @@ router.get('/:id', async (req: AuthRequest, res) => {
                 department: { select: { id: true, name: true, reportHeaderText: true } },
                 childTests: {
                   include: {
-                    derivedParameter: { select: { id: true } },
+                    derivedParameter: {
+                      select: {
+                        id: true,
+                        formula: true,
+                        dependsOnTestCodes: true,
+                      },
+                    },
                   },
                   orderBy: { displayOrder: 'asc' },
                 },
@@ -456,6 +466,18 @@ router.get('/:id', async (req: AuthRequest, res) => {
             || to.test.department;
           return dept ? { id: dept.id, name: dept.name } : null;
         })(),
+        panel: (() => {
+          const panel = to.testDefinition?.panelItems?.[0]?.panel
+            || to.test.panelItems?.[0]?.panel
+            || null;
+          return panel
+            ? {
+                id: panel.id,
+                name: panel.name,
+                displayName: panel.displayName,
+              }
+            : null;
+        })(),
         referenceRange: buildRange(
           to.testId,
           to.referenceMinSnapshot ?? to.testDefinition?.referenceMin ?? to.test.referenceMin,
@@ -469,6 +491,8 @@ router.get('/:id', async (req: AuthRequest, res) => {
           code: ct.code,
           displayOrder: ct.displayOrder,
           isDerived: !!ct.derivedParameter,
+          formulaExpression: ct.derivedParameter?.formula || null,
+          dependsOnCodes: ct.derivedParameter?.dependsOnTestCodes || null,
           referenceRange: buildRange(ct.id, ct.referenceMin, ct.referenceMax, ct.referenceUnit, ct.referenceText),
         })) : [],
         results: to.testResults.map((tr: any) => ({
@@ -1846,7 +1870,15 @@ router.get('/:id/finalized-report/pdf', async (req: AuthRequest, res) => {
       baseUrl,
       qrDataUrl,
     });
-    const pdfBuffer = await generatePdfFromHtml(html, { mode });
+    const pdfBuffer = await generatePdfFromHtml(html, {
+      mode,
+      ...(mode === 'digital'
+        ? {
+            headerTemplate: generatePdfHeaderTemplate(),
+            footerTemplate: generatePdfFooterTemplate(),
+          }
+        : {}),
+    });
 
     await recordAccessByReportVersionId(
       loaded.reportVersionId,

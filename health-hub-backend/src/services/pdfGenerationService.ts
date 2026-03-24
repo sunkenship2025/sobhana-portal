@@ -131,30 +131,40 @@ const PDF_OPTIONS: PDFOptions = {
 
 /**
  * PDF options for digital-first PDF (includes header/footer in content).
+ * When headerTemplate/footerTemplate are provided, displayHeaderFooter is enabled.
  */
-const PDF_OPTIONS_DIGITAL: PDFOptions = {
+const PDF_OPTIONS_DIGITAL_BASE: Omit<PDFOptions, 'displayHeaderFooter' | 'headerTemplate' | 'footerTemplate'> = {
   format: 'A4',
   printBackground: true,
   preferCSSPageSize: false,
   margin: {
-    top: '10mm',
-    bottom: '10mm',
+    top: '30mm',    // Space for header template
+    bottom: '20mm', // Space for footer template
     left: '10mm',
     right: '10mm',
   },
-  displayHeaderFooter: false,
 };
 
 export interface PdfGenerationOptions {
-  /** 
-   * Mode: 'physical' for pre-printed letterhead, 'digital' for standalone PDF 
+  /**
+   * Mode: 'physical' for pre-printed letterhead, 'digital' for standalone PDF
    */
   mode: 'physical' | 'digital';
-  
+
   /**
    * Optional: Base URL for resolving relative paths (CSS, images)
    */
   baseUrl?: string;
+
+  /**
+   * Optional: Header template HTML for digital PDFs (repeated on each page)
+   */
+  headerTemplate?: string;
+
+  /**
+   * Optional: Footer template HTML for digital PDFs (repeated on each page)
+   */
+  footerTemplate?: string;
 }
 
 /**
@@ -180,9 +190,18 @@ export async function generatePdfFromHtml(
         timeout: 30000,
       });
 
-      const pdfOptions = options.mode === 'physical'
-        ? PDF_OPTIONS
-        : PDF_OPTIONS_DIGITAL;
+      let pdfOptions: PDFOptions;
+      if (options.mode === 'physical') {
+        pdfOptions = PDF_OPTIONS;
+      } else {
+        // Digital PDF - use templates if provided
+        pdfOptions = {
+          ...PDF_OPTIONS_DIGITAL_BASE,
+          displayHeaderFooter: !!(options.headerTemplate || options.footerTemplate),
+          headerTemplate: options.headerTemplate || '<span></span>',
+          footerTemplate: options.footerTemplate || '<span></span>',
+        };
+      }
 
       const pdfBuffer = await page.pdf(pdfOptions);
       return Buffer.from(pdfBuffer);
