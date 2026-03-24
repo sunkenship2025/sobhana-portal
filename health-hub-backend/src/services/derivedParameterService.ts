@@ -27,6 +27,37 @@ export interface DerivedResult {
   displayOrder: number;
 }
 
+export interface DerivedFormulaTarget {
+  testId: string;
+  code: string;
+  parameterName: string;
+  formula: string;
+  dependsOnCodes: string[];
+  displayOrder: number;
+  testDefinitionId?: string | null;
+}
+
+export interface EvaluatedDerivedFormula extends DerivedFormulaTarget {
+  value: number | null;
+}
+
+export function normalizeDependencyCodes(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw
+      .map((value) => String(value).trim())
+      .filter(Boolean);
+  }
+
+  if (typeof raw === 'string') {
+    return raw
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
 /**
  * Evaluate derived parameters using DerivedParameterDef (new architecture).
  * Looks up DerivedParameterDef by testDefinitionCodes found in the results.
@@ -49,30 +80,27 @@ export async function evaluateDerivedParameterDefs(
   if (allDerived.length === 0) return [];
 
   const codeSet = new Set(testCodes);
-  const results: DerivedResult[] = [];
-
-  for (const dp of allDerived) {
-    const depCodes = dp.dependsOnTestCodes as string[];
-
-    // Check if ALL dependencies are available in the result set
-    const allPresent = depCodes.every((code) => resultsByTestCode.has(code));
-    if (!allPresent) continue;
-
-    // At least one dependency must be in our ordered test codes
-    if (!depCodes.some((code) => codeSet.has(code))) continue;
-
-    const value = safeEvaluateFormula(dp.formula, resultsByTestCode);
-
-    results.push({
-      testDefinitionCode: dp.testDefinitionCode,
+  const targets = allDerived
+    .map((dp) => ({
+      testId: dp.testDefinitionCode,
+      code: dp.testDefinitionCode,
       parameterName: dp.parameterName,
       formula: dp.formula,
-      value,
+      dependsOnCodes: normalizeDependencyCodes(dp.dependsOnTestCodes),
       displayOrder: dp.displayOrder,
-    });
-  }
+      testDefinitionId: null,
+    }))
+    .filter((target) =>
+      target.dependsOnCodes.some((code) => codeSet.has(code))
+    );
 
-  return results;
+  return evaluateDerivedTargets(targets, resultsByTestCode).map((result) => ({
+    testDefinitionCode: result.code,
+    parameterName: result.parameterName,
+    formula: result.formula,
+    value: result.value,
+    displayOrder: result.displayOrder,
+  }));
 }
 
 /**
@@ -92,32 +120,100 @@ export async function evaluateDerivedParameters(
   const derivedParams = await prisma.derivedParameter.findMany({
     where: { testId: { in: testIds } },
     orderBy: { displayOrder: 'asc' },
+    include: {
+      test: {
+        select: {
+          code: true,
+        },
+      },
+    },
   });
 
   if (derivedParams.length === 0) return [];
 
-  const results: DerivedResult[] = [];
+  return evaluateDerivedTargets(
+    derivedParams.map((dp) => ({
+      testId: dp.testId,
+      code: dp.test.code,
+      parameterName: dp.parameterName,
+      formula: dp.formula,
+      dependsOnCodes: normalizeDependencyCodes(dp.dependsOnTestCodes),
+      displayOrder: dp.displayOrder,
+      testDefinitionId: null,
+    })),
+    resultsByTestCode
+  ).map((result) => ({
+    testId: result.testId,
+    parameterName: result.parameterName,
+    formula: result.formula,
+    value: result.value,
+    displayOrder: result.displayOrder,
+  }));
+}
 
-  for (const dp of derivedParams) {
-    const depCodes = dp.dependsOnTestCodes as string[];
+export function evaluateDerivedTargets(
+  targets: DerivedFormulaTarget[],
+  resultsByTestCode: Map<string, number>
+): EvaluatedDerivedFormula[] {
+  if (targets.length === 0) return [];
 
-    const allPresent = depCodes.every((code) => resultsByTestCode.has(code));
+  const orderedTargets = topologicalSortDerivedTargets(targets);
+  const workingValues = new Map(resultsByTestCode);
+  const results: EvaluatedDerivedFormula[] = [];
 
-    let value: number | null = null;
-    if (allPresent) {
-      value = safeEvaluateFormula(dp.formula, resultsByTestCode);
+  for (const target of orderedTargets) {
+    const value = safeEvaluateFormula(target.formula, workingValues);
+
+    if (value !== null) {
+      workingValues.set(target.code, value);
+    } else {
+      workingValues.delete(target.code);
     }
 
     results.push({
-      testId: dp.testId,
-      parameterName: dp.parameterName,
-      formula: dp.formula,
+      ...target,
       value,
-      displayOrder: dp.displayOrder,
     });
   }
 
   return results;
+}
+
+function topologicalSortDerivedTargets(
+  targets: DerivedFormulaTarget[]
+): DerivedFormulaTarget[] {
+  const result: DerivedFormulaTarget[] = [];
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+  const codeToTarget = new Map<string, DerivedFormulaTarget>();
+
+  for (const target of targets) {
+    codeToTarget.set(target.code, target);
+  }
+
+  function visit(target: DerivedFormulaTarget): void {
+    if (visited.has(target.code)) return;
+    if (visiting.has(target.code)) return;
+
+    visiting.add(target.code);
+
+    for (const depCode of target.dependsOnCodes) {
+      const dependency = codeToTarget.get(depCode);
+      if (dependency) {
+        visit(dependency);
+      }
+    }
+
+    visiting.delete(target.code);
+    visited.add(target.code);
+    result.push(target);
+  }
+
+  for (const target of targets) {
+    visit(target);
+  }
+
+  return result;
 }
 
 /**
