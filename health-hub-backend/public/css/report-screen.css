@@ -619,19 +619,15 @@ body.report-body {
 
 @media print {
   /*
-   * Browser print targets physical Sobhana letterhead paper.
-   * Keep the same content flow as preview, but hide the HTML header/footer
-   * because those are already printed on the paper itself.
+   * Browser print should mirror the on-screen preview as closely as possible.
+   * The dedicated physical/letterhead path uses report-print.css instead.
    */
   * {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
 
-  .header,
-  .footer,
-  .action-buttons,
-  .no-print {
+  .action-buttons {
     display: none !important;
   }
 
@@ -642,20 +638,24 @@ body.report-body {
 
   .report-page {
     box-shadow: none !important;
-    margin: 0 !important;
-    max-width: none !important;
-    min-height: auto !important;
-    display: block !important;
+    margin: 0 auto !important;
+    max-width: 210mm !important;
+    min-height: 297mm !important;
+    display: flex !important;
+    flex-direction: column !important;
   }
 
   .report-content {
-    padding: 0 !important;
+    padding: 16px 24px 16px 24px !important;
     max-width: none !important;
-    display: block !important;
+    display: flex !important;
+    flex: 1 1 auto !important;
+    flex-direction: column !important;
+    min-height: 0 !important;
   }
 
   .report-bottom-section {
-    margin-top: 16pt !important;
+    margin-top: auto !important;
   }
 
   .signatures-section {
@@ -665,11 +665,22 @@ body.report-body {
   }
 
   .print-qr {
+    display: none !important;
+  }
+
+  .header-qr {
     display: flex !important;
     align-items: center;
     gap: 6px;
-    justify-content: flex-end;
-    margin-top: 6px;
+  }
+
+  .header-qr-img {
+    width: 42px !important;
+    height: 42px !important;
+  }
+
+  .header-qr-text {
+    font-size: 6.5pt !important;
   }
 
   /* Page break rules - using both legacy and modern syntax for compatibility */
@@ -696,9 +707,6 @@ body.report-body {
 
   @page {
     size: A4;
-    margin-top: 32mm;
-    margin-bottom: 15.5mm;
-    margin-left: 15mm;
-    margin-right: 15mm;
+    margin: 0;
   }
 }
