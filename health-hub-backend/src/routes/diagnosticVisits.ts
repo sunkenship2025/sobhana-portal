@@ -302,6 +302,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
           include: {
             test: {
               include: {
+                department: { select: { id: true, name: true, reportHeaderText: true } },
                 childTests: {
                   include: {
                     derivedParameter: { select: { id: true } },
@@ -420,6 +421,10 @@ router.get('/:id', async (req: AuthRequest, res) => {
         referralCommissionPercent: to.referralCommissionPercentage,
         referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
         isPanel: to.test.isPanel,
+        department: to.test.department ? {
+          id: to.test.department.id,
+          name: to.test.department.name,
+        } : null,
         referenceRange: buildRange(
           to.testId,
           to.referenceMinSnapshot ?? to.testDefinition?.referenceMin ?? to.test.referenceMin,
