@@ -644,11 +644,12 @@ body.report-body {
     margin-top: 6px;
   }
 
-  .department,
-  .panel,
-  .signatures-section {
-    page-break-inside: avoid;
-  }
+  /* Page break rules */
+  .department { page-break-inside: avoid; }
+  .department:not(:first-child) { page-break-before: always; }
+  .department-header { page-break-after: avoid; }
+  .panel { page-break-inside: avoid; }
+  .signatures-section { page-break-inside: avoid; }
 
   @page {
     size: A4;
