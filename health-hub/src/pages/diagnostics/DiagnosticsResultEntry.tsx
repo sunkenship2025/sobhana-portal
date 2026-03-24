@@ -91,10 +91,25 @@ interface Visit {
         value: number;
         textValue?: string | null;
         notes?: string | null;
+        manualOverride?: boolean;
         flag: string;
       }>;
     }>;
   };
+}
+
+const DERIVED_MANUAL_OVERRIDE_NOTE = '__DERIVED_MANUAL_OVERRIDE__';
+
+function isManualDerivedOverride(
+  testResult?: {
+    manualOverride?: boolean;
+    notes?: string | null;
+  } | null
+): boolean {
+  return Boolean(
+    testResult?.manualOverride ||
+      testResult?.notes?.trim() === DERIVED_MANUAL_OVERRIDE_NOTE
+  );
 }
 
 function areResultsEqual(
@@ -121,6 +136,7 @@ const DiagnosticsResultEntry = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [results, setResults] = useState<Record<string, string>>({});
+  const [derivedManualOverrides, setDerivedManualOverrides] = useState<Record<string, boolean>>({});
   const [showWarning, setShowWarning] = useState(false);
   const [extremeValues, setExtremeValues] = useState<string[]>([]);
   const [expandedPanels, setExpandedPanels] = useState<Record<string, boolean>>({});
@@ -227,6 +243,11 @@ const DiagnosticsResultEntry = () => {
           continue;
         }
 
+        if (derivedManualOverrides[derivedTest.testId]) {
+          testsToRecalculate.add(derivedTest.code);
+          continue;
+        }
+
         testsToRecalculate.add(derivedTest.code);
 
         const calculatedValue = safeEvaluateFormula(
@@ -245,7 +266,7 @@ const DiagnosticsResultEntry = () => {
 
       return updated;
     },
-    [reverseDependencyMap, sortedDerivedTests, testIdToCodeMap]
+    [derivedManualOverrides, reverseDependencyMap, sortedDerivedTests, testIdToCodeMap]
   );
 
   // Fetch visit from API
@@ -278,6 +299,7 @@ const DiagnosticsResultEntry = () => {
           // Initialize results from existing test results if any
           if (data.report?.versions?.[0]?.testResults) {
             const initialResults: Record<string, string> = {};
+            const initialManualOverrides: Record<string, boolean> = {};
             const latestVersion = data.report.versions[0];
             latestVersion.testResults.forEach((r: any) => {
               if (r.textValue) {
@@ -285,8 +307,15 @@ const DiagnosticsResultEntry = () => {
               } else if (r.value !== null) {
                 initialResults[r.testId] = r.value.toString();
               }
+
+              if (isManualDerivedOverride(r)) {
+                initialManualOverrides[r.testId] = true;
+              }
             });
             setResults(initialResults);
+            setDerivedManualOverrides(initialManualOverrides);
+          } else {
+            setDerivedManualOverrides({});
           }
         } else {
           toast.error('Failed to load visit');
@@ -362,8 +391,8 @@ const DiagnosticsResultEntry = () => {
     }));
   };
 
-  const getAllTestsForValidation = (): Array<{ testId: string; code: string; min: number; max: number }> => {
-    const allTests: Array<{ testId: string; code: string; min: number; max: number }> = [];
+  const getAllTestsForValidation = (): Array<{ testId: string; code: string; min: number; max: number; isDerived: boolean }> => {
+    const allTests: Array<{ testId: string; code: string; min: number; max: number; isDerived: boolean }> = [];
 
     testOrders.forEach((order) => {
       if (order.isPanel && order.childTests && order.childTests.length > 0) {
@@ -373,6 +402,7 @@ const DiagnosticsResultEntry = () => {
             code: child.code,
             min: child.referenceRange.min,
             max: child.referenceRange.max,
+            isDerived: !!child.isDerived,
           });
         });
       } else {
@@ -381,6 +411,7 @@ const DiagnosticsResultEntry = () => {
           code: order.testCode,
           min: order.referenceRange.min,
           max: order.referenceRange.max,
+          isDerived: !!order.isDerived,
         });
       }
     });
@@ -430,6 +461,7 @@ const DiagnosticsResultEntry = () => {
             textValue: isNumeric ? null : valueStr,
             flag: flag || 'NORMAL',
             notes: null,
+            manualOverride: test.isDerived ? !!derivedManualOverrides[test.testId] : false,
           };
         });
 
@@ -469,6 +501,21 @@ const DiagnosticsResultEntry = () => {
     saveResults();
   };
 
+  const handleDerivedModeToggle = (testId: string, makeManual: boolean) => {
+    setDerivedManualOverrides((prev) => {
+      if (makeManual) {
+        return {
+          ...prev,
+          [testId]: true,
+        };
+      }
+
+      const next = { ...prev };
+      delete next[testId];
+      return next;
+    });
+  };
+
   const renderTestInput = (
     testId: string,
     testName: string,
@@ -482,6 +529,8 @@ const DiagnosticsResultEntry = () => {
     const flag = value !== null
       ? computeFlag(value, referenceRange.min, referenceRange.max)
       : null;
+    const isManualDerived = isDerived && !!derivedManualOverrides[testId];
+    const isAutoDerived = isDerived && !isManualDerived;
 
     const hasNumericRange = referenceRange.min > 0 || referenceRange.max > 0;
 
@@ -494,15 +543,35 @@ const DiagnosticsResultEntry = () => {
         )}
       >
         <div className="min-w-0">
-          <Label className={cn('font-medium', isSubTest ? 'text-sm' : 'text-base')}>
-            {testName}
-          </Label>
-          <span className="text-xs text-muted-foreground ml-2">({testCode})</span>
-          {isDerived && (
-            <span className="ml-2 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700">
-              Auto
-            </span>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Label className={cn('font-medium', isSubTest ? 'text-sm' : 'text-base')}>
+              {testName}
+            </Label>
+            <span className="text-xs text-muted-foreground">({testCode})</span>
+            {isDerived && (
+              <span
+                className={cn(
+                  'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
+                  isManualDerived
+                    ? 'bg-amber-100 text-amber-700'
+                    : 'bg-blue-100 text-blue-700'
+                )}
+              >
+                {isManualDerived ? 'Manual' : 'Auto'}
+              </span>
+            )}
+            {isDerived && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-[11px]"
+                onClick={() => handleDerivedModeToggle(testId, !isManualDerived)}
+              >
+                {isManualDerived ? 'Use Auto' : 'Edit'}
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="space-y-1">
@@ -512,14 +581,14 @@ const DiagnosticsResultEntry = () => {
           <Input
             type={hasNumericRange ? 'number' : 'text'}
             step="0.01"
-            placeholder={isDerived ? 'Auto-calculated' : 'Value'}
+            placeholder={isAutoDerived ? 'Auto-calculated' : 'Value'}
             value={valueStr}
             onChange={(e) => handleValueChange(testId, e.target.value)}
-            readOnly={isDerived}
-            disabled={isDerived}
+            readOnly={isAutoDerived}
+            disabled={isAutoDerived}
             className={cn(
               'text-center',
-              isDerived && 'bg-muted cursor-not-allowed text-muted-foreground'
+              isAutoDerived && 'bg-muted cursor-not-allowed text-muted-foreground'
             )}
           />
         </div>
