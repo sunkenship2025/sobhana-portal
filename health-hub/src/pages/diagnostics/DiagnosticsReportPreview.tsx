@@ -456,7 +456,7 @@ const DiagnosticsReportPreview = () => {
               ) : (
                 <Eye className="mr-2 h-4 w-4" />
               )}
-              {previewLoading ? 'Generating...' : 'Preview Actual Report'}
+              {previewLoading ? 'Generating...' : 'Preview Report Before Finalization'}
             </Button>
             {hasReviewedPreview && (
               <Button
