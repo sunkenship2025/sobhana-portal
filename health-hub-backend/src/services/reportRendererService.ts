@@ -120,6 +120,22 @@ function formatDateTime(isoDate: string): string {
 // ============================================================================
 
 /** Render a single numeric test row: Test | Value | Unit | Reference | Flag */
+function renderTestLabel(test: TestResultSnapshot): string {
+  const nameClasses = [
+    'test-name',
+    test.isBold ? 'is-bold' : '',
+    test.isItalic ? 'is-italic' : '',
+  ].filter(Boolean).join(' ');
+
+  const methodHtml = test.showMethod && test.methodText
+    ? `<div class="test-method">(Method : ${escapeHtml(test.methodText)})</div>`
+    : '';
+
+  return `
+          <div class="${nameClasses}">${escapeHtml(test.testName)}</div>
+          ${methodHtml}`;
+}
+
 function renderTestRow(test: TestResultSnapshot, indent: boolean = false): string {
   const flag = computeFlag(test.value, test.referenceMin, test.referenceMax);
   const isAbnormal = flag === 'H' || flag === 'L';
@@ -128,7 +144,7 @@ function renderTestRow(test: TestResultSnapshot, indent: boolean = false): strin
 
   return `
       <tr class="data-row${indentClass}">
-        <td class="col-test">${escapeHtml(test.testName)}</td>
+        <td class="col-test">${renderTestLabel(test)}</td>
         <td class="col-value">${escapeHtml(valueDisplay)}</td>
         <td class="col-unit">${escapeHtml(test.referenceUnit) || ''}</td>
         <td class="col-ref">${formatReference(test.referenceMin, test.referenceMax, test.referenceText)}</td>
@@ -405,7 +421,7 @@ function renderProcedureStructured(panel: PanelSnapshot): string {
 
     return `
       <tr class="data-row${indent}">
-        <td class="col-param">${escapeHtml(test.testName)}</td>
+        <td class="col-param">${renderTestLabel(test)}</td>
         <td class="col-result">${escapeHtml(displayValue)}</td>
       </tr>`;
   }).join('');
