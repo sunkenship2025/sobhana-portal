@@ -23,6 +23,7 @@ import {
   renderReportHtml,
 } from '../services/reportRendererService';
 import prisma from '../lib/prisma';
+import { buildDiagnosticBillItems } from '../services/billItemService';
 import {
   areReferralPayoutsEqual,
   distributeFixedAmountInPaise,
@@ -1131,7 +1132,18 @@ router.post('/', async (req: AuthRequest, res) => {
       include: {
         patient: { include: { identifiers: true } },
         referrals: { include: { referralDoctor: true } },
-        testOrders: { include: { test: true } },
+        testOrders: {
+          include: {
+            test: true,
+            product: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+              },
+            },
+          },
+        },
         bill: true,
       },
     });
@@ -1155,6 +1167,31 @@ router.post('/', async (req: AuthRequest, res) => {
       reportFinalizedAt: null,
       createdAt: completeVisit!.createdAt,
       referralDoctor: completeVisit!.referrals[0]?.referralDoctor || null,
+      billItems: buildDiagnosticBillItems(
+        completeVisit!.testOrders.map((to) => ({
+          id: to.id,
+          productId: to.productId,
+          product: to.product
+            ? {
+                id: to.product.id,
+                name: to.product.name,
+                code: to.product.code,
+              }
+            : null,
+          testName: to.testNameSnapshot || to.test.name,
+          testCode: to.testCodeSnapshot || to.test.code,
+          priceInPaise: to.priceInPaise,
+          referralCommissionType: completeVisit!.referrals[0]?.referralDoctor
+            ? to.referralCommissionType
+            : undefined,
+          referralCommissionPercentage: completeVisit!.referrals[0]?.referralDoctor
+            ? to.referralCommissionPercentage
+            : undefined,
+          referralCommissionAmountInPaise: completeVisit!.referrals[0]?.referralDoctor
+            ? to.referralCommissionAmountInPaise
+            : undefined,
+        }))
+      ),
       testOrders: completeVisit!.testOrders.map((to) => ({
         id: to.id,
         visitId: to.visitId,
@@ -2154,7 +2191,9 @@ router.get('/:id/finalized-report', async (req: AuthRequest, res) => {
       : '';
 
     const html = renderReportHtml(loaded.snapshot, {
-      profile: 'screen',
+      // Physical print uses pre-printed ledger paper, so the HTML must omit
+      // the built-in report header/footer when the browser print dialog opens.
+      profile: autoPrint ? 'pdf-physical' : 'screen',
       baseUrl,
       qrDataUrl,
     });

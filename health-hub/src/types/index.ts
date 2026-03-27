@@ -417,6 +417,7 @@ export interface DiagnosticVisitView {
   visit: DiagnosticVisit;
   patient: Patient;
   testOrders: TestOrder[];
+  billItems?: BillReceiptItem[];
   referral?: VisitReferral;          // Explicit referral link
   referralDoctor?: ReferralDoctor;   // Denormalized for display
   diagnosticCenter?: DiagnosticCenter;

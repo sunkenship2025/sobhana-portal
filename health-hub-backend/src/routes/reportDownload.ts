@@ -234,13 +234,14 @@ router.get('/:token/view', publicReportIpRateLimit, publicReportTokenRateLimit, 
       color: { dark: '#000000', light: '#ffffff' },
     });
 
+    const autoPrint = req.query.print === 'true';
     const html = renderReportHtml(loaded.snapshot, {
-      profile: 'screen',
+      // Physical print uses pre-printed ledger paper, so auto-print must
+      // switch to the letterhead-safe layout without the embedded header/footer.
+      profile: autoPrint ? 'pdf-physical' : 'screen',
       baseUrl,
       qrDataUrl,
     });
-
-    const autoPrint = req.query.print === 'true';
     const finalHtml = autoPrint
       ? html.replace('</body>', '<script>window.onload=function(){setTimeout(function(){window.print()},600)}</script></body>')
       : html;

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import prisma from '../lib/prisma';
+import { buildDiagnosticBillItems } from '../services/billItemService';
 
 const router = Router();
 
@@ -121,70 +122,27 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
     };
 
     if (domain === 'DIAGNOSTICS') {
-      // Group test orders by productId to show billable products, not individual tests
-      const productGroups = new Map<
-        string,
-        {
-          name: string;
-          code: string;
-          totalPrice: number;
-          referralType?: 'PERCENTAGE' | 'FIXED_AMOUNT';
-          referralPercent?: number | null;
-          referralAmountInPaise?: number;
-        }
-      >();
-      const ungrouped: typeof billData.items = [];
-
-      for (const order of visit.testOrders) {
-        if (order.productId && order.product) {
-          const existing = productGroups.get(order.productId);
-          if (existing) {
-            existing.totalPrice += order.priceInPaise / 100;
-            if (hasReferralDoctor && order.referralCommissionType === 'FIXED_AMOUNT') {
-              existing.referralAmountInPaise =
-                (existing.referralAmountInPaise ?? 0) + (order.referralCommissionAmountInPaise ?? 0);
-            }
-          } else {
-            productGroups.set(order.productId, {
-              name: order.product.name,
-              code: order.product.code,
-              totalPrice: order.priceInPaise / 100,
-              referralType: hasReferralDoctor ? order.referralCommissionType : undefined,
-              referralPercent: hasReferralDoctor ? order.referralCommissionPercentage : undefined,
-              referralAmountInPaise: hasReferralDoctor && order.referralCommissionType === 'FIXED_AMOUNT'
-                ? order.referralCommissionAmountInPaise ?? 0
-                : undefined,
-            });
-          }
-        } else {
-          // Legacy orders without product linkage — fall back to individual test
-          ungrouped.push({
-            id: order.id,
-            name: order.testNameSnapshot || order.test.name,
-            code: order.test.code,
-            price: order.priceInPaise / 100,
-            referralCommissionType: hasReferralDoctor ? order.referralCommissionType : undefined,
-            referralCommissionPercent: hasReferralDoctor ? order.referralCommissionPercentage ?? undefined : undefined,
-            referralCommissionAmountInPaise:
-              hasReferralDoctor && order.referralCommissionType === 'FIXED_AMOUNT'
-                ? order.referralCommissionAmountInPaise ?? undefined
-                : undefined,
-          });
-        }
-      }
-
-      billData.items = [
-        ...Array.from(productGroups.entries()).map(([productId, p]) => ({
-          id: productId,
-          name: p.name,
-          code: p.code,
-          price: p.totalPrice,
-          referralCommissionType: p.referralType,
-          referralCommissionPercent: p.referralPercent ?? undefined,
-          referralCommissionAmountInPaise: p.referralAmountInPaise,
-        })),
-        ...ungrouped,
-      ];
+      billData.items = buildDiagnosticBillItems(
+        visit.testOrders.map((order) => ({
+          id: order.id,
+          productId: order.productId,
+          product: order.product
+            ? {
+                id: order.product.id,
+                name: order.product.name,
+                code: order.product.code,
+              }
+            : null,
+          testName: order.testNameSnapshot || order.test.name,
+          testCode: order.testCodeSnapshot || order.test.code,
+          priceInPaise: order.priceInPaise,
+          referralCommissionType: hasReferralDoctor ? order.referralCommissionType : undefined,
+          referralCommissionPercentage: hasReferralDoctor ? order.referralCommissionPercentage : undefined,
+          referralCommissionAmountInPaise: hasReferralDoctor
+            ? order.referralCommissionAmountInPaise
+            : undefined,
+        }))
+      );
     } else {
       // For clinic, items are consultation fees
       if (visit.clinicVisit) {
