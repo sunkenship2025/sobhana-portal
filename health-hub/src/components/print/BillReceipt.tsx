@@ -107,7 +107,7 @@ export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
           <tr className="border-b border-black">
             <th className="border-r border-black p-2 text-left w-16">S.NO</th>
             <th className="border-r border-black p-2 text-left">
-              {isDiagnostic ? 'TEST NAME' : 'SERVICE DESCRIPTION'}
+              {isDiagnostic ? 'PRODUCT NAME' : 'SERVICE DESCRIPTION'}
             </th>
             {hasReferral && (
               <th className="border-r border-black p-2 text-right w-24">REF</th>
