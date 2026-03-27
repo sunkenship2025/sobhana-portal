@@ -83,6 +83,11 @@ const DiagnosticsReportPreview = () => {
   const [showPreview, setShowPreview] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);  // blob URL for iframe
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [hasReviewedPreview, setHasReviewedPreview] = useState(false);
+  const latestVersionId = (visit as any)?.report?.versions?.[0]?.id ?? visit?.report?.currentVersion?.id ?? null;
+  const previewReviewSessionKey = visitId && latestVersionId
+    ? `diagnostics-report-preview-reviewed:${visitId}:${latestVersionId}`
+    : null;
 
   // Fetch visit from API
   useEffect(() => {
@@ -115,6 +120,34 @@ const DiagnosticsReportPreview = () => {
     fetchVisit();
   }, [visitId, token, activeBranchId]);
 
+  useEffect(() => {
+    setShowPreview(false);
+    setShowConfirm(false);
+    setPreviewUrl((currentUrl) => {
+      if (currentUrl) {
+        URL.revokeObjectURL(currentUrl);
+      }
+      return null;
+    });
+  }, [visitId, latestVersionId]);
+
+  useEffect(() => {
+    if (!previewReviewSessionKey) {
+      setHasReviewedPreview(false);
+      return;
+    }
+
+    setHasReviewedPreview(sessionStorage.getItem(previewReviewSessionKey) === 'true');
+  }, [previewReviewSessionKey]);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
+
   if (loading) {
     return (
       <AppLayout context="diagnostics">
@@ -142,7 +175,7 @@ const DiagnosticsReportPreview = () => {
   const currentYear = new Date().getFullYear();
   const patientAge = patient.yearOfBirth ? currentYear - patient.yearOfBirth : null;
   // Get test results from the latest version (versions are ordered by versionNum desc)
-  const latestVersion = (visit.report as any)?.versions?.[0];
+  const latestVersion = (visit.report as any)?.versions?.[0] ?? visit.report?.currentVersion;
   const testResults = latestVersion?.testResults || [];
   
   // Group results by parent test order for proper display
@@ -284,6 +317,24 @@ const DiagnosticsReportPreview = () => {
     }
   };
 
+  const markPreviewReviewed = () => {
+    setHasReviewedPreview(true);
+    if (previewReviewSessionKey) {
+      sessionStorage.setItem(previewReviewSessionKey, 'true');
+    }
+  };
+
+  const handlePreviewClose = () => {
+    setShowPreview(false);
+    markPreviewReviewed();
+  };
+
+  const handleFinalizeFromPreview = () => {
+    setShowPreview(false);
+    markPreviewReviewed();
+    setShowConfirm(true);
+  };
+
   return (
     <AppLayout context="diagnostics">
       {/* Screen Content - Hidden when printing */}
@@ -407,12 +458,14 @@ const DiagnosticsReportPreview = () => {
               )}
               {previewLoading ? 'Generating...' : 'Preview Actual Report'}
             </Button>
-            <Button 
-              onClick={() => setShowConfirm(true)}
-            >
-              <CheckCircle2 className="mr-2 h-4 w-4" />
-              Finalize Report
-            </Button>
+            {hasReviewedPreview && (
+              <Button
+                onClick={() => setShowConfirm(true)}
+              >
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                Finalize Report
+              </Button>
+            )}
           </div>
         )}
 
@@ -471,10 +524,7 @@ const DiagnosticsReportPreview = () => {
               <Button
                 variant="default"
                 size="sm"
-                onClick={() => {
-                  setShowPreview(false);
-                  setShowConfirm(true);
-                }}
+                onClick={handleFinalizeFromPreview}
               >
                 <CheckCircle2 className="mr-2 h-4 w-4" />
                 Looks Good — Finalize
@@ -482,7 +532,7 @@ const DiagnosticsReportPreview = () => {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => setShowPreview(false)}
+                onClick={handlePreviewClose}
               >
                 <X className="h-5 w-5" />
               </Button>
