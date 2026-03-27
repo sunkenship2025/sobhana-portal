@@ -124,11 +124,10 @@ function renderTestLabel(test: TestResultSnapshot): string {
   const nameClasses = [
     'test-name',
     test.isBold ? 'is-bold' : '',
-    test.isItalic ? 'is-italic' : '',
   ].filter(Boolean).join(' ');
 
   const methodHtml = test.showMethod && test.methodText
-    ? `<div class="test-method">(Method : ${escapeHtml(test.methodText)})</div>`
+    ? `<div class="test-method${test.isItalic ? ' is-italic' : ''}">(Method : ${escapeHtml(test.methodText)})</div>`
     : '';
 
   return `
