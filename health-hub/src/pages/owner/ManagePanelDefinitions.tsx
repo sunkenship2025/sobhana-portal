@@ -92,6 +92,40 @@ const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
 
 const SAMPLE_TYPES = ['WB-EDTA', 'Serum', 'Plasma', 'Urine', 'CSF', 'Synovial Fluid', 'Other'];
 
+function renderPreviewLabel(
+  name: string | null | undefined,
+  options?: {
+    isBold?: boolean;
+    isItalic?: boolean;
+    method?: string | null;
+    paddingLeft?: number;
+    bodyClassName?: string;
+    methodClassName?: string;
+  }
+) {
+  const {
+    isBold = false,
+    isItalic = false,
+    method = null,
+    paddingLeft = 0,
+    bodyClassName = 'py-1',
+    methodClassName = 'text-[9px]',
+  } = options ?? {};
+
+  return (
+    <div className={bodyClassName} style={{ paddingLeft }}>
+      <div className={[isBold ? 'font-bold' : '', isItalic ? 'italic' : ''].filter(Boolean).join(' ')}>
+        {name || '\u2014'}
+      </div>
+      {method && (
+        <div className={`${methodClassName} italic text-muted-foreground leading-tight`}>
+          (Method : {method})
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ───────── Component ───────── */
 
 export default function ManagePanelDefinitions() {
@@ -169,9 +203,12 @@ export default function ManagePanelDefinitions() {
   };
 
   const addSubgroup = () => {
-    const sg = newSubgroupInput.trim().toUpperCase();
+    const sg = newSubgroupInput.trim();
     if (!sg) return;
-    if (formSubgroups.includes(sg)) { toast.error('Subgroup already exists'); return; }
+    if (formSubgroups.some(existing => existing.toLowerCase() === sg.toLowerCase())) {
+      toast.error('Subgroup already exists');
+      return;
+    }
     setFormSubgroups(prev => [...prev, sg]);
     // Capture optional method
     const method = newSubgroupMethodInput.trim();
@@ -899,9 +936,9 @@ export default function ManagePanelDefinitions() {
                     <div className="flex gap-1.5">
                       <Input
                         value={newSubgroupInput}
-                        onChange={e => setNewSubgroupInput(e.target.value.toUpperCase())}
+                        onChange={e => setNewSubgroupInput(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSubgroup(); } }}
-                        placeholder="e.g. DIFFERENTIAL"
+                        placeholder="e.g. Differential"
                         className="h-7 text-xs flex-1"
                       />
                       {formShowSubgroupMethods && (
@@ -1145,23 +1182,26 @@ export default function ManagePanelDefinitions() {
                         <tr className="border-b">
                           <th className="text-left py-1 font-semibold">PARAMETER</th>
                           <th className="text-left py-1 font-semibold">RESULT</th>
-                          {formShowMethod && <th className="text-left py-1 font-semibold">METHOD</th>}
                         </tr>
                       </thead>
                       <tbody>
                         {formItems.length > 0 ? formItems.map((item, i) => {
                           const td = availableDefs.find(d => d.id === item.testDefinitionId);
+                          const method = item.showMethod ? (item.methodText || td?.method || null) : null;
                           return (
                             <tr key={i} className="border-b border-dashed">
-                              <td className={['py-1', item.isBold ? 'font-bold' : '', item.isItalic ? 'italic' : ''].join(' ')}>
-                                {td?.name || '\u2014'}
+                              <td className="align-top">
+                                {renderPreviewLabel(td?.name, {
+                                  isBold: item.isBold,
+                                  isItalic: item.isItalic,
+                                  method,
+                                })}
                               </td>
                               <td className="py-1 text-muted-foreground">\u2014</td>
-                              {formShowMethod && <td className="py-1 text-muted-foreground">{item.showMethod ? (item.methodText || '\u2014') : ''}</td>}
                             </tr>
                           );
                         }) : (
-                          <tr><td colSpan={formShowMethod ? 3 : 2} className="text-center py-4 text-muted-foreground">No items</td></tr>
+                          <tr><td colSpan={2} className="text-center py-4 text-muted-foreground">No items</td></tr>
                         )}
                       </tbody>
                     </table>
@@ -1175,12 +1215,11 @@ export default function ManagePanelDefinitions() {
                             <th className="text-left py-1 font-semibold">VALUE</th>
                             <th className="text-left py-1 font-semibold">UNIT</th>
                             <th className="text-left py-1 font-semibold">REFERENCE</th>
-                            {formShowMethod && <th className="text-left py-1 font-semibold">METHOD</th>}
                           </tr>
                         </thead>
                         <tbody>
                           {formItems.length > 0 ? (() => {
-                            const colCount = 4 + (formShowMethod ? 1 : 0);
+                            const colCount = 4;
                             if (formShowSubgroups) {
                               // Group by subGroup
                               const groups: Record<string, typeof formItems> = {};
@@ -1207,18 +1246,20 @@ export default function ManagePanelDefinitions() {
                                   )}
                                   {items.map((item, j) => {
                                     const td = availableDefs.find(d => d.id === item.testDefinitionId);
+                                    const method = item.showMethod ? (item.methodText || td?.method || null) : null;
                                     return (
                                       <tr key={j} className="border-b border-dashed">
-                                        <td
-                                          className={['py-1', item.isBold ? 'font-bold' : '', item.isItalic ? 'italic' : ''].join(' ')}
-                                          style={{ paddingLeft: (item.indentLevel || 0) * 12 }}
-                                        >
-                                          {td?.name || '\u2014'}
+                                        <td className="align-top">
+                                          {renderPreviewLabel(td?.name, {
+                                            isBold: item.isBold,
+                                            isItalic: item.isItalic,
+                                            method,
+                                            paddingLeft: (item.indentLevel || 0) * 12,
+                                          })}
                                         </td>
                                         <td className="py-1 text-muted-foreground">{formValuePrefix}\u2014</td>
                                         <td className="py-1 text-muted-foreground">{td?.referenceUnit || '\u2014'}</td>
                                         <td className="py-1 text-muted-foreground">{td?.referenceText || (td?.referenceMin != null && td?.referenceMax != null ? `${td.referenceMin}\u2013${td.referenceMax}` : '\u2014')}</td>
-                                        {formShowMethod && <td className="py-1 text-muted-foreground">{item.showMethod ? (item.methodText || '\u2014') : ''}</td>}
                                       </tr>
                                     );
                                   })}
@@ -1228,24 +1269,26 @@ export default function ManagePanelDefinitions() {
                             // Flat list
                             return formItems.map((item, i) => {
                               const td = availableDefs.find(d => d.id === item.testDefinitionId);
+                              const method = item.showMethod ? (item.methodText || td?.method || null) : null;
                               return (
                                 <tr key={i} className="border-b border-dashed">
-                                  <td
-                                    className={['py-1', item.isBold ? 'font-bold' : '', item.isItalic ? 'italic' : ''].join(' ')}
-                                    style={{ paddingLeft: (item.indentLevel || 0) * 12 }}
-                                  >
-                                    {td?.name || '\u2014'}
+                                  <td className="align-top">
+                                    {renderPreviewLabel(td?.name, {
+                                      isBold: item.isBold,
+                                      isItalic: item.isItalic,
+                                      method,
+                                      paddingLeft: (item.indentLevel || 0) * 12,
+                                    })}
                                   </td>
                                   <td className="py-1 text-muted-foreground">{formValuePrefix}\u2014</td>
                                   <td className="py-1 text-muted-foreground">{td?.referenceUnit || '\u2014'}</td>
                                   <td className="py-1 text-muted-foreground">{td?.referenceText || (td?.referenceMin != null && td?.referenceMax != null ? `${td.referenceMin}\u2013${td.referenceMax}` : '\u2014')}</td>
-                                  {formShowMethod && <td className="py-1 text-muted-foreground">{item.showMethod ? (item.methodText || '\u2014') : ''}</td>}
                                 </tr>
                               );
                             });
                           })() : (
                             <tr>
-                              <td colSpan={4 + (formShowMethod ? 1 : 0)} className="text-center py-4 text-muted-foreground">
+                              <td colSpan={4} className="text-center py-4 text-muted-foreground">
                                 No items
                               </td>
                             </tr>
@@ -1299,7 +1342,7 @@ export default function ManagePanelDefinitions() {
                 <div><strong>Panel:</strong> {previewData.panel?.displayName || previewData.panel?.name}</div>
                 <div><strong>Layout:</strong> <Badge className={layoutBadge(previewData.panel?.layoutType)}>{previewData.panel?.layoutType?.replace(/_/g, ' ')}</Badge></div>
                 <div><strong>Department:</strong> {previewData.department?.name || '\u2014'}</div>
-                <div><strong>Method Col:</strong> {previewData.panel?.showMethodColumn ? 'Yes' : 'No'}</div>
+                <div><strong>Inline Methods:</strong> {previewData.panel?.showMethodColumn ? 'Enabled' : 'Off'}</div>
               </div>
               <Separator />
               {/* Render mock table matching the layout */}
@@ -1312,7 +1355,6 @@ export default function ManagePanelDefinitions() {
                       <th className="text-left py-1">VALUE</th>
                       <th className="text-left py-1">UNIT</th>
                       <th className="text-left py-1">REFERENCE RANGE</th>
-                      {previewData.panel?.showMethodColumn && <th className="text-left py-1">METHOD</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -1320,19 +1362,24 @@ export default function ManagePanelDefinitions() {
                       <Fragment key={i}>
                         {test.subGroup && (i === 0 || test.subGroup !== previewData.tests[i-1]?.subGroup) && (
                           <tr>
-                            <td colSpan={previewData.panel?.showMethodColumn ? 5 : 4} className="py-1 font-bold bg-gray-50 text-[10px] uppercase tracking-wide">
+                            <td colSpan={4} className="py-1 font-bold bg-gray-50 text-[10px] uppercase tracking-wide">
                               {test.subGroup}
                             </td>
                           </tr>
                         )}
                         <tr className="border-b border-dashed">
-                          <td className={['py-1', test.isBold ? 'font-bold' : '', test.isItalic ? 'italic' : ''].join(' ')} style={{ paddingLeft: (test.indentLevel || 0) * 12 }}>
-                            {test.name}
+                          <td className="align-top">
+                            {renderPreviewLabel(test.name, {
+                              isBold: test.isBold,
+                              isItalic: test.isItalic,
+                              method: test.method,
+                              paddingLeft: (test.indentLevel || 0) * 12,
+                              bodyClassName: 'py-1 text-xs',
+                            })}
                           </td>
                           <td className="py-1 text-muted-foreground">\u2014</td>
                           <td className="py-1 text-muted-foreground">{test.referenceUnit || '\u2014'}</td>
                           <td className="py-1 text-muted-foreground">{test.referenceText || (test.referenceMin != null && test.referenceMax != null ? `${test.referenceMin}\u2013${test.referenceMax}` : '\u2014')}</td>
-                          {previewData.panel?.showMethodColumn && <td className="py-1 text-muted-foreground">{test.method || '\u2014'}</td>}
                         </tr>
                       </Fragment>
                     ))}

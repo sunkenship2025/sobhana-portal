@@ -22,7 +22,7 @@ import type {
   TestOrder,
   ReferralDoctor,
   DiagnosticCenter,
-  BillReceiptData,
+  BillReceiptItem,
 } from '@/types';
 import { Search, UserPlus, CheckCircle2, Printer, MessageCircle, Plus } from 'lucide-react';
 import { BillReceipt } from '@/components/print/BillReceipt';
@@ -505,6 +505,36 @@ const DiagnosticsNewVisit = () => {
 
       const visit = await res.json();
       const referralDoctor = selectedDoctorId ? selectedDoctor : undefined;
+      const apiBillItems: BillReceiptItem[] | undefined = Array.isArray(visit.billItems)
+        ? visit.billItems.map((item: any) => ({
+            id: item.id,
+            name: item.name,
+            price: item.price,
+            referralType: item.referralType ?? item.referralCommissionType,
+            referralPercent: item.referralPercent ?? item.referralCommissionPercent,
+            referralAmountInPaise:
+              item.referralAmountInPaise ?? item.referralCommissionAmountInPaise,
+          }))
+        : undefined;
+      const fallbackBillItems: BillReceiptItem[] = selectedProducts.map((prodId, index) => {
+        const product = products.find((p) => p.id === prodId)!;
+        const payoutDraft =
+          referralOverrides[prodId] ??
+          toReferralPayoutDraft(getEffectiveDoctorPayout(selectedDoctor, prodId));
+        const payoutPayload = selectedDoctorId ? toReferralPayoutPayload(payoutDraft) : undefined;
+
+        return {
+          id: product.id || `${visit.id}-bill-item-${index}`,
+          name: product.name,
+          price: product.effectivePrice,
+          referralType: payoutPayload?.commissionType,
+          referralPercent: payoutPayload?.commissionPercent,
+          referralAmountInPaise:
+            payoutPayload?.commissionType === 'FIXED_AMOUNT'
+              ? Math.round((payoutPayload.commissionAmount ?? 0) * 100)
+              : undefined,
+        };
+      });
 
       // Calculate total amount in paise from selected products
       const totalAmountInPaise = Math.round(selectedProducts.reduce((sum, prodId) => {
@@ -553,6 +583,7 @@ const DiagnosticsNewVisit = () => {
         },
         patient,
         testOrders,
+        billItems: apiBillItems ?? fallbackBillItems,
         referralDoctor,
         results: [],
       };
@@ -678,7 +709,7 @@ const DiagnosticsNewVisit = () => {
             paymentType: successData.visitView.visit.paymentType,
             paymentStatus: successData.visitView.visit.paymentStatus,
             totalAmount: successData.visitView.visit.totalAmountInPaise / 100,
-            items: successData.visitView.testOrders.map((order) => ({
+            items: successData.visitView.billItems ?? successData.visitView.testOrders.map((order) => ({
               id: order.id,
               name: order.testName,
               price: order.priceInPaise / 100,

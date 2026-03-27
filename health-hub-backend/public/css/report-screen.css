@@ -303,6 +303,18 @@ body.report-body {
 
 .results-table td.col-unit { color: #777; }
 .results-table td.col-ref { color: #6b7280; font-size: 8.5pt; }
+.results-table td.col-test,
+.results-table td.col-param { vertical-align: top; }
+
+.test-name.is-bold { font-weight: bold; }
+.test-name.is-italic { font-style: italic; }
+.test-method {
+  font-size: 7.25pt;
+  font-style: italic;
+  color: #555;
+  line-height: 1.2;
+  padding-top: 1px;
+}
 
 /* Indent for sub-tests (e.g. diff count under CBP) */
 .results-table tr.indent-1 .col-test { padding-left: 24px; }
