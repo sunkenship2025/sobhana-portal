@@ -49,6 +49,7 @@ export interface TestResultSnapshot {
   criticalMin: number | null;
   criticalMax: number | null;
   sampleType: string | null;
+  showMethod?: boolean;
   methodText: string | null;
   displayOrder: number;
   indentLevel: number;
@@ -712,7 +713,10 @@ function buildPanelsAndDepartments(
           criticalMin: resolvedRanges.get(test.id)?.criticalMin ?? testDef.criticalMin ?? null,
           criticalMax: resolvedRanges.get(test.id)?.criticalMax ?? testDef.criticalMax ?? null,
           sampleType: panel.sampleType ?? testDef.sampleType ?? test.sampleType ?? null,
-          methodText: panelItem.methodText ?? testDef.method ?? null,
+          showMethod: panelItem.showMethod ?? false,
+          methodText: panelItem.showMethod
+            ? (panelItem.methodText ?? testDef.method ?? null)
+            : null,
           displayOrder: panelItem.displayOrder,
           indentLevel: panelItem.indentLevel,
           isBold: panelItem.isBold,
@@ -752,7 +756,10 @@ function buildPanelsAndDepartments(
           criticalMin: resolvedRanges.get(test.id)?.criticalMin ?? null,
           criticalMax: resolvedRanges.get(test.id)?.criticalMax ?? null,
           sampleType: test.sampleType ?? null,
-          methodText: panelItem.methodText ?? testDef?.method ?? test.method ?? null,
+          showMethod: panelItem.showMethod ?? false,
+          methodText: panelItem.showMethod
+            ? (panelItem.methodText ?? testDef?.method ?? test.method ?? null)
+            : null,
           displayOrder: panelItem.displayOrder,
           indentLevel: panelItem.indentLevel,
           isBold: panelItem.isBold ?? false,
@@ -801,7 +808,8 @@ function buildPanelsAndDepartments(
         criticalMin: resolvedRanges.get(test.id)?.criticalMin ?? null,
         criticalMax: resolvedRanges.get(test.id)?.criticalMax ?? null,
         sampleType: test.sampleType ?? null,
-        methodText: test.method ?? null,
+        showMethod: false,
+        methodText: null,
         displayOrder: test.displayOrder ?? 0,
         indentLevel: 0,
         isBold: false,
