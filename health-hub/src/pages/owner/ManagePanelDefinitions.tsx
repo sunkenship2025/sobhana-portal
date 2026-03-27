@@ -114,11 +114,11 @@ function renderPreviewLabel(
 
   return (
     <div className={bodyClassName} style={{ paddingLeft }}>
-      <div className={[isBold ? 'font-bold' : '', isItalic ? 'italic' : ''].filter(Boolean).join(' ')}>
+      <div className={[isBold ? 'font-bold' : ''].filter(Boolean).join(' ')}>
         {name || '\u2014'}
       </div>
       {method && (
-        <div className={`${methodClassName} italic text-muted-foreground leading-tight`}>
+        <div className={[methodClassName, 'text-muted-foreground leading-tight', isItalic ? 'italic' : ''].filter(Boolean).join(' ')}>
           (Method : {method})
         </div>
       )}
