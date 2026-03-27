@@ -237,9 +237,7 @@ export default function ManageClinicalDefinitions() {
   // Form fields
   const [formName, setFormName] = useState('');
   const [formCode, setFormCode] = useState('');
-  const [formMethod, setFormMethod] = useState('');
   const [formUnit, setFormUnit] = useState('');
-  const [formDepartmentId, setFormDepartmentId] = useState('');
   const [formRefMin, setFormRefMin] = useState('');
   const [formRefMax, setFormRefMax] = useState('');
   const [formRefText, setFormRefText] = useState('');
@@ -321,8 +319,8 @@ export default function ManageClinicalDefinitions() {
   // ─── Form reset ─────────────────────────────────────────────────────────
 
   const resetForm = () => {
-    setFormName(''); setFormCode(''); setFormMethod('');
-    setFormUnit(''); setFormDepartmentId(''); setFormRefMin(''); setFormRefMax('');
+    setFormName(''); setFormCode('');
+    setFormUnit(''); setFormRefMin(''); setFormRefMax('');
     setFormRefText(''); setFormFormula(''); setFormDependsOn('');
     setFormInterpMode('NONE');
     setFormRanges([]); setFormRules([]);
@@ -336,9 +334,7 @@ export default function ManageClinicalDefinitions() {
   const populateForm = (def: TestDefinition) => {
     setFormName(def.name);
     setFormCode(def.code);
-    setFormMethod(def.method || '');
     setFormUnit(def.referenceUnit || '');
-    setFormDepartmentId(def.departmentId || '');
     setFormRefMin(def.referenceMin?.toString() || '');
     setFormRefMax(def.referenceMax?.toString() || '');
     setFormRefText(def.referenceText || '');
@@ -408,9 +404,7 @@ export default function ManageClinicalDefinitions() {
         name: formName.trim(),
         code: formCode.trim(),
         sampleType: formSampleType || null,
-        method: formMethod || null,
         referenceUnit: formUnit || null,
-        departmentId: formDepartmentId || null,
         referenceMin: formRefMin ? parseFloat(formRefMin) : null,
         referenceMax: formRefMax ? parseFloat(formRefMax) : null,
         criticalMin: formShowCritical && formGeneralCriticalMin ? parseFloat(formGeneralCriticalMin) : null,
@@ -902,21 +896,6 @@ export default function ManageClinicalDefinitions() {
                   <div className="space-y-1.5">
                     <Label>Test Name *</Label>
                     <Input value={formName} onChange={e => setFormName(e.target.value)} placeholder="e.g., Haemoglobin" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Department</Label>
-                    <Select value={formDepartmentId || '__none__'} onValueChange={v => setFormDepartmentId(v === '__none__' ? '' : v)}>
-                      <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">None</SelectItem>
-                        {departments.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">Optional — department can also be set at the panel level</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Method</Label>
-                    <Input value={formMethod} onChange={e => setFormMethod(e.target.value)} placeholder="e.g., ECLIA, GOD-POD" />
                   </div>
                 </div>
               </AccordionContent>
