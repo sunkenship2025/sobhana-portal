@@ -121,6 +121,7 @@ body.report-body {
   border-bottom: 0.5pt solid var(--color-border);
   padding-bottom: var(--spacing-xs);
   margin-bottom: var(--spacing-sm);
+  text-align: center;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
