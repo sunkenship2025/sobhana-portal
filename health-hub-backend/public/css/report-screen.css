@@ -216,6 +216,7 @@ body.report-body {
   border-bottom: 1.5px solid var(--color-primary);
   padding-bottom: 3px;
   margin-bottom: 8px;
+  text-align: center;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
