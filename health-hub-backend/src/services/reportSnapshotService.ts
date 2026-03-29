@@ -63,6 +63,8 @@ export interface PanelSnapshot {
   panelName: string;
   displayName: string;
   layoutType: string;
+  panelMethodText?: string | null;
+  panelMethodItalic?: boolean;
   sampleType: string | null;
   displayOrder: number;
   departmentId: string;
@@ -785,6 +787,8 @@ function buildPanelsAndDepartments(
             name: dept?.name || 'General',
             displayName: dept?.name || 'General',
             layoutType: 'STANDARD_TABLE',
+            panelMethodText: null,
+            panelMethodItalic: false,
             displayOrder: 9999,
             department: dept || { id: '__general__', name: 'General', reportHeaderText: '', displayOrder: 9999 },
           },
@@ -858,6 +862,8 @@ function buildPanelsAndDepartments(
       panelName: panel.name,
       displayName: panel.displayName,
       layoutType: panel.layoutType,
+      panelMethodText: panel.panelMethodText ?? null,
+      panelMethodItalic: panel.panelMethodItalic ?? false,
       sampleType: panel.sampleType ?? null,
       displayOrder: panel.displayOrder,
       departmentId: deptId,
