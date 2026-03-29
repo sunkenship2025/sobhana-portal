@@ -216,9 +216,16 @@ body.report-body {
   border-bottom: 1.5px solid var(--color-primary);
   padding-bottom: 3px;
   margin-bottom: 8px;
-  text-align: center;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  text-align: center !important;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.department-header-text {
+  display: inline-block;
 }
 
 /* ============================================================================
@@ -237,6 +244,17 @@ body.report-body {
   padding: 3px 8px;
   background: var(--color-section-bg);
   border-left: 3px solid var(--color-primary);
+}
+
+.panel-method {
+  margin: -1px 0 6px 8px;
+  font-size: 8pt;
+  color: var(--color-text-light);
+  line-height: 1.3;
+}
+
+.panel-method.is-italic {
+  font-style: italic;
 }
 
 /* ============================================================================

@@ -89,6 +89,29 @@ export async function resolveProducts(
     );
   }
 
+  const invalidPanels: string[] = [];
+  for (const product of products) {
+    for (const productPanel of product.panels) {
+      const panel = productPanel.panel;
+      const itemCount = panel.items.length;
+      const message = validatePanelItemCount(panel.layoutType, itemCount);
+
+      if (message) {
+        invalidPanels.push(
+          `Product "${product.name}" -> panel "${panel.displayName || panel.name}": ${message}`
+        );
+      }
+    }
+  }
+
+  if (invalidPanels.length > 0) {
+    throw new ProductResolutionError(
+      'One or more linked panels are misconfigured. Please fix the panel items before ordering this product.',
+      'INVALID_PANEL_CONFIGURATION',
+      invalidPanels,
+    );
+  }
+
   // Collect all unique TestDefinition codes across all panels to batch-fetch LabTests
   const allCodes = new Set<string>();
   for (const product of products) {
@@ -238,6 +261,20 @@ export async function resolveProducts(
   }
 
   return resolved;
+}
+
+function validatePanelItemCount(layoutType: string, itemCount: number): string | null {
+  switch (layoutType) {
+    case 'TEXT_ONLY':
+      return itemCount === 1 ? null : 'TEXT_ONLY layout requires exactly 1 backing test item';
+    case 'IMAGING_NARRATIVE':
+      return itemCount === 1 ? null : 'IMAGING_NARRATIVE layout requires exactly 1 backing test item';
+    case 'STANDARD_TABLE':
+    case 'PROCEDURE_STRUCTURED':
+      return itemCount > 0 ? null : `${layoutType} layout requires at least 1 test item`;
+    default:
+      return itemCount > 0 ? null : `${layoutType} layout requires at least 1 test item`;
+  }
 }
 
 // ─── Error class ────────────────────────────────────────────────────────────

@@ -606,11 +606,22 @@ router.get('/:id', async (req: AuthRequest, res) => {
             const panel = to.testDefinition?.panelItems?.[0]?.panel
               || to.test.panelItems?.[0]?.panel
               || null;
+            const panelMethodText =
+              panel && 'panelMethodText' in panel
+                ? panel.panelMethodText ?? null
+                : null;
+            const panelMethodItalic =
+              panel && 'panelMethodItalic' in panel
+                ? panel.panelMethodItalic ?? false
+                : false;
             return panel
               ? {
                   id: panel.id,
                   name: panel.name,
                   displayName: panel.displayName,
+                  layoutType: panel.layoutType,
+                  panelMethodText,
+                  panelMethodItalic,
                 }
               : null;
           })(),
@@ -937,6 +948,13 @@ router.post('/', async (req: AuthRequest, res) => {
           diagnosticCenterCommissionPercentage: diagnosticCenterSnapshot.commissionPercentage,
           diagnosticCenterCommissionAmountInPaise: diagnosticCenterSnapshot.commissionAmountInPaise,
         };
+      });
+    }
+
+    if (testOrderData.length === 0) {
+      return res.status(400).json({
+        error: 'INVALID_PANEL_CONFIGURATION',
+        message: 'The selected product does not contain any reportable test items. Please fix the linked panel configuration.',
       });
     }
 

@@ -38,6 +38,36 @@ function transformPanel(panel: any) {
   };
 }
 
+function validateLayoutConstraints(layoutType: string, items: any[]): string | null {
+  const itemCount = items.length;
+
+  switch (layoutType) {
+    case 'TEXT_ONLY':
+      if (itemCount !== 1) {
+        return 'TEXT_ONLY layout requires exactly 1 test item';
+      }
+      break;
+    case 'IMAGING_NARRATIVE':
+      if (itemCount !== 1) {
+        return 'IMAGING_NARRATIVE layout requires exactly 1 test item';
+      }
+      break;
+    case 'STANDARD_TABLE':
+    case 'PROCEDURE_STRUCTURED':
+      if (itemCount < 1) {
+        return `${layoutType} layout requires at least 1 test item`;
+      }
+      break;
+    default:
+      if (itemCount < 1) {
+        return `${layoutType} layout requires at least 1 test item`;
+      }
+      break;
+  }
+
+  return null;
+}
+
 // ─── GET /check-code — Real-time code uniqueness check ───────────────
 router.get('/check-code', async (req: AuthRequest, res) => {
   try {
@@ -155,7 +185,8 @@ router.post('/', async (req: AuthRequest, res) => {
     const {
       name, displayName, departmentId, layoutType, sampleType,
       displayOrder, showMethodColumn, showSubgroups, showInterpretation, valueDisplayPrefix,
-      summaryInterpretationTemplate, subgroupMethods, subgroupTableOverrides, items,
+      summaryInterpretationTemplate, subgroupMethods, subgroupTableOverrides,
+      panelMethodText, panelMethodItalic, items,
     } = req.body;
 
     if (!name || !displayName || !departmentId || !layoutType) {
@@ -220,6 +251,8 @@ router.post('/', async (req: AuthRequest, res) => {
         summaryInterpretationTemplate: summaryInterpretationTemplate ?? null,
         subgroupMethods: subgroupMethods ?? null,
         subgroupTableOverrides: subgroupTableOverrides ?? null,
+        panelMethodText: panelMethodText ?? null,
+        panelMethodItalic: panelMethodItalic ?? false,
         items: items?.length ? {
           create: items.map((item: any, idx: number) => ({
             testDefinitionId: item.testDefinitionId,
@@ -262,20 +295,28 @@ router.put('/:id', async (req: AuthRequest, res) => {
     const {
       name, displayName, departmentId, layoutType, sampleType,
       displayOrder, showMethodColumn, showSubgroups, showInterpretation, valueDisplayPrefix,
-      summaryInterpretationTemplate, subgroupMethods, subgroupTableOverrides, items,
+      summaryInterpretationTemplate, subgroupMethods, subgroupTableOverrides,
+      panelMethodText, panelMethodItalic, items,
     } = req.body;
 
-    const existing = await prisma.clinicalPanel.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.clinicalPanel.findUnique({
+      where: { id: req.params.id },
+      include: {
+        items: {
+          select: { id: true },
+        },
+      },
+    });
     if (!existing) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Panel not found' });
     }
 
     // Validate layout constraints
-    if (layoutType && items) {
-      const layoutError = validateLayoutConstraints(layoutType, items);
-      if (layoutError) {
-        return res.status(400).json({ error: 'VALIDATION_ERROR', message: layoutError });
-      }
+    const nextLayoutType = layoutType ?? existing.layoutType;
+    const nextItems = items ?? existing.items;
+    const layoutError = validateLayoutConstraints(nextLayoutType, nextItems);
+    if (layoutError) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: layoutError });
     }
 
     const panel = await prisma.$transaction(async (tx) => {
@@ -302,6 +343,8 @@ router.put('/:id', async (req: AuthRequest, res) => {
             : existing.summaryInterpretationTemplate,
           subgroupMethods: subgroupMethods !== undefined ? subgroupMethods : existing.subgroupMethods,
           subgroupTableOverrides: subgroupTableOverrides !== undefined ? subgroupTableOverrides : existing.subgroupTableOverrides,
+          panelMethodText: panelMethodText !== undefined ? panelMethodText : existing.panelMethodText,
+          panelMethodItalic: panelMethodItalic !== undefined ? panelMethodItalic : existing.panelMethodItalic,
           items: items ? {
             create: items.map((item: any, idx: number) => ({
               testDefinitionId: item.testDefinitionId,
@@ -429,6 +472,8 @@ router.post('/:id/preview', async (req: AuthRequest, res) => {
         layoutType: panel.layoutType,
         showMethodColumn: panel.showMethodColumn,
         summaryInterpretationTemplate: panel.summaryInterpretationTemplate,
+        panelMethodText: panel.panelMethodText,
+        panelMethodItalic: panel.panelMethodItalic,
       },
       department: panel.department,
       tests: panel.items.map(item => ({
@@ -459,30 +504,5 @@ router.post('/:id/preview', async (req: AuthRequest, res) => {
     return res.status(500).json({ error: 'PREVIEW_FAILED', message: error.message });
   }
 });
-
-// ─── Layout type constraint validation ───────────────────────────────
-function validateLayoutConstraints(layoutType: string, items: any[]): string | null {
-  switch (layoutType) {
-    case 'STANDARD_TABLE':
-      // Standard table — no special constraints, just needs items
-      break;
-    case 'TEXT_ONLY':
-      // Text only — should have at most 1 item
-      if (items.length > 1) {
-        return 'TEXT_ONLY layout should have at most 1 test item';
-      }
-      break;
-    case 'IMAGING_NARRATIVE':
-      // Narrative/free-text imaging results — at most 1 item
-      if (items.length > 1) {
-        return 'IMAGING_NARRATIVE layout should have at most 1 test item';
-      }
-      break;
-    case 'PROCEDURE_STRUCTURED':
-      // Structured procedure results — no hard constraint
-      break;
-  }
-  return null;
-}
 
 export default router;
