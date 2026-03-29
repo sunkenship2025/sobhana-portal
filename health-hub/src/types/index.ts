@@ -224,6 +224,8 @@ export interface ClinicalPanel {
   layoutType: string;
   departmentId: string | null;
   isActive: boolean;
+  panelMethodText: string | null;
+  panelMethodItalic: boolean;
   summaryInterpretationTemplate: string | null;
   createdAt: string;
   updatedAt: string;

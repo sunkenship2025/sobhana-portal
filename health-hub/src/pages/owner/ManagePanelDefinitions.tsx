@@ -66,6 +66,8 @@ interface ClinicalPanel {
   showSubgroups: boolean;
   showInterpretation: boolean;
   valueDisplayPrefix: string | null;
+  panelMethodText: string | null;
+  panelMethodItalic: boolean;
   summaryInterpretationTemplate: string | null;
   subgroupMethods: Record<string, string> | null;
   subgroupTableOverrides: Record<string, boolean> | null;
@@ -91,6 +93,21 @@ function layoutBadge(layoutType: string) {
 const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
 
 const SAMPLE_TYPES = ['WB-EDTA', 'Serum', 'Plasma', 'Urine', 'CSF', 'Synovial Fluid', 'Other'];
+
+function getLayoutItemConstraintMessage(layoutType: string, itemCount: number): string | null {
+  switch (layoutType) {
+    case 'TEXT_ONLY':
+      return itemCount === 1 ? null : 'Text Only panels require exactly 1 backing test item';
+    case 'IMAGING_NARRATIVE':
+      return itemCount === 1 ? null : 'Imaging Narrative panels require exactly 1 backing test item';
+    case 'STANDARD_TABLE':
+      return itemCount > 0 ? null : 'Standard Table panels require at least 1 test item';
+    case 'PROCEDURE_STRUCTURED':
+      return itemCount > 0 ? null : 'Procedure Structured panels require at least 1 test item';
+    default:
+      return itemCount > 0 ? null : `${layoutType.replace(/_/g, ' ')} panels require at least 1 test item`;
+  }
+}
 
 function renderPreviewLabel(
   name: string | null | undefined,
@@ -122,6 +139,16 @@ function renderPreviewLabel(
           (Method : {method})
         </div>
       )}
+    </div>
+  );
+}
+
+function renderPanelMethodPreview(methodText: string | null | undefined, italic: boolean, className = 'mt-1 text-[10px] text-muted-foreground') {
+  if (!methodText) return null;
+
+  return (
+    <div className={[className, italic ? 'italic' : ''].filter(Boolean).join(' ')}>
+      (Method : {methodText})
     </div>
   );
 }
@@ -167,6 +194,8 @@ export default function ManagePanelDefinitions() {
   const [formShowSubgroups, setFormShowSubgroups] = useState(false);
   const [formShowInterpretation, setFormShowInterpretation] = useState(false);
   const [formValuePrefix, setFormValuePrefix] = useState('');
+  const [formPanelMethodText, setFormPanelMethodText] = useState('');
+  const [formPanelMethodItalic, setFormPanelMethodItalic] = useState(false);
 
   // Drag-and-drop
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -298,6 +327,7 @@ export default function ManagePanelDefinitions() {
     setFormSampleType(''); setFormActive(true); setFormTemplate(''); setFormItems([]);
     setFormShowMethod(false); setFormShowSubgroups(false);
     setFormShowInterpretation(false); setFormValuePrefix('');
+    setFormPanelMethodText(''); setFormPanelMethodItalic(false);
     setFormSubgroups([]); setNewSubgroupInput('');
     setFormSubgroupMethods({}); setFormShowSubgroupMethods(false); setNewSubgroupMethodInput('');
     setFormSubgroupTableOverrides({});
@@ -318,6 +348,8 @@ export default function ManagePanelDefinitions() {
     setFormShowSubgroups(p.showSubgroups ?? false);
     setFormShowInterpretation(p.showInterpretation ?? false);
     setFormValuePrefix(p.valueDisplayPrefix || '');
+    setFormPanelMethodText(p.panelMethodText || '');
+    setFormPanelMethodItalic(p.panelMethodItalic ?? false);
     const items = (p.items || []).map(item => ({
       testDefinitionId: item.testDefinitionId,
       displayOrder: item.displayOrder,
@@ -465,6 +497,7 @@ export default function ManagePanelDefinitions() {
   const supportsSubgroups = formLayout === 'STANDARD_TABLE';
   const supportsMethodColumn = formLayout === 'STANDARD_TABLE' || formLayout === 'PROCEDURE_STRUCTURED';
   const supportsValuePrefix = formLayout === 'STANDARD_TABLE';
+  const layoutItemConstraintMessage = getLayoutItemConstraintMessage(formLayout, formItems.length);
 
   const handleLayoutChange = (newLayout: string) => {
     setFormLayout(newLayout);
@@ -505,6 +538,11 @@ export default function ManagePanelDefinitions() {
       return;
     }
 
+    if (layoutItemConstraintMessage) {
+      toast.error(layoutItemConstraintMessage);
+      return;
+    }
+
     setSaving(true);
     try {
       if (!formDeptId) {
@@ -524,6 +562,8 @@ export default function ManagePanelDefinitions() {
         showSubgroups: formShowSubgroups,
         showInterpretation: formShowInterpretation,
         valueDisplayPrefix: formValuePrefix || null,
+        panelMethodText: formPanelMethodText.trim() || null,
+        panelMethodItalic: formPanelMethodItalic,
         summaryInterpretationTemplate: formTemplate || null,
         subgroupMethods: (() => {
           // Filter out empty method strings
@@ -830,6 +870,25 @@ export default function ManagePanelDefinitions() {
                 </p>
 
                 <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                  <div className="col-span-2 space-y-2 rounded-md border bg-background/80 p-3">
+                    <div className="space-y-1">
+                      <Label className="text-sm">Panel Method</Label>
+                      <Input
+                        value={formPanelMethodText}
+                        onChange={e => setFormPanelMethodText(e.target.value)}
+                        placeholder="Optional method shown below the panel title"
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={formPanelMethodItalic}
+                        onCheckedChange={setFormPanelMethodItalic}
+                        disabled={!formPanelMethodText.trim()}
+                      />
+                      <Label className="text-sm">Italicize Panel Method</Label>
+                    </div>
+                  </div>
                   {supportsMethodColumn && (
                     <>
                       <div className="flex items-center gap-2">
@@ -995,9 +1054,17 @@ export default function ManagePanelDefinitions() {
                   </Button>
                 </div>
 
+                {layoutItemConstraintMessage && (
+                  <p className="mb-2 text-xs text-amber-600">
+                    {layoutItemConstraintMessage}
+                  </p>
+                )}
+
                 {formItems.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded">
-                    Add clinical tests to this panel.
+                    {(formLayout === 'TEXT_ONLY' || formLayout === 'IMAGING_NARRATIVE')
+                      ? 'Add exactly one backing clinical test item to store this panel result.'
+                      : 'Add clinical tests to this panel.'}
                   </p>
                 ) : (
                   <div className="space-y-1">
@@ -1158,6 +1225,7 @@ export default function ManagePanelDefinitions() {
                   {/* Panel header */}
                   <div className="font-bold text-sm border-b pb-1 mb-2">
                     {formName || 'Panel Name'}
+                    {renderPanelMethodPreview(formPanelMethodText, formPanelMethodItalic)}
                   </div>
 
                   {/* Layout-specific preview */}
@@ -1173,7 +1241,7 @@ export default function ManagePanelDefinitions() {
                           </div>
                         </div>
                       ) : (
-                        <p className="text-muted-foreground text-center py-4">Add a test item</p>
+                        <p className="text-muted-foreground text-center py-4">Add exactly one backing test item</p>
                       )}
                     </div>
                   ) : formLayout === 'PROCEDURE_STRUCTURED' ? (
@@ -1343,31 +1411,44 @@ export default function ManagePanelDefinitions() {
                 <div><strong>Layout:</strong> <Badge className={layoutBadge(previewData.panel?.layoutType)}>{previewData.panel?.layoutType?.replace(/_/g, ' ')}</Badge></div>
                 <div><strong>Department:</strong> {previewData.department?.name || '\u2014'}</div>
                 <div><strong>Inline Methods:</strong> {previewData.panel?.showMethodColumn ? 'Enabled' : 'Off'}</div>
+                <div className="col-span-2">
+                  <strong>Panel Method:</strong> {previewData.panel?.panelMethodText || '\u2014'}
+                  {previewData.panel?.panelMethodText && previewData.panel?.panelMethodItalic ? ' (italic)' : ''}
+                </div>
               </div>
               <Separator />
               {/* Render mock table matching the layout */}
               <div className="border rounded p-3 bg-white">
-                <div className="font-bold text-sm border-b pb-1 mb-2">{previewData.panel?.displayName || previewData.panel?.name}</div>
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-1">TEST</th>
-                      <th className="text-left py-1">VALUE</th>
-                      <th className="text-left py-1">UNIT</th>
-                      <th className="text-left py-1">REFERENCE RANGE</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {previewData.tests?.map((test: any, i: number) => (
-                      <Fragment key={i}>
-                        {test.subGroup && (i === 0 || test.subGroup !== previewData.tests[i-1]?.subGroup) && (
-                          <tr>
-                            <td colSpan={4} className="py-1 font-bold bg-gray-50 text-[10px] uppercase tracking-wide">
-                              {test.subGroup}
-                            </td>
-                          </tr>
-                        )}
-                        <tr className="border-b border-dashed">
+                <div className="font-bold text-sm border-b pb-1 mb-2">
+                  {previewData.panel?.displayName || previewData.panel?.name}
+                  {renderPanelMethodPreview(previewData.panel?.panelMethodText, !!previewData.panel?.panelMethodItalic)}
+                </div>
+                {(previewData.panel?.layoutType === 'TEXT_ONLY' || previewData.panel?.layoutType === 'IMAGING_NARRATIVE') ? (
+                  <div className="space-y-2 text-xs">
+                    {previewData.tests?.length ? (
+                      <>
+                        <div className="font-medium">{previewData.tests[0]?.name || 'Test Name'}</div>
+                        <div className="min-h-[56px] rounded border border-dashed p-2 text-muted-foreground italic">
+                          {previewData.panel?.layoutType === 'IMAGING_NARRATIVE'
+                            ? 'Narrative text will appear here...'
+                            : 'Free text result...'}
+                        </div>
+                      </>
+                    ) : (
+                      <p className="py-4 text-center text-muted-foreground">No backing test item configured</p>
+                    )}
+                  </div>
+                ) : previewData.panel?.layoutType === 'PROCEDURE_STRUCTURED' ? (
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-1">PARAMETER</th>
+                        <th className="text-left py-1">RESULT</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewData.tests?.map((test: any, i: number) => (
+                        <tr key={i} className="border-b border-dashed">
                           <td className="align-top">
                             {renderPreviewLabel(test.name, {
                               isBold: test.isBold,
@@ -1378,13 +1459,49 @@ export default function ManagePanelDefinitions() {
                             })}
                           </td>
                           <td className="py-1 text-muted-foreground">\u2014</td>
-                          <td className="py-1 text-muted-foreground">{test.referenceUnit || '\u2014'}</td>
-                          <td className="py-1 text-muted-foreground">{test.referenceText || (test.referenceMin != null && test.referenceMax != null ? `${test.referenceMin}\u2013${test.referenceMax}` : '\u2014')}</td>
                         </tr>
-                      </Fragment>
-                    ))}
-                  </tbody>
-                </table>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-1">TEST</th>
+                        <th className="text-left py-1">VALUE</th>
+                        <th className="text-left py-1">UNIT</th>
+                        <th className="text-left py-1">REFERENCE RANGE</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewData.tests?.map((test: any, i: number) => (
+                        <Fragment key={i}>
+                          {test.subGroup && (i === 0 || test.subGroup !== previewData.tests[i - 1]?.subGroup) && (
+                            <tr>
+                              <td colSpan={4} className="py-1 font-bold bg-gray-50 text-[10px] uppercase tracking-wide">
+                                {test.subGroup}
+                              </td>
+                            </tr>
+                          )}
+                          <tr className="border-b border-dashed">
+                            <td className="align-top">
+                              {renderPreviewLabel(test.name, {
+                                isBold: test.isBold,
+                                isItalic: test.isItalic,
+                                method: test.method,
+                                paddingLeft: (test.indentLevel || 0) * 12,
+                                bodyClassName: 'py-1 text-xs',
+                              })}
+                            </td>
+                            <td className="py-1 text-muted-foreground">\u2014</td>
+                            <td className="py-1 text-muted-foreground">{test.referenceUnit || '\u2014'}</td>
+                            <td className="py-1 text-muted-foreground">{test.referenceText || (test.referenceMin != null && test.referenceMax != null ? `${test.referenceMin}\u2013${test.referenceMax}` : '\u2014')}</td>
+                          </tr>
+                        </Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
               {previewData.panel?.summaryInterpretationTemplate && (
                 <div>

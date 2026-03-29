@@ -1193,6 +1193,8 @@ model ClinicalPanel {
   displayOrder     Int             @default(0)
   showMethodColumn Boolean         @default(false)
   sampleType       String? // e.g., "WB-EDTA", "Serum", "Urine"
+  panelMethodText  String?
+  panelMethodItalic Boolean        @default(false)
 
   // Config flags for STANDARD_TABLE rendering variants
   showSubgroups      Boolean @default(false) // true = render subGroup sections (e.g., CBP: MAIN/DIFFERENTIAL/SMEAR)

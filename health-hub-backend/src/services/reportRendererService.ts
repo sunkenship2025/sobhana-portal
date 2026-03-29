@@ -40,6 +40,15 @@ try {
   console.error('Failed to load logo for inlining:', err);
 }
 
+function readReportCss(filename: 'report-screen.css' | 'report-print.css', fallback: string): string {
+  try {
+    return fs.readFileSync(path.join(CSS_DIR, filename), 'utf-8');
+  } catch (err) {
+    console.error(`Failed to load ${filename}:`, err);
+    return fallback;
+  }
+}
+
 function inlineSignatureImage(signatureImagePath: string | null): string {
   if (!signatureImagePath) return '';
   try {
@@ -84,6 +93,11 @@ function formatReference(min: number | null, max: number | null, text?: string |
   }
   if (text) return escapeHtml(text).replace(/\n/g, '<br>');
   return '';
+}
+
+function formatTextBlock(text: string | null | undefined): string {
+  if (!text) return '';
+  return escapeHtml(text).replace(/\n/g, '<br>');
 }
 
 /** Compute flag: H, L, or empty string */
@@ -379,11 +393,12 @@ function renderInterpretationSingle(panel: PanelSnapshot): string {
 function renderTextOnly(panel: PanelSnapshot): string {
   const test = panel.tests[0];
   if (!test) return '';
+  const displayValue = test.textValue ?? test.notes ?? (test.value !== null ? formatNumericValue(test.value) : '');
 
   return `
     <div class="text-only-result">
       <strong>${escapeHtml(test.testName)}:</strong>
-      <span class="result-text">${escapeHtml(test.textValue ?? test.notes ?? '') || formatNumericValue(test.value)}</span>
+      <span class="result-text">${formatTextBlock(displayValue)}</span>
     </div>`;
 }
 
@@ -393,7 +408,7 @@ function renderImagingNarrative(panel: PanelSnapshot): string {
     return `
       <div class="imaging-section">
         <h4 class="imaging-title">${escapeHtml(test.testName)}</h4>
-        <div class="imaging-narrative">${escapeHtml(content)}</div>
+        <div class="imaging-narrative">${formatTextBlock(content)}</div>
       </div>`;
   }).join('');
 
@@ -441,6 +456,9 @@ function renderProcedureStructured(panel: PanelSnapshot): string {
 
 function renderPanel(panel: PanelSnapshot): string {
   let content = '';
+  const panelMethodHtml = panel.panelMethodText
+    ? `<div class="panel-method${panel.panelMethodItalic ? ' is-italic' : ''}">(Method : ${escapeHtml(panel.panelMethodText)})</div>`
+    : '';
 
   switch (panel.layoutType) {
     case 'STANDARD_TABLE':
@@ -471,6 +489,7 @@ function renderPanel(panel: PanelSnapshot): string {
   return `
     <div class="panel" data-panel="${escapeHtml(panel.panelName)}">
       <div class="panel-title">${escapeHtml(panel.displayName)}</div>
+      ${panelMethodHtml}
       ${content}
     </div>`;
 }
@@ -507,6 +526,9 @@ interface ReportPageModel {
 }
 
 function resolveProfile(profile: RenderProfile): ResolvedProfile {
+  SCREEN_CSS = readReportCss('report-screen.css', SCREEN_CSS);
+  PRINT_CSS = readReportCss('report-print.css', PRINT_CSS);
+
   switch (profile) {
     case 'screen':
       return {
@@ -774,7 +796,9 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
 
     return `
       <section class="department" data-department="${escapeHtml(department.departmentName)}">
-        <div class="department-header">${escapeHtml(department.departmentHeaderText || department.departmentName)}</div>
+        <div class="department-header">
+          <span class="department-header-text">${escapeHtml(department.departmentHeaderText || department.departmentName)}</span>
+        </div>
         ${panelHtml}
       </section>`;
   };

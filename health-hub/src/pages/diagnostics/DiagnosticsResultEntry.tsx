@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
 import { FlagBadge } from '@/components/ui/flag-badge';
@@ -68,6 +69,9 @@ interface TestOrder {
     id: string;
     name: string;
     displayName: string;
+    layoutType: string;
+    panelMethodText?: string | null;
+    panelMethodItalic?: boolean;
   } | null;
 }
 
@@ -99,6 +103,10 @@ interface Visit {
 }
 
 const DERIVED_MANUAL_OVERRIDE_NOTE = '__DERIVED_MANUAL_OVERRIDE__';
+const TEXT_LAYOUT_ROWS: Record<string, number> = {
+  TEXT_ONLY: 4,
+  IMAGING_NARRATIVE: 8,
+};
 
 function isManualDerivedOverride(
   testResult?: {
@@ -140,6 +148,24 @@ const DiagnosticsResultEntry = () => {
   const [showWarning, setShowWarning] = useState(false);
   const [extremeValues, setExtremeValues] = useState<string[]>([]);
   const [expandedPanels, setExpandedPanels] = useState<Record<string, boolean>>({});
+
+  const textLayoutByTestId = useMemo(() => {
+    const map = new Map<string, string>();
+    if (!visit) return map;
+
+    visit.testOrders.forEach((order) => {
+      const layoutType = order.panel?.layoutType;
+      if (layoutType === 'TEXT_ONLY' || layoutType === 'IMAGING_NARRATIVE') {
+        if (order.isPanel && order.childTests.length > 0) {
+          order.childTests.forEach((child) => map.set(child.id, layoutType));
+        } else {
+          map.set(order.testId, layoutType);
+        }
+      }
+    });
+
+    return map;
+  }, [visit]);
 
   // Build derived test metadata from both standalone and panel tests
   const derivedTestsInfo = useMemo((): DerivedTestInfo[] => {
@@ -415,6 +441,10 @@ const DiagnosticsResultEntry = () => {
     const extreme: string[] = [];
 
     allTests.forEach((test) => {
+      if (textLayoutByTestId.has(test.testId)) {
+        return;
+      }
+
       const valueStr = results[test.testId];
       const value = valueStr ? parseFloat(valueStr) : null;
       if (value !== null && test.max > 0) {
@@ -439,18 +469,19 @@ const DiagnosticsResultEntry = () => {
     try {
       const allTests = getAllTestsForValidation();
       const resultsArray = allTests
-        .filter((test) => results[test.testId])
+        .filter((test) => results[test.testId]?.trim())
         .map((test) => {
           const valueStr = results[test.testId];
+          const forceTextValue = textLayoutByTestId.has(test.testId);
           const parsedValue = parseFloat(valueStr);
-          const isNumeric = !isNaN(parsedValue) && valueStr.trim() !== '';
+          const isNumeric = !forceTextValue && !isNaN(parsedValue) && valueStr.trim() !== '';
           const flag = isNumeric ? computeFlag(parsedValue, test.min, test.max) : null;
 
           return {
             testId: test.testId,
             value: isNumeric ? parsedValue : null,
             textValue: isNumeric ? null : valueStr,
-            flag: flag || 'NORMAL',
+            flag: isNumeric ? (flag || 'NORMAL') : null,
             notes: null,
             manualOverride: test.isDerived ? !!derivedManualOverrides[test.testId] : false,
           };
@@ -617,6 +648,44 @@ const DiagnosticsResultEntry = () => {
     );
   };
 
+  const renderTextareaInput = (
+    testId: string,
+    testName: string,
+    testCode: string,
+    rows: number,
+    placeholder: string,
+    isSubTest: boolean = false
+  ) => {
+    const valueStr = results[testId] || '';
+
+    return (
+      <div
+        key={testId}
+        className={cn(
+          'space-y-2 border-b py-3 last:border-0',
+          isSubTest ? 'md:pl-4' : ''
+        )}
+      >
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Label className={cn('font-medium', isSubTest ? 'text-sm' : 'text-base')}>
+              {testName}
+            </Label>
+            <span className="text-xs text-muted-foreground">({testCode})</span>
+          </div>
+        </div>
+
+        <Textarea
+          rows={rows}
+          placeholder={placeholder}
+          value={valueStr}
+          onChange={(e) => handleValueChange(testId, e.target.value)}
+          className="resize-y"
+        />
+      </div>
+    );
+  };
+
   const countFilledResults = (order: TestOrder): number => {
     if (order.isPanel && order.childTests && order.childTests.length > 0) {
       return order.childTests.filter((child) => results[child.id]).length;
@@ -660,6 +729,11 @@ const DiagnosticsResultEntry = () => {
     return null;
   };
 
+  const hasReportableInputs = testOrders.some((order) => {
+    if (!order.isPanel) return true;
+    return order.childTests.length > 0;
+  });
+
   return (
     <AppLayout context="diagnostics">
       <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
@@ -693,7 +767,11 @@ const DiagnosticsResultEntry = () => {
             </div>
           </CardHeader>
           <CardContent className="space-y-6 pt-0">
-            {departmentGroups.map((department) => (
+            {!hasReportableInputs ? (
+              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                No reportable test items are linked to this visit yet. Add the required backing test item to the panel definition, then reopen this visit.
+              </div>
+            ) : departmentGroups.map((department) => (
               <div key={department.id} className="space-y-3">
                 <div className="flex items-center gap-3 pt-2">
                   <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -710,6 +788,7 @@ const DiagnosticsResultEntry = () => {
                     const total = getTotalTests(order);
                     const panelTitle = getPanelTitle(order);
                     const panelSubtitle = getPanelSubtitle(order);
+                    const panelMethodText = order.panel?.panelMethodText || null;
 
                     return (
                       <div key={order.id} className="overflow-hidden rounded-lg border">
@@ -719,19 +798,29 @@ const DiagnosticsResultEntry = () => {
                               onClick={() => togglePanel(order.id)}
                               className="flex w-full flex-col gap-3 bg-muted/50 p-4 text-left transition-colors hover:bg-muted/70 sm:flex-row sm:items-center sm:justify-between"
                             >
-                              <div className="flex flex-wrap items-center gap-3">
-                                <span className="text-lg font-semibold">{panelTitle}</span>
-                                {panelSubtitle && (
-                                  <span className="text-sm text-muted-foreground">
-                                    {panelSubtitle}
+                              <div className="space-y-1">
+                                <div className="flex flex-wrap items-center gap-3">
+                                  <span className="text-lg font-semibold">{panelTitle}</span>
+                                  {panelSubtitle && (
+                                    <span className="text-sm text-muted-foreground">
+                                      {panelSubtitle}
+                                    </span>
+                                  )}
+                                  <span className="rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">
+                                    {order.childTests.length} parameters
                                   </span>
+                                  <span className="text-xs text-muted-foreground">
+                                    ({filled}/{total} filled)
+                                  </span>
+                                </div>
+                                {panelMethodText && (
+                                  <div className={cn(
+                                    'text-sm text-muted-foreground',
+                                    order.panel?.panelMethodItalic && 'italic'
+                                  )}>
+                                    Method : {panelMethodText}
+                                  </div>
                                 )}
-                                <span className="rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">
-                                  {order.childTests.length} parameters
-                                </span>
-                                <span className="text-xs text-muted-foreground">
-                                  ({filled}/{total} filled)
-                                </span>
                               </div>
                               <div className="flex justify-end">
                                 {isExpanded ? (
@@ -744,16 +833,30 @@ const DiagnosticsResultEntry = () => {
 
                             {isExpanded && (
                               <div className="bg-card p-4">
-                                {order.childTests.map((child) =>
-                                  renderTestInput(
+                                {order.childTests.map((child) => {
+                                  const textLayout = textLayoutByTestId.get(child.id);
+                                  if (textLayout) {
+                                    return renderTextareaInput(
+                                      child.id,
+                                      child.name,
+                                      child.code,
+                                      TEXT_LAYOUT_ROWS[textLayout] || 4,
+                                      textLayout === 'IMAGING_NARRATIVE'
+                                        ? 'Enter narrative report...'
+                                        : 'Enter text result...',
+                                      true
+                                    );
+                                  }
+
+                                  return renderTestInput(
                                     child.id,
                                     child.name,
                                     child.code,
                                     child.referenceRange,
                                     true,
                                     !!child.isDerived
-                                  )
-                                )}
+                                  );
+                                })}
                               </div>
                             )}
                           </>
@@ -764,16 +867,39 @@ const DiagnosticsResultEntry = () => {
                               {panelSubtitle && (
                                 <div className="text-xs text-muted-foreground">{panelSubtitle}</div>
                               )}
+                              {panelMethodText && (
+                                <div className={cn(
+                                  'mt-1 text-sm text-muted-foreground',
+                                  order.panel?.panelMethodItalic && 'italic'
+                                )}>
+                                  Method : {panelMethodText}
+                                </div>
+                              )}
                             </div>
                             <div className="p-4">
-                              {renderTestInput(
-                                order.testId,
-                                order.testName,
-                                order.testCode,
-                                order.referenceRange,
-                                false,
-                                !!order.isDerived
-                              )}
+                              {(() => {
+                                const textLayout = textLayoutByTestId.get(order.testId);
+                                if (textLayout) {
+                                  return renderTextareaInput(
+                                    order.testId,
+                                    order.testName,
+                                    order.testCode,
+                                    TEXT_LAYOUT_ROWS[textLayout] || 4,
+                                    textLayout === 'IMAGING_NARRATIVE'
+                                      ? 'Enter narrative report...'
+                                      : 'Enter text result...'
+                                  );
+                                }
+
+                                return renderTestInput(
+                                  order.testId,
+                                  order.testName,
+                                  order.testCode,
+                                  order.referenceRange,
+                                  false,
+                                  !!order.isDerived
+                                );
+                              })()}
                             </div>
                           </>
                         )}
@@ -784,7 +910,7 @@ const DiagnosticsResultEntry = () => {
               </div>
             ))}
 
-            <Button className="w-full mt-6" size="lg" onClick={handleSaveDraft} disabled={saving}>
+            <Button className="w-full mt-6" size="lg" onClick={handleSaveDraft} disabled={saving || !hasReportableInputs}>
               {saving ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
