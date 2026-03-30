@@ -50,15 +50,6 @@ try {
   console.error('Failed to load logo for inlining:', err);
 }
 
-function readReportCss(filename: 'report-screen.css' | 'report-print.css', fallback: string): string {
-  try {
-    return fs.readFileSync(path.join(CSS_DIR, filename), 'utf-8');
-  } catch (err) {
-    console.error(`Failed to load ${filename}:`, err);
-    return fallback;
-  }
-}
-
 function inlineSignatureImage(signatureImagePath: string | null): string {
   if (!signatureImagePath) return '';
   try {
@@ -539,9 +530,6 @@ interface ReportPageModel {
 }
 
 function resolveProfile(profile: RenderProfile): ResolvedProfile {
-  SCREEN_CSS = readReportCss('report-screen.css', SCREEN_CSS);
-  PRINT_CSS = readReportCss('report-print.css', PRINT_CSS);
-
   switch (profile) {
     case 'screen':
       return {
@@ -809,9 +797,7 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
 
     return `
       <section class="department" data-department="${escapeHtml(department.departmentName)}">
-        <div class="department-header">
-          <span class="department-header-text">${escapeHtml(department.departmentHeaderText || department.departmentName)}</span>
-        </div>
+        <div class="department-header">${escapeHtml(department.departmentHeaderText || department.departmentName)}</div>
         ${panelHtml}
       </section>`;
   };
