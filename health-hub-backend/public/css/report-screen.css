@@ -216,16 +216,9 @@ body.report-body {
   border-bottom: 1.5px solid var(--color-primary);
   padding-bottom: 3px;
   margin-bottom: 8px;
-  display: flex;
-  justify-content: center;
-  width: 100%;
-  text-align: center !important;
+  text-align: left;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-}
-
-.department-header-text {
-  display: inline-block;
 }
 
 /* ============================================================================
