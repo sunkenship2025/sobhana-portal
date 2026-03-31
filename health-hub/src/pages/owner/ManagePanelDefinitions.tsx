@@ -92,7 +92,7 @@ function layoutBadge(layoutType: string) {
 
 const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
 
-const SAMPLE_TYPES = ['WB-EDTA', 'Serum', 'Plasma', 'Urine', 'CSF', 'Synovial Fluid', 'Other'];
+const SAMPLE_TYPES = ['WB-EDTA', 'Serum', 'Plasma', 'Urine', 'CSF', 'Synovial Fluid', 'Semen', 'Other'];
 
 function getLayoutItemConstraintMessage(layoutType: string, itemCount: number): string | null {
   switch (layoutType) {

@@ -411,7 +411,6 @@ function renderImagingNarrative(panel: PanelSnapshot): string {
     const content = test.textValue || test.notes || '';
     return `
       <div class="imaging-section">
-        <h4 class="imaging-title">${escapeHtml(test.testName)}</h4>
         <div class="imaging-narrative">${formatTextBlock(content)}</div>
       </div>`;
   }).join('');
