@@ -314,8 +314,13 @@ const DiagnosticsResultEntry = () => {
           const data = await response.json();
           const panelExpansion: Record<string, boolean> = {};
           data.testOrders.forEach((order: TestOrder) => {
+            // Expand legacy panels by order.id
             if (order.isPanel) {
               panelExpansion[order.id] = true;
+            }
+            // Expand new panel groups by panel.id (default expanded)
+            if (order.panel?.id) {
+              panelExpansion[order.panel.id] = true;
             }
           });
 
@@ -700,6 +705,24 @@ const DiagnosticsResultEntry = () => {
     return 1;
   };
 
+  // Group orders by panel.id within each department to handle the new architecture
+  // where each panel parameter is a separate TestOrder but shares the same panel.id
+  type PanelGroup = {
+    type: 'panel';
+    panelId: string;
+    panelName: string;
+    panelDisplayName: string;
+    panelLayoutType: string;
+    panelMethodText: string | null;
+    panelMethodItalic: boolean;
+    orders: TestOrder[];
+  };
+  type SingleOrder = {
+    type: 'single';
+    order: TestOrder;
+  };
+  type OrderGroup = PanelGroup | SingleOrder;
+
   const departmentGroups = Array.from(
     testOrders.reduce((groups, order) => {
       const groupKey = order.department?.id || order.department?.name || 'other-tests';
@@ -716,7 +739,53 @@ const DiagnosticsResultEntry = () => {
       groups.get(groupKey)!.orders.push(order);
       return groups;
     }, new Map<string, { id: string; name: string; orders: TestOrder[] }>())
-  ).map(([, group]) => group);
+  ).map(([, group]) => {
+    // Within each department, group orders by panel.id
+    const panelGroups = new Map<string, PanelGroup>();
+    const orderGroups: OrderGroup[] = [];
+
+    for (const order of group.orders) {
+      // If order has legacy childTests (isPanel with children), render as-is
+      if (order.isPanel && order.childTests && order.childTests.length > 0) {
+        orderGroups.push({ type: 'single', order });
+        continue;
+      }
+
+      // If order has a panel.id, group with other orders of same panel
+      if (order.panel?.id) {
+        if (!panelGroups.has(order.panel.id)) {
+          panelGroups.set(order.panel.id, {
+            type: 'panel',
+            panelId: order.panel.id,
+            panelName: order.panel.name,
+            panelDisplayName: order.panel.displayName,
+            panelLayoutType: order.panel.layoutType,
+            panelMethodText: order.panel.panelMethodText || null,
+            panelMethodItalic: order.panel.panelMethodItalic || false,
+            orders: [],
+          });
+        }
+        panelGroups.get(order.panel.id)!.orders.push(order);
+      } else {
+        // No panel - render as individual test
+        orderGroups.push({ type: 'single', order });
+      }
+    }
+
+    // Add panel groups to orderGroups (panels with only 1 order render as single)
+    for (const panelGroup of panelGroups.values()) {
+      if (panelGroup.orders.length === 1) {
+        orderGroups.push({ type: 'single', order: panelGroup.orders[0] });
+      } else {
+        orderGroups.push(panelGroup);
+      }
+    }
+
+    return {
+      ...group,
+      orderGroups,
+    };
+  });
 
   const getPanelTitle = (order: TestOrder) =>
     order.panel?.displayName || order.panel?.name || order.testName;
@@ -781,8 +850,83 @@ const DiagnosticsResultEntry = () => {
                 </div>
 
                 <div className="space-y-3">
-                  {department.orders.map((order) => {
-                    const isPanel = order.isPanel && order.childTests && order.childTests.length > 0;
+                  {department.orderGroups.map((group) => {
+                    // Render grouped panel (multiple orders with same panel.id)
+                    if (group.type === 'panel') {
+                      const panelGroup = group;
+                      const isExpanded = expandedPanels[panelGroup.panelId] ?? true;
+                      const filled = panelGroup.orders.filter((o) => results[o.testId]).length;
+                      const total = panelGroup.orders.length;
+
+                      return (
+                        <div key={panelGroup.panelId} className="overflow-hidden rounded-lg border">
+                          <button
+                            onClick={() => togglePanel(panelGroup.panelId)}
+                            className="flex w-full flex-col gap-3 bg-muted/50 p-4 text-left transition-colors hover:bg-muted/70 sm:flex-row sm:items-center sm:justify-between"
+                          >
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap items-center gap-3">
+                                <span className="text-lg font-semibold">{panelGroup.panelDisplayName || panelGroup.panelName}</span>
+                                <span className="rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">
+                                  {total} parameters
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  ({filled}/{total} filled)
+                                </span>
+                              </div>
+                              {panelGroup.panelMethodText && (
+                                <div className={cn(
+                                  'text-sm text-muted-foreground',
+                                  panelGroup.panelMethodItalic && 'italic'
+                                )}>
+                                  Method : {panelGroup.panelMethodText}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex justify-end">
+                              {isExpanded ? (
+                                <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                              ) : (
+                                <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                              )}
+                            </div>
+                          </button>
+
+                          {isExpanded && (
+                            <div className="bg-card p-4">
+                              {panelGroup.orders.map((order) => {
+                                const textLayout = textLayoutByTestId.get(order.testId);
+                                if (textLayout) {
+                                  return renderTextareaInput(
+                                    order.testId,
+                                    order.testName,
+                                    order.testCode,
+                                    TEXT_LAYOUT_ROWS[textLayout] || 4,
+                                    textLayout === 'IMAGING_NARRATIVE'
+                                      ? 'Enter narrative report...'
+                                      : 'Enter text result...',
+                                    true
+                                  );
+                                }
+
+                                return renderTestInput(
+                                  order.testId,
+                                  order.testName,
+                                  order.testCode,
+                                  order.referenceRange,
+                                  true,
+                                  !!order.isDerived
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    // Render single order (legacy panel with childTests or individual test)
+                    const order = group.order;
+                    const isLegacyPanel = order.isPanel && order.childTests && order.childTests.length > 0;
                     const isExpanded = expandedPanels[order.id] ?? false;
                     const filled = countFilledResults(order);
                     const total = getTotalTests(order);
@@ -792,7 +936,7 @@ const DiagnosticsResultEntry = () => {
 
                     return (
                       <div key={order.id} className="overflow-hidden rounded-lg border">
-                        {isPanel ? (
+                        {isLegacyPanel ? (
                           <>
                             <button
                               onClick={() => togglePanel(order.id)}
@@ -863,10 +1007,7 @@ const DiagnosticsResultEntry = () => {
                         ) : (
                           <>
                             <div className="border-b bg-muted/30 px-4 py-3">
-                              <div className="font-semibold">{panelTitle}</div>
-                              {panelSubtitle && (
-                                <div className="text-xs text-muted-foreground">{panelSubtitle}</div>
-                              )}
+                              <div className="font-semibold">{order.testName}</div>
                               {panelMethodText && (
                                 <div className={cn(
                                   'mt-1 text-sm text-muted-foreground',
