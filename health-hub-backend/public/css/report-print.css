@@ -194,10 +194,10 @@ body.report-body {
 }
 
 /* Column widths (4 columns: Test | Result | Unit | Ref Range) */
-.results-table .col-test { width: 32%; }
-.results-table .col-value { width: 15%; text-align: right; }
-.results-table .col-unit { width: 12%; }
-.results-table .col-ref { width: 41%; }
+.results-table .col-test { width: 30%; text-align: left; }
+.results-table .col-value { width: 12%; text-align: center; }
+.results-table .col-unit { width: 10%; text-align: center; }
+.results-table .col-ref { width: 48%; text-align: center; }
 
 /* Zebra striping */
 .results-table tbody tr.data-row:nth-child(even) {
@@ -216,7 +216,7 @@ body.report-body {
 .results-table td.col-unit { color: var(--color-text); }
 .results-table td.col-ref { color: var(--color-text); font-size: 8pt; }
 .results-table td.col-test,
-.results-table td.col-param { vertical-align: top; }
+.results-table td.col-param { vertical-align: top; text-align: left; }
 
 .test-name.is-bold { font-weight: bold; }
 .test-method {
