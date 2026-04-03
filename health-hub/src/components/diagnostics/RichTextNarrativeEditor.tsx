@@ -121,7 +121,7 @@ export function RichTextNarrativeEditor({
 }: RichTextNarrativeEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const savedRangeRef = useRef<Range | null>(null);
-  const lastCommittedValueRef = useRef(value || '');
+  const lastCommittedValueRef = useRef('');
   const [toolbarState, setToolbarState] = useState<ToolbarState>(DEFAULT_TOOLBAR_STATE);
 
   const toolbarButtonClassName = useMemo(
@@ -308,7 +308,7 @@ export function RichTextNarrativeEditor({
     const editor = editorRef.current;
     if (!editor) return;
 
-    if (nextValue !== lastCommittedValueRef.current) {
+    if (editor.innerHTML !== nextValue || nextValue !== lastCommittedValueRef.current) {
       editor.innerHTML = nextValue;
       lastCommittedValueRef.current = nextValue;
       updateEmptyState();
