@@ -186,7 +186,7 @@ router.post('/', async (req: AuthRequest, res) => {
       name, displayName, departmentId, layoutType, sampleType,
       displayOrder, showMethodColumn, showSubgroups, showInterpretation, valueDisplayPrefix,
       summaryInterpretationTemplate, subgroupMethods, subgroupTableOverrides,
-      panelMethodText, panelMethodItalic, items,
+      panelMethodText, panelMethodItalic, narrativeTemplateHtml, items,
     } = req.body;
 
     if (!name || !displayName || !departmentId || !layoutType) {
@@ -253,6 +253,7 @@ router.post('/', async (req: AuthRequest, res) => {
         subgroupTableOverrides: subgroupTableOverrides ?? null,
         panelMethodText: panelMethodText ?? null,
         panelMethodItalic: panelMethodItalic ?? false,
+        narrativeTemplateHtml: narrativeTemplateHtml ?? null,
         items: items?.length ? {
           create: items.map((item: any, idx: number) => ({
             testDefinitionId: item.testDefinitionId,
@@ -296,7 +297,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
       name, displayName, departmentId, layoutType, sampleType,
       displayOrder, showMethodColumn, showSubgroups, showInterpretation, valueDisplayPrefix,
       summaryInterpretationTemplate, subgroupMethods, subgroupTableOverrides,
-      panelMethodText, panelMethodItalic, items,
+      panelMethodText, panelMethodItalic, narrativeTemplateHtml, items,
     } = req.body;
 
     const existing = await prisma.clinicalPanel.findUnique({
@@ -345,6 +346,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
           subgroupTableOverrides: subgroupTableOverrides !== undefined ? subgroupTableOverrides : existing.subgroupTableOverrides,
           panelMethodText: panelMethodText !== undefined ? panelMethodText : existing.panelMethodText,
           panelMethodItalic: panelMethodItalic !== undefined ? panelMethodItalic : existing.panelMethodItalic,
+          narrativeTemplateHtml: narrativeTemplateHtml !== undefined ? narrativeTemplateHtml : existing.narrativeTemplateHtml,
           items: items ? {
             create: items.map((item: any, idx: number) => ({
               testDefinitionId: item.testDefinitionId,
@@ -474,6 +476,7 @@ router.post('/:id/preview', async (req: AuthRequest, res) => {
         summaryInterpretationTemplate: panel.summaryInterpretationTemplate,
         panelMethodText: panel.panelMethodText,
         panelMethodItalic: panel.panelMethodItalic,
+        narrativeTemplateHtml: panel.narrativeTemplateHtml,
       },
       department: panel.department,
       tests: panel.items.map(item => ({
