@@ -123,6 +123,194 @@
   size: A4;
 }
 
+/* Clinic prescription page keeps full-page control for the pre-printed letterhead layout. */
+@page clinic-rx {
+  size: A4;
+  margin: 0;
+}
+
+.clinic-rx-page {
+  width: 210mm;
+  min-height: 297mm;
+  page-break-after: always;
+  break-after: page;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: white;
+}
+
+.clinic-rx-sheet {
+  min-height: 297mm;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.clinic-rx-header {
+  position: relative;
+  height: 35mm;
+  flex-shrink: 0;
+}
+
+.clinic-rx-doctor-block {
+  position: absolute;
+  left: 110mm;
+  top: 6mm;
+  width: 45mm;
+  text-align: left;
+}
+
+.clinic-rx-doctor-name {
+  font-size: 18pt;
+  font-weight: 700;
+  line-height: 1.05;
+  margin: 0 0 1.5mm;
+  text-transform: uppercase;
+}
+
+.clinic-rx-doctor-meta {
+  font-size: 9.5pt;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.clinic-rx-placeholder {
+  letter-spacing: 0.04em;
+}
+
+.clinic-rx-vitals-box {
+  position: absolute;
+  top: 5mm;
+  right: 7mm;
+  width: 40mm;
+  border: 1px solid #000;
+  padding: 2.5mm 3mm;
+  background: white;
+}
+
+.clinic-rx-vitals-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2mm 2.2mm;
+}
+
+.clinic-rx-vital-field {
+  display: flex;
+  align-items: flex-end;
+  gap: 1.5mm;
+  min-width: 0;
+}
+
+.clinic-rx-vital-field-wide {
+  grid-column: 1 / -1;
+}
+
+.clinic-rx-vital-label {
+  font-size: 8pt;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.clinic-rx-vital-line {
+  flex: 1;
+  min-width: 0;
+  height: 4mm;
+  border-bottom: 1px solid #000;
+}
+
+.clinic-rx-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0 15mm;
+  box-sizing: border-box;
+}
+
+.clinic-rx-patient-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  border: 1px solid #000;
+  margin-top: 3mm;
+}
+
+.clinic-rx-patient-column {
+  padding: 4mm 5mm;
+}
+
+.clinic-rx-patient-column-right {
+  border-left: 1px solid #000;
+}
+
+.clinic-rx-patient-row {
+  display: grid;
+  grid-template-columns: 31mm minmax(0, 1fr);
+  gap: 3mm;
+  align-items: baseline;
+}
+
+.clinic-rx-patient-row + .clinic-rx-patient-row {
+  margin-top: 2.5mm;
+}
+
+.clinic-rx-patient-label {
+  font-size: 10pt;
+  font-weight: 700;
+}
+
+.clinic-rx-patient-label::after {
+  content: ':';
+  margin-left: 1mm;
+}
+
+.clinic-rx-patient-value {
+  font-size: 10pt;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.clinic-rx-script {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding-top: 7mm;
+  min-height: 0;
+}
+
+.clinic-rx-symbol {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 28pt;
+  font-weight: 700;
+  line-height: 1;
+  margin-bottom: 4mm;
+}
+
+.clinic-rx-writing-area {
+  flex: 1;
+  min-height: 0;
+}
+
+.clinic-rx-signature {
+  align-self: flex-end;
+  width: 58mm;
+  margin-top: 8mm;
+  text-align: center;
+}
+
+.clinic-rx-signature-line {
+  border-top: 1px solid #000;
+  height: 7mm;
+}
+
+.clinic-rx-signature-label {
+  margin: 0;
+  font-size: 10pt;
+}
+
+.clinic-rx-footer-space {
+  height: 25mm;
+  flex-shrink: 0;
+}
+
 @media print {
   /* Hide everything by default */
   body * {
@@ -158,6 +346,25 @@
   }
   .print-page:last-child {
     page-break-after: auto;
+  }
+
+  /* Clinic prescription page - uses pre-printed letterhead */
+  .clinic-rx-page {
+    page: clinic-rx;
+    width: 210mm;
+    min-height: 297mm;
+    height: 297mm;
+    margin: 0;
+  }
+
+  .clinic-rx-sheet {
+    min-height: 297mm;
+    height: 297mm;
+  }
+
+  .clinic-rx-page:last-child {
+    page-break-after: auto;
+    break-after: auto;
   }
 }
 
