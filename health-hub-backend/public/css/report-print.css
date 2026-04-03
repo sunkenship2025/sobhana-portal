@@ -185,10 +185,7 @@ body.report-body {
 
 .results-table td {
   padding: 6pt var(--spacing-sm);
-  border-top: none;
-  border-right: none;
-  border-bottom: 0.5pt solid var(--color-border-light);
-  border-left: none;
+  border: none;
   background: transparent;
   vertical-align: middle;
 }
@@ -212,7 +209,6 @@ body.report-body {
 /* Indentation for sub-tests */
 .results-table tr.indent-1 .col-test { padding-left: var(--spacing-md); }
 
-.results-table .col-value { font-weight: bold; }
 .results-table td.col-unit { color: var(--color-text); }
 .results-table td.col-ref { color: var(--color-text); font-size: 8pt; }
 .results-table td.col-test,
@@ -399,7 +395,6 @@ body.report-body {
 .lab-incharge-line {
   width: 100%;
   height: 30pt;
-  border-bottom: 0.5pt solid #000;
   margin-bottom: 2pt;
 }
 .lab-incharge-label {
