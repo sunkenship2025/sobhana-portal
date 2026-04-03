@@ -462,6 +462,61 @@ body.report-body {
 .result-text { margin-left: 6px; }
 
 /* ============================================================================
+   IMAGING NARRATIVE
+   ============================================================================ */
+
+.imaging-report {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.imaging-section {
+  border: 1px solid var(--color-border-light);
+  border-radius: 4px;
+  background: #fcfdff;
+  padding: 12px 14px;
+}
+
+.imaging-narrative {
+  color: var(--color-text);
+  font-size: 9pt;
+  line-height: 1.65;
+}
+
+.imaging-narrative p,
+.imaging-narrative div,
+.imaging-narrative ul,
+.imaging-narrative ol,
+.imaging-narrative h1,
+.imaging-narrative h2,
+.imaging-narrative h3,
+.imaging-narrative h4 {
+  margin: 0 0 8px;
+}
+
+.imaging-narrative p:last-child,
+.imaging-narrative div:last-child,
+.imaging-narrative ul:last-child,
+.imaging-narrative ol:last-child,
+.imaging-narrative h1:last-child,
+.imaging-narrative h2:last-child,
+.imaging-narrative h3:last-child,
+.imaging-narrative h4:last-child {
+  margin-bottom: 0;
+}
+
+.imaging-narrative ul,
+.imaging-narrative ol {
+  padding-left: 22px;
+}
+
+.imaging-narrative h1 { font-size: 15pt; }
+.imaging-narrative h2 { font-size: 13pt; }
+.imaging-narrative h3 { font-size: 11pt; }
+.imaging-narrative h4 { font-size: 10pt; }
+
+/* ============================================================================
    REPORT NOTE
    ============================================================================ */
 
