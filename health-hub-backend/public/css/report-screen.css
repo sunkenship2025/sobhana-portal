@@ -285,10 +285,10 @@ body.report-body {
 }
 
 /* Column widths (4 columns: Test | Result | Unit | Ref Range) */
-.results-table .col-test { width: 40%; }
+.results-table .col-test { width: 32%; }
 .results-table .col-value { width: 15%; text-align: right; }
 .results-table .col-unit { width: 12%; }
-.results-table .col-ref { width: 33%; }
+.results-table .col-ref { width: 41%; }
 
 /* Zebra striping */
 .results-table tbody tr.data-row:nth-child(even) {
