@@ -458,8 +458,16 @@ body.report-body {
   font-size: 9pt;
 }
 
-.text-only-result strong { color: var(--color-primary); }
-.result-text { margin-left: 6px; }
+.text-only-label {
+  display: block;
+  color: var(--color-primary);
+  margin-bottom: 4px;
+}
+
+.result-text {
+  color: var(--color-text);
+  line-height: 1.65;
+}
 
 /* ============================================================================
    IMAGING NARRATIVE
@@ -484,6 +492,14 @@ body.report-body {
   line-height: 1.65;
 }
 
+.text-only-rich-text p,
+.text-only-rich-text div,
+.text-only-rich-text ul,
+.text-only-rich-text ol,
+.text-only-rich-text h1,
+.text-only-rich-text h2,
+.text-only-rich-text h3,
+.text-only-rich-text h4,
 .imaging-narrative p,
 .imaging-narrative div,
 .imaging-narrative ul,
@@ -495,6 +511,14 @@ body.report-body {
   margin: 0 0 8px;
 }
 
+.text-only-rich-text p:last-child,
+.text-only-rich-text div:last-child,
+.text-only-rich-text ul:last-child,
+.text-only-rich-text ol:last-child,
+.text-only-rich-text h1:last-child,
+.text-only-rich-text h2:last-child,
+.text-only-rich-text h3:last-child,
+.text-only-rich-text h4:last-child,
 .imaging-narrative p:last-child,
 .imaging-narrative div:last-child,
 .imaging-narrative ul:last-child,
@@ -506,14 +530,20 @@ body.report-body {
   margin-bottom: 0;
 }
 
+.text-only-rich-text ul,
+.text-only-rich-text ol,
 .imaging-narrative ul,
 .imaging-narrative ol {
   padding-left: 22px;
 }
 
+.text-only-rich-text h1,
 .imaging-narrative h1 { font-size: 15pt; }
+.text-only-rich-text h2,
 .imaging-narrative h2 { font-size: 13pt; }
+.text-only-rich-text h3,
 .imaging-narrative h3 { font-size: 11pt; }
+.text-only-rich-text h4,
 .imaging-narrative h4 { font-size: 10pt; }
 
 /* ============================================================================
