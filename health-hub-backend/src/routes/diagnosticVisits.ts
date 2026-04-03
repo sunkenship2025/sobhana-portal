@@ -614,6 +614,10 @@ router.get('/:id', async (req: AuthRequest, res) => {
               panel && 'panelMethodItalic' in panel
                 ? panel.panelMethodItalic ?? false
                 : false;
+            const narrativeTemplateHtml =
+              panel && 'narrativeTemplateHtml' in panel
+                ? panel.narrativeTemplateHtml ?? null
+                : null;
             return panel
               ? {
                   id: panel.id,
@@ -622,6 +626,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
                   layoutType: panel.layoutType,
                   panelMethodText,
                   panelMethodItalic,
+                  narrativeTemplateHtml,
                 }
               : null;
           })(),

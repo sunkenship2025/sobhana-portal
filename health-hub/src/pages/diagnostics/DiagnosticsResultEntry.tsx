@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { RichTextNarrativeEditor } from '@/components/diagnostics/RichTextNarrativeEditor';
 import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
 import { FlagBadge } from '@/components/ui/flag-badge';
@@ -29,6 +30,11 @@ import {
   buildReverseDependencyMap,
   DerivedTestInfo,
 } from '@/lib/formulaUtils';
+import {
+  hasMeaningfulRichText,
+  normalizeRichTextForStorage,
+  plainTextToRichText,
+} from '@/lib/richText';
 
 interface ReferenceRange {
   min: number;
@@ -72,6 +78,7 @@ interface TestOrder {
     layoutType: string;
     panelMethodText?: string | null;
     panelMethodItalic?: boolean;
+    narrativeTemplateHtml?: string | null;
   } | null;
 }
 
@@ -105,8 +112,30 @@ interface Visit {
 const DERIVED_MANUAL_OVERRIDE_NOTE = '__DERIVED_MANUAL_OVERRIDE__';
 const TEXT_LAYOUT_ROWS: Record<string, number> = {
   TEXT_ONLY: 4,
-  IMAGING_NARRATIVE: 8,
 };
+
+function normalizeNarrativeContent(value?: string | null): string {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  return trimmed.includes('<')
+    ? normalizeRichTextForStorage(trimmed)
+    : plainTextToRichText(trimmed);
+}
+
+function hasResultValue(value: string | undefined, layoutType?: string): boolean {
+  if (!value) {
+    return false;
+  }
+
+  if (layoutType === 'IMAGING_NARRATIVE') {
+    return hasMeaningfulRichText(value);
+  }
+
+  return value.trim().length > 0;
+}
 
 function isManualDerivedOverride(
   testResult?: {
@@ -313,6 +342,9 @@ const DiagnosticsResultEntry = () => {
         if (response.ok) {
           const data = await response.json();
           const panelExpansion: Record<string, boolean> = {};
+          const fetchedTextLayoutByTestId = new Map<string, string>();
+          const fetchedNarrativeTemplateByTestId = new Map<string, string>();
+
           data.testOrders.forEach((order: TestOrder) => {
             // Expand legacy panels by order.id
             if (order.isPanel) {
@@ -322,16 +354,39 @@ const DiagnosticsResultEntry = () => {
             if (order.panel?.id) {
               panelExpansion[order.panel.id] = true;
             }
+
+            const layoutType = order.panel?.layoutType;
+            if (layoutType === 'TEXT_ONLY' || layoutType === 'IMAGING_NARRATIVE') {
+              const targetIds =
+                order.isPanel && order.childTests.length > 0
+                  ? order.childTests.map((child) => child.id)
+                  : [order.testId];
+
+              targetIds.forEach((targetId) => {
+                fetchedTextLayoutByTestId.set(targetId, layoutType);
+                if (layoutType === 'IMAGING_NARRATIVE') {
+                  fetchedNarrativeTemplateByTestId.set(
+                    targetId,
+                    normalizeNarrativeContent(order.panel?.narrativeTemplateHtml)
+                  );
+                }
+              });
+            }
           });
 
           // Initialize results from existing test results if any
+          const initialResults: Record<string, string> = {};
+          const initialManualOverrides: Record<string, boolean> = {};
+
           if (data.report?.versions?.[0]?.testResults) {
-            const initialResults: Record<string, string> = {};
-            const initialManualOverrides: Record<string, boolean> = {};
             const latestVersion = data.report.versions[0];
             latestVersion.testResults.forEach((r: any) => {
+              const layoutType = fetchedTextLayoutByTestId.get(r.testId);
               if (r.textValue) {
-                initialResults[r.testId] = r.textValue;
+                initialResults[r.testId] =
+                  layoutType === 'IMAGING_NARRATIVE'
+                    ? normalizeNarrativeContent(r.textValue)
+                    : r.textValue;
               } else if (r.value !== null) {
                 initialResults[r.testId] = r.value.toString();
               }
@@ -340,12 +395,16 @@ const DiagnosticsResultEntry = () => {
                 initialManualOverrides[r.testId] = true;
               }
             });
-            setResults(recalculateDerivedResults(initialResults, undefined, initialManualOverrides));
-            setDerivedManualOverrides(initialManualOverrides);
-          } else {
-            setResults({});
-            setDerivedManualOverrides({});
           }
+
+          fetchedNarrativeTemplateByTestId.forEach((templateHtml, testId) => {
+            if (!initialResults[testId] && hasMeaningfulRichText(templateHtml)) {
+              initialResults[testId] = templateHtml;
+            }
+          });
+
+          setResults(recalculateDerivedResults(initialResults, undefined, initialManualOverrides));
+          setDerivedManualOverrides(initialManualOverrides);
 
           setExpandedPanels(panelExpansion);
           setVisit(data);
@@ -474,9 +533,13 @@ const DiagnosticsResultEntry = () => {
     try {
       const allTests = getAllTestsForValidation();
       const resultsArray = allTests
-        .filter((test) => results[test.testId]?.trim())
+        .filter((test) => hasResultValue(results[test.testId], textLayoutByTestId.get(test.testId)))
         .map((test) => {
-          const valueStr = results[test.testId];
+          const layoutType = textLayoutByTestId.get(test.testId);
+          const rawValue = results[test.testId];
+          const valueStr = layoutType === 'IMAGING_NARRATIVE'
+            ? normalizeNarrativeContent(rawValue)
+            : rawValue;
           const forceTextValue = textLayoutByTestId.has(test.testId);
           const parsedValue = parseFloat(valueStr);
           const isNumeric = !forceTextValue && !isNaN(parsedValue) && valueStr.trim() !== '';
@@ -691,11 +754,49 @@ const DiagnosticsResultEntry = () => {
     );
   };
 
+  const renderNarrativeInput = (
+    testId: string,
+    testName: string,
+    testCode: string,
+    placeholder: string,
+    isSubTest: boolean = false
+  ) => {
+    const valueStr = results[testId] || '';
+
+    return (
+      <div
+        key={testId}
+        className={cn(
+          'space-y-2 border-b py-3 last:border-0',
+          isSubTest ? 'md:pl-4' : ''
+        )}
+      >
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Label className={cn('font-medium', isSubTest ? 'text-sm' : 'text-base')}>
+              {testName}
+            </Label>
+            <span className="text-xs text-muted-foreground">({testCode})</span>
+          </div>
+        </div>
+
+        <RichTextNarrativeEditor
+          value={valueStr}
+          onChange={(nextValue) => handleValueChange(testId, nextValue)}
+          placeholder={placeholder}
+          minHeightClassName="min-h-[280px]"
+        />
+      </div>
+    );
+  };
+
   const countFilledResults = (order: TestOrder): number => {
     if (order.isPanel && order.childTests && order.childTests.length > 0) {
-      return order.childTests.filter((child) => results[child.id]).length;
+      return order.childTests.filter((child) =>
+        hasResultValue(results[child.id], textLayoutByTestId.get(child.id))
+      ).length;
     }
-    return results[order.testId] ? 1 : 0;
+    return hasResultValue(results[order.testId], textLayoutByTestId.get(order.testId)) ? 1 : 0;
   };
 
   const getTotalTests = (order: TestOrder): number => {
@@ -855,7 +956,9 @@ const DiagnosticsResultEntry = () => {
                     if (group.type === 'panel') {
                       const panelGroup = group;
                       const isExpanded = expandedPanels[panelGroup.panelId] ?? true;
-                      const filled = panelGroup.orders.filter((o) => results[o.testId]).length;
+                      const filled = panelGroup.orders.filter((o) =>
+                        hasResultValue(results[o.testId], textLayoutByTestId.get(o.testId))
+                      ).length;
                       const total = panelGroup.orders.length;
 
                       return (
@@ -896,15 +999,23 @@ const DiagnosticsResultEntry = () => {
                             <div className="bg-card p-4">
                               {panelGroup.orders.map((order) => {
                                 const textLayout = textLayoutByTestId.get(order.testId);
+                                if (textLayout === 'IMAGING_NARRATIVE') {
+                                  return renderNarrativeInput(
+                                    order.testId,
+                                    order.testName,
+                                    order.testCode,
+                                    'Enter narrative report...',
+                                    true
+                                  );
+                                }
+
                                 if (textLayout) {
                                   return renderTextareaInput(
                                     order.testId,
                                     order.testName,
                                     order.testCode,
                                     TEXT_LAYOUT_ROWS[textLayout] || 4,
-                                    textLayout === 'IMAGING_NARRATIVE'
-                                      ? 'Enter narrative report...'
-                                      : 'Enter text result...',
+                                    'Enter text result...',
                                     true
                                   );
                                 }
@@ -979,15 +1090,23 @@ const DiagnosticsResultEntry = () => {
                               <div className="bg-card p-4">
                                 {order.childTests.map((child) => {
                                   const textLayout = textLayoutByTestId.get(child.id);
+                                  if (textLayout === 'IMAGING_NARRATIVE') {
+                                    return renderNarrativeInput(
+                                      child.id,
+                                      child.name,
+                                      child.code,
+                                      'Enter narrative report...',
+                                      true
+                                    );
+                                  }
+
                                   if (textLayout) {
                                     return renderTextareaInput(
                                       child.id,
                                       child.name,
                                       child.code,
                                       TEXT_LAYOUT_ROWS[textLayout] || 4,
-                                      textLayout === 'IMAGING_NARRATIVE'
-                                        ? 'Enter narrative report...'
-                                        : 'Enter text result...',
+                                      'Enter text result...',
                                       true
                                     );
                                   }
@@ -1020,15 +1139,22 @@ const DiagnosticsResultEntry = () => {
                             <div className="p-4">
                               {(() => {
                                 const textLayout = textLayoutByTestId.get(order.testId);
+                                if (textLayout === 'IMAGING_NARRATIVE') {
+                                  return renderNarrativeInput(
+                                    order.testId,
+                                    order.testName,
+                                    order.testCode,
+                                    'Enter narrative report...'
+                                  );
+                                }
+
                                 if (textLayout) {
                                   return renderTextareaInput(
                                     order.testId,
                                     order.testName,
                                     order.testCode,
                                     TEXT_LAYOUT_ROWS[textLayout] || 4,
-                                    textLayout === 'IMAGING_NARRATIVE'
-                                      ? 'Enter narrative report...'
-                                      : 'Enter text result...'
+                                    'Enter text result...'
                                   );
                                 }
 
