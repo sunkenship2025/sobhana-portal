@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { RichTextNarrativeEditor } from '@/components/diagnostics/RichTextNarrativeEditor';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -22,6 +23,11 @@ import { Separator } from '@/components/ui/separator';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import {
+  hasMeaningfulRichText,
+  normalizeRichTextForStorage,
+  sanitizeRichTextHtml,
+} from '@/lib/richText';
 
 /* ───────── Types ───────── */
 
@@ -68,6 +74,7 @@ interface ClinicalPanel {
   valueDisplayPrefix: string | null;
   panelMethodText: string | null;
   panelMethodItalic: boolean;
+  narrativeTemplateHtml: string | null;
   summaryInterpretationTemplate: string | null;
   subgroupMethods: Record<string, string> | null;
   subgroupTableOverrides: Record<string, boolean> | null;
@@ -196,6 +203,7 @@ export default function ManagePanelDefinitions() {
   const [formValuePrefix, setFormValuePrefix] = useState('');
   const [formPanelMethodText, setFormPanelMethodText] = useState('');
   const [formPanelMethodItalic, setFormPanelMethodItalic] = useState(false);
+  const [formNarrativeTemplateHtml, setFormNarrativeTemplateHtml] = useState('');
 
   // Drag-and-drop
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -328,6 +336,7 @@ export default function ManagePanelDefinitions() {
     setFormShowMethod(false); setFormShowSubgroups(false);
     setFormShowInterpretation(false); setFormValuePrefix('');
     setFormPanelMethodText(''); setFormPanelMethodItalic(false);
+    setFormNarrativeTemplateHtml('');
     setFormSubgroups([]); setNewSubgroupInput('');
     setFormSubgroupMethods({}); setFormShowSubgroupMethods(false); setNewSubgroupMethodInput('');
     setFormSubgroupTableOverrides({});
@@ -350,6 +359,7 @@ export default function ManagePanelDefinitions() {
     setFormValuePrefix(p.valueDisplayPrefix || '');
     setFormPanelMethodText(p.panelMethodText || '');
     setFormPanelMethodItalic(p.panelMethodItalic ?? false);
+    setFormNarrativeTemplateHtml(p.narrativeTemplateHtml || '');
     const items = (p.items || []).map(item => ({
       testDefinitionId: item.testDefinitionId,
       displayOrder: item.displayOrder,
@@ -564,6 +574,9 @@ export default function ManagePanelDefinitions() {
         valueDisplayPrefix: formValuePrefix || null,
         panelMethodText: formPanelMethodText.trim() || null,
         panelMethodItalic: formPanelMethodItalic,
+        narrativeTemplateHtml: formLayout === 'IMAGING_NARRATIVE'
+          ? normalizeRichTextForStorage(formNarrativeTemplateHtml) || null
+          : null,
         summaryInterpretationTemplate: formTemplate || null,
         subgroupMethods: (() => {
           // Filter out empty method strings
@@ -1036,6 +1049,21 @@ export default function ManagePanelDefinitions() {
                 </div>
               )}
 
+              {formLayout === 'IMAGING_NARRATIVE' && (
+                <div className="space-y-2">
+                  <Label>Imaging Narrative Template</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Save the default rich-text report body here. It will appear automatically when users open Enter Test Results for this panel.
+                  </p>
+                  <RichTextNarrativeEditor
+                    value={formNarrativeTemplateHtml}
+                    onChange={setFormNarrativeTemplateHtml}
+                    placeholder="Create the default radiology narrative for this panel..."
+                    minHeightClassName="min-h-[240px]"
+                  />
+                </div>
+              )}
+
               <Separator />
 
               {/* ── Panel Items with DnD ──────────────────────────────── */}
@@ -1236,9 +1264,26 @@ export default function ManagePanelDefinitions() {
                           <div className="font-medium text-xs mb-1">
                             {availableDefs.find(d => d.id === formItems[0]?.testDefinitionId)?.name || 'Test Name'}
                           </div>
-                          <div className="border border-dashed rounded p-2 text-muted-foreground italic text-[11px] min-h-[40px]">
-                            {formLayout === 'IMAGING_NARRATIVE' ? 'Narrative text will appear here...' : 'Free text result...'}
-                          </div>
+                          {formLayout === 'IMAGING_NARRATIVE' ? (
+                            <div className="min-h-[96px] rounded border border-dashed bg-slate-50 p-3 text-[11px] text-slate-700">
+                              {hasMeaningfulRichText(formNarrativeTemplateHtml) ? (
+                                <div
+                                  className="rich-text-preview"
+                                  dangerouslySetInnerHTML={{
+                                    __html: sanitizeRichTextHtml(formNarrativeTemplateHtml),
+                                  }}
+                                />
+                              ) : (
+                                <div className="italic text-muted-foreground">
+                                  Narrative text will appear here...
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="border border-dashed rounded p-2 text-muted-foreground italic text-[11px] min-h-[40px]">
+                              Free text result...
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <p className="text-muted-foreground text-center py-4">Add exactly one backing test item</p>
@@ -1415,6 +1460,11 @@ export default function ManagePanelDefinitions() {
                   <strong>Panel Method:</strong> {previewData.panel?.panelMethodText || '\u2014'}
                   {previewData.panel?.panelMethodText && previewData.panel?.panelMethodItalic ? ' (italic)' : ''}
                 </div>
+                {previewData.panel?.layoutType === 'IMAGING_NARRATIVE' && (
+                  <div className="col-span-2">
+                    <strong>Narrative Template:</strong> {hasMeaningfulRichText(previewData.panel?.narrativeTemplateHtml) ? 'Configured' : '\u2014'}
+                  </div>
+                )}
               </div>
               <Separator />
               {/* Render mock table matching the layout */}
@@ -1428,11 +1478,26 @@ export default function ManagePanelDefinitions() {
                     {previewData.tests?.length ? (
                       <>
                         <div className="font-medium">{previewData.tests[0]?.name || 'Test Name'}</div>
-                        <div className="min-h-[56px] rounded border border-dashed p-2 text-muted-foreground italic">
-                          {previewData.panel?.layoutType === 'IMAGING_NARRATIVE'
-                            ? 'Narrative text will appear here...'
-                            : 'Free text result...'}
-                        </div>
+                        {previewData.panel?.layoutType === 'IMAGING_NARRATIVE' ? (
+                          <div className="min-h-[96px] rounded border border-dashed bg-slate-50 p-3 text-slate-700">
+                            {hasMeaningfulRichText(previewData.panel?.narrativeTemplateHtml) ? (
+                              <div
+                                className="rich-text-preview"
+                                dangerouslySetInnerHTML={{
+                                  __html: sanitizeRichTextHtml(previewData.panel?.narrativeTemplateHtml),
+                                }}
+                              />
+                            ) : (
+                              <div className="italic text-muted-foreground">
+                                Narrative text will appear here...
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="min-h-[56px] rounded border border-dashed p-2 text-muted-foreground italic">
+                            Free text result...
+                          </div>
+                        )}
                       </>
                     ) : (
                       <p className="py-4 text-center text-muted-foreground">No backing test item configured</p>
