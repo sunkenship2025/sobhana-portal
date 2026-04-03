@@ -121,7 +121,7 @@ body.report-body {
   border-bottom: 0.5pt solid var(--color-border);
   padding-bottom: var(--spacing-xs);
   margin-bottom: var(--spacing-sm);
-  text-align: left;
+  text-align: center;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -143,6 +143,7 @@ body.report-body {
   background: transparent;
   border-left: none;
   color: var(--color-text);
+  text-align: center;
 }
 
 .panel-method {
@@ -157,7 +158,7 @@ body.report-body {
 }
 
 /* ============================================================================
-   RESULTS TABLE — LIS Standard: Test | Result | Unit | Ref Range | Flag
+   RESULTS TABLE — LIS Standard: Test | Result | Unit | Ref Range
    ============================================================================ */
 
 .results-table {
@@ -192,21 +193,19 @@ body.report-body {
   vertical-align: middle;
 }
 
-/* Column widths */
-.results-table .col-test { width: 45%; }
-.results-table .col-value { width: 12%; text-align: right; }
-.results-table .col-unit { width: 10%; }
-.results-table .col-ref { width: 23%; }
-.results-table .col-flag { width: 10%; text-align: center; font-weight: bold; }
+/* Column widths (4 columns: Test | Result | Unit | Ref Range) */
+.results-table .col-test { width: 40%; }
+.results-table .col-value { width: 15%; text-align: right; }
+.results-table .col-unit { width: 12%; }
+.results-table .col-ref { width: 33%; }
 
 /* Zebra striping */
 .results-table tbody tr.data-row:nth-child(even) {
   background: transparent;
 }
 
-/* Physical print is intentionally monochrome for clean B/W ledger output */
-.results-table .col-flag.abnormal {
-  color: var(--color-abnormal);
+/* Abnormal values (H/L) shown with bold result */
+.results-table .col-value.abnormal {
   font-weight: bold;
 }
 

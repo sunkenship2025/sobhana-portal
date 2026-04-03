@@ -5,9 +5,8 @@
  * Screen, digital PDF, and physical PDF share the same report fragments,
  * while the selected profile controls page grouping and stylesheet behavior.
  *
- * LIS-standard format: Test | Value | Unit | Reference Range | Flag
- * Flag column: H (high), L (low), empty (normal)
- * Abnormal values: red text with flag. Normal: black.
+ * LIS-standard format: Test | Value | Unit | Reference Range
+ * Abnormal values (H/L) shown in bold. Normal: regular weight.
  */
 
 import { ReportSnapshot, PanelSnapshot, TestResultSnapshot } from './reportSnapshotService';
@@ -162,10 +161,9 @@ function renderTestRow(test: TestResultSnapshot, indent: boolean = false): strin
   return `
       <tr class="data-row${indentClass}">
         <td class="col-test">${renderTestLabel(test)}</td>
-        <td class="col-value">${escapeHtml(valueDisplay)}</td>
+        <td class="col-value${isAbnormal ? ' abnormal' : ''}">${escapeHtml(valueDisplay)}</td>
         <td class="col-unit">${escapeHtml(test.referenceUnit) || ''}</td>
         <td class="col-ref">${formatReference(test.referenceMin, test.referenceMax, test.referenceText)}</td>
-        <td class="col-flag${isAbnormal ? ' abnormal' : ''}">${flag}</td>
       </tr>`;
 }
 
@@ -213,13 +211,13 @@ function renderStandardTable(panel: PanelSnapshot): string {
         if (group !== '__default__') {
           rowsHtml += `
       <tr class="section-divider">
-        <td colspan="5">${escapeHtml(group)}</td>
+        <td colspan="4">${escapeHtml(group)}</td>
       </tr>`;
           const sgMethod = panel.subgroupMethods?.[group];
           if (sgMethod) {
             rowsHtml += `
       <tr class="method-row">
-        <td colspan="5">Method : ${escapeHtml(sgMethod)}</td>
+        <td colspan="4">Method : ${escapeHtml(sgMethod)}</td>
       </tr>`;
           }
         }
@@ -247,7 +245,6 @@ function renderStandardTable(panel: PanelSnapshot): string {
           <th class="col-value">Result</th>
           <th class="col-unit">Unit</th>
           <th class="col-ref">Reference Range</th>
-          <th class="col-flag">Flag</th>
         </tr>
       </thead>
       <tbody>
@@ -285,16 +282,15 @@ function renderCBPTable(panel: PanelSnapshot): string {
       return `
       <tr class="data-row indent-1">
         <td class="col-test">${escapeHtml(t.testName)}</td>
-        <td class="col-value">${escapeHtml(valueDisplay)}</td>
+        <td class="col-value${isAbnormal ? ' abnormal' : ''}">${escapeHtml(valueDisplay)}</td>
         <td class="col-unit">${escapeHtml(t.referenceUnit) || '%'}</td>
         <td class="col-ref">${formatReference(t.referenceMin, t.referenceMax, t.referenceText)}</td>
-        <td class="col-flag${isAbnormal ? ' abnormal' : ''}">${flag}</td>
       </tr>`;
     }).join('');
 
     diffSection = `
       <tr class="section-divider">
-        <td colspan="5">DIFFERENTIAL COUNT</td>
+        <td colspan="4">DIFFERENTIAL COUNT</td>
       </tr>
       ${diffRows}`;
   }
@@ -330,7 +326,6 @@ function renderCBPTable(panel: PanelSnapshot): string {
           <th class="col-value">Result</th>
           <th class="col-unit">Unit</th>
           <th class="col-ref">Reference Range</th>
-          <th class="col-flag">Flag</th>
         </tr>
       </thead>
       <tbody>
@@ -380,7 +375,6 @@ function renderInterpretationSingle(panel: PanelSnapshot): string {
           <th class="col-value">Result</th>
           <th class="col-unit">Unit</th>
           <th class="col-ref">Reference Range</th>
-          <th class="col-flag">Flag</th>
         </tr>
       </thead>
       <tbody>
