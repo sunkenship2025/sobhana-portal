@@ -6,7 +6,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { RichTextNarrativeEditor } from '@/components/diagnostics/RichTextNarrativeEditor';
 import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
@@ -110,9 +109,9 @@ interface Visit {
 }
 
 const DERIVED_MANUAL_OVERRIDE_NOTE = '__DERIVED_MANUAL_OVERRIDE__';
-const TEXT_LAYOUT_ROWS: Record<string, number> = {
-  TEXT_ONLY: 4,
-};
+function isRichTextPanelLayout(layoutType?: string | null): boolean {
+  return layoutType === 'TEXT_ONLY' || layoutType === 'IMAGING_NARRATIVE';
+}
 
 function normalizeNarrativeContent(value?: string | null): string {
   const trimmed = value?.trim();
@@ -130,7 +129,7 @@ function hasResultValue(value: string | undefined, layoutType?: string): boolean
     return false;
   }
 
-  if (layoutType === 'IMAGING_NARRATIVE') {
+  if (isRichTextPanelLayout(layoutType)) {
     return hasMeaningfulRichText(value);
   }
 
@@ -364,7 +363,7 @@ const DiagnosticsResultEntry = () => {
 
               targetIds.forEach((targetId) => {
                 fetchedTextLayoutByTestId.set(targetId, layoutType);
-                if (layoutType === 'IMAGING_NARRATIVE') {
+                if (isRichTextPanelLayout(layoutType)) {
                   fetchedNarrativeTemplateByTestId.set(
                     targetId,
                     normalizeNarrativeContent(order.panel?.narrativeTemplateHtml)
@@ -384,7 +383,7 @@ const DiagnosticsResultEntry = () => {
               const layoutType = fetchedTextLayoutByTestId.get(r.testId);
               if (r.textValue) {
                 initialResults[r.testId] =
-                  layoutType === 'IMAGING_NARRATIVE'
+                  isRichTextPanelLayout(layoutType)
                     ? normalizeNarrativeContent(r.textValue)
                     : r.textValue;
               } else if (r.value !== null) {
@@ -537,7 +536,7 @@ const DiagnosticsResultEntry = () => {
         .map((test) => {
           const layoutType = textLayoutByTestId.get(test.testId);
           const rawValue = results[test.testId];
-          const valueStr = layoutType === 'IMAGING_NARRATIVE'
+          const valueStr = isRichTextPanelLayout(layoutType)
             ? normalizeNarrativeContent(rawValue)
             : rawValue;
           const forceTextValue = textLayoutByTestId.has(test.testId);
@@ -712,44 +711,6 @@ const DiagnosticsResultEntry = () => {
             )}
           </div>
         </div>
-      </div>
-    );
-  };
-
-  const renderTextareaInput = (
-    testId: string,
-    testName: string,
-    testCode: string,
-    rows: number,
-    placeholder: string,
-    isSubTest: boolean = false
-  ) => {
-    const valueStr = results[testId] || '';
-
-    return (
-      <div
-        key={testId}
-        className={cn(
-          'space-y-2 border-b py-3 last:border-0',
-          isSubTest ? 'md:pl-4' : ''
-        )}
-      >
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <Label className={cn('font-medium', isSubTest ? 'text-sm' : 'text-base')}>
-              {testName}
-            </Label>
-            <span className="text-xs text-muted-foreground">({testCode})</span>
-          </div>
-        </div>
-
-        <Textarea
-          rows={rows}
-          placeholder={placeholder}
-          value={valueStr}
-          onChange={(e) => handleValueChange(testId, e.target.value)}
-          className="resize-y"
-        />
       </div>
     );
   };
@@ -999,23 +960,14 @@ const DiagnosticsResultEntry = () => {
                             <div className="bg-card p-4">
                               {panelGroup.orders.map((order) => {
                                 const textLayout = textLayoutByTestId.get(order.testId);
-                                if (textLayout === 'IMAGING_NARRATIVE') {
+                                if (isRichTextPanelLayout(textLayout)) {
                                   return renderNarrativeInput(
                                     order.testId,
                                     order.testName,
                                     order.testCode,
-                                    'Enter narrative report...',
-                                    true
-                                  );
-                                }
-
-                                if (textLayout) {
-                                  return renderTextareaInput(
-                                    order.testId,
-                                    order.testName,
-                                    order.testCode,
-                                    TEXT_LAYOUT_ROWS[textLayout] || 4,
-                                    'Enter text result...',
+                                    textLayout === 'IMAGING_NARRATIVE'
+                                      ? 'Enter narrative report...'
+                                      : 'Enter text result...',
                                     true
                                   );
                                 }
@@ -1090,23 +1042,14 @@ const DiagnosticsResultEntry = () => {
                               <div className="bg-card p-4">
                                 {order.childTests.map((child) => {
                                   const textLayout = textLayoutByTestId.get(child.id);
-                                  if (textLayout === 'IMAGING_NARRATIVE') {
+                                  if (isRichTextPanelLayout(textLayout)) {
                                     return renderNarrativeInput(
                                       child.id,
                                       child.name,
                                       child.code,
-                                      'Enter narrative report...',
-                                      true
-                                    );
-                                  }
-
-                                  if (textLayout) {
-                                    return renderTextareaInput(
-                                      child.id,
-                                      child.name,
-                                      child.code,
-                                      TEXT_LAYOUT_ROWS[textLayout] || 4,
-                                      'Enter text result...',
+                                      textLayout === 'IMAGING_NARRATIVE'
+                                        ? 'Enter narrative report...'
+                                        : 'Enter text result...',
                                       true
                                     );
                                   }
@@ -1139,22 +1082,14 @@ const DiagnosticsResultEntry = () => {
                             <div className="p-4">
                               {(() => {
                                 const textLayout = textLayoutByTestId.get(order.testId);
-                                if (textLayout === 'IMAGING_NARRATIVE') {
+                                if (isRichTextPanelLayout(textLayout)) {
                                   return renderNarrativeInput(
                                     order.testId,
                                     order.testName,
                                     order.testCode,
-                                    'Enter narrative report...'
-                                  );
-                                }
-
-                                if (textLayout) {
-                                  return renderTextareaInput(
-                                    order.testId,
-                                    order.testName,
-                                    order.testCode,
-                                    TEXT_LAYOUT_ROWS[textLayout] || 4,
-                                    'Enter text result...'
+                                    textLayout === 'IMAGING_NARRATIVE'
+                                      ? 'Enter narrative report...'
+                                      : 'Enter text result...'
                                   );
                                 }
 

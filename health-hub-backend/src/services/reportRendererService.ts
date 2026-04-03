@@ -673,11 +673,13 @@ function renderTextOnly(panel: PanelSnapshot): string {
   const test = panel.tests[0];
   if (!test) return '';
   const displayValue = test.textValue ?? test.notes ?? (test.value !== null ? formatNumericValue(test.value) : '');
+  const contentHtml = renderNarrativeContent(displayValue);
+  const isRichText = /<\/?[a-z][\s\S]*>/i.test(displayValue);
 
   return `
     <div class="text-only-result">
-      <strong>${escapeHtml(test.testName)}:</strong>
-      <span class="result-text">${formatTextBlock(displayValue)}</span>
+      <strong class="text-only-label">${escapeHtml(test.testName)}:</strong>
+      <div class="result-text${isRichText ? ' text-only-rich-text' : ''}">${contentHtml}</div>
     </div>`;
 }
 
