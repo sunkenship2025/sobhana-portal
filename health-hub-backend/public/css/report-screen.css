@@ -304,7 +304,7 @@ body.report-body {
 
 /* Values — clean black text */
 .results-table td.col-value {
-  font-weight: 600;
+  font-weight: normal;
   color: var(--color-text);
 }
 
