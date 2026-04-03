@@ -226,6 +226,7 @@ export interface ClinicalPanel {
   isActive: boolean;
   panelMethodText: string | null;
   panelMethodItalic: boolean;
+  narrativeTemplateHtml: string | null;
   summaryInterpretationTemplate: string | null;
   createdAt: string;
   updatedAt: string;

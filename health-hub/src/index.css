@@ -430,5 +430,88 @@
   .flag-low {
     color: hsl(var(--flag-low));
     @apply font-semibold;
+}
+
+  .rich-text-narrative-editor {
+    position: relative;
+    font-family: Calibri, Arial, sans-serif;
+  }
+
+  .rich-text-narrative-editor[data-empty="true"]::before {
+    content: attr(data-placeholder);
+    position: absolute;
+    top: 20px;
+    left: 24px;
+    color: #94a3b8;
+    pointer-events: none;
+  }
+
+  .rich-text-narrative-editor p,
+  .rich-text-narrative-editor div,
+  .rich-text-narrative-editor ul,
+  .rich-text-narrative-editor ol,
+  .rich-text-narrative-editor h1,
+  .rich-text-narrative-editor h2,
+  .rich-text-narrative-editor h3,
+  .rich-text-narrative-editor h4,
+  .rich-text-preview p,
+  .rich-text-preview div,
+  .rich-text-preview ul,
+  .rich-text-preview ol,
+  .rich-text-preview h1,
+  .rich-text-preview h2,
+  .rich-text-preview h3,
+  .rich-text-preview h4 {
+    margin: 0 0 0.75rem;
+  }
+
+  .rich-text-narrative-editor p:last-child,
+  .rich-text-narrative-editor div:last-child,
+  .rich-text-narrative-editor ul:last-child,
+  .rich-text-narrative-editor ol:last-child,
+  .rich-text-narrative-editor h1:last-child,
+  .rich-text-narrative-editor h2:last-child,
+  .rich-text-narrative-editor h3:last-child,
+  .rich-text-narrative-editor h4:last-child,
+  .rich-text-preview p:last-child,
+  .rich-text-preview div:last-child,
+  .rich-text-preview ul:last-child,
+  .rich-text-preview ol:last-child,
+  .rich-text-preview h1:last-child,
+  .rich-text-preview h2:last-child,
+  .rich-text-preview h3:last-child,
+  .rich-text-preview h4:last-child {
+    margin-bottom: 0;
+  }
+
+  .rich-text-narrative-editor ul,
+  .rich-text-narrative-editor ol,
+  .rich-text-preview ul,
+  .rich-text-preview ol {
+    padding-left: 1.5rem;
+  }
+
+  .rich-text-narrative-editor h1,
+  .rich-text-preview h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+  }
+
+  .rich-text-narrative-editor h2,
+  .rich-text-preview h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+  }
+
+  .rich-text-narrative-editor h3,
+  .rich-text-preview h3 {
+    font-size: 1.125rem;
+    font-weight: 700;
+  }
+
+  .rich-text-narrative-editor h4,
+  .rich-text-preview h4 {
+    font-size: 1rem;
+    font-weight: 700;
   }
 }
