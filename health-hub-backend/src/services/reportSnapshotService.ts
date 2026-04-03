@@ -473,6 +473,14 @@ const testOrderIncludeForDerived = {
       },
     },
   },
+  // Include product→panels to determine which panels were actually ordered
+  product: {
+    include: {
+      panels: {
+        select: { panelId: true },
+      },
+    },
+  },
 } as const;
 
 async function backfillDerivedResults(
@@ -671,7 +679,8 @@ function applyResolvedFlagsToResults(
  */
 function buildPanelsAndDepartments(
   testResults: any[],
-  resolvedRanges: Map<string, { referenceMin: number | null; referenceMax: number | null; referenceUnit: string | null; referenceText: string | null; criticalMin: number | null; criticalMax: number | null }>
+  resolvedRanges: Map<string, { referenceMin: number | null; referenceMax: number | null; referenceUnit: string | null; referenceText: string | null; criticalMin: number | null; criticalMax: number | null }>,
+  orderedPanelIds?: Set<string>
 ): DepartmentSnapshot[] {
   const panelMap = new Map<string, { panel: any; results: any[] }>();
 
@@ -687,6 +696,11 @@ function buildPanelsAndDepartments(
       for (const panelItem of testDef.panelItems) {
         const panel = panelItem.panel;
         const key = panel.id;
+
+        // Skip panels that were not ordered (prevents duplicate panels)
+        if (orderedPanelIds && !orderedPanelIds.has(key)) {
+          continue;
+        }
 
         if (!panelMap.has(key)) {
           panelMap.set(key, { panel, results: [] });
@@ -978,7 +992,21 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
     resolvedRanges
   );
 
-  const departments = buildPanelsAndDepartments(flaggedResults as any[], resolvedRanges);
+  // Extract ordered panel IDs from test orders (prevents showing unordered panels)
+  const orderedPanelIds = new Set<string>();
+  for (const order of visit.testOrders) {
+    if (order.product?.panels) {
+      for (const pp of order.product.panels) {
+        orderedPanelIds.add(pp.panelId);
+      }
+    }
+  }
+
+  const departments = buildPanelsAndDepartments(
+    flaggedResults as any[],
+    resolvedRanges,
+    orderedPanelIds.size > 0 ? orderedPanelIds : undefined
+  );
 
   // ============================================================================
   // BUILD SIGNATURE SNAPSHOTS
@@ -1118,7 +1146,21 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
     resolvedRanges
   );
 
-  const departments = buildPanelsAndDepartments(flaggedResults as any[], resolvedRanges);
+  // Extract ordered panel IDs from test orders (prevents showing unordered panels)
+  const orderedPanelIds = new Set<string>();
+  for (const order of visit.testOrders) {
+    if (order.product?.panels) {
+      for (const pp of order.product.panels) {
+        orderedPanelIds.add(pp.panelId);
+      }
+    }
+  }
+
+  const departments = buildPanelsAndDepartments(
+    flaggedResults as any[],
+    resolvedRanges,
+    orderedPanelIds.size > 0 ? orderedPanelIds : undefined
+  );
   const signatures = await getLiveSignatureSnapshotsForDepartments(
     departments.map(department => department.departmentId),
   );
