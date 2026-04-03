@@ -2,9 +2,9 @@
  * E3-10: Report Screen CSS — LIS Standard Format
  *
  * Clean, scannable lab report layout.
- * - 5-column table: Test | Result | Unit | Reference Range | Flag
+ * - 4-column table: Test | Result | Unit | Reference Range
  * - Zebra striping for readability
- * - Flag column (H/L) in red for abnormal values
+ * - Abnormal values (H/L) shown in bold
  * - Peripheral smear as separate non-table section
  */
 
@@ -216,7 +216,7 @@ body.report-body {
   border-bottom: 1.5px solid var(--color-primary);
   padding-bottom: 3px;
   margin-bottom: 8px;
-  text-align: left;
+  text-align: center;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -236,7 +236,8 @@ body.report-body {
   margin-bottom: 4px;
   padding: 3px 8px;
   background: var(--color-section-bg);
-  border-left: 3px solid var(--color-primary);
+  border-left: none;
+  text-align: center;
 }
 
 .panel-method {
@@ -251,7 +252,7 @@ body.report-body {
 }
 
 /* ============================================================================
-   RESULTS TABLE — LIS Standard: Test | Result | Unit | Ref Range | Flag
+   RESULTS TABLE — LIS Standard: Test | Result | Unit | Ref Range
    ============================================================================ */
 
 .results-table {
@@ -283,12 +284,11 @@ body.report-body {
   vertical-align: middle;
 }
 
-/* Column widths — LIS proportions */
-.results-table .col-test { width: 45%; }
-.results-table .col-value { width: 12%; text-align: right; }
-.results-table .col-unit { width: 10%; }
-.results-table .col-ref { width: 23%; }
-.results-table .col-flag { width: 10%; text-align: center; font-weight: bold; }
+/* Column widths (4 columns: Test | Result | Unit | Ref Range) */
+.results-table .col-test { width: 40%; }
+.results-table .col-value { width: 15%; text-align: right; }
+.results-table .col-unit { width: 12%; }
+.results-table .col-ref { width: 33%; }
 
 /* Zebra striping */
 .results-table tbody tr.data-row:nth-child(even) {
@@ -307,9 +307,8 @@ body.report-body {
   color: var(--color-text);
 }
 
-/* Abnormal flags in red */
-.results-table .col-flag.abnormal {
-  color: var(--color-abnormal);
+/* Abnormal values shown bold */
+.results-table .col-value.abnormal {
   font-weight: bold;
 }
 
