@@ -101,6 +101,10 @@ const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
 
 const SAMPLE_TYPES = ['WB-EDTA', 'Serum', 'Plasma', 'Urine', 'CSF', 'Synovial Fluid', 'Semen', 'Other'];
 
+function supportsRichTextTemplate(layoutType: string): boolean {
+  return layoutType === 'TEXT_ONLY' || layoutType === 'IMAGING_NARRATIVE';
+}
+
 function getLayoutItemConstraintMessage(layoutType: string, itemCount: number): string | null {
   switch (layoutType) {
     case 'TEXT_ONLY':
@@ -574,7 +578,7 @@ export default function ManagePanelDefinitions() {
         valueDisplayPrefix: formValuePrefix || null,
         panelMethodText: formPanelMethodText.trim() || null,
         panelMethodItalic: formPanelMethodItalic,
-        narrativeTemplateHtml: formLayout === 'IMAGING_NARRATIVE'
+        narrativeTemplateHtml: supportsRichTextTemplate(formLayout)
           ? normalizeRichTextForStorage(formNarrativeTemplateHtml) || null
           : null,
         summaryInterpretationTemplate: formTemplate || null,
@@ -1049,16 +1053,20 @@ export default function ManagePanelDefinitions() {
                 </div>
               )}
 
-              {formLayout === 'IMAGING_NARRATIVE' && (
+              {supportsRichTextTemplate(formLayout) && (
                 <div className="space-y-2">
-                  <Label>Imaging Narrative Template</Label>
+                  <Label>{formLayout === 'IMAGING_NARRATIVE' ? 'Imaging Narrative Template' : 'Text Result Template'}</Label>
                   <p className="text-xs text-muted-foreground">
                     Save the default rich-text report body here. It will appear automatically when users open Enter Test Results for this panel.
                   </p>
                   <RichTextNarrativeEditor
                     value={formNarrativeTemplateHtml}
                     onChange={setFormNarrativeTemplateHtml}
-                    placeholder="Create the default radiology narrative for this panel..."
+                    placeholder={
+                      formLayout === 'IMAGING_NARRATIVE'
+                        ? 'Create the default radiology narrative for this panel...'
+                        : 'Create the default rich-text result template for this panel...'
+                    }
                     minHeightClassName="min-h-[240px]"
                   />
                 </div>
@@ -1264,26 +1272,22 @@ export default function ManagePanelDefinitions() {
                           <div className="font-medium text-xs mb-1">
                             {availableDefs.find(d => d.id === formItems[0]?.testDefinitionId)?.name || 'Test Name'}
                           </div>
-                          {formLayout === 'IMAGING_NARRATIVE' ? (
-                            <div className="min-h-[96px] rounded border border-dashed bg-slate-50 p-3 text-[11px] text-slate-700">
-                              {hasMeaningfulRichText(formNarrativeTemplateHtml) ? (
-                                <div
-                                  className="rich-text-preview"
-                                  dangerouslySetInnerHTML={{
-                                    __html: sanitizeRichTextHtml(formNarrativeTemplateHtml),
-                                  }}
-                                />
-                              ) : (
-                                <div className="italic text-muted-foreground">
-                                  Narrative text will appear here...
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="border border-dashed rounded p-2 text-muted-foreground italic text-[11px] min-h-[40px]">
-                              Free text result...
-                            </div>
-                          )}
+                          <div className="min-h-[96px] rounded border border-dashed bg-slate-50 p-3 text-[11px] text-slate-700">
+                            {hasMeaningfulRichText(formNarrativeTemplateHtml) ? (
+                              <div
+                                className="rich-text-preview"
+                                dangerouslySetInnerHTML={{
+                                  __html: sanitizeRichTextHtml(formNarrativeTemplateHtml),
+                                }}
+                              />
+                            ) : (
+                              <div className="italic text-muted-foreground">
+                                {formLayout === 'IMAGING_NARRATIVE'
+                                  ? 'Narrative text will appear here...'
+                                  : 'Text result template will appear here...'}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       ) : (
                         <p className="text-muted-foreground text-center py-4">Add exactly one backing test item</p>
@@ -1460,9 +1464,9 @@ export default function ManagePanelDefinitions() {
                   <strong>Panel Method:</strong> {previewData.panel?.panelMethodText || '\u2014'}
                   {previewData.panel?.panelMethodText && previewData.panel?.panelMethodItalic ? ' (italic)' : ''}
                 </div>
-                {previewData.panel?.layoutType === 'IMAGING_NARRATIVE' && (
+                {supportsRichTextTemplate(previewData.panel?.layoutType) && (
                   <div className="col-span-2">
-                    <strong>Narrative Template:</strong> {hasMeaningfulRichText(previewData.panel?.narrativeTemplateHtml) ? 'Configured' : '\u2014'}
+                    <strong>Template:</strong> {hasMeaningfulRichText(previewData.panel?.narrativeTemplateHtml) ? 'Configured' : '\u2014'}
                   </div>
                 )}
               </div>
@@ -1478,26 +1482,22 @@ export default function ManagePanelDefinitions() {
                     {previewData.tests?.length ? (
                       <>
                         <div className="font-medium">{previewData.tests[0]?.name || 'Test Name'}</div>
-                        {previewData.panel?.layoutType === 'IMAGING_NARRATIVE' ? (
-                          <div className="min-h-[96px] rounded border border-dashed bg-slate-50 p-3 text-slate-700">
-                            {hasMeaningfulRichText(previewData.panel?.narrativeTemplateHtml) ? (
-                              <div
-                                className="rich-text-preview"
-                                dangerouslySetInnerHTML={{
-                                  __html: sanitizeRichTextHtml(previewData.panel?.narrativeTemplateHtml),
-                                }}
-                              />
-                            ) : (
-                              <div className="italic text-muted-foreground">
-                                Narrative text will appear here...
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="min-h-[56px] rounded border border-dashed p-2 text-muted-foreground italic">
-                            Free text result...
-                          </div>
-                        )}
+                        <div className="min-h-[96px] rounded border border-dashed bg-slate-50 p-3 text-slate-700">
+                          {hasMeaningfulRichText(previewData.panel?.narrativeTemplateHtml) ? (
+                            <div
+                              className="rich-text-preview"
+                              dangerouslySetInnerHTML={{
+                                __html: sanitizeRichTextHtml(previewData.panel?.narrativeTemplateHtml),
+                              }}
+                            />
+                          ) : (
+                            <div className="italic text-muted-foreground">
+                              {previewData.panel?.layoutType === 'IMAGING_NARRATIVE'
+                                ? 'Narrative text will appear here...'
+                                : 'Text result template will appear here...'}
+                            </div>
+                          )}
+                        </div>
                       </>
                     ) : (
                       <p className="py-4 text-center text-muted-foreground">No backing test item configured</p>

@@ -51,20 +51,6 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
                 Reg No: {clinicDoctor?.registrationNumber || '________________'}
               </p>
             </div>
-
-            <div className="clinic-rx-vitals-box">
-              <div className="clinic-rx-vitals-grid">
-                {['BP', 'Pulse', 'Wt', 'Temp', 'SPO2'].map((label) => (
-                  <div
-                    key={label}
-                    className={`clinic-rx-vital-field${label === 'SPO2' ? ' clinic-rx-vital-field-wide' : ''}`}
-                  >
-                    <span className="clinic-rx-vital-label">{label}</span>
-                    <span className="clinic-rx-vital-line" aria-hidden="true"></span>
-                  </div>
-                ))}
-              </div>
-            </div>
           </div>
 
           <div className="clinic-rx-body">
@@ -76,7 +62,7 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
                 </div>
                 <div className="clinic-rx-patient-row">
                   <span className="clinic-rx-patient-label">Patient Name</span>
-                  <span className="clinic-rx-patient-value">{patient.name.toUpperCase()}</span>
+                  <span className="clinic-rx-patient-value clinic-rx-patient-name">{patient.name.toUpperCase()}</span>
                 </div>
                 <div className="clinic-rx-patient-row">
                   <span className="clinic-rx-patient-label">Age/Sex</span>
@@ -84,7 +70,7 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
                 </div>
               </div>
 
-              <div className="clinic-rx-patient-column clinic-rx-patient-column-right">
+              <div className="clinic-rx-patient-column">
                 <div className="clinic-rx-patient-row">
                   <span className="clinic-rx-patient-label">Date &amp; Time</span>
                   <span className="clinic-rx-patient-value">{visitDateTimeStr}</span>
@@ -100,13 +86,26 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
               </div>
             </div>
 
+            <div className="clinic-rx-vitals-strip">
+              <div className="clinic-rx-vitals-grid">
+                {['BP', 'Pulse', 'Wt', 'Temp', 'SPO2'].map((label) => (
+                  <div
+                    key={label}
+                    className={`clinic-rx-vital-field${label === 'SPO2' ? ' clinic-rx-vital-field-wide' : ''}`}
+                  >
+                    <span className="clinic-rx-vital-label">{label}</span>
+                    <span className="clinic-rx-vital-line" aria-hidden="true"></span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="clinic-rx-script">
               <div className="clinic-rx-symbol">℞</div>
               <div className="clinic-rx-writing-area" aria-hidden="true"></div>
             </div>
 
             <div className="clinic-rx-signature">
-              <div className="clinic-rx-signature-line"></div>
               <p className="clinic-rx-signature-label">Doctor&apos;s Signature</p>
             </div>
           </div>
