@@ -54,6 +54,10 @@ body.report-body {
 }
 
 .report-page { width: 100%; }
+.report-page:not(:last-child) {
+  page-break-after: always;
+  break-after: page;
+}
 .report-content {
   width: 100%;
   padding-top: 3mm;
@@ -111,7 +115,8 @@ body.report-body {
 
 .department {
   margin-bottom: var(--spacing-lg);
-  page-break-inside: avoid;
+  page-break-inside: auto;
+  break-inside: auto;
 }
 
 .department-header {
@@ -131,7 +136,7 @@ body.report-body {
    ============================================================================ */
 
 .panel {
-  margin-bottom: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
   page-break-inside: avoid;
 }
 
@@ -164,7 +169,7 @@ body.report-body {
 .results-table {
   width: 100%;
   border-collapse: collapse;
-  margin-bottom: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
   font-size: 8.5pt;
 }
 
@@ -511,16 +516,10 @@ body.report-body {
    PAGE BREAKS - using both legacy and modern syntax for compatibility
    ============================================================================ */
 
-/* Departments don't split internally */
+/* Departments can flow across pages when they are taller than a single sheet */
 .department {
-  page-break-inside: avoid;
-  break-inside: avoid;
-}
-
-/* Each new department starts on a fresh page (except first) */
-.department:not(:first-child) {
-  page-break-before: always !important;
-  break-before: page !important;
+  page-break-inside: auto;
+  break-inside: auto;
 }
 
 /* Keep department header with its first panel (no orphaned headers) */

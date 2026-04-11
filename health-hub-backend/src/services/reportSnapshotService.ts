@@ -88,6 +88,8 @@ export interface DepartmentSnapshot {
 }
 
 export interface SignatureSnapshot {
+  departmentId?: string;
+  departmentName?: string;
   doctorId: string;
   doctorName: string;
   degrees: string;
@@ -188,32 +190,32 @@ async function getLiveSignatureSnapshotsForDepartments(departmentIds: string[]):
       isActive: true,
     },
     include: {
+      department: true,
       signingDoctor: true,
     },
-    orderBy: { displayOrder: 'asc' },
+    orderBy: [
+      { departmentId: 'asc' },
+      { displayOrder: 'asc' },
+    ],
   });
 
-  const signatureMap = new Map<string, SignatureSnapshot>();
-
-  for (const rule of signingRules) {
+  return signingRules.map((rule) => {
     const doc = rule.signingDoctor;
-    if (!signatureMap.has(doc.id)) {
-      signatureMap.set(doc.id, {
-        doctorId: doc.id,
-        doctorName: doc.name,
-        degrees: doc.degrees,
-        designation: doc.designation,
-        registrationNumber: doc.registrationNumber,
-        signatureImagePath: doc.signatureImagePath,
-        signatureImageBase64: doc.signatureImageBase64 || null,
-        showLabInchargeNote: rule.showLabInchargeNote,
-        displayOrder: rule.displayOrder,
-      });
-    }
-  }
 
-  return Array.from(signatureMap.values())
-    .sort((a, b) => a.displayOrder - b.displayOrder);
+    return {
+      departmentId: rule.departmentId,
+      departmentName: rule.department.name,
+      doctorId: doc.id,
+      doctorName: doc.name,
+      degrees: doc.degrees,
+      designation: doc.designation,
+      registrationNumber: doc.registrationNumber,
+      signatureImagePath: doc.signatureImagePath,
+      signatureImageBase64: doc.signatureImageBase64 || null,
+      showLabInchargeNote: rule.showLabInchargeNote,
+      displayOrder: rule.displayOrder,
+    };
+  });
 }
 
 async function backfillStoredSignatureAssets(signatures: SignatureSnapshot[]): Promise<SignatureSnapshot[]> {
@@ -1253,7 +1255,9 @@ export async function getReportSnapshot(reportVersionId: string): Promise<Report
 
   const departments = reportVersion.panelsSnapshot as unknown as DepartmentSnapshot[];
   const storedSignatures = (reportVersion.signaturesSnapshot || []) as unknown as SignatureSnapshot[];
-  const signatures = storedSignatures.length > 0
+  const hasDepartmentScopedSignatures = storedSignatures.length > 0
+    && storedSignatures.every((signature) => Boolean(signature.departmentId));
+  const signatures = hasDepartmentScopedSignatures
     ? await backfillStoredSignatureAssets(storedSignatures)
     : await getLiveSignatureSnapshotsForDepartments(departments.map(department => department.departmentId));
 

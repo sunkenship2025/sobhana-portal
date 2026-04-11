@@ -9,7 +9,7 @@
  * Abnormal values (H/L) shown in bold. Normal: regular weight.
  */
 
-import { ReportSnapshot, PanelSnapshot, TestResultSnapshot } from './reportSnapshotService';
+import { ReportSnapshot, PanelSnapshot, TestResultSnapshot, SignatureSnapshot } from './reportSnapshotService';
 import fs from 'fs';
 import path from 'path';
 
@@ -795,14 +795,16 @@ interface ResolvedProfile {
 interface ReportFragments {
   headerHtml: string;
   patientInfoHtml: string;
-  reportBottomHtml: string;
   footerHtml: string;
+  qrImgSrc: string;
 }
 
 interface ReportPageModel {
+  departmentId: string | null;
   departmentHtml: string;
   includePatientInfo: boolean;
   includeReportBottom: boolean;
+  includeQr: boolean;
 }
 
 function resolveProfile(profile: RenderProfile): ResolvedProfile {
@@ -921,6 +923,24 @@ function renderPatientInfoHtml(snapshot: ReportSnapshot, sampleTypes: string[]):
       </section>`;
 }
 
+function renderSignatureBlocks(signatures: SignatureSnapshot[], baseUrl: string): string {
+  return signatures.map(sig => {
+    // Priority: base64 from DB (render-safe) → inline from disk (local dev) → absolute URL fallback
+    const sigImgSrc = sig.signatureImageBase64
+      || inlineSignatureImage(sig.signatureImagePath)
+      || (sig.signatureImagePath ? `${baseUrl}${escapeHtml(sig.signatureImagePath)}` : '');
+
+    return `
+    <div class="signature-block">
+      ${sigImgSrc ? `<img src="${sigImgSrc}" alt="Signature" class="signature-image" onerror="this.style.display='none'" />` : ''}
+      <div class="doctor-name">${escapeHtml(sig.doctorName)}</div>
+      <div class="doctor-degrees">${escapeHtml(sig.degrees)}</div>
+      <div class="doctor-designation">${escapeHtml(sig.designation)}</div>
+      ${sig.registrationNumber ? `<div class="doctor-reg">Reg. No: ${escapeHtml(sig.registrationNumber)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
 function renderReportBottomHtml(signatureBlocks: string, qrImgSrc: string): string {
   return `
       <div class="report-note">
@@ -969,22 +989,6 @@ function renderFooterHtml(): string {
 }
 
 function buildReportFragments(snapshot: ReportSnapshot, baseUrl: string, qrDataUrl: string): ReportFragments {
-  const signatureBlocks = snapshot.signatures.map(sig => {
-    // Priority: base64 from DB (Render-safe) → inline from disk (local dev) → absolute URL fallback
-    const sigImgSrc = sig.signatureImageBase64
-      || inlineSignatureImage(sig.signatureImagePath)
-      || (sig.signatureImagePath ? `${baseUrl}${escapeHtml(sig.signatureImagePath)}` : '');
-
-    return `
-    <div class="signature-block">
-      ${sigImgSrc ? `<img src="${sigImgSrc}" alt="Signature" class="signature-image" onerror="this.style.display='none'" />` : ''}
-      <div class="doctor-name">${escapeHtml(sig.doctorName)}</div>
-      <div class="doctor-degrees">${escapeHtml(sig.degrees)}</div>
-      <div class="doctor-designation">${escapeHtml(sig.designation)}</div>
-      ${sig.registrationNumber ? `<div class="doctor-reg">Reg. No: ${escapeHtml(sig.registrationNumber)}</div>` : ''}
-    </div>`;
-  }).join('');
-
   const sampleTypes = [...new Set(
     snapshot.departments
       .flatMap(department => department.panels.map(panel => panel.sampleType))
@@ -994,42 +998,94 @@ function buildReportFragments(snapshot: ReportSnapshot, baseUrl: string, qrDataU
   return {
     headerHtml: renderHeaderHtml(baseUrl, qrDataUrl),
     patientInfoHtml: renderPatientInfoHtml(snapshot, sampleTypes),
-    reportBottomHtml: renderReportBottomHtml(signatureBlocks, qrDataUrl),
     footerHtml: renderFooterHtml(),
+    qrImgSrc: qrDataUrl,
   };
+}
+
+function shouldIsolatePanel(panel: PanelSnapshot): boolean {
+  return panel.tests.length >= 2;
+}
+
+function splitDepartmentIntoPanelGroups(department: ReportSnapshot['departments'][number]): PanelSnapshot[][] {
+  const groups: PanelSnapshot[][] = [];
+  let groupedSingles: PanelSnapshot[] = [];
+
+  for (const panel of department.panels) {
+    if (shouldIsolatePanel(panel)) {
+      if (groupedSingles.length > 0) {
+        groups.push(groupedSingles);
+        groupedSingles = [];
+      }
+      groups.push([panel]);
+      continue;
+    }
+
+    groupedSingles.push(panel);
+  }
+
+  if (groupedSingles.length > 0) {
+    groups.push(groupedSingles);
+  }
+
+  return groups.length > 0 ? groups : [department.panels];
 }
 
 function buildReportPages(
   snapshot: ReportSnapshot,
   profile: RenderProfile,
-  renderDepartmentSection: (department: ReportSnapshot['departments'][number]) => string,
+  renderDepartmentSection: (
+    department: ReportSnapshot['departments'][number],
+    panels: PanelSnapshot[],
+  ) => string,
 ): ReportPageModel[] {
-  const departmentHtml = snapshot.departments.map(renderDepartmentSection);
-
-  if (profile === 'pdf-physical') {
+  if (snapshot.departments.length === 0) {
     return [{
-      departmentHtml: departmentHtml.join(''),
-      includePatientInfo: true,
-      includeReportBottom: true,
-    }];
-  }
-
-  if (departmentHtml.length === 0) {
-    return [{
+      departmentId: null,
       departmentHtml: '',
       includePatientInfo: true,
       includeReportBottom: true,
+      includeQr: true,
     }];
   }
 
-  return departmentHtml.map((departmentSection, index, allDepartments) => ({
-    departmentHtml: departmentSection,
-    includePatientInfo: index === 0,
-    includeReportBottom: index === allDepartments.length - 1,
-  }));
+  const pages: ReportPageModel[] = [];
+
+  snapshot.departments.forEach((department, departmentIndex) => {
+    const panelGroups = splitDepartmentIntoPanelGroups(department);
+
+    panelGroups.forEach((panels, groupIndex) => {
+      const isFirstPage = pages.length === 0;
+      const isLastDepartment = departmentIndex === snapshot.departments.length - 1;
+      const isLastGroupForDepartment = groupIndex === panelGroups.length - 1;
+
+      pages.push({
+        departmentId: department.departmentId,
+        departmentHtml: renderDepartmentSection(department, panels),
+        includePatientInfo: isFirstPage,
+        includeReportBottom: isLastGroupForDepartment,
+        includeQr: profile === 'pdf-physical' && isLastDepartment && isLastGroupForDepartment,
+      });
+    });
+  });
+
+  return pages;
 }
 
-function renderReportPage(page: ReportPageModel, fragments: ReportFragments): string {
+function renderReportPage(
+  page: ReportPageModel,
+  fragments: ReportFragments,
+  snapshot: ReportSnapshot,
+  baseUrl: string,
+): string {
+  const departmentSignatures = page.departmentId
+    ? snapshot.signatures.filter(signature => signature.departmentId === page.departmentId)
+    : snapshot.signatures;
+  const signatureBlocks = renderSignatureBlocks(departmentSignatures, baseUrl);
+  const reportBottomHtml = page.includeReportBottom
+    ? renderReportBottomHtml(signatureBlocks, page.includeQr ? fragments.qrImgSrc : '')
+    : '';
+
   return `
   <div class="report-page">
     ${fragments.headerHtml}
@@ -1038,7 +1094,7 @@ function renderReportPage(page: ReportPageModel, fragments: ReportFragments): st
       <div class="results-container">
         ${page.departmentHtml}
       </div>
-      ${page.includeReportBottom ? fragments.reportBottomHtml : ''}
+      ${reportBottomHtml}
     </main>
     ${fragments.footerHtml}
   </div>`;
@@ -1068,8 +1124,11 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
   const { profile, baseUrl = '', qrDataUrl = '' } = options;
   const resolved = resolveProfile(profile);
 
-  const renderDepartmentSection = (department: ReportSnapshot['departments'][number]) => {
-    const panelHtml = department.panels.map(panel => renderPanel(panel)).join('');
+  const renderDepartmentSection = (
+    department: ReportSnapshot['departments'][number],
+    panels: PanelSnapshot[],
+  ) => {
+    const panelHtml = panels.map(panel => renderPanel(panel)).join('');
 
     return `
       <section class="department" data-department="${escapeHtml(department.departmentName)}">
@@ -1080,7 +1139,7 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
 
   const fragments = buildReportFragments(snapshot, baseUrl, qrDataUrl);
   const pages = buildReportPages(snapshot, profile, renderDepartmentSection)
-    .map(page => renderReportPage(page, fragments))
+    .map(page => renderReportPage(page, fragments, snapshot, baseUrl))
     .join('');
 
   return renderDocumentHtml(snapshot, resolved, pages);
