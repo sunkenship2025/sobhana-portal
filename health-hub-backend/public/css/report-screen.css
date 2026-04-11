@@ -226,7 +226,7 @@ body.report-body {
    ============================================================================ */
 
 .panel {
-  margin-bottom: 12px;
+  margin-bottom: 18px;
 }
 
 .panel-title {
@@ -258,7 +258,7 @@ body.report-body {
 .results-table {
   width: 100%;
   border-collapse: collapse;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
   font-size: 9pt;
 }
 
@@ -700,13 +700,9 @@ body.report-body {
    These must be OUTSIDE @media print because Puppeteer uses screen media type
    for digital PDFs.
    ============================================================================ */
-.department:not(:first-child) {
-  page-break-before: always !important;
-  break-before: page !important;
-}
 .department {
-  page-break-inside: avoid;
-  break-inside: avoid;
+  page-break-inside: auto;
+  break-inside: auto;
 }
 .department-header {
   page-break-after: avoid;
@@ -793,12 +789,8 @@ body.report-body {
 
   /* Page break rules - using both legacy and modern syntax for compatibility */
   .department {
-    page-break-inside: avoid;
-    break-inside: avoid;
-  }
-  .department:not(:first-child) {
-    page-break-before: always !important;
-    break-before: page !important;
+    page-break-inside: auto;
+    break-inside: auto;
   }
   .department-header {
     page-break-after: avoid;
