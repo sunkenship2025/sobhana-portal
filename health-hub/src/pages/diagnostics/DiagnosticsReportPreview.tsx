@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { Fragment, useState, useEffect } from 'react';
 import { API_BASE } from '@/lib/api';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -70,6 +70,76 @@ interface Visit {
   };
 }
 
+interface ReportSnapshotTest {
+  testId: string;
+  testName: string;
+  value: number | null;
+  textValue?: string | null;
+  flag: string | null;
+  referenceMin: number | null;
+  referenceMax: number | null;
+  referenceUnit: string | null;
+  referenceText: string | null;
+  showMethod?: boolean;
+  methodText: string | null;
+  indentLevel: number;
+  isBold?: boolean;
+  isItalic?: boolean;
+  subGroup: string | null;
+}
+
+interface ReportSnapshotPanel {
+  panelId: string;
+  panelName: string;
+  displayName: string;
+  panelMethodText?: string | null;
+  panelMethodItalic?: boolean;
+  showSubgroups?: boolean;
+  subgroupMethods?: Record<string, string> | null;
+  tests: ReportSnapshotTest[];
+}
+
+interface ReportSnapshotDepartment {
+  departmentId: string;
+  departmentName: string;
+  departmentHeaderText: string;
+  panels: ReportSnapshotPanel[];
+}
+
+interface ReportSnapshotData {
+  departments: ReportSnapshotDepartment[];
+}
+
+function normalizeFlagForBadge(flag: string | null): 'HIGH' | 'LOW' | 'NORMAL' | null {
+  if (flag === 'CRITICAL_HIGH') return 'HIGH';
+  if (flag === 'CRITICAL_LOW') return 'LOW';
+  if (flag === 'HIGH' || flag === 'LOW' || flag === 'NORMAL') return flag;
+  return null;
+}
+
+function isAbnormalFlag(flag: string | null): boolean {
+  return flag === 'HIGH' || flag === 'LOW' || flag === 'CRITICAL_HIGH' || flag === 'CRITICAL_LOW';
+}
+
+function formatResultValue(result: ReportSnapshotTest): string {
+  if (result.textValue?.trim()) return result.textValue.trim();
+  if (result.value === null || result.value === undefined) return '—';
+  return String(result.value);
+}
+
+function formatReferenceRange(result: ReportSnapshotTest): string {
+  if (result.referenceText?.trim()) return result.referenceText.trim();
+
+  if (result.referenceMin !== null || result.referenceMax !== null) {
+    const min = result.referenceMin ?? '';
+    const max = result.referenceMax ?? '';
+    const range = `${min}–${max}`.trim();
+    return result.referenceUnit ? `${range} ${result.referenceUnit}`.trim() : range;
+  }
+
+  return '—';
+}
+
 const DiagnosticsReportPreview = () => {
   const { visitId } = useParams();
   const navigate = useNavigate();
@@ -77,6 +147,7 @@ const DiagnosticsReportPreview = () => {
   const { token } = useAuthStore();
   
   const [visit, setVisit] = useState<Visit | null>(null);
+  const [reportSnapshot, setReportSnapshot] = useState<ReportSnapshotData | null>(null);
   const [loading, setLoading] = useState(true);
   const [finalizing, setFinalizing] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -96,21 +167,40 @@ const DiagnosticsReportPreview = () => {
       
       try {
         setLoading(true);
-        const response = await fetch(`${API_BASE}/visits/diagnostic/${visitId}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'X-Branch-Id': activeBranchId
-          }
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
+        const [visitResponse, snapshotResponse] = await Promise.all([
+          fetch(`${API_BASE}/visits/diagnostic/${visitId}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'X-Branch-Id': activeBranchId
+            }
+          }),
+          fetch(`${API_BASE}/visits/diagnostic/${visitId}/report-snapshot`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'X-Branch-Id': activeBranchId
+            }
+          }),
+        ]);
+
+        if (visitResponse.ok) {
+          const data = await visitResponse.json();
           setVisit(data);
         } else {
+          setVisit(null);
           toast.error('Failed to load visit');
+        }
+
+        if (snapshotResponse.ok) {
+          const snapshotData = await snapshotResponse.json();
+          setReportSnapshot(snapshotData);
+        } else {
+          setReportSnapshot(null);
+          console.error('Failed to load report snapshot');
         }
       } catch (error) {
         console.error('Failed to fetch visit:', error);
+        setVisit(null);
+        setReportSnapshot(null);
         toast.error('Failed to load visit');
       } finally {
         setLoading(false);
@@ -171,34 +261,24 @@ const DiagnosticsReportPreview = () => {
     );
   }
 
-  const { patient, testOrders, referralDoctor } = visit;
+  const { patient, referralDoctor } = visit;
   const currentYear = new Date().getFullYear();
   const patientAge = patient.yearOfBirth ? currentYear - patient.yearOfBirth : null;
   // Get test results from the latest version (versions are ordered by versionNum desc)
   const latestVersion = (visit.report as any)?.versions?.[0] ?? visit.report?.currentVersion;
   const testResults = latestVersion?.testResults || [];
-  
-  // Group results by parent test order for proper display
-  // Each result now includes testName, testCode, and referenceRange from the backend
-  const groupedResults = testOrders.map((order: any) => {
-    // Find all results that belong to this test order (parent or sub-tests)
-    const orderResults = testResults.filter((r: any) => r.testOrderId === order.id);
-    return {
-      order,
-      results: orderResults.map((result: any) => ({
-        ...result,
-        // testName, testCode, referenceRange are now provided by backend
-        testName: result.testName || 'Unknown Test',
-        testCode: result.testCode || '',
-        referenceRange: result.referenceRange || { min: 0, max: 0, unit: '' }
-      }))
-    };
-  }).filter((g: any) => g.results.length > 0);
-
-  // Flatten for backward compatibility
-  const results = groupedResults.flatMap((g: any) => g.results);
-  
-  const hasAbnormalValues = results.some((r) => r.flag === 'HIGH' || r.flag === 'LOW');
+  const results = testResults.map((result: any) => ({
+    ...result,
+    testName: result.testName || 'Unknown Test',
+    testCode: result.testCode || '',
+    referenceRange: result.referenceRange || { min: 0, max: 0, unit: '' }
+  }));
+  const snapshotTests = reportSnapshot?.departments.flatMap((department) =>
+    department.panels.flatMap((panel) => panel.tests)
+  ) || [];
+  const hasAbnormalValues = snapshotTests.length > 0
+    ? snapshotTests.some((result) => isAbnormalFlag(result.flag))
+    : results.some((r) => r.flag === 'HIGH' || r.flag === 'LOW');
   const isFinalized = visit.status === 'COMPLETED';
 
   const handleFinalize = async () => {
@@ -395,35 +475,128 @@ const DiagnosticsReportPreview = () => {
             </div>
           </CardHeader>
           <CardContent className="pt-6">
-            {/* Results Table */}
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Test</TableHead>
-                  <TableHead className="text-right">Value</TableHead>
-                  <TableHead className="text-right">Range</TableHead>
-                  <TableHead className="text-right">Flag</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {results.map((result) => (
-                  <TableRow key={result.id}>
-                    <TableCell className="font-medium">{result.testName}</TableCell>
-                    <TableCell className="text-right font-mono">
-                      {result.value ?? '—'}
-                    </TableCell>
-                    <TableCell className="text-right text-muted-foreground">
-                      {result.referenceRange.min > 0 || result.referenceRange.max > 0
-                        ? `${result.referenceRange.min}–${result.referenceRange.max} ${result.referenceRange.unit}`
-                        : '—'}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <FlagBadge flag={result.flag as 'HIGH' | 'LOW' | 'NORMAL' | null} />
-                    </TableCell>
-                  </TableRow>
+            {reportSnapshot?.departments.length ? (
+              <div className="space-y-6">
+                {reportSnapshot.departments.map((department) => (
+                  <section key={department.departmentId} className="space-y-4">
+                    <div className="border-b pb-2">
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                        {department.departmentHeaderText || department.departmentName}
+                      </h3>
+                    </div>
+
+                    {department.panels.map((panel) => {
+                      let previousGroup: string | null = null;
+
+                      return (
+                        <div key={panel.panelId} className="space-y-2">
+                          <div>
+                            <h4 className="font-semibold">
+                              {panel.displayName || panel.panelName}
+                            </h4>
+                            {panel.panelMethodText && (
+                              <p className={`text-xs text-muted-foreground${panel.panelMethodItalic ? ' italic' : ''}`}>
+                                (Method : {panel.panelMethodText})
+                              </p>
+                            )}
+                          </div>
+
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Test</TableHead>
+                                <TableHead className="text-right">Value</TableHead>
+                                <TableHead className="text-right">Range</TableHead>
+                                <TableHead className="text-right">Flag</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {panel.tests.map((result, index) => {
+                                const subgroupName = result.subGroup?.trim() || null;
+                                const showGroupRow = Boolean(
+                                  panel.showSubgroups && subgroupName && subgroupName !== previousGroup
+                                );
+                                previousGroup = subgroupName;
+
+                                return (
+                                  <Fragment key={`${panel.panelId}-${result.testId}-${index}`}>
+                                    {showGroupRow && (
+                                      <TableRow>
+                                        <TableCell colSpan={4} className="bg-muted/40 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                          {subgroupName}
+                                          {subgroupName && panel.subgroupMethods?.[subgroupName] ? (
+                                            <span className="ml-2 normal-case tracking-normal italic">
+                                              Method : {panel.subgroupMethods[subgroupName]}
+                                            </span>
+                                          ) : null}
+                                        </TableCell>
+                                      </TableRow>
+                                    )}
+                                    <TableRow>
+                                      <TableCell className="align-top">
+                                        <div
+                                          className={`leading-tight${result.isBold ? ' font-semibold' : ''}${result.isItalic ? ' italic' : ''}`}
+                                          style={{ paddingLeft: `${(result.indentLevel || 0) * 12}px` }}
+                                        >
+                                          {result.testName}
+                                        </div>
+                                        {result.showMethod && result.methodText && (
+                                          <div className={`mt-1 text-xs text-muted-foreground${result.isItalic ? ' italic' : ''}`}>
+                                            (Method : {result.methodText})
+                                          </div>
+                                        )}
+                                      </TableCell>
+                                      <TableCell className="text-right font-mono">
+                                        {formatResultValue(result)}
+                                      </TableCell>
+                                      <TableCell className="text-right text-muted-foreground">
+                                        {formatReferenceRange(result)}
+                                      </TableCell>
+                                      <TableCell className="text-right">
+                                        <FlagBadge flag={normalizeFlagForBadge(result.flag)} />
+                                      </TableCell>
+                                    </TableRow>
+                                  </Fragment>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      );
+                    })}
+                  </section>
                 ))}
-              </TableBody>
-            </Table>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Test</TableHead>
+                    <TableHead className="text-right">Value</TableHead>
+                    <TableHead className="text-right">Range</TableHead>
+                    <TableHead className="text-right">Flag</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {results.map((result) => (
+                    <TableRow key={result.id}>
+                      <TableCell className="font-medium">{result.testName}</TableCell>
+                      <TableCell className="text-right font-mono">
+                        {result.value ?? '—'}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {result.referenceRange.min > 0 || result.referenceRange.max > 0
+                          ? `${result.referenceRange.min}–${result.referenceRange.max} ${result.referenceRange.unit}`
+                          : '—'}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <FlagBadge flag={result.flag as 'HIGH' | 'LOW' | 'NORMAL' | null} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
 
             {/* Abnormal Values Warning */}
             {hasAbnormalValues && !isFinalized && (

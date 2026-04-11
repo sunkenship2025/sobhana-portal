@@ -2153,6 +2153,37 @@ router.post('/:id/collect-sample', async (req: AuthRequest, res) => {
   }
 });
 
+// GET /api/visits/diagnostic/:id/report-snapshot - JSON snapshot for grouped screen preview
+// Returns finalized frozen snapshot when available, otherwise a live ephemeral snapshot
+router.get('/:id/report-snapshot', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+
+    const visit = await prisma.visit.findFirst({
+      where: { id, branchId: req.branchId, domain: 'DIAGNOSTICS' },
+      select: { id: true },
+    });
+
+    if (!visit) {
+      return res.status(404).json({ error: 'Visit not found' });
+    }
+
+    const loaded = await loadFinalizedReportSnapshotForVisit(id);
+    if (loaded.ok) {
+      return res.json(loaded.snapshot);
+    }
+
+    const snapshot = await buildEphemeralSnapshot(id);
+    return res.json(snapshot);
+  } catch (err: any) {
+    console.error('Report snapshot error:', err);
+    return res.status(500).json({
+      error: 'SNAPSHOT_FAILED',
+      message: err.message || 'Failed to load report snapshot',
+    });
+  }
+});
+
 // GET /api/visits/diagnostic/:id/preview-report - Generate ephemeral HTML preview of the report
 // Staff can see the actual branded report layout BEFORE finalizing (nothing is saved)
 router.get('/:id/preview-report', async (req: AuthRequest, res) => {

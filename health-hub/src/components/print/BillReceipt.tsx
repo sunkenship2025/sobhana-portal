@@ -43,7 +43,7 @@ export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
     : 'print-content p-8 bg-white text-black max-w-2xl mx-auto';
 
   return (
-    <div className={containerClass} style={{ display: 'flex', flexDirection: 'column', ...(asPage ? {} : { minHeight: '100vh' }) }}>
+    <div className={containerClass}>
 
       {/* Logo Header - Centered */}
       <div className="flex justify-center mb-1">
@@ -154,9 +154,6 @@ export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
           </p>
         </div>
       )}
-
-      {/* Spacer to push footer to bottom */}
-      <div className="flex-1"></div>
 
       {/* Footer */}
       <div className="border-t border-black pt-3 text-center">
