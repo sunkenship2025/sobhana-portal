@@ -227,6 +227,8 @@
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
   border: 1px solid #000;
   margin-top: 3mm;
+  margin-left: -2mm;
+  margin-right: -2mm;
   column-gap: 8mm;
 }
 
@@ -259,6 +261,7 @@
   font-size: 10pt;
   line-height: 1.35;
   word-break: break-word;
+  min-width: 0;
 }
 
 .clinic-rx-patient-name {
@@ -336,6 +339,9 @@
     min-height: 100vh;
     padding: 20mm 15mm 25mm 15mm;
     box-sizing: border-box;
+  }
+  .bill-receipt-page {
+    padding-top: 16mm;
   }
   .print-page:last-child {
     page-break-after: auto;
