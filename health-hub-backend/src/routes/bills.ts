@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import prisma from '../lib/prisma';
 import { buildDiagnosticBillItems } from '../services/billItemService';
+import { getPatientAge, getPatientAgeDisplay } from '../utils/validation';
 
 const router = Router();
 
@@ -117,9 +118,13 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
       },
       patient: {
         name: visit.patient.name,
-        age: visit.patient.dateOfBirth 
-          ? Math.floor((Date.now() - new Date(visit.patient.dateOfBirth).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
-          : new Date().getFullYear() - visit.patient.yearOfBirth, // E2-09: Calculate age from DOB or YOB
+        age: getPatientAge(visit.patient.dateOfBirth, visit.patient.yearOfBirth),
+        ageUnit: visit.patient.ageUnit || 'YEARS',
+        ageDisplay: getPatientAgeDisplay(
+          visit.patient.dateOfBirth,
+          visit.patient.yearOfBirth,
+          visit.patient.ageUnit
+        ),
         gender: visit.patient.gender,
         phone,
       },

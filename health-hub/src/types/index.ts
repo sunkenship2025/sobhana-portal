@@ -586,6 +586,7 @@ export interface BillReceiptData {
     name: string;
     phone: string;
     age: number;
+    ageUnit?: AgeUnit;
     ageDisplay?: string; // e.g., "7 Months", "18 Days"
     gender: string;         // 'M' | 'F' | 'O'
   };
