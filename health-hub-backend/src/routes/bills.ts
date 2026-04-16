@@ -61,6 +61,26 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
 
     const phone = visit.patient.identifiers.find((id) => id.type === 'PHONE')?.value || '';
     const hasReferralDoctor = visit.referrals.length > 0;
+    let originalVisitSummary: { billNumber: string | null; createdAt: Date | null } | null = null;
+
+    if (domain === 'CLINIC' && visit.clinicVisit?.originalVisitId) {
+      const originalVisit = await prisma.visit.findUnique({
+        where: { id: visit.clinicVisit.originalVisitId },
+        select: {
+          createdAt: true,
+          bill: {
+            select: {
+              billNumber: true,
+            },
+          },
+        },
+      });
+
+      originalVisitSummary = {
+        billNumber: originalVisit?.bill?.billNumber || null,
+        createdAt: originalVisit?.createdAt || null,
+      };
+    }
 
     // Transform data for printing
     const billData: {
@@ -82,14 +102,18 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
     } = {
       visit: {
         id: visit.id,
-        billNumber: visit.billNumber,
+        visitRef: visit.billNumber,
+        billNumber: visit.bill?.billNumber || null,
+        hasBill: Boolean(visit.bill),
         domain: visit.domain,
         status: visit.status,
         createdAt: visit.createdAt,
-        billedAt: visit.bill?.billedAt || visit.bill?.createdAt || visit.createdAt,
+        billedAt: visit.bill?.billedAt || visit.bill?.createdAt || null,
         totalAmount: visit.totalAmountInPaise / 100,
         visitType: visit.clinicVisit?.visitType,
         isRevisit: visit.clinicVisit?.isRevisit ?? false,
+        originalVisitBillNumber: originalVisitSummary?.billNumber || null,
+        originalVisitDate: originalVisitSummary?.createdAt || null,
       },
       patient: {
         name: visit.patient.name,
@@ -104,8 +128,8 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
         code: visit.branch.code,
       },
       payment: {
-        type: visit.bill?.paymentType || 'CASH',
-        status: visit.bill?.paymentStatus || 'PENDING',
+        type: visit.bill?.paymentType || null,
+        status: visit.bill?.paymentStatus || null,
       },
       doctor: visit.clinicVisit?.clinicDoctor
         ? {
@@ -149,7 +173,9 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
         billData.items = [
           {
             id: visit.id,
-            name: `${visit.clinicVisit.visitType} Consultation`,
+            name: visit.clinicVisit.isRevisit
+              ? `${visit.clinicVisit.visitType} Revisit Consultation`
+              : `${visit.clinicVisit.visitType} Consultation`,
             code: 'CONSULT',
             price: visit.clinicVisit.consultationFeeInPaise / 100,
           },

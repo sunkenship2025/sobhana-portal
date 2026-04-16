@@ -1,16 +1,295 @@
+import { Prisma, VisitStatus } from '@prisma/client';
 import { Router } from 'express';
-import { VisitStatus } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
-import { generateClinicBillNumber } from '../services/numberService';
-import { logAction } from '../services/auditService';
 import prisma from '../lib/prisma';
+import { logAction } from '../services/auditService';
+import { generateClinicBillNumber } from '../services/numberService';
 
 const router = Router();
+
+const REVISIT_WINDOW_DAYS = 7;
+
+type RevisitDecision = 'AUTO' | 'FORCE_REVISIT' | 'FORCE_NORMAL';
+type RevisitMode = 'VISIT' | 'REVISIT';
+type PrismaLikeClient = typeof prisma | Prisma.TransactionClient;
+
+type ClinicVisitRecord = Prisma.VisitGetPayload<{
+  include: {
+    patient: {
+      include: {
+        identifiers: true;
+      };
+    };
+    clinicVisit: {
+      include: {
+        clinicDoctor: true;
+      };
+    };
+    bill: true;
+  };
+}>;
+
+type RevisitAnchorRecord = Prisma.VisitGetPayload<{
+  include: {
+    bill: true;
+    clinicVisit: {
+      include: {
+        clinicDoctor: true;
+      };
+    };
+  };
+}>;
+
+type OriginalVisitRecord = Prisma.VisitGetPayload<{
+  select: {
+    id: true;
+    billNumber: true;
+    createdAt: true;
+    bill: {
+      select: {
+        billNumber: true;
+        billedAt: true;
+        createdAt: true;
+      };
+    };
+  };
+}>;
+
+type OriginalVisitSummary = {
+  id: string;
+  visitRef: string;
+  billNumber: string | null;
+  createdAt: Date;
+  billedAt: Date | null;
+};
 
 // All routes require auth + branch context
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
+
+function createHttpError(statusCode: number, error: string, message: string) {
+  const err = new Error(message) as Error & {
+    statusCode: number;
+    error: string;
+  };
+  err.statusCode = statusCode;
+  err.error = error;
+  return err;
+}
+
+function subtractDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() - days);
+  return next;
+}
+
+function getVisitReferenceDate(visit: {
+  createdAt: Date;
+  bill?: {
+    billedAt?: Date | null;
+    createdAt?: Date | null;
+  } | null;
+}) {
+  return visit.bill?.billedAt || visit.bill?.createdAt || visit.createdAt;
+}
+
+function isWithinRevisitWindow(referenceDate: Date, now = new Date()) {
+  return referenceDate.getTime() >= subtractDays(now, REVISIT_WINDOW_DAYS).getTime();
+}
+
+function normalizeRevisitDecision(value: unknown): RevisitDecision {
+  if (value === 'FORCE_REVISIT' || value === 'FORCE_NORMAL') {
+    return value;
+  }
+  return 'AUTO';
+}
+
+function toOriginalVisitSummary(visit: OriginalVisitRecord): OriginalVisitSummary {
+  return {
+    id: visit.id,
+    visitRef: visit.billNumber,
+    billNumber: visit.bill?.billNumber || null,
+    createdAt: visit.createdAt,
+    billedAt: visit.bill?.billedAt || visit.bill?.createdAt || null,
+  };
+}
+
+async function loadOriginalVisitMap(
+  client: PrismaLikeClient,
+  originalVisitIds: Array<string | null | undefined>,
+) {
+  const uniqueIds = Array.from(
+    new Set(originalVisitIds.filter((visitId): visitId is string => Boolean(visitId))),
+  );
+
+  if (uniqueIds.length === 0) {
+    return new Map<string, OriginalVisitSummary>();
+  }
+
+  const originalVisits = await client.visit.findMany({
+    where: { id: { in: uniqueIds } },
+    select: {
+      id: true,
+      billNumber: true,
+      createdAt: true,
+      bill: {
+        select: {
+          billNumber: true,
+          billedAt: true,
+          createdAt: true,
+        },
+      },
+    },
+  });
+
+  return new Map(
+    originalVisits.map((visit) => [visit.id, toOriginalVisitSummary(visit)]),
+  );
+}
+
+async function findLatestRevisitAnchor(
+  client: PrismaLikeClient,
+  params: {
+    branchId: string;
+    patientId: string;
+    doctorId: string;
+  },
+) {
+  return client.visit.findFirst({
+    where: {
+      branchId: params.branchId,
+      patientId: params.patientId,
+      domain: 'CLINIC',
+      status: 'COMPLETED',
+      clinicVisit: {
+        clinicDoctorId: params.doctorId,
+        isRevisit: false,
+      },
+      bill: {
+        paymentStatus: 'PAID',
+      },
+    },
+    include: {
+      bill: true,
+      clinicVisit: {
+        include: {
+          clinicDoctor: true,
+        },
+      },
+    },
+    orderBy: [
+      { createdAt: 'desc' },
+      { updatedAt: 'desc' },
+    ],
+  });
+}
+
+function buildRevisitContext(anchorVisit: RevisitAnchorRecord | null) {
+  if (!anchorVisit) {
+    return {
+      defaultMode: 'VISIT' as RevisitMode,
+      eligible: false,
+      canForceRevisit: false,
+      canForceNormal: false,
+      anchorVisit: null,
+    };
+  }
+
+  const referenceDate = getVisitReferenceDate(anchorVisit);
+  const eligible = isWithinRevisitWindow(referenceDate);
+
+  return {
+    defaultMode: eligible ? ('REVISIT' as RevisitMode) : ('VISIT' as RevisitMode),
+    eligible,
+    canForceRevisit: true,
+    canForceNormal: eligible,
+    anchorVisit: {
+      id: anchorVisit.id,
+      visitRef: anchorVisit.billNumber,
+      originalBillNumber: anchorVisit.bill?.billNumber || null,
+      visitDate: anchorVisit.createdAt,
+      billedAt: anchorVisit.bill?.billedAt || anchorVisit.bill?.createdAt || null,
+      doctorName: anchorVisit.clinicVisit?.clinicDoctor?.name || null,
+    },
+  };
+}
+
+async function resolveRevisitSelection(
+  client: PrismaLikeClient,
+  params: {
+    branchId: string;
+    patientId: string;
+    doctorId: string;
+    revisitDecision: RevisitDecision;
+  },
+) {
+  const anchorVisit = await findLatestRevisitAnchor(client, params);
+  const revisitContext = buildRevisitContext(anchorVisit);
+
+  let revisitMode = revisitContext.defaultMode;
+
+  if (params.revisitDecision === 'FORCE_REVISIT') {
+    if (!anchorVisit || !revisitContext.canForceRevisit) {
+      throw createHttpError(
+        400,
+        'VALIDATION_ERROR',
+        'Revisit can only be used when a prior paid clinic consultation exists',
+      );
+    }
+    revisitMode = 'REVISIT';
+  }
+
+  if (params.revisitDecision === 'FORCE_NORMAL') {
+    revisitMode = 'VISIT';
+  }
+
+  return {
+    revisitContext,
+    anchorVisit,
+    revisitMode,
+    isRevisit: revisitMode === 'REVISIT',
+  };
+}
+
+function transformClinicVisit(
+  visit: ClinicVisitRecord,
+  originalVisitMap = new Map<string, OriginalVisitSummary>(),
+) {
+  const originalVisit = visit.clinicVisit?.originalVisitId
+    ? originalVisitMap.get(visit.clinicVisit.originalVisitId) || null
+    : null;
+
+  return {
+    id: visit.id,
+    branchId: visit.branchId,
+    visitRef: visit.billNumber,
+    billNumber: visit.bill?.billNumber || null,
+    hasBill: Boolean(visit.bill),
+    patientId: visit.patientId,
+    patient: visit.patient,
+    domain: visit.domain,
+    status: visit.clinicVisit?.status || visit.status,
+    visitType: visit.clinicVisit?.visitType || 'OP',
+    hospitalWard: visit.clinicVisit?.hospitalWard || null,
+    doctorId: visit.clinicVisit?.clinicDoctorId || null,
+    doctor: visit.clinicVisit?.clinicDoctor || null,
+    totalAmount: visit.totalAmountInPaise / 100,
+    consultationFee: (visit.clinicVisit?.consultationFeeInPaise || 0) / 100,
+    isRevisit: visit.clinicVisit?.isRevisit || false,
+    originalVisitId: visit.clinicVisit?.originalVisitId || null,
+    originalVisitVisitRef: originalVisit?.visitRef || null,
+    originalVisitBillNumber: originalVisit?.billNumber || null,
+    originalVisitDate: originalVisit?.createdAt || null,
+    paymentType: visit.bill?.paymentType || null,
+    paymentStatus: visit.bill?.paymentStatus || null,
+    billedAt: visit.bill?.billedAt || visit.bill?.createdAt || null,
+    startedAt: visit.clinicVisit?.startedAt || null,
+    completedAt: visit.clinicVisit?.completedAt || null,
+    createdAt: visit.createdAt,
+    updatedAt: visit.updatedAt,
+  };
+}
 
 // GET /api/visits/clinic - List clinic visits
 // When patientId is provided: Returns ALL visits for that patient across ALL branches (Patient 360 view)
@@ -23,13 +302,10 @@ router.get('/', async (req: AuthRequest, res) => {
       domain: 'CLINIC',
     };
 
-    // Patient 360 view: Show all visits across branches for specific patient
-    // Branch-scoped view: Show only visits in current branch
     if (patientId) {
       where.patientId = patientId;
-      // NOTE: No branchId filter when querying by patientId (cross-branch patient history)
     } else {
-      where.branchId = req.branchId; // Branch-scoped for list queries
+      where.branchId = req.branchId;
     }
 
     if (status) {
@@ -54,67 +330,50 @@ router.get('/', async (req: AuthRequest, res) => {
       orderBy: { createdAt: 'desc' },
     });
 
-    const originalVisitIds = visits
-      .map((visit) => visit.clinicVisit?.originalVisitId)
-      .filter((visitId): visitId is string => Boolean(visitId));
-
-    const originalVisits = originalVisitIds.length > 0
-      ? await prisma.visit.findMany({
-          where: { id: { in: originalVisitIds } },
-          select: {
-            id: true,
-            billNumber: true,
-            createdAt: true,
-          },
-        })
-      : [];
-
-    const originalVisitMap = new Map(
-      originalVisits.map((visit) => [visit.id, visit]),
+    const originalVisitMap = await loadOriginalVisitMap(
+      prisma,
+      visits.map((visit) => visit.clinicVisit?.originalVisitId),
     );
 
-    // Filter by doctor if specified
     let filteredVisits = visits;
     if (doctorId) {
-      filteredVisits = visits.filter((v) => v.clinicVisit?.clinicDoctorId === doctorId);
+      filteredVisits = visits.filter((visit) => visit.clinicVisit?.clinicDoctorId === doctorId);
     }
 
-    // Transform to frontend format
-    const transformed = filteredVisits.map((v) => ({
-      id: v.id,
-      branchId: v.branchId,
-      billNumber: v.billNumber,
-      patientId: v.patientId,
-      patient: v.patient,
-      domain: v.domain,
-      status: v.clinicVisit?.status || v.status,
-      visitType: v.clinicVisit?.visitType || 'OP',
-      hospitalWard: v.clinicVisit?.hospitalWard || null,
-      doctorId: v.clinicVisit?.clinicDoctorId || null,
-      doctor: v.clinicVisit?.clinicDoctor || null,
-      totalAmount: v.totalAmountInPaise / 100,
-      consultationFee: (v.clinicVisit?.consultationFeeInPaise || 0) / 100,
-      isRevisit: v.clinicVisit?.isRevisit || false,
-      originalVisitId: v.clinicVisit?.originalVisitId || null,
-      originalVisitBillNumber:
-        (v.clinicVisit?.originalVisitId && originalVisitMap.get(v.clinicVisit.originalVisitId)?.billNumber) || null,
-      originalVisitDate:
-        (v.clinicVisit?.originalVisitId && originalVisitMap.get(v.clinicVisit.originalVisitId)?.createdAt) || null,
-      paymentType: v.bill?.paymentType || 'CASH',
-      paymentStatus: v.bill?.paymentStatus || 'PENDING',
-      billedAt: v.bill?.billedAt || v.bill?.createdAt || null,
-      startedAt: v.clinicVisit?.startedAt || null,
-      completedAt: v.clinicVisit?.completedAt || null,
-      createdAt: v.createdAt,
-      updatedAt: v.updatedAt,
-    }));
-
-    return res.json(transformed);
+    return res.json(filteredVisits.map((visit) => transformClinicVisit(visit, originalVisitMap)));
   } catch (err: any) {
     console.error('List clinic visits error:', err);
     return res.status(500).json({
       error: 'INTERNAL_ERROR',
       message: 'Failed to list clinic visits',
+    });
+  }
+});
+
+// GET /api/visits/clinic/revisit-context - Canonical revisit eligibility for same patient + doctor + branch
+router.get('/revisit-context', async (req: AuthRequest, res) => {
+  try {
+    const { patientId, doctorId } = req.query;
+
+    if (!patientId || !doctorId) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'patientId and doctorId are required',
+      });
+    }
+
+    const anchorVisit = await findLatestRevisitAnchor(prisma, {
+      branchId: req.branchId!,
+      patientId: patientId as string,
+      doctorId: doctorId as string,
+    });
+
+    return res.json(buildRevisitContext(anchorVisit));
+  } catch (err: any) {
+    console.error('Revisit context error:', err);
+    return res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: 'Failed to load revisit context',
     });
   }
 });
@@ -152,107 +411,17 @@ router.get('/:id', async (req: AuthRequest, res) => {
       });
     }
 
-    const transformed: any = {
-      id: visit.id,
-      branchId: visit.branchId,
-      billNumber: visit.billNumber,
-      patientId: visit.patientId,
-      patient: visit.patient,
-      domain: visit.domain,
-      status: visit.clinicVisit?.status || visit.status,
-      visitType: visit.clinicVisit?.visitType || 'OP',
-      hospitalWard: visit.clinicVisit?.hospitalWard || null,
-      doctorId: visit.clinicVisit?.clinicDoctorId || null,
-      doctor: visit.clinicVisit?.clinicDoctor || null,
-      totalAmount: visit.totalAmountInPaise / 100,
-      consultationFee: (visit.clinicVisit?.consultationFeeInPaise || 0) / 100,
-      isRevisit: visit.clinicVisit?.isRevisit || false,
-      originalVisitId: visit.clinicVisit?.originalVisitId || null,
-      originalVisitBillNumber: null,
-      originalVisitDate: null,
-      paymentType: visit.bill?.paymentType || 'CASH',
-      paymentStatus: visit.bill?.paymentStatus || 'PENDING',
-      billedAt: visit.bill?.billedAt || visit.bill?.createdAt || null,
-      startedAt: visit.clinicVisit?.startedAt || null,
-      completedAt: visit.clinicVisit?.completedAt || null,
-      createdAt: visit.createdAt,
-      updatedAt: visit.updatedAt,
-    };
+    const originalVisitMap = await loadOriginalVisitMap(
+      prisma,
+      [visit.clinicVisit?.originalVisitId],
+    );
 
-    if (visit.clinicVisit?.originalVisitId) {
-      const originalVisit = await prisma.visit.findUnique({
-        where: { id: visit.clinicVisit.originalVisitId },
-        select: {
-          billNumber: true,
-          createdAt: true,
-        },
-      });
-
-      transformed.originalVisitBillNumber = originalVisit?.billNumber || null;
-      transformed.originalVisitDate = originalVisit?.createdAt || null;
-    }
-
-    return res.json(transformed);
+    return res.json(transformClinicVisit(visit, originalVisitMap));
   } catch (err: any) {
     console.error('Get clinic visit error:', err);
     return res.status(500).json({
       error: 'INTERNAL_ERROR',
       message: 'Failed to get clinic visit',
-    });
-  }
-});
-
-// GET /api/visits/clinic/check-revisit - Check if a visit qualifies as a revisit
-// A revisit = same patient + same doctor + within 7 days of a previous completed/waiting/in_progress visit
-router.get('/check-revisit', async (req: AuthRequest, res) => {
-  try {
-    const { patientId, doctorId } = req.query;
-
-    if (!patientId || !doctorId) {
-      return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: 'patientId and doctorId are required',
-      });
-    }
-
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    // Find the most recent clinic visit for this patient+doctor within last 7 days
-    const recentVisit = await prisma.visit.findFirst({
-      where: {
-        patientId: patientId as string,
-        domain: 'CLINIC',
-        status: { not: 'CANCELLED' },
-        createdAt: { gte: sevenDaysAgo },
-        clinicVisit: {
-          clinicDoctorId: doctorId as string,
-        },
-      },
-      include: {
-        clinicVisit: {
-          include: { clinicDoctor: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    if (recentVisit) {
-      return res.json({
-        isRevisit: true,
-        originalVisitId: recentVisit.id,
-        originalBillNumber: recentVisit.billNumber,
-        originalDate: recentVisit.createdAt,
-        doctorName: recentVisit.clinicVisit?.clinicDoctor?.name || null,
-      });
-    }
-
-    return res.json({ isRevisit: false });
-  } catch (err: any) {
-    console.error('Check revisit error:', err);
-    return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to check revisit status',
     });
   }
 });
@@ -268,12 +437,10 @@ router.post('/', async (req: AuthRequest, res) => {
       consultationFee,
       paymentType,
       paymentStatus,
-      isRevisit,
-      originalVisitId,
+      revisitDecision,
       sendWhatsApp,
     } = req.body;
 
-    // Validation
     if (!patientId || !doctorId || !visitType || consultationFee === undefined) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
@@ -281,7 +448,16 @@ router.post('/', async (req: AuthRequest, res) => {
       });
     }
 
-    // Get branch code for bill number
+    const normalizedConsultationFee = Number(consultationFee);
+    if (Number.isNaN(normalizedConsultationFee) || normalizedConsultationFee < 0) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'Consultation fee must be a valid non-negative number',
+      });
+    }
+
+    const normalizedDecision = normalizeRevisitDecision(revisitDecision);
+
     const branch = await prisma.branch.findUnique({
       where: { id: req.branchId },
     });
@@ -293,7 +469,6 @@ router.post('/', async (req: AuthRequest, res) => {
       });
     }
 
-    // Verify doctor exists
     const doctor = await prisma.clinicDoctor.findUnique({
       where: { id: doctorId },
     });
@@ -305,42 +480,41 @@ router.post('/', async (req: AuthRequest, res) => {
       });
     }
 
-    // If revisit, force consultation fee to ₹0
-    const effectiveFee = isRevisit ? 0 : consultationFee;
+    const { anchorVisit, revisitMode, isRevisit } = await resolveRevisitSelection(prisma, {
+      branchId: req.branchId!,
+      patientId,
+      doctorId,
+      revisitDecision: normalizedDecision,
+    });
 
-    // Convert fee to paise
-    const consultationFeeInPaise = Math.round(effectiveFee * 100);
+    const consultationFeeInPaise = Math.round((isRevisit ? 0 : normalizedConsultationFee) * 100);
+    const visitRef = await generateClinicBillNumber(branch.code);
 
-    // Generate bill number
-    const billNumber = await generateClinicBillNumber(branch.code);
-
-    // Create visit with all related records in a transaction
     const result = await prisma.$transaction(async (tx) => {
-      // Create visit
       const visit = await tx.visit.create({
         data: {
           branchId: req.branchId!,
           patientId,
           domain: 'CLINIC',
           status: 'WAITING',
-          billNumber,
+          billNumber: visitRef,
           totalAmountInPaise: consultationFeeInPaise,
         },
       });
 
-      // Create bill
-      await tx.bill.create({
-        data: {
-          visitId: visit.id,
-          billNumber,
-          branchId: req.branchId!,
-          totalAmountInPaise: consultationFeeInPaise,
-          paymentType: paymentType || 'CASH',
-          paymentStatus: paymentStatus || 'PENDING',
-        },
-      });
+      if (!isRevisit) {
+        await tx.bill.create({
+          data: {
+            visitId: visit.id,
+            billNumber: visitRef,
+            branchId: req.branchId!,
+            totalAmountInPaise: consultationFeeInPaise,
+            paymentType: paymentType || 'CASH',
+            paymentStatus: paymentStatus || 'PENDING',
+          },
+        });
+      }
 
-      // Create clinic visit details
       await tx.clinicVisit.create({
         data: {
           visitId: visit.id,
@@ -348,56 +522,80 @@ router.post('/', async (req: AuthRequest, res) => {
           visitType,
           hospitalWard: visitType === 'IP' ? hospitalWard : null,
           consultationFeeInPaise,
-          isRevisit: isRevisit || false,
-          originalVisitId: isRevisit ? originalVisitId : null,
+          isRevisit,
+          originalVisitId: isRevisit ? anchorVisit?.id || null : null,
           status: 'WAITING',
         },
       });
 
-      // Audit log for visit creation
       await logAction({
         userId: req.user?.id!,
         actionType: 'CREATE',
         entityType: 'VISIT',
         entityId: visit.id,
         branchId: req.branchId!,
-        newValues: { domain: 'CLINIC', billNumber, patientId, doctorId, visitType },
+        newValues: {
+          domain: 'CLINIC',
+          visitRef,
+          billNumber: isRevisit ? null : visitRef,
+          patientId,
+          doctorId,
+          visitType,
+          revisitDecision: normalizedDecision,
+          revisitMode,
+          isRevisit,
+          originalVisitId: isRevisit ? anchorVisit?.id || null : null,
+        },
       });
 
       return visit;
     });
 
-    // Fetch complete visit for response
     const completeVisit = await prisma.visit.findUnique({
       where: { id: result.id },
       include: {
-        patient: { include: { identifiers: true } },
-        clinicVisit: { include: { clinicDoctor: true } },
+        patient: {
+          include: {
+            identifiers: true,
+          },
+        },
+        clinicVisit: {
+          include: {
+            clinicDoctor: true,
+          },
+        },
         bill: true,
       },
     });
 
-    // Fire-and-forget: Send bill confirmation via WhatsApp (non-blocking)
-    if (sendWhatsApp) {
+    if (!completeVisit) {
+      throw createHttpError(500, 'INTERNAL_ERROR', 'Failed to load created clinic visit');
+    }
+
+    const originalVisitMap = await loadOriginalVisitMap(
+      prisma,
+      [completeVisit.clinicVisit?.originalVisitId],
+    );
+
+    const transformedVisit = transformClinicVisit(completeVisit, originalVisitMap);
+
+    if (sendWhatsApp && completeVisit.bill) {
       import('../services/notificationService').then(({ sendBillConfirmation }) => {
         sendBillConfirmation(result.id).catch((err) =>
-          console.error('[Notification] Bill notification failed (non-blocking):', err.message)
+          console.error('[Notification] Bill notification failed (non-blocking):', err.message),
         );
       });
     }
 
-    return res.status(201).json({
-      id: completeVisit!.id,
-      billNumber: completeVisit!.billNumber,
-      patientId: completeVisit!.patientId,
-      totalAmount: completeVisit!.totalAmountInPaise / 100,
-      status: completeVisit!.clinicVisit?.status || 'WAITING',
-      billedAt: completeVisit!.bill?.billedAt || completeVisit!.bill?.createdAt || null,
-      startedAt: completeVisit!.clinicVisit?.startedAt || null,
-      completedAt: completeVisit!.clinicVisit?.completedAt || null,
-      createdAt: completeVisit!.createdAt,
-    });
+    return res.status(201).json(transformedVisit);
   } catch (err: any) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({
+        error: err.error,
+        message: err.message,
+      });
+    }
+
     console.error('Create clinic visit error:', err);
     return res.status(500).json({
       error: 'INTERNAL_ERROR',
@@ -412,7 +610,6 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     const { id } = req.params;
     const { status, paymentStatus, paymentType } = req.body;
 
-    // Check visit exists
     const existing = await prisma.visit.findFirst({
       where: {
         id,
@@ -432,7 +629,6 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       });
     }
 
-    // JIRA-06: Block visitType mutation after creation
     if (req.body.visitType && req.body.visitType !== existing.clinicVisit?.visitType) {
       return res.status(403).json({
         error: 'IMMUTABLE_FIELD',
@@ -440,13 +636,19 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       });
     }
 
-    // Validate state transitions 
+    if ((paymentStatus || paymentType) && !existing.bill) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'This visit has no bill to update',
+      });
+    }
+
     if (status && existing.status !== status) {
       const validTransitions: Record<string, string[]> = {
-        WAITING: ['IN_PROGRESS', 'COMPLETED', 'CANCELLED'], // Allow direct WAITING → COMPLETED
-        IN_PROGRESS: ['COMPLETED'], // JIRA-07: No cancellation after consultation started
-        COMPLETED: [], // Terminal state
-        CANCELLED: [], // Terminal state
+        WAITING: ['IN_PROGRESS', 'COMPLETED', 'CANCELLED'],
+        IN_PROGRESS: ['COMPLETED'],
+        COMPLETED: [],
+        CANCELLED: [],
       };
 
       const allowedStates = validTransitions[existing.status] || [];
@@ -458,7 +660,6 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       }
     }
 
-    // Update visit
     const updated = await prisma.$transaction(async (tx) => {
       if (status) {
         const nextStatus = status as VisitStatus;
@@ -478,13 +679,11 @@ router.patch('/:id', async (req: AuthRequest, res) => {
           }
         }
 
-        // Update both visit and clinic visit status
         await tx.visit.update({
           where: { id },
           data: { status: nextStatus },
         });
 
-        // Audit log for status change
         await logAction({
           userId: req.user?.id!,
           actionType: 'UPDATE',
@@ -511,7 +710,6 @@ router.patch('/:id', async (req: AuthRequest, res) => {
             data: clinicVisitStatusData,
           });
 
-          // Create ledger entry when visit is completed
           if (status === 'COMPLETED' && existing.status !== 'COMPLETED') {
             const visitDate = clinicVisitStatusData.completedAt ?? new Date();
             const startOfDay = new Date(visitDate.setHours(0, 0, 0, 0));
@@ -599,7 +797,6 @@ router.patch('/:id', async (req: AuthRequest, res) => {
           },
         });
 
-        // Audit log for payment status change
         await logAction({
           userId: req.user?.id!,
           actionType: 'UPDATE',
@@ -624,9 +821,10 @@ router.patch('/:id', async (req: AuthRequest, res) => {
 
     return res.json({
       id: updated!.id,
+      hasBill: Boolean(updated!.bill),
       status: updated!.clinicVisit?.status || updated!.status,
-      paymentStatus: updated!.bill?.paymentStatus,
-      paymentType: updated!.bill?.paymentType,
+      paymentStatus: updated!.bill?.paymentStatus || null,
+      paymentType: updated!.bill?.paymentType || null,
       billedAt: updated!.bill?.billedAt || updated!.bill?.createdAt || null,
       startedAt: updated!.clinicVisit?.startedAt || null,
       completedAt: updated!.clinicVisit?.completedAt || null,
@@ -660,7 +858,6 @@ router.delete('/:id', async (req: AuthRequest, res) => {
       });
     }
 
-    // Mark as cancelled instead of hard delete
     await prisma.visit.update({
       where: { id },
       data: { status: 'CANCELLED' },

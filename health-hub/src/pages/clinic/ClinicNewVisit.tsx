@@ -1,22 +1,80 @@
-import { useRef, useState, useEffect } from 'react';
-import { API_BASE } from '@/lib/api';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { CheckCircle2, MessageCircle, Printer, RotateCcw, Search, UserPlus } from 'lucide-react';
+import { API_BASE } from '@/lib/api';
+import { ClinicPrescriptionPrint } from '@/components/print/ClinicPrescriptionPrint';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { computeSmartAge, type ValidationErrors, validatePatientForm } from '@/lib/validation';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
-import { StatusBadge } from '@/components/ui/status-badge';
 import { toast } from 'sonner';
-import type { Patient, PaymentType, VisitType, ClinicVisitView, ClinicDoctor } from '@/types';
-import { Search, UserPlus, CheckCircle2, Printer, MessageCircle, RotateCcw } from 'lucide-react';
-import { ClinicPrescriptionPrint } from '@/components/print/ClinicPrescriptionPrint';
-import { validatePatientForm, computeSmartAge, type ValidationErrors } from '@/lib/validation';
-import { Checkbox } from '@/components/ui/checkbox';
+import type {
+  ClinicDoctor,
+  ClinicRevisitContext,
+  ClinicRevisitDecision,
+  ClinicRevisitMode,
+  ClinicVisitView,
+  Patient,
+  PaymentType,
+  VisitType,
+} from '@/types';
+
+const DEFAULT_CONSULTATION_FEE = '500';
+
+function deriveRevisitDecision(
+  revisitContext: ClinicRevisitContext | null,
+  selectedMode: ClinicRevisitMode,
+): ClinicRevisitDecision {
+  if (!revisitContext?.anchorVisit) {
+    return 'AUTO';
+  }
+
+  if (selectedMode === 'REVISIT') {
+    return revisitContext.defaultMode === 'REVISIT' ? 'AUTO' : 'FORCE_REVISIT';
+  }
+
+  return revisitContext.defaultMode === 'REVISIT' ? 'FORCE_NORMAL' : 'AUTO';
+}
+
+function buildClinicVisitView(apiVisit: any): ClinicVisitView {
+  return {
+    visit: {
+      id: apiVisit.id,
+      branchId: apiVisit.branchId,
+      visitRef: apiVisit.visitRef,
+      billNumber: apiVisit.billNumber ?? null,
+      patientId: apiVisit.patientId,
+      domain: 'CLINIC',
+      visitType: apiVisit.visitType,
+      doctorId: apiVisit.doctorId,
+      hospitalWard: apiVisit.hospitalWard || undefined,
+      totalAmountInPaise: Math.round((apiVisit.totalAmount || 0) * 100),
+      consultationFeeInPaise: Math.round((apiVisit.consultationFee || 0) * 100),
+      paymentType: apiVisit.paymentType ?? null,
+      paymentStatus: apiVisit.paymentStatus ?? null,
+      hasBill: apiVisit.hasBill,
+      billedAt: apiVisit.billedAt ? new Date(apiVisit.billedAt) : null,
+      status: apiVisit.status,
+      isRevisit: apiVisit.isRevisit || false,
+      originalVisitId: apiVisit.originalVisitId || undefined,
+      originalVisitVisitRef: apiVisit.originalVisitVisitRef || null,
+      originalVisitBillNumber: apiVisit.originalVisitBillNumber || null,
+      originalVisitDate: apiVisit.originalVisitDate ? new Date(apiVisit.originalVisitDate) : null,
+      createdAt: new Date(apiVisit.createdAt),
+      updatedAt: new Date(apiVisit.updatedAt),
+    },
+    patient: apiVisit.patient,
+    clinicDoctor: apiVisit.doctor || undefined,
+  };
+}
 
 const ClinicNewVisit = () => {
   const navigate = useNavigate();
@@ -25,7 +83,6 @@ const ClinicNewVisit = () => {
   const { getActiveBranch } = useBranchStore();
   const activeBranch = getActiveBranch();
 
-  // API data state
   const [clinicDoctors, setClinicDoctors] = useState<ClinicDoctor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -37,43 +94,38 @@ const ClinicNewVisit = () => {
   const [visitType, setVisitType] = useState<VisitType>('OP');
   const [selectedDoctorId, setSelectedDoctorId] = useState('');
   const [hospitalWard, setHospitalWard] = useState('');
-  const [consultationFee, setConsultationFee] = useState('500');
+  const [consultationFee, setConsultationFee] = useState(DEFAULT_CONSULTATION_FEE);
   const [paymentType, setPaymentType] = useState<PaymentType>('CASH');
   const [successData, setSuccessData] = useState<{ visitView: ClinicVisitView } | null>(null);
 
-  // Revisit detection state
-  const [revisitInfo, setRevisitInfo] = useState<{
-    isRevisit: boolean;
-    originalVisitId: string;
-    originalBillNumber: string;
-    originalDate: string;
-    doctorName: string;
-  } | null>(null);
+  const [revisitContext, setRevisitContext] = useState<ClinicRevisitContext | null>(null);
+  const [selectedRevisitMode, setSelectedRevisitMode] = useState<ClinicRevisitMode>('VISIT');
   const [checkingRevisit, setCheckingRevisit] = useState(false);
 
-  // New patient form
   const [newPatient, setNewPatient] = useState({
     name: '',
     age: '',
     ageUnit: 'YEARS' as 'DAYS' | 'MONTHS' | 'YEARS',
-    dateOfBirth: '', // E2-09: Optional DOB field
+    dateOfBirth: '',
     gender: 'M' as 'M' | 'F' | 'O',
-    whatsappOptIn: true, // Default: opted in for WhatsApp notifications
+    whatsappOptIn: true,
   });
-  const [whatsappOptIn, setWhatsappOptIn] = useState(true); // For existing patients
-  
-  // E2-10: Validation errors
+  const [whatsappOptIn, setWhatsappOptIn] = useState(true);
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
 
-  // Fetch clinic doctors from API
+  const activeAnchorVisit = revisitContext?.anchorVisit || null;
+  const isRevisitSelected =
+    Boolean(activeAnchorVisit && revisitContext?.canForceRevisit) &&
+    selectedRevisitMode === 'REVISIT';
+
   useEffect(() => {
     const fetchDoctors = async () => {
       if (!token || !activeBranch) return;
-      
+
       try {
         const res = await fetch(`${API_BASE}/clinic-doctors`, {
           headers: {
-            'Authorization': `Bearer ${token}`,
+            Authorization: `Bearer ${token}`,
             'X-Branch-Id': activeBranch.id,
           },
         });
@@ -92,61 +144,74 @@ const ClinicNewVisit = () => {
     fetchDoctors();
   }, [token, activeBranch]);
 
-  // Check revisit eligibility when patient + doctor are selected
   useEffect(() => {
-    const checkRevisit = async () => {
+    let cancelled = false;
+
+    const loadRevisitContext = async () => {
       const patientId = selectedPatient?.id;
       if (!patientId || !selectedDoctorId || !token || !activeBranch) {
-        setRevisitInfo(null);
+        setRevisitContext(null);
+        setSelectedRevisitMode('VISIT');
+        setCheckingRevisit(false);
         return;
       }
 
       setCheckingRevisit(true);
+
       try {
         const res = await fetch(
-          `${API_BASE}/visits/clinic/check-revisit?patientId=${patientId}&doctorId=${selectedDoctorId}`,
+          `${API_BASE}/visits/clinic/revisit-context?patientId=${patientId}&doctorId=${selectedDoctorId}`,
           {
             headers: {
-              'Authorization': `Bearer ${token}`,
+              Authorization: `Bearer ${token}`,
               'X-Branch-Id': activeBranch.id,
             },
-          }
+          },
         );
-        if (res.ok) {
-          const data = await res.json();
-          if (data.isRevisit) {
-            setRevisitInfo(data);
-            setConsultationFee('0'); // Auto-set fee to ₹0
+
+        if (!cancelled) {
+          if (res.ok) {
+            const data = await res.json();
+            setRevisitContext(data);
+            setSelectedRevisitMode(data.defaultMode);
           } else {
-            setRevisitInfo(null);
+            setRevisitContext(null);
+            setSelectedRevisitMode('VISIT');
           }
         }
       } catch (error) {
-        console.error('Failed to check revisit:', error);
+        console.error('Failed to load revisit context:', error);
+        if (!cancelled) {
+          setRevisitContext(null);
+          setSelectedRevisitMode('VISIT');
+        }
       } finally {
-        setCheckingRevisit(false);
+        if (!cancelled) {
+          setCheckingRevisit(false);
+        }
       }
     };
 
-    checkRevisit();
+    loadRevisitContext();
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedPatient?.id, selectedDoctorId, token, activeBranch]);
 
-  // Search patients via API
   const handlePhoneChange = async (value: string) => {
     setPhone(value);
     if (value.length === 10 && token && activeBranch) {
       try {
         const res = await fetch(`${API_BASE}/patients/search?phone=${value}`, {
           headers: {
-            'Authorization': `Bearer ${token}`,
+            Authorization: `Bearer ${token}`,
             'X-Branch-Id': activeBranch.id,
           },
         });
         if (res.ok) {
           const results = await res.json();
-          // Backend returns { patient: {...}, historySnapshot: [...] }
-          // Extract just the patient objects
-          const patients = results.map((r: any) => r.patient);
+          const patients = results.map((result: any) => result.patient);
           setMatchingPatients(patients);
         }
       } catch (error) {
@@ -165,8 +230,31 @@ const ClinicNewVisit = () => {
   const handleSelectPatient = (patient: Patient) => {
     setSelectedPatient(patient);
     setShowNewPatientForm(false);
-    // Auto-check WhatsApp opt-in if patient already opted in
     setWhatsappOptIn((patient as any).whatsappOptIn ?? true);
+  };
+
+  const resetForm = () => {
+    setSuccessData(null);
+    setPhone('');
+    setMatchingPatients([]);
+    setSelectedPatient(null);
+    setSelectedDoctorId('');
+    setHospitalWard('');
+    setShowNewPatientForm(false);
+    setConsultationFee(DEFAULT_CONSULTATION_FEE);
+    setRevisitContext(null);
+    setSelectedRevisitMode('VISIT');
+    setPaymentType('CASH');
+    setNewPatient({
+      name: '',
+      age: '',
+      ageUnit: 'YEARS',
+      dateOfBirth: '',
+      gender: 'M',
+      whatsappOptIn: true,
+    });
+    setValidationErrors({});
+    setWhatsappOptIn(true);
   };
 
   const handleSubmit = async () => {
@@ -177,9 +265,7 @@ const ClinicNewVisit = () => {
 
     let patient = selectedPatient;
 
-    // Create new patient if needed
     if (showNewPatientForm && !selectedPatient) {
-      // E2-10: Validate patient form
       const errors = validatePatientForm({
         name: newPatient.name,
         age: newPatient.age,
@@ -194,36 +280,37 @@ const ClinicNewVisit = () => {
         return;
       }
 
-      if (!newPatient.name || (!newPatient.age && !newPatient.dateOfBirth)) { // E2-09: Accept either age or DOB
+      if (!newPatient.name || (!newPatient.age && !newPatient.dateOfBirth)) {
         toast.error('Please fill in all patient details');
         return;
       }
-      
+
       try {
         const res = await fetch(`${API_BASE}/patients`, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${token}`,
+            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
             'X-Branch-Id': activeBranch.id,
           },
           body: JSON.stringify({
             name: newPatient.name,
-            age: newPatient.age ? parseInt(newPatient.age) : undefined, // E2-09: Age optional if DOB provided
-            ageUnit: newPatient.ageUnit, // Smart age unit
-            dateOfBirth: newPatient.dateOfBirth ? newPatient.dateOfBirth.split('T')[0] : undefined, // E2-09: Send date-only (YYYY-MM-DD)
+            age: newPatient.age ? parseInt(newPatient.age, 10) : undefined,
+            ageUnit: newPatient.ageUnit,
+            dateOfBirth: newPatient.dateOfBirth
+              ? newPatient.dateOfBirth.split('T')[0]
+              : undefined,
             gender: newPatient.gender,
             identifiers: [{ type: 'PHONE', value: phone, isPrimary: true }],
             whatsappOptIn: newPatient.whatsappOptIn,
           }),
         });
-        
+
         if (res.status === 409) {
-          // E2-03: Potential duplicate detected
           const errorData = await res.json();
           const duplicateInfo = JSON.parse(errorData.message);
           const existing = duplicateInfo.existingPatient;
-          
+
           const userConfirm = window.confirm(
             `⚠️ Potential Duplicate Detected\n\n` +
             `Existing Patient: ${existing.patientNumber}\n` +
@@ -232,37 +319,42 @@ const ClinicNewVisit = () => {
             `Phone: ${existing.phone}\n\n` +
             `This looks like the same person. Do you want to:\n` +
             `• Click OK to USE EXISTING patient\n` +
-            `• Click Cancel to CREATE NEW patient anyway`
+            `• Click Cancel to CREATE NEW patient anyway`,
           );
-          
+
           if (userConfirm) {
-            // Use existing patient
-            patient = { id: existing.id, patientNumber: existing.patientNumber, name: existing.name, age: existing.age, gender: existing.gender };
+            patient = {
+              id: existing.id,
+              patientNumber: existing.patientNumber,
+              name: existing.name,
+              age: existing.age,
+              gender: existing.gender,
+            } as Patient;
             toast.success(`Using existing patient ${existing.patientNumber}`);
           } else {
-            // User wants to force create duplicate - retry with forceDuplicate flag
             const retryRes = await fetch(`${API_BASE}/patients`, {
               method: 'POST',
               headers: {
-                'Authorization': `Bearer ${token}`,
+                Authorization: `Bearer ${token}`,
                 'Content-Type': 'application/json',
                 'X-Branch-Id': activeBranch.id,
               },
               body: JSON.stringify({
                 name: newPatient.name,
-                age: newPatient.age ? parseInt(newPatient.age) : undefined, // E2-09: Age optional if DOB provided
-                ageUnit: newPatient.ageUnit, // Smart age unit
-                dateOfBirth: newPatient.dateOfBirth || undefined, // E2-09: DOB if provided
+                age: newPatient.age ? parseInt(newPatient.age, 10) : undefined,
+                ageUnit: newPatient.ageUnit,
+                dateOfBirth: newPatient.dateOfBirth || undefined,
                 gender: newPatient.gender,
                 identifiers: [{ type: 'PHONE', value: phone, isPrimary: true }],
                 whatsappOptIn: newPatient.whatsappOptIn,
-                forceDuplicate: true, // E2-03: Explicit user confirmation
+                forceDuplicate: true,
               }),
             });
-            
+
             if (!retryRes.ok) {
               throw new Error('Failed to create patient');
             }
+
             patient = await retryRes.json();
             toast.success('Created new patient record');
           }
@@ -287,20 +379,27 @@ const ClinicNewVisit = () => {
       return;
     }
 
-    const clinicDoctor = clinicDoctors.find(d => d.id === selectedDoctorId);
-    if (!clinicDoctor) {
-      toast.error('Selected doctor not found');
+    if (!consultationFee.trim()) {
+      toast.error('Please enter a consultation fee');
+      return;
+    }
+
+    const parsedConsultationFee = parseInt(consultationFee, 10);
+    if (Number.isNaN(parsedConsultationFee) || parsedConsultationFee < 0) {
+      toast.error('Consultation fee must be a valid non-negative number');
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      // Create clinic visit via API
+      const sendBillConfirmation = !isRevisitSelected &&
+        (showNewPatientForm ? newPatient.whatsappOptIn : whatsappOptIn);
+
       const res = await fetch(`${API_BASE}/visits/clinic`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
           'X-Branch-Id': activeBranch.id,
         },
@@ -309,65 +408,48 @@ const ClinicNewVisit = () => {
           doctorId: selectedDoctorId,
           visitType,
           hospitalWard: visitType === 'IP' ? hospitalWard : null,
-          consultationFee: revisitInfo?.isRevisit ? 0 : parseInt(consultationFee),
-          paymentType,
-          paymentStatus: 'PAID',
-          isRevisit: revisitInfo?.isRevisit || false,
-          originalVisitId: revisitInfo?.originalVisitId || null,
-          sendWhatsApp: showNewPatientForm ? newPatient.whatsappOptIn : whatsappOptIn,
+          consultationFee: parsedConsultationFee,
+          revisitDecision: deriveRevisitDecision(revisitContext, selectedRevisitMode),
+          ...(isRevisitSelected
+            ? {}
+            : {
+                paymentType,
+                paymentStatus: 'PAID',
+              }),
+          sendWhatsApp: sendBillConfirmation,
         }),
       });
 
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.message || 'Failed to create visit');
-      }
-
       const visit = await res.json();
 
-      const visitView: ClinicVisitView = {
-        visit: {
-          id: visit.id,
-          branchId: activeBranch.id,
-          billNumber: visit.billNumber,
-          patientId: patient.id,
-          domain: 'CLINIC',
-          visitType,
-          doctorId: selectedDoctorId,
-          hospitalWard: visitType === 'IP' ? hospitalWard : undefined,
-          totalAmountInPaise: revisitInfo?.isRevisit ? 0 : Math.round(parseInt(consultationFee) * 100),
-          consultationFeeInPaise: revisitInfo?.isRevisit ? 0 : Math.round(parseInt(consultationFee) * 100),
-          paymentType,
-          paymentStatus: 'PAID',
-          status: 'WAITING',
-          isRevisit: revisitInfo?.isRevisit || false,
-          originalVisitId: revisitInfo?.originalVisitId || undefined,
-          createdAt: new Date(visit.createdAt),
-          updatedAt: new Date(visit.createdAt),
-        },
-        patient,
-        clinicDoctor,
-      };
+      if (!res.ok) {
+        throw new Error(visit.message || 'Failed to create visit');
+      }
 
+      const visitView = buildClinicVisitView(visit);
       toast.success('Visit created successfully!');
 
-      // Show WhatsApp notification toast
-      const patientPhone = selectedPatient?.identifiers?.find((i: any) => i.type === 'PHONE')?.value || phone;
+      const patientPhone =
+        visitView.patient.identifiers?.find((identifier: any) => identifier.type === 'PHONE')?.value ||
+        phone;
       const optedIn = showNewPatientForm ? newPatient.whatsappOptIn : whatsappOptIn;
-      if (patientPhone && optedIn) {
-        // Auto opt-in for existing patient if checked
+
+      if (visitView.visit.hasBill && patientPhone && optedIn) {
         if (selectedPatient && !showNewPatientForm && whatsappOptIn) {
           try {
-            await fetch(`${API_BASE}/patients/${patient!.id}`, {
+            await fetch(`${API_BASE}/patients/${patient.id}`, {
               method: 'PATCH',
               headers: {
-                'Authorization': `Bearer ${token}`,
+                Authorization: `Bearer ${token}`,
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({ whatsappOptIn: true }),
             });
-          } catch (_) { /* non-blocking */ }
+          } catch (_) {
+            // Non-blocking update only.
+          }
         }
+
         setTimeout(() => {
           toast('📱 Bill confirmation will be sent via WhatsApp', {
             description: `To ${patientPhone}`,
@@ -389,6 +471,11 @@ const ClinicNewVisit = () => {
   };
 
   if (successData) {
+    const { visitView } = successData;
+    const printLabel = visitView.visit.hasBill
+      ? 'Print Prescription & Bill'
+      : 'Print Prescription & Visit Slip';
+
     return (
       <AppLayout context="clinic" subContext="Reception">
         <div className="max-w-2xl mx-auto animate-fade-in">
@@ -397,46 +484,41 @@ const ClinicNewVisit = () => {
               <div className="text-center space-y-4">
                 <CheckCircle2 className="h-16 w-16 text-success mx-auto" />
                 <h2 className="text-2xl font-bold">Visit Created Successfully!</h2>
-                                {successData.visitView.visit.isRevisit && (
+                {visitView.visit.isRevisit && (
                   <div className="inline-flex items-center gap-2 bg-blue-100 text-blue-800 rounded-full px-4 py-1.5 text-sm font-medium">
                     <RotateCcw className="h-4 w-4" />
-                    Revisit — Free Consultation
+                    Revisit — No New Bill
                   </div>
                 )}
                 <div className="bg-card rounded-lg p-4 space-y-2 text-left">
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="text-muted-foreground">Visit Ref:</span>
+                    <span className="font-mono font-bold">{visitView.visit.visitRef || '—'}</span>
+                  </div>
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-muted-foreground">Bill #:</span>
-                    <span className="font-mono font-bold">{successData.visitView.visit.billNumber}</span>
+                    <span className="font-mono font-bold">{visitView.visit.billNumber || 'No new bill'}</span>
                   </div>
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-muted-foreground">Payment Status:</span>
-                    <StatusBadge status="PAID" />
+                    {visitView.visit.hasBill && visitView.visit.paymentStatus ? (
+                      <StatusBadge status={visitView.visit.paymentStatus} />
+                    ) : (
+                      <span className="text-sm text-muted-foreground">Not billed</span>
+                    )}
                   </div>
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-muted-foreground">Doctor:</span>
-                    <span>{successData.visitView.clinicDoctor?.name}</span>
+                    <span>{visitView.clinicDoctor?.name}</span>
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:justify-center">
                   <Button className="w-full sm:w-auto" variant="outline" onClick={handlePrint}>
                     <Printer className="mr-2 h-4 w-4" />
-                    Print Prescription & Bill
+                    {printLabel}
                   </Button>
-                  <Button className="w-full sm:w-auto" onClick={() => {
-                    setSuccessData(null);
-                    setPhone('');
-                    setMatchingPatients([]);
-                    setSelectedPatient(null);
-                    setSelectedDoctorId('');
-                    setHospitalWard('');
-                    setShowNewPatientForm(false);
-                    setConsultationFee('500');
-                    setRevisitInfo(null);
-                    setNewPatient({ name: '', age: '', ageUnit: 'YEARS', dateOfBirth: '', gender: 'M', whatsappOptIn: true }); // E2-09: Reset form
-                    setValidationErrors({});
-                    setWhatsappOptIn(true);
-                  }}>
+                  <Button className="w-full sm:w-auto" onClick={resetForm}>
                     Create Another Visit
                   </Button>
                   <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate('/clinic/queue')}>
@@ -448,9 +530,8 @@ const ClinicNewVisit = () => {
           </Card>
         </div>
 
-        {/* Print Content */}
         <div ref={printRef} className="hidden print:block">
-          <ClinicPrescriptionPrint visitView={successData.visitView} branchName={activeBranch?.name} />
+          <ClinicPrescriptionPrint visitView={visitView} branchName={activeBranch?.name} />
         </div>
       </AppLayout>
     );
@@ -461,10 +542,9 @@ const ClinicNewVisit = () => {
       <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
         <div>
           <h1 className="text-2xl font-bold">New Clinic Visit</h1>
-          <p className="text-muted-foreground">Register a clinic visit and generate a bill.</p>
+          <p className="text-muted-foreground">Register a clinic visit and generate a bill or revisit slip.</p>
         </div>
 
-        {/* Patient Lookup */}
         <Card>
           <CardHeader>
             <CardTitle>Patient Lookup</CardTitle>
@@ -477,11 +557,13 @@ const ClinicNewVisit = () => {
                   id="phone"
                   placeholder="Enter 10-digit phone"
                   value={phone}
-                  onChange={(e) => handlePhoneChange(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  onChange={(event) =>
+                    handlePhoneChange(event.target.value.replace(/\D/g, '').slice(0, 10))
+                  }
                   maxLength={10}
                   className="w-full sm:max-w-sm"
                 />
-                <Button className="w-full sm:w-auto" variant="secondary">
+                <Button className="w-full sm:w-auto" variant="secondary" type="button">
                   <Search className="h-4 w-4" />
                 </Button>
               </div>
@@ -489,17 +571,16 @@ const ClinicNewVisit = () => {
           </CardContent>
         </Card>
 
-        {/* Matching Patients */}
         {(matchingPatients.length > 0 || phone.length === 10) && (
           <Card>
             <CardHeader>
               <CardTitle>Matching Patients</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <RadioGroup 
-                value={selectedPatient?.id || ''} 
+              <RadioGroup
+                value={selectedPatient?.id || ''}
                 onValueChange={(id) => {
-                  const patient = matchingPatients.find((p) => p.id === id);
+                  const patient = matchingPatients.find((candidate) => candidate.id === id);
                   if (patient) handleSelectPatient(patient);
                 }}
               >
@@ -507,8 +588,8 @@ const ClinicNewVisit = () => {
                   <div
                     key={patient.id}
                     className={`flex items-center space-x-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                      selectedPatient?.id === patient.id 
-                        ? 'border-primary bg-accent' 
+                      selectedPatient?.id === patient.id
+                        ? 'border-primary bg-accent'
                         : 'border-border hover:bg-muted'
                     }`}
                     onClick={() => handleSelectPatient(patient)}
@@ -528,6 +609,7 @@ const ClinicNewVisit = () => {
                 variant="outline"
                 className="w-full"
                 onClick={handleCreateNewPatient}
+                type="button"
               >
                 <UserPlus className="h-4 w-4 mr-2" />
                 Create New Patient
@@ -536,7 +618,6 @@ const ClinicNewVisit = () => {
           </Card>
         )}
 
-        {/* New Patient Form */}
         {showNewPatientForm && (
           <Card>
             <CardHeader>
@@ -550,9 +631,8 @@ const ClinicNewVisit = () => {
                     id="name"
                     placeholder="Full name"
                     value={newPatient.name}
-                    onChange={(e) => {
-                      setNewPatient({ ...newPatient, name: e.target.value });
-                      // Clear error when user types
+                    onChange={(event) => {
+                      setNewPatient({ ...newPatient, name: event.target.value });
                       if (validationErrors.name) {
                         setValidationErrors({ ...validationErrors, name: undefined });
                       }
@@ -569,17 +649,24 @@ const ClinicNewVisit = () => {
                     id="dateOfBirth"
                     type="date"
                     value={newPatient.dateOfBirth}
-                    onChange={(e) => {
-                      const dob = e.target.value;
+                    onChange={(event) => {
+                      const dob = event.target.value;
                       if (dob) {
                         const smart = computeSmartAge(dob);
-                        setNewPatient({ ...newPatient, dateOfBirth: dob, age: smart.age.toString(), ageUnit: smart.unit });
+                        setNewPatient({
+                          ...newPatient,
+                          dateOfBirth: dob,
+                          age: smart.age.toString(),
+                          ageUnit: smart.unit,
+                        });
                       } else {
                         setNewPatient({ ...newPatient, dateOfBirth: dob });
                       }
                     }}
                   />
-                  <p className="text-xs text-gray-500">If DOB is entered, age will be calculated automatically</p>
+                  <p className="text-xs text-gray-500">
+                    If DOB is entered, age will be calculated automatically
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="age">Age *</Label>
@@ -589,8 +676,8 @@ const ClinicNewVisit = () => {
                       type="number"
                       placeholder="Age"
                       value={newPatient.age}
-                      onChange={(e) => {
-                        setNewPatient({ ...newPatient, age: e.target.value });
+                      onChange={(event) => {
+                        setNewPatient({ ...newPatient, age: event.target.value });
                         if (validationErrors.age) {
                           setValidationErrors({ ...validationErrors, age: undefined });
                         }
@@ -599,7 +686,12 @@ const ClinicNewVisit = () => {
                     />
                     <Select
                       value={newPatient.ageUnit}
-                      onValueChange={(v) => setNewPatient({ ...newPatient, ageUnit: v as 'DAYS' | 'MONTHS' | 'YEARS' })}
+                      onValueChange={(value) =>
+                        setNewPatient({
+                          ...newPatient,
+                          ageUnit: value as 'DAYS' | 'MONTHS' | 'YEARS',
+                        })
+                      }
                     >
                       <SelectTrigger className="w-full sm:w-[110px]">
                         <SelectValue />
@@ -619,19 +711,18 @@ const ClinicNewVisit = () => {
                   <Label>Gender *</Label>
                   <RadioGroup
                     value={newPatient.gender}
-                    onValueChange={(v) => {
-                      setNewPatient({ ...newPatient, gender: v as 'M' | 'F' | 'O' });
-                      // Clear error when user selects
+                    onValueChange={(value) => {
+                      setNewPatient({ ...newPatient, gender: value as 'M' | 'F' | 'O' });
                       if (validationErrors.gender) {
                         setValidationErrors({ ...validationErrors, gender: undefined });
                       }
                     }}
                     className="flex flex-wrap gap-4"
                   >
-                    {['M', 'F', 'O'].map((g) => (
-                      <div key={g} className="flex items-center space-x-2">
-                        <RadioGroupItem value={g} id={`gender-${g}`} />
-                        <Label htmlFor={`gender-${g}`}>{g}</Label>
+                    {['M', 'F', 'O'].map((gender) => (
+                      <div key={gender} className="flex items-center space-x-2">
+                        <RadioGroupItem value={gender} id={`gender-${gender}`} />
+                        <Label htmlFor={`gender-${gender}`}>{gender}</Label>
                       </div>
                     ))}
                   </RadioGroup>
@@ -640,15 +731,13 @@ const ClinicNewVisit = () => {
                   )}
                 </div>
               </div>
-              
-              {/* Phone validation error */}
+
               {validationErrors.phone && (
                 <div className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-md p-3">
                   <strong>Phone:</strong> {validationErrors.phone}
                 </div>
               )}
 
-              {/* WhatsApp opt-in */}
               <div className="flex items-center space-x-3 bg-green-50 border border-green-200 rounded-md p-3">
                 <Checkbox
                   id="clinicWhatsappOptIn"
@@ -657,7 +746,10 @@ const ClinicNewVisit = () => {
                     setNewPatient({ ...newPatient, whatsappOptIn: checked === true })
                   }
                 />
-                <Label htmlFor="clinicWhatsappOptIn" className="flex items-center gap-2 text-sm cursor-pointer">
+                <Label
+                  htmlFor="clinicWhatsappOptIn"
+                  className="flex items-center gap-2 text-sm cursor-pointer"
+                >
                   <MessageCircle className="h-4 w-4 text-green-600" />
                   Send reports & bill confirmations via WhatsApp
                 </Label>
@@ -666,7 +758,6 @@ const ClinicNewVisit = () => {
           </Card>
         )}
 
-        {/* Visit Details */}
         {(selectedPatient || showNewPatientForm) && (
           <Card>
             <CardHeader>
@@ -677,7 +768,7 @@ const ClinicNewVisit = () => {
                 <Label>Visit Type *</Label>
                 <RadioGroup
                   value={visitType}
-                  onValueChange={(v) => setVisitType(v as VisitType)}
+                  onValueChange={(value) => setVisitType(value as VisitType)}
                   className="flex flex-col gap-3 sm:flex-row sm:gap-6"
                 >
                   <div className="flex items-center space-x-2">
@@ -695,7 +786,9 @@ const ClinicNewVisit = () => {
                 <Label>Doctor *</Label>
                 <Select value={selectedDoctorId} onValueChange={setSelectedDoctorId}>
                   <SelectTrigger className="max-w-sm">
-                    <SelectValue placeholder="Select consulting doctor" />
+                    <SelectValue
+                      placeholder={isLoading ? 'Loading doctors...' : 'Select consulting doctor'}
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {clinicDoctors.map((doctor) => (
@@ -714,7 +807,7 @@ const ClinicNewVisit = () => {
                     id="ward"
                     placeholder="e.g., Ward B - Room 204"
                     value={hospitalWard}
-                    onChange={(e) => setHospitalWard(e.target.value)}
+                    onChange={(event) => setHospitalWard(event.target.value)}
                     className="max-w-sm"
                   />
                 </div>
@@ -723,89 +816,173 @@ const ClinicNewVisit = () => {
           </Card>
         )}
 
-        {/* Billing */}
         {(selectedPatient || showNewPatientForm) && selectedDoctorId && (
           <Card>
             <CardHeader>
               <CardTitle>Billing</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Revisit Banner */}
-              {revisitInfo?.isRevisit && (
+              {checkingRevisit && (
+                <p className="text-sm text-muted-foreground animate-pulse">
+                  Checking revisit eligibility...
+                </p>
+              )}
+
+              {activeAnchorVisit && revisitContext?.eligible && (
                 <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <RotateCcw className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
                   <div>
-                    <p className="font-semibold text-blue-900">Revisit Detected — Free Consultation</p>
+                    <p className="font-semibold text-blue-900">
+                      Eligible Revisit Detected — No New Bill by Default
+                    </p>
                     <p className="text-sm text-blue-700 mt-1">
-                      This patient visited <strong>{revisitInfo.doctorName}</strong> on{' '}
-                      <strong>{new Date(revisitInfo.originalDate).toLocaleDateString('en-IN')}</strong>{' '}
-                      (Bill #{revisitInfo.originalBillNumber}). Follow-up within 7 days — consultation fee waived.
+                      Prior paid visit on{' '}
+                      <strong>{new Date(activeAnchorVisit.visitDate).toLocaleDateString('en-IN')}</strong>
+                      {activeAnchorVisit.originalBillNumber
+                        ? ` (Bill #${activeAnchorVisit.originalBillNumber})`
+                        : ''}
+                      . Reception can still switch this back to a standard billed visit.
                     </p>
                   </div>
                 </div>
               )}
 
-              {checkingRevisit && (
-                <p className="text-sm text-muted-foreground animate-pulse">Checking revisit eligibility...</p>
+              {activeAnchorVisit && !revisitContext?.eligible && (
+                <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg p-4">
+                  <RotateCcw className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="font-semibold text-amber-900">
+                      Previous Paid Visit Found — Standard Visit by Default
+                    </p>
+                    <p className="text-sm text-amber-700 mt-1">
+                      Prior paid visit on{' '}
+                      <strong>{new Date(activeAnchorVisit.visitDate).toLocaleDateString('en-IN')}</strong>
+                      {activeAnchorVisit.originalBillNumber
+                        ? ` (Bill #${activeAnchorVisit.originalBillNumber})`
+                        : ''}
+                      . The revisit window has passed, but reception can still allow a revisit manually.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {!checkingRevisit && !activeAnchorVisit && (
+                <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
+                  No prior paid clinic consultation was found for this patient, doctor, and branch.
+                  This will be treated as a standard billed visit.
+                </div>
+              )}
+
+              {activeAnchorVisit && (
+                <div className="space-y-3">
+                  <Label>Visit Mode</Label>
+                  <RadioGroup
+                    value={selectedRevisitMode}
+                    onValueChange={(value) =>
+                      setSelectedRevisitMode(value as ClinicRevisitMode)
+                    }
+                    className="grid gap-3 md:grid-cols-2"
+                  >
+                    <Label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer">
+                      <RadioGroupItem value="VISIT" id="mode-visit" className="mt-1" />
+                      <span className="space-y-1">
+                        <span className="block font-medium">Standard Visit</span>
+                        <span className="block text-sm text-muted-foreground">
+                          Create a new bill and collect payment now.
+                        </span>
+                      </span>
+                    </Label>
+                    <Label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer">
+                      <RadioGroupItem value="REVISIT" id="mode-revisit" className="mt-1" />
+                      <span className="space-y-1">
+                        <span className="block font-medium">Revisit</span>
+                        <span className="block text-sm text-muted-foreground">
+                          No new bill. The prescription and slip will reference the earlier paid visit.
+                        </span>
+                      </span>
+                    </Label>
+                  </RadioGroup>
+                </div>
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="fee">Consultation Fee</Label>
+                <Label htmlFor="fee">
+                  {isRevisitSelected ? 'Standard Consultation Fee' : 'Consultation Fee'}
+                </Label>
                 <div className="flex items-center gap-2 max-w-sm">
                   <span className="text-muted-foreground">₹</span>
                   <Input
                     id="fee"
                     type="number"
-                    value={revisitInfo?.isRevisit ? '0' : consultationFee}
-                    onChange={(e) => setConsultationFee(e.target.value)}
-                    disabled={revisitInfo?.isRevisit}
-                    className={revisitInfo?.isRevisit ? 'bg-blue-50 text-blue-700 font-bold' : ''}
+                    value={consultationFee}
+                    onChange={(event) => setConsultationFee(event.target.value)}
+                    disabled={isRevisitSelected}
+                    className={isRevisitSelected ? 'bg-blue-50 text-blue-700 font-medium' : ''}
                   />
-                  {revisitInfo?.isRevisit && (
-                    <span className="text-sm text-blue-600 font-medium whitespace-nowrap">Revisit — Free</span>
+                </div>
+                {isRevisitSelected ? (
+                  <p className="text-sm text-blue-700">
+                    Charged now: <strong>₹0</strong>. The saved fee above will be used only if you switch
+                    back to a standard billed visit.
+                  </p>
+                ) : null}
+              </div>
+
+              {isRevisitSelected ? (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+                  This revisit will be registered without creating a new bill. Payment details and bill
+                  confirmation are skipped for revisit visits.
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label>Payment Type *</Label>
+                    <RadioGroup
+                      value={paymentType}
+                      onValueChange={(value) => setPaymentType(value as PaymentType)}
+                      className="flex gap-6"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="CASH" id="cash" />
+                        <Label htmlFor="cash">Cash</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="ONLINE" id="online" />
+                        <Label htmlFor="online">Online</Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+
+                  {selectedPatient && !showNewPatientForm && (
+                    <div className="flex items-center space-x-3 bg-green-50 border border-green-200 rounded-md p-3">
+                      <Checkbox
+                        id="existingPatientWhatsappOptIn"
+                        checked={whatsappOptIn}
+                        onCheckedChange={(checked) => setWhatsappOptIn(checked === true)}
+                      />
+                      <Label
+                        htmlFor="existingPatientWhatsappOptIn"
+                        className="flex items-center gap-2 text-sm cursor-pointer"
+                      >
+                        <MessageCircle className="h-4 w-4 text-green-600" />
+                        Send bill confirmation via WhatsApp
+                      </Label>
+                    </div>
                   )}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Payment Type *</Label>
-                <RadioGroup
-                  value={paymentType}
-                  onValueChange={(v) => setPaymentType(v as PaymentType)}
-                  className="flex gap-6"
-                >
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="CASH" id="cash" />
-                    <Label htmlFor="cash">Cash</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="ONLINE" id="online" />
-                    <Label htmlFor="online">Online</Label>
-                  </div>
-                </RadioGroup>
-              </div>
-
-              {/* WhatsApp opt-in for existing patients */}
-              {selectedPatient && !showNewPatientForm && (
-                <div className="flex items-center space-x-3 bg-green-50 border border-green-200 rounded-md p-3">
-                  <Checkbox
-                    id="existingPatientWhatsappOptIn"
-                    checked={whatsappOptIn}
-                    onCheckedChange={(checked) => setWhatsappOptIn(checked === true)}
-                  />
-                  <Label htmlFor="existingPatientWhatsappOptIn" className="flex items-center gap-2 text-sm cursor-pointer">
-                    <MessageCircle className="h-4 w-4 text-green-600" />
-                    Send bill confirmation via WhatsApp
-                  </Label>
-                </div>
+                </>
               )}
 
-              <Button 
-                className="w-full" 
+              <Button
+                className="w-full"
                 size="lg"
                 onClick={handleSubmit}
+                disabled={isSubmitting}
               >
-                Generate Clinic Bill
+                {isSubmitting
+                  ? 'Creating Visit...'
+                  : isRevisitSelected
+                    ? 'Register Clinic Revisit'
+                    : 'Generate Clinic Bill'}
               </Button>
             </CardContent>
           </Card>

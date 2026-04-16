@@ -22,7 +22,9 @@ import {
 interface QueueVisit {
   id: string;
   branchId: string;
-  billNumber: string;
+  visitRef: string;
+  billNumber?: string | null;
+  hasBill?: boolean;
   patientId: string;
   patient: {
     id: string;
@@ -48,10 +50,11 @@ interface QueueVisit {
   consultationFee: number;
   isRevisit: boolean;
   originalVisitId?: string | null;
+  originalVisitVisitRef?: string | null;
   originalVisitBillNumber?: string | null;
   originalVisitDate?: string | null;
-  paymentType: string;
-  paymentStatus: string;
+  paymentType?: string | null;
+  paymentStatus?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -130,7 +133,8 @@ const ClinicVisitQueue = () => {
         const phone = visit.patient.identifiers.find((i) => i.type === 'PHONE')?.value || '';
         return (
           phone.includes(search) ||
-          visit.billNumber.toLowerCase().includes(searchLower) ||
+          visit.visitRef.toLowerCase().includes(searchLower) ||
+          (visit.billNumber || '').toLowerCase().includes(searchLower) ||
           visit.patient.name.toLowerCase().includes(searchLower)
         );
       }
@@ -249,7 +253,7 @@ const ClinicVisitQueue = () => {
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Phone / Bill Number / Name"
+                    placeholder="Phone / Visit Ref / Bill Number / Name"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="pl-9"
@@ -306,8 +310,13 @@ const ClinicVisitQueue = () => {
                             Doctor: <span className="text-foreground">{visit.doctor?.name || '—'}</span>
                           </span>
                           <span className="text-muted-foreground">
-                            Bill #: <span className="font-mono">{visit.billNumber}</span>
+                            Visit Ref: <span className="font-mono">{visit.visitRef}</span>
                           </span>
+                          {visit.billNumber && (
+                            <span className="text-muted-foreground">
+                              Bill #: <span className="font-mono">{visit.billNumber}</span>
+                            </span>
+                          )}
                           {phone && (
                             <span className="text-muted-foreground">
                               Ph: <span className="text-foreground">{phone}</span>
@@ -316,14 +325,21 @@ const ClinicVisitQueue = () => {
                         </div>
                         <div className="flex flex-wrap items-center gap-3">
                           <span className="text-sm">₹{visit.totalAmount.toLocaleString('en-IN')}</span>
-                          <span className="text-sm text-muted-foreground">{visit.paymentType}</span>
-                          <StatusBadge status={visit.paymentStatus} />
+                          {visit.hasBill ? (
+                            <>
+                              <span className="text-sm text-muted-foreground">{visit.paymentType}</span>
+                              {visit.paymentStatus ? <StatusBadge status={visit.paymentStatus} /> : null}
+                            </>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">Not billed</span>
+                          )}
                           <StatusBadge status={visit.status} />
                         </div>
 
                         {visit.isRevisit && (visit.originalVisitBillNumber || visit.originalVisitDate) && (
                           <div className="text-xs text-blue-700">
                             Original visit:
+                            {visit.originalVisitVisitRef ? ` Ref ${visit.originalVisitVisitRef}` : ''}
                             {visit.originalVisitBillNumber ? ` Bill #${visit.originalVisitBillNumber}` : ''}
                             {visit.originalVisitDate
                               ? ` on ${new Date(visit.originalVisitDate).toLocaleDateString('en-IN')}`
@@ -393,8 +409,13 @@ const ClinicVisitQueue = () => {
                   <p className="text-sm">{selectedVisit.patient.identifiers.find((i) => i.type === 'PHONE')?.value}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Bill Number</p>
-                  <p className="font-mono font-bold">{selectedVisit.billNumber}</p>
+                  <p className="text-sm text-muted-foreground">Visit Reference</p>
+                  <p className="font-mono font-bold">{selectedVisit.visitRef}</p>
+                  {selectedVisit.billNumber && (
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Bill #: <span className="font-mono text-foreground">{selectedVisit.billNumber}</span>
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -423,10 +444,14 @@ const ClinicVisitQueue = () => {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Payment</p>
-                  <div className="flex items-center gap-2">
-                    <span>{selectedVisit.paymentType}</span>
-                    <StatusBadge status={selectedVisit.paymentStatus} />
-                  </div>
+                  {selectedVisit.hasBill ? (
+                    <div className="flex items-center gap-2">
+                      <span>{selectedVisit.paymentType}</span>
+                      {selectedVisit.paymentStatus ? <StatusBadge status={selectedVisit.paymentStatus} /> : null}
+                    </div>
+                  ) : (
+                    <p className="font-medium text-muted-foreground">Not billed</p>
+                  )}
                 </div>
               </div>
 
@@ -443,6 +468,7 @@ const ClinicVisitQueue = () => {
                   {(selectedVisit.originalVisitBillNumber || selectedVisit.originalVisitDate) && (
                     <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-300/80">
                       Original visit:
+                      {selectedVisit.originalVisitVisitRef ? ` Ref ${selectedVisit.originalVisitVisitRef}` : ''}
                       {selectedVisit.originalVisitBillNumber ? ` Bill #${selectedVisit.originalVisitBillNumber}` : ''}
                       {selectedVisit.originalVisitDate
                         ? ` on ${new Date(selectedVisit.originalVisitDate).toLocaleDateString('en-IN')}`
