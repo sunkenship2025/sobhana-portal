@@ -11,13 +11,17 @@ import type { BillReceiptData } from '@/types';
 interface ApiBillData {
   visit: {
     id: string;
-    billNumber: string;
+    visitRef?: string;
+    billNumber?: string | null;
+    hasBill?: boolean;
     domain: 'CLINIC' | 'DIAGNOSTICS';
     status: string;
     createdAt: string;
     totalAmount: number;
     visitType?: string;
     isRevisit?: boolean;
+    originalVisitBillNumber?: string | null;
+    originalVisitDate?: string | null;
   };
   patient: {
     name: string;
@@ -31,8 +35,8 @@ interface ApiBillData {
     code: string;
   };
   payment: {
-    type: string;
-    status: string;
+    type?: string | null;
+    status?: string | null;
   };
   doctor?: {
     name: string;
@@ -55,11 +59,15 @@ interface ApiBillData {
 /** Transform API response → shared BillReceiptData */
 function toBillReceiptData(api: ApiBillData): BillReceiptData {
   return {
+    visitRef: api.visit.visitRef,
     billNumber: api.visit.billNumber,
+    hasBill: api.visit.hasBill,
     date: api.visit.createdAt,
     domain: api.visit.domain,
     visitType: api.visit.visitType,
     isRevisit: api.visit.isRevisit,
+    originalBillNumber: api.visit.originalVisitBillNumber,
+    originalVisitDate: api.visit.originalVisitDate,
     branchName: api.branch.name,
     patient: {
       name: api.patient.name,
@@ -90,6 +98,7 @@ export default function BillPrintPage() {
   const [billData, setBillData] = useState<ApiBillData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const printLabel = billData?.visit.hasBill === false ? 'Print Visit Slip' : 'Print Bill';
 
   useEffect(() => {
     if (domain && visitId) {
@@ -135,7 +144,7 @@ export default function BillPrintPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
         <AlertTriangle className="h-12 w-12 text-destructive" />
-        <p className="text-lg font-medium">Failed to load bill</p>
+        <p className="text-lg font-medium">Failed to load print document</p>
         <p className="text-sm text-muted-foreground">{error}</p>
         <Button variant="outline" onClick={() => window.close()}>
           Close Window
@@ -149,7 +158,7 @@ export default function BillPrintPage() {
       {/* Print Button (hidden on print) */}
       <div className="no-print fixed top-4 right-4 z-50">
         <Button onClick={() => window.print()}>
-          Print Bill
+          {printLabel}
         </Button>
       </div>
 

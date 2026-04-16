@@ -14,6 +14,10 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
   const patientPhone = patient.identifiers.find((identifier) => identifier.type === 'PHONE')?.value || 'N/A';
   const patientAge = formatAgeDisplay(patient);
   const genderLabel = patient.gender === 'M' ? 'Male' : patient.gender === 'F' ? 'Female' : 'Other';
+  const referenceLabel = visit.hasBill ? 'Bill No' : 'Visit Ref';
+  const referenceValue = visit.hasBill
+    ? visit.billNumber || visit.visitRef || '—'
+    : visit.visitRef || visit.billNumber || '—';
 
   followUpDate.setDate(followUpDate.getDate() + 7);
 
@@ -33,6 +37,7 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
   });
 
   const visitTypeService = visit.visitType === 'OP' ? 'OP Consultation' : 'IP Consultation';
+  const serviceName = visit.isRevisit ? `${visitTypeService} (Revisit)` : visitTypeService;
 
   return (
     <div className="print-content bg-white text-black">
@@ -57,8 +62,8 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
             <div className="clinic-rx-patient-box">
               <div className="clinic-rx-patient-column">
                 <div className="clinic-rx-patient-row">
-                  <span className="clinic-rx-patient-label">Bill No</span>
-                  <span className="clinic-rx-patient-value">{visit.billNumber}</span>
+                  <span className="clinic-rx-patient-label">{referenceLabel}</span>
+                  <span className="clinic-rx-patient-value">{referenceValue}</span>
                 </div>
                 <div className="clinic-rx-patient-row">
                   <span className="clinic-rx-patient-label">Patient Name</span>
@@ -85,6 +90,43 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
                 </div>
               </div>
             </div>
+
+            {visit.isRevisit && (
+              <div className="clinic-rx-patient-box" style={{ marginTop: '12px' }}>
+                <div className="clinic-rx-patient-column">
+                  <div className="clinic-rx-patient-row">
+                    <span className="clinic-rx-patient-label">Visit Mode</span>
+                    <span className="clinic-rx-patient-value">Revisit</span>
+                  </div>
+                  <div className="clinic-rx-patient-row">
+                    <span className="clinic-rx-patient-label">Original Bill</span>
+                    <span className="clinic-rx-patient-value">
+                      {visit.originalVisitBillNumber || 'Not available'}
+                    </span>
+                  </div>
+                </div>
+                <div className="clinic-rx-patient-column">
+                  <div className="clinic-rx-patient-row">
+                    <span className="clinic-rx-patient-label">Original Visit</span>
+                    <span className="clinic-rx-patient-value">
+                      {visit.originalVisitDate
+                        ? new Date(visit.originalVisitDate).toLocaleDateString('en-IN', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                          })
+                        : 'Not available'}
+                    </span>
+                  </div>
+                  <div className="clinic-rx-patient-row">
+                    <span className="clinic-rx-patient-label">Billing</span>
+                    <span className="clinic-rx-patient-value">
+                      {visit.hasBill ? 'New bill generated' : 'No new bill'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="clinic-rx-vitals-strip">
               <div className="clinic-rx-vitals-grid">
@@ -117,11 +159,15 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
       <BillReceipt
         asPage
         data={{
+          visitRef: visit.visitRef,
           billNumber: visit.billNumber,
+          hasBill: visit.hasBill,
           date: visit.createdAt,
           domain: 'CLINIC',
           visitType: visit.visitType,
           isRevisit: visit.isRevisit,
+          originalBillNumber: visit.originalVisitBillNumber || null,
+          originalVisitDate: visit.originalVisitDate || null,
           branchName,
           patient: {
             name: patient.name,
@@ -143,7 +189,7 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
           items: [
             {
               id: visit.id,
-              name: visitTypeService,
+              name: serviceName,
               price: visit.consultationFeeInPaise / 100,
             },
           ],
