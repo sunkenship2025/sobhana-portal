@@ -324,6 +324,25 @@ export type VisitDomain = 'DIAGNOSTICS' | 'CLINIC';
 export type VisitType = 'OP' | 'IP'; // Only for CLINIC domain
 export type PaymentType = 'CASH' | 'ONLINE' | 'CHEQUE';
 export type PaymentStatus = 'PAID' | 'PENDING';
+export type ClinicRevisitMode = 'VISIT' | 'REVISIT';
+export type ClinicRevisitDecision = 'AUTO' | 'FORCE_REVISIT' | 'FORCE_NORMAL';
+
+export interface ClinicRevisitAnchor {
+  id: string;
+  visitRef: string;
+  originalBillNumber?: string | null;
+  visitDate: string | Date;
+  billedAt?: string | Date | null;
+  doctorName?: string | null;
+}
+
+export interface ClinicRevisitContext {
+  defaultMode: ClinicRevisitMode;
+  eligible: boolean;
+  canForceRevisit: boolean;
+  canForceNormal: boolean;
+  anchorVisit: ClinicRevisitAnchor | null;
+}
 
 // ============================================
 // VISIT REFERRAL (Explicit doctor access control)
@@ -337,12 +356,15 @@ export interface VisitReferral {
 export interface BaseVisit {
   id: string;
   branchId: string;     // Every visit belongs to exactly one branch
-  billNumber: string;
+  billNumber?: string | null;
+  visitRef?: string;
   patientId: string;
   domain: VisitDomain;
   totalAmountInPaise: number;
-  paymentType: PaymentType;
-  paymentStatus: PaymentStatus;
+  paymentType?: PaymentType | null;
+  paymentStatus?: PaymentStatus | null;
+  hasBill?: boolean;
+  billedAt?: Date | string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -366,6 +388,9 @@ export interface ClinicVisit extends BaseVisit {
   consultationFeeInPaise: number;
   isRevisit?: boolean;
   originalVisitId?: string;
+  originalVisitVisitRef?: string | null;
+  originalVisitBillNumber?: string | null;
+  originalVisitDate?: Date | string | null;
   status: ClinicVisitStatus;
 }
 
@@ -445,15 +470,23 @@ export interface ClinicVisitView {
 export interface VisitTimelineItem {
   visitId: string;
   domain: VisitDomain;
-  billNumber: string;
+  billNumber?: string | null;
+  visitRef?: string;
+  hasBill?: boolean;
   branchId: string;
   branchName: string;
   visitType?: VisitType;             // Only for CLINIC domain
   status: string;                     // DiagnosticVisitStatus or ClinicVisitStatus
   doctorName?: string;               // Clinic doctor name (for clinic visits)
   totalAmountInPaise: number;
-  paymentType: PaymentType;
-  paymentStatus: PaymentStatus;
+  paymentType?: PaymentType | null;
+  paymentStatus?: PaymentStatus | null;
+  isRevisit?: boolean;
+  originalVisitId?: string | null;
+  originalVisitVisitRef?: string | null;
+  originalVisitBillNumber?: string | null;
+  originalVisitDate?: Date | string | null;
+  billedAt?: Date | string | null;
   createdAt: Date;
   // Diagnostic specific
   reportStatus?: ReportVersionStatus; // DRAFT | FINALIZED (only if report exists)
@@ -539,11 +572,15 @@ export interface BillReceiptItem {
 }
 
 export interface BillReceiptData {
-  billNumber: string;
+  billNumber?: string | null;
+  visitRef?: string;
+  hasBill?: boolean;
   date: string | Date;      // ISO string or Date object
   domain: 'CLINIC' | 'DIAGNOSTICS';
   visitType?: string;       // 'OP' | 'IP' for clinic
   isRevisit?: boolean;
+  originalBillNumber?: string | null;
+  originalVisitDate?: string | Date | null;
   branchName?: string;
   patient: {
     name: string;
@@ -560,8 +597,8 @@ export interface BillReceiptData {
   referralDoctor?: {
     name: string;
   };
-  paymentType: string;
-  paymentStatus: string;
+  paymentType?: string | null;
+  paymentStatus?: string | null;
   totalAmount: number;      // Already in rupees
   items: BillReceiptItem[];
 }

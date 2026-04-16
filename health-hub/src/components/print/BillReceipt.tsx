@@ -36,6 +36,14 @@ export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
     : data.visitType === 'IP'
       ? 'IP Consultation'
       : 'OP Consultation';
+  const hasBill = data.hasBill !== false;
+  const documentNumberLabel = hasBill ? 'Bill No' : 'Visit Ref';
+  const documentNumberValue = hasBill
+    ? data.billNumber || data.visitRef || '—'
+    : data.visitRef || data.billNumber || '—';
+  const paymentSummary = hasBill
+    ? `${data.paymentType || '—'} / ${data.paymentStatus || '—'}`
+    : 'Not billed';
 
   // Container classes: if asPage, use print-page styling; otherwise standalone print-content
   const containerClass = asPage
@@ -62,15 +70,17 @@ export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
       {/* Bill Info Row */}
       <div className="flex justify-between text-sm mb-1">
         <div>
-          <p><strong>Bill No:</strong>&ensp;{data.billNumber}</p>
+          <p><strong>{documentNumberLabel}:</strong>&ensp;{documentNumberValue}</p>
           <p><strong>Date:</strong>&ensp;{dateStr}</p>
           {visitTypeService && (
             <p><strong>Visit Type:</strong>&ensp;{visitTypeService}</p>
           )}
         </div>
         <div className="text-right">
-          <p><strong>Payment:</strong>&ensp;{data.paymentType}</p>
-          <p><strong>Status:</strong>&ensp;{data.paymentStatus}</p>
+          <p><strong>Payment:</strong>&ensp;{paymentSummary}</p>
+          {data.isRevisit && !hasBill && (
+            <p><strong>Document:</strong>&ensp;Revisit Slip</p>
+          )}
         </div>
       </div>
 
@@ -143,13 +153,32 @@ export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
       </table>
 
       {/* Revisit Note (clinic only, always shown for clinic) */}
-      {!isDiagnostic && (
+      {!isDiagnostic && hasBill && (
         <div className="border border-black p-3 mb-4">
           <p className="text-xs">
             <strong>Note:</strong>{' '}
             <em>
               This receipt is valid for a free revisit within 7 days from the date of issue for the same
               complaint with the same consultant. Please carry this bill for the follow-up visit.
+            </em>
+          </p>
+        </div>
+      )}
+
+      {!isDiagnostic && !hasBill && (
+        <div className="border border-black p-3 mb-4">
+          <p className="text-xs">
+            <strong>Revisit:</strong>{' '}
+            <em>
+              No new bill was generated for this follow-up visit.
+              {data.originalBillNumber ? ` Original billed visit: ${data.originalBillNumber}.` : ''}
+              {data.originalVisitDate
+                ? ` Original visit date: ${new Date(data.originalVisitDate).toLocaleDateString('en-IN', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                  })}.`
+                : ''}
             </em>
           </p>
         </div>

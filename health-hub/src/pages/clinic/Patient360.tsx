@@ -160,7 +160,7 @@ function VisitDetailDrawer({ visit, open, onClose, patientPhone, onPreviewReport
   };
 
   const handlePrintBill = () => {
-    // Open bill print page in new tab
+    // Opens either a bill reprint or a revisit slip depending on the visit.
     window.open(`/bill/print/${visit.domain}/${visit.visitId}`, '_blank');
   };
 
@@ -187,7 +187,13 @@ function VisitDetailDrawer({ visit, open, onClose, patientPhone, onPreviewReport
             <div className="mt-2 space-y-1 text-sm text-muted-foreground">
               <p>Branch: <span className="text-foreground font-medium">{visit.branchName}</span></p>
               <p>Date: <span className="text-foreground">{formatDate(visit.createdAt)}</span></p>
-              <p>Bill Number: <span className="text-foreground font-mono">{visit.billNumber}</span></p>
+              <p>
+                {visit.hasBill ? 'Bill Number' : 'Visit Reference'}:{' '}
+                <span className="text-foreground font-mono">{visit.hasBill ? (visit.billNumber || '—') : (visit.visitRef || visit.billNumber || '—')}</span>
+              </p>
+              {visit.hasBill && visit.visitRef && visit.visitRef !== visit.billNumber && (
+                <p>Visit Ref: <span className="text-foreground font-mono">{visit.visitRef}</span></p>
+              )}
               {!isDiagnostic && visit.doctorName && (
                 <p>Doctor: <span className="text-foreground">{visit.doctorName}</span></p>
               )}
@@ -206,14 +212,28 @@ function VisitDetailDrawer({ visit, open, onClose, patientPhone, onPreviewReport
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Payment Method</span>
-                <span>{visit.paymentType}</span>
+                <span>{visit.hasBill ? (visit.paymentType || '—') : 'Not billed'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Payment Status</span>
-                <span className={visit.paymentStatus === 'PAID' ? 'text-green-600 font-medium' : 'text-amber-600 font-medium'}>
-                  {visit.paymentStatus}
-                </span>
+                {visit.hasBill ? (
+                  <span className={visit.paymentStatus === 'PAID' ? 'text-green-600 font-medium' : 'text-amber-600 font-medium'}>
+                    {visit.paymentStatus}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">No new bill</span>
+                )}
               </div>
+              {visit.isRevisit && (visit.originalVisitBillNumber || visit.originalVisitDate) && (
+                <div className="pt-2 text-xs text-blue-700">
+                  Original billed visit:
+                  {visit.originalVisitVisitRef ? ` Ref ${visit.originalVisitVisitRef}` : ''}
+                  {visit.originalVisitBillNumber ? ` Bill #${visit.originalVisitBillNumber}` : ''}
+                  {visit.originalVisitDate
+                    ? ` on ${formatDate(visit.originalVisitDate)}`
+                    : ''}
+                </div>
+              )}
             </div>
           </div>
 
@@ -283,7 +303,7 @@ function VisitDetailDrawer({ visit, open, onClose, patientPhone, onPreviewReport
               className="w-full"
             >
               <Printer className="h-4 w-4 mr-2" />
-              Print Bill
+              {visit.hasBill ? 'Print Bill' : 'Print Visit Slip'}
             </Button>
           </div>
 
@@ -573,8 +593,13 @@ export default function Patient360() {
                               • {visit.branchName}
                             </span>
                             <span className="text-xs text-muted-foreground font-mono">
-                              • {visit.billNumber}
+                              • {visit.hasBill ? (visit.billNumber || visit.visitRef || '—') : (visit.visitRef || visit.billNumber || '—')}
                             </span>
+                            {visit.isRevisit && (
+                              <Badge variant="outline" className="text-xs text-blue-700 border-blue-200">
+                                Revisit
+                              </Badge>
+                            )}
                           </div>
 
                           {/* Status / Doctor */}
@@ -599,11 +624,25 @@ export default function Patient360() {
                             {/* Billing Info */}
                             <p className="text-sm">
                               <span className="font-semibold">{formatCurrency(visit.totalAmountInPaise)}</span>
-                              <span className="text-muted-foreground"> · {visit.paymentType} · </span>
-                              <span className={visit.paymentStatus === 'PAID' ? 'text-green-600 font-medium' : 'text-amber-600'}>
-                                {visit.paymentStatus}
-                              </span>
+                              {visit.hasBill ? (
+                                <>
+                                  <span className="text-muted-foreground"> · {visit.paymentType} · </span>
+                                  <span className={visit.paymentStatus === 'PAID' ? 'text-green-600 font-medium' : 'text-amber-600'}>
+                                    {visit.paymentStatus}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="text-muted-foreground"> · No new bill</span>
+                              )}
                             </p>
+                            {visit.isRevisit && (visit.originalVisitBillNumber || visit.originalVisitDate) && (
+                              <p className="text-xs text-blue-700">
+                                Original billed visit:
+                                {visit.originalVisitVisitRef ? ` Ref ${visit.originalVisitVisitRef}` : ''}
+                                {visit.originalVisitBillNumber ? ` Bill #${visit.originalVisitBillNumber}` : ''}
+                                {visit.originalVisitDate ? ` on ${formatDate(visit.originalVisitDate)}` : ''}
+                              </p>
+                            )}
                           </div>
                         </div>
 
