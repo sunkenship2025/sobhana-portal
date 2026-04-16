@@ -73,6 +73,10 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
                   <span className="clinic-rx-patient-label">Age/Sex</span>
                   <span className="clinic-rx-patient-value">{patientAge} / {genderLabel}</span>
                 </div>
+                <div className="clinic-rx-patient-row">
+                  <span className="clinic-rx-patient-label">Visit Type</span>
+                  <span className="clinic-rx-patient-value">{serviceName}</span>
+                </div>
               </div>
 
               <div className="clinic-rx-patient-column">
@@ -90,43 +94,6 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
                 </div>
               </div>
             </div>
-
-            {visit.isRevisit && (
-              <div className="clinic-rx-patient-box" style={{ marginTop: '12px' }}>
-                <div className="clinic-rx-patient-column">
-                  <div className="clinic-rx-patient-row">
-                    <span className="clinic-rx-patient-label">Visit Mode</span>
-                    <span className="clinic-rx-patient-value">Revisit</span>
-                  </div>
-                  <div className="clinic-rx-patient-row">
-                    <span className="clinic-rx-patient-label">Original Bill</span>
-                    <span className="clinic-rx-patient-value">
-                      {visit.originalVisitBillNumber || 'Not available'}
-                    </span>
-                  </div>
-                </div>
-                <div className="clinic-rx-patient-column">
-                  <div className="clinic-rx-patient-row">
-                    <span className="clinic-rx-patient-label">Original Visit</span>
-                    <span className="clinic-rx-patient-value">
-                      {visit.originalVisitDate
-                        ? new Date(visit.originalVisitDate).toLocaleDateString('en-IN', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            year: 'numeric',
-                          })
-                        : 'Not available'}
-                    </span>
-                  </div>
-                  <div className="clinic-rx-patient-row">
-                    <span className="clinic-rx-patient-label">Billing</span>
-                    <span className="clinic-rx-patient-value">
-                      {visit.hasBill ? 'New bill generated' : 'No new bill'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
 
             <div className="clinic-rx-vitals-strip">
               <div className="clinic-rx-vitals-grid">
