@@ -26,6 +26,7 @@ interface ApiBillData {
   patient: {
     name: string;
     age: number;
+    ageUnit?: 'DAYS' | 'MONTHS' | 'YEARS';
     ageDisplay?: string;
     gender: string;
     phone: string;
@@ -73,6 +74,7 @@ function toBillReceiptData(api: ApiBillData): BillReceiptData {
       name: api.patient.name,
       phone: api.patient.phone,
       age: api.patient.age,
+      ageUnit: api.patient.ageUnit,
       ageDisplay: api.patient.ageDisplay,
       gender: api.patient.gender,
     },
