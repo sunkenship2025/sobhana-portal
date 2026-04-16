@@ -327,6 +327,36 @@ export async function getPatient360View(patientId: string) {
 
   // Collect unique branches where patient has activity
   const branchMap = new Map<string, { id: string; name: string }>();
+  const originalVisitIds = patient.visits
+    .map((visit: any) => visit.clinicVisit?.originalVisitId)
+    .filter((visitId: string | null | undefined): visitId is string => Boolean(visitId));
+
+  const originalVisitMap = originalVisitIds.length > 0
+    ? new Map(
+        (
+          await prisma.visit.findMany({
+            where: { id: { in: Array.from(new Set(originalVisitIds)) } },
+            select: {
+              id: true,
+              createdAt: true,
+              billNumber: true,
+              bill: {
+                select: {
+                  billNumber: true,
+                },
+              },
+            },
+          })
+        ).map((visit) => [
+          visit.id,
+          {
+            visitRef: visit.billNumber,
+            billNumber: visit.bill?.billNumber || null,
+            createdAt: visit.createdAt,
+          },
+        ]),
+      )
+    : new Map<string, { visitRef: string; billNumber: string | null; createdAt: Date }>();
   
   // Build visit timeline with proper typing
   const visitTimeline = patient.visits.map((visit: any) => {
@@ -342,13 +372,15 @@ export async function getPatient360View(patientId: string) {
     const timelineItem: any = {
       visitId: visit.id,
       domain: visit.domain,
-      billNumber: visit.billNumber,
+      visitRef: visit.billNumber,
+      billNumber: visit.bill?.billNumber || null,
+      hasBill: Boolean(visit.bill),
       branchId: visit.branchId,
       branchName: visit.branch?.name || 'Unknown',
       status: visit.status,
       totalAmountInPaise: visit.totalAmountInPaise,
-      paymentType: visit.bill?.paymentType || 'CASH',
-      paymentStatus: visit.bill?.paymentStatus || 'PENDING',
+      paymentType: visit.bill?.paymentType || null,
+      paymentStatus: visit.bill?.paymentStatus || null,
       billedAt: visit.bill?.billedAt || null,
       createdAt: visit.createdAt
     };
@@ -359,6 +391,15 @@ export async function getPatient360View(patientId: string) {
       timelineItem.doctorName = visit.clinicVisit.clinicDoctor?.name;
       timelineItem.startedAt = visit.clinicVisit.startedAt;
       timelineItem.completedAt = visit.clinicVisit.completedAt;
+      timelineItem.isRevisit = visit.clinicVisit.isRevisit;
+      timelineItem.originalVisitId = visit.clinicVisit.originalVisitId;
+
+      if (visit.clinicVisit.originalVisitId) {
+        const originalVisit = originalVisitMap.get(visit.clinicVisit.originalVisitId);
+        timelineItem.originalVisitVisitRef = originalVisit?.visitRef || null;
+        timelineItem.originalVisitBillNumber = originalVisit?.billNumber || null;
+        timelineItem.originalVisitDate = originalVisit?.createdAt || null;
+      }
     }
 
     // Diagnostic-specific fields - report status
