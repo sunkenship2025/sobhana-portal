@@ -5,6 +5,7 @@ import { branchContextMiddleware } from '../middleware/branch';
 import prisma from '../lib/prisma';
 import { logAction } from '../services/auditService';
 import { generateClinicBillNumber } from '../services/numberService';
+import { getPatientAge, getPatientAgeDisplay } from '../utils/validation';
 
 const router = Router();
 
@@ -267,7 +268,16 @@ function transformClinicVisit(
     billNumber: visit.bill?.billNumber || null,
     hasBill: Boolean(visit.bill),
     patientId: visit.patientId,
-    patient: visit.patient,
+    patient: {
+      ...visit.patient,
+      age: getPatientAge(visit.patient.dateOfBirth, visit.patient.yearOfBirth),
+      ageUnit: visit.patient.ageUnit || 'YEARS',
+      ageDisplay: getPatientAgeDisplay(
+        visit.patient.dateOfBirth,
+        visit.patient.yearOfBirth,
+        visit.patient.ageUnit,
+      ),
+    },
     domain: visit.domain,
     status: visit.clinicVisit?.status || visit.status,
     visitType: visit.clinicVisit?.visitType || 'OP',

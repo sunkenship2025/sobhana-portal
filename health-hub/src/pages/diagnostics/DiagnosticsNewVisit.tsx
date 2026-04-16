@@ -700,6 +700,7 @@ const DiagnosticsNewVisit = () => {
               name: successData.visitView.patient.name,
               phone: successData.visitView.patient.identifiers?.find((i: any) => i.type === 'PHONE')?.value || '',
               age: successData.visitView.patient.age,
+              ageUnit: (successData.visitView.patient as any).ageUnit,
               ageDisplay: (successData.visitView.patient as any).ageDisplay,
               gender: successData.visitView.patient.gender,
             },

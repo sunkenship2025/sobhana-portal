@@ -1,6 +1,7 @@
 import type { BillReceiptData } from '@/types';
 import { API_BASE_URL } from '@/lib/api';
 import { formatReferralPayout } from '@/lib/referralPayouts';
+import { formatAgeDisplay } from '@/lib/validation';
 
 interface BillReceiptProps {
   data: BillReceiptData;
@@ -36,6 +37,11 @@ export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
     : data.visitType === 'IP'
       ? 'IP Consultation'
       : 'OP Consultation';
+  const visitTypeLabel = visitTypeService
+    ? data.isRevisit
+      ? `${visitTypeService} (Revisit)`
+      : visitTypeService
+    : undefined;
   const hasBill = data.hasBill !== false;
   const documentNumberLabel = hasBill ? 'Bill No' : 'Visit Ref';
   const documentNumberValue = hasBill
@@ -44,17 +50,35 @@ export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
   const paymentSummary = hasBill
     ? `${data.paymentType || '—'} / ${data.paymentStatus || '—'}`
     : 'Not billed';
+  const revisitSummaryParts = [
+    data.originalBillNumber ? `Bill ${data.originalBillNumber}` : null,
+    data.originalVisitDate
+      ? new Date(data.originalVisitDate).toLocaleDateString('en-IN', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        })
+      : null,
+  ].filter(Boolean);
+  const revisitSummary = revisitSummaryParts.join(' • ');
+  const patientAgeDisplay = data.patient.ageDisplay?.trim()
+    ? data.patient.ageDisplay
+    : typeof data.patient.age === 'number' && Number.isFinite(data.patient.age)
+      ? formatAgeDisplay({
+          age: data.patient.age,
+          ageUnit: data.patient.ageUnit,
+        })
+      : 'N/A';
 
   // Container classes: if asPage, use print-page styling; otherwise standalone print-content
   const containerClass = asPage
-    ? 'print-page'
-    : 'print-content p-8 bg-white text-black max-w-2xl mx-auto';
+    ? 'print-page bill-receipt-page'
+    : 'print-content pt-6 pb-8 px-8 bg-white text-black max-w-2xl mx-auto';
 
   return (
     <div className={containerClass}>
-
       {/* Logo Header - Centered */}
-      <div className="flex justify-center mb-1">
+      <div className="flex justify-center mb-0">
         <img
           src={`${API_BASE_URL}/images/sobhana-clinic-logo.png`}
           alt="Sobhana"
@@ -63,34 +87,34 @@ export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
         />
       </div>
       {data.branchName && (
-        <p className="text-center text-xs tracking-widest uppercase mb-3">{data.branchName}</p>
+        <p className="text-center text-xs tracking-widest uppercase mb-2">{data.branchName}</p>
       )}
-      <div className="border-t-2 border-black mb-4"></div>
+      <div className="border-t-2 border-black mb-3"></div>
 
       {/* Bill Info Row */}
-      <div className="flex justify-between text-sm mb-1">
+      <div className="flex justify-between text-sm mb-0">
         <div>
           <p><strong>{documentNumberLabel}:</strong>&ensp;{documentNumberValue}</p>
           <p><strong>Date:</strong>&ensp;{dateStr}</p>
-          {visitTypeService && (
-            <p><strong>Visit Type:</strong>&ensp;{visitTypeService}</p>
+          {visitTypeLabel && (
+            <p><strong>Visit Type:</strong>&ensp;{visitTypeLabel}</p>
           )}
         </div>
         <div className="text-right">
           <p><strong>Payment:</strong>&ensp;{paymentSummary}</p>
-          {data.isRevisit && !hasBill && (
-            <p><strong>Document:</strong>&ensp;Revisit Slip</p>
+          {data.isRevisit && (
+            <p><strong>Revisit:</strong>&ensp;{revisitSummary || 'Follow-up visit'}</p>
           )}
         </div>
       </div>
 
       {/* Patient Details Box */}
-      <div className="border border-black p-3 my-4">
+      <div className="border border-black p-3 my-3">
         <h2 className="font-bold text-sm mb-2">Patient Details</h2>
         <div className="grid grid-cols-2 gap-y-1 text-sm">
           <p><strong>Name:</strong>&ensp;{data.patient.name.toUpperCase()}</p>
           <p><strong>Phone:</strong>&ensp;{data.patient.phone || 'N/A'}</p>
-          <p><strong>Age:</strong>&ensp;{data.patient.ageDisplay || `${data.patient.age} years`}</p>
+          <p><strong>Age:</strong>&ensp;{patientAgeDisplay}</p>
           <p><strong>Gender:</strong>&ensp;{genderFull}</p>
         </div>
       </div>
@@ -112,7 +136,7 @@ export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
       )}
 
       {/* Service / Test Table */}
-      <table className="w-full border-collapse border border-black text-sm mb-4">
+      <table className="w-full border-collapse border border-black text-sm mb-3">
         <thead>
           <tr className="border-b border-black">
             <th className="border-r border-black p-2 text-left w-16">S.NO</th>
@@ -160,25 +184,6 @@ export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
             <em>
               This receipt is valid for a free revisit within 7 days from the date of issue for the same
               complaint with the same consultant. Please carry this bill for the follow-up visit.
-            </em>
-          </p>
-        </div>
-      )}
-
-      {!isDiagnostic && !hasBill && (
-        <div className="border border-black p-3 mb-4">
-          <p className="text-xs">
-            <strong>Revisit:</strong>{' '}
-            <em>
-              No new bill was generated for this follow-up visit.
-              {data.originalBillNumber ? ` Original billed visit: ${data.originalBillNumber}.` : ''}
-              {data.originalVisitDate
-                ? ` Original visit date: ${new Date(data.originalVisitDate).toLocaleDateString('en-IN', {
-                    day: '2-digit',
-                    month: 'short',
-                    year: 'numeric',
-                  })}.`
-                : ''}
             </em>
           </p>
         </div>

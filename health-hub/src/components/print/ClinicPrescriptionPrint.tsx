@@ -12,7 +12,11 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
   const visitDate = new Date(visit.createdAt);
   const followUpDate = new Date(visitDate);
   const patientPhone = patient.identifiers.find((identifier) => identifier.type === 'PHONE')?.value || 'N/A';
-  const patientAge = formatAgeDisplay(patient);
+  const patientAge = patient.ageDisplay?.trim()
+    ? patient.ageDisplay
+    : typeof patient.age === 'number' && Number.isFinite(patient.age)
+      ? formatAgeDisplay(patient)
+      : 'N/A';
   const genderLabel = patient.gender === 'M' ? 'Male' : patient.gender === 'F' ? 'Female' : 'Other';
   const referenceLabel = visit.hasBill ? 'Bill No' : 'Visit Ref';
   const referenceValue = visit.hasBill
@@ -28,7 +32,7 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
   })} ${visitDate.toLocaleTimeString('en-IN', {
     hour: '2-digit',
     minute: '2-digit',
-  })}`;
+  })}`.replace(/ (\w{2})$/, '\u00A0$1');
 
   const followUpDateStr = followUpDate.toLocaleDateString('en-IN', {
     day: '2-digit',
@@ -140,6 +144,7 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
             name: patient.name,
             phone: patientPhone,
             age: patient.age,
+            ageUnit: patient.ageUnit,
             ageDisplay: patient.ageDisplay,
             gender: patient.gender,
           },
