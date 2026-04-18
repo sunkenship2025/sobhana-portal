@@ -833,6 +833,24 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
             @page { size: A4; margin: 0; }
             .no-print { display: none !important; }
           }
+          .header-qr {
+            display: none !important;
+          }
+          .print-qr {
+            display: flex !important;
+            align-items: center;
+            gap: 6px;
+            justify-content: flex-end;
+            margin-top: 8px;
+          }
+          .print-qr-img {
+            width: 50px;
+            height: 50px;
+          }
+          .print-qr-text {
+            font-size: 7pt;
+            color: #4a5568;
+          }
           .report-page {
             box-shadow: none;
             margin: 0 auto;
@@ -1076,19 +1094,16 @@ function buildReportPages(
 
   const pages: ReportPageModel[] = [];
 
-  snapshot.departments.forEach((department, departmentIndex) => {
+  snapshot.departments.forEach((department) => {
     const panelGroups = splitDepartmentIntoPanelGroups(department);
 
-    panelGroups.forEach((panels, groupIndex) => {
-      const isLastDepartment = departmentIndex === snapshot.departments.length - 1;
-      const isLastGroupForDepartment = groupIndex === panelGroups.length - 1;
-
+    panelGroups.forEach((panels) => {
       pages.push({
         departmentId: department.departmentId,
         departmentHtml: renderDepartmentSection(department, panels),
         includePatientInfo: true,
         includeReportBottom: true,
-        includeQr: profile === 'pdf-physical' && isLastDepartment && isLastGroupForDepartment,
+        includeQr: profile !== 'screen',
       });
     });
   });
