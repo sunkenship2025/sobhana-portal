@@ -557,7 +557,7 @@ const DiagnosticsResultEntry = () => {
           return {
             testId: test.testId,
             value: isNumeric ? parsedValue : null,
-            textValue: isNumeric ? null : valueStr,
+            textValue: valueStr,
             flag: isNumeric ? (flag || 'NORMAL') : null,
             notes: null,
             manualOverride: test.isDerived ? !!derivedManualOverrides[test.testId] : false,
