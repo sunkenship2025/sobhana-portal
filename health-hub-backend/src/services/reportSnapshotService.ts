@@ -184,22 +184,21 @@ async function getLiveSignatureSnapshotsForDepartments(departmentIds: string[]):
     return [];
   }
 
-  const signingRules = await prisma.signingRule.findMany({
-    where: {
-      departmentId: { in: uniqueDepartmentIds },
-      isActive: true,
-    },
-    include: {
-      department: true,
-      signingDoctor: true,
-    },
-    orderBy: [
-      { departmentId: 'asc' },
-      { displayOrder: 'asc' },
-    ],
-  });
-
-  return signingRules.map((rule) => {
+  const mapRuleToSnapshot = (rule: {
+    departmentId: string;
+    displayOrder: number;
+    showLabInchargeNote: boolean;
+    department: { name: string };
+    signingDoctor: {
+      id: string;
+      name: string;
+      degrees: string;
+      designation: string;
+      registrationNumber: string | null;
+      signatureImagePath: string | null;
+      signatureImageBase64: string | null;
+    };
+  }): SignatureSnapshot => {
     const doc = rule.signingDoctor;
 
     return {
@@ -215,7 +214,70 @@ async function getLiveSignatureSnapshotsForDepartments(departmentIds: string[]):
       showLabInchargeNote: rule.showLabInchargeNote,
       displayOrder: rule.displayOrder,
     };
+  };
+
+  const signingRules = await prisma.signingRule.findMany({
+    where: {
+      departmentId: { in: uniqueDepartmentIds },
+      isActive: true,
+      signingDoctor: {
+        isActive: true,
+      },
+    },
+    include: {
+      department: true,
+      signingDoctor: true,
+    },
+    orderBy: [
+      { departmentId: 'asc' },
+      { displayOrder: 'asc' },
+    ],
   });
+
+  if (signingRules.length > 0) {
+    return signingRules.map(mapRuleToSnapshot);
+  }
+
+  const fallbackRules = await prisma.signingRule.findMany({
+    where: {
+      isActive: true,
+      signingDoctor: {
+        isActive: true,
+      },
+    },
+    include: {
+      department: true,
+      signingDoctor: true,
+    },
+    orderBy: [
+      { department: { displayOrder: 'asc' } },
+      { displayOrder: 'asc' },
+    ],
+  });
+
+  if (fallbackRules.length > 0) {
+    return fallbackRules.map(mapRuleToSnapshot);
+  }
+
+  const fallbackDoctors = await prisma.signingDoctor.findMany({
+    where: { isActive: true },
+    orderBy: [
+      { createdAt: 'asc' },
+      { name: 'asc' },
+    ],
+  });
+
+  return fallbackDoctors.map((doctor, index) => ({
+    doctorId: doctor.id,
+    doctorName: doctor.name,
+    degrees: doctor.degrees,
+    designation: doctor.designation,
+    registrationNumber: doctor.registrationNumber,
+    signatureImagePath: doctor.signatureImagePath,
+    signatureImageBase64: doctor.signatureImageBase64 || null,
+    showLabInchargeNote: index === 0,
+    displayOrder: index,
+  }));
 }
 
 async function backfillStoredSignatureAssets(signatures: SignatureSnapshot[]): Promise<SignatureSnapshot[]> {

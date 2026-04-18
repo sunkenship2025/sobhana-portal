@@ -947,24 +947,50 @@ function renderSignatureBlocks(signatures: SignatureSnapshot[], baseUrl: string)
   }).join('');
 }
 
-function renderReportBottomHtml(signatureBlocks: string, qrImgSrc: string): string {
+function dedupeReportSignatures(signatures: SignatureSnapshot[]): SignatureSnapshot[] {
+  const seen = new Set<string>();
+
+  return signatures.filter((signature) => {
+    const key = signature.doctorId
+      || `${signature.doctorName}|${signature.registrationNumber || ''}|${signature.signatureImagePath || ''}`;
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function renderReportBottomHtml(
+  signatureBlocks: string,
+  qrImgSrc: string,
+  showLabIncharge: boolean,
+): string {
+  const hasSignatureContent = showLabIncharge || Boolean(signatureBlocks.trim());
+
   return `
       <div class="report-note">
         Note: Please correlate clinically if necessary.
       </div>
 
       <div class="report-bottom-section">
+        ${hasSignatureContent ? `
         <section class="signatures-section">
           <div class="signatures-left">
+            ${showLabIncharge ? `
             <div class="signature-block lab-incharge-block">
               <div class="lab-incharge-line"></div>
               <div class="lab-incharge-label">Lab Incharge</div>
             </div>
+            ` : ''}
           </div>
           <div class="signatures-right">
             ${signatureBlocks}
           </div>
         </section>
+        ` : ''}
 
         ${qrImgSrc ? `
         <div class="print-qr">
@@ -1061,15 +1087,14 @@ function buildReportPages(
     const panelGroups = splitDepartmentIntoPanelGroups(department);
 
     panelGroups.forEach((panels, groupIndex) => {
-      const isFirstPage = pages.length === 0;
       const isLastDepartment = departmentIndex === snapshot.departments.length - 1;
       const isLastGroupForDepartment = groupIndex === panelGroups.length - 1;
 
       pages.push({
         departmentId: department.departmentId,
         departmentHtml: renderDepartmentSection(department, panels),
-        includePatientInfo: isFirstPage,
-        includeReportBottom: isLastGroupForDepartment,
+        includePatientInfo: true,
+        includeReportBottom: true,
         includeQr: profile === 'pdf-physical' && isLastDepartment && isLastGroupForDepartment,
       });
     });
@@ -1084,12 +1109,15 @@ function renderReportPage(
   snapshot: ReportSnapshot,
   baseUrl: string,
 ): string {
-  const departmentSignatures = page.departmentId
-    ? snapshot.signatures.filter(signature => signature.departmentId === page.departmentId)
-    : snapshot.signatures;
-  const signatureBlocks = renderSignatureBlocks(departmentSignatures, baseUrl);
+  const reportSignatures = dedupeReportSignatures(snapshot.signatures);
+  const signatureBlocks = renderSignatureBlocks(reportSignatures, baseUrl);
+  const showLabIncharge = reportSignatures.some((signature) => signature.showLabInchargeNote);
   const reportBottomHtml = page.includeReportBottom
-    ? renderReportBottomHtml(signatureBlocks, page.includeQr ? fragments.qrImgSrc : '')
+    ? renderReportBottomHtml(
+        signatureBlocks,
+        page.includeQr ? fragments.qrImgSrc : '',
+        showLabIncharge,
+      )
     : '';
 
   return `
