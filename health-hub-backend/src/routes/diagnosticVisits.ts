@@ -1277,7 +1277,7 @@ router.post('/', async (req: AuthRequest, res) => {
     const createComposition = getVisitComposition(testOrderData, VisitStatus.WAITING);
     const initialVisitStatus = createComposition.hasReportableOrders
       ? VisitStatus.DRAFT
-      : VisitStatus.WAITING;
+      : VisitStatus.COMPLETED;
 
     // Generate bill number
     const billNumber = await generateDiagnosticBillNumber(branch.code);
@@ -1468,6 +1468,43 @@ router.post('/', async (req: AuthRequest, res) => {
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
     });
+
+    if (!createComposition.hasReportableOrders) {
+      const completedAt = new Date();
+      const periodStartDate = new Date(completedAt);
+      periodStartDate.setHours(0, 0, 0, 0);
+      const periodEndDate = new Date(completedAt);
+      periodEndDate.setHours(23, 59, 59, 999);
+
+      const payoutRefreshTasks: Array<Promise<unknown>> = [];
+
+      if (referralDoctorId) {
+        payoutRefreshTasks.push(
+          derivePayout('REFERRAL', referralDoctorId, req.branchId!, periodStartDate, periodEndDate)
+        );
+      }
+
+      if (diagnosticCenterId) {
+        payoutRefreshTasks.push(
+          derivePayout(
+            'DIAGNOSTIC_CENTER',
+            diagnosticCenterId,
+            req.branchId!,
+            periodStartDate,
+            periodEndDate
+          )
+        );
+      }
+
+      if (payoutRefreshTasks.length > 0) {
+        const refreshResults = await Promise.allSettled(payoutRefreshTasks);
+        for (const refreshResult of refreshResults) {
+          if (refreshResult.status === 'rejected') {
+            console.error('Auto-refresh payout after bill-only billing failed:', refreshResult.reason);
+          }
+        }
+      }
+    }
 
     // Fetch complete visit for response
     const completeVisit = await prisma.visit.findUnique({
@@ -2059,7 +2096,7 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
     if (reportableOrders.length === 0) {
       return res.status(400).json({
         error: 'BILL_ONLY_VISIT',
-        message: 'Pure bill-only visits do not use result entry. Use Confirm Report Ready instead.',
+        message: 'Pure bill-only visits do not use result entry.',
       });
     }
 
@@ -2746,7 +2783,7 @@ router.get('/:id/finalized-report/pdf', async (req: AuthRequest, res) => {
   }
 });
 
-// POST /api/visits/diagnostic/:id/confirm-ready - Complete a pure bill-only visit
+// POST /api/visits/diagnostic/:id/confirm-ready - Legacy compatibility for older pure bill-only visits
 router.post('/:id/confirm-ready', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
@@ -2787,7 +2824,7 @@ router.post('/:id/confirm-ready', async (req: AuthRequest, res) => {
     if (composition.hasReportableOrders || !composition.hasBillOnlyOrders) {
       return res.status(400).json({
         error: 'REPORTABLE_VISIT',
-        message: 'Confirm Report Ready is only available for pure bill-only visits.',
+        message: 'This endpoint only applies to legacy pure bill-only visits.',
       });
     }
 
@@ -2866,12 +2903,6 @@ router.post('/:id/confirm-ready', async (req: AuthRequest, res) => {
       }
     }
 
-    import('../services/notificationService').then(({ sendBillOnlyCollectionNotice }) => {
-      sendBillOnlyCollectionNotice(visit.id).catch((err) =>
-        console.error('[Notification] Bill-only collection notice failed (non-blocking):', err.message)
-      );
-    });
-
     return res.json({
       success: true,
       status: VisitStatus.COMPLETED,
@@ -2885,7 +2916,7 @@ router.post('/:id/confirm-ready', async (req: AuthRequest, res) => {
     console.error('Confirm bill-only ready error:', err);
     return res.status(500).json({
       error: 'INTERNAL_ERROR',
-      message: 'Failed to confirm bill-only visit readiness',
+      message: 'Failed to complete legacy bill-only visit',
     });
   }
 });
@@ -2939,7 +2970,7 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
     if (getReportableOrders(visit.testOrders).length === 0) {
       return res.status(400).json({
         error: 'BILL_ONLY_VISIT',
-        message: 'Pure bill-only visits do not use report finalization. Use Confirm Report Ready instead.',
+        message: 'Pure bill-only visits do not use report finalization.',
       });
     }
 

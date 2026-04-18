@@ -11,7 +11,6 @@ import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Clock, Search, Loader2 } from 'lucide-react';
-import type { DiagnosticNextAction } from '@/types';
 
 const matchesDateFilter = (filter: string, value: string) => {
   if (filter === 'all') return true;
@@ -104,6 +103,10 @@ const DiagnosticsPendingResults = () => {
 
   const filteredVisits = useMemo(() => {
     return visitsWithDetails.filter(({ patient, visit }) => {
+      if (!visit.hasReportableOrders || visit.nextAction !== 'ENTER_RESULTS') {
+        return false;
+      }
+
       if (!matchesDateFilter(dateFilter, visit.createdAt)) {
         return false;
       }
@@ -119,20 +122,7 @@ const DiagnosticsPendingResults = () => {
     });
   }, [visitsWithDetails, dateFilter, search]);
 
-  const getActionLabel = (nextAction?: DiagnosticNextAction) => {
-    if (nextAction === 'CONFIRM_READY') {
-      return 'Confirm Report Ready';
-    }
-
-    return 'Enter Results';
-  };
-
   const handleAction = (visit: any) => {
-    if (visit.nextAction === 'CONFIRM_READY') {
-      navigate(`/diagnostics/confirm-ready/${visit.id}`);
-      return;
-    }
-
     navigate(`/diagnostics/results/${visit.id}`);
   };
 
@@ -220,18 +210,19 @@ const DiagnosticsPendingResults = () => {
                           Bill #: <span className="font-mono">{visit.billNumber}</span>
                         </span>
                         <span className="text-muted-foreground">
-                          Tests: {testOrders.map((t) => t.testCode).join(', ')}
+                          Tests: {testOrders
+                            .filter((testOrder) => testOrder.workflowMode !== 'BILL_ONLY')
+                            .map((testOrder) => testOrder.testCode)
+                            .join(', ')}
                         </span>
-                        {visit.hasBillOnlyOrders && !visit.hasReportableOrders && (
-                          <span className="text-amber-700">
-                            Bill-only visit
-                          </span>
+                        {visit.hasBillOnlyOrders && visit.hasReportableOrders && (
+                          <span className="text-amber-700">Includes bill-only items</span>
                         )}
                       </div>
                       <StatusBadge status={visit.status} />
                     </div>
                     <Button className="w-full sm:w-auto" onClick={() => handleAction(visit)}>
-                      {getActionLabel(visit.nextAction)}
+                      Enter Results
                     </Button>
                   </div>
                 ))}

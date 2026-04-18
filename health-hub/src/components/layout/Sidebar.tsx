@@ -68,7 +68,7 @@ const ownerNavItems: NavItem[] = [
         label: 'Pending Results',
         href: '/diagnostics/pending',
         section: 'Diagnostics',
-        matchPrefixes: ['/diagnostics/pending', '/diagnostics/results/', '/diagnostics/confirm-ready/'],
+        matchPrefixes: ['/diagnostics/pending', '/diagnostics/results/'],
       },
       {
         label: 'Finalized Reports',
@@ -125,7 +125,7 @@ const staffNavItems: NavItem[] = [
       {
         label: 'Pending Results',
         href: '/diagnostics/pending',
-        matchPrefixes: ['/diagnostics/pending', '/diagnostics/results/', '/diagnostics/confirm-ready/'],
+        matchPrefixes: ['/diagnostics/pending', '/diagnostics/results/'],
       },
       {
         label: 'Finalized Reports',
