@@ -126,7 +126,8 @@ async function buildPdfBuffer(
 
 /**
  * GET /reports/:token
- * Direct digital PDF download for WhatsApp / patient browsers.
+ * Public digital PDF view for WhatsApp / patient browsers.
+ * Uses inline disposition so in-app browsers open the report reliably.
  */
 router.get('/:token', publicReportLandingIpRateLimit, publicReportLandingTokenRateLimit, async (req: Request, res: Response) => {
   const { token } = req.params;
@@ -141,7 +142,7 @@ router.get('/:token', publicReportLandingIpRateLimit, publicReportLandingTokenRa
 
     await recordAccess(
       token,
-      'DOWNLOAD',
+      'VIEW',
       req.ip,
       req.headers['user-agent'],
     );
@@ -149,7 +150,7 @@ router.get('/:token', publicReportLandingIpRateLimit, publicReportLandingTokenRa
     const billNumber = result.snapshot.visit?.billNumber || 'unknown';
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="Report-${billNumber}.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="Report-${billNumber}.pdf"`);
     res.setHeader('Content-Length', result.pdfBuffer.length);
     res.setHeader('Cache-Control', 'no-store');
     return res.send(result.pdfBuffer);
