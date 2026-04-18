@@ -966,31 +966,24 @@ function dedupeReportSignatures(signatures: SignatureSnapshot[]): SignatureSnaps
 function renderReportBottomHtml(
   signatureBlocks: string,
   qrImgSrc: string,
-  showLabIncharge: boolean,
 ): string {
-  const hasSignatureContent = showLabIncharge || Boolean(signatureBlocks.trim());
-
   return `
       <div class="report-note">
         Note: Please correlate clinically if necessary.
       </div>
 
       <div class="report-bottom-section">
-        ${hasSignatureContent ? `
         <section class="signatures-section">
           <div class="signatures-left">
-            ${showLabIncharge ? `
             <div class="signature-block lab-incharge-block">
               <div class="lab-incharge-line"></div>
               <div class="lab-incharge-label">Lab Incharge</div>
             </div>
-            ` : ''}
           </div>
           <div class="signatures-right">
             ${signatureBlocks}
           </div>
         </section>
-        ` : ''}
 
         ${qrImgSrc ? `
         <div class="print-qr">
@@ -1111,12 +1104,10 @@ function renderReportPage(
 ): string {
   const reportSignatures = dedupeReportSignatures(snapshot.signatures);
   const signatureBlocks = renderSignatureBlocks(reportSignatures, baseUrl);
-  const showLabIncharge = reportSignatures.some((signature) => signature.showLabInchargeNote);
   const reportBottomHtml = page.includeReportBottom
     ? renderReportBottomHtml(
         signatureBlocks,
         page.includeQr ? fragments.qrImgSrc : '',
-        showLabIncharge,
       )
     : '';
 
