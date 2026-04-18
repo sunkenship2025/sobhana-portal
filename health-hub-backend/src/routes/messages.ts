@@ -5,7 +5,7 @@
  * All routes require auth + branch context.
  * 
  * Routes:
- * - POST /api/messages/:visitId/send-report  — Send diagnostic completion notification
+ * - POST /api/messages/:visitId/send-report  — Send finalized diagnostic report notification
  * - POST /api/messages/:visitId/send-bill    — Send bill notification
  * - GET  /api/messages/:visitId              — Get message history for a visit
  */
@@ -27,10 +27,7 @@ router.use(branchContextMiddleware);
 
 /**
  * POST /api/messages/:visitId/send-report
- * Send (or resend) the diagnostic completion WhatsApp notification.
- * Dispatches by visit composition:
- * - reportable/mixed => report collection link
- * - pure bill-only   => collection notice without link
+ * Send (or resend) the finalized diagnostic report WhatsApp notification.
  * Auto-opts in the patient.
  */
 router.post('/:visitId/send-report', async (req: AuthRequest, res) => {
@@ -56,7 +53,7 @@ router.post('/:visitId/send-report', async (req: AuthRequest, res) => {
     const result = await resendReportNotification(visitId, req.user?.id);
 
     if (result.success) {
-      return res.json({ success: true, message: 'Completion notification sent' });
+      return res.json({ success: true, message: 'Report notification sent' });
     } else {
       return res.status(400).json({ success: false, error: result.error });
     }

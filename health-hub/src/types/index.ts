@@ -327,7 +327,7 @@ export type VisitType = 'OP' | 'IP'; // Only for CLINIC domain
 export type PaymentType = 'CASH' | 'ONLINE' | 'CHEQUE';
 export type PaymentStatus = 'PAID' | 'PENDING';
 export type DiagnosticWorkflowMode = 'REPORTABLE' | 'BILL_ONLY';
-export type DiagnosticNextAction = 'ENTER_RESULTS' | 'CONFIRM_READY' | 'NONE';
+export type DiagnosticNextAction = 'ENTER_RESULTS' | 'NONE';
 export type ClinicRevisitMode = 'VISIT' | 'REVISIT';
 export type ClinicRevisitDecision = 'AUTO' | 'FORCE_REVISIT' | 'FORCE_NORMAL';
 

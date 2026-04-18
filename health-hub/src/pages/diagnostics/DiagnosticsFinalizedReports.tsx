@@ -221,7 +221,10 @@ const DiagnosticsFinalizedReports = () => {
                           Bill #: <span className="font-mono">{visit.billNumber}</span>
                         </span>
                         <span className="text-muted-foreground">
-                          Tests: {testOrders.map((t) => t.testCode).join(', ')}
+                          Tests: {testOrders
+                            .filter((testOrder) => testOrder.workflowMode !== 'BILL_ONLY')
+                            .map((testOrder) => testOrder.testCode)
+                            .join(', ')}
                         </span>
                       </div>
                       <StatusBadge status={visit.status} />

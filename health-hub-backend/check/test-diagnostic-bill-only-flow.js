@@ -261,18 +261,8 @@ async function finalizeVisit(visitId) {
   assert(response.ok, `Failed to finalize reportable visit: ${payload?.message}`);
 }
 
-async function confirmBillOnlyVisit(visitId) {
-  const { response, payload } = await api(`/visits/diagnostic/${visitId}/confirm-ready`, {
-    method: 'POST',
-    body: JSON.stringify({}),
-  });
-
-  assert(response.ok, `Failed to confirm bill-only visit: ${payload?.message}`);
-  assert(payload.status === 'COMPLETED', 'Confirm-ready should complete the bill-only visit');
-}
-
 async function verifyBillOnlyConfigFlow() {
-  console.log('\n1. Config-center BILL_ONLY product creates WAITING visit with confirm-ready action');
+  console.log('\n1. Config-center BILL_ONLY product creates a completed bill-only visit with no report workflow');
 
   const patient = await createTestPatient('ConfigFlow');
   const product = await createBillOnlyProductViaConfig();
@@ -280,15 +270,16 @@ async function verifyBillOnlyConfigFlow() {
   const { response, payload } = await createDiagnosticVisit(patient.id, [product.id]);
 
   assert(response.ok, `Failed to create pure bill-only visit: ${payload?.message}`);
-  assert(payload.status === 'WAITING', 'Pure bill-only visit should start in WAITING');
+  assert(payload.status === 'COMPLETED', 'Pure bill-only visit should complete at billing time');
   assert(payload.hasBillOnlyOrders === true, 'Pure bill-only visit should expose hasBillOnlyOrders');
   assert(payload.hasReportableOrders === false, 'Pure bill-only visit should not expose reportable orders');
-  assert(payload.nextAction === 'CONFIRM_READY', 'Pure bill-only visit should expose CONFIRM_READY');
+  assert(payload.nextAction === 'NONE', 'Pure bill-only visit should expose no report next action');
 
   console.log('  - loading pure bill-only detail');
   const detail = await getVisit(payload.id);
   assert(detail.response.ok, 'Expected detail fetch for pure bill-only visit to succeed');
-  assert(detail.payload.nextAction === 'CONFIRM_READY', 'Visit detail should expose CONFIRM_READY');
+  assert(detail.payload.status === 'COMPLETED', 'Visit detail should show completed at billing time');
+  assert(detail.payload.nextAction === 'NONE', 'Visit detail should expose no report next action');
   assert(Array.isArray(detail.payload.billItems) && detail.payload.billItems.length === 1, 'Bill-only visit should expose grouped bill items');
   assert(detail.payload.report === null, 'Pure bill-only visit should not create a report payload');
   assert(
@@ -296,23 +287,13 @@ async function verifyBillOnlyConfigFlow() {
     'Pure bill-only visit detail should expose BILL_ONLY workflow on each order'
   );
 
-  console.log('  - confirming pure bill-only ready state');
-  await confirmBillOnlyVisit(payload.id);
-
-  console.log('  - loading completed pure bill-only detail');
-  const completedDetail = await getVisit(payload.id);
-  assert(completedDetail.response.ok, 'Expected completed bill-only visit detail to load');
-  assert(completedDetail.payload.status === 'COMPLETED', 'Bill-only detail should show COMPLETED after confirm-ready');
-  assert(completedDetail.payload.hasFinalizedReport === false, 'Bill-only completion must not create a finalized report');
-  assert(completedDetail.payload.report === null, 'Completed pure bill-only visit must remain reportless');
-
   const completedVisits = await api('/visits/diagnostic?status=COMPLETED');
   assert(completedVisits.response.ok, 'Completed diagnostics list should load');
   const completedListEntry = completedVisits.payload.find((visit) => visit.id === payload.id);
   assert(completedListEntry?.hasFinalizedReport === false, 'Completed pure bill-only visit must stay reportless in listings');
 
   console.log(`✓ ${product.code} billed without panels`);
-  console.log('✓ pure bill-only visits stay in WAITING and move to COMPLETED via confirm-ready');
+  console.log('✓ pure bill-only visits complete at billing and stay out of report flow');
 }
 
 async function verifyQuickCreateAndMixedFlow() {

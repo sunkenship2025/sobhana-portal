@@ -4,9 +4,8 @@
  * Orchestrates outbound messaging (WhatsApp + SMS fallback).
  * Supports:
  * - Bill confirmation at billing time
- * - Diagnostic completion notices, branched by visit composition
- *   - report_collection_with_link
- *   - bill_only_collection_notice
+ * - Diagnostic report-ready notices for finalized report visits
+ *   - lab_report_ready
  */
 
 import {
@@ -25,8 +24,6 @@ import { createAccessToken } from './reportAccessService';
 
 type NotificationInfo = Awaited<ReturnType<typeof getPatientNotificationInfo>>;
 type DiagnosticNotificationInfo = Awaited<ReturnType<typeof getDiagnosticVisitNotificationInfo>>;
-
-type CompletionTemplateType = 'REPORT_COLLECTION_WITH_LINK' | 'BILL_ONLY_COLLECTION_NOTICE';
 
 // ============================================================================
 // HELPERS
@@ -107,32 +104,13 @@ async function getDiagnosticVisitNotificationInfo(visitId: string) {
   const hasReportableOrders = visit.testOrders.some(
     (order) => order.workflowMode === DiagnosticWorkflowMode.REPORTABLE
   );
-  const hasBillOnlyOrders = visit.testOrders.some(
-    (order) => order.workflowMode === DiagnosticWorkflowMode.BILL_ONLY
-  );
-  const finalizedReportVersionId = visit.report?.versions?.[0]?.id ?? null;
-
   return {
     visit,
     patient: visit.patient,
     phone,
     whatsappOptIn: visit.patient.whatsappOptIn,
     hasReportableOrders,
-    hasBillOnlyOrders,
-    finalizedReportVersionId,
   };
-}
-
-function resolveCompletionTemplate(info: NonNullable<DiagnosticNotificationInfo>): CompletionTemplateType | null {
-  if (info.hasReportableOrders) {
-    return 'REPORT_COLLECTION_WITH_LINK';
-  }
-
-  if (info.hasBillOnlyOrders) {
-    return 'BILL_ONLY_COLLECTION_NOTICE';
-  }
-
-  return null;
 }
 
 async function issueReportLinkForVisit(
@@ -260,75 +238,34 @@ async function dispatchDiagnosticCompletionNotification(input: {
     if (input.manual) {
       await autoOptIn(info.patient.id, 'STAFF_MANUAL_SEND');
     } else if (!info.whatsappOptIn) {
-      console.log(`[Notification] Patient ${info.patient.id} not opted in — skipping diagnostic completion notification`);
+      console.log(`[Notification] Patient ${info.patient.id} not opted in — skipping diagnostic report notification`);
       return { success: true };
     }
 
-    const templateType = resolveCompletionTemplate(info);
-    if (!templateType) {
-      return { success: false, error: 'Diagnostic visit has no order workflow information' };
-    }
-
-    if (
-      templateType === 'BILL_ONLY_COLLECTION_NOTICE' &&
-      info.visit.status !== 'COMPLETED'
-    ) {
-      return { success: false, error: 'Bill-only visit is not confirmed ready yet' };
+    if (!info.hasReportableOrders) {
+      return { success: false, error: 'This visit does not have a report-ready notification flow' };
     }
 
     const formattedPhone = formatPhoneForWhatsApp(info.phone);
 
-    if (templateType === 'REPORT_COLLECTION_WITH_LINK') {
-      const link = await issueReportLinkForVisit(input.visitId, input.preIssuedToken);
-      if (!link) {
-        return { success: false, error: 'Report not finalized or no access token' };
-      }
-
-      await createAndSendTemplateMessage({
-        patientId: info.patient.id,
-        phone: formattedPhone,
-        templateName: 'report_collection_with_link',
-        templateParams: {
-          patientName: info.patient.name,
-          billNumber: info.visit.billNumber,
-          reportVersionId: link.reportVersionId,
-          hasReportLink: true,
-          resendBy: input.staffUserId || null,
-        },
-        contextId: input.visitId,
-        components: [
-          {
-            type: 'body',
-            parameters: [
-              { type: 'text', text: info.patient.name },
-              { type: 'text', text: info.visit.billNumber },
-            ],
-          },
-          {
-            type: 'button',
-            sub_type: 'url',
-            index: 0,
-            parameters: [
-              { type: 'text', text: link.reportToken },
-            ],
-          },
-        ],
-      });
-
-      console.log(
-        `[Notification] Report collection link sent to ${formattedPhone} for visit ${input.visitId}`
-      );
-      return { success: true };
+    const link = await issueReportLinkForVisit(input.visitId, input.preIssuedToken);
+    if (!link) {
+      return { success: false, error: 'Report not finalized or no access token' };
     }
+
+    const reportUrl = `${process.env.PUBLIC_REPORT_BASE_URL || 'http://localhost:3000/reports'}/${link.reportToken}`;
 
     await createAndSendTemplateMessage({
       patientId: info.patient.id,
       phone: formattedPhone,
-      templateName: 'bill_only_collection_notice',
+      templateName: 'lab_report_ready',
       templateParams: {
         patientName: info.patient.name,
         billNumber: info.visit.billNumber,
-        hasReportLink: false,
+        reportUrl,
+        reportToken: link.reportToken,
+        reportVersionId: link.reportVersionId,
+        hasReportLink: true,
         resendBy: input.staffUserId || null,
       },
       contextId: input.visitId,
@@ -340,16 +277,24 @@ async function dispatchDiagnosticCompletionNotification(input: {
             { type: 'text', text: info.visit.billNumber },
           ],
         },
+        {
+          type: 'button',
+          sub_type: 'url',
+          index: 0,
+          parameters: [
+            { type: 'text', text: link.reportToken },
+          ],
+        },
       ],
     });
 
     console.log(
-      `[Notification] Bill-only collection notice sent to ${formattedPhone} for visit ${input.visitId}`
+      `[Notification] Report-ready notification sent to ${formattedPhone} for visit ${input.visitId}`
     );
     return { success: true };
   } catch (error: any) {
     console.error(
-      `[Notification] Failed to send diagnostic completion notification for visit ${input.visitId}:`,
+      `[Notification] Failed to send diagnostic report notification for visit ${input.visitId}:`,
       error.message
     );
     return { success: false, error: error.message };
@@ -358,19 +303,12 @@ async function dispatchDiagnosticCompletionNotification(input: {
 
 /**
  * Backward-compatible wrapper used by report finalization flow.
- * Reportable and mixed visits send the new report collection template.
+ * Only finalized report visits use the existing lab_report_ready template.
  */
 export async function sendReportReady(visitId: string, preIssuedToken?: string): Promise<void> {
   await dispatchDiagnosticCompletionNotification({
     visitId,
     preIssuedToken,
-    manual: false,
-  });
-}
-
-export async function sendBillOnlyCollectionNotice(visitId: string): Promise<void> {
-  await dispatchDiagnosticCompletionNotification({
-    visitId,
     manual: false,
   });
 }
@@ -445,9 +383,7 @@ export async function sendBillConfirmation(visitId: string): Promise<void> {
 
 /**
  * Backward-compatible manual resend entry point.
- * Now dispatches by visit composition:
- * - reportable/mixed => report_collection_with_link
- * - pure bill-only   => bill_only_collection_notice
+ * Only finalized report visits can send the report-ready template.
  */
 export async function resendReportNotification(
   visitId: string,

@@ -749,11 +749,17 @@ const DiagnosticsNewVisit = () => {
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-muted-foreground">Visit Status:</span>
                     <span className="text-sm font-medium">
-                      {successData.visitView.visit.nextAction === 'CONFIRM_READY'
-                        ? 'Waiting for report-ready confirmation'
-                        : 'Waiting for results entry'}
+                      {successData.visitView.visit.hasReportableOrders
+                        ? 'Waiting for results entry'
+                        : 'Completed at billing'}
                     </span>
                   </div>
+                  {!successData.visitView.visit.hasReportableOrders && (
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                      <span className="text-muted-foreground">Report Flow:</span>
+                      <span className="text-sm font-medium">No report workflow for bill-only items</span>
+                    </div>
+                  )}
                   {successData.visitView.referralDoctor && (
                     <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                       <span className="text-muted-foreground">Referred By:</span>
@@ -783,9 +789,15 @@ const DiagnosticsNewVisit = () => {
                   }}>
                     Create Another Visit
                   </Button>
-                  <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate('/diagnostics/pending')}>
-                    View Pending Results
-                  </Button>
+                  {successData.visitView.visit.hasReportableOrders ? (
+                    <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate('/diagnostics/pending')}>
+                      View Pending Results
+                    </Button>
+                  ) : (
+                    <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate('/')}>
+                      Back to Dashboard
+                    </Button>
+                  )}
                 </div>
               </div>
             </CardContent>
