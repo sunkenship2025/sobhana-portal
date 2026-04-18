@@ -59,6 +59,11 @@ enum PaymentType {
   CHEQUE
 }
 
+enum BillDiscountType {
+  FLAT_AMOUNT
+  PERCENTAGE
+}
+
 enum ReportStatus {
   DRAFT //why??
   FINALIZED
@@ -506,16 +511,20 @@ model ReferralDoctor_Visit {
 
 /// Bill: Single bill per visit (financial anchor)
 model Bill {
-  id                 String        @id @default(cuid())
-  visitId            String        @unique
-  billNumber         String // Duplicated for direct queries; should match Visit.billNumber
-  branchId           String
-  totalAmountInPaise Int
-  billedAt           DateTime      @default(now()) // Explicit billing timestamp; remains stable after payment updates
-  paymentType        PaymentType   @default(CASH)
-  paymentStatus      PaymentStatus @default(PENDING)
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  id                     String            @id @default(cuid())
+  visitId                String            @unique
+  billNumber             String // Duplicated for direct queries; should match Visit.billNumber
+  branchId               String
+  totalAmountInPaise     Int
+  discountType           BillDiscountType?
+  discountPercentage     Float?
+  discountAmountInPaise  Int               @default(0)
+  paidAmountInPaise      Int               @default(0)
+  billedAt               DateTime          @default(now()) // Explicit billing timestamp; remains stable after payment updates
+  paymentType            PaymentType       @default(CASH)
+  paymentStatus          PaymentStatus     @default(PENDING)
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
 
   visit  Visit  @relation(fields: [visitId], references: [id], onDelete: Cascade)
   branch Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)

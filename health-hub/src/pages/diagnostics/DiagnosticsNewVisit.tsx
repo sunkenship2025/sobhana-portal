@@ -23,6 +23,7 @@ import type {
   ReferralDoctor,
   DiagnosticCenter,
   BillReceiptItem,
+  BillDiscountType,
 } from '@/types';
 import { Search, UserPlus, CheckCircle2, Printer, MessageCircle, Plus } from 'lucide-react';
 import { BillReceipt } from '@/components/print/BillReceipt';
@@ -50,6 +51,9 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+
+type DiscountMode = 'NONE' | BillDiscountType;
 
 const DiagnosticsNewVisit = () => {
   const navigate = useNavigate();
@@ -72,6 +76,9 @@ const DiagnosticsNewVisit = () => {
   const [showNewPatientForm, setShowNewPatientForm] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [paymentType, setPaymentType] = useState<PaymentType>('CASH');
+  const [discountMode, setDiscountMode] = useState<DiscountMode>('NONE');
+  const [discountValue, setDiscountValue] = useState('');
+  const [paidAmount, setPaidAmount] = useState('');
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>('');
   const [referralOverrides, setReferralOverrides] = useState<Record<string, ReferralPayoutDraft>>({});
   const [diagnosticCenterOverrides, setDiagnosticCenterOverrides] = useState<Record<string, ReferralPayoutDraft>>({});
@@ -416,6 +423,23 @@ const DiagnosticsNewVisit = () => {
     const product = products.find((p) => p.id === prodId);
     return sum + (product?.effectivePrice ?? 0);
   }, 0);
+  const discountNumeric = discountValue.trim() === '' ? 0 : Number(discountValue);
+  const safeDiscountNumeric = Number.isFinite(discountNumeric) ? Math.max(0, discountNumeric) : 0;
+  const discountAmount =
+    discountMode === 'PERCENTAGE'
+      ? Math.round((totalAmount * Math.min(safeDiscountNumeric, 100)) * 100) / 100
+      : discountMode === 'FLAT_AMOUNT'
+        ? Math.min(safeDiscountNumeric, totalAmount)
+        : 0;
+  const netPayable = Math.max(0, totalAmount - discountAmount);
+  const paidNumeric = paidAmount.trim() === '' ? netPayable : Number(paidAmount);
+  const safePaidAmount = Number.isFinite(paidNumeric) ? Math.max(0, paidNumeric) : 0;
+  const dueAmount = Math.max(0, netPayable - safePaidAmount);
+  const formatMoney = (value: number) =>
+    `₹${value.toLocaleString('en-IN', {
+      minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
+      maximumFractionDigits: 2,
+    })}`;
 
   const handleSubmit = async () => {
     if (!token || !activeBranch) {
@@ -535,6 +559,21 @@ const DiagnosticsNewVisit = () => {
       return;
     }
 
+    if (discountMode === 'PERCENTAGE' && safeDiscountNumeric > 100) {
+      toast.error('Discount percentage cannot exceed 100%');
+      return;
+    }
+
+    if (discountMode === 'FLAT_AMOUNT' && safeDiscountNumeric > totalAmount) {
+      toast.error('Discount cannot exceed total amount');
+      return;
+    }
+
+    if (safePaidAmount > netPayable) {
+      toast.error('Paid amount cannot exceed net payable');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -588,7 +627,9 @@ const DiagnosticsNewVisit = () => {
             : undefined,
           productIds: selectedProducts,
           paymentType,
-          paymentStatus: 'PAID',
+          discountType: discountMode === 'NONE' ? undefined : discountMode,
+          discountValue: discountMode === 'NONE' ? undefined : safeDiscountNumeric,
+          paidAmount: safePaidAmount,
           sendWhatsApp: showNewPatientForm ? newPatient.whatsappOptIn : whatsappOptIn,
         }),
       });
@@ -632,10 +673,13 @@ const DiagnosticsNewVisit = () => {
       });
 
       // Calculate total amount in paise from selected products
-      const totalAmountInPaise = Math.round(selectedProducts.reduce((sum, prodId) => {
-        const product = products.find((p) => p.id === prodId);
-        return sum + (product?.effectivePrice ?? 0) * 100;
-      }, 0));
+      const totalAmountInPaise =
+        typeof visit.totalAmount === 'number'
+          ? Math.round(visit.totalAmount * 100)
+          : Math.round(selectedProducts.reduce((sum, prodId) => {
+              const product = products.find((p) => p.id === prodId);
+              return sum + (product?.effectivePrice ?? 0) * 100;
+            }, 0));
 
       // Use test orders from backend response if available, otherwise build from products
       const testOrders: TestOrder[] = visit.testOrders ?? selectedProducts.map((prodId, index) => {
@@ -672,7 +716,13 @@ const DiagnosticsNewVisit = () => {
           domain: 'DIAGNOSTICS',
           totalAmountInPaise,
           paymentType,
-          paymentStatus: 'PAID',
+          paymentStatus: visit.paymentStatus ?? (visit.dueAmountInPaise > 0 ? 'PENDING' : 'PAID'),
+          discountType: visit.discountType ?? null,
+          discountPercentage: visit.discountPercentage ?? null,
+          discountAmountInPaise: visit.discountAmountInPaise ?? 0,
+          paidAmountInPaise: visit.paidAmountInPaise ?? totalAmountInPaise,
+          netAmountInPaise: visit.netAmountInPaise ?? totalAmountInPaise,
+          dueAmountInPaise: visit.dueAmountInPaise ?? 0,
           hasBill: visit.hasBill ?? true,
           hasReportableOrders: visit.hasReportableOrders,
           hasBillOnlyOrders: visit.hasBillOnlyOrders,
@@ -746,7 +796,19 @@ const DiagnosticsNewVisit = () => {
                   </div>
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-muted-foreground">Payment Status:</span>
-                    <StatusBadge status="PAID" />
+                    <StatusBadge status={successData.visitView.visit.paymentStatus || 'PENDING'} />
+                  </div>
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="text-muted-foreground">Net Payable:</span>
+                    <span className="font-semibold">
+                      {formatMoney((successData.visitView.visit.netAmountInPaise ?? successData.visitView.visit.totalAmountInPaise) / 100)}
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="text-muted-foreground">Due:</span>
+                    <span className={successData.visitView.visit.dueAmountInPaise ? 'font-semibold text-amber-700' : 'font-semibold'}>
+                      {formatMoney((successData.visitView.visit.dueAmountInPaise ?? 0) / 100)}
+                    </span>
                   </div>
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-muted-foreground">Visit Status:</span>
@@ -786,6 +848,9 @@ const DiagnosticsNewVisit = () => {
                     setMatchingPatients([]);
                     setSelectedPatient(null);
                     setSelectedProducts([]);
+                    setDiscountMode('NONE');
+                    setDiscountValue('');
+                    setPaidAmount('');
                     setShowNewPatientForm(false);
                     setSelectedDoctorId('');
                     setReferralOverrides({});
@@ -834,6 +899,12 @@ const DiagnosticsNewVisit = () => {
               paymentType: successData.visitView.visit.paymentType,
               paymentStatus: successData.visitView.visit.paymentStatus,
               totalAmount: successData.visitView.visit.totalAmountInPaise / 100,
+              discountType: successData.visitView.visit.discountType,
+              discountPercentage: successData.visitView.visit.discountPercentage,
+              discountAmountInPaise: successData.visitView.visit.discountAmountInPaise,
+              paidAmountInPaise: successData.visitView.visit.paidAmountInPaise,
+              netAmountInPaise: successData.visitView.visit.netAmountInPaise,
+              dueAmountInPaise: successData.visitView.visit.dueAmountInPaise,
               items: successData.visitView.billItems ?? successData.visitView.testOrders.map((order) => ({
                 id: order.id,
                 name: order.testName,
@@ -1452,6 +1523,103 @@ const DiagnosticsNewVisit = () => {
               <div className="flex justify-between items-center p-4 bg-muted rounded-lg">
                 <span className="text-lg font-medium">Total Amount</span>
                 <span className="text-2xl font-bold">₹{totalAmount.toLocaleString()}</span>
+              </div>
+
+              <div className="rounded-xl border bg-card p-4 space-y-4">
+                <Tabs defaultValue="discount" className="space-y-4">
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="discount">Discount</TabsTrigger>
+                    <TabsTrigger value="due">Due</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="discount" className="space-y-3">
+                    <div className="grid gap-3 md:grid-cols-[180px_1fr]">
+                      <div className="space-y-2">
+                        <Label>Discount Type</Label>
+                        <Select
+                          value={discountMode}
+                          onValueChange={(value) => {
+                            setDiscountMode(value as DiscountMode);
+                            setDiscountValue('');
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="NONE">No Discount</SelectItem>
+                            <SelectItem value="FLAT_AMOUNT">Flat Amount</SelectItem>
+                            <SelectItem value="PERCENTAGE">Percentage</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>
+                          {discountMode === 'PERCENTAGE' ? 'Discount (%)' : 'Discount Amount (₹)'}
+                        </Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={discountMode === 'PERCENTAGE' ? 100 : totalAmount}
+                          step={discountMode === 'PERCENTAGE' ? '0.01' : '1'}
+                          value={discountValue}
+                          onChange={(e) => setDiscountValue(e.target.value)}
+                          placeholder={discountMode === 'PERCENTAGE' ? 'Enter %' : 'Enter amount'}
+                          disabled={discountMode === 'NONE'}
+                        />
+                      </div>
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="due" className="space-y-3">
+                    <div className="grid gap-3 md:grid-cols-[1fr_160px] md:items-end">
+                      <div className="space-y-2">
+                        <Label>Paid Now (₹)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={netPayable}
+                          step="1"
+                          value={paidAmount}
+                          onChange={(e) => setPaidAmount(e.target.value)}
+                          placeholder={netPayable.toFixed(2)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Leave blank to mark the net payable as fully paid.
+                        </p>
+                      </div>
+                      <div className="rounded-lg border bg-muted/40 p-3 text-right">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Due</p>
+                        <p className={dueAmount > 0 ? 'text-xl font-bold text-amber-700' : 'text-xl font-bold'}>
+                          {formatMoney(dueAmount)}
+                        </p>
+                      </div>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+
+                <div className="grid gap-2 rounded-lg bg-muted/30 p-3 text-sm sm:grid-cols-5">
+                  <div>
+                    <p className="text-muted-foreground">Subtotal</p>
+                    <p className="font-semibold">{formatMoney(totalAmount)}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Discount</p>
+                    <p className="font-semibold">-{formatMoney(discountAmount)}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Net Payable</p>
+                    <p className="font-semibold">{formatMoney(netPayable)}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Paid</p>
+                    <p className="font-semibold">{formatMoney(Math.min(safePaidAmount, netPayable))}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Due</p>
+                    <p className={dueAmount > 0 ? 'font-semibold text-amber-700' : 'font-semibold'}>
+                      {formatMoney(dueAmount)}
+                    </p>
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-2">

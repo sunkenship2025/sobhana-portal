@@ -1,6 +1,10 @@
 import { DiagnosticWorkflowMode, PayoutDoctorType, PaymentType, Prisma, ReportStatus } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { computeCommissionInPaise, computeReferralPayoutInPaise } from './referralPayoutService';
+import {
+  allocateBillDiscountAcrossOrders,
+  computeBillFinancialsFromPersisted,
+} from './billFinancialService';
 
 
 // ===========================================================================
@@ -178,7 +182,7 @@ function groupDiagnosticLineItemsByBillableProduct(lineItems: PayoutLineItem[]) 
 /**
  * Derive payout for a referral doctor.
  * Formula:
- *   - percentage rules: testOrder.priceInPaise × referralCommissionPercentage / 100
+ *   - percentage rules: discounted test-order share × referralCommissionPercentage / 100
  *   - fixed rules: referralCommissionAmountInPaise snapshot
  * for all tests in visits where:
  *   - Visit has a finalized report
@@ -222,6 +226,7 @@ async function deriveReferralPayout(
           product: { select: { id: true, name: true, code: true } },
         },
       },
+      bill: true,
       report: {
         include: {
           versions: {
@@ -239,9 +244,36 @@ async function deriveReferralPayout(
 
   for (const visit of visits) {
     const finalizedAt = visit.report?.versions[0]?.finalizedAt;
+    const billFinancials = visit.bill
+      ? computeBillFinancialsFromPersisted(visit.bill)
+      : null;
+    const discountAllocations = billFinancials
+      ? allocateBillDiscountAcrossOrders(
+          visit.testOrders.map((order) => ({
+            id: order.id,
+            priceInPaise: order.priceInPaise,
+          })),
+          billFinancials.discountAmountInPaise
+        )
+      : new Map<string, number>();
 
     for (const testOrder of visit.testOrders) {
-      const commissionInPaise = computeReferralPayoutInPaise(testOrder);
+      const referralAmountInPaise =
+        testOrder.referralCommissionType === 'PERCENTAGE'
+          ? Math.max(
+              0,
+              testOrder.priceInPaise - (discountAllocations.get(testOrder.id) ?? 0)
+            )
+          : testOrder.priceInPaise;
+      const commissionInPaise =
+        testOrder.referralCommissionType === 'PERCENTAGE'
+          ? computeCommissionInPaise({
+              priceInPaise: referralAmountInPaise,
+              commissionType: testOrder.referralCommissionType,
+              commissionPercentage: testOrder.referralCommissionPercentage,
+              commissionAmountInPaise: testOrder.referralCommissionAmountInPaise,
+            })
+          : computeReferralPayoutInPaise(testOrder);
       totalDerivedInPaise += commissionInPaise;
 
       lineItems.push({
@@ -254,7 +286,7 @@ async function deriveReferralPayout(
           testOrder.product?.name ||
           testOrder.testNameSnapshot ||
           testOrder.test.name,
-        amountInPaise: testOrder.priceInPaise,
+        amountInPaise: referralAmountInPaise,
         commissionType: testOrder.referralCommissionType,
         commissionPercentage:
           testOrder.referralCommissionType === 'PERCENTAGE'
