@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { X, Search, Plus, Package, FlaskConical, Layers } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -10,6 +11,7 @@ export interface ProductForSelector {
   name: string;
   code: string;
   productType: string;          // 'INDIVIDUAL_TEST' | 'PANEL_BUNDLE' | 'CUSTOM_PACKAGE'
+  workflowMode?: 'REPORTABLE' | 'BILL_ONLY';
   basePrice: number;            // in ₹
   effectivePrice: number;       // branch-resolved ₹
   priceSource: string;          // 'BASE' | 'BRANCH_OVERRIDE'
@@ -22,29 +24,52 @@ interface ProductSelectorProps {
   products: ProductForSelector[];
   selectedProductIds: string[];
   onSelectionChange: (productIds: string[]) => void;
+  onQuickAddBillOnly?: (draftName: string) => void;
   disabled?: boolean;
   placeholder?: string;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
-function typeLabel(productType: string) {
-  switch (productType) {
+type ProductVisualKind = 'BILL_ONLY' | 'PANEL_BUNDLE' | 'CUSTOM_PACKAGE' | 'INDIVIDUAL_TEST';
+
+function getProductVisualKind(product: Pick<ProductForSelector, 'productType' | 'workflowMode'>): ProductVisualKind {
+  if (product.workflowMode === 'BILL_ONLY') {
+    return 'BILL_ONLY';
+  }
+  return (product.productType || 'INDIVIDUAL_TEST') as ProductVisualKind;
+}
+
+function typeLabel(kind: ProductVisualKind) {
+  switch (kind) {
+    case 'BILL_ONLY': return 'Bill Item';
     case 'PANEL_BUNDLE': return 'Panel';
     case 'CUSTOM_PACKAGE': return 'Package';
     default: return 'Test';
   }
 }
 
-function typeColor(productType: string) {
-  switch (productType) {
+function typeColor(kind: ProductVisualKind) {
+  switch (kind) {
+    case 'BILL_ONLY': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300';
     case 'PANEL_BUNDLE': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300';
     case 'CUSTOM_PACKAGE': return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300';
     default: return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300';
   }
 }
 
-function TypeIcon({ productType, className }: { productType: string; className?: string }) {
+function groupLabel(kind: ProductVisualKind) {
+  switch (kind) {
+    case 'BILL_ONLY': return 'Bill-Only Items';
+    case 'PANEL_BUNDLE': return 'Panels';
+    case 'CUSTOM_PACKAGE': return 'Packages';
+    default: return 'Tests';
+  }
+}
+
+function TypeIcon({ productType, className }: { productType: ProductVisualKind; className?: string }) {
   switch (productType) {
+    case 'BILL_ONLY':
+      return <Package className={className} />;
     case 'PANEL_BUNDLE':
       return <Layers className={className} />;
     case 'CUSTOM_PACKAGE':
@@ -59,6 +84,7 @@ export function ProductSelector({
   products,
   selectedProductIds,
   onSelectionChange,
+  onQuickAddBillOnly,
   disabled = false,
   placeholder = "Type to search products (e.g., CBP, LFT, Thyroid)..."
 }: ProductSelectorProps) {
@@ -86,28 +112,28 @@ export function ProductSelector({
 
   // Group by product type for cleaner display
   const groupedProducts = useMemo(() => {
-    const groups: { type: string; label: string; products: ProductForSelector[] }[] = [];
+    const groups: { type: ProductVisualKind; label: string; products: ProductForSelector[] }[] = [];
     const typeMap = new Map<string, ProductForSelector[]>();
 
     for (const product of filteredProducts) {
-      const key = product.productType;
+      const key = getProductVisualKind(product);
       if (!typeMap.has(key)) typeMap.set(key, []);
       typeMap.get(key)!.push(product);
     }
 
-    // Sort: individual tests first, then panels, then packages
-    const order = ['INDIVIDUAL_TEST', 'PANEL_BUNDLE', 'CUSTOM_PACKAGE'];
+    // Sort: reportable tests first, then panels, then packages, then bill-only items
+    const order: ProductVisualKind[] = ['INDIVIDUAL_TEST', 'PANEL_BUNDLE', 'CUSTOM_PACKAGE', 'BILL_ONLY'];
     for (const key of order) {
       const items = typeMap.get(key);
       if (items && items.length > 0) {
-        groups.push({ type: key, label: typeLabel(key) + 's', products: items });
+        groups.push({ type: key, label: groupLabel(key), products: items });
       }
     }
 
     // Anything else
     for (const [key, items] of typeMap) {
       if (!order.includes(key)) {
-        groups.push({ type: key, label: key, products: items });
+        groups.push({ type: key as ProductVisualKind, label: key, products: items });
       }
     }
 
@@ -160,8 +186,22 @@ export function ProductSelector({
     onSelectionChange(selectedProductIds.filter(id => id !== productId));
   };
 
+  const handleQuickAdd = () => {
+    if (!onQuickAddBillOnly || disabled) {
+      return;
+    }
+
+    onQuickAddBillOnly(searchQuery.trim());
+    setIsOpen(false);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!isOpen || flatList.length === 0) {
+      if (e.key === 'Enter' && searchQuery.trim() && onQuickAddBillOnly) {
+        e.preventDefault();
+        handleQuickAdd();
+        return;
+      }
       if (e.key === 'Backspace' && !searchQuery && selectedProductIds.length > 0) {
         handleRemove(selectedProductIds[selectedProductIds.length - 1]);
       }
@@ -211,6 +251,23 @@ export function ProductSelector({
           />
         </div>
 
+        {onQuickAddBillOnly && (
+          <div className="mt-2 flex items-center justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleQuickAdd}
+              disabled={disabled}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              {searchQuery.trim()
+                ? `Add "${searchQuery.trim()}" as Bill-Only`
+                : 'Add Bill-Only Item'}
+            </Button>
+          </div>
+        )}
+
         {/* Dropdown */}
         {isOpen && filteredProducts.length > 0 && (
           <div
@@ -248,9 +305,12 @@ export function ProductSelector({
                             <p className="font-medium truncate">{product.name}</p>
                             <Badge
                               variant="outline"
-                              className={cn("text-[10px] px-1.5 py-0 shrink-0", typeColor(product.productType))}
+                              className={cn(
+                                "text-[10px] px-1.5 py-0 shrink-0",
+                                typeColor(getProductVisualKind(product))
+                              )}
                             >
-                              {typeLabel(product.productType)}
+                              {typeLabel(getProductVisualKind(product))}
                             </Badge>
                           </div>
                           <p className="text-xs text-muted-foreground">
@@ -283,8 +343,22 @@ export function ProductSelector({
 
         {/* No results */}
         {isOpen && searchQuery.length >= 2 && filteredProducts.length === 0 && (
-          <div className="absolute z-50 w-full mt-1 bg-popover border rounded-lg shadow-lg p-4 text-center text-muted-foreground">
-            No products found for &ldquo;{searchQuery}&rdquo;
+          <div className="absolute z-50 w-full mt-1 bg-popover border rounded-lg shadow-lg p-4 text-center text-muted-foreground space-y-3">
+            <p>No products found for &ldquo;{searchQuery}&rdquo;</p>
+            {onQuickAddBillOnly && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  handleQuickAdd();
+                }}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Add as Bill-Only Item
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -298,7 +372,7 @@ export function ProductSelector({
               variant="secondary"
               className="pl-2 pr-1 py-1.5 text-sm flex items-center gap-1.5 bg-primary/10 hover:bg-primary/20"
             >
-              <TypeIcon productType={product.productType} className="h-3 w-3 text-muted-foreground" />
+              <TypeIcon productType={getProductVisualKind(product)} className="h-3 w-3 text-muted-foreground" />
               <span className="truncate max-w-[160px]">{product.name}</span>
               <span className="text-primary font-semibold">
                 ₹{product.effectivePrice.toFixed(0)}
@@ -331,7 +405,7 @@ export function ProductSelector({
       {/* Empty State */}
       {selectedProducts.length === 0 && (
         <p className="text-sm text-muted-foreground text-center py-4">
-          Start typing to search and add tests or panels
+          Start typing to search and add tests, panels, or bill-only items
         </p>
       )}
     </div>

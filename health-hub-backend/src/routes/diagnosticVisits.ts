@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import QRCode from 'qrcode';
+import { DiagnosticWorkflowMode, ReportStatus, VisitStatus } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import { generateDiagnosticBillNumber } from '../services/numberService';
@@ -24,6 +25,10 @@ import {
 } from '../services/reportRendererService';
 import prisma from '../lib/prisma';
 import { buildDiagnosticBillItems } from '../services/billItemService';
+import {
+  deriveDiagnosticVisitComposition,
+  isPureBillOnlyVisit,
+} from '../services/diagnosticWorkflowService';
 import {
   areReferralPayoutsEqual,
   distributeFixedAmountInPaise,
@@ -266,6 +271,20 @@ async function loadFinalizedReportSnapshotForVisit(visitId: string) {
   };
 }
 
+function getVisitComposition<T extends { workflowMode?: DiagnosticWorkflowMode | null }>(
+  orders: T[],
+  visitStatus: VisitStatus | string,
+  versions: Array<{ status?: ReportStatus | null }> = []
+) {
+  return deriveDiagnosticVisitComposition(orders, visitStatus, versions);
+}
+
+function getReportableOrders<T extends { workflowMode?: DiagnosticWorkflowMode | null }>(orders: T[]): T[] {
+  return orders.filter(
+    (order) => (order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) === DiagnosticWorkflowMode.REPORTABLE
+  );
+}
+
 // GET /api/visits/diagnostic - List diagnostic visits
 // When patientId is provided: Returns ALL visits for that patient across ALL branches (Patient 360 view)
 // When patientId is omitted: Returns visits for current branch only (daily operations)
@@ -324,6 +343,7 @@ router.get('/', async (req: AuthRequest, res) => {
     // Transform to frontend format
     const transformed = visits.map((v) => {
       const currentVersion = v.report?.versions[0] || null;
+      const composition = getVisitComposition(v.testOrders, v.status, currentVersion ? [currentVersion] : []);
 
       return {
         id: v.id,
@@ -338,6 +358,10 @@ router.get('/', async (req: AuthRequest, res) => {
         paymentStatus: v.bill?.paymentStatus || 'PENDING',
         billedAt: v.bill?.billedAt || v.bill?.createdAt || null,
         reportFinalizedAt: currentVersion?.status === 'FINALIZED' ? currentVersion.finalizedAt : null,
+        hasReportableOrders: composition.hasReportableOrders,
+        hasBillOnlyOrders: composition.hasBillOnlyOrders,
+        hasFinalizedReport: composition.hasFinalizedReport,
+        nextAction: composition.nextAction,
         referralDoctorId: v.referrals[0]?.referralDoctorId || null,
         referralDoctor: v.referrals[0]?.referralDoctor || null,
         testOrders: v.testOrders.map((to) => ({
@@ -346,6 +370,7 @@ router.get('/', async (req: AuthRequest, res) => {
           testId: to.testId,
           productId: to.productId,
           testDefinitionId: to.testDefinitionId,
+          workflowMode: to.workflowMode,
           // E3-03: Use snapshotted metadata (fallback to live data for backward compatibility)
           testName: to.testNameSnapshot || to.test.name,
           testCode: to.testCodeSnapshot || to.test.code,
@@ -386,7 +411,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
 
-    const visit = await prisma.visit.findFirst({
+    const visitBase = await prisma.visit.findFirst({
       where: {
         id,
         branchId: req.branchId,
@@ -403,95 +428,347 @@ router.get('/:id', async (req: AuthRequest, res) => {
             referralDoctor: true,
           },
         },
-        testOrders: {
-          include: {
-            test: {
-              include: {
-                department: { select: { id: true, name: true, reportHeaderText: true } },
-                derivedParameter: {
-                  select: {
-                    id: true,
-                    parameterName: true,
-                    formula: true,
-                    dependsOnTestCodes: true,
-                  },
-                },
-                childTests: {
-                  include: {
-                    derivedParameter: {
-                      select: {
-                        id: true,
-                        parameterName: true,
-                        formula: true,
-                        dependsOnTestCodes: true,
-                      },
-                    },
-                  },
-                  orderBy: { displayOrder: 'asc' },
-                },
-                panelItems: {
-                  include: {
-                    panel: {
-                      include: {
-                        department: { select: { id: true, name: true } },
-                      },
-                    },
-                  },
-                  take: 1,
-                },
-              },
-            },
-            testDefinition: {
-              include: {
-                department: { select: { id: true, name: true } },
-                panelItems: {
-                  include: {
-                    panel: {
-                      include: {
-                        department: { select: { id: true, name: true } },
-                      },
-                    },
-                  },
-                  take: 1,
-                },
-              },
-            },
-            testResults: {
-              include: {
-                test: true, // Include test info for each result
-              },
-            },
-          },
-        },
         bill: true,
         report: {
-          include: {
-            versions: {
-              include: {
-                testResults: {
-                  include: {
-                    test: true, // Include test info for each result
-                  },
-                },
-              },
-              orderBy: { versionNum: 'desc' },
-            },
+          select: {
+            id: true,
           },
         },
       },
     });
 
-    if (!visit) {
+    if (!visitBase) {
       return res.status(404).json({
         error: 'NOT_FOUND',
         message: 'Diagnostic visit not found',
       });
     }
 
+    const reportVersions = visitBase.report
+      ? await prisma.reportVersion.findMany({
+          where: { reportId: visitBase.report.id },
+          orderBy: { versionNum: 'desc' },
+          select: {
+            id: true,
+            versionNum: true,
+            status: true,
+            finalizedAt: true,
+          },
+        })
+      : [];
+
+    const reportResults = reportVersions.length
+      ? await prisma.testResult.findMany({
+          where: {
+            reportVersionId: {
+              in: reportVersions.map((version) => version.id),
+            },
+          },
+          orderBy: [
+            { reportVersionId: 'asc' },
+            { createdAt: 'asc' },
+          ],
+          select: {
+            id: true,
+            testOrderId: true,
+            testId: true,
+            reportVersionId: true,
+            value: true,
+            textValue: true,
+            flag: true,
+            notes: true,
+            createdAt: true,
+            testDefinitionId: true,
+            test: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                referenceMin: true,
+                referenceMax: true,
+                referenceUnit: true,
+                referenceText: true,
+              },
+            },
+          },
+        })
+      : [];
+
+    const reportResultsByVersionId = new Map<string, typeof reportResults>();
+    for (const result of reportResults) {
+      const versionResults = reportResultsByVersionId.get(result.reportVersionId) ?? [];
+      versionResults.push(result);
+      reportResultsByVersionId.set(result.reportVersionId, versionResults);
+    }
+
+    const rawTestOrders = await prisma.testOrder.findMany({
+      where: { visitId: id },
+      orderBy: [
+        { createdAt: 'asc' },
+        { id: 'asc' },
+      ],
+      select: {
+        id: true,
+        visitId: true,
+        testId: true,
+        productId: true,
+        testDefinitionId: true,
+        workflowMode: true,
+        priceInPaise: true,
+        referralCommissionType: true,
+        referralCommissionPercentage: true,
+        referralCommissionAmountInPaise: true,
+        referenceMinSnapshot: true,
+        referenceMaxSnapshot: true,
+        referenceUnitSnapshot: true,
+        testNameSnapshot: true,
+        testCodeSnapshot: true,
+        test: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            isPanel: true,
+            referenceMin: true,
+            referenceMax: true,
+            referenceUnit: true,
+            referenceText: true,
+            department: { select: { id: true, name: true, reportHeaderText: true } },
+            derivedParameter: {
+              select: {
+                id: true,
+                parameterName: true,
+                formula: true,
+                dependsOnTestCodes: true,
+              },
+            },
+          },
+        },
+        testDefinition: {
+          select: {
+            id: true,
+            code: true,
+            formulaExpression: true,
+            dependsOnCodes: true,
+            referenceMin: true,
+            referenceMax: true,
+            referenceUnit: true,
+            referenceText: true,
+            department: { select: { id: true, name: true } },
+          },
+        },
+        product: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+        testResults: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            testOrderId: true,
+            testId: true,
+            reportVersionId: true,
+            value: true,
+            textValue: true,
+            flag: true,
+            notes: true,
+            createdAt: true,
+            testDefinitionId: true,
+            test: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                referenceMin: true,
+                referenceMax: true,
+                referenceUnit: true,
+                referenceText: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const panelTestIds = [...new Set(
+      rawTestOrders
+        .filter((order) => order.test.isPanel)
+        .map((order) => order.testId)
+    )];
+
+    const childTests = panelTestIds.length
+      ? await prisma.labTest.findMany({
+          where: {
+            parentTestId: {
+              in: panelTestIds,
+            },
+          },
+          orderBy: [
+            { parentTestId: 'asc' },
+            { displayOrder: 'asc' },
+            { createdAt: 'asc' },
+          ],
+          select: {
+            id: true,
+            parentTestId: true,
+            name: true,
+            code: true,
+            displayOrder: true,
+            referenceMin: true,
+            referenceMax: true,
+            referenceUnit: true,
+            referenceText: true,
+            derivedParameter: {
+              select: {
+                id: true,
+                parameterName: true,
+                formula: true,
+                dependsOnTestCodes: true,
+              },
+            },
+          },
+        })
+      : [];
+
+    const childTestsByParentId = new Map<string, typeof childTests>();
+    for (const childTest of childTests) {
+      if (!childTest.parentTestId) {
+        continue;
+      }
+      const siblings = childTestsByParentId.get(childTest.parentTestId) ?? [];
+      siblings.push(childTest);
+      childTestsByParentId.set(childTest.parentTestId, siblings);
+    }
+
+    const labPanelItems = rawTestOrders.length
+      ? await prisma.panelTestItem.findMany({
+          where: {
+            testId: {
+              in: [...new Set(rawTestOrders.map((order) => order.testId))],
+            },
+          },
+          orderBy: [
+            { displayOrder: 'asc' },
+            { createdAt: 'asc' },
+          ],
+          select: {
+            testId: true,
+            panel: {
+              select: {
+                id: true,
+                name: true,
+                displayName: true,
+                layoutType: true,
+                department: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+        })
+      : [];
+
+    const firstLabPanelItemByTestId = new Map<string, (typeof labPanelItems)[number]>();
+    for (const panelItem of labPanelItems) {
+      if (!firstLabPanelItemByTestId.has(panelItem.testId)) {
+        firstLabPanelItemByTestId.set(panelItem.testId, panelItem);
+      }
+    }
+
+    const testDefinitionIds = [...new Set(
+      rawTestOrders
+        .map((order) => order.testDefinitionId)
+        .filter((definitionId): definitionId is string => Boolean(definitionId))
+    )];
+
+    const definitionPanelItems = testDefinitionIds.length
+      ? await prisma.clinicalPanelItem.findMany({
+          where: {
+            testDefinitionId: {
+              in: testDefinitionIds,
+            },
+          },
+          orderBy: [
+            { displayOrder: 'asc' },
+            { createdAt: 'asc' },
+          ],
+          select: {
+            testDefinitionId: true,
+            panel: {
+              select: {
+                id: true,
+                name: true,
+                displayName: true,
+                layoutType: true,
+                panelMethodText: true,
+                panelMethodItalic: true,
+                narrativeTemplateHtml: true,
+                department: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+        })
+      : [];
+
+    const firstDefinitionPanelItemByDefinitionId = new Map<string, (typeof definitionPanelItems)[number]>();
+    for (const panelItem of definitionPanelItems) {
+      if (!firstDefinitionPanelItemByDefinitionId.has(panelItem.testDefinitionId)) {
+        firstDefinitionPanelItemByDefinitionId.set(panelItem.testDefinitionId, panelItem);
+      }
+    }
+
+    const testOrders = rawTestOrders.map((order) => {
+      const labPanelItem = firstLabPanelItemByTestId.get(order.testId);
+      const definitionPanelItem = order.testDefinitionId
+        ? firstDefinitionPanelItemByDefinitionId.get(order.testDefinitionId)
+        : undefined;
+
+      return {
+        ...order,
+        test: {
+          ...order.test,
+          childTests: childTestsByParentId.get(order.testId) ?? [],
+          panelItems: labPanelItem ? [labPanelItem] : [],
+        },
+        testDefinition: order.testDefinition
+          ? {
+              ...order.testDefinition,
+              panelItems: definitionPanelItem ? [definitionPanelItem] : [],
+            }
+          : null,
+      };
+    });
+
+    const visit = {
+      ...visitBase,
+      report: visitBase.report
+        ? {
+            id: visitBase.report.id,
+            versions: reportVersions.map((version) => ({
+              ...version,
+              testResults: reportResultsByVersionId.get(version.id) ?? [],
+            })),
+          }
+        : null,
+      testOrders,
+    };
+
     // Resolve age/gender-aware reference ranges for all tests (including child tests)
     const patient = visit.patient;
+    const reportableOrders = getReportableOrders(visit.testOrders);
     const allTestIds: string[] = [];
-    for (const to of visit.testOrders) {
+    for (const to of reportableOrders) {
       allTestIds.push(to.testId);
       if (to.test.isPanel && to.test.childTests) {
         for (const ct of to.test.childTests) {
@@ -503,7 +780,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
 
     // Build testDefinitionId map from testOrders
     const testDefIdMap = new Map<string, string>();
-    for (const to of visit.testOrders) {
+    for (const to of reportableOrders) {
       if (to.testDefinitionId) {
         testDefIdMap.set(to.testId, to.testDefinitionId);
       }
@@ -518,7 +795,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
     );
 
     const latestDefinitionFormulasByCode = await loadLatestDefinitionFormulasByCode(
-      visit.testOrders.flatMap((to) => [
+      reportableOrders.flatMap((to) => [
         to.testCodeSnapshot || to.testDefinition?.code || to.test.code,
         ...to.test.childTests.map((child) => child.code),
       ])
@@ -542,6 +819,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
     };
     // Transform to frontend format
     const latestFinalizedVersion = visit.report?.versions.find((version: any) => version.status === 'FINALIZED') || null;
+    const composition = getVisitComposition(visit.testOrders, visit.status, visit.report?.versions || []);
 
     const transformed = {
       id: visit.id,
@@ -556,6 +834,10 @@ router.get('/:id', async (req: AuthRequest, res) => {
       paymentStatus: visit.bill?.paymentStatus || 'PENDING',
       billedAt: visit.bill?.billedAt || visit.bill?.createdAt || null,
       reportFinalizedAt: latestFinalizedVersion?.finalizedAt || null,
+      hasReportableOrders: composition.hasReportableOrders,
+      hasBillOnlyOrders: composition.hasBillOnlyOrders,
+      hasFinalizedReport: composition.hasFinalizedReport,
+      nextAction: composition.nextAction,
       referralDoctorId: visit.referrals[0]?.referralDoctorId || null,
       referralDoctor: visit.referrals[0]?.referralDoctor || null,
       testOrders: visit.testOrders.map((to) => {
@@ -584,6 +866,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
           testId: to.testId,
           productId: to.productId,
           testDefinitionId: to.testDefinitionId,
+          workflowMode: to.workflowMode,
           testName: to.testNameSnapshot || to.test.name,
           testCode: to.testCodeSnapshot || to.test.code,
           price: to.priceInPaise / 100,
@@ -664,6 +947,31 @@ router.get('/:id', async (req: AuthRequest, res) => {
           })),
         };
       }),
+      billItems: buildDiagnosticBillItems(
+        visit.testOrders.map((to) => ({
+          id: to.id,
+          productId: to.productId,
+          product: to.product
+            ? {
+                id: to.product.id,
+                name: to.product.name,
+                code: to.product.code,
+              }
+            : null,
+          testName: to.testNameSnapshot || to.test.name,
+          testCode: to.testCodeSnapshot || to.test.code,
+          priceInPaise: to.priceInPaise,
+          referralCommissionType: visit.referrals[0]?.referralDoctor
+            ? to.referralCommissionType
+            : undefined,
+          referralCommissionPercentage: visit.referrals[0]?.referralDoctor
+            ? to.referralCommissionPercentage
+            : undefined,
+          referralCommissionAmountInPaise: visit.referrals[0]?.referralDoctor
+            ? to.referralCommissionAmountInPaise
+            : undefined,
+        }))
+      ),
       report: visit.report
         ? {
             id: visit.report.id,
@@ -846,6 +1154,7 @@ router.post('/', async (req: AuthRequest, res) => {
       testId: string;
       testDefinitionId?: string;
       productId?: string;
+      workflowMode: DiagnosticWorkflowMode;
       priceInPaise: number;
       testNameSnapshot: string;
       testCodeSnapshot: string;
@@ -888,6 +1197,7 @@ router.post('/', async (req: AuthRequest, res) => {
               testId: to.labTestId,
               testDefinitionId: to.testDefinitionId,
               productId: to.productId,
+              workflowMode: to.workflowMode,
               priceInPaise: to.priceInPaise,
               testNameSnapshot: to.testName,
               testCodeSnapshot: to.testCode,
@@ -940,6 +1250,7 @@ router.post('/', async (req: AuthRequest, res) => {
 
         return {
           testId: test.id,
+          workflowMode: DiagnosticWorkflowMode.REPORTABLE,
           priceInPaise: test.priceInPaise,
           testNameSnapshot: test.name,
           testCodeSnapshot: test.code,
@@ -963,6 +1274,11 @@ router.post('/', async (req: AuthRequest, res) => {
       });
     }
 
+    const createComposition = getVisitComposition(testOrderData, VisitStatus.WAITING);
+    const initialVisitStatus = createComposition.hasReportableOrders
+      ? VisitStatus.DRAFT
+      : VisitStatus.WAITING;
+
     // Generate bill number
     const billNumber = await generateDiagnosticBillNumber(branch.code);
 
@@ -974,7 +1290,7 @@ router.post('/', async (req: AuthRequest, res) => {
           branchId: req.branchId!,
           patientId,
           domain: 'DIAGNOSTICS',
-          status: 'DRAFT',
+          status: initialVisitStatus,
           billNumber,
           totalAmountInPaise,
         },
@@ -1101,6 +1417,7 @@ router.post('/', async (req: AuthRequest, res) => {
           visitId: visit.id,
           testId: tod.testId,
           branchId: req.branchId!,
+          workflowMode: tod.workflowMode,
           priceInPaise: tod.priceInPaise,
           referralCommissionType: tod.referralCommissionType,
           referralCommissionPercentage: tod.referralCommissionPercentage,
@@ -1118,35 +1435,38 @@ router.post('/', async (req: AuthRequest, res) => {
         })),
       });
 
-      // Create empty report with draft version
-      const report = await tx.diagnosticReport.create({
-        data: {
-          visitId: visit.id,
-          branchId: req.branchId!,
-        },
-      });
+      if (createComposition.hasReportableOrders) {
+        const report = await tx.diagnosticReport.create({
+          data: {
+            visitId: visit.id,
+            branchId: req.branchId!,
+          },
+        });
 
-      await tx.reportVersion.create({
-        data: {
-          reportId: report.id,
-          versionNum: 1,
-          status: 'DRAFT',
-        },
-      });
-
-      // Audit log for visit creation
-      await logAction({
-        userId: req.user?.id!,
-        actionType: 'CREATE',
-        entityType: 'VISIT',
-        entityId: visit.id,
-        branchId: req.branchId!,
-        newValues: { domain: 'DIAGNOSTICS', billNumber, patientId, totalAmountInPaise },
-        ipAddress: req.ip,
-        userAgent: req.get('user-agent'),
-      });
+        await tx.reportVersion.create({
+          data: {
+            reportId: report.id,
+            versionNum: 1,
+            status: 'DRAFT',
+          },
+        });
+      }
 
       return visit;
+    }, {
+      timeout: 15000,
+      maxWait: 15000,
+    });
+
+    void logAction({
+      userId: req.user?.id!,
+      actionType: 'CREATE',
+      entityType: 'VISIT',
+      entityId: result.id,
+      branchId: req.branchId!,
+      newValues: { domain: 'DIAGNOSTICS', billNumber, patientId, totalAmountInPaise },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
     });
 
     // Fetch complete visit for response
@@ -1186,8 +1506,16 @@ router.post('/', async (req: AuthRequest, res) => {
       patientId: completeVisit!.patientId,
       totalAmount: completeVisit!.totalAmountInPaise / 100,
       status: completeVisit!.status,
+      hasBill: true,
       billedAt: completeVisit!.bill?.billedAt || completeVisit!.bill?.createdAt || null,
       reportFinalizedAt: null,
+      hasReportableOrders: createComposition.hasReportableOrders,
+      hasBillOnlyOrders: createComposition.hasBillOnlyOrders,
+      hasFinalizedReport: false,
+      nextAction: getVisitComposition(
+        completeVisit!.testOrders,
+        completeVisit!.status
+      ).nextAction,
       createdAt: completeVisit!.createdAt,
       referralDoctor: completeVisit!.referrals[0]?.referralDoctor || null,
       billItems: buildDiagnosticBillItems(
@@ -1221,6 +1549,7 @@ router.post('/', async (req: AuthRequest, res) => {
         testId: to.testId,
         productId: to.productId,
         testDefinitionId: to.testDefinitionId,
+        workflowMode: to.workflowMode,
         testName: to.testNameSnapshot || to.test.name,
         testCode: to.testCodeSnapshot || to.test.code,
         priceInPaise: to.priceInPaise,
@@ -1337,7 +1666,14 @@ router.post('/:id/tests', async (req: AuthRequest, res) => {
             diagnosticCenter: true,
           },
         },
-        testOrders: true,
+        testOrders: {
+          select: {
+            id: true,
+            testId: true,
+            workflowMode: true,
+            priceInPaise: true,
+          },
+        },
         report: {
           include: {
             versions: {
@@ -1362,6 +1698,13 @@ router.post('/:id/tests', async (req: AuthRequest, res) => {
       return res.status(400).json({
         error: 'REPORT_FINALIZED',
         message: 'Cannot add tests after report has been finalized',
+      });
+    }
+
+    if (isPureBillOnlyVisit(visit.testOrders)) {
+      return res.status(400).json({
+        error: 'BILL_ONLY_VISIT',
+        message: 'Pure bill-only visits cannot be converted into reportable visits through add-tests.',
       });
     }
 
@@ -1424,6 +1767,7 @@ router.post('/:id/tests', async (req: AuthRequest, res) => {
           visitId: visit.id,
           testId: test.id,
           branchId: req.branchId!,
+          workflowMode: DiagnosticWorkflowMode.REPORTABLE,
           priceInPaise: test.priceInPaise,
           referralCommissionType: referralSnapshots[index].commissionType,
           referralCommissionPercentage: referralSnapshots[index].commissionPercentage,
@@ -1515,7 +1859,15 @@ router.delete('/:id/tests/:testOrderId', async (req: AuthRequest, res) => {
         domain: 'DIAGNOSTICS',
       },
       include: {
-        testOrders: true,
+        testOrders: {
+          select: {
+            id: true,
+            visitId: true,
+            testId: true,
+            workflowMode: true,
+            priceInPaise: true,
+          },
+        },
         report: {
           include: {
             versions: {
@@ -1557,6 +1909,20 @@ router.delete('/:id/tests/:testOrderId', async (req: AuthRequest, res) => {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
         message: 'Cannot remove the last test from a visit',
+      });
+    }
+
+    const reportableOrderCount = visit.testOrders.filter(
+      (order) => (order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) === DiagnosticWorkflowMode.REPORTABLE
+    ).length;
+
+    if (
+      (testOrder.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) === DiagnosticWorkflowMode.REPORTABLE &&
+      reportableOrderCount <= 1
+    ) {
+      return res.status(400).json({
+        error: 'LAST_REPORTABLE_ORDER',
+        message: 'Cannot remove the last reportable order from a diagnostic visit.',
       });
     }
 
@@ -1689,6 +2055,14 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
       });
     }
 
+    const reportableOrders = getReportableOrders(visit.testOrders);
+    if (reportableOrders.length === 0) {
+      return res.status(400).json({
+        error: 'BILL_ONLY_VISIT',
+        message: 'Pure bill-only visits do not use result entry. Use Confirm Report Ready instead.',
+      });
+    }
+
     const draftVersion = visit.report?.versions[0];
     if (!draftVersion) {
       return res.status(400).json({
@@ -1707,7 +2081,7 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
     const testToOrderMap = new Map<string, string>();
     // Build a map: testId -> testDefinitionId (from testOrder, for new-arch linking)
     const testToDefIdMap = new Map<string, string>();
-    for (const testOrder of visit.testOrders) {
+    for (const testOrder of reportableOrders) {
       // Map the ordered test itself
       testToOrderMap.set(testOrder.testId, testOrder.id);
       if (testOrder.testDefinitionId) {
@@ -1830,7 +2204,7 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
     // --- Derived Parameters: auto-calculate formula-based values ---
     try {
       const latestDefinitionFormulasByCode = await loadLatestDefinitionFormulasByCode(
-        visit.testOrders.flatMap((testOrder) => [
+        reportableOrders.flatMap((testOrder) => [
           testOrder.testDefinition?.code ||
             testOrder.testCodeSnapshot ||
             testOrder.test.code,
@@ -1845,7 +2219,7 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
         const numericValue = parseFloat(r.value);
         if (isNaN(numericValue)) continue;
 
-        const testOrder = visit.testOrders.find((order) => order.testId === r.testId);
+        const testOrder = reportableOrders.find((order) => order.testId === r.testId);
         if (testOrder) {
           resultsByTestCode.set(
             testOrder.testDefinition?.code ||
@@ -1856,7 +2230,7 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
           continue;
         }
 
-        for (const order of visit.testOrders) {
+        for (const order of reportableOrders) {
           const childTest = order.test.childTests.find((child) => child.id === r.testId);
           if (childTest) {
             resultsByTestCode.set(childTest.code, numericValue);
@@ -1866,7 +2240,7 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
       }
 
       const derivedTargets: DerivedFormulaTarget[] = [];
-      for (const testOrder of visit.testOrders) {
+      for (const testOrder of reportableOrders) {
         const orderCode =
           testOrder.testDefinition?.code ||
           testOrder.testCodeSnapshot ||
@@ -2097,6 +2471,17 @@ router.post('/:id/collect-sample', async (req: AuthRequest, res) => {
       });
     }
 
+    const reportableOrders = getReportableOrders(visit.testOrders);
+    if (reportableOrders.length === 0) {
+      return res.json({
+        success: true,
+        status: visit.status,
+        testsCollected: visit.testOrders.length,
+        sampleTypes: [...new Set(visit.testOrders.map((to) => to.test.sampleType).filter(Boolean))],
+        collectedAt: visit.createdAt,
+      });
+    }
+
     if (visit.status !== 'DRAFT') {
       return res.status(400).json({
         error: 'INVALID_STATUS',
@@ -2106,7 +2491,7 @@ router.post('/:id/collect-sample', async (req: AuthRequest, res) => {
 
     // Collect all test IDs (including panel children)
     const testIds: string[] = [];
-    for (const to of visit.testOrders) {
+    for (const to of reportableOrders) {
       testIds.push(to.testId);
       if (to.test.isPanel && to.test.childTests) {
         for (const child of to.test.childTests) {
@@ -2134,7 +2519,7 @@ router.post('/:id/collect-sample', async (req: AuthRequest, res) => {
       newValues: {
         billNumber: visit.billNumber,
         testCount: testIds.length,
-        sampleTypes: [...new Set(visit.testOrders.map((to: any) => to.test.sampleType).filter(Boolean))],
+        sampleTypes: [...new Set(reportableOrders.map((to: any) => to.test.sampleType).filter(Boolean))],
       },
     });
 
@@ -2142,7 +2527,7 @@ router.post('/:id/collect-sample', async (req: AuthRequest, res) => {
       success: true,
       status: 'IN_PROGRESS',
       testsCollected: testIds.length,
-      sampleTypes: [...new Set(visit.testOrders.map((to) => to.test.sampleType).filter(Boolean))],
+      sampleTypes: [...new Set(reportableOrders.map((to) => to.test.sampleType).filter(Boolean))],
     });
   } catch (err: any) {
     console.error('Collect sample error:', err);
@@ -2161,11 +2546,26 @@ router.get('/:id/report-snapshot', async (req: AuthRequest, res) => {
 
     const visit = await prisma.visit.findFirst({
       where: { id, branchId: req.branchId, domain: 'DIAGNOSTICS' },
-      select: { id: true },
+      select: {
+        id: true,
+        status: true,
+        testOrders: {
+          select: {
+            workflowMode: true,
+          },
+        },
+      },
     });
 
     if (!visit) {
       return res.status(404).json({ error: 'Visit not found' });
+    }
+
+    if (getReportableOrders(visit.testOrders).length === 0) {
+      return res.status(400).json({
+        error: 'BILL_ONLY_VISIT',
+        message: 'Pure bill-only visits do not have a report snapshot.',
+      });
     }
 
     const loaded = await loadFinalizedReportSnapshotForVisit(id);
@@ -2193,11 +2593,26 @@ router.get('/:id/preview-report', async (req: AuthRequest, res) => {
     // Verify the visit belongs to this branch
     const visit = await prisma.visit.findFirst({
       where: { id, branchId: req.branchId, domain: 'DIAGNOSTICS' },
-      select: { id: true, status: true },
+      select: {
+        id: true,
+        status: true,
+        testOrders: {
+          select: {
+            workflowMode: true,
+          },
+        },
+      },
     });
 
     if (!visit) {
       return res.status(404).json({ error: 'Visit not found' });
+    }
+
+    if (getReportableOrders(visit.testOrders).length === 0) {
+      return res.status(400).json({
+        error: 'BILL_ONLY_VISIT',
+        message: 'Pure bill-only visits do not have a report preview.',
+      });
     }
 
     // Build ephemeral snapshot from live data (no persistence)
@@ -2331,6 +2746,150 @@ router.get('/:id/finalized-report/pdf', async (req: AuthRequest, res) => {
   }
 });
 
+// POST /api/visits/diagnostic/:id/confirm-ready - Complete a pure bill-only visit
+router.post('/:id/confirm-ready', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+
+    const visit = await prisma.visit.findFirst({
+      where: {
+        id,
+        branchId: req.branchId,
+        domain: 'DIAGNOSTICS',
+      },
+      include: {
+        referrals: {
+          select: {
+            referralDoctorId: true,
+          },
+        },
+        diagnosticCenterReferrals: {
+          select: {
+            diagnosticCenterId: true,
+          },
+        },
+        testOrders: {
+          select: {
+            workflowMode: true,
+          },
+        },
+      },
+    });
+
+    if (!visit) {
+      return res.status(404).json({
+        error: 'NOT_FOUND',
+        message: 'Diagnostic visit not found',
+      });
+    }
+
+    const composition = getVisitComposition(visit.testOrders, visit.status);
+    if (composition.hasReportableOrders || !composition.hasBillOnlyOrders) {
+      return res.status(400).json({
+        error: 'REPORTABLE_VISIT',
+        message: 'Confirm Report Ready is only available for pure bill-only visits.',
+      });
+    }
+
+    if (visit.status === VisitStatus.COMPLETED) {
+      return res.json({
+        success: true,
+        status: visit.status,
+        hasReportableOrders: composition.hasReportableOrders,
+        hasBillOnlyOrders: composition.hasBillOnlyOrders,
+        hasFinalizedReport: false,
+        nextAction: 'NONE',
+      });
+    }
+
+    const completedAt = new Date();
+
+    await prisma.visit.update({
+      where: { id },
+      data: {
+        status: VisitStatus.COMPLETED,
+      },
+    });
+
+    await logAction({
+      branchId: req.branchId!,
+      actionType: 'FINALIZE',
+      entityType: 'Visit',
+      entityId: visit.id,
+      userId: req.user?.id!,
+      oldValues: {
+        status: visit.status,
+      },
+      newValues: {
+        status: VisitStatus.COMPLETED,
+        visitId: visit.id,
+        completionMode: 'BILL_ONLY',
+        completedAt: completedAt.toISOString(),
+      },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+
+    const periodStartDate = new Date(completedAt);
+    periodStartDate.setHours(0, 0, 0, 0);
+    const periodEndDate = new Date(completedAt);
+    periodEndDate.setHours(23, 59, 59, 999);
+
+    const payoutRefreshTasks: Array<Promise<unknown>> = [];
+    const referralDoctorId = visit.referrals[0]?.referralDoctorId;
+    const diagnosticCenterId = visit.diagnosticCenterReferrals[0]?.diagnosticCenterId;
+
+    if (referralDoctorId) {
+      payoutRefreshTasks.push(
+        derivePayout('REFERRAL', referralDoctorId, visit.branchId, periodStartDate, periodEndDate)
+      );
+    }
+
+    if (diagnosticCenterId) {
+      payoutRefreshTasks.push(
+        derivePayout(
+          'DIAGNOSTIC_CENTER',
+          diagnosticCenterId,
+          visit.branchId,
+          periodStartDate,
+          periodEndDate
+        )
+      );
+    }
+
+    if (payoutRefreshTasks.length > 0) {
+      const refreshResults = await Promise.allSettled(payoutRefreshTasks);
+      for (const result of refreshResults) {
+        if (result.status === 'rejected') {
+          console.error('Auto-refresh payout after bill-only completion failed:', result.reason);
+        }
+      }
+    }
+
+    import('../services/notificationService').then(({ sendBillOnlyCollectionNotice }) => {
+      sendBillOnlyCollectionNotice(visit.id).catch((err) =>
+        console.error('[Notification] Bill-only collection notice failed (non-blocking):', err.message)
+      );
+    });
+
+    return res.json({
+      success: true,
+      status: VisitStatus.COMPLETED,
+      hasReportableOrders: false,
+      hasBillOnlyOrders: true,
+      hasFinalizedReport: false,
+      nextAction: 'NONE',
+      completedAt,
+    });
+  } catch (err: any) {
+    console.error('Confirm bill-only ready error:', err);
+    return res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: 'Failed to confirm bill-only visit readiness',
+    });
+  }
+});
+
 // POST /api/visits/diagnostic/:id/finalize - Finalize report
 router.post('/:id/finalize', async (req: AuthRequest, res) => {
   try {
@@ -2353,6 +2912,11 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
             diagnosticCenterId: true,
           },
         },
+        testOrders: {
+          select: {
+            workflowMode: true,
+          },
+        },
         report: {
           include: {
             versions: {
@@ -2369,6 +2933,13 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
       return res.status(404).json({
         error: 'NOT_FOUND',
         message: 'Diagnostic visit not found',
+      });
+    }
+
+    if (getReportableOrders(visit.testOrders).length === 0) {
+      return res.status(400).json({
+        error: 'BILL_ONLY_VISIT',
+        message: 'Pure bill-only visits do not use report finalization. Use Confirm Report Ready instead.',
       });
     }
 

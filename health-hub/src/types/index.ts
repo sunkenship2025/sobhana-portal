@@ -256,6 +256,7 @@ export interface BillableProduct {
   name: string;
   code: string;
   productType: string;
+  workflowMode: DiagnosticWorkflowMode;
   basePrice: number;
   isActive: boolean;
   description: string | null;
@@ -278,6 +279,7 @@ export interface TestOrder {
   testDefinitionId?: string | null;   // New TestDefinition FK
   productId?: string | null;          // BillableProduct FK for traceability
   panelId?: string | null;            // ClinicalPanel FK for traceability
+  workflowMode?: DiagnosticWorkflowMode;
   testName: string;       // Snapshotted test name at order time
   testCode: string;       // Snapshotted test code at order time
   priceInPaise: number;   // Snapshotted price at order time
@@ -324,6 +326,8 @@ export type VisitDomain = 'DIAGNOSTICS' | 'CLINIC';
 export type VisitType = 'OP' | 'IP'; // Only for CLINIC domain
 export type PaymentType = 'CASH' | 'ONLINE' | 'CHEQUE';
 export type PaymentStatus = 'PAID' | 'PENDING';
+export type DiagnosticWorkflowMode = 'REPORTABLE' | 'BILL_ONLY';
+export type DiagnosticNextAction = 'ENTER_RESULTS' | 'CONFIRM_READY' | 'NONE';
 export type ClinicRevisitMode = 'VISIT' | 'REVISIT';
 export type ClinicRevisitDecision = 'AUTO' | 'FORCE_REVISIT' | 'FORCE_NORMAL';
 
@@ -364,13 +368,17 @@ export interface BaseVisit {
   paymentType?: PaymentType | null;
   paymentStatus?: PaymentStatus | null;
   hasBill?: boolean;
+  hasReportableOrders?: boolean;
+  hasBillOnlyOrders?: boolean;
+  hasFinalizedReport?: boolean;
+  nextAction?: DiagnosticNextAction;
   billedAt?: Date | string | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
 // Diagnostic Visit Status (lifecycle only, finalization is on ReportVersion)
-export type DiagnosticVisitStatus = 'DRAFT' | 'IN_PROGRESS' | 'COMPLETED';
+export type DiagnosticVisitStatus = 'DRAFT' | 'WAITING' | 'IN_PROGRESS' | 'COMPLETED';
 
 export interface DiagnosticVisit extends BaseVisit {
   domain: 'DIAGNOSTICS';
