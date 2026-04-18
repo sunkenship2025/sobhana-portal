@@ -109,6 +109,22 @@ const DiagnosticsNewVisit = () => {
   const [doctorExistingMatch, setDoctorExistingMatch] = useState<any>(null);
   const [doctorLinkedId, setDoctorLinkedId] = useState<string | null>(null);
 
+  const normalizeSelectableProduct = (product: Partial<ProductForSelector> & { id: string; name: string; code: string; productType: string }) => {
+    const basePrice = Number(product.basePrice ?? 0);
+    const effectivePrice = Number(product.effectivePrice ?? basePrice);
+
+    return {
+      ...product,
+      basePrice,
+      effectivePrice,
+      priceSource: product.priceSource ?? 'BASE',
+      description: product.description ?? null,
+      panelCount: product.panelCount ?? 0,
+      workflowMode: product.workflowMode ?? 'REPORTABLE',
+      isActive: product.isActive ?? true,
+    } as ProductForSelector;
+  };
+
   // Fetch lab tests and referral doctors from API
   useEffect(() => {
     const fetchData = async () => {
@@ -129,7 +145,7 @@ const DiagnosticsNewVisit = () => {
 
         if (productsRes.ok) {
           const prods = await productsRes.json();
-          setProducts(prods);
+          setProducts(prods.map(normalizeSelectableProduct));
         }
         if (doctorsRes.ok) {
           const doctors = await doctorsRes.json();
@@ -290,7 +306,7 @@ const DiagnosticsNewVisit = () => {
         throw new Error(err.message || 'Failed to create product');
       }
 
-      const product = await res.json();
+      const product = normalizeSelectableProduct(await res.json());
       setProducts((prev) => [...prev, product]);
       setSelectedProducts((prev) => [...prev, product.id]);
       setReferralOverrides((prev) => {
