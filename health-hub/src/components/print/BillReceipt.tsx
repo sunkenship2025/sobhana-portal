@@ -16,7 +16,7 @@ interface BillReceiptProps {
  * - DiagnosticsNewVisit (inline print)
  * - BillPrintPage (Patient360 reprint)
  */
-const BILL_LOGO_URL = `${API_BASE_URL}/images/sobhana-logo-cropped.png`;
+const BILL_LOGO_URL = `${API_BASE_URL}/images/sobhana-clinic-logo.png`;
 
 export const BillReceipt = ({ data, asPage = false, onLogoLoadedChange }: BillReceiptProps) => {
   const isDiagnostic = data.domain === 'DIAGNOSTICS';
