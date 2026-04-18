@@ -47,8 +47,8 @@
 
 body.report-body {
   font-family: var(--font-primary);
-  font-size: 9pt;
-  line-height: 1.25;
+  font-size: 9.35pt;
+  line-height: 1.18;
   color: var(--color-text);
   background: white;
 }
@@ -60,9 +60,9 @@ body.report-body {
 }
 .report-content {
   width: 100%;
-  padding-top: 3mm;
+  padding-top: 2mm;
 }
-.report-bottom-section { margin-top: 16pt; }
+.report-bottom-section { margin-top: 9pt; }
 
 /* ============================================================================
    HIDDEN ELEMENTS (Pre-printed on letterhead)
@@ -82,8 +82,8 @@ body.report-body {
 
 .patient-info {
   border: 0.5pt solid var(--color-border);
-  padding: var(--spacing-sm);
-  margin-bottom: var(--spacing-md);
+  padding: 5pt 7pt;
+  margin-bottom: 6pt;
 }
 
 .info-grid { display: table; width: 100%; }
@@ -92,14 +92,14 @@ body.report-body {
 .info-item {
   display: table-cell;
   width: 50%;
-  padding: 1pt 0;
-  font-size: 8.5pt;
+  padding: 0.5pt 0;
+  font-size: 9.1pt;
 }
 
 .info-item .label {
   font-weight: bold;
   display: inline-block;
-  min-width: 95pt;
+  min-width: 88pt;
 }
 
 .info-item .label::after {
@@ -114,18 +114,18 @@ body.report-body {
    ============================================================================ */
 
 .department {
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: 8pt;
   page-break-inside: auto;
   break-inside: auto;
 }
 
 .department-header {
-  font-size: 10pt;
+  font-size: 10.8pt;
   font-weight: bold;
   color: var(--color-text);
   border-bottom: 0.5pt solid var(--color-border);
-  padding-bottom: var(--spacing-xs);
-  margin-bottom: var(--spacing-sm);
+  padding-bottom: 1pt;
+  margin-bottom: 3pt;
   text-align: center;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -136,15 +136,15 @@ body.report-body {
    ============================================================================ */
 
 .panel {
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: 8pt;
   page-break-inside: avoid;
 }
 
 .panel-title {
-  font-size: 9pt;
+  font-size: 9.8pt;
   font-weight: bold;
-  margin-bottom: var(--spacing-xs);
-  padding: 0 0 var(--spacing-xs) 0;
+  margin-bottom: 1pt;
+  padding: 0 0 1pt 0;
   background: transparent;
   border-left: none;
   color: var(--color-text);
@@ -152,10 +152,10 @@ body.report-body {
 }
 
 .panel-method {
-  margin: 0 0 5pt 0;
-  font-size: 7.5pt;
+  margin: 0 0 3pt 0;
+  font-size: 7.7pt;
   color: var(--color-text);
-  line-height: 1.25;
+  line-height: 1.08;
 }
 
 .panel-method.is-italic {
@@ -169,8 +169,8 @@ body.report-body {
 .results-table {
   width: 100%;
   border-collapse: collapse;
-  margin-bottom: var(--spacing-md);
-  font-size: 8.5pt;
+  margin-bottom: 5pt;
+  font-size: 9pt;
 }
 
 .results-table th {
@@ -178,8 +178,8 @@ body.report-body {
   color: var(--color-text);
   font-weight: 600;
   text-align: left;
-  padding: 3pt var(--spacing-sm);
-  font-size: 7.5pt;
+  padding: 3pt 5pt;
+  font-size: 8.1pt;
   text-transform: uppercase;
   letter-spacing: 0.3px;
   border-top: 0.5pt solid var(--color-border);
@@ -189,10 +189,10 @@ body.report-body {
 }
 
 .results-table td {
-  padding: 6pt var(--spacing-sm);
+  padding: 4pt 5pt 3pt;
   border: none;
   background: transparent;
-  vertical-align: middle;
+  vertical-align: top;
 }
 
 /* Column widths (4 columns: Test | Result | Unit | Ref Range) */
@@ -215,16 +215,16 @@ body.report-body {
 .results-table tr.indent-1 .col-test { padding-left: var(--spacing-md); }
 
 .results-table td.col-unit { color: var(--color-text); }
-.results-table td.col-ref { color: var(--color-text); font-size: 8pt; }
+.results-table td.col-ref { color: var(--color-text); font-size: 8.4pt; }
 .results-table td.col-test,
 .results-table td.col-param { vertical-align: top; text-align: left; }
 
 .test-name.is-bold { font-weight: bold; }
 .test-method {
-  font-size: 6.75pt;
+  font-size: 7.15pt;
   color: var(--color-text);
-  line-height: 1.2;
-  padding-top: 1pt;
+  line-height: 1.02;
+  padding-top: 0;
 }
 .test-method.is-italic { font-style: italic; }
 
@@ -232,12 +232,12 @@ body.report-body {
 .section-divider td {
   background: transparent;
   font-weight: bold;
-  font-size: 8pt;
+  font-size: 8.7pt;
   text-transform: uppercase;
   letter-spacing: 0.3px;
-  padding: var(--spacing-sm);
-  border-top: 0.5pt solid var(--color-border);
-  border-bottom: 0.5pt solid var(--color-border-light);
+  padding: 2pt 5pt 1pt;
+  border-top: none;
+  border-bottom: none;
   border-left: none;
   border-right: none;
   color: var(--color-text);
@@ -251,49 +251,46 @@ body.report-body {
    ============================================================================ */
 
 .smear-section {
-  margin-top: 10pt;
-  margin-bottom: var(--spacing-sm);
-  padding: var(--spacing-sm);
+  margin-top: 5pt;
+  margin-bottom: 4pt;
+  padding: 3pt 6pt;
   border: 0.5pt solid #ccc;
 }
 
 .smear-header {
   font-weight: bold;
-  font-size: 8pt;
+  font-size: 8.7pt;
   text-transform: uppercase;
   letter-spacing: 0.3px;
   color: var(--color-text);
-  padding-bottom: 2pt;
-  margin-bottom: 2pt;
+  padding-bottom: 1pt;
+  margin-bottom: 1pt;
   border-bottom: 0.5pt solid #ccc;
 }
 
 .smear-method {
-  font-size: 7pt;
-  font-style: italic;
-  color: var(--color-text);
-  padding: 0 0 2pt 0;
+  display: none;
 }
 
 /* Subgroup method row (inside table) */
+.method-row {
+  display: none;
+}
+
 .method-row td {
-  font-size: 7pt;
-  font-style: italic;
-  color: var(--color-text);
-  padding: 1pt 8pt 2pt 12pt;
-  border-bottom: 0.5pt solid var(--color-border-light);
+  display: none;
 }
 
 .smear-row {
   display: flex;
   align-items: baseline;
-  padding: 1pt 0;
-  font-size: 8.5pt;
+  padding: 0.5pt 0;
+  font-size: 9pt;
 }
 
 .smear-label {
   font-weight: 600;
-  min-width: 120pt;
+  min-width: 92pt;
   flex-shrink: 0;
 }
 
@@ -429,11 +426,11 @@ body.report-body {
    ============================================================================ */
 
 .report-note {
-  font-size: 7.5pt;
+  font-size: 7.9pt;
   color: var(--color-text);
   text-align: left;
   padding: 0;
-  margin-top: 10pt;
+  margin-top: 5pt;
   margin-bottom: 0;
   font-weight: 600;
   font-style: normal;
@@ -447,7 +444,7 @@ body.report-body {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 20pt;
+  gap: 14pt;
   margin-top: 0;
   padding-top: 0;
 }
@@ -455,21 +452,21 @@ body.report-body {
 .report-divider {
   height: 0.5pt;
   background: var(--color-border);
-  margin-top: 8pt;
+  margin-top: 5pt;
   margin-bottom: 0;
 }
 
 .signatures-left {
   display: flex;
   flex: 1 1 auto;
-  gap: 20pt;
+  gap: 14pt;
   align-items: flex-end;
   justify-content: flex-start;
 }
 
 .signatures-right {
   display: flex;
-  gap: 20pt;
+  gap: 14pt;
   align-items: flex-end;
   justify-content: flex-end;
   margin-left: auto;
@@ -478,24 +475,24 @@ body.report-body {
 
 .signature-block {
   text-align: center;
-  min-width: 80pt;
+  min-width: 76pt;
 }
 
-.lab-incharge-block { min-width: 80pt; }
+.lab-incharge-block { min-width: 76pt; }
 .lab-incharge-line {
   width: 100%;
-  height: 30pt;
+  height: 24pt;
   margin-bottom: 2pt;
 }
 .lab-incharge-label {
-  font-size: 8.5pt;
+  font-size: 8.8pt;
   font-weight: bold;
 }
 
-.signature-image { height: 35pt; width: auto; margin-bottom: var(--spacing-xs); }
-.doctor-name { font-weight: bold; font-size: 9pt; }
-.doctor-degrees { font-size: 7.5pt; }
-.doctor-designation { font-size: 7.5pt; }
+.signature-image { height: 32pt; width: auto; margin-bottom: 1pt; }
+.doctor-name { font-weight: bold; font-size: 9.2pt; }
+.doctor-degrees { font-size: 7.8pt; }
+.doctor-designation { font-size: 7.8pt; }
 .doctor-reg { font-size: 6.5pt; }
 
 /* ============================================================================
@@ -505,12 +502,12 @@ body.report-body {
 .print-qr {
   display: flex !important;
   align-items: center;
-  gap: 6pt;
+  gap: 4pt;
   justify-content: flex-end;
-  margin-top: 6pt;
+  margin-top: 4pt;
 }
-.print-qr-img { width: 45pt; height: 45pt; }
-.print-qr-text { font-size: 6.5pt; color: var(--color-text); }
+.print-qr-img { width: 40pt; height: 40pt; }
+.print-qr-text { font-size: 6.9pt; color: var(--color-text); }
 
 /* ============================================================================
    PAGE BREAKS - using both legacy and modern syntax for compatibility
