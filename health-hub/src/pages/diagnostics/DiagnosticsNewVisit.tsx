@@ -427,7 +427,7 @@ const DiagnosticsNewVisit = () => {
   const safeDiscountNumeric = Number.isFinite(discountNumeric) ? Math.max(0, discountNumeric) : 0;
   const discountAmount =
     discountMode === 'PERCENTAGE'
-      ? Math.round((totalAmount * Math.min(safeDiscountNumeric, 100)) * 100) / 100
+      ? Math.round(((totalAmount * Math.min(safeDiscountNumeric, 100)) / 100) * 100) / 100
       : discountMode === 'FLAT_AMOUNT'
         ? Math.min(safeDiscountNumeric, totalAmount)
         : 0;
