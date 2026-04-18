@@ -1,12 +1,13 @@
+import { useEffect, useState } from 'react';
 import type { BillReceiptData } from '@/types';
 import { API_BASE_URL } from '@/lib/api';
-import { formatReferralPayout } from '@/lib/referralPayouts';
 import { formatAgeDisplay } from '@/lib/validation';
 
 interface BillReceiptProps {
   data: BillReceiptData;
   /** When true, render as a print-page (for multi-page docs like clinic prescription+bill) */
   asPage?: boolean;
+  onLogoLoadedChange?: (loaded: boolean) => void;
 }
 
 /**
@@ -15,14 +16,11 @@ interface BillReceiptProps {
  * - DiagnosticsNewVisit (inline print)
  * - BillPrintPage (Patient360 reprint)
  */
-export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
+const BILL_LOGO_URL = `${API_BASE_URL}/images/sobhana-logo-cropped.png`;
+
+export const BillReceipt = ({ data, asPage = false, onLogoLoadedChange }: BillReceiptProps) => {
   const isDiagnostic = data.domain === 'DIAGNOSTICS';
-  const hasReferral = data.items.some(
-    (item) =>
-      item.referralType !== undefined ||
-      item.referralPercent !== undefined ||
-      item.referralAmountInPaise !== undefined
-  );
+  const [logoLoaded, setLogoLoaded] = useState(false);
 
   const dateStr = new Date(data.date).toLocaleDateString('en-IN', {
     day: '2-digit',
@@ -75,16 +73,43 @@ export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
     ? 'print-page bill-receipt-page'
     : 'print-content pt-6 pb-8 px-6 bg-white text-black';
 
+  useEffect(() => {
+    setLogoLoaded(false);
+    onLogoLoadedChange?.(false);
+
+    const image = new Image();
+    image.onload = () => {
+      setLogoLoaded(true);
+      onLogoLoadedChange?.(true);
+    };
+    image.onerror = () => {
+      setLogoLoaded(true);
+      onLogoLoadedChange?.(true);
+    };
+    image.src = BILL_LOGO_URL;
+
+    if (image.complete) {
+      setLogoLoaded(true);
+      onLogoLoadedChange?.(true);
+    }
+
+    return () => {
+      image.onload = null;
+      image.onerror = null;
+    };
+  }, [onLogoLoadedChange]);
+
   return (
     <div className={containerClass}>
       <div className="mx-auto w-full max-w-[710px]">
         {/* Logo Header - Centered */}
         <div className="flex justify-center mb-0">
           <img
-            src={`${API_BASE_URL}/images/sobhana-clinic-logo.png`}
+            src={BILL_LOGO_URL}
             alt="Sobhana"
-            style={{ height: '60px', objectFit: 'contain' }}
-            crossOrigin="anonymous"
+            style={{ height: '60px', objectFit: 'contain', visibility: logoLoaded ? 'visible' : 'hidden' }}
+            loading="eager"
+            decoding="sync"
           />
         </div>
         {data.branchName && (
@@ -153,7 +178,6 @@ export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
           <colgroup>
             <col className="w-[74px]" />
             <col />
-            {hasReferral && <col className="w-[108px]" />}
             <col className="w-[148px]" />
           </colgroup>
           <thead>
@@ -162,9 +186,6 @@ export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
               <th className="border-r border-black px-3 py-3 text-left font-bold">
                 {isDiagnostic ? 'PRODUCT NAME' : 'SERVICE DESCRIPTION'}
               </th>
-              {hasReferral && (
-                <th className="border-r border-black px-3 py-3 text-right font-bold">REF</th>
-              )}
               <th className="px-3 py-3 text-right font-bold">AMOUNT (₹)</th>
             </tr>
           </thead>
@@ -173,23 +194,12 @@ export const BillReceipt = ({ data, asPage = false }: BillReceiptProps) => {
               <tr key={item.id} className="border-b border-black">
                 <td className="border-r border-black px-3 py-3 align-middle">{index + 1}</td>
                 <td className="border-r border-black px-3 py-3 align-middle">{item.name}</td>
-                {hasReferral && (
-                  <td className="border-r border-black px-3 py-3 text-right align-middle">
-                    {item.referralType || item.referralPercent !== undefined || item.referralAmountInPaise !== undefined
-                      ? formatReferralPayout({
-                          commissionType: item.referralType,
-                          commissionPercent: item.referralPercent,
-                          commissionAmountInPaise: item.referralAmountInPaise,
-                        })
-                      : '—'}
-                  </td>
-                )}
                 <td className="px-3 py-3 text-right align-middle">{item.price.toFixed(2)}</td>
               </tr>
             ))}
             <tr>
               <td className="border-r border-black px-3 py-3"></td>
-              <td colSpan={hasReferral ? 2 : 1} className="border-r border-black px-3 py-3 text-right font-bold">TOTAL</td>
+              <td className="border-r border-black px-3 py-3 text-right font-bold">TOTAL</td>
               <td className="px-3 py-3 text-right font-bold">₹{data.totalAmount.toFixed(2)}</td>
             </tr>
           </tbody>
