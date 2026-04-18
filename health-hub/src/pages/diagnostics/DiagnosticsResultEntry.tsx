@@ -668,8 +668,8 @@ const DiagnosticsResultEntry = () => {
           </span>
           <div className="flex items-center gap-2">
             <Input
-              type={hasNumericRange ? 'number' : 'text'}
-              step="0.01"
+              type="text"
+              inputMode={hasNumericRange ? 'decimal' : 'text'}
               placeholder={isAutoDerived ? 'Auto-calculated' : 'Value'}
               value={valueStr}
               onChange={(e) => handleValueChange(testId, e.target.value)}
