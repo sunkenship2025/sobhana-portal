@@ -39,6 +39,17 @@ function transformProduct(product: any) {
   };
 }
 
+function withResolvedPrice(product: any, branchPriceInPaise?: number | null) {
+  const effectivePriceInPaise = branchPriceInPaise ?? product.basePriceInPaise ?? 0;
+
+  return {
+    ...transformProduct(product),
+    effectivePriceInPaise,
+    effectivePrice: effectivePriceInPaise / 100,
+    priceSource: branchPriceInPaise != null ? 'BRANCH_OVERRIDE' : 'BASE',
+  };
+}
+
 async function generateQuickBillOnlyCode(): Promise<string> {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const candidate = `BO_${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`
@@ -123,10 +134,7 @@ router.get('/', async (req: AuthRequest, res) => {
     const result = products.map(p => {
       const branchPrice = p.branchPricing?.[0]?.priceInPaise;
       return {
-        ...transformProduct(p),
-        effectivePriceInPaise: branchPrice ?? p.basePriceInPaise,
-        effectivePrice: (branchPrice ?? p.basePriceInPaise) / 100,
-        priceSource: branchPrice ? 'BRANCH_OVERRIDE' : 'BASE',
+        ...withResolvedPrice(p, branchPrice),
         branchPricing: undefined, // Don't leak raw pricing array
       };
     });
@@ -174,7 +182,7 @@ router.post('/quick-create-bill-only', async (req: AuthRequest, res) => {
       },
     });
 
-    return res.status(201).json(transformProduct(product));
+    return res.status(201).json(withResolvedPrice(product));
   } catch (error: any) {
     console.error('Error quick-creating bill-only product:', error);
     return res.status(500).json({ error: 'CREATE_FAILED', message: error.message });
@@ -224,7 +232,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Product not found' });
     }
 
-    return res.json(transformProduct(product));
+    return res.json(withResolvedPrice(product));
   } catch (error: any) {
     console.error('Error fetching billable product:', error);
     return res.status(500).json({ error: 'FETCH_FAILED', message: error.message });
@@ -336,7 +344,7 @@ router.post('/', async (req: AuthRequest, res) => {
       },
     });
 
-    return res.status(201).json(transformProduct(product));
+    return res.status(201).json(withResolvedPrice(product));
   } catch (error: any) {
     console.error('Error creating billable product:', error);
     if (error.code === 'P2002') {
@@ -449,7 +457,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
       });
     });
 
-    return res.json(transformProduct(product));
+    return res.json(withResolvedPrice(product));
   } catch (error: any) {
     console.error('Error updating billable product:', error);
     return res.status(500).json({ error: 'UPDATE_FAILED', message: error.message });
@@ -470,7 +478,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       include: { _count: { select: { panels: true } } },
     });
 
-    return res.json(transformProduct(product));
+    return res.json(withResolvedPrice(product));
   } catch (error: any) {
     console.error('Error toggling product:', error);
     return res.status(500).json({ error: 'UPDATE_FAILED', message: error.message });

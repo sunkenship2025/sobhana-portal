@@ -158,7 +158,7 @@ export function ProductSelector({
 
   // Running total
   const totalAmount = useMemo(() => {
-    return selectedProducts.reduce((sum, p) => sum + p.effectivePrice, 0);
+    return selectedProducts.reduce((sum, p) => sum + (p.effectivePrice ?? p.basePrice ?? 0), 0);
   }, [selectedProducts]);
 
   // Reset highlight when results change
@@ -232,41 +232,39 @@ export function ProductSelector({
     <div className="space-y-3">
       {/* Search Input */}
       <div className="relative">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            ref={inputRef}
-            type="text"
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setIsOpen(true);
-            }}
-            onFocus={() => setIsOpen(true)}
-            onBlur={() => setTimeout(() => setIsOpen(false), 200)}
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder}
-            className="pl-10 h-12 text-base"
-            disabled={disabled}
-          />
-        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              ref={inputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setIsOpen(true);
+              }}
+              onFocus={() => setIsOpen(true)}
+              onBlur={() => setTimeout(() => setIsOpen(false), 200)}
+              onKeyDown={handleKeyDown}
+              placeholder={placeholder}
+              className="pl-10 h-12 text-base"
+              disabled={disabled}
+            />
+          </div>
 
-        {onQuickAddBillOnly && (
-          <div className="mt-2 flex items-center justify-end">
+          {onQuickAddBillOnly && (
             <Button
               type="button"
               variant="outline"
-              size="sm"
+              className="h-12 shrink-0"
               onClick={handleQuickAdd}
               disabled={disabled}
             >
               <Plus className="mr-2 h-4 w-4" />
-              {searchQuery.trim()
-                ? `Add "${searchQuery.trim()}" as Bill-Only`
-                : 'Add Bill-Only Item'}
+              Add Bill-Only
             </Button>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Dropdown */}
         {isOpen && filteredProducts.length > 0 && (
@@ -282,6 +280,8 @@ export function ProductSelector({
                 </div>
                 {group.products.map((product) => {
                   const flatIdx = flatList.indexOf(product);
+                  const effectivePrice = product.effectivePrice ?? product.basePrice ?? 0;
+                  const basePrice = product.basePrice ?? 0;
                   return (
                     <div
                       key={product.id}
@@ -325,11 +325,11 @@ export function ProductSelector({
                       </div>
                       <div className="text-right shrink-0 ml-3">
                         <span className="font-semibold text-primary">
-                          ₹{product.effectivePrice.toFixed(0)}
+                          ₹{effectivePrice.toFixed(0)}
                         </span>
                         {product.priceSource === 'BRANCH_OVERRIDE' && (
                           <p className="text-[10px] text-muted-foreground line-through">
-                            ₹{product.basePrice.toFixed(0)}
+                            ₹{basePrice.toFixed(0)}
                           </p>
                         )}
                       </div>
@@ -366,27 +366,31 @@ export function ProductSelector({
       {/* Selected Products as Chips */}
       {selectedProducts.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {selectedProducts.map(product => (
-            <Badge
-              key={product.id}
-              variant="secondary"
-              className="pl-2 pr-1 py-1.5 text-sm flex items-center gap-1.5 bg-primary/10 hover:bg-primary/20"
-            >
-              <TypeIcon productType={getProductVisualKind(product)} className="h-3 w-3 text-muted-foreground" />
-              <span className="truncate max-w-[160px]">{product.name}</span>
-              <span className="text-primary font-semibold">
-                ₹{product.effectivePrice.toFixed(0)}
-              </span>
-              <button
-                type="button"
-                onClick={() => handleRemove(product.id)}
-                className="ml-0.5 p-0.5 rounded-full hover:bg-destructive/20 transition-colors"
-                disabled={disabled}
+          {selectedProducts.map((product) => {
+            const effectivePrice = product.effectivePrice ?? product.basePrice ?? 0;
+
+            return (
+              <Badge
+                key={product.id}
+                variant="secondary"
+                className="pl-2 pr-1 py-1.5 text-sm flex items-center gap-1.5 bg-primary/10 hover:bg-primary/20"
               >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </Badge>
-          ))}
+                <TypeIcon productType={getProductVisualKind(product)} className="h-3 w-3 text-muted-foreground" />
+                <span className="truncate max-w-[160px]">{product.name}</span>
+                <span className="text-primary font-semibold">
+                  ₹{effectivePrice.toFixed(0)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleRemove(product.id)}
+                  className="ml-0.5 p-0.5 rounded-full hover:bg-destructive/20 transition-colors"
+                  disabled={disabled}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </Badge>
+            );
+          })}
         </div>
       )}
 
@@ -405,7 +409,7 @@ export function ProductSelector({
       {/* Empty State */}
       {selectedProducts.length === 0 && (
         <p className="text-sm text-muted-foreground text-center py-4">
-          Start typing to search and add tests, panels, or bill-only items
+          Start typing to search and add tests, panels, or bill-only items.
         </p>
       )}
     </div>
