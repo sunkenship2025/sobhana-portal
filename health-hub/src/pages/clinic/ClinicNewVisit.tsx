@@ -86,6 +86,7 @@ const ClinicNewVisit = () => {
   const [clinicDoctors, setClinicDoctors] = useState<ClinicDoctor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [billLogoLoaded, setBillLogoLoaded] = useState(false);
 
   const [phone, setPhone] = useState('');
   const [matchingPatients, setMatchingPatients] = useState<Patient[]>([]);
@@ -428,6 +429,7 @@ const ClinicNewVisit = () => {
 
       const visitView = buildClinicVisitView(visit);
       toast.success('Visit created successfully!');
+      setBillLogoLoaded(false);
 
       const patientPhone =
         visitView.patient.identifiers?.find((identifier: any) => identifier.type === 'PHONE')?.value ||
@@ -514,10 +516,16 @@ const ClinicNewVisit = () => {
                 </div>
 
                 <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:justify-center">
-                  <Button className="w-full sm:w-auto" variant="outline" onClick={handlePrint}>
+                  <Button
+                    className="w-full sm:w-auto"
+                    variant="outline"
+                    onClick={handlePrint}
+                    disabled={!billLogoLoaded}
+                  >
                     <Printer className="mr-2 h-4 w-4" />
-                    {printLabel}
+                    {billLogoLoaded ? printLabel : 'Preparing Print...'}
                   </Button>
+
                   <Button className="w-full sm:w-auto" onClick={resetForm}>
                     Create Another Visit
                   </Button>
@@ -531,7 +539,11 @@ const ClinicNewVisit = () => {
         </div>
 
         <div ref={printRef} className="hidden print:block">
-          <ClinicPrescriptionPrint visitView={visitView} branchName={activeBranch?.name} />
+          <ClinicPrescriptionPrint
+            visitView={visitView}
+            branchName={activeBranch?.name}
+            onBillLogoLoadedChange={setBillLogoLoaded}
+          />
         </div>
       </AppLayout>
     );

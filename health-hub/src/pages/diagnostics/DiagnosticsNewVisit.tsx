@@ -77,6 +77,7 @@ const DiagnosticsNewVisit = () => {
   const [diagnosticCenterOverrides, setDiagnosticCenterOverrides] = useState<Record<string, ReferralPayoutDraft>>({});
   const [successData, setSuccessData] = useState<{ visitView: DiagnosticVisitView } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [billLogoLoaded, setBillLogoLoaded] = useState(false);
   const [whatsappOptIn, setWhatsappOptIn] = useState(true); // For existing patients
 
   // New patient form
@@ -716,6 +717,7 @@ const DiagnosticsNewVisit = () => {
       }
 
       setSuccessData({ visitView });
+      setBillLogoLoaded(false);
     } catch (error: any) {
       toast.error(error.message || 'Failed to create visit');
     } finally {
@@ -769,9 +771,14 @@ const DiagnosticsNewVisit = () => {
                 </div>
 
                 <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:justify-center">
-                  <Button className="w-full sm:w-auto" variant="outline" onClick={handlePrint}>
+                  <Button
+                    className="w-full sm:w-auto"
+                    variant="outline"
+                    onClick={handlePrint}
+                    disabled={!billLogoLoaded}
+                  >
                     <Printer className="mr-2 h-4 w-4" />
-                    Print Bill
+                    {billLogoLoaded ? 'Print Bill' : 'Preparing Print...'}
                   </Button>
                   <Button className="w-full sm:w-auto" onClick={() => {
                     setSuccessData(null);
@@ -806,36 +813,39 @@ const DiagnosticsNewVisit = () => {
 
         {/* Print Content */}
         <div ref={printRef} className="hidden print:block">
-          <BillReceipt data={{
-            billNumber: successData.visitView.visit.billNumber,
-            date: successData.visitView.visit.createdAt,
-            domain: 'DIAGNOSTICS',
-            branchName: activeBranch?.name,
-            patient: {
-              name: successData.visitView.patient.name,
-              phone: successData.visitView.patient.identifiers?.find((i: any) => i.type === 'PHONE')?.value || '',
-              age: successData.visitView.patient.age,
-              ageUnit: (successData.visitView.patient as any).ageUnit,
-              ageDisplay: (successData.visitView.patient as any).ageDisplay,
-              gender: successData.visitView.patient.gender,
-            },
-            referralDoctor: successData.visitView.referralDoctor ? {
-              name: successData.visitView.referralDoctor.name,
-            } : undefined,
-            paymentType: successData.visitView.visit.paymentType,
-            paymentStatus: successData.visitView.visit.paymentStatus,
-            totalAmount: successData.visitView.visit.totalAmountInPaise / 100,
-            items: successData.visitView.billItems ?? successData.visitView.testOrders.map((order) => ({
-              id: order.id,
-              name: order.testName,
-              price: order.priceInPaise / 100,
-              referralType: successData.visitView.referralDoctor ? order.referralCommissionType : undefined,
-              referralPercent: successData.visitView.referralDoctor ? order.referralCommissionPercent : undefined,
-              referralAmountInPaise: successData.visitView.referralDoctor
-                ? order.referralCommissionAmountInPaise ?? undefined
-                : undefined,
-            })),
-          }} />
+          <BillReceipt
+            onLogoLoadedChange={setBillLogoLoaded}
+            data={{
+              billNumber: successData.visitView.visit.billNumber,
+              date: successData.visitView.visit.createdAt,
+              domain: 'DIAGNOSTICS',
+              branchName: activeBranch?.name,
+              patient: {
+                name: successData.visitView.patient.name,
+                phone: successData.visitView.patient.identifiers?.find((i: any) => i.type === 'PHONE')?.value || '',
+                age: successData.visitView.patient.age,
+                ageUnit: (successData.visitView.patient as any).ageUnit,
+                ageDisplay: (successData.visitView.patient as any).ageDisplay,
+                gender: successData.visitView.patient.gender,
+              },
+              referralDoctor: successData.visitView.referralDoctor ? {
+                name: successData.visitView.referralDoctor.name,
+              } : undefined,
+              paymentType: successData.visitView.visit.paymentType,
+              paymentStatus: successData.visitView.visit.paymentStatus,
+              totalAmount: successData.visitView.visit.totalAmountInPaise / 100,
+              items: successData.visitView.billItems ?? successData.visitView.testOrders.map((order) => ({
+                id: order.id,
+                name: order.testName,
+                price: order.priceInPaise / 100,
+                referralType: successData.visitView.referralDoctor ? order.referralCommissionType : undefined,
+                referralPercent: successData.visitView.referralDoctor ? order.referralCommissionPercent : undefined,
+                referralAmountInPaise: successData.visitView.referralDoctor
+                  ? order.referralCommissionAmountInPaise ?? undefined
+                  : undefined,
+              })),
+            }}
+          />
         </div>
       </AppLayout>
     );
