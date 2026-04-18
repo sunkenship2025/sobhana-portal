@@ -433,10 +433,13 @@ function renderTestLabel(test: TestResultSnapshot): string {
           ${methodHtml}`;
 }
 
-function renderTestRow(test: TestResultSnapshot, indent: boolean = false): string {
+function renderTestRow(test: TestResultSnapshot, indent: boolean = false, valuePrefix: string | null = null): string {
   const flag = computeFlag(test.value, test.referenceMin, test.referenceMax);
   const isAbnormal = flag === 'H' || flag === 'L';
-  const valueDisplay = test.textValue || formatNumericValue(test.value);
+  let valueDisplay = test.textValue || formatNumericValue(test.value);
+  if (valuePrefix && valueDisplay && valueDisplay !== '\u2014') {
+    valueDisplay = `${valuePrefix}${valueDisplay}`;
+  }
   const indentClass = indent || test.indentLevel > 0 ? ' indent-1' : '';
 
   return `
@@ -471,7 +474,10 @@ function renderStandardTable(panel: PanelSnapshot): string {
         const hasData = tests.some(t => t.textValue || t.notes || t.value !== null);
         if (hasData) {
           const smearRows = tests.map(t => {
-            const displayValue = t.textValue || t.notes || (t.value !== null ? String(t.value) : '\u2014');
+            let displayValue = t.textValue || t.notes || (t.value !== null ? String(t.value) : '\u2014');
+            if (panel.valueDisplayPrefix && displayValue !== '\u2014') {
+              displayValue = `${panel.valueDisplayPrefix}${displayValue}`;
+            }
             return `
         <div class="smear-row">
           <span class="smear-label">${escapeHtml(t.testName)}</span>
@@ -502,11 +508,11 @@ function renderStandardTable(panel: PanelSnapshot): string {
       </tr>`;
           }
         }
-        rowsHtml += tests.map(t => renderTestRow(t)).join('');
+        rowsHtml += tests.map(t => renderTestRow(t, false, panel.valueDisplayPrefix ?? null)).join('');
       }
     }
   } else {
-    rowsHtml = panel.tests.map(t => renderTestRow(t)).join('');
+    rowsHtml = panel.tests.map((t: TestResultSnapshot) => renderTestRow(t, false, panel.valueDisplayPrefix ?? null)).join('');
   }
 
   let interpretBlock = '';
