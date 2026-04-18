@@ -100,6 +100,7 @@ export default function BillPrintPage() {
   const [billData, setBillData] = useState<ApiBillData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [logoLoaded, setLogoLoaded] = useState(false);
   const printLabel = billData?.visit.hasBill === false ? 'Print Visit Slip' : 'Print Bill';
 
   useEffect(() => {
@@ -159,13 +160,13 @@ export default function BillPrintPage() {
     <>
       {/* Print Button (hidden on print) */}
       <div className="no-print fixed top-4 right-4 z-50">
-        <Button onClick={() => window.print()}>
-          {printLabel}
+        <Button onClick={() => window.print()} disabled={!logoLoaded}>
+          {logoLoaded ? printLabel : 'Preparing Print...'}
         </Button>
       </div>
 
       {/* Bill Content — shared component */}
-      <BillReceipt data={toBillReceiptData(billData)} />
+      <BillReceipt data={toBillReceiptData(billData)} onLogoLoadedChange={setLogoLoaded} />
     </>
   );
 }

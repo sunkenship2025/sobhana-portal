@@ -5,9 +5,14 @@ import { BillReceipt } from './BillReceipt';
 interface ClinicPrescriptionPrintProps {
   visitView: ClinicVisitView;
   branchName?: string;
+  onBillLogoLoadedChange?: (loaded: boolean) => void;
 }
 
-export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescriptionPrintProps) => {
+export const ClinicPrescriptionPrint = ({
+  visitView,
+  branchName,
+  onBillLogoLoadedChange,
+}: ClinicPrescriptionPrintProps) => {
   const { visit, patient, clinicDoctor } = visitView;
   const visitDate = new Date(visit.createdAt);
   const followUpDate = new Date(visitDate);
@@ -129,6 +134,7 @@ export const ClinicPrescriptionPrint = ({ visitView, branchName }: ClinicPrescri
 
       <BillReceipt
         asPage
+        onLogoLoadedChange={onBillLogoLoadedChange}
         data={{
           visitRef: visit.visitRef,
           billNumber: visit.billNumber,
