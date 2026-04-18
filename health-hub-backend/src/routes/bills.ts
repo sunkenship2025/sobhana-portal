@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import prisma from '../lib/prisma';
 import { buildDiagnosticBillItems } from '../services/billItemService';
+import { buildBillFinancialResponse } from '../services/billFinancialService';
 import { getPatientAge, getPatientAgeDisplay } from '../utils/validation';
 
 const router = Router();
@@ -83,6 +84,8 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
       };
     }
 
+    const billFinancials = buildBillFinancialResponse(visit.bill);
+
     // Transform data for printing
     const billData: {
       visit: any;
@@ -111,6 +114,7 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
         createdAt: visit.createdAt,
         billedAt: visit.bill?.billedAt || visit.bill?.createdAt || null,
         totalAmount: visit.totalAmountInPaise / 100,
+        ...billFinancials,
         visitType: visit.clinicVisit?.visitType,
         isRevisit: visit.clinicVisit?.isRevisit ?? false,
         originalVisitBillNumber: originalVisitSummary?.billNumber || null,

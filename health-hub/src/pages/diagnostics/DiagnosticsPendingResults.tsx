@@ -10,7 +10,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { toast } from 'sonner';
 import { Clock, Search, Loader2 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+
+type PaymentType = 'CASH' | 'ONLINE' | 'CHEQUE';
 
 const matchesDateFilter = (filter: string, value: string) => {
   if (filter === 'all') return true;
@@ -48,6 +58,16 @@ const DiagnosticsPendingResults = () => {
   const [search, setSearch] = useState('');
   const [pendingVisits, setPendingVisits] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dueVisit, setDueVisit] = useState<any | null>(null);
+  const [collectAmount, setCollectAmount] = useState('');
+  const [collectPaymentType, setCollectPaymentType] = useState<PaymentType>('CASH');
+  const [collectingDue, setCollectingDue] = useState(false);
+
+  const formatMoneyFromPaise = (amountInPaise?: number | null) =>
+    `₹${((amountInPaise ?? 0) / 100).toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
 
   // Fetch pending visits from API (DRAFT and WAITING status)
   useEffect(() => {
@@ -124,6 +144,68 @@ const DiagnosticsPendingResults = () => {
 
   const handleAction = (visit: any) => {
     navigate(`/diagnostics/results/${visit.id}`);
+  };
+
+  const openCollectDue = (visit: any) => {
+    setDueVisit(visit);
+    setCollectAmount(visit.dueAmountInPaise ? String(visit.dueAmountInPaise / 100) : '');
+    setCollectPaymentType(visit.paymentType || 'CASH');
+  };
+
+  const handleCollectDue = async () => {
+    if (!dueVisit) return;
+
+    const amount = Number(collectAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error('Enter a valid collection amount');
+      return;
+    }
+
+    setCollectingDue(true);
+    try {
+      const response = await fetch(`${API_BASE}/visits/diagnostic/${dueVisit.id}/collect-due`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-Branch-Id': activeBranchId,
+        },
+        body: JSON.stringify({
+          amount,
+          paymentType: collectPaymentType,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to collect due');
+      }
+
+      setPendingVisits((prev) =>
+        prev.map((visit) =>
+          visit.id === dueVisit.id
+            ? {
+                ...visit,
+                paymentType: data.paymentType,
+                paymentStatus: data.paymentStatus,
+                discountType: data.discountType,
+                discountPercentage: data.discountPercentage,
+                discountAmountInPaise: data.discountAmountInPaise,
+                paidAmountInPaise: data.paidAmountInPaise,
+                netAmountInPaise: data.netAmountInPaise,
+                dueAmountInPaise: data.dueAmountInPaise,
+              }
+            : visit
+        )
+      );
+      toast.success('Due payment collected');
+      setDueVisit(null);
+      setCollectAmount('');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to collect due');
+    } finally {
+      setCollectingDue(false);
+    }
   };
 
   if (loading) {
@@ -218,18 +300,105 @@ const DiagnosticsPendingResults = () => {
                         {visit.hasBillOnlyOrders && visit.hasReportableOrders && (
                           <span className="text-amber-700">Includes bill-only items</span>
                         )}
+                        {(visit.dueAmountInPaise ?? 0) > 0 && (
+                          <span className="font-medium text-amber-700">
+                            Due: {formatMoneyFromPaise(visit.dueAmountInPaise)}
+                          </span>
+                        )}
                       </div>
                       <StatusBadge status={visit.status} />
                     </div>
-                    <Button className="w-full sm:w-auto" onClick={() => handleAction(visit)}>
-                      Enter Results
-                    </Button>
+                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                      {(visit.dueAmountInPaise ?? 0) > 0 && (
+                        <Button
+                          className="w-full sm:w-auto"
+                          variant="outline"
+                          onClick={() => openCollectDue(visit)}
+                        >
+                          Collect Due
+                        </Button>
+                      )}
+                      <Button className="w-full sm:w-auto" onClick={() => handleAction(visit)}>
+                        Enter Results
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>
             )}
           </CardContent>
         </Card>
+
+        <Dialog open={Boolean(dueVisit)} onOpenChange={(open) => !open && setDueVisit(null)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Collect Due</DialogTitle>
+            </DialogHeader>
+            {dueVisit && (
+              <div className="space-y-4">
+                <div className="rounded-lg border bg-muted/30 p-3 text-sm space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Subtotal</span>
+                    <span>{formatMoneyFromPaise(Math.round((dueVisit.totalAmount ?? 0) * 100))}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Discount</span>
+                    <span>-{formatMoneyFromPaise(dueVisit.discountAmountInPaise)}</span>
+                  </div>
+                  <div className="flex justify-between font-medium">
+                    <span>Net</span>
+                    <span>{formatMoneyFromPaise(dueVisit.netAmountInPaise)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Already Paid</span>
+                    <span>{formatMoneyFromPaise(dueVisit.paidAmountInPaise)}</span>
+                  </div>
+                  <div className="flex justify-between font-semibold text-amber-700">
+                    <span>Due</span>
+                    <span>{formatMoneyFromPaise(dueVisit.dueAmountInPaise)}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Collect Now (₹)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={(dueVisit.dueAmountInPaise ?? 0) / 100}
+                    step="1"
+                    value={collectAmount}
+                    onChange={(e) => setCollectAmount(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Payment Type</Label>
+                  <Select
+                    value={collectPaymentType}
+                    onValueChange={(value) => setCollectPaymentType(value as PaymentType)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="CASH">Cash</SelectItem>
+                      <SelectItem value="ONLINE">Online</SelectItem>
+                      <SelectItem value="CHEQUE">Cheque</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDueVisit(null)}>
+                Cancel
+              </Button>
+              <Button onClick={handleCollectDue} disabled={collectingDue}>
+                {collectingDue ? 'Collecting...' : 'Collect Payment'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppLayout>
   );

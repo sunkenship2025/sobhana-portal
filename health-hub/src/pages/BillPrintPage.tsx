@@ -18,6 +18,12 @@ interface ApiBillData {
     status: string;
     createdAt: string;
     totalAmount: number;
+    discountType?: 'FLAT_AMOUNT' | 'PERCENTAGE' | null;
+    discountPercentage?: number | null;
+    discountAmountInPaise?: number;
+    paidAmountInPaise?: number;
+    netAmountInPaise?: number;
+    dueAmountInPaise?: number;
     visitType?: string;
     isRevisit?: boolean;
     originalVisitBillNumber?: string | null;
@@ -83,6 +89,12 @@ function toBillReceiptData(api: ApiBillData): BillReceiptData {
     paymentType: api.payment.type,
     paymentStatus: api.payment.status,
     totalAmount: api.visit.totalAmount,
+    discountType: api.visit.discountType,
+    discountPercentage: api.visit.discountPercentage,
+    discountAmountInPaise: api.visit.discountAmountInPaise,
+    paidAmountInPaise: api.visit.paidAmountInPaise,
+    netAmountInPaise: api.visit.netAmountInPaise,
+    dueAmountInPaise: api.visit.dueAmountInPaise,
     items: api.items.map((item) => ({
       id: item.id,
       name: item.name,

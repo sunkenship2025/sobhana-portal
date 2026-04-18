@@ -41,6 +41,26 @@ export const BillReceipt = ({ data, asPage = false, onLogoLoadedChange }: BillRe
       : visitTypeService
     : undefined;
   const hasBill = data.hasBill !== false;
+  const subtotalAmount = data.totalAmount ?? 0;
+  const discountAmount = (data.discountAmountInPaise ?? 0) / 100;
+  const netAmount =
+    data.netAmountInPaise !== undefined
+      ? data.netAmountInPaise / 100
+      : Math.max(0, subtotalAmount - discountAmount);
+  const paidAmount =
+    data.paidAmountInPaise !== undefined
+      ? data.paidAmountInPaise / 100
+      : data.paymentStatus === 'PAID'
+        ? netAmount
+        : 0;
+  const dueAmount =
+    data.dueAmountInPaise !== undefined
+      ? data.dueAmountInPaise / 100
+      : Math.max(0, netAmount - paidAmount);
+  const discountLabel =
+    data.discountType === 'PERCENTAGE' && data.discountPercentage != null
+      ? `DISCOUNT (${data.discountPercentage}%)`
+      : 'DISCOUNT';
   const documentNumberLabel = hasBill ? 'Bill No' : 'Visit Ref';
   const documentNumberValue = hasBill
     ? data.billNumber || data.visitRef || '—'
@@ -199,8 +219,28 @@ export const BillReceipt = ({ data, asPage = false, onLogoLoadedChange }: BillRe
             ))}
             <tr>
               <td className="border-r border-black px-3 py-3"></td>
-              <td className="border-r border-black px-3 py-3 text-right font-bold">TOTAL</td>
-              <td className="px-3 py-3 text-right font-bold">₹{data.totalAmount.toFixed(2)}</td>
+              <td className="border-r border-black px-3 py-3 text-right font-bold">SUBTOTAL</td>
+              <td className="px-3 py-3 text-right font-bold">₹{subtotalAmount.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <td className="border-r border-black px-3 py-2"></td>
+              <td className="border-r border-black px-3 py-2 text-right">{discountLabel}</td>
+              <td className="px-3 py-2 text-right">-₹{discountAmount.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <td className="border-r border-black px-3 py-2"></td>
+              <td className="border-r border-black px-3 py-2 text-right font-bold">NET PAYABLE</td>
+              <td className="px-3 py-2 text-right font-bold">₹{netAmount.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <td className="border-r border-black px-3 py-2"></td>
+              <td className="border-r border-black px-3 py-2 text-right">PAID</td>
+              <td className="px-3 py-2 text-right">₹{paidAmount.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <td className="border-r border-black px-3 py-2"></td>
+              <td className="border-r border-black px-3 py-2 text-right font-bold">DUE</td>
+              <td className="px-3 py-2 text-right font-bold">₹{dueAmount.toFixed(2)}</td>
             </tr>
           </tbody>
         </table>
