@@ -118,6 +118,7 @@ async function quickCreateBillOnlyProduct() {
     method: 'POST',
     body: JSON.stringify({
       name: 'Quick Bill Only Test',
+      code: 'QKTST123',
       basePrice: 125,
       description: 'Quick inline product for diagnostics flow test',
     }),
