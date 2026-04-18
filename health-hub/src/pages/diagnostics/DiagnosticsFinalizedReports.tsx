@@ -84,6 +84,7 @@ const DiagnosticsFinalizedReports = () => {
   // Build view data from API response
   const visitsWithDetails = useMemo(() => {
     return finalizedVisits
+      .filter((visit) => visit.hasFinalizedReport)
       .filter((visit) => visit.branchId === activeBranchId) // Branch-scoped
       .map((visit) => ({
         visit,
@@ -127,7 +128,7 @@ const DiagnosticsFinalizedReports = () => {
       });
       const data = await response.json();
       if (response.ok && data.success) {
-        toast.success('Report notification sent via WhatsApp');
+        toast.success('Completion notification sent via WhatsApp');
       } else {
         toast.error(data.error || 'Failed to send WhatsApp notification');
       }

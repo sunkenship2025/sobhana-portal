@@ -44,6 +44,10 @@ interface Visit {
   id: string;
   billNumber: string;
   status: string;
+  hasReportableOrders?: boolean;
+  hasBillOnlyOrders?: boolean;
+  hasFinalizedReport?: boolean;
+  nextAction?: 'ENTER_RESULTS' | 'CONFIRM_READY' | 'NONE';
   createdAt: string;
   patient: {
     name: string;
@@ -184,6 +188,11 @@ const DiagnosticsReportPreview = () => {
 
         if (visitResponse.ok) {
           const data = await visitResponse.json();
+          if (data.nextAction === 'CONFIRM_READY' || data.hasReportableOrders === false) {
+            toast.error('This visit is bill-only and does not have a report preview.');
+            navigate(`/diagnostics/confirm-ready/${visitId}`);
+            return;
+          }
           setVisit(data);
         } else {
           setVisit(null);
@@ -279,7 +288,7 @@ const DiagnosticsReportPreview = () => {
   const hasAbnormalValues = snapshotTests.length > 0
     ? snapshotTests.some((result) => isAbnormalFlag(result.flag))
     : results.some((r) => r.flag === 'HIGH' || r.flag === 'LOW');
-  const isFinalized = visit.status === 'COMPLETED';
+  const isFinalized = visit.hasFinalizedReport === true;
 
   const handleFinalize = async () => {
     setFinalizing(true);
@@ -315,7 +324,7 @@ const DiagnosticsReportPreview = () => {
         // Just inform the staff
         const phone = patient.identifiers?.find(id => id.type === 'PHONE')?.value;
         if (phone) {
-          toast.success('Report finalized — WhatsApp notification will be sent automatically');
+          toast.success('Report finalized — collection link will be sent automatically');
         }
       } else {
         const errorData = await response.json();
@@ -358,7 +367,7 @@ const DiagnosticsReportPreview = () => {
       });
       const data = await response.json();
       if (response.ok && data.success) {
-        toast.success('Report notification sent via WhatsApp');
+        toast.success('Completion notification sent via WhatsApp');
       } else {
         toast.error(data.error || 'Failed to send WhatsApp notification');
       }

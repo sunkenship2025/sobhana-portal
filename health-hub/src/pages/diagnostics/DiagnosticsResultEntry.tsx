@@ -57,6 +57,7 @@ interface TestOrder {
   id: string;
   testId: string;
   testDefinitionId?: string;
+  workflowMode?: 'REPORTABLE' | 'BILL_ONLY';
   testName: string;
   testCode: string;
   price: number;
@@ -85,6 +86,8 @@ interface Visit {
   id: string;
   billNumber: string;
   status: string;
+  hasReportableOrders?: boolean;
+  nextAction?: 'ENTER_RESULTS' | 'CONFIRM_READY' | 'NONE';
   patient: {
     name: string;
     yearOfBirth?: number;
@@ -340,6 +343,13 @@ const DiagnosticsResultEntry = () => {
 
         if (response.ok) {
           const data = await response.json();
+          if (data.nextAction === 'CONFIRM_READY' || data.hasReportableOrders === false) {
+            toast.error('This visit is bill-only and does not use result entry.');
+            navigate(`/diagnostics/confirm-ready/${visitId}`);
+            return;
+          }
+
+          data.testOrders = data.testOrders.filter((order: TestOrder) => order.workflowMode !== 'BILL_ONLY');
           const panelExpansion: Record<string, boolean> = {};
           const fetchedTextLayoutByTestId = new Map<string, string>();
           const fetchedNarrativeTemplateByTestId = new Map<string, string>();

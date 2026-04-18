@@ -1,4 +1,4 @@
-import { PayoutDoctorType, PaymentType } from '@prisma/client';
+import { DiagnosticWorkflowMode, PayoutDoctorType, PaymentType, Prisma, ReportStatus } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { computeCommissionInPaise, computeReferralPayoutInPaise } from './referralPayoutService';
 
@@ -53,6 +53,59 @@ export interface PayoutDetail extends PayoutSummary {
   notes: string | null;
   reviewedAt: Date | null;
   lineItems: PayoutLineItem[];
+}
+
+function buildDateWindow(startDate?: Date, endDate?: Date) {
+  return {
+    ...(startDate && { gte: startDate }),
+    ...(endDate && { lte: endDate }),
+  };
+}
+
+function buildDiagnosticPayoutVisitWindow(startDate: Date, endDate: Date): Prisma.VisitWhereInput {
+  return {
+    OR: [
+      {
+        report: {
+          is: {
+            versions: {
+              some: {
+                status: ReportStatus.FINALIZED,
+                finalizedAt: buildDateWindow(startDate, endDate),
+              },
+            },
+          },
+        },
+      },
+      {
+        status: 'COMPLETED',
+        updatedAt: buildDateWindow(startDate, endDate),
+        testOrders: {
+          some: {
+            workflowMode: DiagnosticWorkflowMode.BILL_ONLY,
+          },
+        },
+        OR: [
+          {
+            report: {
+              is: null,
+            },
+          },
+          {
+            report: {
+              is: {
+                versions: {
+                  none: {
+                    status: ReportStatus.FINALIZED,
+                  },
+                },
+              },
+            },
+          },
+        ],
+      },
+    ],
+  };
 }
 
 function markCommissionAsMixed(lineItem: PayoutLineItem) {
@@ -149,7 +202,9 @@ async function deriveReferralPayout(
     throw new Error('Referral doctor not found');
   }
 
-  // Get all visits with finalized reports in the period
+  // Get all visits completed in the period.
+  // Reportable and mixed visits qualify by report finalization date.
+  // Pure bill-only visits qualify by the completion-time proxy on Visit.updatedAt.
   const visits = await prisma.visit.findMany({
     where: {
       branchId,
@@ -157,17 +212,7 @@ async function deriveReferralPayout(
       referrals: {
         some: { referralDoctorId },
       },
-      report: {
-        versions: {
-          some: {
-            status: 'FINALIZED',
-            finalizedAt: {
-              gte: periodStartDate,
-              lte: periodEndDate,
-            },
-          },
-        },
-      },
+      ...buildDiagnosticPayoutVisitWindow(periodStartDate, periodEndDate),
     },
     include: {
       patient: { select: { name: true } },
@@ -204,7 +249,7 @@ async function deriveReferralPayout(
         productId: testOrder.productId,
         billNumber: visit.billNumber,
         patientName: visit.patient.name,
-        date: finalizedAt || visit.createdAt,
+        date: finalizedAt || visit.updatedAt || visit.createdAt,
         testOrFee:
           testOrder.product?.name ||
           testOrder.testNameSnapshot ||
@@ -358,24 +403,14 @@ async function deriveDiagnosticCenterPayout(
     throw new Error('Diagnostic center not found');
   }
 
-  // Get visits linked to this center with finalized reports
+  // Get visits linked to this center and completed in the period.
   const centerVisits = await prisma.diagnosticCenter_Visit.findMany({
     where: {
       diagnosticCenterId,
       branchId,
       visit: {
         domain: 'DIAGNOSTICS',
-        report: {
-          versions: {
-            some: {
-              status: 'FINALIZED',
-              finalizedAt: {
-                gte: periodStartDate,
-                lte: periodEndDate,
-              },
-            },
-          },
-        },
+        ...buildDiagnosticPayoutVisitWindow(periodStartDate, periodEndDate),
       },
     },
     include: {
@@ -426,7 +461,7 @@ async function deriveDiagnosticCenterPayout(
         productId: testOrder.productId,
         billNumber: visit.billNumber,
         patientName: visit.patient.name,
-        date: finalizedAt || visit.createdAt,
+        date: finalizedAt || visit.updatedAt || visit.createdAt,
         testOrFee:
           testOrder.product?.name ||
           testOrder.testNameSnapshot ||
@@ -571,16 +606,6 @@ async function syncReferralPayoutsForBranch(
 ) {
   if (filters?.doctorType && filters.doctorType !== 'REFERRAL') return;
 
-  const finalizedAtFilter =
-    filters?.startDate || filters?.endDate
-      ? {
-          finalizedAt: {
-            ...(filters.startDate && { gte: filters.startDate }),
-            ...(filters.endDate && { lte: filters.endDate }),
-          },
-        }
-      : {};
-
   const visits = await prisma.visit.findMany({
     where: {
       branchId,
@@ -590,16 +615,13 @@ async function syncReferralPayoutsForBranch(
           ? { referralDoctorId: filters.doctorId }
           : {},
       },
-      report: {
-        versions: {
-          some: {
-            status: 'FINALIZED',
-            ...finalizedAtFilter,
-          },
-        },
-      },
+      ...buildDiagnosticPayoutVisitWindow(
+        filters?.startDate ?? new Date(0),
+        filters?.endDate ?? new Date('9999-12-31T23:59:59.999Z')
+      ),
     },
     select: {
+      updatedAt: true,
       referrals: {
         select: {
           referralDoctorId: true,
@@ -610,7 +632,6 @@ async function syncReferralPayoutsForBranch(
           versions: {
             where: {
               status: 'FINALIZED',
-              ...finalizedAtFilter,
             },
             orderBy: {
               versionNum: 'desc',
@@ -632,7 +653,7 @@ async function syncReferralPayoutsForBranch(
 
   for (const visit of visits) {
     const referralDoctorId = visit.referrals[0]?.referralDoctorId;
-    const finalizedAt = visit.report?.versions[0]?.finalizedAt;
+    const finalizedAt = visit.report?.versions[0]?.finalizedAt || visit.updatedAt;
 
     if (!referralDoctorId || !finalizedAt) {
       continue;
@@ -669,42 +690,28 @@ async function syncDiagnosticCenterPayoutsForBranch(
 ) {
   if (filters?.doctorType && filters.doctorType !== 'DIAGNOSTIC_CENTER') return;
 
-  const finalizedAtFilter =
-    filters?.startDate || filters?.endDate
-      ? {
-          finalizedAt: {
-            ...(filters.startDate && { gte: filters.startDate }),
-            ...(filters.endDate && { lte: filters.endDate }),
-          },
-        }
-      : {};
-
   const centerVisits = await prisma.diagnosticCenter_Visit.findMany({
     where: {
       branchId,
       ...(filters?.doctorId && { diagnosticCenterId: filters.doctorId }),
       visit: {
         domain: 'DIAGNOSTICS',
-        report: {
-          versions: {
-            some: {
-              status: 'FINALIZED',
-              ...finalizedAtFilter,
-            },
-          },
-        },
+        ...buildDiagnosticPayoutVisitWindow(
+          filters?.startDate ?? new Date(0),
+          filters?.endDate ?? new Date('9999-12-31T23:59:59.999Z')
+        ),
       },
     },
     select: {
       diagnosticCenterId: true,
       visit: {
         select: {
+          updatedAt: true,
           report: {
             select: {
               versions: {
                 where: {
                   status: 'FINALIZED',
-                  ...finalizedAtFilter,
                 },
                 orderBy: {
                   versionNum: 'desc',
@@ -727,7 +734,7 @@ async function syncDiagnosticCenterPayoutsForBranch(
   >();
 
   for (const centerVisit of centerVisits) {
-    const finalizedAt = centerVisit.visit.report?.versions[0]?.finalizedAt;
+    const finalizedAt = centerVisit.visit.report?.versions[0]?.finalizedAt || centerVisit.visit.updatedAt;
 
     if (!centerVisit.diagnosticCenterId || !finalizedAt) {
       continue;

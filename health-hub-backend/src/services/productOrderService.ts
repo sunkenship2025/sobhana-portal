@@ -8,13 +8,15 @@
  *       → LabTest (by code match) + branch pricing override lookup
  */
 
+import { DiagnosticWorkflowMode } from '@prisma/client';
 import prisma from '../lib/prisma';
+import { ensureBillOnlyPlaceholderLabTest } from './diagnosticWorkflowService';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface ResolvedTestOrder {
   labTestId: string;
-  testDefinitionId: string;
+  testDefinitionId?: string;
   testName: string;
   testCode: string;
   referenceMin: number | null;
@@ -22,6 +24,7 @@ export interface ResolvedTestOrder {
   referenceUnit: string | null;
   priceInPaise: number;             // Allocated portion of product price
   productId: string;
+  workflowMode: DiagnosticWorkflowMode;
   priceSource: 'BASE' | 'BRANCH_OVERRIDE';
 }
 
@@ -29,6 +32,7 @@ export interface ResolvedProduct {
   productId: string;
   productName: string;
   productCode: string;
+  workflowMode: DiagnosticWorkflowMode;
   effectivePrice: number;           // Total product price in paise
   priceSource: 'BASE' | 'BRANCH_OVERRIDE';
   testOrders: ResolvedTestOrder[];
@@ -91,6 +95,10 @@ export async function resolveProducts(
 
   const invalidPanels: string[] = [];
   for (const product of products) {
+    if (product.workflowMode === DiagnosticWorkflowMode.BILL_ONLY) {
+      continue;
+    }
+
     for (const productPanel of product.panels) {
       const panel = productPanel.panel;
       const itemCount = panel.items.length;
@@ -115,6 +123,10 @@ export async function resolveProducts(
   // Collect all unique TestDefinition codes across all panels to batch-fetch LabTests
   const allCodes = new Set<string>();
   for (const product of products) {
+    if (product.workflowMode === DiagnosticWorkflowMode.BILL_ONLY) {
+      continue;
+    }
+
     for (const pp of product.panels) {
       for (const item of pp.panel.items) {
         allCodes.add(item.testDefinition.code);
@@ -123,17 +135,19 @@ export async function resolveProducts(
   }
 
   // Batch lookup: code → LabTest
-  const labTests = await prisma.labTest.findMany({
-    where: { code: { in: Array.from(allCodes) } },
-    select: {
-      id: true,
-      name: true,
-      code: true,
-      referenceMin: true,
-      referenceMax: true,
-      referenceUnit: true,
-    },
-  });
+  const labTests = allCodes.size > 0
+    ? await prisma.labTest.findMany({
+        where: { code: { in: Array.from(allCodes) } },
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          referenceMin: true,
+          referenceMax: true,
+          referenceUnit: true,
+        },
+      })
+    : [];
 
   const labTestByCode = new Map(labTests.map((lt) => [lt.code, lt]));
 
@@ -200,6 +214,34 @@ export async function resolveProducts(
       ? 'BRANCH_OVERRIDE'
       : 'BASE';
 
+    if (product.workflowMode === DiagnosticWorkflowMode.BILL_ONLY) {
+      const placeholder = await ensureBillOnlyPlaceholderLabTest();
+
+      resolved.push({
+        productId: product.id,
+        productName: product.name,
+        productCode: product.code,
+        workflowMode: DiagnosticWorkflowMode.BILL_ONLY,
+        effectivePrice,
+        priceSource,
+        testOrders: [
+          {
+            labTestId: placeholder.id,
+            testName: product.name,
+            testCode: product.code,
+            referenceMin: null,
+            referenceMax: null,
+            referenceUnit: null,
+            priceInPaise: effectivePrice,
+            productId: product.id,
+            workflowMode: DiagnosticWorkflowMode.BILL_ONLY,
+            priceSource,
+          },
+        ],
+      });
+      continue;
+    }
+
     // Flatten all panel items into test orders
     const allItems: Array<{ testDefinition: any }> = [];
     for (const pp of product.panels) {
@@ -225,6 +267,7 @@ export async function resolveProducts(
         referenceUnit: labTest.referenceUnit,
         priceInPaise: effectivePrice,
         productId: product.id,
+        workflowMode: DiagnosticWorkflowMode.REPORTABLE,
         priceSource,
       });
     } else if (testCount > 1) {
@@ -245,6 +288,7 @@ export async function resolveProducts(
           referenceUnit: labTest.referenceUnit,
           priceInPaise: i === 0 ? perTestPrice + remainder : perTestPrice,
           productId: product.id,
+          workflowMode: DiagnosticWorkflowMode.REPORTABLE,
           priceSource,
         });
       }
@@ -254,6 +298,7 @@ export async function resolveProducts(
       productId: product.id,
       productName: product.name,
       productCode: product.code,
+      workflowMode: DiagnosticWorkflowMode.REPORTABLE,
       effectivePrice,
       priceSource,
       testOrders,
