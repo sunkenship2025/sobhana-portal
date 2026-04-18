@@ -151,6 +151,7 @@ router.post('/quick-create-bill-only', async (req: AuthRequest, res) => {
   try {
     const {
       name,
+      code,
       description,
       basePriceInPaise: rawPriceInPaise,
       basePrice,
@@ -160,17 +161,17 @@ router.post('/quick-create-bill-only', async (req: AuthRequest, res) => {
     const resolvedPriceInPaise =
       rawPriceInPaise ?? (basePrice != null ? Math.round(basePrice * 100) : undefined);
 
-    if (!name || resolvedPriceInPaise === undefined) {
+    if (!name || !code || resolvedPriceInPaise === undefined) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'name and basePriceInPaise (or basePrice) are required',
+        message: 'name, code, and basePriceInPaise (or basePrice) are required',
       });
     }
 
     const product = await prisma.billableProduct.create({
       data: {
         name: String(name).trim(),
-        code: await generateQuickBillOnlyCode(),
+        code: String(code).trim().toUpperCase(),
         description: description ?? null,
         basePriceInPaise: resolvedPriceInPaise,
         isBundle: false,
