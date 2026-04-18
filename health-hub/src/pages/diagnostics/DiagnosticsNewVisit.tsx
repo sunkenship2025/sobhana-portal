@@ -95,12 +95,17 @@ const DiagnosticsNewVisit = () => {
   // Quick-add dialogs
   const [showAddDoctorDialog, setShowAddDoctorDialog] = useState(false);
   const [showAddCenterDialog, setShowAddCenterDialog] = useState(false);
+  const [showAddProductDialog, setShowAddProductDialog] = useState(false);
   const [newDoctorName, setNewDoctorName] = useState('');
   const [newDoctorPhone, setNewDoctorPhone] = useState('');
   const [newCenterName, setNewCenterName] = useState('');
   const [newCenterPhone, setNewCenterPhone] = useState('');
+  const [newProductName, setNewProductName] = useState('');
+  const [newProductPrice, setNewProductPrice] = useState('');
+  const [newProductDescription, setNewProductDescription] = useState('');
   const [isCreatingDoctor, setIsCreatingDoctor] = useState(false);
   const [isCreatingCenter, setIsCreatingCenter] = useState(false);
+  const [isCreatingProduct, setIsCreatingProduct] = useState(false);
   const [doctorExistingMatch, setDoctorExistingMatch] = useState<any>(null);
   const [doctorLinkedId, setDoctorLinkedId] = useState<string | null>(null);
 
@@ -259,6 +264,75 @@ const DiagnosticsNewVisit = () => {
     } finally {
       setIsCreatingCenter(false);
     }
+  };
+
+  const handleCreateProduct = async () => {
+    if (!newProductName.trim() || !newProductPrice || !token || !activeBranch) return;
+
+    setIsCreatingProduct(true);
+    try {
+      const res = await fetch(`${API_BASE}/billable-products/quick-create-bill-only`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'X-Branch-Id': activeBranch.id,
+        },
+        body: JSON.stringify({
+          name: newProductName.trim(),
+          basePrice: parseFloat(newProductPrice),
+          description: newProductDescription.trim() || null,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || 'Failed to create product');
+      }
+
+      const product = await res.json();
+      setProducts((prev) => [...prev, product]);
+      setSelectedProducts((prev) => [...prev, product.id]);
+      setReferralOverrides((prev) => {
+        if (!selectedDoctor) {
+          return prev;
+        }
+
+        return buildOverridesForProducts(
+          [...selectedProducts, product.id],
+          (productId) => getEffectiveDoctorPayout(selectedDoctor, productId),
+          prev
+        );
+      });
+      setDiagnosticCenterOverrides((prev) => {
+        if (!selectedCenter) {
+          return prev;
+        }
+
+        return buildOverridesForProducts(
+          [...selectedProducts, product.id],
+          (productId) => getEffectiveDiagnosticCenterPayout(selectedCenter, productId),
+          prev
+        );
+      });
+      setShowAddProductDialog(false);
+      setNewProductName('');
+      setNewProductPrice('');
+      setNewProductDescription('');
+      toast.success(`Added bill-only product ${product.name}`);
+    } catch (error: any) {
+      console.error('Create product failed:', error);
+      toast.error(error.message || 'Failed to create bill-only product');
+    } finally {
+      setIsCreatingProduct(false);
+    }
+  };
+
+  const openQuickAddProductDialog = (draftName: string = '') => {
+    setNewProductName(draftName.trim());
+    setNewProductPrice('');
+    setNewProductDescription('');
+    setShowAddProductDialog(true);
   };
 
   // Search patients via API
@@ -553,6 +627,7 @@ const DiagnosticsNewVisit = () => {
           id: `${visit.id}-to-${index}`,
           visitId: visit.id,
           productId: product.id,
+          workflowMode: product.workflowMode,
           testName: product.name,
           testCode: product.code,
           priceInPaise: Math.round(product.effectivePrice * 100),
@@ -577,6 +652,11 @@ const DiagnosticsNewVisit = () => {
           totalAmountInPaise,
           paymentType,
           paymentStatus: 'PAID',
+          hasBill: visit.hasBill ?? true,
+          hasReportableOrders: visit.hasReportableOrders,
+          hasBillOnlyOrders: visit.hasBillOnlyOrders,
+          hasFinalizedReport: visit.hasFinalizedReport,
+          nextAction: visit.nextAction,
           status: visit.status,
           createdAt: new Date(visit.createdAt),
           updatedAt: new Date(visit.createdAt),
@@ -648,7 +728,11 @@ const DiagnosticsNewVisit = () => {
                   </div>
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-muted-foreground">Visit Status:</span>
-                    <StatusBadge status="RESULTS_PENDING" />
+                    <span className="text-sm font-medium">
+                      {successData.visitView.visit.nextAction === 'CONFIRM_READY'
+                        ? 'Waiting for report-ready confirmation'
+                        : 'Waiting for results entry'}
+                    </span>
                   </div>
                   {successData.visitView.referralDoctor && (
                     <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
@@ -674,7 +758,6 @@ const DiagnosticsNewVisit = () => {
                     setReferralOverrides({});
                     setDiagnosticCenterOverrides({});
                     setSelectedCenterId('');
-                    setReferralType('SELF');
                     setNewPatient({ name: '', age: '', ageUnit: 'YEARS', dateOfBirth: '', gender: 'M', whatsappOptIn: false }); // E2-09: Reset form
                     setValidationErrors({});
                   }}>
@@ -954,6 +1037,7 @@ const DiagnosticsNewVisit = () => {
               <ProductSelector
                 products={products}
                 selectedProductIds={selectedProducts}
+                onQuickAddBillOnly={openQuickAddProductDialog}
                 onSelectionChange={(productIds) => {
                   setSelectedProducts(productIds);
                   setReferralOverrides((prev) => {
@@ -1372,6 +1456,61 @@ const DiagnosticsNewVisit = () => {
           </Card>
         )}
       </div>
+
+      {/* Quick-add Bill-Only Product Dialog */}
+      <Dialog open={showAddProductDialog} onOpenChange={setShowAddProductDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Quick Add Bill-Only Item</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="newProductName">Name *</Label>
+              <Input
+                id="newProductName"
+                value={newProductName}
+                onChange={(e) => setNewProductName(e.target.value)}
+                placeholder="Example: ECG Review / Dressing / External Charge"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="newProductPrice">Price (₹) *</Label>
+              <Input
+                id="newProductPrice"
+                type="number"
+                min="0"
+                step="0.01"
+                value={newProductPrice}
+                onChange={(e) => setNewProductPrice(e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="newProductDescription">Description (optional)</Label>
+              <Input
+                id="newProductDescription"
+                value={newProductDescription}
+                onChange={(e) => setNewProductDescription(e.target.value)}
+                placeholder="Optional note for staff"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              This creates a reusable bill-only diagnostics product with a server-generated code and adds it to the current visit.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddProductDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateProduct}
+              disabled={!newProductName.trim() || !newProductPrice || isCreatingProduct}
+            >
+              {isCreatingProduct ? 'Adding...' : 'Add Item'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Quick-add Doctor Dialog */}
       <Dialog open={showAddDoctorDialog} onOpenChange={setShowAddDoctorDialog}>

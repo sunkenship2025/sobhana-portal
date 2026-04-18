@@ -14,6 +14,7 @@
  */
 
 import { Router } from 'express';
+import { DiagnosticWorkflowMode } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import prisma from '../lib/prisma';
@@ -34,7 +35,27 @@ function transformProduct(product: any) {
     basePrice: (product.basePriceInPaise ?? 0) / 100,
     panelCount: product.panels?.length ?? product._count?.panels ?? 0,
     hasBranchPricing: (product._count?.branchPricing ?? 0) > 0,
+    workflowMode: product.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE,
   };
+}
+
+async function generateQuickBillOnlyCode(): Promise<string> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const candidate = `BO_${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`
+      .replace(/[^A-Z0-9_]/g, '')
+      .slice(0, 20);
+
+    const existing = await prisma.billableProduct.findUnique({
+      where: { code: candidate },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      return candidate;
+    }
+  }
+
+  throw new Error('Failed to generate a unique product code');
 }
 
 // ─── GET /check-code — Real-time code uniqueness check ───────────────
@@ -58,7 +79,7 @@ router.get('/check-code', async (req: AuthRequest, res) => {
 // ─── GET / — List products ───────────────────────────────────────────
 router.get('/', async (req: AuthRequest, res) => {
   try {
-    const { search, active, isBundle } = req.query;
+    const { search, active, isBundle, workflowMode } = req.query;
     const branchId = (req as any).branchId;
 
     const where: any = {};
@@ -80,6 +101,10 @@ router.get('/', async (req: AuthRequest, res) => {
 
     if (isBundle !== undefined) {
       where.isBundle = isBundle === 'true';
+    }
+
+    if (workflowMode && typeof workflowMode === 'string') {
+      where.workflowMode = workflowMode;
     }
 
     const products = await prisma.billableProduct.findMany({
@@ -110,6 +135,49 @@ router.get('/', async (req: AuthRequest, res) => {
   } catch (error: any) {
     console.error('Error listing billable products:', error);
     return res.status(500).json({ error: 'FETCH_FAILED', message: error.message });
+  }
+});
+
+// ─── POST /quick-create-bill-only — Fast inline creation for visit entry ───
+router.post('/quick-create-bill-only', async (req: AuthRequest, res) => {
+  try {
+    const {
+      name,
+      description,
+      basePriceInPaise: rawPriceInPaise,
+      basePrice,
+      displayOrder,
+    } = req.body;
+
+    const resolvedPriceInPaise =
+      rawPriceInPaise ?? (basePrice != null ? Math.round(basePrice * 100) : undefined);
+
+    if (!name || resolvedPriceInPaise === undefined) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'name and basePriceInPaise (or basePrice) are required',
+      });
+    }
+
+    const product = await prisma.billableProduct.create({
+      data: {
+        name: String(name).trim(),
+        code: await generateQuickBillOnlyCode(),
+        description: description ?? null,
+        basePriceInPaise: resolvedPriceInPaise,
+        isBundle: false,
+        workflowMode: DiagnosticWorkflowMode.BILL_ONLY,
+        displayOrder: displayOrder ?? 0,
+      },
+      include: {
+        panels: true,
+      },
+    });
+
+    return res.status(201).json(transformProduct(product));
+  } catch (error: any) {
+    console.error('Error quick-creating bill-only product:', error);
+    return res.status(500).json({ error: 'CREATE_FAILED', message: error.message });
   }
 });
 
@@ -170,6 +238,7 @@ router.post('/', async (req: AuthRequest, res) => {
       name, code, description,
       basePriceInPaise: rawPriceInPaise, basePrice,
       isBundle: rawIsBundle, productType,
+      workflowMode,
       displayOrder, panels,
     } = req.body;
 
@@ -177,6 +246,7 @@ router.post('/', async (req: AuthRequest, res) => {
     const resolvedPriceInPaise = rawPriceInPaise ?? (basePrice != null ? Math.round(basePrice * 100) : undefined);
     // Accept either isBundle (boolean) or productType (string)
     const resolvedIsBundle = rawIsBundle ?? (productType === 'PANEL_BUNDLE' || productType === 'CUSTOM_PACKAGE');
+    const resolvedWorkflowMode = workflowMode ?? DiagnosticWorkflowMode.REPORTABLE;
 
     if (!name || !code || resolvedPriceInPaise === undefined) {
       return res.status(400).json({
@@ -193,18 +263,26 @@ router.post('/', async (req: AuthRequest, res) => {
       });
     }
 
-    // Validate panel count based on product type
+    // Validate panel count based on workflow mode and product type
     const resolvedProductType = productType ?? (resolvedIsBundle ? 'PANEL_BUNDLE' : 'INDIVIDUAL_TEST');
-    if (resolvedProductType === 'INDIVIDUAL_TEST' && panels && panels.length > 1) {
+    if (
+      resolvedWorkflowMode === DiagnosticWorkflowMode.REPORTABLE &&
+      resolvedProductType === 'INDIVIDUAL_TEST' &&
+      panels &&
+      panels.length > 1
+    ) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
         message: 'INDIVIDUAL_TEST products can have at most 1 panel',
       });
     }
-    if (resolvedProductType === 'PANEL_BUNDLE' && (!panels || panels.length < 1)) {
+    if (
+      resolvedWorkflowMode === DiagnosticWorkflowMode.REPORTABLE &&
+      (!panels || panels.length < 1)
+    ) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'PANEL_BUNDLE products must have at least 1 panel',
+        message: 'REPORTABLE products must have at least 1 linked panel',
       });
     }
 
@@ -233,6 +311,7 @@ router.post('/', async (req: AuthRequest, res) => {
         description: description ?? null,
         basePriceInPaise: resolvedPriceInPaise,
         isBundle: resolvedIsBundle,
+        workflowMode: resolvedWorkflowMode,
         displayOrder: displayOrder ?? 0,
         panels: panels?.length ? {
           create: panels.map((p: any, idx: number) => ({
@@ -274,6 +353,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
       name, description,
       basePriceInPaise: rawPriceInPaise, basePrice,
       isBundle: rawIsBundle, productType,
+      workflowMode,
       displayOrder, panels,
     } = req.body;
 
@@ -286,20 +366,46 @@ router.put('/:id', async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Product not found' });
     }
 
+    const resolvedWorkflowMode = workflowMode ?? existing.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE;
+
     // Validate panel count based on effective product type
     if (panels !== undefined) {
       const effectiveIsBundle = resolvedIsBundle ?? existing.isBundle;
       const effectiveType = productType ?? (effectiveIsBundle ? 'PANEL_BUNDLE' : 'INDIVIDUAL_TEST');
-      if (effectiveType === 'INDIVIDUAL_TEST' && panels.length > 1) {
+      if (
+        resolvedWorkflowMode === DiagnosticWorkflowMode.REPORTABLE &&
+        effectiveType === 'INDIVIDUAL_TEST' &&
+        panels.length > 1
+      ) {
         return res.status(400).json({
           error: 'VALIDATION_ERROR',
           message: 'INDIVIDUAL_TEST products can have at most 1 panel',
         });
       }
-      if (effectiveType === 'PANEL_BUNDLE' && panels.length < 1) {
+      if (
+        resolvedWorkflowMode === DiagnosticWorkflowMode.REPORTABLE &&
+        panels.length < 1
+      ) {
         return res.status(400).json({
           error: 'VALIDATION_ERROR',
-          message: 'PANEL_BUNDLE products must have at least 1 panel',
+          message: 'REPORTABLE products must have at least 1 linked panel',
+        });
+      }
+    }
+
+    if (panels?.length) {
+      const panelIds = panels.map((p: any) => p.panelId);
+      const found = await prisma.clinicalPanel.findMany({
+        where: { id: { in: panelIds } },
+        select: { id: true },
+      });
+
+      const foundIds = new Set(found.map((p: any) => p.id));
+      const missing = panelIds.filter((panelId: string) => !foundIds.has(panelId));
+      if (missing.length > 0) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: `Clinical panels not found: ${missing.join(', ')}`,
         });
       }
     }
@@ -317,6 +423,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
           description: description !== undefined ? description : existing.description,
           basePriceInPaise: resolvedPriceInPaise ?? existing.basePriceInPaise,
           isBundle: resolvedIsBundle ?? existing.isBundle,
+          workflowMode: resolvedWorkflowMode,
           displayOrder: displayOrder ?? existing.displayOrder,
           panels: panels ? {
             create: panels.map((p: any, idx: number) => ({

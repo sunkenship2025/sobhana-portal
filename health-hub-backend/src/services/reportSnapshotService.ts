@@ -19,7 +19,7 @@
  * - interpretationsSnapshot: Resolved interpretation texts
  */
 
-import { PrismaClient, ReportVersion, TestResult, Gender } from '@prisma/client';
+import { PrismaClient, ReportVersion, TestResult, Gender, DiagnosticWorkflowMode } from '@prisma/client';
 import { resolveReferenceRanges } from './referenceRangeService';
 import {
   evaluateDerivedTargets,
@@ -255,6 +255,12 @@ async function backfillStoredSignatureAssets(signatures: SignatureSnapshot[]): P
       signatureImageBase64: signature.signatureImageBase64 || currentDoctor.signatureImageBase64 || null,
     };
   });
+}
+
+function filterReportableOrders<T extends { workflowMode?: DiagnosticWorkflowMode | null }>(orders: T[]): T[] {
+  return orders.filter(
+    (order) => (order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) === DiagnosticWorkflowMode.REPORTABLE
+  );
 }
 
 // ============================================================================
@@ -960,9 +966,10 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
 
   const visit = reportVersion.report.visit;
   const patient = visit.patient;
+  const reportableOrders = filterReportableOrders(visit.testOrders as any[]);
   const augmentedTestResults = await backfillDerivedResults(
     reportVersion.testResults as any[],
-    visit.testOrders as any[],
+    reportableOrders as any[],
     reportVersion.id
   );
 
@@ -996,7 +1003,7 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
 
   // Extract ordered panel IDs from test orders (prevents showing unordered panels)
   const orderedPanelIds = new Set<string>();
-  for (const order of visit.testOrders) {
+  for (const order of reportableOrders) {
     if (order.product?.panels) {
       for (const pp of order.product.panels) {
         orderedPanelIds.add(pp.panelId);
@@ -1117,9 +1124,10 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
   }
 
   const patient = visit.patient;
+  const reportableOrders = filterReportableOrders(visit.testOrders as any[]);
   const augmentedTestResults = await backfillDerivedResults(
     reportVersion.testResults as any[],
-    visit.testOrders as any[],
+    reportableOrders as any[],
     reportVersion.id
   );
 
@@ -1150,7 +1158,7 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
 
   // Extract ordered panel IDs from test orders (prevents showing unordered panels)
   const orderedPanelIds = new Set<string>();
-  for (const order of visit.testOrders) {
+  for (const order of reportableOrders) {
     if (order.product?.panels) {
       for (const pp of order.product.panels) {
         orderedPanelIds.add(pp.panelId);

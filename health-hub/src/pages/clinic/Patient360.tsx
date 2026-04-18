@@ -150,7 +150,7 @@ function VisitDetailDrawer({ visit, open, onClose, patientPhone, onPreviewReport
       });
       const data = await response.json();
       if (response.ok && data.success) {
-        toast.success('Report notification sent via WhatsApp');
+        toast.success('Completion notification sent via WhatsApp');
       } else {
         toast.error(data.error || 'Failed to send WhatsApp notification');
       }
@@ -739,7 +739,7 @@ export default function Patient360() {
                       });
                       const data = await response.json();
                       if (response.ok && data.success) {
-                        toast.success('Report notification sent via WhatsApp');
+                        toast.success('Completion notification sent via WhatsApp');
                       } else {
                         toast.error(data.error || 'Failed to send WhatsApp notification');
                       }

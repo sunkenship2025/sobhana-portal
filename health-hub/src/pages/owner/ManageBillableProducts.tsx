@@ -56,6 +56,7 @@ interface BillableProduct {
   name: string;
   code: string;
   productType: string;
+  workflowMode: 'REPORTABLE' | 'BILL_ONLY';
   basePrice: number;
   isActive: boolean;
   description: string | null;
@@ -75,9 +76,19 @@ const PRODUCT_TYPES = [
   { value: 'CUSTOM_PACKAGE', label: 'Custom Package', color: 'bg-green-100 text-green-800' },
 ];
 
+const WORKFLOW_MODES = [
+  { value: 'REPORTABLE', label: 'Reportable', color: 'bg-emerald-100 text-emerald-800' },
+  { value: 'BILL_ONLY', label: 'Bill Only', color: 'bg-amber-100 text-amber-800' },
+];
+
 function typeBadgeColor(productType: string) {
   const pt = PRODUCT_TYPES.find(p => p.value === productType);
   return pt ? pt.color : 'bg-gray-100 text-gray-800';
+}
+
+function workflowBadgeColor(workflowMode: string) {
+  const wm = WORKFLOW_MODES.find((mode) => mode.value === workflowMode);
+  return wm ? wm.color : 'bg-gray-100 text-gray-800';
 }
 
 const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
@@ -110,6 +121,7 @@ export default function ManageBillableProducts() {
   const [formName, setFormName] = useState('');
   const [formCode, setFormCode] = useState('');
   const [formType, setFormType] = useState('INDIVIDUAL_TEST');
+  const [formWorkflowMode, setFormWorkflowMode] = useState<'REPORTABLE' | 'BILL_ONLY'>('REPORTABLE');
   const [formBasePrice, setFormBasePrice] = useState('');
   const [formActive, setFormActive] = useState(true);
   const [formDescription, setFormDescription] = useState('');
@@ -177,6 +189,7 @@ export default function ManageBillableProducts() {
 
   const resetForm = () => {
     setFormName(''); setFormCode(''); setFormType('INDIVIDUAL_TEST');
+    setFormWorkflowMode('REPORTABLE');
     setFormBasePrice(''); setFormActive(true); setFormDescription('');
     setFormPanels([]); setEditingProduct(null);
     setCodeAvailable(null); setCodeChecking(false);
@@ -186,6 +199,7 @@ export default function ManageBillableProducts() {
     setFormName(p.name);
     setFormCode(p.code);
     setFormType(p.productType);
+    setFormWorkflowMode(p.workflowMode || 'REPORTABLE');
     setFormBasePrice(p.basePrice.toString());
     setFormActive(p.isActive);
     setFormDescription(p.description || '');
@@ -250,12 +264,12 @@ export default function ManageBillableProducts() {
 
     // Panel count validation
     const validPanels = formPanels.filter(p => p.panelId);
-    if (formType === 'INDIVIDUAL_TEST' && validPanels.length > 1) {
+    if (formWorkflowMode === 'REPORTABLE' && formType === 'INDIVIDUAL_TEST' && validPanels.length > 1) {
       toast.error('Individual Test products can have at most 1 panel');
       return;
     }
-    if (formType === 'PANEL_BUNDLE' && validPanels.length < 1) {
-      toast.error('Panel Bundle products must have at least 1 panel');
+    if (formWorkflowMode === 'REPORTABLE' && validPanels.length < 1) {
+      toast.error('Reportable products must have at least 1 linked panel');
       return;
     }
 
@@ -270,6 +284,7 @@ export default function ManageBillableProducts() {
         name: formName.trim(),
         code: formCode.trim(),
         productType: formType,
+        workflowMode: formWorkflowMode,
         basePrice: parseFloat(formBasePrice),
         isActive: formActive,
         description: formDescription || null,
@@ -438,6 +453,7 @@ export default function ManageBillableProducts() {
                 <TableHead>Code</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Type</TableHead>
+                <TableHead>Workflow</TableHead>
                 <TableHead>Base Price</TableHead>
                 <TableHead>Effective Price</TableHead>
                   <TableHead className="text-center">Panels</TableHead>
@@ -460,6 +476,11 @@ export default function ManageBillableProducts() {
                   <TableCell>
                     <Badge className={typeBadgeColor(product.productType)}>
                       {product.productType.replace(/_/g, ' ')}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge className={workflowBadgeColor(product.workflowMode)}>
+                      {product.workflowMode === 'BILL_ONLY' ? 'Bill Only' : 'Reportable'}
                     </Badge>
                   </TableCell>
                   <TableCell className="font-mono text-sm">{formatPrice(product.basePrice)}</TableCell>
@@ -561,6 +582,20 @@ export default function ManageBillableProducts() {
               </Select>
             </div>
             <div>
+              <Label>Workflow</Label>
+              <Select
+                value={formWorkflowMode}
+                onValueChange={(value) => setFormWorkflowMode(value as 'REPORTABLE' | 'BILL_ONLY')}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {WORKFLOW_MODES.map((mode) => (
+                    <SelectItem key={mode.value} value={mode.value}>{mode.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
               <Label>Base Price (₹) *</Label>
               <Input type="number" value={formBasePrice} onChange={e => setFormBasePrice(e.target.value)} />
             </div>
@@ -585,8 +620,14 @@ export default function ManageBillableProducts() {
               </Button>
             </div>
 
+            <p className="mb-3 text-xs text-muted-foreground">
+              {formWorkflowMode === 'REPORTABLE'
+                ? 'Reportable products require at least one linked panel.'
+                : 'Bill-only products can be billed without panels. Linked panels are only used after switching back to Reportable.'}
+            </p>
+
             {formPanels.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No panels. Link clinical panels to this product.</p>
+              <p className="text-sm text-muted-foreground">No panels linked.</p>
             ) : (
               <div className="space-y-2">
                 {formPanels.map((pp, i) => (

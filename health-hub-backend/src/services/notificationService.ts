@@ -1,16 +1,19 @@
 /**
  * Notification Service
- * 
+ *
  * Orchestrates outbound messaging (WhatsApp + SMS fallback).
- * Two immediate methods: sendReportReady and sendBillConfirmation.
- * 
- * All methods are fire-and-forget safe — they catch errors internally
- * and log to MessageLog with FAILED status. Callers should NOT await these
- * in the critical path (use .catch(() => {}) pattern).
- * 
- * Template tone: Purely informational. No marketing language.
+ * Supports:
+ * - Bill confirmation at billing time
+ * - Diagnostic completion notices, branched by visit composition
+ *   - report_collection_with_link
+ *   - bill_only_collection_notice
  */
 
+import {
+  DiagnosticWorkflowMode,
+  MessageContextType,
+  Prisma,
+} from '@prisma/client';
 import {
   sendTemplate,
   isWhatsAppEnabled,
@@ -20,15 +23,15 @@ import {
 import prisma from '../lib/prisma';
 import { createAccessToken } from './reportAccessService';
 
+type NotificationInfo = Awaited<ReturnType<typeof getPatientNotificationInfo>>;
+type DiagnosticNotificationInfo = Awaited<ReturnType<typeof getDiagnosticVisitNotificationInfo>>;
+
+type CompletionTemplateType = 'REPORT_COLLECTION_WITH_LINK' | 'BILL_ONLY_COLLECTION_NOTICE';
 
 // ============================================================================
 // HELPERS
 // ============================================================================
 
-/**
- * Look up patient phone + opt-in status for a visit.
- * Returns null if patient has no phone or hasn't opted in.
- */
 async function getPatientNotificationInfo(visitId: string) {
   const visit = await prisma.visit.findUnique({
     where: { id: visitId },
@@ -57,6 +60,79 @@ async function getPatientNotificationInfo(visitId: string) {
     whatsappOptIn: visit.patient.whatsappOptIn,
     bill: visit.bill,
   };
+}
+
+async function getDiagnosticVisitNotificationInfo(visitId: string) {
+  const visit = await prisma.visit.findUnique({
+    where: { id: visitId },
+    include: {
+      patient: {
+        include: {
+          identifiers: {
+            where: { type: 'PHONE', isPrimary: true },
+            take: 1,
+          },
+        },
+      },
+      bill: true,
+      testOrders: {
+        select: {
+          workflowMode: true,
+        },
+      },
+      report: {
+        select: {
+          versions: {
+            where: { status: 'FINALIZED' },
+            orderBy: { versionNum: 'desc' },
+            take: 1,
+            select: {
+              id: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!visit) {
+    return null;
+  }
+
+  const phone = visit.patient.identifiers[0]?.value;
+  if (!phone) {
+    return null;
+  }
+
+  const hasReportableOrders = visit.testOrders.some(
+    (order) => order.workflowMode === DiagnosticWorkflowMode.REPORTABLE
+  );
+  const hasBillOnlyOrders = visit.testOrders.some(
+    (order) => order.workflowMode === DiagnosticWorkflowMode.BILL_ONLY
+  );
+  const finalizedReportVersionId = visit.report?.versions?.[0]?.id ?? null;
+
+  return {
+    visit,
+    patient: visit.patient,
+    phone,
+    whatsappOptIn: visit.patient.whatsappOptIn,
+    hasReportableOrders,
+    hasBillOnlyOrders,
+    finalizedReportVersionId,
+  };
+}
+
+function resolveCompletionTemplate(info: NonNullable<DiagnosticNotificationInfo>): CompletionTemplateType | null {
+  if (info.hasReportableOrders) {
+    return 'REPORT_COLLECTION_WITH_LINK';
+  }
+
+  if (info.hasBillOnlyOrders) {
+    return 'BILL_ONLY_COLLECTION_NOTICE';
+  }
+
+  return null;
 }
 
 async function issueReportLinkForVisit(
@@ -91,6 +167,54 @@ async function issueReportLinkForVisit(
   };
 }
 
+async function createAndSendTemplateMessage(input: {
+  patientId: string;
+  phone: string;
+  templateName: string;
+  templateParams: Prisma.InputJsonValue;
+  contextId: string;
+  contextType?: MessageContextType;
+  components: TemplateComponent[];
+}) {
+  const messageLog = await prisma.messageLog.create({
+    data: {
+      patientId: input.patientId,
+      phone: input.phone,
+      channel: 'WHATSAPP',
+      templateName: input.templateName,
+      templateParams: input.templateParams,
+      status: 'PENDING',
+      contextType: input.contextType ?? MessageContextType.REPORT,
+      contextId: input.contextId,
+    },
+  });
+
+  try {
+    const result = await sendTemplate(input.phone, input.templateName, input.components);
+
+    await prisma.messageLog.update({
+      where: { id: messageLog.id },
+      data: {
+        waMessageId: result.waMessageId,
+        status: 'SENT',
+        sentAt: new Date(),
+      },
+    });
+
+    return result;
+  } catch (error: any) {
+    await prisma.messageLog.update({
+      where: { id: messageLog.id },
+      data: {
+        status: 'FAILED',
+        failureReason: error.message?.slice(0, 500),
+      },
+    });
+
+    throw error;
+  }
+}
+
 /**
  * Auto opt-in a patient if they haven't explicitly opted in yet.
  * Used when staff triggers a manual send — implies consent.
@@ -114,132 +238,147 @@ export async function autoOptIn(patientId: string, source: string) {
 }
 
 // ============================================================================
-// REPORT READY NOTIFICATION
+// DIAGNOSTIC COMPLETION NOTIFICATIONS
 // ============================================================================
 
-/**
- * Send "Your diagnostic report is ready" WhatsApp message.
- * Called after report finalization (POST /:id/finalize).
- * 
- * Template: lab_report_ready
- * Params: patient name, bill number, report download URL
- * Tone: Informational only.
- */
-export async function sendReportReady(visitId: string, preIssuedToken?: string): Promise<void> {
+async function dispatchDiagnosticCompletionNotification(input: {
+  visitId: string;
+  preIssuedToken?: string;
+  staffUserId?: string;
+  manual?: boolean;
+}): Promise<{ success: boolean; error?: string }> {
   try {
     if (!isWhatsAppEnabled()) {
-      console.log(`[Notification] WhatsApp disabled — skipping report notification for visit ${visitId}`);
-      return;
+      return { success: false, error: 'WhatsApp messaging is not enabled' };
     }
 
-    const info = await getPatientNotificationInfo(visitId);
+    const info = await getDiagnosticVisitNotificationInfo(input.visitId);
     if (!info) {
-      console.log(`[Notification] No patient/phone found for visit ${visitId}`);
-      return;
+      return { success: false, error: 'Patient or phone not found' };
     }
 
-    if (!info.whatsappOptIn) {
-      console.log(`[Notification] Patient ${info.patient.id} not opted in — skipping report notification`);
-      return;
+    if (input.manual) {
+      await autoOptIn(info.patient.id, 'STAFF_MANUAL_SEND');
+    } else if (!info.whatsappOptIn) {
+      console.log(`[Notification] Patient ${info.patient.id} not opted in — skipping diagnostic completion notification`);
+      return { success: true };
     }
 
-    const link = await issueReportLinkForVisit(visitId, preIssuedToken);
-    if (!link) {
-      console.log(`[Notification] No report token for visit ${visitId} — skipping`);
-      return;
+    const templateType = resolveCompletionTemplate(info);
+    if (!templateType) {
+      return { success: false, error: 'Diagnostic visit has no order workflow information' };
+    }
+
+    if (
+      templateType === 'BILL_ONLY_COLLECTION_NOTICE' &&
+      info.visit.status !== 'COMPLETED'
+    ) {
+      return { success: false, error: 'Bill-only visit is not confirmed ready yet' };
     }
 
     const formattedPhone = formatPhoneForWhatsApp(info.phone);
 
-    // Build template components
-    // Template: lab_report_ready
-    // Body params: {{1}} = patient name, {{2}} = bill number, {{3}} = report URL
-    const components: TemplateComponent[] = [
-      {
-        type: 'body',
-        parameters: [
-          { type: 'text', text: info.patient.name },
-          { type: 'text', text: info.visit.billNumber },
-        ],
-      },
-      // URL button with dynamic suffix (the report token)
-      {
-        type: 'button',
-        sub_type: 'url',
-        index: 0,
-        parameters: [
-          { type: 'text', text: link.reportToken },
-        ],
-      },
-    ];
+    if (templateType === 'REPORT_COLLECTION_WITH_LINK') {
+      const link = await issueReportLinkForVisit(input.visitId, input.preIssuedToken);
+      if (!link) {
+        return { success: false, error: 'Report not finalized or no access token' };
+      }
 
-    // Create MessageLog entry
-    const messageLog = await prisma.messageLog.create({
-      data: {
+      await createAndSendTemplateMessage({
         patientId: info.patient.id,
         phone: formattedPhone,
-        channel: 'WHATSAPP',
-        templateName: 'lab_report_ready',
+        templateName: 'report_collection_with_link',
         templateParams: {
           patientName: info.patient.name,
           billNumber: info.visit.billNumber,
           reportVersionId: link.reportVersionId,
           hasReportLink: true,
+          resendBy: input.staffUserId || null,
         },
-        status: 'PENDING',
-        contextType: 'REPORT',
-        contextId: visitId,
-      },
-    });
-
-    // Send via WhatsApp Cloud API
-    const result = await sendTemplate(formattedPhone, 'lab_report_ready', components);
-
-    // Update with success
-    await prisma.messageLog.update({
-      where: { id: messageLog.id },
-      data: {
-        waMessageId: result.waMessageId,
-        status: 'SENT',
-        sentAt: new Date(),
-      },
-    });
-
-    console.log(`[Notification] Report ready sent to ${formattedPhone} for visit ${visitId} (wamid: ${result.waMessageId})`);
-  } catch (error: any) {
-    console.error(`[Notification] Failed to send report notification for visit ${visitId}:`, error.message);
-
-    // Try to log the failure
-    try {
-      await prisma.messageLog.updateMany({
-        where: {
-          contextType: 'REPORT',
-          contextId: visitId,
-          status: 'PENDING',
-        },
-        data: {
-          status: 'FAILED',
-          failureReason: error.message?.slice(0, 500),
-        },
+        contextId: input.visitId,
+        components: [
+          {
+            type: 'body',
+            parameters: [
+              { type: 'text', text: info.patient.name },
+              { type: 'text', text: info.visit.billNumber },
+            ],
+          },
+          {
+            type: 'button',
+            sub_type: 'url',
+            index: 0,
+            parameters: [
+              { type: 'text', text: link.reportToken },
+            ],
+          },
+        ],
       });
-    } catch (logError) {
-      console.error('[Notification] Failed to update MessageLog:', logError);
+
+      console.log(
+        `[Notification] Report collection link sent to ${formattedPhone} for visit ${input.visitId}`
+      );
+      return { success: true };
     }
+
+    await createAndSendTemplateMessage({
+      patientId: info.patient.id,
+      phone: formattedPhone,
+      templateName: 'bill_only_collection_notice',
+      templateParams: {
+        patientName: info.patient.name,
+        billNumber: info.visit.billNumber,
+        hasReportLink: false,
+        resendBy: input.staffUserId || null,
+      },
+      contextId: input.visitId,
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: info.patient.name },
+            { type: 'text', text: info.visit.billNumber },
+          ],
+        },
+      ],
+    });
+
+    console.log(
+      `[Notification] Bill-only collection notice sent to ${formattedPhone} for visit ${input.visitId}`
+    );
+    return { success: true };
+  } catch (error: any) {
+    console.error(
+      `[Notification] Failed to send diagnostic completion notification for visit ${input.visitId}:`,
+      error.message
+    );
+    return { success: false, error: error.message };
   }
+}
+
+/**
+ * Backward-compatible wrapper used by report finalization flow.
+ * Reportable and mixed visits send the new report collection template.
+ */
+export async function sendReportReady(visitId: string, preIssuedToken?: string): Promise<void> {
+  await dispatchDiagnosticCompletionNotification({
+    visitId,
+    preIssuedToken,
+    manual: false,
+  });
+}
+
+export async function sendBillOnlyCollectionNotice(visitId: string): Promise<void> {
+  await dispatchDiagnosticCompletionNotification({
+    visitId,
+    manual: false,
+  });
 }
 
 // ============================================================================
 // BILL CONFIRMATION NOTIFICATION
 // ============================================================================
 
-/**
- * Send "Your bill has been generated" WhatsApp message.
- * Called after visit creation (POST /).
- * 
- * Template: bill_receipt
- * Params: patient name, bill number, total amount
- * Tone: Informational only. No link, no PDF.
- */
 export async function sendBillConfirmation(visitId: string): Promise<void> {
   try {
     if (!isWhatsAppEnabled()) {
@@ -266,72 +405,37 @@ export async function sendBillConfirmation(visitId: string): Promise<void> {
     const formattedPhone = formatPhoneForWhatsApp(info.phone);
     const amountInRupees = (info.bill.totalAmountInPaise / 100).toLocaleString('en-IN');
 
-    // Build template components
-    // Template: bill_receipt
-    // Body params: {{1}} = patient name, {{2}} = bill number, {{3}} = amount
-    // Note: template already includes ₹ symbol before {{3}}, so don't prefix it here
-    const components: TemplateComponent[] = [
-      {
-        type: 'body',
-        parameters: [
-          { type: 'text', text: info.patient.name },
-          { type: 'text', text: info.visit.billNumber },
-          { type: 'text', text: amountInRupees },
-        ],
+    await createAndSendTemplateMessage({
+      patientId: info.patient.id,
+      phone: formattedPhone,
+      templateName: 'bill_receipt',
+      templateParams: {
+        patientName: info.patient.name,
+        billNumber: info.visit.billNumber,
+        amount: `₹${amountInRupees}`,
       },
-    ];
-
-    // Create MessageLog entry
-    const messageLog = await prisma.messageLog.create({
-      data: {
-        patientId: info.patient.id,
-        phone: formattedPhone,
-        channel: 'WHATSAPP',
-        templateName: 'bill_receipt',
-        templateParams: {
-          patientName: info.patient.name,
-          billNumber: info.visit.billNumber,
-          amount: `₹${amountInRupees}`,
+      contextId: visitId,
+      contextType: MessageContextType.BILL,
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: info.patient.name },
+            { type: 'text', text: info.visit.billNumber },
+            { type: 'text', text: amountInRupees },
+          ],
         },
-        status: 'PENDING',
-        contextType: 'BILL',
-        contextId: visitId,
-      },
+      ],
     });
 
-    // Send via WhatsApp Cloud API
-    const result = await sendTemplate(formattedPhone, 'bill_receipt', components);
-
-    // Update with success
-    await prisma.messageLog.update({
-      where: { id: messageLog.id },
-      data: {
-        waMessageId: result.waMessageId,
-        status: 'SENT',
-        sentAt: new Date(),
-      },
-    });
-
-    console.log(`[Notification] Bill confirmation sent to ${formattedPhone} for visit ${visitId} (wamid: ${result.waMessageId})`);
+    console.log(
+      `[Notification] Bill confirmation sent to ${formattedPhone} for visit ${visitId}`
+    );
   } catch (error: any) {
-    console.error(`[Notification] Failed to send bill notification for visit ${visitId}:`, error.message);
-
-    // Try to log the failure
-    try {
-      await prisma.messageLog.updateMany({
-        where: {
-          contextType: 'BILL',
-          contextId: visitId,
-          status: 'PENDING',
-        },
-        data: {
-          status: 'FAILED',
-          failureReason: error.message?.slice(0, 500),
-        },
-      });
-    } catch (logError) {
-      console.error('[Notification] Failed to update MessageLog:', logError);
-    }
+    console.error(
+      `[Notification] Failed to send bill notification for visit ${visitId}:`,
+      error.message
+    );
   }
 }
 
@@ -340,91 +444,26 @@ export async function sendBillConfirmation(visitId: string): Promise<void> {
 // ============================================================================
 
 /**
- * Resend a report notification manually (staff action).
- * Auto-opts in the patient (staff sending implies consent).
- * Skips the whatsappOptIn check since this is an explicit staff action.
+ * Backward-compatible manual resend entry point.
+ * Now dispatches by visit composition:
+ * - reportable/mixed => report_collection_with_link
+ * - pure bill-only   => bill_only_collection_notice
  */
-export async function resendReportNotification(visitId: string, staffUserId?: string): Promise<{ success: boolean; error?: string }> {
-  try {
-    if (!isWhatsAppEnabled()) {
-      return { success: false, error: 'WhatsApp messaging is not enabled' };
-    }
-
-    const info = await getPatientNotificationInfo(visitId);
-    if (!info) {
-      return { success: false, error: 'Patient or phone not found' };
-    }
-
-    // Auto opt-in on staff action
-    await autoOptIn(info.patient.id, 'STAFF_MANUAL_SEND');
-
-    const link = await issueReportLinkForVisit(visitId);
-    if (!link) {
-      return { success: false, error: 'Report not finalized or no access token' };
-    }
-
-    const formattedPhone = formatPhoneForWhatsApp(info.phone);
-
-    const components: TemplateComponent[] = [
-      {
-        type: 'body',
-        parameters: [
-          { type: 'text', text: info.patient.name },
-          { type: 'text', text: info.visit.billNumber },
-        ],
-      },
-      {
-        type: 'button',
-        sub_type: 'url',
-        index: 0,
-        parameters: [
-          { type: 'text', text: link.reportToken },
-        ],
-      },
-    ];
-
-    const messageLog = await prisma.messageLog.create({
-      data: {
-        patientId: info.patient.id,
-        phone: formattedPhone,
-        channel: 'WHATSAPP',
-        templateName: 'lab_report_ready',
-        templateParams: {
-          patientName: info.patient.name,
-          billNumber: info.visit.billNumber,
-          reportVersionId: link.reportVersionId,
-          hasReportLink: true,
-          resendBy: staffUserId || 'unknown',
-        },
-        status: 'PENDING',
-        contextType: 'REPORT',
-        contextId: visitId,
-      },
-    });
-
-    const result = await sendTemplate(formattedPhone, 'lab_report_ready', components);
-
-    await prisma.messageLog.update({
-      where: { id: messageLog.id },
-      data: {
-        waMessageId: result.waMessageId,
-        status: 'SENT',
-        sentAt: new Date(),
-      },
-    });
-
-    return { success: true };
-  } catch (error: any) {
-    console.error(`[Notification] Staff resend failed for visit ${visitId}:`, error.message);
-    return { success: false, error: error.message };
-  }
+export async function resendReportNotification(
+  visitId: string,
+  staffUserId?: string
+): Promise<{ success: boolean; error?: string }> {
+  return dispatchDiagnosticCompletionNotification({
+    visitId,
+    staffUserId,
+    manual: true,
+  });
 }
 
-/**
- * Resend a bill confirmation manually (staff action).
- * Auto-opts in the patient.
- */
-export async function resendBillNotification(visitId: string, staffUserId?: string): Promise<{ success: boolean; error?: string }> {
+export async function resendBillNotification(
+  visitId: string,
+  staffUserId?: string
+): Promise<{ success: boolean; error?: string }> {
   try {
     if (!isWhatsAppEnabled()) {
       return { success: false, error: 'WhatsApp messaging is not enabled' };
@@ -435,51 +474,33 @@ export async function resendBillNotification(visitId: string, staffUserId?: stri
       return { success: false, error: 'Patient, phone, or bill not found' };
     }
 
-    // Auto opt-in on staff action
     await autoOptIn(info.patient.id, 'STAFF_MANUAL_SEND');
 
     const formattedPhone = formatPhoneForWhatsApp(info.phone);
     const amountInRupees = (info.bill.totalAmountInPaise / 100).toLocaleString('en-IN');
 
-    // Note: template already includes ₹ symbol before {{3}}, so don't prefix it here
-    const components: TemplateComponent[] = [
-      {
-        type: 'body',
-        parameters: [
-          { type: 'text', text: info.patient.name },
-          { type: 'text', text: info.visit.billNumber },
-          { type: 'text', text: amountInRupees },
-        ],
+    await createAndSendTemplateMessage({
+      patientId: info.patient.id,
+      phone: formattedPhone,
+      templateName: 'bill_receipt',
+      templateParams: {
+        patientName: info.patient.name,
+        billNumber: info.visit.billNumber,
+        amount: `₹${amountInRupees}`,
+        resendBy: staffUserId || null,
       },
-    ];
-
-    const messageLog = await prisma.messageLog.create({
-      data: {
-        patientId: info.patient.id,
-        phone: formattedPhone,
-        channel: 'WHATSAPP',
-        templateName: 'bill_receipt',
-        templateParams: {
-          patientName: info.patient.name,
-          billNumber: info.visit.billNumber,
-          amount: `₹${amountInRupees}`,
-          resendBy: staffUserId || 'unknown',
+      contextId: visitId,
+      contextType: MessageContextType.BILL,
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: info.patient.name },
+            { type: 'text', text: info.visit.billNumber },
+            { type: 'text', text: amountInRupees },
+          ],
         },
-        status: 'PENDING',
-        contextType: 'BILL',
-        contextId: visitId,
-      },
-    });
-
-    const result = await sendTemplate(formattedPhone, 'bill_receipt', components);
-
-    await prisma.messageLog.update({
-      where: { id: messageLog.id },
-      data: {
-        waMessageId: result.waMessageId,
-        status: 'SENT',
-        sentAt: new Date(),
-      },
+      ],
     });
 
     return { success: true };
