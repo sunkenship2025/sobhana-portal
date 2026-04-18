@@ -50,25 +50,6 @@ function withResolvedPrice(product: any, branchPriceInPaise?: number | null) {
   };
 }
 
-async function generateQuickBillOnlyCode(): Promise<string> {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const candidate = `BO_${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`
-      .replace(/[^A-Z0-9_]/g, '')
-      .slice(0, 20);
-
-    const existing = await prisma.billableProduct.findUnique({
-      where: { code: candidate },
-      select: { id: true },
-    });
-
-    if (!existing) {
-      return candidate;
-    }
-  }
-
-  throw new Error('Failed to generate a unique product code');
-}
-
 // ─── GET /check-code — Real-time code uniqueness check ───────────────
 router.get('/check-code', async (req: AuthRequest, res) => {
   try {
