@@ -13,7 +13,6 @@ import DiagnosticsPendingResults from "./pages/diagnostics/DiagnosticsPendingRes
 import DiagnosticsFinalizedReports from "./pages/diagnostics/DiagnosticsFinalizedReports";
 import DiagnosticsResultEntry from "./pages/diagnostics/DiagnosticsResultEntry";
 import DiagnosticsReportPreview from "./pages/diagnostics/DiagnosticsReportPreview";
-import DiagnosticsConfirmReady from "./pages/diagnostics/DiagnosticsConfirmReady";
 import ClinicNewVisit from "./pages/clinic/ClinicNewVisit";
 import ClinicVisitQueue from "./pages/clinic/ClinicVisitQueue";
 import GlobalPatientSearch from "./pages/clinic/GlobalPatientSearch";
@@ -84,11 +83,6 @@ function AppRoutes() {
       <Route path="/diagnostics/results/:visitId" element={
         <ProtectedRoute allowedRoles={['staff', 'owner']}>
           <DiagnosticsResultEntry />
-        </ProtectedRoute>
-      } />
-      <Route path="/diagnostics/confirm-ready/:visitId" element={
-        <ProtectedRoute allowedRoles={['staff', 'owner']}>
-          <DiagnosticsConfirmReady />
         </ProtectedRoute>
       } />
       <Route path="/diagnostics/preview/:visitId" element={

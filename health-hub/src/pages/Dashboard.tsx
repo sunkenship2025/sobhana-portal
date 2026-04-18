@@ -21,6 +21,8 @@ type DiagnosticVisitSummary = {
   id: string;
   branchId: string;
   status: string;
+  hasReportableOrders?: boolean;
+  hasFinalizedReport?: boolean;
   createdAt: string;
 };
 
@@ -96,9 +98,9 @@ const Dashboard = () => {
   const metrics = useMemo(() => {
     const today = new Date();
     const pendingResults = diagnosticVisits.filter(
-      (visit) => visit.status === 'DRAFT' || visit.status === 'WAITING',
+      (visit) => visit.hasReportableOrders && (visit.status === 'DRAFT' || visit.status === 'WAITING'),
     );
-    const finalizedReports = diagnosticVisits.filter((visit) => visit.status === 'COMPLETED');
+    const finalizedReports = diagnosticVisits.filter((visit) => visit.hasFinalizedReport);
     const waitingOP = clinicVisits.filter(
       (visit) => visit.visitType === 'OP' && visit.status === 'WAITING',
     );

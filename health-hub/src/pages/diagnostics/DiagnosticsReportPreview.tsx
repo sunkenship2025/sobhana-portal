@@ -47,7 +47,7 @@ interface Visit {
   hasReportableOrders?: boolean;
   hasBillOnlyOrders?: boolean;
   hasFinalizedReport?: boolean;
-  nextAction?: 'ENTER_RESULTS' | 'CONFIRM_READY' | 'NONE';
+  nextAction?: 'ENTER_RESULTS' | 'NONE';
   createdAt: string;
   patient: {
     name: string;
@@ -188,9 +188,9 @@ const DiagnosticsReportPreview = () => {
 
         if (visitResponse.ok) {
           const data = await visitResponse.json();
-          if (data.nextAction === 'CONFIRM_READY' || data.hasReportableOrders === false) {
+          if (data.hasReportableOrders === false) {
             toast.error('This visit is bill-only and does not have a report preview.');
-            navigate(`/diagnostics/confirm-ready/${visitId}`);
+            navigate('/diagnostics/pending');
             return;
           }
           setVisit(data);
@@ -324,7 +324,7 @@ const DiagnosticsReportPreview = () => {
         // Just inform the staff
         const phone = patient.identifiers?.find(id => id.type === 'PHONE')?.value;
         if (phone) {
-          toast.success('Report finalized — collection link will be sent automatically');
+          toast.success('Report finalized — WhatsApp report message will be sent automatically');
         }
       } else {
         const errorData = await response.json();
