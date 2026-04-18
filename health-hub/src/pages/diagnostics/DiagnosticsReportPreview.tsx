@@ -44,6 +44,12 @@ interface Visit {
   id: string;
   billNumber: string;
   status: string;
+  discountType?: 'FLAT_AMOUNT' | 'PERCENTAGE' | null;
+  discountPercentage?: number | null;
+  discountAmountInPaise?: number;
+  paidAmountInPaise?: number;
+  netAmountInPaise?: number;
+  dueAmountInPaise?: number;
   hasReportableOrders?: boolean;
   hasBillOnlyOrders?: boolean;
   hasFinalizedReport?: boolean;
@@ -142,6 +148,13 @@ function formatReferenceRange(result: ReportSnapshotTest): string {
   }
 
   return '—';
+}
+
+function formatMoneyFromPaise(amountInPaise?: number | null): string {
+  return `₹${((amountInPaise ?? 0) / 100).toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 const DiagnosticsReportPreview = () => {
@@ -289,8 +302,15 @@ const DiagnosticsReportPreview = () => {
     ? snapshotTests.some((result) => isAbnormalFlag(result.flag))
     : results.some((r) => r.flag === 'HIGH' || r.flag === 'LOW');
   const isFinalized = visit.hasFinalizedReport === true;
+  const dueAmountInPaise = visit.dueAmountInPaise ?? 0;
+  const hasDue = dueAmountInPaise > 0;
 
   const handleFinalize = async () => {
+    if (hasDue) {
+      toast.error('Collect due before finalizing this report');
+      return;
+    }
+
     setFinalizing(true);
     try {
       const response = await fetch(`${API_BASE}/visits/diagnostic/${visitId}/finalize`, {
@@ -419,6 +439,10 @@ const DiagnosticsReportPreview = () => {
   };
 
   const handleFinalizeFromPreview = () => {
+    if (hasDue) {
+      toast.error('Collect due before finalizing this report');
+      return;
+    }
     setShowPreview(false);
     markPreviewReviewed();
     setShowConfirm(true);
@@ -614,6 +638,14 @@ const DiagnosticsReportPreview = () => {
                 <span className="text-sm font-medium">Abnormal values detected</span>
               </div>
             )}
+            {hasDue && !isFinalized && (
+              <div className="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-200 flex items-center gap-2 text-amber-800">
+                <AlertTriangle className="h-5 w-5" />
+                <span className="text-sm font-medium">
+                  Bill due {formatMoneyFromPaise(dueAmountInPaise)}. Collect due from Pending Results before finalizing.
+                </span>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -643,9 +675,10 @@ const DiagnosticsReportPreview = () => {
             {hasReviewedPreview && (
               <Button
                 onClick={() => setShowConfirm(true)}
+                disabled={hasDue}
               >
                 <CheckCircle2 className="mr-2 h-4 w-4" />
-                Finalize Report
+                {hasDue ? 'Collect Due Before Finalizing' : 'Finalize Report'}
               </Button>
             )}
           </div>
@@ -707,9 +740,10 @@ const DiagnosticsReportPreview = () => {
                 variant="default"
                 size="sm"
                 onClick={handleFinalizeFromPreview}
+                disabled={hasDue}
               >
                 <CheckCircle2 className="mr-2 h-4 w-4" />
-                Looks Good — Finalize
+                {hasDue ? 'Collect Due Before Finalizing' : 'Looks Good — Finalize'}
               </Button>
               <Button
                 variant="ghost"
@@ -744,11 +778,16 @@ const DiagnosticsReportPreview = () => {
                   ⚠ This report contains abnormal values.
                 </p>
               )}
+              {hasDue && (
+                <p className="mt-2 font-medium text-amber-700">
+                  Bill due {formatMoneyFromPaise(dueAmountInPaise)} must be collected before finalization.
+                </p>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleFinalize} disabled={finalizing}>
+            <AlertDialogAction onClick={handleFinalize} disabled={finalizing || hasDue}>
               {finalizing ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (

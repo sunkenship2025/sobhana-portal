@@ -21,6 +21,7 @@ import {
 } from './whatsappCloudService';
 import prisma from '../lib/prisma';
 import { createAccessToken } from './reportAccessService';
+import { computeBillFinancialsFromPersisted } from './billFinancialService';
 
 type NotificationInfo = Awaited<ReturnType<typeof getPatientNotificationInfo>>;
 type DiagnosticNotificationInfo = Awaited<ReturnType<typeof getDiagnosticVisitNotificationInfo>>;
@@ -341,7 +342,8 @@ export async function sendBillConfirmation(visitId: string): Promise<void> {
     }
 
     const formattedPhone = formatPhoneForWhatsApp(info.phone);
-    const amountInRupees = (info.bill.totalAmountInPaise / 100).toLocaleString('en-IN');
+    const billFinancials = computeBillFinancialsFromPersisted(info.bill);
+    const amountInRupees = (billFinancials.netAmountInPaise / 100).toLocaleString('en-IN');
 
     await createAndSendTemplateMessage({
       patientId: info.patient.id,
@@ -413,7 +415,8 @@ export async function resendBillNotification(
     await autoOptIn(info.patient.id, 'STAFF_MANUAL_SEND');
 
     const formattedPhone = formatPhoneForWhatsApp(info.phone);
-    const amountInRupees = (info.bill.totalAmountInPaise / 100).toLocaleString('en-IN');
+    const billFinancials = computeBillFinancialsFromPersisted(info.bill);
+    const amountInRupees = (billFinancials.netAmountInPaise / 100).toLocaleString('en-IN');
 
     await createAndSendTemplateMessage({
       patientId: info.patient.id,
