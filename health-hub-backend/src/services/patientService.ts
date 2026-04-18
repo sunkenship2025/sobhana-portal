@@ -102,6 +102,7 @@ export async function createPatient(input: CreatePatientInput) {
 
   // E2-02 & E2-16: Use advisory lock to prevent concurrent duplicate patient creation
   const primaryPhone = input.identifiers.find(id => id.type === 'PHONE' && id.isPrimary);
+  const patientNumber = await generatePatientNumber();
   
   // Wrap duplicate check and creation in transaction with advisory lock
   const patient = await prisma.$transaction(async (tx) => {
@@ -158,10 +159,6 @@ export async function createPatient(input: CreatePatientInput) {
     }
     
     // No duplicate found - proceed with creating new patient
-    // Generate patient number
-    const patientNumber = await generatePatientNumber();
-
-    // Create patient with identifiers
     const newPatient = await tx.patient.create({
       data: {
         patientNumber,
@@ -186,6 +183,9 @@ export async function createPatient(input: CreatePatientInput) {
     });
 
     return newPatient;
+  }, {
+    timeout: 15000,
+    maxWait: 15000,
   });
 
   // Audit log

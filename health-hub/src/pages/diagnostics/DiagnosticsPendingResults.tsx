@@ -11,6 +11,7 @@ import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Clock, Search, Loader2 } from 'lucide-react';
+import type { DiagnosticNextAction } from '@/types';
 
 const matchesDateFilter = (filter: string, value: string) => {
   if (filter === 'all') return true;
@@ -118,6 +119,23 @@ const DiagnosticsPendingResults = () => {
     });
   }, [visitsWithDetails, dateFilter, search]);
 
+  const getActionLabel = (nextAction?: DiagnosticNextAction) => {
+    if (nextAction === 'CONFIRM_READY') {
+      return 'Confirm Report Ready';
+    }
+
+    return 'Enter Results';
+  };
+
+  const handleAction = (visit: any) => {
+    if (visit.nextAction === 'CONFIRM_READY') {
+      navigate(`/diagnostics/confirm-ready/${visit.id}`);
+      return;
+    }
+
+    navigate(`/diagnostics/results/${visit.id}`);
+  };
+
   if (loading) {
     return (
       <AppLayout context="diagnostics">
@@ -204,11 +222,16 @@ const DiagnosticsPendingResults = () => {
                         <span className="text-muted-foreground">
                           Tests: {testOrders.map((t) => t.testCode).join(', ')}
                         </span>
+                        {visit.hasBillOnlyOrders && !visit.hasReportableOrders && (
+                          <span className="text-amber-700">
+                            Bill-only visit
+                          </span>
+                        )}
                       </div>
                       <StatusBadge status={visit.status} />
                     </div>
-                    <Button className="w-full sm:w-auto" onClick={() => navigate(`/diagnostics/results/${visit.id}`)}>
-                      Enter Results
+                    <Button className="w-full sm:w-auto" onClick={() => handleAction(visit)}>
+                      {getActionLabel(visit.nextAction)}
                     </Button>
                   </div>
                 ))}
