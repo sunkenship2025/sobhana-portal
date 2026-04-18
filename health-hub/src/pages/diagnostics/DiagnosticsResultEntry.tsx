@@ -87,7 +87,7 @@ interface Visit {
   billNumber: string;
   status: string;
   hasReportableOrders?: boolean;
-  nextAction?: 'ENTER_RESULTS' | 'CONFIRM_READY' | 'NONE';
+  nextAction?: 'ENTER_RESULTS' | 'NONE';
   patient: {
     name: string;
     yearOfBirth?: number;
@@ -343,9 +343,9 @@ const DiagnosticsResultEntry = () => {
 
         if (response.ok) {
           const data = await response.json();
-          if (data.nextAction === 'CONFIRM_READY' || data.hasReportableOrders === false) {
+          if (data.hasReportableOrders === false) {
             toast.error('This visit is bill-only and does not use result entry.');
-            navigate(`/diagnostics/confirm-ready/${visitId}`);
+            navigate('/diagnostics/pending');
             return;
           }
 

@@ -4,7 +4,7 @@ import prisma from '../lib/prisma';
 export const BILL_ONLY_PLACEHOLDER_CODE = '__BILL_ONLY_PLACEHOLDER__';
 const BILL_ONLY_PLACEHOLDER_NAME = 'Bill Only Placeholder';
 
-export type DiagnosticNextAction = 'ENTER_RESULTS' | 'CONFIRM_READY' | 'NONE';
+export type DiagnosticNextAction = 'ENTER_RESULTS' | 'NONE';
 
 type WorkflowOrderLike = {
   workflowMode?: DiagnosticWorkflowMode | null;
@@ -38,12 +38,8 @@ export function deriveDiagnosticVisitComposition(
 
   let nextAction: DiagnosticNextAction = 'NONE';
 
-  if (!hasFinalizedReport) {
-    if (hasReportableOrders) {
-      nextAction = 'ENTER_RESULTS';
-    } else if (hasBillOnlyOrders && visitStatus === VisitStatus.WAITING) {
-      nextAction = 'CONFIRM_READY';
-    }
+  if (!hasFinalizedReport && hasReportableOrders) {
+    nextAction = 'ENTER_RESULTS';
   }
 
   return {
