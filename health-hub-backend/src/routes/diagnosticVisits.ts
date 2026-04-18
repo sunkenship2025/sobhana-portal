@@ -36,6 +36,13 @@ import {
   type NormalizedReferralPayout,
 } from '../services/referralPayoutService';
 import { derivePayout } from '../services/payoutService';
+import {
+  buildBillFinancialResponse,
+  collectBillDue,
+  computeBillFinancialsFromPersisted,
+  normalizeBillFinancialInput,
+  recomputeBillFinancialsForSubtotal,
+} from '../services/billFinancialService';
 
 const router = Router();
 
@@ -344,6 +351,7 @@ router.get('/', async (req: AuthRequest, res) => {
     const transformed = visits.map((v) => {
       const currentVersion = v.report?.versions[0] || null;
       const composition = getVisitComposition(v.testOrders, v.status, currentVersion ? [currentVersion] : []);
+      const billFinancials = buildBillFinancialResponse(v.bill);
 
       return {
         id: v.id,
@@ -356,6 +364,7 @@ router.get('/', async (req: AuthRequest, res) => {
         totalAmount: v.totalAmountInPaise / 100,
         paymentType: v.bill?.paymentType || 'CASH',
         paymentStatus: v.bill?.paymentStatus || 'PENDING',
+        ...billFinancials,
         billedAt: v.bill?.billedAt || v.bill?.createdAt || null,
         reportFinalizedAt: currentVersion?.status === 'FINALIZED' ? currentVersion.finalizedAt : null,
         hasReportableOrders: composition.hasReportableOrders,
@@ -820,6 +829,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
     // Transform to frontend format
     const latestFinalizedVersion = visit.report?.versions.find((version: any) => version.status === 'FINALIZED') || null;
     const composition = getVisitComposition(visit.testOrders, visit.status, visit.report?.versions || []);
+    const billFinancials = buildBillFinancialResponse(visit.bill);
 
     const transformed = {
       id: visit.id,
@@ -832,6 +842,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
       totalAmount: visit.totalAmountInPaise / 100,
       paymentType: visit.bill?.paymentType || 'CASH',
       paymentStatus: visit.bill?.paymentStatus || 'PENDING',
+      ...billFinancials,
       billedAt: visit.bill?.billedAt || visit.bill?.createdAt || null,
       reportFinalizedAt: latestFinalizedVersion?.finalizedAt || null,
       hasReportableOrders: composition.hasReportableOrders,
@@ -1017,7 +1028,9 @@ router.post('/', async (req: AuthRequest, res) => {
       testIds,
       productIds,
       paymentType,
-      paymentStatus,
+      discountType,
+      discountValue,
+      paidAmount,
       sendWhatsApp,
     } = req.body;
 
@@ -1274,6 +1287,24 @@ router.post('/', async (req: AuthRequest, res) => {
       });
     }
 
+    let billFinancials;
+    try {
+      billFinancials = normalizeBillFinancialInput(
+        {
+          totalAmountInPaise,
+          discountType,
+          discountValue,
+          paidAmount,
+        },
+        { defaultPaidToNet: true }
+      );
+    } catch (validationErr: any) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: validationErr.message,
+      });
+    }
+
     const createComposition = getVisitComposition(testOrderData, VisitStatus.WAITING);
     const initialVisitStatus = createComposition.hasReportableOrders
       ? VisitStatus.DRAFT
@@ -1303,8 +1334,12 @@ router.post('/', async (req: AuthRequest, res) => {
           billNumber,
           branchId: req.branchId!,
           totalAmountInPaise,
+          discountType: billFinancials.discountType,
+          discountPercentage: billFinancials.discountPercentage,
+          discountAmountInPaise: billFinancials.discountAmountInPaise,
+          paidAmountInPaise: billFinancials.paidAmountInPaise,
           paymentType: paymentType || 'CASH',
-          paymentStatus: paymentStatus || 'PENDING',
+          paymentStatus: billFinancials.paymentStatus,
         },
       });
 
@@ -1537,6 +1572,8 @@ router.post('/', async (req: AuthRequest, res) => {
       });
     }
 
+    const completeBillFinancials = buildBillFinancialResponse(completeVisit!.bill);
+
     return res.status(201).json({
       id: completeVisit!.id,
       billNumber: completeVisit!.billNumber,
@@ -1544,6 +1581,9 @@ router.post('/', async (req: AuthRequest, res) => {
       totalAmount: completeVisit!.totalAmountInPaise / 100,
       status: completeVisit!.status,
       hasBill: true,
+      paymentType: completeVisit!.bill?.paymentType || 'CASH',
+      paymentStatus: completeVisit!.bill?.paymentStatus || 'PENDING',
+      ...completeBillFinancials,
       billedAt: completeVisit!.bill?.billedAt || completeVisit!.bill?.createdAt || null,
       reportFinalizedAt: null,
       hasReportableOrders: createComposition.hasReportableOrders,
@@ -1611,7 +1651,7 @@ router.post('/', async (req: AuthRequest, res) => {
 router.patch('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { status, paymentStatus, paymentType } = req.body;
+    const { status, paymentType, paidAmount } = req.body;
 
     // Check visit exists
     const existing = await prisma.visit.findFirst({
@@ -1620,6 +1660,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
         branchId: req.branchId,
         domain: 'DIAGNOSTICS',
       },
+      include: { bill: true },
     });
 
     if (!existing) {
@@ -1627,6 +1668,33 @@ router.patch('/:id', async (req: AuthRequest, res) => {
         error: 'NOT_FOUND',
         message: 'Diagnostic visit not found',
       });
+    }
+
+    let nextBillFinancials = null;
+    if (paidAmount !== undefined) {
+      if (!existing.bill) {
+        return res.status(400).json({
+          error: 'BILL_NOT_FOUND',
+          message: 'No bill found for this diagnostic visit',
+        });
+      }
+
+      try {
+        nextBillFinancials = normalizeBillFinancialInput({
+          totalAmountInPaise: existing.bill.totalAmountInPaise,
+          discountType: existing.bill.discountType,
+          discountValue:
+            existing.bill.discountType === 'PERCENTAGE'
+              ? existing.bill.discountPercentage ?? 0
+              : existing.bill.discountAmountInPaise / 100,
+          paidAmount,
+        });
+      } catch (validationErr: any) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: validationErr.message,
+        });
+      }
     }
 
     // Update visit
@@ -1638,12 +1706,17 @@ router.patch('/:id', async (req: AuthRequest, res) => {
         });
       }
 
-      if (paymentStatus || paymentType) {
+      if (paymentType || nextBillFinancials) {
         await tx.bill.updateMany({
           where: { visitId: id },
           data: {
-            ...(paymentStatus && { paymentStatus }),
             ...(paymentType && { paymentType }),
+            ...(nextBillFinancials
+              ? {
+                  paidAmountInPaise: nextBillFinancials.paidAmountInPaise,
+                  paymentStatus: nextBillFinancials.paymentStatus,
+                }
+              : {}),
           },
         });
       }
@@ -1653,12 +1726,14 @@ router.patch('/:id', async (req: AuthRequest, res) => {
         include: { bill: true },
       });
     });
+    const billFinancials = buildBillFinancialResponse(updated!.bill);
 
     return res.json({
       id: updated!.id,
       status: updated!.status,
       paymentStatus: updated!.bill?.paymentStatus,
       paymentType: updated!.bill?.paymentType,
+      ...billFinancials,
       billedAt: updated!.bill?.billedAt || updated!.bill?.createdAt || null,
     });
   } catch (err: any) {
@@ -1666,6 +1741,73 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     return res.status(500).json({
       error: 'INTERNAL_ERROR',
       message: 'Failed to update diagnostic visit',
+    });
+  }
+});
+
+// POST /api/visits/diagnostic/:id/collect-due - Collect an additive due payment
+router.post('/:id/collect-due', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { amount, paymentType } = req.body;
+
+    const existing = await prisma.visit.findFirst({
+      where: {
+        id,
+        branchId: req.branchId,
+        domain: 'DIAGNOSTICS',
+      },
+      include: { bill: true },
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        error: 'NOT_FOUND',
+        message: 'Diagnostic visit not found',
+      });
+    }
+
+    if (!existing.bill) {
+      return res.status(400).json({
+        error: 'BILL_NOT_FOUND',
+        message: 'No bill found for this diagnostic visit',
+      });
+    }
+
+    let nextBillFinancials;
+    try {
+      nextBillFinancials = collectBillDue(existing.bill, amount);
+    } catch (validationErr: any) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: validationErr.message,
+      });
+    }
+
+    const updated = await prisma.bill.update({
+      where: { id: existing.bill.id },
+      data: {
+        paidAmountInPaise: nextBillFinancials.paidAmountInPaise,
+        paymentStatus: nextBillFinancials.paymentStatus,
+        ...(paymentType && { paymentType }),
+      },
+    });
+
+    const billFinancials = buildBillFinancialResponse(updated);
+
+    return res.json({
+      id: existing.id,
+      status: existing.status,
+      paymentType: updated.paymentType,
+      paymentStatus: updated.paymentStatus,
+      ...billFinancials,
+      billedAt: updated.billedAt || updated.createdAt,
+    });
+  } catch (err: any) {
+    console.error('Collect diagnostic due error:', err);
+    return res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: 'Failed to collect due payment',
     });
   }
 });
@@ -1711,6 +1853,7 @@ router.post('/:id/tests', async (req: AuthRequest, res) => {
             priceInPaise: true,
           },
         },
+        bill: true,
         report: {
           include: {
             versions: {
@@ -1789,6 +1932,9 @@ router.post('/:id/tests', async (req: AuthRequest, res) => {
     // Calculate additional amount
     const additionalAmountInPaise = tests.reduce((sum, t) => sum + t.priceInPaise, 0);
     const newTotalAmountInPaise = visit.totalAmountInPaise + additionalAmountInPaise;
+    const nextBillFinancials = visit.bill
+      ? recomputeBillFinancialsForSubtotal(visit.bill, newTotalAmountInPaise)
+      : null;
     const referralSnapshots = tests.map((test) =>
       applyReferralRuleToPrices([test.priceInPaise], defaultReferralRule)[0]
     );
@@ -1830,7 +1976,16 @@ router.post('/:id/tests', async (req: AuthRequest, res) => {
       // Update bill total
       await tx.bill.updateMany({
         where: { visitId: id },
-        data: { totalAmountInPaise: newTotalAmountInPaise },
+        data: {
+          totalAmountInPaise: newTotalAmountInPaise,
+          ...(nextBillFinancials
+            ? {
+                discountAmountInPaise: nextBillFinancials.discountAmountInPaise,
+                paidAmountInPaise: nextBillFinancials.paidAmountInPaise,
+                paymentStatus: nextBillFinancials.paymentStatus,
+              }
+            : {}),
+        },
       });
 
       return tx.visit.findUnique({
@@ -1905,6 +2060,7 @@ router.delete('/:id/tests/:testOrderId', async (req: AuthRequest, res) => {
             priceInPaise: true,
           },
         },
+        bill: true,
         report: {
           include: {
             versions: {
@@ -1965,6 +2121,17 @@ router.delete('/:id/tests/:testOrderId', async (req: AuthRequest, res) => {
 
     // Calculate new total
     const newTotalAmountInPaise = visit.totalAmountInPaise - testOrder.priceInPaise;
+    let nextBillFinancials = null;
+    try {
+      nextBillFinancials = visit.bill
+        ? recomputeBillFinancialsForSubtotal(visit.bill, newTotalAmountInPaise)
+        : null;
+    } catch (financialErr: any) {
+      return res.status(400).json({
+        error: 'BILL_OVERPAID_AFTER_REMOVAL',
+        message: financialErr.message,
+      });
+    }
 
     // Remove test order in a transaction
     await prisma.$transaction(async (tx) => {
@@ -1982,7 +2149,16 @@ router.delete('/:id/tests/:testOrderId', async (req: AuthRequest, res) => {
       // Update bill total
       await tx.bill.updateMany({
         where: { visitId: id },
-        data: { totalAmountInPaise: newTotalAmountInPaise },
+        data: {
+          totalAmountInPaise: newTotalAmountInPaise,
+          ...(nextBillFinancials
+            ? {
+                discountAmountInPaise: nextBillFinancials.discountAmountInPaise,
+                paidAmountInPaise: nextBillFinancials.paidAmountInPaise,
+                paymentStatus: nextBillFinancials.paymentStatus,
+              }
+            : {}),
+        },
       });
     });
 
@@ -2948,6 +3124,7 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
             workflowMode: true,
           },
         },
+        bill: true,
         report: {
           include: {
             versions: {
@@ -2972,6 +3149,17 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
         error: 'BILL_ONLY_VISIT',
         message: 'Pure bill-only visits do not use report finalization.',
       });
+    }
+
+    if (visit.bill) {
+      const billFinancials = computeBillFinancialsFromPersisted(visit.bill);
+      if (billFinancials.dueAmountInPaise > 0) {
+        return res.status(400).json({
+          error: 'BILL_DUE',
+          message: `Cannot finalize report while bill has due amount ₹${(billFinancials.dueAmountInPaise / 100).toFixed(2)}.`,
+          dueAmountInPaise: billFinancials.dueAmountInPaise,
+        });
+      }
     }
 
     const draftVersion = visit.report?.versions[0];

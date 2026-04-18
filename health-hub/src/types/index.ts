@@ -326,6 +326,7 @@ export type VisitDomain = 'DIAGNOSTICS' | 'CLINIC';
 export type VisitType = 'OP' | 'IP'; // Only for CLINIC domain
 export type PaymentType = 'CASH' | 'ONLINE' | 'CHEQUE';
 export type PaymentStatus = 'PAID' | 'PENDING';
+export type BillDiscountType = 'FLAT_AMOUNT' | 'PERCENTAGE';
 export type DiagnosticWorkflowMode = 'REPORTABLE' | 'BILL_ONLY';
 export type DiagnosticNextAction = 'ENTER_RESULTS' | 'NONE';
 export type ClinicRevisitMode = 'VISIT' | 'REVISIT';
@@ -367,6 +368,12 @@ export interface BaseVisit {
   totalAmountInPaise: number;
   paymentType?: PaymentType | null;
   paymentStatus?: PaymentStatus | null;
+  discountType?: BillDiscountType | null;
+  discountPercentage?: number | null;
+  discountAmountInPaise?: number;
+  paidAmountInPaise?: number;
+  netAmountInPaise?: number;
+  dueAmountInPaise?: number;
   hasBill?: boolean;
   hasReportableOrders?: boolean;
   hasBillOnlyOrders?: boolean;
@@ -489,6 +496,12 @@ export interface VisitTimelineItem {
   totalAmountInPaise: number;
   paymentType?: PaymentType | null;
   paymentStatus?: PaymentStatus | null;
+  discountType?: BillDiscountType | null;
+  discountPercentage?: number | null;
+  discountAmountInPaise?: number;
+  paidAmountInPaise?: number;
+  netAmountInPaise?: number;
+  dueAmountInPaise?: number;
   isRevisit?: boolean;
   originalVisitId?: string | null;
   originalVisitVisitRef?: string | null;
@@ -609,5 +622,11 @@ export interface BillReceiptData {
   paymentType?: string | null;
   paymentStatus?: string | null;
   totalAmount: number;      // Already in rupees
+  discountType?: BillDiscountType | null;
+  discountPercentage?: number | null;
+  discountAmountInPaise?: number;
+  paidAmountInPaise?: number;
+  netAmountInPaise?: number;
+  dueAmountInPaise?: number;
   items: BillReceiptItem[];
 }
