@@ -101,6 +101,7 @@ const DiagnosticsNewVisit = () => {
   const [newCenterName, setNewCenterName] = useState('');
   const [newCenterPhone, setNewCenterPhone] = useState('');
   const [newProductName, setNewProductName] = useState('');
+  const [newProductCode, setNewProductCode] = useState('');
   const [newProductPrice, setNewProductPrice] = useState('');
   const [newProductDescription, setNewProductDescription] = useState('');
   const [isCreatingDoctor, setIsCreatingDoctor] = useState(false);
@@ -283,7 +284,7 @@ const DiagnosticsNewVisit = () => {
   };
 
   const handleCreateProduct = async () => {
-    if (!newProductName.trim() || !newProductPrice || !token || !activeBranch) return;
+    if (!newProductName.trim() || !newProductCode.trim() || !newProductPrice || !token || !activeBranch) return;
 
     setIsCreatingProduct(true);
     try {
@@ -296,6 +297,7 @@ const DiagnosticsNewVisit = () => {
         },
         body: JSON.stringify({
           name: newProductName.trim(),
+          code: newProductCode.trim(),
           basePrice: parseFloat(newProductPrice),
           description: newProductDescription.trim() || null,
         }),
@@ -333,6 +335,7 @@ const DiagnosticsNewVisit = () => {
       });
       setShowAddProductDialog(false);
       setNewProductName('');
+      setNewProductCode('');
       setNewProductPrice('');
       setNewProductDescription('');
       toast.success(`Added bill-only product ${product.name}`);
@@ -346,6 +349,7 @@ const DiagnosticsNewVisit = () => {
 
   const openQuickAddProductDialog = (draftName: string = '') => {
     setNewProductName(draftName.trim());
+    setNewProductCode('');
     setNewProductPrice('');
     setNewProductDescription('');
     setShowAddProductDialog(true);
@@ -1490,6 +1494,17 @@ const DiagnosticsNewVisit = () => {
               />
             </div>
             <div className="space-y-2">
+              <Label htmlFor="newProductCode">Code *</Label>
+              <Input
+                id="newProductCode"
+                value={newProductCode}
+                onChange={(e) => setNewProductCode(e.target.value)}
+                placeholder="Example: ECG"
+                autoCapitalize="characters"
+                style={{ textTransform: 'uppercase' }}
+              />
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="newProductPrice">Price (₹) *</Label>
               <Input
                 id="newProductPrice"
@@ -1520,7 +1535,7 @@ const DiagnosticsNewVisit = () => {
             </Button>
             <Button
               onClick={handleCreateProduct}
-              disabled={!newProductName.trim() || !newProductPrice || isCreatingProduct}
+              disabled={!newProductName.trim() || !newProductCode.trim() || !newProductPrice || isCreatingProduct}
             >
               {isCreatingProduct ? 'Adding...' : 'Add Item'}
             </Button>
