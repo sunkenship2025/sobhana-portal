@@ -383,6 +383,7 @@ export interface BaseVisit {
   transactions?: PaymentTransaction[];
   paymentType?: PaymentType | null; // For legacy fallback
   paymentStatus?: PaymentStatus | null;
+  discountReason?: string | null;
   discountType?: BillDiscountType | null;
   discountPercentage?: number | null;
   discountAmountInPaise?: number;
@@ -521,6 +522,7 @@ export interface VisitTimelineItem {
   transactions?: PaymentTransaction[];
   paymentType?: PaymentType | null; // For legacy fallback
   paymentStatus?: PaymentStatus | null;
+  discountReason?: string | null;
   discountType?: BillDiscountType | null;
   discountPercentage?: number | null;
   discountAmountInPaise?: number;
@@ -648,6 +650,7 @@ export interface BillReceiptData {
   paymentType?: string | null; // For legacy fallback
   paymentStatus?: string | null;
   totalAmount: number; // Already in rupees
+  discountReason?: string | null;
   discountType?: BillDiscountType | null;
   discountPercentage?: number | null;
   discountAmountInPaise?: number;

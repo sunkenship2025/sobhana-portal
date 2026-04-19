@@ -11,11 +11,13 @@ export interface BillFinancialInput {
   totalAmountInPaise: number;
   discountType?: BillDiscountInputType;
   discountValue?: number | string | null;
+  discountReason?: string | null;
   paidAmount?: number | string | null; // User-facing rupees
   paidAmountInPaise?: number | string | null;
 }
 
 export interface BillFinancialFields {
+  discountReason: string | null;
   discountType: BillDiscountType | null;
   discountPercentage: number | null;
   discountAmountInPaise: number;
@@ -27,6 +29,7 @@ export interface BillFinancialFields {
 
 export interface PersistedBillFinancials {
   totalAmountInPaise: number;
+  discountReason?: string | null;
   discountType?: BillDiscountType | null;
   discountPercentage?: number | null;
   discountAmountInPaise?: number | null;
@@ -74,6 +77,7 @@ export function computeBillFinancialsFromPersisted(
   const dueAmountInPaise = Math.max(0, netAmountInPaise - paidAmountInPaise);
 
   return {
+    discountReason: bill.discountReason ?? null,
     discountType: bill.discountType ?? null,
     discountPercentage: bill.discountPercentage ?? null,
     discountAmountInPaise,
@@ -130,6 +134,7 @@ export function normalizeBillFinancialInput(
   const dueAmountInPaise = Math.max(0, netAmountInPaise - paidAmountInPaise);
 
   return {
+    discountReason: input.discountReason ?? null,
     discountType,
     discountPercentage,
     discountAmountInPaise,
@@ -197,6 +202,7 @@ export function recomputeBillFinancialsForSubtotal(
   );
 
   return {
+    discountReason: bill.discountReason ?? null,
     discountType: bill.discountType ?? null,
     discountPercentage: bill.discountPercentage ?? null,
     discountAmountInPaise: nextDiscountAmountInPaise,
@@ -213,6 +219,7 @@ export function buildBillFinancialResponse(
 ) {
   if (!bill) {
     return {
+      discountReason: null,
       discountType: null,
       discountPercentage: null,
       discountAmountInPaise: 0,
@@ -224,6 +231,7 @@ export function buildBillFinancialResponse(
 
   const computed = computeBillFinancialsFromPersisted(bill);
   return {
+    discountReason: computed.discountReason,
     discountType: computed.discountType,
     discountPercentage: computed.discountPercentage,
     discountAmountInPaise: computed.discountAmountInPaise,
