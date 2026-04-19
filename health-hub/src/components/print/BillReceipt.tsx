@@ -74,23 +74,14 @@ export const BillReceipt = ({
   const documentNumberValue = hasBill
     ? data.billNumber || data.visitRef || "—"
     : data.visitRef || data.billNumber || "—";
+  const normalizedPaymentStatus = (() => {
+    const rawStatus = (data.paymentStatus || "").toString().toUpperCase();
+    if (rawStatus.includes("PAID")) return "PAID";
+    if (rawStatus.includes("PENDING")) return "PENDING";
+    return data.paymentStatus || "—";
+  })();
   const paymentSummary =
-    data.hasBill !== false
-      ? `${data.paymentStatus || "—"}${data.paymentStatus === "PENDING" ? "" : (
-          (data as any).transactions && (data as any).transactions.length > 0
-            ? " (" +
-              (data as any).transactions
-                .map(
-                  (t: any) =>
-                    `${t.paymentType}: ₹${(t.amountInPaise / 100).toFixed(2)}`
-                )
-                .join(", ") +
-              ")"
-            : data.paymentType
-              ? ` (${data.paymentType})`
-              : ""
-        )}`
-      : "Not billed";
+    data.hasBill !== false ? normalizedPaymentStatus : "Not billed";
   const revisitSummaryParts = [
     data.originalBillNumber ? `Bill ${data.originalBillNumber}` : null,
     data.originalVisitDate

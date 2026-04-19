@@ -1,6 +1,7 @@
 import { formatAgeDisplay } from '@/lib/validation';
 import type { ClinicVisitView } from '@/types';
 import { BillReceipt } from './BillReceipt';
+import { mapClinicVisitViewToReceiptData } from '@/lib/billReceiptMappers';
 
 interface ClinicPrescriptionPrintProps {
   visitView: ClinicVisitView;
@@ -16,7 +17,8 @@ export const ClinicPrescriptionPrint = ({
   const { visit, patient, clinicDoctor } = visitView;
   const visitDate = new Date(visit.createdAt);
   const followUpDate = new Date(visitDate);
-  const patientPhone = patient.identifiers.find((identifier) => identifier.type === 'PHONE')?.value || 'N/A';
+  const billReceiptData = mapClinicVisitViewToReceiptData(visitView, branchName);
+  const patientPhone = billReceiptData.patient.phone;
   const patientAge = patient.ageDisplay?.trim()
     ? patient.ageDisplay
     : typeof patient.age === 'number' && Number.isFinite(patient.age)
@@ -27,6 +29,7 @@ export const ClinicPrescriptionPrint = ({
   const referenceValue = visit.hasBill
     ? visit.billNumber || visit.visitRef || '—'
     : visit.visitRef || visit.billNumber || '—';
+  const serviceName = billReceiptData.items[0]?.name || 'Consultation';
 
   followUpDate.setDate(followUpDate.getDate() + 7);
 
@@ -44,9 +47,6 @@ export const ClinicPrescriptionPrint = ({
     month: '2-digit',
     year: 'numeric',
   });
-
-  const visitTypeService = visit.visitType === 'OP' ? 'OP Consultation' : 'IP Consultation';
-  const serviceName = visit.isRevisit ? `${visitTypeService} (Revisit)` : visitTypeService;
 
   return (
     <div className="print-content bg-white text-black">
@@ -135,43 +135,7 @@ export const ClinicPrescriptionPrint = ({
       <BillReceipt
         asPage
         onLogoLoadedChange={onBillLogoLoadedChange}
-        data={{
-          visitRef: visit.visitRef,
-          billNumber: visit.billNumber,
-          hasBill: visit.hasBill,
-          date: visit.createdAt,
-          domain: 'CLINIC',
-          visitType: visit.visitType,
-          isRevisit: visit.isRevisit,
-          originalBillNumber: visit.originalVisitBillNumber || null,
-          originalVisitDate: visit.originalVisitDate || null,
-          branchName,
-          patient: {
-            name: patient.name,
-            phone: patientPhone,
-            age: patient.age,
-            ageUnit: patient.ageUnit,
-            ageDisplay: patient.ageDisplay,
-            gender: patient.gender,
-          },
-          doctor: clinicDoctor
-            ? {
-                name: clinicDoctor.name,
-                qualification: clinicDoctor.qualification,
-                specialty: clinicDoctor.specialty,
-              }
-            : undefined,
-          paymentType: visit.paymentType,
-          paymentStatus: visit.paymentStatus,
-          totalAmount: visit.consultationFeeInPaise / 100,
-          items: [
-            {
-              id: visit.id,
-              name: serviceName,
-              price: visit.consultationFeeInPaise / 100,
-            },
-          ],
-        }}
+        data={billReceiptData}
       />
     </div>
   );
