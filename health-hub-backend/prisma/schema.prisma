@@ -519,6 +519,7 @@ model Bill {
   discountType          BillDiscountType?
   discountPercentage    Float?
   discountAmountInPaise Int               @default(0)
+  discountReason        String?
   paidAmountInPaise     Int               @default(0)
   billedAt              DateTime          @default(now()) // Explicit billing timestamp; remains stable after payment updates
   paymentStatus         PaymentStatus     @default(PENDING)
