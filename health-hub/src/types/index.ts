@@ -9,8 +9,8 @@
 // ============================================
 export interface Branch {
   id: string;
-  name: string;         // e.g., "Sobhana – Madhapur"
-  code: string;         // e.g., "MPR" for bill prefixes
+  name: string; // e.g., "Sobhana – Madhapur"
+  code: string; // e.g., "MPR" for bill prefixes
   address?: string;
   phone?: string;
   isActive: boolean;
@@ -20,8 +20,8 @@ export interface Branch {
 // ============================================
 // ENUMS
 // ============================================
-export type Gender = 'M' | 'F' | 'O';
-export type IdentifierType = 'PHONE' | 'EMAIL' | 'AADHAR' | 'OTHER';
+export type Gender = "M" | "F" | "O";
+export type IdentifierType = "PHONE" | "EMAIL" | "AADHAR" | "OTHER";
 
 // ============================================
 // PATIENT IDENTIFIER (Extensible identity model)
@@ -38,11 +38,11 @@ export interface PatientIdentifier {
 // ============================================
 // PATIENT (GLOBAL - shared across branches)
 // ============================================
-export type AgeUnit = 'DAYS' | 'MONTHS' | 'YEARS';
+export type AgeUnit = "DAYS" | "MONTHS" | "YEARS";
 
 export interface Patient {
   id: string;
-  patientNumber: string;  // P-00001, P-00002, etc.
+  patientNumber: string; // P-00001, P-00002, etc.
   name: string;
   age: number; // E2-09: Calculated from YOB/DOB, not stored
   yearOfBirth: number; // E2-09: Required - YOB for age calculation
@@ -58,8 +58,8 @@ export interface Patient {
 // ============================================
 // DOCTOR (Referral Doctor - external)
 // ============================================
-export type ReferralPayoutType = 'PERCENTAGE' | 'FIXED_AMOUNT';
-export type ReferralSourceType = 'SELF' | 'REFERRED_TO' | 'REFERRED_FROM';
+export type ReferralPayoutType = "PERCENTAGE" | "FIXED_AMOUNT";
+export type ReferralSourceType = "SELF" | "REFERRED_TO" | "REFERRED_FROM";
 
 export interface ReferralProductRule {
   id: string;
@@ -76,13 +76,13 @@ export interface ReferralProductRule {
 
 export interface ReferralDoctor {
   id: string;
-  doctorNumber: string;      // RD-00001, RD-00002, etc.
+  doctorNumber: string; // RD-00001, RD-00002, etc.
   name: string;
   phone?: string | null;
   commissionType?: ReferralPayoutType;
   commissionPercent: number;
   commissionAmountInPaise?: number | null;
-  clinicDoctorId?: string;   // Link if also a clinic doctor
+  clinicDoctorId?: string; // Link if also a clinic doctor
   productRules?: ReferralProductRule[];
 }
 
@@ -123,14 +123,14 @@ export interface DiagnosticCenter {
 // ============================================
 export interface ClinicDoctor {
   id: string;
-  doctorNumber: string;         // CD-00001, CD-00002, etc.
+  doctorNumber: string; // CD-00001, CD-00002, etc.
   name: string;
-  qualification: string;        // e.g., MBBS, MD (Gen Med)
-  specialty: string;            // e.g., General Medicine
+  qualification: string; // e.g., MBBS, MD (Gen Med)
+  specialty: string; // e.g., General Medicine
   registrationNumber: string;
   phone?: string;
-  letterheadNote?: string;      // Optional footer/tagline for prescription print
-  referralDoctorId?: string;    // Link if also a referral doctor
+  letterheadNote?: string; // Optional footer/tagline for prescription print
+  referralDoctorId?: string; // Link if also a referral doctor
 }
 
 // ============================================
@@ -152,7 +152,12 @@ export interface LabTest {
 // NEW ARCHITECTURE: TestDefinition → ClinicalPanel → BillableProduct
 // ============================================
 
-export type DefinitionStatus = 'DRAFT' | 'ACTIVE' | 'LOCKED' | 'DEPRECATED' | 'ARCHIVED';
+export type DefinitionStatus =
+  | "DRAFT"
+  | "ACTIVE"
+  | "LOCKED"
+  | "DEPRECATED"
+  | "ARCHIVED";
 
 export interface TestDefinition {
   id: string;
@@ -275,20 +280,21 @@ export interface BillableProduct {
 export interface TestOrder {
   id: string;
   visitId: string;
-  testId?: string | null;             // Legacy LabTest FK (nullable)
-  testDefinitionId?: string | null;   // New TestDefinition FK
-  productId?: string | null;          // BillableProduct FK for traceability
-  panelId?: string | null;            // ClinicalPanel FK for traceability
+  testId?: string | null; // Legacy LabTest FK (nullable)
+  testDefinitionId?: string | null; // New TestDefinition FK
+  productId?: string | null; // BillableProduct FK for traceability
+  panelId?: string | null; // ClinicalPanel FK for traceability
   workflowMode?: DiagnosticWorkflowMode;
-  testName: string;       // Snapshotted test name at order time
-  testCode: string;       // Snapshotted test code at order time
-  priceInPaise: number;   // Snapshotted price at order time
-  referenceRange: {       // Snapshotted reference range at order time
+  testName: string; // Snapshotted test name at order time
+  testCode: string; // Snapshotted test code at order time
+  priceInPaise: number; // Snapshotted price at order time
+  referenceRange: {
+    // Snapshotted reference range at order time
     min: number;
     max: number;
     unit: string;
   };
-  referenceText?: string | null;      // For qualitative tests
+  referenceText?: string | null; // For qualitative tests
   referralCommissionType?: ReferralPayoutType;
   referralCommissionPercent?: number;
   referralCommissionAmountInPaise?: number | null;
@@ -307,14 +313,14 @@ export interface TestResult {
   testName: string;
   testCode: string;
   value: number | null;
-  notes?: string | null;              // Text-based values for qualitative tests
+  notes?: string | null; // Text-based values for qualitative tests
   referenceRange: {
     min: number;
     max: number;
     unit: string;
   };
   referenceText?: string | null;
-  flag: 'NORMAL' | 'HIGH' | 'LOW' | null;
+  flag: "NORMAL" | "HIGH" | "LOW" | null;
   interpretationText?: string | null;
   interpretationSeverity?: string | null;
 }
@@ -322,15 +328,23 @@ export interface TestResult {
 // ============================================
 // VISIT (The Anchor Entity)
 // ============================================
-export type VisitDomain = 'DIAGNOSTICS' | 'CLINIC';
-export type VisitType = 'OP' | 'IP'; // Only for CLINIC domain
-export type PaymentType = 'CASH' | 'ONLINE' | 'CHEQUE';
-export type PaymentStatus = 'PAID' | 'PENDING';
-export type BillDiscountType = 'FLAT_AMOUNT' | 'PERCENTAGE';
-export type DiagnosticWorkflowMode = 'REPORTABLE' | 'BILL_ONLY';
-export type DiagnosticNextAction = 'ENTER_RESULTS' | 'NONE';
-export type ClinicRevisitMode = 'VISIT' | 'REVISIT';
-export type ClinicRevisitDecision = 'AUTO' | 'FORCE_REVISIT' | 'FORCE_NORMAL';
+export type VisitDomain = "DIAGNOSTICS" | "CLINIC";
+export type VisitType = "OP" | "IP"; // Only for CLINIC domain
+export type PaymentType = "CASH" | "ONLINE";
+
+export interface PaymentTransaction {
+  id?: string;
+  amountInPaise?: number;
+  paymentType: PaymentType;
+  transactionDate?: string | Date;
+  collectedByUserId?: string;
+}
+export type PaymentStatus = "PAID" | "PENDING";
+export type BillDiscountType = "FLAT_AMOUNT" | "PERCENTAGE";
+export type DiagnosticWorkflowMode = "REPORTABLE" | "BILL_ONLY";
+export type DiagnosticNextAction = "ENTER_RESULTS" | "NONE";
+export type ClinicRevisitMode = "VISIT" | "REVISIT";
+export type ClinicRevisitDecision = "AUTO" | "FORCE_REVISIT" | "FORCE_NORMAL";
 
 export interface ClinicRevisitAnchor {
   id: string;
@@ -360,13 +374,14 @@ export interface VisitReferral {
 // Base Visit (BRANCH-SCOPED)
 export interface BaseVisit {
   id: string;
-  branchId: string;     // Every visit belongs to exactly one branch
+  branchId: string; // Every visit belongs to exactly one branch
   billNumber?: string | null;
   visitRef?: string;
   patientId: string;
   domain: VisitDomain;
   totalAmountInPaise: number;
-  paymentType?: PaymentType | null;
+  transactions?: PaymentTransaction[];
+  paymentType?: PaymentType | null; // For legacy fallback
   paymentStatus?: PaymentStatus | null;
   discountType?: BillDiscountType | null;
   discountPercentage?: number | null;
@@ -385,18 +400,22 @@ export interface BaseVisit {
 }
 
 // Diagnostic Visit Status (lifecycle only, finalization is on ReportVersion)
-export type DiagnosticVisitStatus = 'DRAFT' | 'WAITING' | 'IN_PROGRESS' | 'COMPLETED';
+export type DiagnosticVisitStatus =
+  | "DRAFT"
+  | "WAITING"
+  | "IN_PROGRESS"
+  | "COMPLETED";
 
 export interface DiagnosticVisit extends BaseVisit {
-  domain: 'DIAGNOSTICS';
+  domain: "DIAGNOSTICS";
   status: DiagnosticVisitStatus;
 }
 
 // Clinic Visit Status
-export type ClinicVisitStatus = 'WAITING' | 'IN_PROGRESS' | 'COMPLETED';
+export type ClinicVisitStatus = "WAITING" | "IN_PROGRESS" | "COMPLETED";
 
 export interface ClinicVisit extends BaseVisit {
-  domain: 'CLINIC';
+  domain: "CLINIC";
   visitType: VisitType;
   doctorId: string; // Consulting doctor (internal ClinicDoctor.id)
   hospitalWard?: string;
@@ -422,7 +441,7 @@ export interface Report {
 // ============================================
 // REPORT VERSION (Legal artifact - IMMUTABLE after finalization)
 // ============================================
-export type ReportVersionStatus = 'DRAFT' | 'FINALIZED';
+export type ReportVersionStatus = "DRAFT" | "FINALIZED";
 
 export interface ReportVersion {
   id: string;
@@ -436,7 +455,12 @@ export interface ReportVersion {
 // ============================================
 // CONTEXT TYPES (Navigation)
 // ============================================
-export type AppContext = 'dashboard' | 'diagnostics' | 'clinic' | 'doctor' | 'owner';
+export type AppContext =
+  | "dashboard"
+  | "diagnostics"
+  | "clinic"
+  | "doctor"
+  | "owner";
 
 // ============================================
 // PATIENT VISIT HISTORY (Cross-branch lookup)
@@ -447,7 +471,7 @@ export interface PatientVisitHistoryItem {
   branchId: string;
   branchName: string;
   billNumber: string;
-  visitType?: 'OP' | 'IP'; // Only for clinic
+  visitType?: "OP" | "IP"; // Only for clinic
   createdAt: Date;
 }
 
@@ -461,8 +485,8 @@ export interface DiagnosticVisitView {
   patient: Patient;
   testOrders: TestOrder[];
   billItems?: BillReceiptItem[];
-  referral?: VisitReferral;          // Explicit referral link
-  referralDoctor?: ReferralDoctor;   // Denormalized for display
+  referral?: VisitReferral; // Explicit referral link
+  referralDoctor?: ReferralDoctor; // Denormalized for display
   diagnosticCenter?: DiagnosticCenter;
   report?: Report;
   currentReportVersion?: ReportVersion;
@@ -472,8 +496,8 @@ export interface DiagnosticVisitView {
 export interface ClinicVisitView {
   visit: ClinicVisit;
   patient: Patient;
-  referral?: VisitReferral;          // Explicit referral link
-  referralDoctor?: ReferralDoctor;   // Denormalized for display
+  referral?: VisitReferral; // Explicit referral link
+  referralDoctor?: ReferralDoctor; // Denormalized for display
   clinicDoctor?: ClinicDoctor;
 }
 
@@ -490,11 +514,12 @@ export interface VisitTimelineItem {
   hasBill?: boolean;
   branchId: string;
   branchName: string;
-  visitType?: VisitType;             // Only for CLINIC domain
-  status: string;                     // DiagnosticVisitStatus or ClinicVisitStatus
-  doctorName?: string;               // Clinic doctor name (for clinic visits)
+  visitType?: VisitType; // Only for CLINIC domain
+  status: string; // DiagnosticVisitStatus or ClinicVisitStatus
+  doctorName?: string; // Clinic doctor name (for clinic visits)
   totalAmountInPaise: number;
-  paymentType?: PaymentType | null;
+  transactions?: PaymentTransaction[];
+  paymentType?: PaymentType | null; // For legacy fallback
   paymentStatus?: PaymentStatus | null;
   discountType?: BillDiscountType | null;
   discountPercentage?: number | null;
@@ -511,7 +536,7 @@ export interface VisitTimelineItem {
   createdAt: Date;
   // Diagnostic specific
   reportStatus?: ReportVersionStatus; // DRAFT | FINALIZED (only if report exists)
-  reportVersionId?: string;           // For "View Report" link
+  reportVersionId?: string; // For "View Report" link
   finalizedAt?: Date | null;
 }
 
@@ -539,7 +564,7 @@ export interface PatientSearchResult {
 // ============================================
 // PAYOUT TYPES
 // ============================================
-export type PayoutDoctorType = 'REFERRAL' | 'CLINIC' | 'DIAGNOSTIC_CENTER';
+export type PayoutDoctorType = "REFERRAL" | "CLINIC" | "DIAGNOSTIC_CENTER";
 // PaymentType is defined above in VISIT section
 
 export interface PayoutLineItem {
@@ -586,7 +611,7 @@ export interface PayoutDetail extends PayoutSummary {
 export interface BillReceiptItem {
   id: string;
   name: string;
-  price: number;            // Already in rupees (not paise)
+  price: number; // Already in rupees (not paise)
   referralType?: ReferralPayoutType;
   referralPercent?: number;
   referralAmountInPaise?: number;
@@ -596,9 +621,9 @@ export interface BillReceiptData {
   billNumber?: string | null;
   visitRef?: string;
   hasBill?: boolean;
-  date: string | Date;      // ISO string or Date object
-  domain: 'CLINIC' | 'DIAGNOSTICS';
-  visitType?: string;       // 'OP' | 'IP' for clinic
+  date: string | Date; // ISO string or Date object
+  domain: "CLINIC" | "DIAGNOSTICS";
+  visitType?: string; // 'OP' | 'IP' for clinic
   isRevisit?: boolean;
   originalBillNumber?: string | null;
   originalVisitDate?: string | Date | null;
@@ -609,7 +634,7 @@ export interface BillReceiptData {
     age: number;
     ageUnit?: AgeUnit;
     ageDisplay?: string; // e.g., "7 Months", "18 Days"
-    gender: string;         // 'M' | 'F' | 'O'
+    gender: string; // 'M' | 'F' | 'O'
   };
   doctor?: {
     name: string;
@@ -619,9 +644,10 @@ export interface BillReceiptData {
   referralDoctor?: {
     name: string;
   };
-  paymentType?: string | null;
+  transactions?: PaymentTransaction[];
+  paymentType?: string | null; // For legacy fallback
   paymentStatus?: string | null;
-  totalAmount: number;      // Already in rupees
+  totalAmount: number; // Already in rupees
   discountType?: BillDiscountType | null;
   discountPercentage?: number | null;
   discountAmountInPaise?: number;

@@ -1,19 +1,22 @@
-import { useState, useRef, useEffect } from 'react';
-import { API_BASE } from '@/lib/api';
-import { useNavigate } from 'react-router-dom';
-import { AppLayout } from '@/components/layout/AppLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { ProductSelector, type ProductForSelector } from '@/components/diagnostics/ProductSelector';
-import { SearchableSelect } from '@/components/ui/searchable-select';
-import { useAuthStore } from '@/store/authStore';
-import { useBranchStore } from '@/store/branchStore';
-import { StatusBadge } from '@/components/ui/status-badge';
-import { toast } from 'sonner';
+import { useState, useRef, useEffect } from "react";
+import { API_BASE } from "@/lib/api";
+import { useNavigate } from "react-router-dom";
+import { AppLayout } from "@/components/layout/AppLayout";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  ProductSelector,
+  type ProductForSelector,
+} from "@/components/diagnostics/ProductSelector";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import { useAuthStore } from "@/store/authStore";
+import { useBranchStore } from "@/store/branchStore";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { toast } from "sonner";
 import type {
   Patient,
   PatientSearchResult,
@@ -24,10 +27,22 @@ import type {
   DiagnosticCenter,
   BillReceiptItem,
   BillDiscountType,
-} from '@/types';
-import { Search, UserPlus, CheckCircle2, Printer, MessageCircle, Plus } from 'lucide-react';
-import { BillReceipt } from '@/components/print/BillReceipt';
-import { validatePatientForm, computeSmartAge, formatAgeDisplay, type ValidationErrors } from '@/lib/validation';
+} from "@/types";
+import {
+  Search,
+  UserPlus,
+  CheckCircle2,
+  Printer,
+  MessageCircle,
+  Plus,
+} from "lucide-react";
+import { BillReceipt } from "@/components/print/BillReceipt";
+import {
+  validatePatientForm,
+  computeSmartAge,
+  formatAgeDisplay,
+  type ValidationErrors,
+} from "@/lib/validation";
 import {
   areReferralPayoutsEqual,
   formatReferralPayout,
@@ -36,23 +51,23 @@ import {
   toReferralPayoutDraft,
   toReferralPayoutPayload,
   type ReferralPayoutDraft,
-} from '@/lib/referralPayouts';
+} from "@/lib/referralPayouts";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from '@/components/ui/dialog';
+} from "@/components/ui/dialog";
 
-type DiscountMode = 'NONE' | BillDiscountType;
+type DiscountMode = "NONE" | BillDiscountType;
 
 const DiagnosticsNewVisit = () => {
   const navigate = useNavigate();
@@ -64,60 +79,82 @@ const DiagnosticsNewVisit = () => {
   // API data state
   const [products, setProducts] = useState<ProductForSelector[]>([]);
   const [referralDoctors, setReferralDoctors] = useState<ReferralDoctor[]>([]);
-  const [diagnosticCenters, setDiagnosticCenters] = useState<DiagnosticCenter[]>([]);
+  const [diagnosticCenters, setDiagnosticCenters] = useState<
+    DiagnosticCenter[]
+  >([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedCenterId, setSelectedCenterId] = useState<string>('');
+  const [selectedCenterId, setSelectedCenterId] = useState<string>("");
 
-  const [phone, setPhone] = useState('');
-  const [billSearch, setBillSearch] = useState('');
-  const [matchingPatients, setMatchingPatients] = useState<PatientSearchResult[]>([]);
+  const [phone, setPhone] = useState("");
+  const [billSearch, setBillSearch] = useState("");
+  const [matchingPatients, setMatchingPatients] = useState<
+    PatientSearchResult[]
+  >([]);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [showNewPatientForm, setShowNewPatientForm] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
-  const [paymentType, setPaymentType] = useState<PaymentType>('CASH');
-  const [discountMode, setDiscountMode] = useState<DiscountMode>('NONE');
-  const [discountValue, setDiscountValue] = useState('');
-  const [paidAmount, setPaidAmount] = useState('');
-  const [selectedDoctorId, setSelectedDoctorId] = useState<string>('');
-  const [referralOverrides, setReferralOverrides] = useState<Record<string, ReferralPayoutDraft>>({});
-  const [diagnosticCenterOverrides, setDiagnosticCenterOverrides] = useState<Record<string, ReferralPayoutDraft>>({});
-  const [successData, setSuccessData] = useState<{ visitView: DiagnosticVisitView } | null>(null);
+  const [paymentMode, setPaymentMode] = useState<"CASH" | "ONLINE" | "SPLIT">(
+    "CASH",
+  );
+  const [splitAmounts, setSplitAmounts] = useState({ cash: 0, online: 0 });
+  const [discountMode, setDiscountMode] = useState<DiscountMode>("NONE");
+  const [discountValue, setDiscountValue] = useState("");
+  const [paidAmount, setPaidAmount] = useState("");
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string>("");
+  const [referralOverrides, setReferralOverrides] = useState<
+    Record<string, ReferralPayoutDraft>
+  >({});
+  const [diagnosticCenterOverrides, setDiagnosticCenterOverrides] = useState<
+    Record<string, ReferralPayoutDraft>
+  >({});
+  const [successData, setSuccessData] = useState<{
+    visitView: DiagnosticVisitView;
+  } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [billLogoLoaded, setBillLogoLoaded] = useState(false);
   const [whatsappOptIn, setWhatsappOptIn] = useState(true); // For existing patients
 
   // New patient form
   const [newPatient, setNewPatient] = useState({
-    name: '',
-    age: '',
-    ageUnit: 'YEARS' as 'DAYS' | 'MONTHS' | 'YEARS',
-    dateOfBirth: '', // E2-09: Optional DOB field
-    gender: 'M' as 'M' | 'F' | 'O',
+    name: "",
+    age: "",
+    ageUnit: "YEARS" as "DAYS" | "MONTHS" | "YEARS",
+    dateOfBirth: "", // E2-09: Optional DOB field
+    gender: "M" as "M" | "F" | "O",
     whatsappOptIn: true, // Default: opted in for WhatsApp notifications
   });
-  
+
   // E2-10: Validation errors
-  const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>(
+    {},
+  );
 
   // Quick-add dialogs
   const [showAddDoctorDialog, setShowAddDoctorDialog] = useState(false);
   const [showAddCenterDialog, setShowAddCenterDialog] = useState(false);
   const [showAddProductDialog, setShowAddProductDialog] = useState(false);
-  const [newDoctorName, setNewDoctorName] = useState('');
-  const [newDoctorPhone, setNewDoctorPhone] = useState('');
-  const [newCenterName, setNewCenterName] = useState('');
-  const [newCenterPhone, setNewCenterPhone] = useState('');
-  const [newProductName, setNewProductName] = useState('');
-  const [newProductCode, setNewProductCode] = useState('');
-  const [newProductPrice, setNewProductPrice] = useState('');
-  const [newProductDescription, setNewProductDescription] = useState('');
+  const [newDoctorName, setNewDoctorName] = useState("");
+  const [newDoctorPhone, setNewDoctorPhone] = useState("");
+  const [newCenterName, setNewCenterName] = useState("");
+  const [newCenterPhone, setNewCenterPhone] = useState("");
+  const [newProductName, setNewProductName] = useState("");
+  const [newProductCode, setNewProductCode] = useState("");
+  const [newProductPrice, setNewProductPrice] = useState("");
+  const [newProductDescription, setNewProductDescription] = useState("");
   const [isCreatingDoctor, setIsCreatingDoctor] = useState(false);
   const [isCreatingCenter, setIsCreatingCenter] = useState(false);
   const [isCreatingProduct, setIsCreatingProduct] = useState(false);
   const [doctorExistingMatch, setDoctorExistingMatch] = useState<any>(null);
   const [doctorLinkedId, setDoctorLinkedId] = useState<string | null>(null);
 
-  const normalizeSelectableProduct = (product: Partial<ProductForSelector> & { id: string; name: string; code: string; productType: string }) => {
+  const normalizeSelectableProduct = (
+    product: Partial<ProductForSelector> & {
+      id: string;
+      name: string;
+      code: string;
+      productType: string;
+    },
+  ) => {
     const basePrice = Number(product.basePrice ?? 0);
     const effectivePrice = Number(product.effectivePrice ?? basePrice);
 
@@ -125,10 +162,10 @@ const DiagnosticsNewVisit = () => {
       ...product,
       basePrice,
       effectivePrice,
-      priceSource: product.priceSource ?? 'BASE',
+      priceSource: product.priceSource ?? "BASE",
       description: product.description ?? null,
       panelCount: product.panelCount ?? 0,
-      workflowMode: product.workflowMode ?? 'REPORTABLE',
+      workflowMode: product.workflowMode ?? "REPORTABLE",
       isActive: product.isActive ?? true,
     } as ProductForSelector;
   };
@@ -137,12 +174,12 @@ const DiagnosticsNewVisit = () => {
   useEffect(() => {
     const fetchData = async () => {
       if (!token || !activeBranch) return;
-      
+
       try {
         const headers = {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'X-Branch-Id': activeBranch.id,
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "X-Branch-Id": activeBranch.id,
         };
 
         const [productsRes, doctorsRes, centersRes] = await Promise.all([
@@ -164,7 +201,7 @@ const DiagnosticsNewVisit = () => {
           setDiagnosticCenters(centers);
         }
       } catch (error) {
-        console.error('Failed to fetch data:', error);
+        console.error("Failed to fetch data:", error);
       } finally {
         setIsLoading(false);
       }
@@ -173,17 +210,21 @@ const DiagnosticsNewVisit = () => {
     fetchData();
   }, [token, activeBranch]);
 
-  const selectedDoctor = referralDoctors.find((doctor) => doctor.id === selectedDoctorId);
-  const selectedCenter = diagnosticCenters.find((center) => center.id === selectedCenterId);
+  const selectedDoctor = referralDoctors.find(
+    (doctor) => doctor.id === selectedDoctorId,
+  );
+  const selectedCenter = diagnosticCenters.find(
+    (center) => center.id === selectedCenterId,
+  );
 
   const buildOverridesForProducts = (
     productIds: string[],
     resolveSavedPayout: (productId: string) => {
-      commissionType?: 'PERCENTAGE' | 'FIXED_AMOUNT' | null;
+      commissionType?: "PERCENTAGE" | "FIXED_AMOUNT" | null;
       commissionPercent?: number | null;
       commissionAmountInPaise?: number | null;
     },
-    existing: Record<string, ReferralPayoutDraft> = {}
+    existing: Record<string, ReferralPayoutDraft> = {},
   ) => {
     const next: Record<string, ReferralPayoutDraft> = {};
 
@@ -203,16 +244,16 @@ const DiagnosticsNewVisit = () => {
     setIsCreatingDoctor(true);
     try {
       const res = await fetch(`${API_BASE}/referral-doctors`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'X-Branch-Id': activeBranch.id,
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "X-Branch-Id": activeBranch.id,
         },
         body: JSON.stringify({
           name: newDoctorName.trim(),
           phone: newDoctorPhone.trim() || undefined,
-          commissionType: 'PERCENTAGE',
+          commissionType: "PERCENTAGE",
           commissionPercent: 10,
         }),
       });
@@ -222,22 +263,21 @@ const DiagnosticsNewVisit = () => {
         setReferralDoctors((prev) => [...prev, doctor]);
         setSelectedDoctorId(doctor.id);
         setReferralOverrides(
-          buildOverridesForProducts(
-            selectedProducts,
-            (productId) => getEffectiveDoctorPayout(doctor, productId)
-          )
+          buildOverridesForProducts(selectedProducts, (productId) =>
+            getEffectiveDoctorPayout(doctor, productId),
+          ),
         );
         setShowAddDoctorDialog(false);
-        setNewDoctorName('');
-        setNewDoctorPhone('');
+        setNewDoctorName("");
+        setNewDoctorPhone("");
         toast.success(`Added ${doctor.name}`);
       } else {
         const err = await res.json();
-        toast.error(err.message || 'Failed to create doctor');
+        toast.error(err.message || "Failed to create doctor");
       }
     } catch (error) {
-      console.error('Create doctor failed:', error);
-      toast.error('Failed to create doctor');
+      console.error("Create doctor failed:", error);
+      toast.error("Failed to create doctor");
     } finally {
       setIsCreatingDoctor(false);
     }
@@ -250,16 +290,16 @@ const DiagnosticsNewVisit = () => {
     setIsCreatingCenter(true);
     try {
       const res = await fetch(`${API_BASE}/diagnostic-centers`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'X-Branch-Id': activeBranch.id,
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "X-Branch-Id": activeBranch.id,
         },
         body: JSON.stringify({
           name: newCenterName.trim(),
           phone: newCenterPhone.trim() || undefined,
-          commissionType: 'PERCENTAGE',
+          commissionType: "PERCENTAGE",
           commissionPercent: 0,
         }),
       });
@@ -269,50 +309,59 @@ const DiagnosticsNewVisit = () => {
         setDiagnosticCenters((prev) => [...prev, center]);
         setSelectedCenterId(center.id);
         setDiagnosticCenterOverrides(
-          buildOverridesForProducts(
-            selectedProducts,
-            (productId) => getEffectiveDiagnosticCenterPayout(center, productId)
-          )
+          buildOverridesForProducts(selectedProducts, (productId) =>
+            getEffectiveDiagnosticCenterPayout(center, productId),
+          ),
         );
         setShowAddCenterDialog(false);
-        setNewCenterName('');
-        setNewCenterPhone('');
+        setNewCenterName("");
+        setNewCenterPhone("");
         toast.success(`Added ${center.name}`);
       } else {
         const err = await res.json();
-        toast.error(err.message || 'Failed to create center');
+        toast.error(err.message || "Failed to create center");
       }
     } catch (error) {
-      console.error('Create center failed:', error);
-      toast.error('Failed to create center');
+      console.error("Create center failed:", error);
+      toast.error("Failed to create center");
     } finally {
       setIsCreatingCenter(false);
     }
   };
 
   const handleCreateProduct = async () => {
-    if (!newProductName.trim() || !newProductCode.trim() || !newProductPrice || !token || !activeBranch) return;
+    if (
+      !newProductName.trim() ||
+      !newProductCode.trim() ||
+      !newProductPrice ||
+      !token ||
+      !activeBranch
+    )
+      return;
 
     setIsCreatingProduct(true);
     try {
-      const res = await fetch(`${API_BASE}/billable-products/quick-create-bill-only`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'X-Branch-Id': activeBranch.id,
+      const res = await fetch(
+        `${API_BASE}/billable-products/quick-create-bill-only`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            "X-Branch-Id": activeBranch.id,
+          },
+          body: JSON.stringify({
+            name: newProductName.trim(),
+            code: newProductCode.trim(),
+            basePrice: parseFloat(newProductPrice),
+            description: newProductDescription.trim() || null,
+          }),
         },
-        body: JSON.stringify({
-          name: newProductName.trim(),
-          code: newProductCode.trim(),
-          basePrice: parseFloat(newProductPrice),
-          description: newProductDescription.trim() || null,
-        }),
-      });
+      );
 
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.message || 'Failed to create product');
+        throw new Error(err.message || "Failed to create product");
       }
 
       const product = normalizeSelectableProduct(await res.json());
@@ -326,7 +375,7 @@ const DiagnosticsNewVisit = () => {
         return buildOverridesForProducts(
           [...selectedProducts, product.id],
           (productId) => getEffectiveDoctorPayout(selectedDoctor, productId),
-          prev
+          prev,
         );
       });
       setDiagnosticCenterOverrides((prev) => {
@@ -336,29 +385,30 @@ const DiagnosticsNewVisit = () => {
 
         return buildOverridesForProducts(
           [...selectedProducts, product.id],
-          (productId) => getEffectiveDiagnosticCenterPayout(selectedCenter, productId),
-          prev
+          (productId) =>
+            getEffectiveDiagnosticCenterPayout(selectedCenter, productId),
+          prev,
         );
       });
       setShowAddProductDialog(false);
-      setNewProductName('');
-      setNewProductCode('');
-      setNewProductPrice('');
-      setNewProductDescription('');
+      setNewProductName("");
+      setNewProductCode("");
+      setNewProductPrice("");
+      setNewProductDescription("");
       toast.success(`Added bill-only product ${product.name}`);
     } catch (error: any) {
-      console.error('Create product failed:', error);
-      toast.error(error.message || 'Failed to create bill-only product');
+      console.error("Create product failed:", error);
+      toast.error(error.message || "Failed to create bill-only product");
     } finally {
       setIsCreatingProduct(false);
     }
   };
 
-  const openQuickAddProductDialog = (draftName: string = '') => {
+  const openQuickAddProductDialog = (draftName: string = "") => {
     setNewProductName(draftName.trim());
-    setNewProductCode('');
-    setNewProductPrice('');
-    setNewProductDescription('');
+    setNewProductCode("");
+    setNewProductPrice("");
+    setNewProductDescription("");
     setShowAddProductDialog(true);
   };
 
@@ -368,8 +418,8 @@ const DiagnosticsNewVisit = () => {
       try {
         const res = await fetch(`${API_BASE}/patients/search?phone=${phone}`, {
           headers: {
-            'Authorization': `Bearer ${token}`,
-            'X-Branch-Id': activeBranch.id,
+            Authorization: `Bearer ${token}`,
+            "X-Branch-Id": activeBranch.id,
           },
         });
         if (res.ok) {
@@ -379,7 +429,7 @@ const DiagnosticsNewVisit = () => {
           setShowNewPatientForm(false);
         }
       } catch (error) {
-        console.error('Search failed:', error);
+        console.error("Search failed:", error);
       }
     }
   };
@@ -390,8 +440,8 @@ const DiagnosticsNewVisit = () => {
       try {
         const res = await fetch(`${API_BASE}/patients/search?phone=${value}`, {
           headers: {
-            'Authorization': `Bearer ${token}`,
-            'X-Branch-Id': activeBranch.id,
+            Authorization: `Bearer ${token}`,
+            "X-Branch-Id": activeBranch.id,
           },
         });
         if (res.ok) {
@@ -399,7 +449,7 @@ const DiagnosticsNewVisit = () => {
           setMatchingPatients(results);
         }
       } catch (error) {
-        console.error('Search failed:', error);
+        console.error("Search failed:", error);
       }
     } else {
       setMatchingPatients([]);
@@ -422,27 +472,35 @@ const DiagnosticsNewVisit = () => {
     const product = products.find((p) => p.id === prodId);
     return sum + (product?.effectivePrice ?? 0);
   }, 0);
-  const discountNumeric = discountValue.trim() === '' ? 0 : Number(discountValue);
-  const safeDiscountNumeric = Number.isFinite(discountNumeric) ? Math.max(0, discountNumeric) : 0;
+  const discountNumeric =
+    discountValue.trim() === "" ? 0 : Number(discountValue);
+  const safeDiscountNumeric = Number.isFinite(discountNumeric)
+    ? Math.max(0, discountNumeric)
+    : 0;
   const discountAmount =
-    discountMode === 'PERCENTAGE'
-      ? Math.round(((totalAmount * Math.min(safeDiscountNumeric, 100)) / 100) * 100) / 100
-      : discountMode === 'FLAT_AMOUNT'
+    discountMode === "PERCENTAGE"
+      ? Math.round(
+          ((totalAmount * Math.min(safeDiscountNumeric, 100)) / 100) * 100,
+        ) / 100
+      : discountMode === "FLAT_AMOUNT"
         ? Math.min(safeDiscountNumeric, totalAmount)
         : 0;
   const netPayable = Math.max(0, totalAmount - discountAmount);
-  const paidNumeric = paidAmount.trim() === '' ? netPayable : Number(paidAmount);
-  const safePaidAmount = Number.isFinite(paidNumeric) ? Math.max(0, paidNumeric) : 0;
+  const paidNumeric =
+    paidAmount.trim() === "" ? netPayable : Number(paidAmount);
+  const safePaidAmount = Number.isFinite(paidNumeric)
+    ? Math.max(0, paidNumeric)
+    : 0;
   const dueAmount = Math.max(0, netPayable - safePaidAmount);
   const formatMoney = (value: number) =>
-    `₹${value.toLocaleString('en-IN', {
+    `₹${value.toLocaleString("en-IN", {
       minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
       maximumFractionDigits: 2,
     })}`;
 
   const handleSubmit = async () => {
     if (!token || !activeBranch) {
-      toast.error('Not authenticated');
+      toast.error("Not authenticated");
       return;
     }
 
@@ -461,115 +519,129 @@ const DiagnosticsNewVisit = () => {
 
       if (Object.keys(errors).length > 0) {
         setValidationErrors(errors);
-        toast.error('Please fix validation errors before submitting');
+        toast.error("Please fix validation errors before submitting");
         return;
       }
 
-      if (!newPatient.name || (!newPatient.age && !newPatient.dateOfBirth)) { // E2-09: Accept either age or DOB
-        toast.error('Please fill in all patient details');
+      if (!newPatient.name || (!newPatient.age && !newPatient.dateOfBirth)) {
+        // E2-09: Accept either age or DOB
+        toast.error("Please fill in all patient details");
         return;
       }
-      
+
       try {
         const res = await fetch(`${API_BASE}/patients`, {
-          method: 'POST',
+          method: "POST",
           headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            'X-Branch-Id': activeBranch.id,
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            "X-Branch-Id": activeBranch.id,
           },
           body: JSON.stringify({
             name: newPatient.name,
             age: newPatient.age ? parseInt(newPatient.age) : undefined, // E2-09: Age optional if DOB provided
             ageUnit: newPatient.ageUnit, // Smart age unit
-            dateOfBirth: newPatient.dateOfBirth ? newPatient.dateOfBirth.split('T')[0] : undefined, // E2-09: Send date-only (YYYY-MM-DD)
+            dateOfBirth: newPatient.dateOfBirth
+              ? newPatient.dateOfBirth.split("T")[0]
+              : undefined, // E2-09: Send date-only (YYYY-MM-DD)
             gender: newPatient.gender,
-            identifiers: [{ type: 'PHONE', value: phone, isPrimary: true }],
+            identifiers: [{ type: "PHONE", value: phone, isPrimary: true }],
             whatsappOptIn: newPatient.whatsappOptIn,
           }),
         });
-        
+
         if (res.status === 409) {
           // E2-03: Potential duplicate detected
           const errorData = await res.json();
           const duplicateInfo = JSON.parse(errorData.message);
           const existing = duplicateInfo.existingPatient;
-          
+
           const userConfirm = window.confirm(
             `⚠️ Potential Duplicate Detected\n\n` +
-            `Existing Patient: ${existing.patientNumber}\n` +
-            `Name: ${existing.name}\n` +
-            `Age: ${existing.ageDisplay || existing.age}, Gender: ${existing.gender}\n` +
-            `Phone: ${existing.phone}\n\n` +
-            `This looks like the same person. Do you want to:\n` +
-            `• Click OK to USE EXISTING patient\n` +
-            `• Click Cancel to CREATE NEW patient anyway`
+              `Existing Patient: ${existing.patientNumber}\n` +
+              `Name: ${existing.name}\n` +
+              `Age: ${existing.ageDisplay || existing.age}, Gender: ${existing.gender}\n` +
+              `Phone: ${existing.phone}\n\n` +
+              `This looks like the same person. Do you want to:\n` +
+              `• Click OK to USE EXISTING patient\n` +
+              `• Click Cancel to CREATE NEW patient anyway`,
           );
-          
+
           if (userConfirm) {
             // Use existing patient
-            patient = { id: existing.id, patientNumber: existing.patientNumber, name: existing.name, age: existing.age, yearOfBirth: existing.yearOfBirth, gender: existing.gender, identifiers: existing.identifiers || [], createdAt: existing.createdAt || new Date() };
+            patient = {
+              id: existing.id,
+              patientNumber: existing.patientNumber,
+              name: existing.name,
+              age: existing.age,
+              yearOfBirth: existing.yearOfBirth,
+              gender: existing.gender,
+              identifiers: existing.identifiers || [],
+              createdAt: existing.createdAt || new Date(),
+            };
             toast.success(`Using existing patient ${existing.patientNumber}`);
           } else {
             // User wants to force create duplicate - retry with forceDuplicate flag
             const retryRes = await fetch(`${API_BASE}/patients`, {
-              method: 'POST',
+              method: "POST",
               headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                'X-Branch-Id': activeBranch.id,
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+                "X-Branch-Id": activeBranch.id,
               },
               body: JSON.stringify({
                 name: newPatient.name,
                 age: newPatient.age ? parseInt(newPatient.age) : undefined, // E2-09: Age optional if DOB provided
                 ageUnit: newPatient.ageUnit, // Smart age unit
-                dateOfBirth: newPatient.dateOfBirth ? newPatient.dateOfBirth.split('T')[0] : undefined, // E2-09: Send date-only (YYYY-MM-DD)
+                dateOfBirth: newPatient.dateOfBirth
+                  ? newPatient.dateOfBirth.split("T")[0]
+                  : undefined, // E2-09: Send date-only (YYYY-MM-DD)
                 gender: newPatient.gender,
-                identifiers: [{ type: 'PHONE', value: phone, isPrimary: true }],
+                identifiers: [{ type: "PHONE", value: phone, isPrimary: true }],
                 whatsappOptIn: newPatient.whatsappOptIn,
                 forceDuplicate: true, // E2-03: Explicit user confirmation
               }),
             });
-            
+
             if (!retryRes.ok) {
-              throw new Error('Failed to create patient');
+              throw new Error("Failed to create patient");
             }
             patient = await retryRes.json();
-            toast.success('Created new patient record');
+            toast.success("Created new patient record");
           }
         } else if (!res.ok) {
-          throw new Error('Failed to create patient');
+          throw new Error("Failed to create patient");
         } else {
           patient = await res.json();
         }
       } catch (error) {
-        toast.error('Failed to create patient');
+        toast.error("Failed to create patient");
         return;
       }
     }
 
     if (!patient) {
-      toast.error('Please select or create a patient');
+      toast.error("Please select or create a patient");
       return;
     }
 
     if (selectedProducts.length === 0) {
-      toast.error('Please select at least one test');
+      toast.error("Please select at least one test");
       return;
     }
 
-    if (discountMode === 'PERCENTAGE' && safeDiscountNumeric > 100) {
-      toast.error('Discount percentage cannot exceed 100%');
+    if (discountMode === "PERCENTAGE" && safeDiscountNumeric > 100) {
+      toast.error("Discount percentage cannot exceed 100%");
       return;
     }
 
-    if (discountMode === 'FLAT_AMOUNT' && safeDiscountNumeric > totalAmount) {
-      toast.error('Discount cannot exceed total amount');
+    if (discountMode === "FLAT_AMOUNT" && safeDiscountNumeric > totalAmount) {
+      toast.error("Discount cannot exceed total amount");
       return;
     }
 
     if (safePaidAmount > netPayable) {
-      toast.error('Paid amount cannot exceed net payable');
+      toast.error("Paid amount cannot exceed net payable");
       return;
     }
 
@@ -578,11 +650,11 @@ const DiagnosticsNewVisit = () => {
     try {
       // Create diagnostic visit via API
       const res = await fetch(`${API_BASE}/visits/diagnostic`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'X-Branch-Id': activeBranch.id,
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "X-Branch-Id": activeBranch.id,
         },
         body: JSON.stringify({
           patientId: patient.id,
@@ -594,8 +666,13 @@ const DiagnosticsNewVisit = () => {
                   .map((productId) => {
                     const draft =
                       referralOverrides[productId] ??
-                      toReferralPayoutDraft(getEffectiveDoctorPayout(selectedDoctor, productId));
-                    const savedPayout = getEffectiveDoctorPayout(selectedDoctor, productId);
+                      toReferralPayoutDraft(
+                        getEffectiveDoctorPayout(selectedDoctor, productId),
+                      );
+                    const savedPayout = getEffectiveDoctorPayout(
+                      selectedDoctor,
+                      productId,
+                    );
                     return {
                       productId,
                       payload: toReferralPayoutPayload(draft),
@@ -603,7 +680,7 @@ const DiagnosticsNewVisit = () => {
                     };
                   })
                   .filter((item) => item.hasChanged)
-                  .map((item) => [item.productId, item.payload])
+                  .map((item) => [item.productId, item.payload]),
               )
             : undefined,
           diagnosticCenterOverrides: selectedCenterId
@@ -612,8 +689,16 @@ const DiagnosticsNewVisit = () => {
                   .map((productId) => {
                     const draft =
                       diagnosticCenterOverrides[productId] ??
-                      toReferralPayoutDraft(getEffectiveDiagnosticCenterPayout(selectedCenter, productId));
-                    const savedPayout = getEffectiveDiagnosticCenterPayout(selectedCenter, productId);
+                      toReferralPayoutDraft(
+                        getEffectiveDiagnosticCenterPayout(
+                          selectedCenter,
+                          productId,
+                        ),
+                      );
+                    const savedPayout = getEffectiveDiagnosticCenterPayout(
+                      selectedCenter,
+                      productId,
+                    );
                     return {
                       productId,
                       payload: toReferralPayoutPayload(draft),
@@ -621,89 +706,121 @@ const DiagnosticsNewVisit = () => {
                     };
                   })
                   .filter((item) => item.hasChanged)
-                  .map((item) => [item.productId, item.payload])
+                  .map((item) => [item.productId, item.payload]),
               )
             : undefined,
           productIds: selectedProducts,
-          paymentType,
-          discountType: discountMode === 'NONE' ? undefined : discountMode,
-          discountValue: discountMode === 'NONE' ? undefined : safeDiscountNumeric,
+          ...(paymentMode === "SPLIT"
+            ? {
+                payments: [
+                  { type: "CASH", amount: splitAmounts.cash },
+                  { type: "ONLINE", amount: splitAmounts.online },
+                ],
+                paymentType: "SPLIT",
+              }
+            : {
+                payments: [{ type: paymentMode, amount: safePaidAmount }],
+                paymentType: paymentMode,
+              }),
+          discountType: discountMode === "NONE" ? undefined : discountMode,
+          discountValue:
+            discountMode === "NONE" ? undefined : safeDiscountNumeric,
           paidAmount: safePaidAmount,
-          sendWhatsApp: showNewPatientForm ? newPatient.whatsappOptIn : whatsappOptIn,
+          sendWhatsApp: showNewPatientForm
+            ? newPatient.whatsappOptIn
+            : whatsappOptIn,
         }),
       });
 
       if (!res.ok) {
         const error = await res.json();
-        throw new Error(error.message || 'Failed to create visit');
+        throw new Error(error.message || "Failed to create visit");
       }
 
       const visit = await res.json();
       const referralDoctor = selectedDoctorId ? selectedDoctor : undefined;
-      const apiBillItems: BillReceiptItem[] | undefined = Array.isArray(visit.billItems)
+      const apiBillItems: BillReceiptItem[] | undefined = Array.isArray(
+        visit.billItems,
+      )
         ? visit.billItems.map((item: any) => ({
             id: item.id,
             name: item.name,
             price: item.price,
             referralType: item.referralType ?? item.referralCommissionType,
-            referralPercent: item.referralPercent ?? item.referralCommissionPercent,
+            referralPercent:
+              item.referralPercent ?? item.referralCommissionPercent,
             referralAmountInPaise:
-              item.referralAmountInPaise ?? item.referralCommissionAmountInPaise,
+              item.referralAmountInPaise ??
+              item.referralCommissionAmountInPaise,
           }))
         : undefined;
-      const fallbackBillItems: BillReceiptItem[] = selectedProducts.map((prodId, index) => {
-        const product = products.find((p) => p.id === prodId)!;
-        const payoutDraft =
-          referralOverrides[prodId] ??
-          toReferralPayoutDraft(getEffectiveDoctorPayout(selectedDoctor, prodId));
-        const payoutPayload = selectedDoctorId ? toReferralPayoutPayload(payoutDraft) : undefined;
+      const fallbackBillItems: BillReceiptItem[] = selectedProducts.map(
+        (prodId, index) => {
+          const product = products.find((p) => p.id === prodId)!;
+          const payoutDraft =
+            referralOverrides[prodId] ??
+            toReferralPayoutDraft(
+              getEffectiveDoctorPayout(selectedDoctor, prodId),
+            );
+          const payoutPayload = selectedDoctorId
+            ? toReferralPayoutPayload(payoutDraft)
+            : undefined;
 
-        return {
-          id: product.id || `${visit.id}-bill-item-${index}`,
-          name: product.name,
-          price: product.effectivePrice,
-          referralType: payoutPayload?.commissionType,
-          referralPercent: payoutPayload?.commissionPercent,
-          referralAmountInPaise:
-            payoutPayload?.commissionType === 'FIXED_AMOUNT'
-              ? Math.round((payoutPayload.commissionAmount ?? 0) * 100)
-              : undefined,
-        };
-      });
+          return {
+            id: product.id || `${visit.id}-bill-item-${index}`,
+            name: product.name,
+            price: product.effectivePrice,
+            referralType: payoutPayload?.commissionType,
+            referralPercent: payoutPayload?.commissionPercent,
+            referralAmountInPaise:
+              payoutPayload?.commissionType === "FIXED_AMOUNT"
+                ? Math.round((payoutPayload.commissionAmount ?? 0) * 100)
+                : undefined,
+          };
+        },
+      );
 
       // Calculate total amount in paise from selected products
       const totalAmountInPaise =
-        typeof visit.totalAmount === 'number'
+        typeof visit.totalAmount === "number"
           ? Math.round(visit.totalAmount * 100)
-          : Math.round(selectedProducts.reduce((sum, prodId) => {
-              const product = products.find((p) => p.id === prodId);
-              return sum + (product?.effectivePrice ?? 0) * 100;
-            }, 0));
+          : Math.round(
+              selectedProducts.reduce((sum, prodId) => {
+                const product = products.find((p) => p.id === prodId);
+                return sum + (product?.effectivePrice ?? 0) * 100;
+              }, 0),
+            );
 
       // Use test orders from backend response if available, otherwise build from products
-      const testOrders: TestOrder[] = visit.testOrders ?? selectedProducts.map((prodId, index) => {
-        const product = products.find((p) => p.id === prodId)!;
-        const payoutDraft =
-          referralOverrides[prodId] ??
-          toReferralPayoutDraft(getEffectiveDoctorPayout(selectedDoctor, prodId));
-        const payoutPayload = selectedDoctorId ? toReferralPayoutPayload(payoutDraft) : undefined;
-        return {
-          id: `${visit.id}-to-${index}`,
-          visitId: visit.id,
-          productId: product.id,
-          workflowMode: product.workflowMode,
-          testName: product.name,
-          testCode: product.code,
-          priceInPaise: Math.round(product.effectivePrice * 100),
-          referenceRange: { min: 0, max: 0, unit: '' },
-          referralCommissionType: payoutPayload?.commissionType,
-          referralCommissionPercent: payoutPayload?.commissionPercent,
-          referralCommissionAmountInPaise:
-            payoutPayload?.commissionType === 'FIXED_AMOUNT'
-              ? Math.round((payoutPayload.commissionAmount ?? 0) * 100)
-              : null,
-        };
-      });
+      const testOrders: TestOrder[] =
+        visit.testOrders ??
+        selectedProducts.map((prodId, index) => {
+          const product = products.find((p) => p.id === prodId)!;
+          const payoutDraft =
+            referralOverrides[prodId] ??
+            toReferralPayoutDraft(
+              getEffectiveDoctorPayout(selectedDoctor, prodId),
+            );
+          const payoutPayload = selectedDoctorId
+            ? toReferralPayoutPayload(payoutDraft)
+            : undefined;
+          return {
+            id: `${visit.id}-to-${index}`,
+            visitId: visit.id,
+            productId: product.id,
+            workflowMode: product.workflowMode,
+            testName: product.name,
+            testCode: product.code,
+            priceInPaise: Math.round(product.effectivePrice * 100),
+            referenceRange: { min: 0, max: 0, unit: "" },
+            referralCommissionType: payoutPayload?.commissionType,
+            referralCommissionPercent: payoutPayload?.commissionPercent,
+            referralCommissionAmountInPaise:
+              payoutPayload?.commissionType === "FIXED_AMOUNT"
+                ? Math.round((payoutPayload.commissionAmount ?? 0) * 100)
+                : null,
+          };
+        });
 
       // Create view for success display
       const visitView: DiagnosticVisitView = {
@@ -712,10 +829,12 @@ const DiagnosticsNewVisit = () => {
           branchId: activeBranch.id,
           billNumber: visit.billNumber,
           patientId: patient.id,
-          domain: 'DIAGNOSTICS',
+          domain: "DIAGNOSTICS",
           totalAmountInPaise,
           paymentType,
-          paymentStatus: visit.paymentStatus ?? (visit.dueAmountInPaise > 0 ? 'PENDING' : 'PAID'),
+          paymentStatus:
+            visit.paymentStatus ??
+            (visit.dueAmountInPaise > 0 ? "PENDING" : "PAID"),
           discountType: visit.discountType ?? null,
           discountPercentage: visit.discountPercentage ?? null,
           discountAmountInPaise: visit.discountAmountInPaise ?? 0,
@@ -738,27 +857,33 @@ const DiagnosticsNewVisit = () => {
         results: [],
       };
 
-      toast.success('Visit created successfully!');
+      toast.success("Visit created successfully!");
 
       // Show WhatsApp notification toast
-      const patientPhone = selectedPatient?.identifiers?.find((i: any) => i.type === 'PHONE')?.value || phone;
-      const optedIn = showNewPatientForm ? newPatient.whatsappOptIn : whatsappOptIn;
+      const patientPhone =
+        selectedPatient?.identifiers?.find((i: any) => i.type === "PHONE")
+          ?.value || phone;
+      const optedIn = showNewPatientForm
+        ? newPatient.whatsappOptIn
+        : whatsappOptIn;
       if (patientPhone && optedIn) {
         // Auto opt-in for existing patient if checked
         if (selectedPatient && !showNewPatientForm && whatsappOptIn) {
           try {
             await fetch(`${API_BASE}/patients/${patient!.id}`, {
-              method: 'PATCH',
+              method: "PATCH",
               headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
               },
               body: JSON.stringify({ whatsappOptIn: true }),
             });
-          } catch (_) { /* non-blocking */ }
+          } catch (_) {
+            /* non-blocking */
+          }
         }
         setTimeout(() => {
-          toast('\ud83d\udcf1 Bill confirmation will be sent via WhatsApp', {
+          toast("\ud83d\udcf1 Bill confirmation will be sent via WhatsApp", {
             description: `To ${patientPhone}`,
             duration: 4000,
           });
@@ -768,7 +893,7 @@ const DiagnosticsNewVisit = () => {
       setSuccessData({ visitView });
       setBillLogoLoaded(false);
     } catch (error: any) {
-      toast.error(error.message || 'Failed to create visit');
+      toast.error(error.message || "Failed to create visit");
     } finally {
       setIsSubmitting(false);
     }
@@ -786,46 +911,74 @@ const DiagnosticsNewVisit = () => {
             <CardContent className="pt-6">
               <div className="text-center space-y-4">
                 <CheckCircle2 className="h-16 w-16 text-success mx-auto" />
-                <h2 className="text-2xl font-bold">Visit Created Successfully!</h2>
-                
+                <h2 className="text-2xl font-bold">
+                  Visit Created Successfully!
+                </h2>
+
                 <div className="bg-card rounded-lg p-4 space-y-2 text-left">
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-muted-foreground">Bill #:</span>
-                    <span className="font-mono font-bold">{successData.visitView.visit.billNumber}</span>
+                    <span className="font-mono font-bold">
+                      {successData.visitView.visit.billNumber}
+                    </span>
                   </div>
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="text-muted-foreground">Payment Status:</span>
-                    <StatusBadge status={successData.visitView.visit.paymentStatus || 'PENDING'} />
+                    <span className="text-muted-foreground">
+                      Payment Status:
+                    </span>
+                    <StatusBadge
+                      status={
+                        successData.visitView.visit.paymentStatus || "PENDING"
+                      }
+                    />
                   </div>
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-muted-foreground">Final Total:</span>
                     <span className="font-semibold">
-                      {formatMoney((successData.visitView.visit.netAmountInPaise ?? successData.visitView.visit.totalAmountInPaise) / 100)}
+                      {formatMoney(
+                        (successData.visitView.visit.netAmountInPaise ??
+                          successData.visitView.visit.totalAmountInPaise) / 100,
+                      )}
                     </span>
                   </div>
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-muted-foreground">Due:</span>
-                    <span className={successData.visitView.visit.dueAmountInPaise ? 'font-semibold text-amber-700' : 'font-semibold'}>
-                      {formatMoney((successData.visitView.visit.dueAmountInPaise ?? 0) / 100)}
+                    <span
+                      className={
+                        successData.visitView.visit.dueAmountInPaise
+                          ? "font-semibold text-amber-700"
+                          : "font-semibold"
+                      }
+                    >
+                      {formatMoney(
+                        (successData.visitView.visit.dueAmountInPaise ?? 0) /
+                          100,
+                      )}
                     </span>
                   </div>
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <span className="text-muted-foreground">Visit Status:</span>
                     <span className="text-sm font-medium">
                       {successData.visitView.visit.hasReportableOrders
-                        ? 'Waiting for results entry'
-                        : 'Completed at billing'}
+                        ? "Waiting for results entry"
+                        : "Completed at billing"}
                     </span>
                   </div>
                   {!successData.visitView.visit.hasReportableOrders && (
                     <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                      <span className="text-muted-foreground">Report Flow:</span>
-                      <span className="text-sm font-medium">No report workflow for bill-only items</span>
+                      <span className="text-muted-foreground">
+                        Report Flow:
+                      </span>
+                      <span className="text-sm font-medium">
+                        No report workflow for bill-only items
+                      </span>
                     </div>
                   )}
                   {successData.visitView.referralDoctor && (
                     <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                      <span className="text-muted-foreground">Referred By:</span>
+                      <span className="text-muted-foreground">
+                        Referred By:
+                      </span>
                       <span>{successData.visitView.referralDoctor.name}</span>
                     </div>
                   )}
@@ -839,33 +992,53 @@ const DiagnosticsNewVisit = () => {
                     disabled={!billLogoLoaded}
                   >
                     <Printer className="mr-2 h-4 w-4" />
-                    {billLogoLoaded ? 'Print Bill' : 'Preparing Print...'}
+                    {billLogoLoaded ? "Print Bill" : "Preparing Print..."}
                   </Button>
-                  <Button className="w-full sm:w-auto" onClick={() => {
-                    setSuccessData(null);
-                    setPhone('');
-                    setMatchingPatients([]);
-                    setSelectedPatient(null);
-                    setSelectedProducts([]);
-                    setDiscountMode('NONE');
-                    setDiscountValue('');
-                    setPaidAmount('');
-                    setShowNewPatientForm(false);
-                    setSelectedDoctorId('');
-                    setReferralOverrides({});
-                    setDiagnosticCenterOverrides({});
-                    setSelectedCenterId('');
-                    setNewPatient({ name: '', age: '', ageUnit: 'YEARS', dateOfBirth: '', gender: 'M', whatsappOptIn: false }); // E2-09: Reset form
-                    setValidationErrors({});
-                  }}>
+                  <Button
+                    className="w-full sm:w-auto"
+                    onClick={() => {
+                      setSuccessData(null);
+                      setPhone("");
+                      setMatchingPatients([]);
+                      setSelectedPatient(null);
+                      setSelectedProducts([]);
+                      setDiscountMode("NONE");
+                      setDiscountValue("");
+                      setPaidAmount("");
+                      setShowNewPatientForm(false);
+                      setSelectedDoctorId("");
+                      setReferralOverrides({});
+                      setDiagnosticCenterOverrides({});
+                      setSelectedCenterId("");
+                      setPaymentMode("CASH");
+                      setSplitAmounts({ cash: 0, online: 0 });
+                      setNewPatient({
+                        name: "",
+                        age: "",
+                        ageUnit: "YEARS",
+                        dateOfBirth: "",
+                        gender: "M",
+                        whatsappOptIn: false,
+                      }); // E2-09: Reset form
+                      setValidationErrors({});
+                    }}
+                  >
                     Create Another Visit
                   </Button>
                   {successData.visitView.visit.hasReportableOrders ? (
-                    <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate('/diagnostics/pending')}>
+                    <Button
+                      className="w-full sm:w-auto"
+                      variant="outline"
+                      onClick={() => navigate("/diagnostics/pending")}
+                    >
                       View Pending Results
                     </Button>
                   ) : (
-                    <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate('/')}>
+                    <Button
+                      className="w-full sm:w-auto"
+                      variant="outline"
+                      onClick={() => navigate("/")}
+                    >
                       Back to Dashboard
                     </Button>
                   )}
@@ -882,38 +1055,52 @@ const DiagnosticsNewVisit = () => {
             data={{
               billNumber: successData.visitView.visit.billNumber,
               date: successData.visitView.visit.createdAt,
-              domain: 'DIAGNOSTICS',
+              domain: "DIAGNOSTICS",
               branchName: activeBranch?.name,
               patient: {
                 name: successData.visitView.patient.name,
-                phone: successData.visitView.patient.identifiers?.find((i: any) => i.type === 'PHONE')?.value || '',
+                phone:
+                  successData.visitView.patient.identifiers?.find(
+                    (i: any) => i.type === "PHONE",
+                  )?.value || "",
                 age: successData.visitView.patient.age,
                 ageUnit: (successData.visitView.patient as any).ageUnit,
                 ageDisplay: (successData.visitView.patient as any).ageDisplay,
                 gender: successData.visitView.patient.gender,
               },
-              referralDoctor: successData.visitView.referralDoctor ? {
-                name: successData.visitView.referralDoctor.name,
-              } : undefined,
+              referralDoctor: successData.visitView.referralDoctor
+                ? {
+                    name: successData.visitView.referralDoctor.name,
+                  }
+                : undefined,
               paymentType: successData.visitView.visit.paymentType,
+              transactions: successData.visitView.visit.transactions || [],
               paymentStatus: successData.visitView.visit.paymentStatus,
               totalAmount: successData.visitView.visit.totalAmountInPaise / 100,
               discountType: successData.visitView.visit.discountType,
-              discountPercentage: successData.visitView.visit.discountPercentage,
-              discountAmountInPaise: successData.visitView.visit.discountAmountInPaise,
+              discountPercentage:
+                successData.visitView.visit.discountPercentage,
+              discountAmountInPaise:
+                successData.visitView.visit.discountAmountInPaise,
               paidAmountInPaise: successData.visitView.visit.paidAmountInPaise,
               netAmountInPaise: successData.visitView.visit.netAmountInPaise,
               dueAmountInPaise: successData.visitView.visit.dueAmountInPaise,
-              items: successData.visitView.billItems ?? successData.visitView.testOrders.map((order) => ({
-                id: order.id,
-                name: order.testName,
-                price: order.priceInPaise / 100,
-                referralType: successData.visitView.referralDoctor ? order.referralCommissionType : undefined,
-                referralPercent: successData.visitView.referralDoctor ? order.referralCommissionPercent : undefined,
-                referralAmountInPaise: successData.visitView.referralDoctor
-                  ? order.referralCommissionAmountInPaise ?? undefined
-                  : undefined,
-              })),
+              items:
+                successData.visitView.billItems ??
+                successData.visitView.testOrders.map((order) => ({
+                  id: order.id,
+                  name: order.testName,
+                  price: order.priceInPaise / 100,
+                  referralType: successData.visitView.referralDoctor
+                    ? order.referralCommissionType
+                    : undefined,
+                  referralPercent: successData.visitView.referralDoctor
+                    ? order.referralCommissionPercent
+                    : undefined,
+                  referralAmountInPaise: successData.visitView.referralDoctor
+                    ? (order.referralCommissionAmountInPaise ?? undefined)
+                    : undefined,
+                })),
             }}
           />
         </div>
@@ -926,7 +1113,9 @@ const DiagnosticsNewVisit = () => {
       <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
         <div>
           <h1 className="text-2xl font-bold">New Diagnostic Visit</h1>
-          <p className="text-muted-foreground">Register a patient for lab tests and generate a bill.</p>
+          <p className="text-muted-foreground">
+            Register a patient for lab tests and generate a bill.
+          </p>
         </div>
 
         {/* Patient Lookup */}
@@ -943,10 +1132,18 @@ const DiagnosticsNewVisit = () => {
                     id="phone"
                     placeholder="Enter 10-digit phone"
                     value={phone}
-                    onChange={(e) => handlePhoneChange(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    onChange={(e) =>
+                      handlePhoneChange(
+                        e.target.value.replace(/\D/g, "").slice(0, 10),
+                      )
+                    }
                     maxLength={10}
                   />
-                  <Button className="w-full sm:w-auto" onClick={handleSearch} variant="secondary">
+                  <Button
+                    className="w-full sm:w-auto"
+                    onClick={handleSearch}
+                    variant="secondary"
+                  >
                     <Search className="h-4 w-4" />
                   </Button>
                 </div>
@@ -971,10 +1168,12 @@ const DiagnosticsNewVisit = () => {
               <CardTitle>Matching Patients</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <RadioGroup 
-                value={selectedPatient?.id || ''} 
+              <RadioGroup
+                value={selectedPatient?.id || ""}
                 onValueChange={(id) => {
-                  const result = matchingPatients.find((r) => r.patient.id === id);
+                  const result = matchingPatients.find(
+                    (r) => r.patient.id === id,
+                  );
                   if (result) handleSelectPatient(result);
                 }}
               >
@@ -982,17 +1181,26 @@ const DiagnosticsNewVisit = () => {
                   <div
                     key={result.patient.id}
                     className={`flex items-center space-x-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                      selectedPatient?.id === result.patient.id 
-                        ? 'border-primary bg-accent' 
-                        : 'border-border hover:bg-muted'
+                      selectedPatient?.id === result.patient.id
+                        ? "border-primary bg-accent"
+                        : "border-border hover:bg-muted"
                     }`}
                     onClick={() => handleSelectPatient(result)}
                   >
-                    <RadioGroupItem value={result.patient.id} id={result.patient.id} />
-                    <Label htmlFor={result.patient.id} className="flex-1 cursor-pointer">
+                    <RadioGroupItem
+                      value={result.patient.id}
+                      id={result.patient.id}
+                    />
+                    <Label
+                      htmlFor={result.patient.id}
+                      className="flex-1 cursor-pointer"
+                    >
                       <span className="font-medium">{result.patient.name}</span>
                       <span className="text-muted-foreground ml-2">
-                        | {result.patient.ageDisplay || `${result.patient.age} Years`} | {result.patient.gender}
+                        |{" "}
+                        {result.patient.ageDisplay ||
+                          `${result.patient.age} Years`}{" "}
+                        | {result.patient.gender}
                       </span>
                     </Label>
                   </div>
@@ -1028,13 +1236,18 @@ const DiagnosticsNewVisit = () => {
                     onChange={(e) => {
                       setNewPatient({ ...newPatient, name: e.target.value });
                       if (validationErrors.name) {
-                        setValidationErrors({ ...validationErrors, name: undefined });
+                        setValidationErrors({
+                          ...validationErrors,
+                          name: undefined,
+                        });
                       }
                     }}
-                    className={validationErrors.name ? 'border-red-500' : ''}
+                    className={validationErrors.name ? "border-red-500" : ""}
                   />
                   {validationErrors.name && (
-                    <p className="text-sm text-red-500">{validationErrors.name}</p>
+                    <p className="text-sm text-red-500">
+                      {validationErrors.name}
+                    </p>
                   )}
                 </div>
                 <div className="space-y-2">
@@ -1047,13 +1260,20 @@ const DiagnosticsNewVisit = () => {
                       const dob = e.target.value;
                       if (dob) {
                         const smart = computeSmartAge(dob);
-                        setNewPatient({ ...newPatient, dateOfBirth: dob, age: smart.age.toString(), ageUnit: smart.unit });
+                        setNewPatient({
+                          ...newPatient,
+                          dateOfBirth: dob,
+                          age: smart.age.toString(),
+                          ageUnit: smart.unit,
+                        });
                       } else {
                         setNewPatient({ ...newPatient, dateOfBirth: dob });
                       }
                     }}
                   />
-                  <p className="text-xs text-gray-500">If DOB is entered, age will be calculated automatically</p>
+                  <p className="text-xs text-gray-500">
+                    If DOB is entered, age will be calculated automatically
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="age">Age *</Label>
@@ -1066,14 +1286,22 @@ const DiagnosticsNewVisit = () => {
                       onChange={(e) => {
                         setNewPatient({ ...newPatient, age: e.target.value });
                         if (validationErrors.age) {
-                          setValidationErrors({ ...validationErrors, age: undefined });
+                          setValidationErrors({
+                            ...validationErrors,
+                            age: undefined,
+                          });
                         }
                       }}
-                      className={`flex-1 ${validationErrors.age ? 'border-red-500' : ''}`}
+                      className={`flex-1 ${validationErrors.age ? "border-red-500" : ""}`}
                     />
                     <Select
                       value={newPatient.ageUnit}
-                      onValueChange={(v) => setNewPatient({ ...newPatient, ageUnit: v as 'DAYS' | 'MONTHS' | 'YEARS' })}
+                      onValueChange={(v) =>
+                        setNewPatient({
+                          ...newPatient,
+                          ageUnit: v as "DAYS" | "MONTHS" | "YEARS",
+                        })
+                      }
                     >
                       <SelectTrigger className="w-full sm:w-[110px]">
                         <SelectValue />
@@ -1086,7 +1314,9 @@ const DiagnosticsNewVisit = () => {
                     </Select>
                   </div>
                   {validationErrors.age && (
-                    <p className="text-sm text-red-500">{validationErrors.age}</p>
+                    <p className="text-sm text-red-500">
+                      {validationErrors.age}
+                    </p>
                   )}
                 </div>
                 <div className="space-y-2">
@@ -1094,14 +1324,20 @@ const DiagnosticsNewVisit = () => {
                   <RadioGroup
                     value={newPatient.gender}
                     onValueChange={(v) => {
-                      setNewPatient({ ...newPatient, gender: v as 'M' | 'F' | 'O' });
+                      setNewPatient({
+                        ...newPatient,
+                        gender: v as "M" | "F" | "O",
+                      });
                       if (validationErrors.gender) {
-                        setValidationErrors({ ...validationErrors, gender: undefined });
+                        setValidationErrors({
+                          ...validationErrors,
+                          gender: undefined,
+                        });
                       }
                     }}
                     className="flex flex-wrap gap-4"
                   >
-                    {['M', 'F', 'O'].map((g) => (
+                    {["M", "F", "O"].map((g) => (
                       <div key={g} className="flex items-center space-x-2">
                         <RadioGroupItem value={g} id={`gender-${g}`} />
                         <Label htmlFor={`gender-${g}`}>{g}</Label>
@@ -1109,11 +1345,13 @@ const DiagnosticsNewVisit = () => {
                     ))}
                   </RadioGroup>
                   {validationErrors.gender && (
-                    <p className="text-sm text-red-500">{validationErrors.gender}</p>
+                    <p className="text-sm text-red-500">
+                      {validationErrors.gender}
+                    </p>
                   )}
                 </div>
               </div>
-              
+
               {/* Phone validation error */}
               {validationErrors.phone && (
                 <div className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-md p-3">
@@ -1127,10 +1365,16 @@ const DiagnosticsNewVisit = () => {
                   id="whatsappOptIn"
                   checked={newPatient.whatsappOptIn}
                   onCheckedChange={(checked) =>
-                    setNewPatient({ ...newPatient, whatsappOptIn: checked === true })
+                    setNewPatient({
+                      ...newPatient,
+                      whatsappOptIn: checked === true,
+                    })
                   }
                 />
-                <Label htmlFor="whatsappOptIn" className="flex items-center gap-2 text-sm cursor-pointer">
+                <Label
+                  htmlFor="whatsappOptIn"
+                  className="flex items-center gap-2 text-sm cursor-pointer"
+                >
                   <MessageCircle className="h-4 w-4 text-green-600" />
                   Send reports & bill confirmations via WhatsApp
                 </Label>
@@ -1155,25 +1399,34 @@ const DiagnosticsNewVisit = () => {
                   setReferralOverrides((prev) => {
                     if (!selectedDoctor) {
                       return Object.fromEntries(
-                        Object.entries(prev).filter(([productId]) => productIds.includes(productId))
+                        Object.entries(prev).filter(([productId]) =>
+                          productIds.includes(productId),
+                        ),
                       );
                     }
                     return buildOverridesForProducts(
                       productIds,
-                      (productId) => getEffectiveDoctorPayout(selectedDoctor, productId),
-                      prev
+                      (productId) =>
+                        getEffectiveDoctorPayout(selectedDoctor, productId),
+                      prev,
                     );
                   });
                   setDiagnosticCenterOverrides((prev) => {
                     if (!selectedCenter) {
                       return Object.fromEntries(
-                        Object.entries(prev).filter(([productId]) => productIds.includes(productId))
+                        Object.entries(prev).filter(([productId]) =>
+                          productIds.includes(productId),
+                        ),
                       );
                     }
                     return buildOverridesForProducts(
                       productIds,
-                      (productId) => getEffectiveDiagnosticCenterPayout(selectedCenter, productId),
-                      prev
+                      (productId) =>
+                        getEffectiveDiagnosticCenterPayout(
+                          selectedCenter,
+                          productId,
+                        ),
+                      prev,
                     );
                   });
                 }}
@@ -1198,19 +1451,26 @@ const DiagnosticsNewVisit = () => {
                     value={selectedDoctorId}
                     onValueChange={(value) => {
                       setSelectedDoctorId(value);
-                      const doctor = referralDoctors.find((item) => item.id === value);
+                      const doctor = referralDoctors.find(
+                        (item) => item.id === value,
+                      );
                       setReferralOverrides(
                         buildOverridesForProducts(
                           selectedProducts,
-                          (productId) => getEffectiveDoctorPayout(doctor, productId)
-                        )
+                          (productId) =>
+                            getEffectiveDoctorPayout(doctor, productId),
+                        ),
                       );
                     }}
                     options={referralDoctors.map((doctor) => ({
                       value: doctor.id,
                       label: doctor.name,
-                      description: [doctor.doctorNumber, doctor.phone].filter(Boolean).join(' · '),
-                      keywords: [doctor.name, doctor.doctorNumber, doctor.phone].filter(Boolean).join(' '),
+                      description: [doctor.doctorNumber, doctor.phone]
+                        .filter(Boolean)
+                        .join(" · "),
+                      keywords: [doctor.name, doctor.doctorNumber, doctor.phone]
+                        .filter(Boolean)
+                        .join(" "),
                     }))}
                     placeholder="Search referral doctor"
                     searchPlaceholder="Search by doctor name, phone or number"
@@ -1222,7 +1482,7 @@ const DiagnosticsNewVisit = () => {
                       type="button"
                       variant="outline"
                       onClick={() => {
-                        setSelectedDoctorId('');
+                        setSelectedDoctorId("");
                         setReferralOverrides({});
                       }}
                     >
@@ -1246,21 +1506,38 @@ const DiagnosticsNewVisit = () => {
                     value={selectedCenterId}
                     onValueChange={(value) => {
                       setSelectedCenterId(value);
-                      const center = diagnosticCenters.find((item) => item.id === value);
+                      const center = diagnosticCenters.find(
+                        (item) => item.id === value,
+                      );
                       setDiagnosticCenterOverrides(
                         buildOverridesForProducts(
                           selectedProducts,
-                          (productId) => getEffectiveDiagnosticCenterPayout(center, productId)
-                        )
+                          (productId) =>
+                            getEffectiveDiagnosticCenterPayout(
+                              center,
+                              productId,
+                            ),
+                        ),
                       );
                     }}
                     options={diagnosticCenters.map((center) => ({
                       value: center.id,
                       label: center.name,
-                      description: [center.centerNumber, center.contactPerson, center.phone].filter(Boolean).join(' · '),
-                      keywords: [center.name, center.centerNumber, center.contactPerson, center.phone]
+                      description: [
+                        center.centerNumber,
+                        center.contactPerson,
+                        center.phone,
+                      ]
                         .filter(Boolean)
-                        .join(' '),
+                        .join(" · "),
+                      keywords: [
+                        center.name,
+                        center.centerNumber,
+                        center.contactPerson,
+                        center.phone,
+                      ]
+                        .filter(Boolean)
+                        .join(" "),
                     }))}
                     placeholder="Search external diagnostic center"
                     searchPlaceholder="Search by center name, number, contact or phone"
@@ -1272,7 +1549,7 @@ const DiagnosticsNewVisit = () => {
                       type="button"
                       variant="outline"
                       onClick={() => {
-                        setSelectedCenterId('');
+                        setSelectedCenterId("");
                         setDiagnosticCenterOverrides({});
                       }}
                     >
@@ -1293,9 +1570,12 @@ const DiagnosticsNewVisit = () => {
                 <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div className="space-y-1">
-                      <Label className="text-base">Doctor payout by product</Label>
+                      <Label className="text-base">
+                        Doctor payout by product
+                      </Label>
                       <p className="text-sm text-muted-foreground">
-                        Saved defaults come from Config Center. Any changes here will be applied to this bill and saved for future bills.
+                        Saved defaults come from Config Center. Any changes here
+                        will be applied to this bill and saved for future bills.
                       </p>
                     </div>
                     {selectedDoctor && (
@@ -1312,28 +1592,39 @@ const DiagnosticsNewVisit = () => {
                     {selectedProducts.map((productId) => {
                       const product = products.find((p) => p.id === productId);
                       if (!product) return null;
-                      const savedPayout = getEffectiveDoctorPayout(selectedDoctor, productId);
+                      const savedPayout = getEffectiveDoctorPayout(
+                        selectedDoctor,
+                        productId,
+                      );
                       const draft =
                         referralOverrides[productId] ??
                         toReferralPayoutDraft(savedPayout);
                       return (
-                        <div key={productId} className="rounded-lg border bg-background p-4">
+                        <div
+                          key={productId}
+                          className="rounded-lg border bg-background p-4"
+                        >
                           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_160px] md:items-start">
                             <div className="space-y-1">
                               <p className="font-medium">{product.name}</p>
                               <p className="text-sm text-muted-foreground">
-                                {product.code} · Config Center: {formatReferralPayout(savedPayout ?? undefined)}
+                                {product.code} · Config Center:{" "}
+                                {formatReferralPayout(savedPayout ?? undefined)}
                               </p>
                               <p className="text-xs text-muted-foreground">
-                                Payout now: {formatReferralPayout({
+                                Payout now:{" "}
+                                {formatReferralPayout({
                                   commissionType: draft.commissionType,
                                   commissionPercent:
-                                    draft.commissionType === 'PERCENTAGE'
+                                    draft.commissionType === "PERCENTAGE"
                                       ? Number(draft.commissionPercent || 0)
                                       : null,
                                   commissionAmountInPaise:
-                                    draft.commissionType === 'FIXED_AMOUNT'
-                                      ? Math.round(Number(draft.commissionAmount || 0) * 100)
+                                    draft.commissionType === "FIXED_AMOUNT"
+                                      ? Math.round(
+                                          Number(draft.commissionAmount || 0) *
+                                            100,
+                                        )
                                       : null,
                                 })}
                               </p>
@@ -1346,7 +1637,8 @@ const DiagnosticsNewVisit = () => {
                                   ...prev,
                                   [productId]: {
                                     ...(prev[productId] ?? draft),
-                                    commissionType: value as ReferralPayoutDraft['commissionType'],
+                                    commissionType:
+                                      value as ReferralPayoutDraft["commissionType"],
                                   },
                                 }));
                               }}
@@ -1355,8 +1647,12 @@ const DiagnosticsNewVisit = () => {
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="PERCENTAGE">Percentage</SelectItem>
-                                <SelectItem value="FIXED_AMOUNT">Amount</SelectItem>
+                                <SelectItem value="PERCENTAGE">
+                                  Percentage
+                                </SelectItem>
+                                <SelectItem value="FIXED_AMOUNT">
+                                  Amount
+                                </SelectItem>
                               </SelectContent>
                             </Select>
 
@@ -1364,11 +1660,23 @@ const DiagnosticsNewVisit = () => {
                               <Input
                                 type="number"
                                 min={0}
-                                max={draft.commissionType === 'PERCENTAGE' ? 100 : undefined}
-                                step={draft.commissionType === 'PERCENTAGE' ? '0.01' : '1'}
-                                placeholder={draft.commissionType === 'PERCENTAGE' ? 'Enter %' : 'Enter amount'}
+                                max={
+                                  draft.commissionType === "PERCENTAGE"
+                                    ? 100
+                                    : undefined
+                                }
+                                step={
+                                  draft.commissionType === "PERCENTAGE"
+                                    ? "0.01"
+                                    : "1"
+                                }
+                                placeholder={
+                                  draft.commissionType === "PERCENTAGE"
+                                    ? "Enter %"
+                                    : "Enter amount"
+                                }
                                 value={
-                                  draft.commissionType === 'PERCENTAGE'
+                                  draft.commissionType === "PERCENTAGE"
                                     ? draft.commissionPercent
                                     : draft.commissionAmount
                                 }
@@ -1379,21 +1687,23 @@ const DiagnosticsNewVisit = () => {
                                     [productId]: {
                                       ...(prev[productId] ?? draft),
                                       commissionPercent:
-                                        draft.commissionType === 'PERCENTAGE'
+                                        draft.commissionType === "PERCENTAGE"
                                           ? next
-                                          : (prev[productId] ?? draft).commissionPercent,
+                                          : (prev[productId] ?? draft)
+                                              .commissionPercent,
                                       commissionAmount:
-                                        draft.commissionType === 'FIXED_AMOUNT'
+                                        draft.commissionType === "FIXED_AMOUNT"
                                           ? next
-                                          : (prev[productId] ?? draft).commissionAmount,
+                                          : (prev[productId] ?? draft)
+                                              .commissionAmount,
                                     },
                                   }));
                                 }}
                               />
                               <p className="text-xs text-muted-foreground">
-                                {draft.commissionType === 'PERCENTAGE'
-                                  ? 'Enter the doctor share as a percentage of this product.'
-                                  : 'Enter the exact rupee amount the doctor should get for this product.'}
+                                {draft.commissionType === "PERCENTAGE"
+                                  ? "Enter the doctor share as a percentage of this product."
+                                  : "Enter the exact rupee amount the doctor should get for this product."}
                               </p>
                             </div>
                           </div>
@@ -1408,9 +1718,12 @@ const DiagnosticsNewVisit = () => {
                 <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div className="space-y-1">
-                      <Label className="text-base">External center payout by product</Label>
+                      <Label className="text-base">
+                        External center payout by product
+                      </Label>
                       <p className="text-sm text-muted-foreground">
-                        Saved defaults come from Config Center. Any changes here will be applied to this bill and saved for future bills.
+                        Saved defaults come from Config Center. Any changes here
+                        will be applied to this bill and saved for future bills.
                       </p>
                     </div>
                     {selectedCenter && (
@@ -1427,28 +1740,39 @@ const DiagnosticsNewVisit = () => {
                     {selectedProducts.map((productId) => {
                       const product = products.find((p) => p.id === productId);
                       if (!product) return null;
-                      const savedPayout = getEffectiveDiagnosticCenterPayout(selectedCenter, productId);
+                      const savedPayout = getEffectiveDiagnosticCenterPayout(
+                        selectedCenter,
+                        productId,
+                      );
                       const draft =
                         diagnosticCenterOverrides[productId] ??
                         toReferralPayoutDraft(savedPayout);
                       return (
-                        <div key={`center-${productId}`} className="rounded-lg border bg-background p-4">
+                        <div
+                          key={`center-${productId}`}
+                          className="rounded-lg border bg-background p-4"
+                        >
                           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_160px] md:items-start">
                             <div className="space-y-1">
                               <p className="font-medium">{product.name}</p>
                               <p className="text-sm text-muted-foreground">
-                                {product.code} · Config Center: {formatReferralPayout(savedPayout ?? undefined)}
+                                {product.code} · Config Center:{" "}
+                                {formatReferralPayout(savedPayout ?? undefined)}
                               </p>
                               <p className="text-xs text-muted-foreground">
-                                Payout now: {formatReferralPayout({
+                                Payout now:{" "}
+                                {formatReferralPayout({
                                   commissionType: draft.commissionType,
                                   commissionPercent:
-                                    draft.commissionType === 'PERCENTAGE'
+                                    draft.commissionType === "PERCENTAGE"
                                       ? Number(draft.commissionPercent || 0)
                                       : null,
                                   commissionAmountInPaise:
-                                    draft.commissionType === 'FIXED_AMOUNT'
-                                      ? Math.round(Number(draft.commissionAmount || 0) * 100)
+                                    draft.commissionType === "FIXED_AMOUNT"
+                                      ? Math.round(
+                                          Number(draft.commissionAmount || 0) *
+                                            100,
+                                        )
                                       : null,
                                 })}
                               </p>
@@ -1461,7 +1785,8 @@ const DiagnosticsNewVisit = () => {
                                   ...prev,
                                   [productId]: {
                                     ...(prev[productId] ?? draft),
-                                    commissionType: value as ReferralPayoutDraft['commissionType'],
+                                    commissionType:
+                                      value as ReferralPayoutDraft["commissionType"],
                                   },
                                 }));
                               }}
@@ -1470,8 +1795,12 @@ const DiagnosticsNewVisit = () => {
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="PERCENTAGE">Percentage</SelectItem>
-                                <SelectItem value="FIXED_AMOUNT">Amount</SelectItem>
+                                <SelectItem value="PERCENTAGE">
+                                  Percentage
+                                </SelectItem>
+                                <SelectItem value="FIXED_AMOUNT">
+                                  Amount
+                                </SelectItem>
                               </SelectContent>
                             </Select>
 
@@ -1479,11 +1808,23 @@ const DiagnosticsNewVisit = () => {
                               <Input
                                 type="number"
                                 min={0}
-                                max={draft.commissionType === 'PERCENTAGE' ? 100 : undefined}
-                                step={draft.commissionType === 'PERCENTAGE' ? '0.01' : '1'}
-                                placeholder={draft.commissionType === 'PERCENTAGE' ? 'Enter %' : 'Enter amount'}
+                                max={
+                                  draft.commissionType === "PERCENTAGE"
+                                    ? 100
+                                    : undefined
+                                }
+                                step={
+                                  draft.commissionType === "PERCENTAGE"
+                                    ? "0.01"
+                                    : "1"
+                                }
+                                placeholder={
+                                  draft.commissionType === "PERCENTAGE"
+                                    ? "Enter %"
+                                    : "Enter amount"
+                                }
                                 value={
-                                  draft.commissionType === 'PERCENTAGE'
+                                  draft.commissionType === "PERCENTAGE"
                                     ? draft.commissionPercent
                                     : draft.commissionAmount
                                 }
@@ -1494,21 +1835,23 @@ const DiagnosticsNewVisit = () => {
                                     [productId]: {
                                       ...(prev[productId] ?? draft),
                                       commissionPercent:
-                                        draft.commissionType === 'PERCENTAGE'
+                                        draft.commissionType === "PERCENTAGE"
                                           ? next
-                                          : (prev[productId] ?? draft).commissionPercent,
+                                          : (prev[productId] ?? draft)
+                                              .commissionPercent,
                                       commissionAmount:
-                                        draft.commissionType === 'FIXED_AMOUNT'
+                                        draft.commissionType === "FIXED_AMOUNT"
                                           ? next
-                                          : (prev[productId] ?? draft).commissionAmount,
+                                          : (prev[productId] ?? draft)
+                                              .commissionAmount,
                                     },
                                   }));
                                 }}
                               />
                               <p className="text-xs text-muted-foreground">
-                                {draft.commissionType === 'PERCENTAGE'
-                                  ? 'Enter the center share as a percentage of this product.'
-                                  : 'Enter the exact rupee amount the external center should get for this product.'}
+                                {draft.commissionType === "PERCENTAGE"
+                                  ? "Enter the center share as a percentage of this product."
+                                  : "Enter the exact rupee amount the external center should get for this product."}
                               </p>
                             </div>
                           </div>
@@ -1521,10 +1864,17 @@ const DiagnosticsNewVisit = () => {
 
               <div className="rounded-lg border bg-background px-4 py-5">
                 <div className="grid gap-4 text-[15px] md:grid-cols-[170px_minmax(0,1fr)] md:items-center">
-                  <div className="font-semibold text-muted-foreground">Total bill</div>
-                  <div className="text-2xl font-bold tracking-tight">{formatMoney(totalAmount)}</div>
+                  <div className="font-semibold text-muted-foreground">
+                    Total bill
+                  </div>
+                  <div className="text-2xl font-bold tracking-tight">
+                    {formatMoney(totalAmount)}
+                  </div>
 
-                  <Label htmlFor="diagnostic-discount-value" className="font-semibold text-muted-foreground">
+                  <Label
+                    htmlFor="diagnostic-discount-value"
+                    className="font-semibold text-muted-foreground"
+                  >
                     Discount
                   </Label>
                   <div className="grid gap-2 sm:grid-cols-[150px_minmax(0,1fr)]">
@@ -1532,7 +1882,7 @@ const DiagnosticsNewVisit = () => {
                       value={discountMode}
                       onValueChange={(value) => {
                         setDiscountMode(value as DiscountMode);
-                        setDiscountValue('');
+                        setDiscountValue("");
                       }}
                     >
                       <SelectTrigger aria-label="Discount type">
@@ -1548,16 +1898,23 @@ const DiagnosticsNewVisit = () => {
                       id="diagnostic-discount-value"
                       type="number"
                       min={0}
-                      max={discountMode === 'PERCENTAGE' ? 100 : totalAmount}
-                      step={discountMode === 'PERCENTAGE' ? '0.01' : '1'}
+                      max={discountMode === "PERCENTAGE" ? 100 : totalAmount}
+                      step={discountMode === "PERCENTAGE" ? "0.01" : "1"}
                       value={discountValue}
                       onChange={(e) => setDiscountValue(e.target.value)}
-                      placeholder={discountMode === 'PERCENTAGE' ? 'Enter discount %' : 'Enter discount amount'}
-                      disabled={discountMode === 'NONE'}
+                      placeholder={
+                        discountMode === "PERCENTAGE"
+                          ? "Enter discount %"
+                          : "Enter discount amount"
+                      }
+                      disabled={discountMode === "NONE"}
                     />
                   </div>
 
-                  <Label htmlFor="diagnostic-paid-amount" className="font-semibold text-muted-foreground">
+                  <Label
+                    htmlFor="diagnostic-paid-amount"
+                    className="font-semibold text-muted-foreground"
+                  >
                     Received
                   </Label>
                   <Input
@@ -1574,14 +1931,30 @@ const DiagnosticsNewVisit = () => {
 
                 <div className="mt-5 border-t pt-4">
                   <div className="grid gap-3 text-[15px] md:grid-cols-[170px_minmax(0,1fr)] md:items-baseline">
-                    <div className="font-semibold text-muted-foreground">Discount applied</div>
-                    <div className="font-semibold">-{formatMoney(discountAmount)}</div>
+                    <div className="font-semibold text-muted-foreground">
+                      Discount applied
+                    </div>
+                    <div className="font-semibold">
+                      -{formatMoney(discountAmount)}
+                    </div>
 
-                    <div className="font-semibold text-muted-foreground">Final total</div>
-                    <div className="text-xl font-bold">{formatMoney(netPayable)}</div>
+                    <div className="font-semibold text-muted-foreground">
+                      Final total
+                    </div>
+                    <div className="text-xl font-bold">
+                      {formatMoney(netPayable)}
+                    </div>
 
-                    <div className="font-semibold text-muted-foreground">Due balance</div>
-                    <div className={dueAmount > 0 ? 'text-xl font-bold text-amber-700' : 'text-xl font-bold'}>
+                    <div className="font-semibold text-muted-foreground">
+                      Due balance
+                    </div>
+                    <div
+                      className={
+                        dueAmount > 0
+                          ? "text-xl font-bold text-amber-700"
+                          : "text-xl font-bold"
+                      }
+                    >
                       {formatMoney(dueAmount)}
                     </div>
                   </div>
@@ -1591,8 +1964,16 @@ const DiagnosticsNewVisit = () => {
               <div className="space-y-2">
                 <Label>Payment Type *</Label>
                 <RadioGroup
-                  value={paymentType}
-                  onValueChange={(v) => setPaymentType(v as PaymentType)}
+                  value={paymentMode}
+                  onValueChange={(v) => {
+                    setPaymentMode(v as any);
+                    if (v === "SPLIT") {
+                      setSplitAmounts({
+                        cash: Number(paidAmount || netAmount),
+                        online: 0,
+                      });
+                    }
+                  }}
                   className="flex gap-6"
                 >
                   <div className="flex items-center space-x-2">
@@ -1603,7 +1984,52 @@ const DiagnosticsNewVisit = () => {
                     <RadioGroupItem value="ONLINE" id="online" />
                     <Label htmlFor="online">Online</Label>
                   </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="SPLIT" id="split" />
+                    <Label htmlFor="split">Split</Label>
+                  </div>
                 </RadioGroup>
+
+                {paymentMode === "SPLIT" && (
+                  <div className="flex gap-4 mt-4 w-full">
+                    <div className="flex-1 space-y-2">
+                      <Label>Cash ₹</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={splitAmounts.cash || ""}
+                        onChange={(e) => {
+                          const cash = Number(e.target.value);
+                          setSplitAmounts({
+                            cash,
+                            online: Math.max(
+                              0,
+                              Number(paidAmount || netAmount) - cash,
+                            ),
+                          });
+                        }}
+                      />
+                    </div>
+                    <div className="flex-1 space-y-2">
+                      <Label>Online ₹</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={splitAmounts.online || ""}
+                        onChange={(e) => {
+                          const online = Number(e.target.value);
+                          setSplitAmounts({
+                            cash: Math.max(
+                              0,
+                              Number(paidAmount || netAmount) - online,
+                            ),
+                            online,
+                          });
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* WhatsApp opt-in for existing patients */}
@@ -1612,20 +2038,21 @@ const DiagnosticsNewVisit = () => {
                   <Checkbox
                     id="existingDiagWhatsappOptIn"
                     checked={whatsappOptIn}
-                    onCheckedChange={(checked) => setWhatsappOptIn(checked === true)}
+                    onCheckedChange={(checked) =>
+                      setWhatsappOptIn(checked === true)
+                    }
                   />
-                  <Label htmlFor="existingDiagWhatsappOptIn" className="flex items-center gap-2 text-sm cursor-pointer">
+                  <Label
+                    htmlFor="existingDiagWhatsappOptIn"
+                    className="flex items-center gap-2 text-sm cursor-pointer"
+                  >
                     <MessageCircle className="h-4 w-4 text-green-600" />
                     Send bill confirmation & reports via WhatsApp
                   </Label>
                 </div>
               )}
 
-              <Button 
-                className="w-full" 
-                size="lg"
-                onClick={handleSubmit}
-              >
+              <Button className="w-full" size="lg" onClick={handleSubmit}>
                 Generate Bill & Create Visit
               </Button>
             </CardContent>
@@ -1634,7 +2061,10 @@ const DiagnosticsNewVisit = () => {
       </div>
 
       {/* Quick-add Bill-Only Product Dialog */}
-      <Dialog open={showAddProductDialog} onOpenChange={setShowAddProductDialog}>
+      <Dialog
+        open={showAddProductDialog}
+        onOpenChange={setShowAddProductDialog}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Quick Add Bill-Only Item</DialogTitle>
@@ -1657,7 +2087,7 @@ const DiagnosticsNewVisit = () => {
                 onChange={(e) => setNewProductCode(e.target.value)}
                 placeholder="Example: ECG"
                 autoCapitalize="characters"
-                style={{ textTransform: 'uppercase' }}
+                style={{ textTransform: "uppercase" }}
               />
             </div>
             <div className="space-y-2">
@@ -1673,7 +2103,9 @@ const DiagnosticsNewVisit = () => {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="newProductDescription">Description (optional)</Label>
+              <Label htmlFor="newProductDescription">
+                Description (optional)
+              </Label>
               <Input
                 id="newProductDescription"
                 value={newProductDescription}
@@ -1682,18 +2114,27 @@ const DiagnosticsNewVisit = () => {
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              This creates a reusable bill-only diagnostics product with a server-generated code and adds it to the current visit.
+              This creates a reusable bill-only diagnostics product with a
+              server-generated code and adds it to the current visit.
             </p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddProductDialog(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setShowAddProductDialog(false)}
+            >
               Cancel
             </Button>
             <Button
               onClick={handleCreateProduct}
-              disabled={!newProductName.trim() || !newProductCode.trim() || !newProductPrice || isCreatingProduct}
+              disabled={
+                !newProductName.trim() ||
+                !newProductCode.trim() ||
+                !newProductPrice ||
+                isCreatingProduct
+              }
             >
-              {isCreatingProduct ? 'Adding...' : 'Add Item'}
+              {isCreatingProduct ? "Adding..." : "Add Item"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1726,11 +2167,17 @@ const DiagnosticsNewVisit = () => {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDoctorDialog(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setShowAddDoctorDialog(false)}
+            >
               Cancel
             </Button>
-            <Button onClick={handleCreateDoctor} disabled={!newDoctorName.trim() || isCreatingDoctor}>
-              {isCreatingDoctor ? 'Adding...' : 'Add Doctor'}
+            <Button
+              onClick={handleCreateDoctor}
+              disabled={!newDoctorName.trim() || isCreatingDoctor}
+            >
+              {isCreatingDoctor ? "Adding..." : "Add Doctor"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1763,11 +2210,17 @@ const DiagnosticsNewVisit = () => {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddCenterDialog(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setShowAddCenterDialog(false)}
+            >
               Cancel
             </Button>
-            <Button onClick={handleCreateCenter} disabled={!newCenterName.trim() || isCreatingCenter}>
-              {isCreatingCenter ? 'Adding...' : 'Add Center'}
+            <Button
+              onClick={handleCreateCenter}
+              disabled={!newCenterName.trim() || isCreatingCenter}
+            >
+              {isCreatingCenter ? "Adding..." : "Add Center"}
             </Button>
           </DialogFooter>
         </DialogContent>
