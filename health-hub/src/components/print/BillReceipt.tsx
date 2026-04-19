@@ -76,20 +76,20 @@ export const BillReceipt = ({
     : data.visitRef || data.billNumber || "—";
   const paymentSummary =
     data.hasBill !== false
-      ? `${data.paymentStatus || "—"} ${
+      ? `${data.paymentStatus || "—"}${data.paymentStatus === "PENDING" ? "" : (
           (data as any).transactions && (data as any).transactions.length > 0
-            ? "(" +
+            ? " (" +
               (data as any).transactions
                 .map(
                   (t: any) =>
-                    `${t.paymentType}: ₹${(t.amountInPaise / 100).toFixed(2)}`,
+                    `${t.paymentType}: ₹${(t.amountInPaise / 100).toFixed(2)}`
                 )
                 .join(", ") +
               ")"
             : data.paymentType
-              ? `(${data.paymentType})`
+              ? ` (${data.paymentType})`
               : ""
-        }`
+        )}`
       : "Not billed";
   const revisitSummaryParts = [
     data.originalBillNumber ? `Bill ${data.originalBillNumber}` : null,

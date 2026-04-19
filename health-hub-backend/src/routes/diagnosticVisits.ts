@@ -2029,6 +2029,7 @@ router.post("/:id/collect-due", async (req: AuthRequest, res) => {
           },
         },
       },
+      include: { transactions: true },
     });
 
     const billFinancials = buildBillFinancialResponse(updated);

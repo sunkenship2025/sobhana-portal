@@ -454,7 +454,7 @@ const DiagnosticsPendingResults = () => {
                   className="w-full"
                   onClick={() =>
                     window.open(
-                      `/bill/print/diagnostics/${collectSuccessId}`,
+                      `/bill/print/DIAGNOSTICS/${collectSuccessId}`,
                       "_blank",
                     )
                   }
