@@ -66,6 +66,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { mapDiagnosticsVisitViewToReceiptData } from "@/lib/billReceiptMappers";
 
 type DiscountMode = "NONE" | BillDiscountType;
 
@@ -1065,56 +1066,10 @@ const DiagnosticsNewVisit = () => {
         <div ref={printRef} className="hidden print:block">
           <BillReceipt
             onLogoLoadedChange={setBillLogoLoaded}
-            data={{
-              billNumber: successData.visitView.visit.billNumber,
-              date: successData.visitView.visit.createdAt,
-              domain: "DIAGNOSTICS",
-              branchName: activeBranch?.name,
-              patient: {
-                name: successData.visitView.patient.name,
-                phone:
-                  successData.visitView.patient.identifiers?.find(
-                    (i: any) => i.type === "PHONE",
-                  )?.value || "",
-                age: successData.visitView.patient.age,
-                ageUnit: (successData.visitView.patient as any).ageUnit,
-                ageDisplay: (successData.visitView.patient as any).ageDisplay,
-                gender: successData.visitView.patient.gender,
-              },
-              referralDoctor: successData.visitView.referralDoctor
-                ? {
-                    name: successData.visitView.referralDoctor.name,
-                  }
-                : undefined,
-              paymentType: successData.visitView.visit.paymentType,
-              transactions: successData.visitView.visit.transactions || [],
-              paymentStatus: successData.visitView.visit.paymentStatus,
-              totalAmount: successData.visitView.visit.totalAmountInPaise / 100,
-              discountType: successData.visitView.visit.discountType,
-              discountPercentage:
-                successData.visitView.visit.discountPercentage,
-              discountAmountInPaise:
-                successData.visitView.visit.discountAmountInPaise,
-              paidAmountInPaise: successData.visitView.visit.paidAmountInPaise,
-              netAmountInPaise: successData.visitView.visit.netAmountInPaise,
-              dueAmountInPaise: successData.visitView.visit.dueAmountInPaise,
-              items:
-                successData.visitView.billItems ??
-                successData.visitView.testOrders.map((order) => ({
-                  id: order.id,
-                  name: order.testName,
-                  price: order.priceInPaise / 100,
-                  referralType: successData.visitView.referralDoctor
-                    ? order.referralCommissionType
-                    : undefined,
-                  referralPercent: successData.visitView.referralDoctor
-                    ? order.referralCommissionPercent
-                    : undefined,
-                  referralAmountInPaise: successData.visitView.referralDoctor
-                    ? (order.referralCommissionAmountInPaise ?? undefined)
-                    : undefined,
-                })),
-            }}
+            data={mapDiagnosticsVisitViewToReceiptData(
+              successData.visitView,
+              activeBranch?.name,
+            )}
           />
         </div>
       </AppLayout>
