@@ -1,29 +1,35 @@
-import { useState, useMemo, useEffect } from 'react';
-import { API_BASE } from '@/lib/api';
-import { useNavigate } from 'react-router-dom';
-import { AppLayout } from '@/components/layout/AppLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useBranchStore } from '@/store/branchStore';
-import { useAuthStore } from '@/store/authStore';
-import { StatusBadge } from '@/components/ui/status-badge';
-import { toast } from 'sonner';
-import { Clock, Search, Loader2 } from 'lucide-react';
+import { useState, useMemo, useEffect } from "react";
+import { API_BASE } from "@/lib/api";
+import { useNavigate } from "react-router-dom";
+import { AppLayout } from "@/components/layout/AppLayout";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useBranchStore } from "@/store/branchStore";
+import { useAuthStore } from "@/store/authStore";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { toast } from "sonner";
+import { Clock, Search, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from '@/components/ui/dialog';
+} from "@/components/ui/dialog";
 
-type PaymentType = 'CASH' | 'ONLINE' | 'CHEQUE';
+type PaymentType = "CASH" | "ONLINE" | "CHEQUE";
 
 const matchesDateFilter = (filter: string, value: string) => {
-  if (filter === 'all') return true;
+  if (filter === "all") return true;
 
   const visitDate = new Date(value);
   const now = new Date();
@@ -35,15 +41,15 @@ const matchesDateFilter = (filter: string, value: string) => {
   const weekStart = new Date(todayStart);
   weekStart.setDate(todayStart.getDate() - 6);
 
-  if (filter === 'today') {
+  if (filter === "today") {
     return visitDate >= todayStart && visitDate < tomorrowStart;
   }
 
-  if (filter === 'yesterday') {
+  if (filter === "yesterday") {
     return visitDate >= yesterdayStart && visitDate < todayStart;
   }
 
-  if (filter === 'week') {
+  if (filter === "week") {
     return visitDate >= weekStart && visitDate < tomorrowStart;
   }
 
@@ -54,17 +60,19 @@ const DiagnosticsPendingResults = () => {
   const navigate = useNavigate();
   const { activeBranchId } = useBranchStore();
   const { token } = useAuthStore();
-  const [dateFilter, setDateFilter] = useState('today');
-  const [search, setSearch] = useState('');
+  const [dateFilter, setDateFilter] = useState("today");
+  const [search, setSearch] = useState("");
   const [pendingVisits, setPendingVisits] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [dueVisit, setDueVisit] = useState<any | null>(null);
-  const [collectAmount, setCollectAmount] = useState('');
-  const [collectPaymentType, setCollectPaymentType] = useState<PaymentType>('CASH');
+  const [collectAmount, setCollectAmount] = useState("");
+  const [collectPaymentType, setCollectPaymentType] =
+    useState<PaymentType>("CASH");
   const [collectingDue, setCollectingDue] = useState(false);
+  const [collectSuccessId, setCollectSuccessId] = useState<string | null>(null);
 
   const formatMoneyFromPaise = (amountInPaise?: number | null) =>
-    `₹${((amountInPaise ?? 0) / 100).toLocaleString('en-IN', {
+    `₹${((amountInPaise ?? 0) / 100).toLocaleString("en-IN", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })}`;
@@ -78,28 +86,29 @@ const DiagnosticsPendingResults = () => {
         const [draftRes, waitingRes] = await Promise.all([
           fetch(`${API_BASE}/visits/diagnostic?status=DRAFT`, {
             headers: {
-              'Authorization': `Bearer ${token}`,
-              'X-Branch-Id': activeBranchId
-            }
+              Authorization: `Bearer ${token}`,
+              "X-Branch-Id": activeBranchId,
+            },
           }),
           fetch(`${API_BASE}/visits/diagnostic?status=WAITING`, {
             headers: {
-              'Authorization': `Bearer ${token}`,
-              'X-Branch-Id': activeBranchId
-            }
-          })
+              Authorization: `Bearer ${token}`,
+              "X-Branch-Id": activeBranchId,
+            },
+          }),
         ]);
 
         const draftData = draftRes.ok ? await draftRes.json() : [];
         const waitingData = waitingRes.ok ? await waitingRes.json() : [];
-        
+
         // Combine and sort by createdAt
         const combined = [...draftData, ...waitingData].sort(
-          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
         );
         setPendingVisits(combined);
       } catch (error) {
-        console.error('Failed to fetch pending visits:', error);
+        console.error("Failed to fetch pending visits:", error);
       } finally {
         setLoading(false);
       }
@@ -123,7 +132,7 @@ const DiagnosticsPendingResults = () => {
 
   const filteredVisits = useMemo(() => {
     return visitsWithDetails.filter(({ patient, visit }) => {
-      if (!visit.hasReportableOrders || visit.nextAction !== 'ENTER_RESULTS') {
+      if (!visit.hasReportableOrders || visit.nextAction !== "ENTER_RESULTS") {
         return false;
       }
 
@@ -133,7 +142,9 @@ const DiagnosticsPendingResults = () => {
 
       if (!search) return true;
       const searchLower = search.toLowerCase();
-      const phone = patient?.identifiers?.find((id: any) => id.type === 'PHONE')?.value || '';
+      const phone =
+        patient?.identifiers?.find((id: any) => id.type === "PHONE")?.value ||
+        "";
       return (
         phone.includes(search) ||
         patient?.name.toLowerCase().includes(searchLower) ||
@@ -148,8 +159,10 @@ const DiagnosticsPendingResults = () => {
 
   const openCollectDue = (visit: any) => {
     setDueVisit(visit);
-    setCollectAmount(visit.dueAmountInPaise ? String(visit.dueAmountInPaise / 100) : '');
-    setCollectPaymentType(visit.paymentType || 'CASH');
+    setCollectAmount(
+      visit.dueAmountInPaise ? String(visit.dueAmountInPaise / 100) : "",
+    );
+    setCollectPaymentType(visit.paymentType || "CASH");
   };
 
   const handleCollectDue = async () => {
@@ -157,28 +170,31 @@ const DiagnosticsPendingResults = () => {
 
     const amount = Number(collectAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
-      toast.error('Enter a valid collection amount');
+      toast.error("Enter a valid collection amount");
       return;
     }
 
     setCollectingDue(true);
     try {
-      const response = await fetch(`${API_BASE}/visits/diagnostic/${dueVisit.id}/collect-due`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'X-Branch-Id': activeBranchId,
+      const response = await fetch(
+        `${API_BASE}/visits/diagnostic/${dueVisit.id}/collect-due`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            "X-Branch-Id": activeBranchId,
+          },
+          body: JSON.stringify({
+            amount,
+            paymentType: collectPaymentType,
+          }),
         },
-        body: JSON.stringify({
-          amount,
-          paymentType: collectPaymentType,
-        }),
-      });
+      );
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.message || 'Failed to collect due');
+        throw new Error(data.message || "Failed to collect due");
       }
 
       setPendingVisits((prev) =>
@@ -195,14 +211,13 @@ const DiagnosticsPendingResults = () => {
                 netAmountInPaise: data.netAmountInPaise,
                 dueAmountInPaise: data.dueAmountInPaise,
               }
-            : visit
-        )
+            : visit,
+        ),
       );
-      toast.success('Due payment collected');
-      setDueVisit(null);
-      setCollectAmount('');
+      toast.success("Due payment collected");
+      setCollectSuccessId(dueVisit.id);
     } catch (error: any) {
-      toast.error(error.message || 'Failed to collect due');
+      toast.error(error.message || "Failed to collect due");
     } finally {
       setCollectingDue(false);
     }
@@ -223,7 +238,9 @@ const DiagnosticsPendingResults = () => {
       <div className="space-y-6 animate-fade-in">
         <div>
           <h1 className="text-2xl font-bold">Pending Results</h1>
-          <p className="text-muted-foreground">Which lab cases still need results entered?</p>
+          <p className="text-muted-foreground">
+            Which lab cases still need results entered?
+          </p>
         </div>
 
         {/* Filters */}
@@ -282,24 +299,34 @@ const DiagnosticsPendingResults = () => {
                   >
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold">{patient?.name || 'Unknown'}</span>
+                        <span className="font-semibold">
+                          {patient?.name || "Unknown"}
+                        </span>
                         <span className="text-muted-foreground">
                           | {patient?.age} | {patient?.gender}
                         </span>
                       </div>
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                         <span className="text-muted-foreground">
-                          Bill #: <span className="font-mono">{visit.billNumber}</span>
+                          Bill #:{" "}
+                          <span className="font-mono">{visit.billNumber}</span>
                         </span>
                         <span className="text-muted-foreground">
-                          Tests: {testOrders
-                            .filter((testOrder) => testOrder.workflowMode !== 'BILL_ONLY')
+                          Tests:{" "}
+                          {testOrders
+                            .filter(
+                              (testOrder) =>
+                                testOrder.workflowMode !== "BILL_ONLY",
+                            )
                             .map((testOrder) => testOrder.testCode)
-                            .join(', ')}
+                            .join(", ")}
                         </span>
-                        {visit.hasBillOnlyOrders && visit.hasReportableOrders && (
-                          <span className="text-amber-700">Includes bill-only items</span>
-                        )}
+                        {visit.hasBillOnlyOrders &&
+                          visit.hasReportableOrders && (
+                            <span className="text-amber-700">
+                              Includes bill-only items
+                            </span>
+                          )}
                         {(visit.dueAmountInPaise ?? 0) > 0 && (
                           <span className="font-medium text-amber-700">
                             Due: {formatMoneyFromPaise(visit.dueAmountInPaise)}
@@ -318,7 +345,10 @@ const DiagnosticsPendingResults = () => {
                           Collect Due
                         </Button>
                       )}
-                      <Button className="w-full sm:w-auto" onClick={() => handleAction(visit)}>
+                      <Button
+                        className="w-full sm:w-auto"
+                        onClick={() => handleAction(visit)}
+                      >
                         Enter Results
                       </Button>
                     </div>
@@ -329,33 +359,56 @@ const DiagnosticsPendingResults = () => {
           </CardContent>
         </Card>
 
-        <Dialog open={Boolean(dueVisit)} onOpenChange={(open) => !open && setDueVisit(null)}>
+        <Dialog
+          open={Boolean(dueVisit)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setDueVisit(null);
+              setCollectSuccessId(null);
+              setCollectAmount("");
+            }
+          }}
+        >
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Collect Due</DialogTitle>
+              <DialogTitle>
+                {collectSuccessId ? "Payment Collected" : "Collect Due"}
+              </DialogTitle>
             </DialogHeader>
-            {dueVisit && (
+            {dueVisit && !collectSuccessId && (
               <div className="space-y-4">
                 <div className="rounded-lg border bg-muted/30 p-3 text-sm space-y-2">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Subtotal</span>
-                    <span>{formatMoneyFromPaise(Math.round((dueVisit.totalAmount ?? 0) * 100))}</span>
+                    <span>
+                      {formatMoneyFromPaise(
+                        Math.round((dueVisit.totalAmount ?? 0) * 100),
+                      )}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Discount</span>
-                    <span>-{formatMoneyFromPaise(dueVisit.discountAmountInPaise)}</span>
+                    <span>
+                      -{formatMoneyFromPaise(dueVisit.discountAmountInPaise)}
+                    </span>
                   </div>
                   <div className="flex justify-between font-medium">
                     <span>Net</span>
-                    <span>{formatMoneyFromPaise(dueVisit.netAmountInPaise)}</span>
+                    <span>
+                      {formatMoneyFromPaise(dueVisit.netAmountInPaise)}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Already Paid</span>
-                    <span>{formatMoneyFromPaise(dueVisit.paidAmountInPaise)}</span>
+                    <span>
+                      {formatMoneyFromPaise(dueVisit.paidAmountInPaise)}
+                    </span>
                   </div>
                   <div className="flex justify-between font-semibold text-amber-700">
                     <span>Due</span>
-                    <span>{formatMoneyFromPaise(dueVisit.dueAmountInPaise)}</span>
+                    <span>
+                      {formatMoneyFromPaise(dueVisit.dueAmountInPaise)}
+                    </span>
                   </div>
                 </div>
 
@@ -375,7 +428,9 @@ const DiagnosticsPendingResults = () => {
                   <Label>Payment Type</Label>
                   <Select
                     value={collectPaymentType}
-                    onValueChange={(value) => setCollectPaymentType(value as PaymentType)}
+                    onValueChange={(value) =>
+                      setCollectPaymentType(value as PaymentType)
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -389,13 +444,50 @@ const DiagnosticsPendingResults = () => {
                 </div>
               </div>
             )}
+            {dueVisit && collectSuccessId && (
+              <div className="space-y-4 py-4 text-center">
+                <div className="text-muted-foreground mb-4">
+                  Payment recorded successfully. You can now print the updated
+                  bill.
+                </div>
+                <Button
+                  className="w-full"
+                  onClick={() =>
+                    window.open(
+                      `/bill/print/diagnostics/${collectSuccessId}`,
+                      "_blank",
+                    )
+                  }
+                >
+                  Print Updated Bill
+                </Button>
+              </div>
+            )}
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDueVisit(null)}>
-                Cancel
-              </Button>
-              <Button onClick={handleCollectDue} disabled={collectingDue}>
-                {collectingDue ? 'Collecting...' : 'Collect Payment'}
-              </Button>
+              {!collectSuccessId ? (
+                <>
+                  <Button variant="outline" onClick={() => setDueVisit(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleCollectDue}
+                    disabled={collectingDue || !collectAmount}
+                  >
+                    {collectingDue ? "Collecting..." : "Collect Payment"}
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setDueVisit(null);
+                    setCollectSuccessId(null);
+                    setCollectAmount("");
+                  }}
+                >
+                  Close
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>
