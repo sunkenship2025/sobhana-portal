@@ -1,48 +1,56 @@
-import { Router } from 'express';
-import QRCode from 'qrcode';
-import { DiagnosticWorkflowMode, ReportStatus, VisitStatus } from '@prisma/client';
-import { authMiddleware, AuthRequest } from '../middleware/auth';
-import { branchContextMiddleware } from '../middleware/branch';
-import { generateDiagnosticBillNumber } from '../services/numberService';
-import { logAction } from '../services/auditService';
+import { Router } from "express";
+import QRCode from "qrcode";
+import {
+  DiagnosticWorkflowMode,
+  ReportStatus,
+  VisitStatus,
+} from "@prisma/client";
+import { authMiddleware, AuthRequest } from "../middleware/auth";
+import { branchContextMiddleware } from "../middleware/branch";
+import { generateDiagnosticBillNumber } from "../services/numberService";
+import { logAction } from "../services/auditService";
 import {
   evaluateDerivedTargets,
   normalizeDependencyCodes,
   type DerivedFormulaTarget,
-} from '../services/derivedParameterService';
-import { generatePdfFromHtml } from '../services/pdfGenerationService';
-import { resolveReferenceRanges } from '../services/referenceRangeService';
-import { createAccessToken, recordAccessByReportVersionId } from '../services/reportAccessService';
+} from "../services/derivedParameterService";
+import { generatePdfFromHtml } from "../services/pdfGenerationService";
+import { resolveReferenceRanges } from "../services/referenceRangeService";
+import {
+  createAccessToken,
+  recordAccessByReportVersionId,
+} from "../services/reportAccessService";
 import {
   buildEphemeralSnapshot,
   createReportSnapshot,
   getReportSnapshot,
   saveReportSnapshot,
-} from '../services/reportSnapshotService';
-import { resolveProducts, ProductResolutionError } from '../services/productOrderService';
+} from "../services/reportSnapshotService";
 import {
-  renderReportHtml,
-} from '../services/reportRendererService';
-import prisma from '../lib/prisma';
-import { buildDiagnosticBillItems } from '../services/billItemService';
+  resolveProducts,
+  ProductResolutionError,
+} from "../services/productOrderService";
+import { renderReportHtml } from "../services/reportRendererService";
+import prisma from "../lib/prisma";
+import { buildDiagnosticBillItems } from "../services/billItemService";
 import {
   deriveDiagnosticVisitComposition,
   isPureBillOnlyVisit,
-} from '../services/diagnosticWorkflowService';
+} from "../services/diagnosticWorkflowService";
 import {
   areReferralPayoutsEqual,
   distributeFixedAmountInPaise,
   normalizeReferralOverrideInput,
   type NormalizedReferralPayout,
-} from '../services/referralPayoutService';
-import { derivePayout } from '../services/payoutService';
+} from "../services/referralPayoutService";
+import { derivePayout } from "../services/payoutService";
 import {
   buildBillFinancialResponse,
   collectBillDue,
   computeBillFinancialsFromPersisted,
   normalizeBillFinancialInput,
   recomputeBillFinancialsForSubtotal,
-} from '../services/billFinancialService';
+} from "../services/billFinancialService";
 
 const router = Router();
 
@@ -51,13 +59,13 @@ router.use(authMiddleware);
 router.use(branchContextMiddleware);
 
 type PayoutSnapshot = {
-  commissionType: 'PERCENTAGE' | 'FIXED_AMOUNT';
+  commissionType: "PERCENTAGE" | "FIXED_AMOUNT";
   commissionPercentage: number | null;
   commissionAmountInPaise: number | null;
 };
 
 type OptionalPayoutSnapshot = {
-  commissionType: 'PERCENTAGE' | 'FIXED_AMOUNT' | null;
+  commissionType: "PERCENTAGE" | "FIXED_AMOUNT" | null;
   commissionPercentage: number | null;
   commissionAmountInPaise: number | null;
 };
@@ -78,12 +86,12 @@ type LatestDefinitionFormula = {
   dependsOnCodes: unknown;
 };
 
-const DERIVED_MANUAL_OVERRIDE_NOTE = '__DERIVED_MANUAL_OVERRIDE__';
-const DERIVED_AUTO_NOTE_PREFIX = 'Auto-calculated: ';
+const DERIVED_MANUAL_OVERRIDE_NOTE = "__DERIVED_MANUAL_OVERRIDE__";
+const DERIVED_AUTO_NOTE_PREFIX = "Auto-calculated: ";
 
 function zeroPayoutSnapshot(): PayoutSnapshot {
   return {
-    commissionType: 'PERCENTAGE',
+    commissionType: "PERCENTAGE",
     commissionPercentage: 0,
     commissionAmountInPaise: null,
   };
@@ -99,7 +107,7 @@ function emptyOptionalPayoutSnapshot(): OptionalPayoutSnapshot {
 
 function buildDerivedMetadata(
   formula: string | null | undefined,
-  dependsOnCodesRaw: unknown
+  dependsOnCodesRaw: unknown,
 ): {
   isDerived: boolean;
   formulaExpression: string | null;
@@ -125,34 +133,42 @@ function buildDerivedMetadata(
 
 function determineResultFlag(
   numValue: number,
-  range: ResolvedNumericRange
-): 'CRITICAL_HIGH' | 'CRITICAL_LOW' | 'HIGH' | 'LOW' | 'NORMAL' | null {
+  range: ResolvedNumericRange,
+): "CRITICAL_HIGH" | "CRITICAL_LOW" | "HIGH" | "LOW" | "NORMAL" | null {
   if (range.criticalMax !== null && numValue > range.criticalMax) {
-    return 'CRITICAL_HIGH';
+    return "CRITICAL_HIGH";
   }
   if (range.criticalMin !== null && numValue < range.criticalMin) {
-    return 'CRITICAL_LOW';
+    return "CRITICAL_LOW";
   }
   if (range.referenceMax !== null && numValue > range.referenceMax) {
-    return 'HIGH';
+    return "HIGH";
   }
   if (range.referenceMin !== null && numValue < range.referenceMin) {
-    return 'LOW';
+    return "LOW";
   }
   if (range.referenceMin !== null || range.referenceMax !== null) {
-    return 'NORMAL';
+    return "NORMAL";
   }
   return null;
 }
 
-function isManualDerivedOverrideNote(notes: string | null | undefined): boolean {
+function isManualDerivedOverrideNote(
+  notes: string | null | undefined,
+): boolean {
   return notes?.trim() === DERIVED_MANUAL_OVERRIDE_NOTE;
 }
 
 async function loadLatestDefinitionFormulasByCode(
-  codes: Iterable<string>
+  codes: Iterable<string>,
 ): Promise<Map<string, LatestDefinitionFormula>> {
-  const uniqueCodes = [...new Set(Array.from(codes).map((code) => code.trim()).filter(Boolean))];
+  const uniqueCodes = [
+    ...new Set(
+      Array.from(codes)
+        .map((code) => code.trim())
+        .filter(Boolean),
+    ),
+  ];
   if (uniqueCodes.length === 0) {
     return new Map();
   }
@@ -172,32 +188,34 @@ async function loadLatestDefinitionFormulasByCode(
     },
   });
 
-  return new Map(definitions.map((definition) => [definition.code, definition]));
+  return new Map(
+    definitions.map((definition) => [definition.code, definition]),
+  );
 }
 
 function applyReferralRuleToPrices(
   pricesInPaise: number[],
-  rule: NormalizedReferralPayout | null
+  rule: NormalizedReferralPayout | null,
 ): PayoutSnapshot[] {
   if (!rule) {
     return pricesInPaise.map(() => zeroPayoutSnapshot());
   }
 
-  if (rule.commissionType === 'FIXED_AMOUNT') {
+  if (rule.commissionType === "FIXED_AMOUNT") {
     const distributed = distributeFixedAmountInPaise(
       rule.commissionAmountInPaise ?? 0,
-      pricesInPaise
+      pricesInPaise,
     );
 
     return distributed.map((commissionAmountInPaise) => ({
-      commissionType: 'FIXED_AMOUNT',
+      commissionType: "FIXED_AMOUNT",
       commissionPercentage: null,
       commissionAmountInPaise,
     }));
   }
 
   return pricesInPaise.map(() => ({
-    commissionType: 'PERCENTAGE',
+    commissionType: "PERCENTAGE",
     commissionPercentage: rule.commissionPercent ?? 0,
     commissionAmountInPaise: null,
   }));
@@ -205,7 +223,7 @@ function applyReferralRuleToPrices(
 
 function applyOptionalReferralRuleToPrices(
   pricesInPaise: number[],
-  rule: NormalizedReferralPayout | null
+  rule: NormalizedReferralPayout | null,
 ): OptionalPayoutSnapshot[] {
   if (!rule) {
     return pricesInPaise.map(() => emptyOptionalPayoutSnapshot());
@@ -222,15 +240,15 @@ async function loadFinalizedReportSnapshotForVisit(visitId: string) {
   const visit = await prisma.visit.findFirst({
     where: {
       id: visitId,
-      domain: 'DIAGNOSTICS',
+      domain: "DIAGNOSTICS",
     },
     select: {
       billNumber: true,
       report: {
         select: {
           versions: {
-            where: { status: 'FINALIZED' },
-            orderBy: { versionNum: 'desc' },
+            where: { status: "FINALIZED" },
+            orderBy: { versionNum: "desc" },
             take: 1,
             select: {
               id: true,
@@ -245,8 +263,8 @@ async function loadFinalizedReportSnapshotForVisit(visitId: string) {
     return {
       ok: false as const,
       status: 404,
-      error: 'NOT_FOUND',
-      message: 'Diagnostic visit not found',
+      error: "NOT_FOUND",
+      message: "Diagnostic visit not found",
     };
   }
 
@@ -255,8 +273,8 @@ async function loadFinalizedReportSnapshotForVisit(visitId: string) {
     return {
       ok: false as const,
       status: 404,
-      error: 'REPORT_NOT_FOUND',
-      message: 'Finalized report not found',
+      error: "REPORT_NOT_FOUND",
+      message: "Finalized report not found",
     };
   }
 
@@ -265,8 +283,8 @@ async function loadFinalizedReportSnapshotForVisit(visitId: string) {
     return {
       ok: false as const,
       status: 404,
-      error: 'REPORT_NOT_AVAILABLE',
-      message: 'Finalized report snapshot not found',
+      error: "REPORT_NOT_AVAILABLE",
+      message: "Finalized report snapshot not found",
     };
   }
 
@@ -278,29 +296,35 @@ async function loadFinalizedReportSnapshotForVisit(visitId: string) {
   };
 }
 
-function getVisitComposition<T extends { workflowMode?: DiagnosticWorkflowMode | null }>(
+function getVisitComposition<
+  T extends { workflowMode?: DiagnosticWorkflowMode | null },
+>(
   orders: T[],
   visitStatus: VisitStatus | string,
-  versions: Array<{ status?: ReportStatus | null }> = []
+  versions: Array<{ status?: ReportStatus | null }> = [],
 ) {
   return deriveDiagnosticVisitComposition(orders, visitStatus, versions);
 }
 
-function getReportableOrders<T extends { workflowMode?: DiagnosticWorkflowMode | null }>(orders: T[]): T[] {
+function getReportableOrders<
+  T extends { workflowMode?: DiagnosticWorkflowMode | null },
+>(orders: T[]): T[] {
   return orders.filter(
-    (order) => (order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) === DiagnosticWorkflowMode.REPORTABLE
+    (order) =>
+      (order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) ===
+      DiagnosticWorkflowMode.REPORTABLE,
   );
 }
 
 // GET /api/visits/diagnostic - List diagnostic visits
 // When patientId is provided: Returns ALL visits for that patient across ALL branches (Patient 360 view)
 // When patientId is omitted: Returns visits for current branch only (daily operations)
-router.get('/', async (req: AuthRequest, res) => {
+router.get("/", async (req: AuthRequest, res) => {
   try {
     const { status, patientId } = req.query;
 
     const where: any = {
-      domain: 'DIAGNOSTICS',
+      domain: "DIAGNOSTICS",
     };
 
     // Patient 360 view: Show all visits across branches for specific patient
@@ -338,19 +362,23 @@ router.get('/', async (req: AuthRequest, res) => {
         report: {
           include: {
             versions: {
-              orderBy: { versionNum: 'desc' },
+              orderBy: { versionNum: "desc" },
               take: 1,
             },
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
     });
 
     // Transform to frontend format
     const transformed = visits.map((v) => {
       const currentVersion = v.report?.versions[0] || null;
-      const composition = getVisitComposition(v.testOrders, v.status, currentVersion ? [currentVersion] : []);
+      const composition = getVisitComposition(
+        v.testOrders,
+        v.status,
+        currentVersion ? [currentVersion] : [],
+      );
       const billFinancials = buildBillFinancialResponse(v.bill);
 
       return {
@@ -362,11 +390,14 @@ router.get('/', async (req: AuthRequest, res) => {
         domain: v.domain,
         status: v.status,
         totalAmount: v.totalAmountInPaise / 100,
-        paymentType: v.bill?.paymentType || 'CASH',
-        paymentStatus: v.bill?.paymentStatus || 'PENDING',
+        paymentType: null,
+        paymentStatus: v.bill?.paymentStatus || "PENDING",
         ...billFinancials,
         billedAt: v.bill?.billedAt || v.bill?.createdAt || null,
-        reportFinalizedAt: currentVersion?.status === 'FINALIZED' ? currentVersion.finalizedAt : null,
+        reportFinalizedAt:
+          currentVersion?.status === "FINALIZED"
+            ? currentVersion.finalizedAt
+            : null,
         hasReportableOrders: composition.hasReportableOrders,
         hasBillOnlyOrders: composition.hasBillOnlyOrders,
         hasFinalizedReport: composition.hasFinalizedReport,
@@ -391,7 +422,7 @@ router.get('/', async (req: AuthRequest, res) => {
           referenceRange: {
             min: to.referenceMinSnapshot ?? to.test.referenceMin ?? 0,
             max: to.referenceMaxSnapshot ?? to.test.referenceMax ?? 0,
-            unit: to.referenceUnitSnapshot || to.test.referenceUnit || '',
+            unit: to.referenceUnitSnapshot || to.test.referenceUnit || "",
           },
         })),
         report: v.report
@@ -407,16 +438,16 @@ router.get('/', async (req: AuthRequest, res) => {
 
     return res.json(transformed);
   } catch (err: any) {
-    console.error('List diagnostic visits error:', err);
+    console.error("List diagnostic visits error:", err);
     return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to list diagnostic visits',
+      error: "INTERNAL_ERROR",
+      message: "Failed to list diagnostic visits",
     });
   }
 });
 
 // GET /api/visits/diagnostic/:id - Get single diagnostic visit
-router.get('/:id', async (req: AuthRequest, res) => {
+router.get("/:id", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
 
@@ -424,7 +455,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
       where: {
         id,
         branchId: req.branchId,
-        domain: 'DIAGNOSTICS',
+        domain: "DIAGNOSTICS",
       },
       include: {
         patient: {
@@ -448,15 +479,15 @@ router.get('/:id', async (req: AuthRequest, res) => {
 
     if (!visitBase) {
       return res.status(404).json({
-        error: 'NOT_FOUND',
-        message: 'Diagnostic visit not found',
+        error: "NOT_FOUND",
+        message: "Diagnostic visit not found",
       });
     }
 
     const reportVersions = visitBase.report
       ? await prisma.reportVersion.findMany({
           where: { reportId: visitBase.report.id },
-          orderBy: { versionNum: 'desc' },
+          orderBy: { versionNum: "desc" },
           select: {
             id: true,
             versionNum: true,
@@ -473,10 +504,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
               in: reportVersions.map((version) => version.id),
             },
           },
-          orderBy: [
-            { reportVersionId: 'asc' },
-            { createdAt: 'asc' },
-          ],
+          orderBy: [{ reportVersionId: "asc" }, { createdAt: "asc" }],
           select: {
             id: true,
             testOrderId: true,
@@ -505,17 +533,15 @@ router.get('/:id', async (req: AuthRequest, res) => {
 
     const reportResultsByVersionId = new Map<string, typeof reportResults>();
     for (const result of reportResults) {
-      const versionResults = reportResultsByVersionId.get(result.reportVersionId) ?? [];
+      const versionResults =
+        reportResultsByVersionId.get(result.reportVersionId) ?? [];
       versionResults.push(result);
       reportResultsByVersionId.set(result.reportVersionId, versionResults);
     }
 
     const rawTestOrders = await prisma.testOrder.findMany({
       where: { visitId: id },
-      orderBy: [
-        { createdAt: 'asc' },
-        { id: 'asc' },
-      ],
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: {
         id: true,
         visitId: true,
@@ -542,7 +568,9 @@ router.get('/:id', async (req: AuthRequest, res) => {
             referenceMax: true,
             referenceUnit: true,
             referenceText: true,
-            department: { select: { id: true, name: true, reportHeaderText: true } },
+            department: {
+              select: { id: true, name: true, reportHeaderText: true },
+            },
             derivedParameter: {
               select: {
                 id: true,
@@ -574,7 +602,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
           },
         },
         testResults: {
-          orderBy: { createdAt: 'asc' },
+          orderBy: { createdAt: "asc" },
           select: {
             id: true,
             testOrderId: true,
@@ -602,11 +630,13 @@ router.get('/:id', async (req: AuthRequest, res) => {
       },
     });
 
-    const panelTestIds = [...new Set(
-      rawTestOrders
-        .filter((order) => order.test.isPanel)
-        .map((order) => order.testId)
-    )];
+    const panelTestIds = [
+      ...new Set(
+        rawTestOrders
+          .filter((order) => order.test.isPanel)
+          .map((order) => order.testId),
+      ),
+    ];
 
     const childTests = panelTestIds.length
       ? await prisma.labTest.findMany({
@@ -616,9 +646,9 @@ router.get('/:id', async (req: AuthRequest, res) => {
             },
           },
           orderBy: [
-            { parentTestId: 'asc' },
-            { displayOrder: 'asc' },
-            { createdAt: 'asc' },
+            { parentTestId: "asc" },
+            { displayOrder: "asc" },
+            { createdAt: "asc" },
           ],
           select: {
             id: true,
@@ -659,10 +689,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
               in: [...new Set(rawTestOrders.map((order) => order.testId))],
             },
           },
-          orderBy: [
-            { displayOrder: 'asc' },
-            { createdAt: 'asc' },
-          ],
+          orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
           select: {
             testId: true,
             panel: {
@@ -683,18 +710,25 @@ router.get('/:id', async (req: AuthRequest, res) => {
         })
       : [];
 
-    const firstLabPanelItemByTestId = new Map<string, (typeof labPanelItems)[number]>();
+    const firstLabPanelItemByTestId = new Map<
+      string,
+      (typeof labPanelItems)[number]
+    >();
     for (const panelItem of labPanelItems) {
       if (!firstLabPanelItemByTestId.has(panelItem.testId)) {
         firstLabPanelItemByTestId.set(panelItem.testId, panelItem);
       }
     }
 
-    const testDefinitionIds = [...new Set(
-      rawTestOrders
-        .map((order) => order.testDefinitionId)
-        .filter((definitionId): definitionId is string => Boolean(definitionId))
-    )];
+    const testDefinitionIds = [
+      ...new Set(
+        rawTestOrders
+          .map((order) => order.testDefinitionId)
+          .filter((definitionId): definitionId is string =>
+            Boolean(definitionId),
+          ),
+      ),
+    ];
 
     const definitionPanelItems = testDefinitionIds.length
       ? await prisma.clinicalPanelItem.findMany({
@@ -703,10 +737,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
               in: testDefinitionIds,
             },
           },
-          orderBy: [
-            { displayOrder: 'asc' },
-            { createdAt: 'asc' },
-          ],
+          orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
           select: {
             testDefinitionId: true,
             panel: {
@@ -730,10 +761,18 @@ router.get('/:id', async (req: AuthRequest, res) => {
         })
       : [];
 
-    const firstDefinitionPanelItemByDefinitionId = new Map<string, (typeof definitionPanelItems)[number]>();
+    const firstDefinitionPanelItemByDefinitionId = new Map<
+      string,
+      (typeof definitionPanelItems)[number]
+    >();
     for (const panelItem of definitionPanelItems) {
-      if (!firstDefinitionPanelItemByDefinitionId.has(panelItem.testDefinitionId)) {
-        firstDefinitionPanelItemByDefinitionId.set(panelItem.testDefinitionId, panelItem);
+      if (
+        !firstDefinitionPanelItemByDefinitionId.has(panelItem.testDefinitionId)
+      ) {
+        firstDefinitionPanelItemByDefinitionId.set(
+          panelItem.testDefinitionId,
+          panelItem,
+        );
       }
     }
 
@@ -800,15 +839,16 @@ router.get('/:id', async (req: AuthRequest, res) => {
       patient.yearOfBirth,
       patient.gender as any,
       testDefIdMap.size > 0 ? testDefIdMap : undefined,
-      patient.dateOfBirth
+      patient.dateOfBirth,
     );
 
-    const latestDefinitionFormulasByCode = await loadLatestDefinitionFormulasByCode(
-      reportableOrders.flatMap((to) => [
-        to.testCodeSnapshot || to.testDefinition?.code || to.test.code,
-        ...to.test.childTests.map((child) => child.code),
-      ])
-    );
+    const latestDefinitionFormulasByCode =
+      await loadLatestDefinitionFormulasByCode(
+        reportableOrders.flatMap((to) => [
+          to.testCodeSnapshot || to.testDefinition?.code || to.test.code,
+          ...to.test.childTests.map((child) => child.code),
+        ]),
+      );
 
     // Helper to build referenceRange from resolved + fallback data
     const buildRange = (
@@ -816,19 +856,26 @@ router.get('/:id', async (req: AuthRequest, res) => {
       defaultMin: number | null,
       defaultMax: number | null,
       defaultUnit: string | null,
-      defaultText?: string | null
+      defaultText?: string | null,
     ) => {
       const resolved = resolvedRanges.get(testId);
       return {
         min: resolved?.referenceMin ?? defaultMin ?? 0,
         max: resolved?.referenceMax ?? defaultMax ?? 0,
-        unit: resolved?.referenceUnit || defaultUnit || '',
-        text: defaultText || '',
+        unit: resolved?.referenceUnit || defaultUnit || "",
+        text: defaultText || "",
       };
     };
     // Transform to frontend format
-    const latestFinalizedVersion = visit.report?.versions.find((version: any) => version.status === 'FINALIZED') || null;
-    const composition = getVisitComposition(visit.testOrders, visit.status, visit.report?.versions || []);
+    const latestFinalizedVersion =
+      visit.report?.versions.find(
+        (version: any) => version.status === "FINALIZED",
+      ) || null;
+    const composition = getVisitComposition(
+      visit.testOrders,
+      visit.status,
+      visit.report?.versions || [],
+    );
     const billFinancials = buildBillFinancialResponse(visit.bill);
 
     const transformed = {
@@ -840,8 +887,8 @@ router.get('/:id', async (req: AuthRequest, res) => {
       domain: visit.domain,
       status: visit.status,
       totalAmount: visit.totalAmountInPaise / 100,
-      paymentType: visit.bill?.paymentType || 'CASH',
-      paymentStatus: visit.bill?.paymentStatus || 'PENDING',
+      paymentType: null,
+      paymentStatus: visit.bill?.paymentStatus || "PENDING",
       ...billFinancials,
       billedAt: visit.bill?.billedAt || visit.bill?.createdAt || null,
       reportFinalizedAt: latestFinalizedVersion?.finalizedAt || null,
@@ -854,22 +901,22 @@ router.get('/:id', async (req: AuthRequest, res) => {
       testOrders: visit.testOrders.map((to) => {
         const orderCode =
           to.testCodeSnapshot || to.testDefinition?.code || to.test.code;
-        const latestOrderDefinition = latestDefinitionFormulasByCode.get(orderCode);
-        const orderDerived =
-          to.testDefinition?.formulaExpression
+        const latestOrderDefinition =
+          latestDefinitionFormulasByCode.get(orderCode);
+        const orderDerived = to.testDefinition?.formulaExpression
+          ? buildDerivedMetadata(
+              to.testDefinition.formulaExpression,
+              to.testDefinition.dependsOnCodes,
+            )
+          : to.test.derivedParameter?.formula
             ? buildDerivedMetadata(
-                to.testDefinition.formulaExpression,
-                to.testDefinition.dependsOnCodes
+                to.test.derivedParameter.formula,
+                to.test.derivedParameter.dependsOnTestCodes,
               )
-            : to.test.derivedParameter?.formula
-              ? buildDerivedMetadata(
-                  to.test.derivedParameter.formula,
-                  to.test.derivedParameter.dependsOnTestCodes
-                )
-              : buildDerivedMetadata(
-                  latestOrderDefinition?.formulaExpression,
-                  latestOrderDefinition?.dependsOnCodes
-                );
+            : buildDerivedMetadata(
+                latestOrderDefinition?.formulaExpression,
+                latestOrderDefinition?.dependsOnCodes,
+              );
 
         return {
           id: to.id,
@@ -890,27 +937,29 @@ router.get('/:id', async (req: AuthRequest, res) => {
           formulaExpression: orderDerived.formulaExpression,
           dependsOnCodes: orderDerived.dependsOnCodes,
           department: (() => {
-            const dept = to.testDefinition?.panelItems?.[0]?.panel?.department
-              || to.test.panelItems?.[0]?.panel?.department
-              || to.testDefinition?.department
-              || to.test.department;
+            const dept =
+              to.testDefinition?.panelItems?.[0]?.panel?.department ||
+              to.test.panelItems?.[0]?.panel?.department ||
+              to.testDefinition?.department ||
+              to.test.department;
             return dept ? { id: dept.id, name: dept.name } : null;
           })(),
           panel: (() => {
-            const panel = to.testDefinition?.panelItems?.[0]?.panel
-              || to.test.panelItems?.[0]?.panel
-              || null;
+            const panel =
+              to.testDefinition?.panelItems?.[0]?.panel ||
+              to.test.panelItems?.[0]?.panel ||
+              null;
             const panelMethodText =
-              panel && 'panelMethodText' in panel
-                ? panel.panelMethodText ?? null
+              panel && "panelMethodText" in panel
+                ? (panel.panelMethodText ?? null)
                 : null;
             const panelMethodItalic =
-              panel && 'panelMethodItalic' in panel
-                ? panel.panelMethodItalic ?? false
+              panel && "panelMethodItalic" in panel
+                ? (panel.panelMethodItalic ?? false)
                 : false;
             const narrativeTemplateHtml =
-              panel && 'narrativeTemplateHtml' in panel
-                ? panel.narrativeTemplateHtml ?? null
+              panel && "narrativeTemplateHtml" in panel
+                ? (panel.narrativeTemplateHtml ?? null)
                 : null;
             return panel
               ? {
@@ -926,35 +975,58 @@ router.get('/:id', async (req: AuthRequest, res) => {
           })(),
           referenceRange: buildRange(
             to.testId,
-            to.referenceMinSnapshot ?? to.testDefinition?.referenceMin ?? to.test.referenceMin,
-            to.referenceMaxSnapshot ?? to.testDefinition?.referenceMax ?? to.test.referenceMax,
-            to.referenceUnitSnapshot || to.testDefinition?.referenceUnit || to.test.referenceUnit,
-            to.testDefinition?.referenceText || to.test.referenceText
+            to.referenceMinSnapshot ??
+              to.testDefinition?.referenceMin ??
+              to.test.referenceMin,
+            to.referenceMaxSnapshot ??
+              to.testDefinition?.referenceMax ??
+              to.test.referenceMax,
+            to.referenceUnitSnapshot ||
+              to.testDefinition?.referenceUnit ||
+              to.test.referenceUnit,
+            to.testDefinition?.referenceText || to.test.referenceText,
           ),
-          childTests: to.test.isPanel ? to.test.childTests.map((ct: any) => {
-            const latestChildDefinition = latestDefinitionFormulasByCode.get(ct.code);
-            const childDerived = buildDerivedMetadata(
-              ct.derivedParameter?.formula || latestChildDefinition?.formulaExpression,
-              ct.derivedParameter?.dependsOnTestCodes || latestChildDefinition?.dependsOnCodes
-            );
+          childTests: to.test.isPanel
+            ? to.test.childTests.map((ct: any) => {
+                const latestChildDefinition =
+                  latestDefinitionFormulasByCode.get(ct.code);
+                const childDerived = buildDerivedMetadata(
+                  ct.derivedParameter?.formula ||
+                    latestChildDefinition?.formulaExpression,
+                  ct.derivedParameter?.dependsOnTestCodes ||
+                    latestChildDefinition?.dependsOnCodes,
+                );
 
-            return {
-              id: ct.id,
-              name: ct.name,
-              code: ct.code,
-              displayOrder: ct.displayOrder,
-              isDerived: childDerived.isDerived,
-              formulaExpression: childDerived.formulaExpression,
-              dependsOnCodes: childDerived.dependsOnCodes,
-              referenceRange: buildRange(ct.id, ct.referenceMin, ct.referenceMax, ct.referenceUnit, ct.referenceText),
-            };
-          }) : [],
+                return {
+                  id: ct.id,
+                  name: ct.name,
+                  code: ct.code,
+                  displayOrder: ct.displayOrder,
+                  isDerived: childDerived.isDerived,
+                  formulaExpression: childDerived.formulaExpression,
+                  dependsOnCodes: childDerived.dependsOnCodes,
+                  referenceRange: buildRange(
+                    ct.id,
+                    ct.referenceMin,
+                    ct.referenceMax,
+                    ct.referenceUnit,
+                    ct.referenceText,
+                  ),
+                };
+              })
+            : [],
           results: to.testResults.map((tr: any) => ({
             ...tr,
             manualOverride: isManualDerivedOverrideNote(tr.notes),
-            testName: tr.test?.name || '',
-            testCode: tr.test?.code || '',
-            referenceRange: buildRange(tr.testId, tr.test?.referenceMin, tr.test?.referenceMax, tr.test?.referenceUnit, tr.test?.referenceText),
+            testName: tr.test?.name || "",
+            testCode: tr.test?.code || "",
+            referenceRange: buildRange(
+              tr.testId,
+              tr.test?.referenceMin,
+              tr.test?.referenceMax,
+              tr.test?.referenceUnit,
+              tr.test?.referenceText,
+            ),
           })),
         };
       }),
@@ -981,7 +1053,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
           referralCommissionAmountInPaise: visit.referrals[0]?.referralDoctor
             ? to.referralCommissionAmountInPaise
             : undefined,
-        }))
+        })),
       ),
       report: visit.report
         ? {
@@ -994,9 +1066,15 @@ router.get('/:id', async (req: AuthRequest, res) => {
               testResults: v.testResults.map((tr: any) => ({
                 ...tr,
                 manualOverride: isManualDerivedOverrideNote(tr.notes),
-                testName: tr.test?.name || '',
-                testCode: tr.test?.code || '',
-                referenceRange: buildRange(tr.testId, tr.test?.referenceMin, tr.test?.referenceMax, tr.test?.referenceUnit, tr.test?.referenceText),
+                testName: tr.test?.name || "",
+                testCode: tr.test?.code || "",
+                referenceRange: buildRange(
+                  tr.testId,
+                  tr.test?.referenceMin,
+                  tr.test?.referenceMax,
+                  tr.test?.referenceUnit,
+                  tr.test?.referenceText,
+                ),
               })),
             })),
           }
@@ -1007,17 +1085,17 @@ router.get('/:id', async (req: AuthRequest, res) => {
 
     return res.json(transformed);
   } catch (err: any) {
-    console.error('Get diagnostic visit error:', err);
+    console.error("Get diagnostic visit error:", err);
     return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to get diagnostic visit',
+      error: "INTERNAL_ERROR",
+      message: "Failed to get diagnostic visit",
     });
   }
 });
 
 // POST /api/visits/diagnostic - Create new diagnostic visit
 // Accepts EITHER productIds (new architecture) OR testIds (legacy)
-router.post('/', async (req: AuthRequest, res) => {
+router.post("/", async (req: AuthRequest, res) => {
   try {
     const {
       patientId,
@@ -1031,17 +1109,19 @@ router.post('/', async (req: AuthRequest, res) => {
       discountType,
       discountValue,
       paidAmount,
+      payments,
       sendWhatsApp,
     } = req.body;
 
-    const hasProducts = productIds && Array.isArray(productIds) && productIds.length > 0;
+    const hasProducts =
+      productIds && Array.isArray(productIds) && productIds.length > 0;
     const hasTests = testIds && Array.isArray(testIds) && testIds.length > 0;
 
     // Validation
     if (!patientId || (!hasProducts && !hasTests)) {
       return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: 'Patient ID and at least one product or test are required',
+        error: "VALIDATION_ERROR",
+        message: "Patient ID and at least one product or test are required",
       });
     }
 
@@ -1052,15 +1132,18 @@ router.post('/', async (req: AuthRequest, res) => {
 
     if (!branch) {
       return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: 'Invalid branch',
+        error: "VALIDATION_ERROR",
+        message: "Invalid branch",
       });
     }
 
     let defaultReferralRule: NormalizedReferralPayout | null = null;
     const referralRuleByProductId = new Map<string, NormalizedReferralPayout>();
     let defaultDiagnosticCenterRule: NormalizedReferralPayout | null = null;
-    const diagnosticCenterRuleByProductId = new Map<string, NormalizedReferralPayout>();
+    const diagnosticCenterRuleByProductId = new Map<
+      string,
+      NormalizedReferralPayout
+    >();
 
     if (referralDoctorId) {
       const referralDoc = await prisma.referralDoctor.findUnique({
@@ -1074,8 +1157,8 @@ router.post('/', async (req: AuthRequest, res) => {
 
       if (!referralDoc) {
         return res.status(400).json({
-          error: 'VALIDATION_ERROR',
-          message: 'Referral doctor not found',
+          error: "VALIDATION_ERROR",
+          message: "Referral doctor not found",
         });
       }
 
@@ -1095,19 +1178,21 @@ router.post('/', async (req: AuthRequest, res) => {
     }
 
     if (diagnosticCenterId) {
-      const diagnosticCenter = await prisma.diagnosticReferralCenter.findUnique({
-        where: { id: diagnosticCenterId },
-        include: {
-          productRules: {
-            where: { isActive: true },
+      const diagnosticCenter = await prisma.diagnosticReferralCenter.findUnique(
+        {
+          where: { id: diagnosticCenterId },
+          include: {
+            productRules: {
+              where: { isActive: true },
+            },
           },
         },
-      });
+      );
 
       if (!diagnosticCenter) {
         return res.status(400).json({
-          error: 'VALIDATION_ERROR',
-          message: 'Diagnostic center not found',
+          error: "VALIDATION_ERROR",
+          message: "Diagnostic center not found",
         });
       }
 
@@ -1127,8 +1212,11 @@ router.post('/', async (req: AuthRequest, res) => {
     }
 
     const overrides = new Map<string, NormalizedReferralPayout>();
-    const diagnosticCenterOverrideMap = new Map<string, NormalizedReferralPayout>();
-    if (referralOverrides && typeof referralOverrides === 'object') {
+    const diagnosticCenterOverrideMap = new Map<
+      string,
+      NormalizedReferralPayout
+    >();
+    if (referralOverrides && typeof referralOverrides === "object") {
       try {
         for (const [key, value] of Object.entries(referralOverrides)) {
           const normalized = normalizeReferralOverrideInput(value);
@@ -1138,13 +1226,16 @@ router.post('/', async (req: AuthRequest, res) => {
         }
       } catch (validationErr: any) {
         return res.status(400).json({
-          error: 'VALIDATION_ERROR',
+          error: "VALIDATION_ERROR",
           message: validationErr.message,
         });
       }
     }
 
-    if (diagnosticCenterOverrides && typeof diagnosticCenterOverrides === 'object') {
+    if (
+      diagnosticCenterOverrides &&
+      typeof diagnosticCenterOverrides === "object"
+    ) {
       try {
         for (const [key, value] of Object.entries(diagnosticCenterOverrides)) {
           const normalized = normalizeReferralOverrideInput(value);
@@ -1154,7 +1245,7 @@ router.post('/', async (req: AuthRequest, res) => {
         }
       } catch (validationErr: any) {
         return res.status(400).json({
-          error: 'VALIDATION_ERROR',
+          error: "VALIDATION_ERROR",
           message: validationErr.message,
         });
       }
@@ -1174,10 +1265,10 @@ router.post('/', async (req: AuthRequest, res) => {
       referenceMinSnapshot: number | null;
       referenceMaxSnapshot: number | null;
       referenceUnitSnapshot: string | null;
-      referralCommissionType: 'PERCENTAGE' | 'FIXED_AMOUNT';
+      referralCommissionType: "PERCENTAGE" | "FIXED_AMOUNT";
       referralCommissionPercentage: number | null;
       referralCommissionAmountInPaise: number | null;
-      diagnosticCenterCommissionType: 'PERCENTAGE' | 'FIXED_AMOUNT' | null;
+      diagnosticCenterCommissionType: "PERCENTAGE" | "FIXED_AMOUNT" | null;
       diagnosticCenterCommissionPercentage: number | null;
       diagnosticCenterCommissionAmountInPaise: number | null;
     }> = [];
@@ -1198,11 +1289,11 @@ router.post('/', async (req: AuthRequest, res) => {
             defaultDiagnosticCenterRule;
           const referralSnapshots = applyReferralRuleToPrices(
             rp.testOrders.map((to) => to.priceInPaise),
-            effectiveRule
+            effectiveRule,
           );
           const diagnosticCenterSnapshots = applyOptionalReferralRuleToPrices(
             rp.testOrders.map((to) => to.priceInPaise),
-            effectiveDiagnosticCenterRule
+            effectiveDiagnosticCenterRule,
           );
 
           for (const [index, to] of rp.testOrders.entries()) {
@@ -1218,10 +1309,14 @@ router.post('/', async (req: AuthRequest, res) => {
               referenceMaxSnapshot: to.referenceMax,
               referenceUnitSnapshot: to.referenceUnit,
               referralCommissionType: referralSnapshots[index].commissionType,
-              referralCommissionPercentage: referralSnapshots[index].commissionPercentage,
-              referralCommissionAmountInPaise: referralSnapshots[index].commissionAmountInPaise,
-              diagnosticCenterCommissionType: diagnosticCenterSnapshots[index].commissionType,
-              diagnosticCenterCommissionPercentage: diagnosticCenterSnapshots[index].commissionPercentage,
+              referralCommissionPercentage:
+                referralSnapshots[index].commissionPercentage,
+              referralCommissionAmountInPaise:
+                referralSnapshots[index].commissionAmountInPaise,
+              diagnosticCenterCommissionType:
+                diagnosticCenterSnapshots[index].commissionType,
+              diagnosticCenterCommissionPercentage:
+                diagnosticCenterSnapshots[index].commissionPercentage,
               diagnosticCenterCommissionAmountInPaise:
                 diagnosticCenterSnapshots[index].commissionAmountInPaise,
             });
@@ -1246,8 +1341,8 @@ router.post('/', async (req: AuthRequest, res) => {
 
       if (tests.length !== testIds.length) {
         return res.status(400).json({
-          error: 'VALIDATION_ERROR',
-          message: 'One or more tests not found',
+          error: "VALIDATION_ERROR",
+          message: "One or more tests not found",
         });
       }
 
@@ -1255,10 +1350,14 @@ router.post('/', async (req: AuthRequest, res) => {
 
       testOrderData = tests.map((test) => {
         const effectiveRule = overrides.get(test.id) ?? defaultReferralRule;
-        const referralSnapshot = applyReferralRuleToPrices([test.priceInPaise], effectiveRule)[0];
+        const referralSnapshot = applyReferralRuleToPrices(
+          [test.priceInPaise],
+          effectiveRule,
+        )[0];
         const diagnosticCenterSnapshot = applyOptionalReferralRuleToPrices(
           [test.priceInPaise],
-          diagnosticCenterOverrideMap.get(test.id) ?? defaultDiagnosticCenterRule
+          diagnosticCenterOverrideMap.get(test.id) ??
+            defaultDiagnosticCenterRule,
         )[0];
 
         return {
@@ -1272,18 +1371,23 @@ router.post('/', async (req: AuthRequest, res) => {
           referenceUnitSnapshot: test.referenceUnit,
           referralCommissionType: referralSnapshot.commissionType,
           referralCommissionPercentage: referralSnapshot.commissionPercentage,
-          referralCommissionAmountInPaise: referralSnapshot.commissionAmountInPaise,
-          diagnosticCenterCommissionType: diagnosticCenterSnapshot.commissionType,
-          diagnosticCenterCommissionPercentage: diagnosticCenterSnapshot.commissionPercentage,
-          diagnosticCenterCommissionAmountInPaise: diagnosticCenterSnapshot.commissionAmountInPaise,
+          referralCommissionAmountInPaise:
+            referralSnapshot.commissionAmountInPaise,
+          diagnosticCenterCommissionType:
+            diagnosticCenterSnapshot.commissionType,
+          diagnosticCenterCommissionPercentage:
+            diagnosticCenterSnapshot.commissionPercentage,
+          diagnosticCenterCommissionAmountInPaise:
+            diagnosticCenterSnapshot.commissionAmountInPaise,
         };
       });
     }
 
     if (testOrderData.length === 0) {
       return res.status(400).json({
-        error: 'INVALID_PANEL_CONFIGURATION',
-        message: 'The selected product does not contain any reportable test items. Please fix the linked panel configuration.',
+        error: "INVALID_PANEL_CONFIGURATION",
+        message:
+          "The selected product does not contain any reportable test items. Please fix the linked panel configuration.",
       });
     }
 
@@ -1296,16 +1400,19 @@ router.post('/', async (req: AuthRequest, res) => {
           discountValue,
           paidAmount,
         },
-        { defaultPaidToNet: true }
+        { defaultPaidToNet: true },
       );
     } catch (validationErr: any) {
       return res.status(400).json({
-        error: 'VALIDATION_ERROR',
+        error: "VALIDATION_ERROR",
         message: validationErr.message,
       });
     }
 
-    const createComposition = getVisitComposition(testOrderData, VisitStatus.WAITING);
+    const createComposition = getVisitComposition(
+      testOrderData,
+      VisitStatus.WAITING,
+    );
     const initialVisitStatus = createComposition.hasReportableOrders
       ? VisitStatus.DRAFT
       : VisitStatus.COMPLETED;
@@ -1314,194 +1421,233 @@ router.post('/', async (req: AuthRequest, res) => {
     const billNumber = await generateDiagnosticBillNumber(branch.code);
 
     // Create visit with all related records in a transaction
-    const result = await prisma.$transaction(async (tx) => {
-      // Create visit
-      const visit = await tx.visit.create({
-        data: {
-          branchId: req.branchId!,
-          patientId,
-          domain: 'DIAGNOSTICS',
-          status: initialVisitStatus,
-          billNumber,
-          totalAmountInPaise,
-        },
-      });
-
-      // Create bill
-      await tx.bill.create({
-        data: {
-          visitId: visit.id,
-          billNumber,
-          branchId: req.branchId!,
-          totalAmountInPaise,
-          discountType: billFinancials.discountType,
-          discountPercentage: billFinancials.discountPercentage,
-          discountAmountInPaise: billFinancials.discountAmountInPaise,
-          paidAmountInPaise: billFinancials.paidAmountInPaise,
-          paymentType: paymentType || 'CASH',
-          paymentStatus: billFinancials.paymentStatus,
-        },
-      });
-
-      // Create referral if specified
-      if (referralDoctorId) {
-        await tx.referralDoctor_Visit.create({
+    const result = await prisma.$transaction(
+      async (tx) => {
+        // Create visit
+        const visit = await tx.visit.create({
           data: {
-            visitId: visit.id,
-            referralDoctorId,
             branchId: req.branchId!,
+            patientId,
+            domain: "DIAGNOSTICS",
+            status: initialVisitStatus,
+            billNumber,
+            totalAmountInPaise,
           },
         });
-      }
 
-      // Create diagnostic center referral if specified
-      if (diagnosticCenterId) {
-        await tx.diagnosticCenter_Visit.create({
+        // Create bill
+        await tx.bill.create({
           data: {
             visitId: visit.id,
-            diagnosticCenterId,
-            referralType: 'REFERRED_FROM',
+            billNumber,
             branchId: req.branchId!,
+            totalAmountInPaise,
+            discountType: billFinancials.discountType,
+            discountPercentage: billFinancials.discountPercentage,
+            discountAmountInPaise: billFinancials.discountAmountInPaise,
+            paidAmountInPaise: billFinancials.paidAmountInPaise,
+            paymentStatus: billFinancials.paymentStatus,
+            transactions:
+              billFinancials.paidAmountInPaise > 0
+                ? {
+                    create:
+                      Array.isArray(payments) && payments.length > 0
+                        ? payments.map((p: any) => ({
+                            amountInPaise: p.amountInPaise,
+                            paymentType: p.paymentType,
+                            collectedByUserId: req.user!.id,
+                          }))
+                        : [
+                            {
+                              amountInPaise: billFinancials.paidAmountInPaise,
+                              paymentType: paymentType || "CASH",
+                              collectedByUserId: req.user!.id,
+                            },
+                          ],
+                  }
+                : undefined,
           },
         });
-      }
 
-      if (referralDoctorId && hasProducts && overrides.size > 0) {
-        for (const productId of productIds.filter((id: string) => overrides.has(id))) {
-          const override = overrides.get(productId);
-          if (!override) continue;
-
-          if (areReferralPayoutsEqual(override, defaultReferralRule)) {
-            await tx.referralDoctorProductRule.deleteMany({
-              where: {
-                referralDoctorId,
-                productId,
-              },
-            });
-            continue;
-          }
-
-          await tx.referralDoctorProductRule.upsert({
-            where: {
-              referralDoctorId_productId: {
-                referralDoctorId,
-                productId,
-              },
-            },
-            update: {
-              commissionType: override.commissionType,
-              commissionPercent: override.commissionPercent,
-              commissionAmountInPaise: override.commissionAmountInPaise,
-              isActive: true,
-            },
-            create: {
+        // Create referral if specified
+        if (referralDoctorId) {
+          await tx.referralDoctor_Visit.create({
+            data: {
+              visitId: visit.id,
               referralDoctorId,
-              productId,
-              commissionType: override.commissionType,
-              commissionPercent: override.commissionPercent,
-              commissionAmountInPaise: override.commissionAmountInPaise,
-              isActive: true,
+              branchId: req.branchId!,
             },
           });
         }
-      }
 
-      if (diagnosticCenterId && hasProducts && diagnosticCenterOverrideMap.size > 0) {
-        for (const productId of productIds.filter((id: string) => diagnosticCenterOverrideMap.has(id))) {
-          const override = diagnosticCenterOverrideMap.get(productId);
-          if (!override) continue;
+        // Create diagnostic center referral if specified
+        if (diagnosticCenterId) {
+          await tx.diagnosticCenter_Visit.create({
+            data: {
+              visitId: visit.id,
+              diagnosticCenterId,
+              referralType: "REFERRED_FROM",
+              branchId: req.branchId!,
+            },
+          });
+        }
 
-          if (areReferralPayoutsEqual(override, defaultDiagnosticCenterRule)) {
-            await tx.diagnosticCenterProductRule.deleteMany({
+        if (referralDoctorId && hasProducts && overrides.size > 0) {
+          for (const productId of productIds.filter((id: string) =>
+            overrides.has(id),
+          )) {
+            const override = overrides.get(productId);
+            if (!override) continue;
+
+            if (areReferralPayoutsEqual(override, defaultReferralRule)) {
+              await tx.referralDoctorProductRule.deleteMany({
+                where: {
+                  referralDoctorId,
+                  productId,
+                },
+              });
+              continue;
+            }
+
+            await tx.referralDoctorProductRule.upsert({
               where: {
-                diagnosticCenterId,
+                referralDoctorId_productId: {
+                  referralDoctorId,
+                  productId,
+                },
+              },
+              update: {
+                commissionType: override.commissionType,
+                commissionPercent: override.commissionPercent,
+                commissionAmountInPaise: override.commissionAmountInPaise,
+                isActive: true,
+              },
+              create: {
+                referralDoctorId,
                 productId,
+                commissionType: override.commissionType,
+                commissionPercent: override.commissionPercent,
+                commissionAmountInPaise: override.commissionAmountInPaise,
+                isActive: true,
               },
             });
-            continue;
           }
+        }
 
-          await tx.diagnosticCenterProductRule.upsert({
-            where: {
-              diagnosticCenterId_productId: {
+        if (
+          diagnosticCenterId &&
+          hasProducts &&
+          diagnosticCenterOverrideMap.size > 0
+        ) {
+          for (const productId of productIds.filter((id: string) =>
+            diagnosticCenterOverrideMap.has(id),
+          )) {
+            const override = diagnosticCenterOverrideMap.get(productId);
+            if (!override) continue;
+
+            if (
+              areReferralPayoutsEqual(override, defaultDiagnosticCenterRule)
+            ) {
+              await tx.diagnosticCenterProductRule.deleteMany({
+                where: {
+                  diagnosticCenterId,
+                  productId,
+                },
+              });
+              continue;
+            }
+
+            await tx.diagnosticCenterProductRule.upsert({
+              where: {
+                diagnosticCenterId_productId: {
+                  diagnosticCenterId,
+                  productId,
+                },
+              },
+              update: {
+                commissionType: override.commissionType,
+                commissionPercent: override.commissionPercent,
+                commissionAmountInPaise: override.commissionAmountInPaise,
+                isActive: true,
+              },
+              create: {
                 diagnosticCenterId,
                 productId,
+                commissionType: override.commissionType,
+                commissionPercent: override.commissionPercent,
+                commissionAmountInPaise: override.commissionAmountInPaise,
+                isActive: true,
               },
+            });
+          }
+        }
+
+        // Create test orders with metadata snapshot (E3-03)
+        await tx.testOrder.createMany({
+          data: testOrderData.map((tod) => ({
+            visitId: visit.id,
+            testId: tod.testId,
+            branchId: req.branchId!,
+            workflowMode: tod.workflowMode,
+            priceInPaise: tod.priceInPaise,
+            referralCommissionType: tod.referralCommissionType,
+            referralCommissionPercentage: tod.referralCommissionPercentage,
+            referralCommissionAmountInPaise:
+              tod.referralCommissionAmountInPaise,
+            diagnosticCenterCommissionType: tod.diagnosticCenterCommissionType,
+            diagnosticCenterCommissionPercentage:
+              tod.diagnosticCenterCommissionPercentage,
+            diagnosticCenterCommissionAmountInPaise:
+              tod.diagnosticCenterCommissionAmountInPaise,
+            testNameSnapshot: tod.testNameSnapshot,
+            testCodeSnapshot: tod.testCodeSnapshot,
+            referenceMinSnapshot: tod.referenceMinSnapshot,
+            referenceMaxSnapshot: tod.referenceMaxSnapshot,
+            referenceUnitSnapshot: tod.referenceUnitSnapshot,
+            testDefinitionId: tod.testDefinitionId ?? null,
+            productId: tod.productId ?? null,
+          })),
+        });
+
+        if (createComposition.hasReportableOrders) {
+          const report = await tx.diagnosticReport.create({
+            data: {
+              visitId: visit.id,
+              branchId: req.branchId!,
             },
-            update: {
-              commissionType: override.commissionType,
-              commissionPercent: override.commissionPercent,
-              commissionAmountInPaise: override.commissionAmountInPaise,
-              isActive: true,
-            },
-            create: {
-              diagnosticCenterId,
-              productId,
-              commissionType: override.commissionType,
-              commissionPercent: override.commissionPercent,
-              commissionAmountInPaise: override.commissionAmountInPaise,
-              isActive: true,
+          });
+
+          await tx.reportVersion.create({
+            data: {
+              reportId: report.id,
+              versionNum: 1,
+              status: "DRAFT",
             },
           });
         }
-      }
 
-      // Create test orders with metadata snapshot (E3-03)
-      await tx.testOrder.createMany({
-        data: testOrderData.map((tod) => ({
-          visitId: visit.id,
-          testId: tod.testId,
-          branchId: req.branchId!,
-          workflowMode: tod.workflowMode,
-          priceInPaise: tod.priceInPaise,
-          referralCommissionType: tod.referralCommissionType,
-          referralCommissionPercentage: tod.referralCommissionPercentage,
-          referralCommissionAmountInPaise: tod.referralCommissionAmountInPaise,
-          diagnosticCenterCommissionType: tod.diagnosticCenterCommissionType,
-          diagnosticCenterCommissionPercentage: tod.diagnosticCenterCommissionPercentage,
-          diagnosticCenterCommissionAmountInPaise: tod.diagnosticCenterCommissionAmountInPaise,
-          testNameSnapshot: tod.testNameSnapshot,
-          testCodeSnapshot: tod.testCodeSnapshot,
-          referenceMinSnapshot: tod.referenceMinSnapshot,
-          referenceMaxSnapshot: tod.referenceMaxSnapshot,
-          referenceUnitSnapshot: tod.referenceUnitSnapshot,
-          testDefinitionId: tod.testDefinitionId ?? null,
-          productId: tod.productId ?? null,
-        })),
-      });
-
-      if (createComposition.hasReportableOrders) {
-        const report = await tx.diagnosticReport.create({
-          data: {
-            visitId: visit.id,
-            branchId: req.branchId!,
-          },
-        });
-
-        await tx.reportVersion.create({
-          data: {
-            reportId: report.id,
-            versionNum: 1,
-            status: 'DRAFT',
-          },
-        });
-      }
-
-      return visit;
-    }, {
-      timeout: 15000,
-      maxWait: 15000,
-    });
+        return visit;
+      },
+      {
+        timeout: 15000,
+        maxWait: 15000,
+      },
+    );
 
     void logAction({
       userId: req.user?.id!,
-      actionType: 'CREATE',
-      entityType: 'VISIT',
+      actionType: "CREATE",
+      entityType: "VISIT",
       entityId: result.id,
       branchId: req.branchId!,
-      newValues: { domain: 'DIAGNOSTICS', billNumber, patientId, totalAmountInPaise },
+      newValues: {
+        domain: "DIAGNOSTICS",
+        billNumber,
+        patientId,
+        totalAmountInPaise,
+      },
       ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
+      userAgent: req.get("user-agent"),
     });
 
     if (!createComposition.hasReportableOrders) {
@@ -1515,27 +1661,36 @@ router.post('/', async (req: AuthRequest, res) => {
 
       if (referralDoctorId) {
         payoutRefreshTasks.push(
-          derivePayout('REFERRAL', referralDoctorId, req.branchId!, periodStartDate, periodEndDate)
+          derivePayout(
+            "REFERRAL",
+            referralDoctorId,
+            req.branchId!,
+            periodStartDate,
+            periodEndDate,
+          ),
         );
       }
 
       if (diagnosticCenterId) {
         payoutRefreshTasks.push(
           derivePayout(
-            'DIAGNOSTIC_CENTER',
+            "DIAGNOSTIC_CENTER",
             diagnosticCenterId,
             req.branchId!,
             periodStartDate,
-            periodEndDate
-          )
+            periodEndDate,
+          ),
         );
       }
 
       if (payoutRefreshTasks.length > 0) {
         const refreshResults = await Promise.allSettled(payoutRefreshTasks);
         for (const refreshResult of refreshResults) {
-          if (refreshResult.status === 'rejected') {
-            console.error('Auto-refresh payout after bill-only billing failed:', refreshResult.reason);
+          if (refreshResult.status === "rejected") {
+            console.error(
+              "Auto-refresh payout after bill-only billing failed:",
+              refreshResult.reason,
+            );
           }
         }
       }
@@ -1565,14 +1720,21 @@ router.post('/', async (req: AuthRequest, res) => {
 
     // Fire-and-forget: Send bill confirmation via WhatsApp (non-blocking)
     if (sendWhatsApp) {
-      import('../services/notificationService').then(({ sendBillConfirmation }) => {
-        sendBillConfirmation(result.id).catch((err) =>
-          console.error('[Notification] Bill notification failed (non-blocking):', err.message)
-        );
-      });
+      import("../services/notificationService").then(
+        ({ sendBillConfirmation }) => {
+          sendBillConfirmation(result.id).catch((err) =>
+            console.error(
+              "[Notification] Bill notification failed (non-blocking):",
+              err.message,
+            ),
+          );
+        },
+      );
     }
 
-    const completeBillFinancials = buildBillFinancialResponse(completeVisit!.bill);
+    const completeBillFinancials = buildBillFinancialResponse(
+      completeVisit!.bill,
+    );
 
     return res.status(201).json({
       id: completeVisit!.id,
@@ -1581,17 +1743,18 @@ router.post('/', async (req: AuthRequest, res) => {
       totalAmount: completeVisit!.totalAmountInPaise / 100,
       status: completeVisit!.status,
       hasBill: true,
-      paymentType: completeVisit!.bill?.paymentType || 'CASH',
-      paymentStatus: completeVisit!.bill?.paymentStatus || 'PENDING',
+      paymentType: null,
+      paymentStatus: completeVisit!.bill?.paymentStatus || "PENDING",
       ...completeBillFinancials,
-      billedAt: completeVisit!.bill?.billedAt || completeVisit!.bill?.createdAt || null,
+      billedAt:
+        completeVisit!.bill?.billedAt || completeVisit!.bill?.createdAt || null,
       reportFinalizedAt: null,
       hasReportableOrders: createComposition.hasReportableOrders,
       hasBillOnlyOrders: createComposition.hasBillOnlyOrders,
       hasFinalizedReport: false,
       nextAction: getVisitComposition(
         completeVisit!.testOrders,
-        completeVisit!.status
+        completeVisit!.status,
       ).nextAction,
       createdAt: completeVisit!.createdAt,
       referralDoctor: completeVisit!.referrals[0]?.referralDoctor || null,
@@ -1612,13 +1775,15 @@ router.post('/', async (req: AuthRequest, res) => {
           referralCommissionType: completeVisit!.referrals[0]?.referralDoctor
             ? to.referralCommissionType
             : undefined,
-          referralCommissionPercentage: completeVisit!.referrals[0]?.referralDoctor
+          referralCommissionPercentage: completeVisit!.referrals[0]
+            ?.referralDoctor
             ? to.referralCommissionPercentage
             : undefined,
-          referralCommissionAmountInPaise: completeVisit!.referrals[0]?.referralDoctor
+          referralCommissionAmountInPaise: completeVisit!.referrals[0]
+            ?.referralDoctor
             ? to.referralCommissionAmountInPaise
             : undefined,
-        }))
+        })),
       ),
       testOrders: completeVisit!.testOrders.map((to) => ({
         id: to.id,
@@ -1634,21 +1799,23 @@ router.post('/', async (req: AuthRequest, res) => {
         referralCommissionPercent: to.referralCommissionPercentage,
         referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
         diagnosticCenterCommissionType: to.diagnosticCenterCommissionType,
-        diagnosticCenterCommissionPercent: to.diagnosticCenterCommissionPercentage,
-        diagnosticCenterCommissionAmountInPaise: to.diagnosticCenterCommissionAmountInPaise,
+        diagnosticCenterCommissionPercent:
+          to.diagnosticCenterCommissionPercentage,
+        diagnosticCenterCommissionAmountInPaise:
+          to.diagnosticCenterCommissionAmountInPaise,
       })),
     });
   } catch (err: any) {
-    console.error('Create diagnostic visit error:', err);
+    console.error("Create diagnostic visit error:", err);
     return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to create diagnostic visit',
+      error: "INTERNAL_ERROR",
+      message: "Failed to create diagnostic visit",
     });
   }
 });
 
 // PATCH /api/visits/diagnostic/:id - Update diagnostic visit status
-router.patch('/:id', async (req: AuthRequest, res) => {
+router.patch("/:id", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const { status, paymentType, paidAmount } = req.body;
@@ -1658,15 +1825,15 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       where: {
         id,
         branchId: req.branchId,
-        domain: 'DIAGNOSTICS',
+        domain: "DIAGNOSTICS",
       },
       include: { bill: true },
     });
 
     if (!existing) {
       return res.status(404).json({
-        error: 'NOT_FOUND',
-        message: 'Diagnostic visit not found',
+        error: "NOT_FOUND",
+        message: "Diagnostic visit not found",
       });
     }
 
@@ -1674,8 +1841,8 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     if (paidAmount !== undefined) {
       if (!existing.bill) {
         return res.status(400).json({
-          error: 'BILL_NOT_FOUND',
-          message: 'No bill found for this diagnostic visit',
+          error: "BILL_NOT_FOUND",
+          message: "No bill found for this diagnostic visit",
         });
       }
 
@@ -1684,14 +1851,14 @@ router.patch('/:id', async (req: AuthRequest, res) => {
           totalAmountInPaise: existing.bill.totalAmountInPaise,
           discountType: existing.bill.discountType,
           discountValue:
-            existing.bill.discountType === 'PERCENTAGE'
-              ? existing.bill.discountPercentage ?? 0
+            existing.bill.discountType === "PERCENTAGE"
+              ? (existing.bill.discountPercentage ?? 0)
               : existing.bill.discountAmountInPaise / 100,
           paidAmount,
         });
       } catch (validationErr: any) {
         return res.status(400).json({
-          error: 'VALIDATION_ERROR',
+          error: "VALIDATION_ERROR",
           message: validationErr.message,
         });
       }
@@ -1732,21 +1899,21 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       id: updated!.id,
       status: updated!.status,
       paymentStatus: updated!.bill?.paymentStatus,
-      paymentType: updated!.bill?.paymentType,
+      paymentType: null,
       ...billFinancials,
       billedAt: updated!.bill?.billedAt || updated!.bill?.createdAt || null,
     });
   } catch (err: any) {
-    console.error('Update diagnostic visit error:', err);
+    console.error("Update diagnostic visit error:", err);
     return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to update diagnostic visit',
+      error: "INTERNAL_ERROR",
+      message: "Failed to update diagnostic visit",
     });
   }
 });
 
 // POST /api/visits/diagnostic/:id/collect-due - Collect an additive due payment
-router.post('/:id/collect-due', async (req: AuthRequest, res) => {
+router.post("/:id/collect-due", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const { amount, paymentType } = req.body;
@@ -1755,22 +1922,22 @@ router.post('/:id/collect-due', async (req: AuthRequest, res) => {
       where: {
         id,
         branchId: req.branchId,
-        domain: 'DIAGNOSTICS',
+        domain: "DIAGNOSTICS",
       },
       include: { bill: true },
     });
 
     if (!existing) {
       return res.status(404).json({
-        error: 'NOT_FOUND',
-        message: 'Diagnostic visit not found',
+        error: "NOT_FOUND",
+        message: "Diagnostic visit not found",
       });
     }
 
     if (!existing.bill) {
       return res.status(400).json({
-        error: 'BILL_NOT_FOUND',
-        message: 'No bill found for this diagnostic visit',
+        error: "BILL_NOT_FOUND",
+        message: "No bill found for this diagnostic visit",
       });
     }
 
@@ -1779,7 +1946,7 @@ router.post('/:id/collect-due', async (req: AuthRequest, res) => {
       nextBillFinancials = collectBillDue(existing.bill, amount);
     } catch (validationErr: any) {
       return res.status(400).json({
-        error: 'VALIDATION_ERROR',
+        error: "VALIDATION_ERROR",
         message: validationErr.message,
       });
     }
@@ -1789,7 +1956,17 @@ router.post('/:id/collect-due', async (req: AuthRequest, res) => {
       data: {
         paidAmountInPaise: nextBillFinancials.paidAmountInPaise,
         paymentStatus: nextBillFinancials.paymentStatus,
-        ...(paymentType && { paymentType }),
+        transactions: {
+          create: {
+            amountInPaise: Math.max(
+              0,
+              nextBillFinancials.paidAmountInPaise -
+                existing.bill.paidAmountInPaise,
+            ),
+            paymentType: paymentType || "CASH",
+            collectedByUserId: req.user!.id,
+          },
+        },
       },
     });
 
@@ -1798,23 +1975,23 @@ router.post('/:id/collect-due', async (req: AuthRequest, res) => {
     return res.json({
       id: existing.id,
       status: existing.status,
-      paymentType: updated.paymentType,
+      paymentType: null,
       paymentStatus: updated.paymentStatus,
       ...billFinancials,
       billedAt: updated.billedAt || updated.createdAt,
     });
   } catch (err: any) {
-    console.error('Collect diagnostic due error:', err);
+    console.error("Collect diagnostic due error:", err);
     return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to collect due payment',
+      error: "INTERNAL_ERROR",
+      message: "Failed to collect due payment",
     });
   }
 });
 
 // POST /api/visits/diagnostic/:id/tests - Add tests to existing visit (E3-03)
 // Tests can only be added before report finalization
-router.post('/:id/tests', async (req: AuthRequest, res) => {
+router.post("/:id/tests", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const { testIds } = req.body;
@@ -1822,8 +1999,8 @@ router.post('/:id/tests', async (req: AuthRequest, res) => {
     // Validation
     if (!testIds || !Array.isArray(testIds) || testIds.length === 0) {
       return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: 'At least one test ID is required',
+        error: "VALIDATION_ERROR",
+        message: "At least one test ID is required",
       });
     }
 
@@ -1832,7 +2009,7 @@ router.post('/:id/tests', async (req: AuthRequest, res) => {
       where: {
         id,
         branchId: req.branchId,
-        domain: 'DIAGNOSTICS',
+        domain: "DIAGNOSTICS",
       },
       include: {
         referrals: {
@@ -1857,7 +2034,7 @@ router.post('/:id/tests', async (req: AuthRequest, res) => {
         report: {
           include: {
             versions: {
-              where: { status: 'FINALIZED' },
+              where: { status: "FINALIZED" },
               take: 1,
             },
           },
@@ -1867,34 +2044,38 @@ router.post('/:id/tests', async (req: AuthRequest, res) => {
 
     if (!visit) {
       return res.status(404).json({
-        error: 'NOT_FOUND',
-        message: 'Diagnostic visit not found',
+        error: "NOT_FOUND",
+        message: "Diagnostic visit not found",
       });
     }
 
     // E3-03: Check if report is finalized - cannot add tests after finalization
-    const hasFinalized = visit.report?.versions && visit.report.versions.length > 0;
+    const hasFinalized =
+      visit.report?.versions && visit.report.versions.length > 0;
     if (hasFinalized) {
       return res.status(400).json({
-        error: 'REPORT_FINALIZED',
-        message: 'Cannot add tests after report has been finalized',
+        error: "REPORT_FINALIZED",
+        message: "Cannot add tests after report has been finalized",
       });
     }
 
     if (isPureBillOnlyVisit(visit.testOrders)) {
       return res.status(400).json({
-        error: 'BILL_ONLY_VISIT',
-        message: 'Pure bill-only visits cannot be converted into reportable visits through add-tests.',
+        error: "BILL_ONLY_VISIT",
+        message:
+          "Pure bill-only visits cannot be converted into reportable visits through add-tests.",
       });
     }
 
     // Check if any requested tests are already ordered
     const existingTestIds = visit.testOrders.map((to) => to.testId);
-    const duplicateTests = testIds.filter((id: string) => existingTestIds.includes(id));
+    const duplicateTests = testIds.filter((id: string) =>
+      existingTestIds.includes(id),
+    );
     if (duplicateTests.length > 0) {
       return res.status(400).json({
-        error: 'DUPLICATE_TESTS',
-        message: 'Some tests are already ordered for this visit',
+        error: "DUPLICATE_TESTS",
+        message: "Some tests are already ordered for this visit",
         duplicateTestIds: duplicateTests,
       });
     }
@@ -1906,8 +2087,8 @@ router.post('/:id/tests', async (req: AuthRequest, res) => {
 
     if (tests.length !== testIds.length) {
       return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: 'One or more tests not found or inactive',
+        error: "VALIDATION_ERROR",
+        message: "One or more tests not found or inactive",
       });
     }
 
@@ -1915,31 +2096,48 @@ router.post('/:id/tests', async (req: AuthRequest, res) => {
       visit.referrals.length > 0 && visit.referrals[0].referralDoctor
         ? {
             commissionType: visit.referrals[0].referralDoctor.commissionType,
-            commissionPercent: visit.referrals[0].referralDoctor.commissionPercent,
-            commissionAmountInPaise: visit.referrals[0].referralDoctor.commissionAmountInPaise,
+            commissionPercent:
+              visit.referrals[0].referralDoctor.commissionPercent,
+            commissionAmountInPaise:
+              visit.referrals[0].referralDoctor.commissionAmountInPaise,
           }
         : null;
     const defaultDiagnosticCenterRule =
-      visit.diagnosticCenterReferrals.length > 0 && visit.diagnosticCenterReferrals[0].diagnosticCenter
+      visit.diagnosticCenterReferrals.length > 0 &&
+      visit.diagnosticCenterReferrals[0].diagnosticCenter
         ? {
-            commissionType: visit.diagnosticCenterReferrals[0].diagnosticCenter.commissionType,
-            commissionPercent: visit.diagnosticCenterReferrals[0].diagnosticCenter.commissionPercent,
+            commissionType:
+              visit.diagnosticCenterReferrals[0].diagnosticCenter
+                .commissionType,
+            commissionPercent:
+              visit.diagnosticCenterReferrals[0].diagnosticCenter
+                .commissionPercent,
             commissionAmountInPaise:
-              visit.diagnosticCenterReferrals[0].diagnosticCenter.commissionAmountInPaise,
+              visit.diagnosticCenterReferrals[0].diagnosticCenter
+                .commissionAmountInPaise,
           }
         : null;
 
     // Calculate additional amount
-    const additionalAmountInPaise = tests.reduce((sum, t) => sum + t.priceInPaise, 0);
-    const newTotalAmountInPaise = visit.totalAmountInPaise + additionalAmountInPaise;
+    const additionalAmountInPaise = tests.reduce(
+      (sum, t) => sum + t.priceInPaise,
+      0,
+    );
+    const newTotalAmountInPaise =
+      visit.totalAmountInPaise + additionalAmountInPaise;
     const nextBillFinancials = visit.bill
       ? recomputeBillFinancialsForSubtotal(visit.bill, newTotalAmountInPaise)
       : null;
-    const referralSnapshots = tests.map((test) =>
-      applyReferralRuleToPrices([test.priceInPaise], defaultReferralRule)[0]
+    const referralSnapshots = tests.map(
+      (test) =>
+        applyReferralRuleToPrices([test.priceInPaise], defaultReferralRule)[0],
     );
-    const diagnosticCenterSnapshots = tests.map((test) =>
-      applyOptionalReferralRuleToPrices([test.priceInPaise], defaultDiagnosticCenterRule)[0]
+    const diagnosticCenterSnapshots = tests.map(
+      (test) =>
+        applyOptionalReferralRuleToPrices(
+          [test.priceInPaise],
+          defaultDiagnosticCenterRule,
+        )[0],
     );
 
     // Create test orders with metadata snapshot in a transaction
@@ -1953,10 +2151,14 @@ router.post('/:id/tests', async (req: AuthRequest, res) => {
           workflowMode: DiagnosticWorkflowMode.REPORTABLE,
           priceInPaise: test.priceInPaise,
           referralCommissionType: referralSnapshots[index].commissionType,
-          referralCommissionPercentage: referralSnapshots[index].commissionPercentage,
-          referralCommissionAmountInPaise: referralSnapshots[index].commissionAmountInPaise,
-          diagnosticCenterCommissionType: diagnosticCenterSnapshots[index].commissionType,
-          diagnosticCenterCommissionPercentage: diagnosticCenterSnapshots[index].commissionPercentage,
+          referralCommissionPercentage:
+            referralSnapshots[index].commissionPercentage,
+          referralCommissionAmountInPaise:
+            referralSnapshots[index].commissionAmountInPaise,
+          diagnosticCenterCommissionType:
+            diagnosticCenterSnapshots[index].commissionType,
+          diagnosticCenterCommissionPercentage:
+            diagnosticCenterSnapshots[index].commissionPercentage,
           diagnosticCenterCommissionAmountInPaise:
             diagnosticCenterSnapshots[index].commissionAmountInPaise,
           testNameSnapshot: test.name,
@@ -2002,22 +2204,25 @@ router.post('/:id/tests', async (req: AuthRequest, res) => {
     // Audit log for test addition
     await logAction({
       userId: req.user?.id!,
-      actionType: 'UPDATE',
-      entityType: 'VISIT',
+      actionType: "UPDATE",
+      entityType: "VISIT",
       entityId: id,
       branchId: req.branchId!,
-      oldValues: { testCount: existingTestIds.length, totalAmountInPaise: visit.totalAmountInPaise },
-      newValues: { 
-        testCount: result!.testOrders.length, 
+      oldValues: {
+        testCount: existingTestIds.length,
+        totalAmountInPaise: visit.totalAmountInPaise,
+      },
+      newValues: {
+        testCount: result!.testOrders.length,
         totalAmountInPaise: newTotalAmountInPaise,
         addedTestIds: testIds,
       },
       ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
+      userAgent: req.get("user-agent"),
     });
 
     return res.status(201).json({
-      message: 'Tests added successfully',
+      message: "Tests added successfully",
       addedCount: tests.length,
       newTotal: newTotalAmountInPaise / 100,
       testOrders: result!.testOrders.map((to) => ({
@@ -2029,17 +2234,17 @@ router.post('/:id/tests', async (req: AuthRequest, res) => {
       })),
     });
   } catch (err: any) {
-    console.error('Add tests to visit error:', err);
+    console.error("Add tests to visit error:", err);
     return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to add tests to visit',
+      error: "INTERNAL_ERROR",
+      message: "Failed to add tests to visit",
     });
   }
 });
 
 // DELETE /api/visits/diagnostic/:id/tests/:testOrderId - Remove test from visit (E3-03)
 // Tests can only be removed before report finalization
-router.delete('/:id/tests/:testOrderId', async (req: AuthRequest, res) => {
+router.delete("/:id/tests/:testOrderId", async (req: AuthRequest, res) => {
   try {
     const { id, testOrderId } = req.params;
 
@@ -2048,7 +2253,7 @@ router.delete('/:id/tests/:testOrderId', async (req: AuthRequest, res) => {
       where: {
         id,
         branchId: req.branchId,
-        domain: 'DIAGNOSTICS',
+        domain: "DIAGNOSTICS",
       },
       include: {
         testOrders: {
@@ -2064,7 +2269,7 @@ router.delete('/:id/tests/:testOrderId', async (req: AuthRequest, res) => {
         report: {
           include: {
             versions: {
-              where: { status: 'FINALIZED' },
+              where: { status: "FINALIZED" },
               take: 1,
             },
           },
@@ -2074,17 +2279,18 @@ router.delete('/:id/tests/:testOrderId', async (req: AuthRequest, res) => {
 
     if (!visit) {
       return res.status(404).json({
-        error: 'NOT_FOUND',
-        message: 'Diagnostic visit not found',
+        error: "NOT_FOUND",
+        message: "Diagnostic visit not found",
       });
     }
 
     // E3-03: Check if report is finalized
-    const hasFinalized = visit.report?.versions && visit.report.versions.length > 0;
+    const hasFinalized =
+      visit.report?.versions && visit.report.versions.length > 0;
     if (hasFinalized) {
       return res.status(400).json({
-        error: 'REPORT_FINALIZED',
-        message: 'Cannot remove tests after report has been finalized',
+        error: "REPORT_FINALIZED",
+        message: "Cannot remove tests after report has been finalized",
       });
     }
 
@@ -2092,35 +2298,40 @@ router.delete('/:id/tests/:testOrderId', async (req: AuthRequest, res) => {
     const testOrder = visit.testOrders.find((to) => to.id === testOrderId);
     if (!testOrder) {
       return res.status(404).json({
-        error: 'NOT_FOUND',
-        message: 'Test order not found',
+        error: "NOT_FOUND",
+        message: "Test order not found",
       });
     }
 
     // Must have at least one test remaining
     if (visit.testOrders.length <= 1) {
       return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: 'Cannot remove the last test from a visit',
+        error: "VALIDATION_ERROR",
+        message: "Cannot remove the last test from a visit",
       });
     }
 
     const reportableOrderCount = visit.testOrders.filter(
-      (order) => (order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) === DiagnosticWorkflowMode.REPORTABLE
+      (order) =>
+        (order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) ===
+        DiagnosticWorkflowMode.REPORTABLE,
     ).length;
 
     if (
-      (testOrder.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) === DiagnosticWorkflowMode.REPORTABLE &&
+      (testOrder.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) ===
+        DiagnosticWorkflowMode.REPORTABLE &&
       reportableOrderCount <= 1
     ) {
       return res.status(400).json({
-        error: 'LAST_REPORTABLE_ORDER',
-        message: 'Cannot remove the last reportable order from a diagnostic visit.',
+        error: "LAST_REPORTABLE_ORDER",
+        message:
+          "Cannot remove the last reportable order from a diagnostic visit.",
       });
     }
 
     // Calculate new total
-    const newTotalAmountInPaise = visit.totalAmountInPaise - testOrder.priceInPaise;
+    const newTotalAmountInPaise =
+      visit.totalAmountInPaise - testOrder.priceInPaise;
     let nextBillFinancials = null;
     try {
       nextBillFinancials = visit.bill
@@ -2128,7 +2339,7 @@ router.delete('/:id/tests/:testOrderId', async (req: AuthRequest, res) => {
         : null;
     } catch (financialErr: any) {
       return res.status(400).json({
-        error: 'BILL_OVERPAID_AFTER_REMOVAL',
+        error: "BILL_OVERPAID_AFTER_REMOVAL",
         message: financialErr.message,
       });
     }
@@ -2165,43 +2376,46 @@ router.delete('/:id/tests/:testOrderId', async (req: AuthRequest, res) => {
     // Audit log for test removal
     await logAction({
       userId: req.user?.id!,
-      actionType: 'UPDATE',
-      entityType: 'VISIT',
+      actionType: "UPDATE",
+      entityType: "VISIT",
       entityId: id,
       branchId: req.branchId!,
-      oldValues: { testCount: visit.testOrders.length, totalAmountInPaise: visit.totalAmountInPaise },
-      newValues: { 
-        testCount: visit.testOrders.length - 1, 
+      oldValues: {
+        testCount: visit.testOrders.length,
+        totalAmountInPaise: visit.totalAmountInPaise,
+      },
+      newValues: {
+        testCount: visit.testOrders.length - 1,
         totalAmountInPaise: newTotalAmountInPaise,
         removedTestOrderId: testOrderId,
       },
       ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
+      userAgent: req.get("user-agent"),
     });
 
     return res.json({
-      message: 'Test removed successfully',
+      message: "Test removed successfully",
       newTotal: newTotalAmountInPaise / 100,
     });
   } catch (err: any) {
-    console.error('Remove test from visit error:', err);
+    console.error("Remove test from visit error:", err);
     return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to remove test from visit',
+      error: "INTERNAL_ERROR",
+      message: "Failed to remove test from visit",
     });
   }
 });
 
 // POST /api/visits/diagnostic/:id/results - Save test results
-router.post('/:id/results', async (req: AuthRequest, res) => {
+router.post("/:id/results", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const { results } = req.body;
 
     if (!results || !Array.isArray(results)) {
       return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: 'Results array is required',
+        error: "VALIDATION_ERROR",
+        message: "Results array is required",
       });
     }
 
@@ -2210,14 +2424,14 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
       where: {
         id,
         branchId: req.branchId,
-        domain: 'DIAGNOSTICS',
+        domain: "DIAGNOSTICS",
       },
       include: {
         report: {
           include: {
             versions: {
-              where: { status: 'DRAFT' },
-              orderBy: { versionNum: 'desc' },
+              where: { status: "DRAFT" },
+              orderBy: { versionNum: "desc" },
               take: 1,
             },
           },
@@ -2263,31 +2477,33 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
 
     if (!visit) {
       return res.status(404).json({
-        error: 'NOT_FOUND',
-        message: 'Diagnostic visit not found',
+        error: "NOT_FOUND",
+        message: "Diagnostic visit not found",
       });
     }
 
     const reportableOrders = getReportableOrders(visit.testOrders);
     if (reportableOrders.length === 0) {
       return res.status(400).json({
-        error: 'BILL_ONLY_VISIT',
-        message: 'Pure bill-only visits do not use result entry.',
+        error: "BILL_ONLY_VISIT",
+        message: "Pure bill-only visits do not use result entry.",
       });
     }
 
     const draftVersion = visit.report?.versions[0];
     if (!draftVersion) {
       return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: 'No draft report version found',
+        error: "VALIDATION_ERROR",
+        message: "No draft report version found",
       });
     }
 
     const manualDerivedOverrideTestIds = new Set<string>(
       results
-        .filter((result: any) => result?.manualOverride === true && result?.testId)
-        .map((result: any) => result.testId)
+        .filter(
+          (result: any) => result?.manualOverride === true && result?.testId,
+        )
+        .map((result: any) => result.testId),
     );
 
     // Build a map: testId -> testOrderId (includes sub-tests)
@@ -2327,15 +2543,24 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
         });
 
         // Create new result (either numeric value, textValue, or text notes)
-        if (result.value !== null && result.value !== undefined || result.textValue || (result.notes && result.notes.trim())) {
-          const numericValue = result.value != null ? parseFloat(result.value) : NaN;
+        if (
+          (result.value !== null && result.value !== undefined) ||
+          result.textValue ||
+          (result.notes && result.notes.trim())
+        ) {
+          const numericValue =
+            result.value != null ? parseFloat(result.value) : NaN;
           const isText = isNaN(numericValue);
           const defId = testToDefIdMap.get(result.testId) ?? null;
-          const normalizedNotes = manualDerivedOverrideTestIds.has(result.testId)
+          const normalizedNotes = manualDerivedOverrideTestIds.has(
+            result.testId,
+          )
             ? DERIVED_MANUAL_OVERRIDE_NOTE
-            : (result.notes || null);
+            : result.notes || null;
           // Prefer explicit textValue from frontend; fall back to notes for legacy clients
-          const textVal = result.textValue || (isText ? (normalizedNotes || String(result.value ?? '')) : null);
+          const textVal =
+            result.textValue ||
+            (isText ? normalizedNotes || String(result.value ?? "") : null);
           await tx.testResult.create({
             data: {
               testOrderId,
@@ -2352,10 +2577,10 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
       }
 
       // Update visit status to WAITING if still DRAFT or IN_PROGRESS
-      if (visit.status === 'DRAFT' || visit.status === 'IN_PROGRESS') {
+      if (visit.status === "DRAFT" || visit.status === "IN_PROGRESS") {
         await tx.visit.update({
           where: { id },
-          data: { status: 'WAITING' },
+          data: { status: "WAITING" },
         });
       }
     });
@@ -2370,7 +2595,7 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
       if (patient) {
         // Collect test IDs that had numeric values
         const flaggableResults = results.filter(
-          (r: any) => r.value !== null && r.value !== undefined && r.testId
+          (r: any) => r.value !== null && r.value !== undefined && r.testId,
         );
         const testIdsForFlags = flaggableResults.map((r: any) => r.testId);
 
@@ -2380,7 +2605,7 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
             patient.yearOfBirth,
             patient.gender as any,
             undefined,
-            patient.dateOfBirth
+            patient.dateOfBirth,
           );
 
           // Batch-update flags based on resolved ranges
@@ -2411,19 +2636,20 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
       }
     } catch (flagErr) {
       // Non-fatal: log but don't fail the whole request
-      console.warn('Auto-flag calculation warning:', flagErr);
+      console.warn("Auto-flag calculation warning:", flagErr);
     }
 
     // --- Derived Parameters: auto-calculate formula-based values ---
     try {
-      const latestDefinitionFormulasByCode = await loadLatestDefinitionFormulasByCode(
-        reportableOrders.flatMap((testOrder) => [
-          testOrder.testDefinition?.code ||
-            testOrder.testCodeSnapshot ||
-            testOrder.test.code,
-          ...testOrder.test.childTests.map((child) => child.code),
-        ])
-      );
+      const latestDefinitionFormulasByCode =
+        await loadLatestDefinitionFormulasByCode(
+          reportableOrders.flatMap((testOrder) => [
+            testOrder.testDefinition?.code ||
+              testOrder.testCodeSnapshot ||
+              testOrder.test.code,
+            ...testOrder.test.childTests.map((child) => child.code),
+          ]),
+        );
 
       const resultsByTestCode = new Map<string, number>();
       for (const r of results) {
@@ -2432,19 +2658,23 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
         const numericValue = parseFloat(r.value);
         if (isNaN(numericValue)) continue;
 
-        const testOrder = reportableOrders.find((order) => order.testId === r.testId);
+        const testOrder = reportableOrders.find(
+          (order) => order.testId === r.testId,
+        );
         if (testOrder) {
           resultsByTestCode.set(
             testOrder.testDefinition?.code ||
               testOrder.testCodeSnapshot ||
               testOrder.test.code,
-            numericValue
+            numericValue,
           );
           continue;
         }
 
         for (const order of reportableOrders) {
-          const childTest = order.test.childTests.find((child) => child.id === r.testId);
+          const childTest = order.test.childTests.find(
+            (child) => child.id === r.testId,
+          );
           if (childTest) {
             resultsByTestCode.set(childTest.code, numericValue);
             break;
@@ -2458,24 +2688,28 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
           testOrder.testDefinition?.code ||
           testOrder.testCodeSnapshot ||
           testOrder.test.code;
-        const latestOrderDefinition = latestDefinitionFormulasByCode.get(orderCode);
-        const orderDerived =
-          testOrder.testDefinition?.formulaExpression
+        const latestOrderDefinition =
+          latestDefinitionFormulasByCode.get(orderCode);
+        const orderDerived = testOrder.testDefinition?.formulaExpression
+          ? buildDerivedMetadata(
+              testOrder.testDefinition.formulaExpression,
+              testOrder.testDefinition.dependsOnCodes,
+            )
+          : testOrder.test.derivedParameter?.formula
             ? buildDerivedMetadata(
-                testOrder.testDefinition.formulaExpression,
-                testOrder.testDefinition.dependsOnCodes
+                testOrder.test.derivedParameter.formula,
+                testOrder.test.derivedParameter.dependsOnTestCodes,
               )
-            : testOrder.test.derivedParameter?.formula
-              ? buildDerivedMetadata(
-                  testOrder.test.derivedParameter.formula,
-                  testOrder.test.derivedParameter.dependsOnTestCodes
-                )
-              : buildDerivedMetadata(
-                  latestOrderDefinition?.formulaExpression,
-                  latestOrderDefinition?.dependsOnCodes
-                );
+            : buildDerivedMetadata(
+                latestOrderDefinition?.formulaExpression,
+                latestOrderDefinition?.dependsOnCodes,
+              );
 
-        if (orderDerived.isDerived && orderDerived.formulaExpression && orderDerived.dependsOnCodes) {
+        if (
+          orderDerived.isDerived &&
+          orderDerived.formulaExpression &&
+          orderDerived.dependsOnCodes
+        ) {
           derivedTargets.push({
             testId: testOrder.testId,
             testDefinitionId: testOrder.testDefinitionId ?? null,
@@ -2497,13 +2731,21 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
         }
 
         for (const childTest of testOrder.test.childTests) {
-          const latestChildDefinition = latestDefinitionFormulasByCode.get(childTest.code);
+          const latestChildDefinition = latestDefinitionFormulasByCode.get(
+            childTest.code,
+          );
           const childDerived = buildDerivedMetadata(
-            childTest.derivedParameter?.formula || latestChildDefinition?.formulaExpression,
-            childTest.derivedParameter?.dependsOnTestCodes || latestChildDefinition?.dependsOnCodes
+            childTest.derivedParameter?.formula ||
+              latestChildDefinition?.formulaExpression,
+            childTest.derivedParameter?.dependsOnTestCodes ||
+              latestChildDefinition?.dependsOnCodes,
           );
 
-          if (childDerived.isDerived && childDerived.formulaExpression && childDerived.dependsOnCodes) {
+          if (
+            childDerived.isDerived &&
+            childDerived.formulaExpression &&
+            childDerived.dependsOnCodes
+          ) {
             derivedTargets.push({
               testId: childTest.id,
               testDefinitionId: null,
@@ -2525,7 +2767,7 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
 
       const derivedResults = evaluateDerivedTargets(
         derivedTargets,
-        resultsByTestCode
+        resultsByTestCode,
       );
 
       if (derivedResults.length > 0) {
@@ -2547,7 +2789,7 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
                   patient.yearOfBirth,
                   patient.gender as any,
                   testToDefIdMap.size > 0 ? testToDefIdMap : undefined,
-                  patient.dateOfBirth
+                  patient.dateOfBirth,
                 )
               : new Map();
 
@@ -2586,24 +2828,25 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
                 flag: derivedFlag,
                 notes: `${DERIVED_AUTO_NOTE_PREFIX}${dr.parameterName}`,
                 testDefinitionId:
-                  dr.testDefinitionId ??
-                  testToDefIdMap.get(dr.testId) ??
-                  null,
+                  dr.testDefinitionId ?? testToDefIdMap.get(dr.testId) ?? null,
               },
             });
           }
 
           for (const manualTestId of manualDerivedOverrideTestIds) {
-            const manualInput = results.find((result: any) => result.testId === manualTestId);
+            const manualInput = results.find(
+              (result: any) => result.testId === manualTestId,
+            );
             const manualOrderId = testToOrderMap.get(manualTestId);
 
             if (!manualInput || !manualOrderId) {
               continue;
             }
 
-            const numericValue = manualInput.value !== null && manualInput.value !== undefined
-              ? parseFloat(manualInput.value)
-              : NaN;
+            const numericValue =
+              manualInput.value !== null && manualInput.value !== undefined
+                ? parseFloat(manualInput.value)
+                : NaN;
 
             await prisma.testResult.deleteMany({
               where: {
@@ -2630,8 +2873,7 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
                 value: numericValue,
                 flag: manualFlag,
                 notes: DERIVED_MANUAL_OVERRIDE_NOTE,
-                testDefinitionId:
-                  testToDefIdMap.get(manualTestId) ?? null,
+                testDefinitionId: testToDefIdMap.get(manualTestId) ?? null,
               },
             });
           }
@@ -2639,21 +2881,21 @@ router.post('/:id/results', async (req: AuthRequest, res) => {
       }
     } catch (derivedErr) {
       // Non-fatal: log but don't fail the whole request
-      console.warn('Derived parameter calculation warning:', derivedErr);
+      console.warn("Derived parameter calculation warning:", derivedErr);
     }
 
     return res.json({ success: true });
   } catch (err: any) {
-    console.error('Save test results error:', err);
+    console.error("Save test results error:", err);
     return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to save test results',
+      error: "INTERNAL_ERROR",
+      message: "Failed to save test results",
     });
   }
 });
 
 // POST /api/visits/diagnostic/:id/collect-sample - Record sample collection and decrement stock
-router.post('/:id/collect-sample', async (req: AuthRequest, res) => {
+router.post("/:id/collect-sample", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const branchId = req.branchId!;
@@ -2664,13 +2906,19 @@ router.post('/:id/collect-sample', async (req: AuthRequest, res) => {
       where: {
         id,
         branchId,
-        domain: 'DIAGNOSTICS',
+        domain: "DIAGNOSTICS",
       },
       include: {
         testOrders: {
           include: {
             test: {
-              select: { id: true, name: true, sampleType: true, isPanel: true, childTests: { select: { id: true } } },
+              select: {
+                id: true,
+                name: true,
+                sampleType: true,
+                isPanel: true,
+                childTests: { select: { id: true } },
+              },
             },
           },
         },
@@ -2679,8 +2927,8 @@ router.post('/:id/collect-sample', async (req: AuthRequest, res) => {
 
     if (!visit) {
       return res.status(404).json({
-        error: 'NOT_FOUND',
-        message: 'Diagnostic visit not found',
+        error: "NOT_FOUND",
+        message: "Diagnostic visit not found",
       });
     }
 
@@ -2690,14 +2938,18 @@ router.post('/:id/collect-sample', async (req: AuthRequest, res) => {
         success: true,
         status: visit.status,
         testsCollected: visit.testOrders.length,
-        sampleTypes: [...new Set(visit.testOrders.map((to) => to.test.sampleType).filter(Boolean))],
+        sampleTypes: [
+          ...new Set(
+            visit.testOrders.map((to) => to.test.sampleType).filter(Boolean),
+          ),
+        ],
         collectedAt: visit.createdAt,
       });
     }
 
-    if (visit.status !== 'DRAFT') {
+    if (visit.status !== "DRAFT") {
       return res.status(400).json({
-        error: 'INVALID_STATUS',
+        error: "INVALID_STATUS",
         message: `Sample can only be collected when visit is in DRAFT status. Current status: ${visit.status}`,
       });
     }
@@ -2718,47 +2970,57 @@ router.post('/:id/collect-sample', async (req: AuthRequest, res) => {
       // Move visit to IN_PROGRESS
       await tx.visit.update({
         where: { id },
-        data: { status: 'IN_PROGRESS' },
+        data: { status: "IN_PROGRESS" },
       });
     });
 
     // Audit log
     await logAction({
-      actionType: 'FINALIZE',
-      entityType: 'Visit',
+      actionType: "FINALIZE",
+      entityType: "Visit",
       entityId: id,
       userId,
       branchId,
       newValues: {
         billNumber: visit.billNumber,
         testCount: testIds.length,
-        sampleTypes: [...new Set(reportableOrders.map((to: any) => to.test.sampleType).filter(Boolean))],
+        sampleTypes: [
+          ...new Set(
+            reportableOrders
+              .map((to: any) => to.test.sampleType)
+              .filter(Boolean),
+          ),
+        ],
       },
     });
 
     return res.json({
       success: true,
-      status: 'IN_PROGRESS',
+      status: "IN_PROGRESS",
       testsCollected: testIds.length,
-      sampleTypes: [...new Set(reportableOrders.map((to) => to.test.sampleType).filter(Boolean))],
+      sampleTypes: [
+        ...new Set(
+          reportableOrders.map((to) => to.test.sampleType).filter(Boolean),
+        ),
+      ],
     });
   } catch (err: any) {
-    console.error('Collect sample error:', err);
+    console.error("Collect sample error:", err);
     return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to record sample collection',
+      error: "INTERNAL_ERROR",
+      message: "Failed to record sample collection",
     });
   }
 });
 
 // GET /api/visits/diagnostic/:id/report-snapshot - JSON snapshot for grouped screen preview
 // Returns finalized frozen snapshot when available, otherwise a live ephemeral snapshot
-router.get('/:id/report-snapshot', async (req: AuthRequest, res) => {
+router.get("/:id/report-snapshot", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
 
     const visit = await prisma.visit.findFirst({
-      where: { id, branchId: req.branchId, domain: 'DIAGNOSTICS' },
+      where: { id, branchId: req.branchId, domain: "DIAGNOSTICS" },
       select: {
         id: true,
         status: true,
@@ -2771,13 +3033,13 @@ router.get('/:id/report-snapshot', async (req: AuthRequest, res) => {
     });
 
     if (!visit) {
-      return res.status(404).json({ error: 'Visit not found' });
+      return res.status(404).json({ error: "Visit not found" });
     }
 
     if (getReportableOrders(visit.testOrders).length === 0) {
       return res.status(400).json({
-        error: 'BILL_ONLY_VISIT',
-        message: 'Pure bill-only visits do not have a report snapshot.',
+        error: "BILL_ONLY_VISIT",
+        message: "Pure bill-only visits do not have a report snapshot.",
       });
     }
 
@@ -2789,23 +3051,23 @@ router.get('/:id/report-snapshot', async (req: AuthRequest, res) => {
     const snapshot = await buildEphemeralSnapshot(id);
     return res.json(snapshot);
   } catch (err: any) {
-    console.error('Report snapshot error:', err);
+    console.error("Report snapshot error:", err);
     return res.status(500).json({
-      error: 'SNAPSHOT_FAILED',
-      message: err.message || 'Failed to load report snapshot',
+      error: "SNAPSHOT_FAILED",
+      message: err.message || "Failed to load report snapshot",
     });
   }
 });
 
 // GET /api/visits/diagnostic/:id/preview-report - Generate ephemeral HTML preview of the report
 // Staff can see the actual branded report layout BEFORE finalizing (nothing is saved)
-router.get('/:id/preview-report', async (req: AuthRequest, res) => {
+router.get("/:id/preview-report", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
 
     // Verify the visit belongs to this branch
     const visit = await prisma.visit.findFirst({
-      where: { id, branchId: req.branchId, domain: 'DIAGNOSTICS' },
+      where: { id, branchId: req.branchId, domain: "DIAGNOSTICS" },
       select: {
         id: true,
         status: true,
@@ -2818,13 +3080,13 @@ router.get('/:id/preview-report', async (req: AuthRequest, res) => {
     });
 
     if (!visit) {
-      return res.status(404).json({ error: 'Visit not found' });
+      return res.status(404).json({ error: "Visit not found" });
     }
 
     if (getReportableOrders(visit.testOrders).length === 0) {
       return res.status(400).json({
-        error: 'BILL_ONLY_VISIT',
-        message: 'Pure bill-only visits do not have a report preview.',
+        error: "BILL_ONLY_VISIT",
+        message: "Pure bill-only visits do not have a report preview.",
       });
     }
 
@@ -2833,24 +3095,24 @@ router.get('/:id/preview-report', async (req: AuthRequest, res) => {
 
     // Render HTML using the same renderer as the PDF pipeline
     const html = renderReportHtml(snapshot, {
-      profile: 'screen',
-      baseUrl: `${req.protocol}://${req.get('host')}`,
+      profile: "screen",
+      baseUrl: `${req.protocol}://${req.get("host")}`,
     });
 
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
     return res.send(html);
   } catch (err: any) {
-    console.error('Preview report error:', err);
+    console.error("Preview report error:", err);
     return res.status(500).json({
-      error: 'PREVIEW_FAILED',
-      message: err.message || 'Failed to generate report preview',
+      error: "PREVIEW_FAILED",
+      message: err.message || "Failed to generate report preview",
     });
   }
 });
 
 // GET /api/visits/diagnostic/:id/finalized-report - Staff-only HTML view of the finalized report
-router.get('/:id/finalized-report', async (req: AuthRequest, res) => {
+router.get("/:id/finalized-report", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const loaded = await loadFinalizedReportSnapshotForVisit(id);
@@ -2862,52 +3124,58 @@ router.get('/:id/finalized-report', async (req: AuthRequest, res) => {
       });
     }
 
-    const autoPrint = req.query.print === 'true';
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const autoPrint = req.query.print === "true";
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
     const qrDataUrl = autoPrint
-      ? await QRCode.toDataURL(`${baseUrl}/reports/${await createAccessToken(loaded.reportVersionId)}`, {
-          width: 100,
-          margin: 1,
-          color: { dark: '#000000', light: '#ffffff' },
-        })
-      : '';
+      ? await QRCode.toDataURL(
+          `${baseUrl}/reports/${await createAccessToken(loaded.reportVersionId)}`,
+          {
+            width: 100,
+            margin: 1,
+            color: { dark: "#000000", light: "#ffffff" },
+          },
+        )
+      : "";
 
     const html = renderReportHtml(loaded.snapshot, {
       // Physical print uses pre-printed ledger paper, so the HTML must omit
       // the built-in report header/footer when the browser print dialog opens.
-      profile: autoPrint ? 'pdf-physical' : 'screen',
+      profile: autoPrint ? "pdf-physical" : "screen",
       baseUrl,
       qrDataUrl,
     });
     const finalHtml = autoPrint
-      ? html.replace('</body>', '<script>window.onload=function(){setTimeout(function(){window.print()},600)}</script></body>')
+      ? html.replace(
+          "</body>",
+          "<script>window.onload=function(){setTimeout(function(){window.print()},600)}</script></body>",
+        )
       : html;
 
     await recordAccessByReportVersionId(
       loaded.reportVersionId,
-      autoPrint ? 'PRINT' : 'VIEW',
+      autoPrint ? "PRINT" : "VIEW",
       req.ip,
-      req.get('user-agent'),
-      req.user?.id
+      req.get("user-agent"),
+      req.user?.id,
     );
 
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
     return res.send(finalHtml);
   } catch (err: any) {
-    console.error('Finalized report view error:', err);
+    console.error("Finalized report view error:", err);
     return res.status(500).json({
-      error: 'GENERATION_FAILED',
-      message: 'Failed to generate finalized report view',
+      error: "GENERATION_FAILED",
+      message: "Failed to generate finalized report view",
     });
   }
 });
 
 // GET /api/visits/diagnostic/:id/finalized-report/pdf - Staff-only finalized report PDF
-router.get('/:id/finalized-report/pdf', async (req: AuthRequest, res) => {
+router.get("/:id/finalized-report/pdf", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const mode = req.query.mode === 'physical' ? 'physical' : 'digital';
+    const mode = req.query.mode === "physical" ? "physical" : "digital";
     const loaded = await loadFinalizedReportSnapshotForVisit(id);
 
     if (!loaded.ok) {
@@ -2917,17 +3185,17 @@ router.get('/:id/finalized-report/pdf', async (req: AuthRequest, res) => {
       });
     }
 
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
     const reportToken = await createAccessToken(loaded.reportVersionId);
     const reportUrl = `${baseUrl}/reports/${reportToken}`;
     const qrDataUrl = await QRCode.toDataURL(reportUrl, {
       width: 100,
       margin: 1,
-      color: { dark: '#000000', light: '#ffffff' },
+      color: { dark: "#000000", light: "#ffffff" },
     });
 
     const html = renderReportHtml(loaded.snapshot, {
-      profile: mode === 'physical' ? 'pdf-physical' : 'pdf-digital',
+      profile: mode === "physical" ? "pdf-physical" : "pdf-digital",
       baseUrl,
       qrDataUrl,
     });
@@ -2935,32 +3203,33 @@ router.get('/:id/finalized-report/pdf', async (req: AuthRequest, res) => {
 
     await recordAccessByReportVersionId(
       loaded.reportVersionId,
-      mode === 'physical' ? 'PRINT' : 'DOWNLOAD',
+      mode === "physical" ? "PRINT" : "DOWNLOAD",
       req.ip,
-      req.get('user-agent'),
-      req.user?.id
+      req.get("user-agent"),
+      req.user?.id,
     );
 
-    const filename = mode === 'physical'
-      ? `Report-${loaded.billNumber}-print.pdf`
-      : `Report-${loaded.billNumber}.pdf`;
+    const filename =
+      mode === "physical"
+        ? `Report-${loaded.billNumber}-print.pdf`
+        : `Report-${loaded.billNumber}.pdf`;
 
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Length', pdfBuffer.length);
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Content-Length", pdfBuffer.length);
+    res.setHeader("Cache-Control", "no-store");
     return res.send(pdfBuffer);
   } catch (err: any) {
-    console.error('Finalized report PDF error:', err);
+    console.error("Finalized report PDF error:", err);
     return res.status(500).json({
-      error: 'GENERATION_FAILED',
-      message: 'Failed to generate finalized report PDF',
+      error: "GENERATION_FAILED",
+      message: "Failed to generate finalized report PDF",
     });
   }
 });
 
 // POST /api/visits/diagnostic/:id/confirm-ready - Legacy compatibility for older pure bill-only visits
-router.post('/:id/confirm-ready', async (req: AuthRequest, res) => {
+router.post("/:id/confirm-ready", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
 
@@ -2968,7 +3237,7 @@ router.post('/:id/confirm-ready', async (req: AuthRequest, res) => {
       where: {
         id,
         branchId: req.branchId,
-        domain: 'DIAGNOSTICS',
+        domain: "DIAGNOSTICS",
       },
       include: {
         referrals: {
@@ -2991,16 +3260,16 @@ router.post('/:id/confirm-ready', async (req: AuthRequest, res) => {
 
     if (!visit) {
       return res.status(404).json({
-        error: 'NOT_FOUND',
-        message: 'Diagnostic visit not found',
+        error: "NOT_FOUND",
+        message: "Diagnostic visit not found",
       });
     }
 
     const composition = getVisitComposition(visit.testOrders, visit.status);
     if (composition.hasReportableOrders || !composition.hasBillOnlyOrders) {
       return res.status(400).json({
-        error: 'REPORTABLE_VISIT',
-        message: 'This endpoint only applies to legacy pure bill-only visits.',
+        error: "REPORTABLE_VISIT",
+        message: "This endpoint only applies to legacy pure bill-only visits.",
       });
     }
 
@@ -3011,7 +3280,7 @@ router.post('/:id/confirm-ready', async (req: AuthRequest, res) => {
         hasReportableOrders: composition.hasReportableOrders,
         hasBillOnlyOrders: composition.hasBillOnlyOrders,
         hasFinalizedReport: false,
-        nextAction: 'NONE',
+        nextAction: "NONE",
       });
     }
 
@@ -3026,8 +3295,8 @@ router.post('/:id/confirm-ready', async (req: AuthRequest, res) => {
 
     await logAction({
       branchId: req.branchId!,
-      actionType: 'FINALIZE',
-      entityType: 'Visit',
+      actionType: "FINALIZE",
+      entityType: "Visit",
       entityId: visit.id,
       userId: req.user?.id!,
       oldValues: {
@@ -3036,11 +3305,11 @@ router.post('/:id/confirm-ready', async (req: AuthRequest, res) => {
       newValues: {
         status: VisitStatus.COMPLETED,
         visitId: visit.id,
-        completionMode: 'BILL_ONLY',
+        completionMode: "BILL_ONLY",
         completedAt: completedAt.toISOString(),
       },
       ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
+      userAgent: req.get("user-agent"),
     });
 
     const periodStartDate = new Date(completedAt);
@@ -3050,31 +3319,41 @@ router.post('/:id/confirm-ready', async (req: AuthRequest, res) => {
 
     const payoutRefreshTasks: Array<Promise<unknown>> = [];
     const referralDoctorId = visit.referrals[0]?.referralDoctorId;
-    const diagnosticCenterId = visit.diagnosticCenterReferrals[0]?.diagnosticCenterId;
+    const diagnosticCenterId =
+      visit.diagnosticCenterReferrals[0]?.diagnosticCenterId;
 
     if (referralDoctorId) {
       payoutRefreshTasks.push(
-        derivePayout('REFERRAL', referralDoctorId, visit.branchId, periodStartDate, periodEndDate)
+        derivePayout(
+          "REFERRAL",
+          referralDoctorId,
+          visit.branchId,
+          periodStartDate,
+          periodEndDate,
+        ),
       );
     }
 
     if (diagnosticCenterId) {
       payoutRefreshTasks.push(
         derivePayout(
-          'DIAGNOSTIC_CENTER',
+          "DIAGNOSTIC_CENTER",
           diagnosticCenterId,
           visit.branchId,
           periodStartDate,
-          periodEndDate
-        )
+          periodEndDate,
+        ),
       );
     }
 
     if (payoutRefreshTasks.length > 0) {
       const refreshResults = await Promise.allSettled(payoutRefreshTasks);
       for (const result of refreshResults) {
-        if (result.status === 'rejected') {
-          console.error('Auto-refresh payout after bill-only completion failed:', result.reason);
+        if (result.status === "rejected") {
+          console.error(
+            "Auto-refresh payout after bill-only completion failed:",
+            result.reason,
+          );
         }
       }
     }
@@ -3085,20 +3364,20 @@ router.post('/:id/confirm-ready', async (req: AuthRequest, res) => {
       hasReportableOrders: false,
       hasBillOnlyOrders: true,
       hasFinalizedReport: false,
-      nextAction: 'NONE',
+      nextAction: "NONE",
       completedAt,
     });
   } catch (err: any) {
-    console.error('Confirm bill-only ready error:', err);
+    console.error("Confirm bill-only ready error:", err);
     return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to complete legacy bill-only visit',
+      error: "INTERNAL_ERROR",
+      message: "Failed to complete legacy bill-only visit",
     });
   }
 });
 
 // POST /api/visits/diagnostic/:id/finalize - Finalize report
-router.post('/:id/finalize', async (req: AuthRequest, res) => {
+router.post("/:id/finalize", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
 
@@ -3106,7 +3385,7 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
       where: {
         id,
         branchId: req.branchId,
-        domain: 'DIAGNOSTICS',
+        domain: "DIAGNOSTICS",
       },
       include: {
         referrals: {
@@ -3128,8 +3407,8 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
         report: {
           include: {
             versions: {
-              where: { status: 'DRAFT' },
-              orderBy: { versionNum: 'desc' },
+              where: { status: "DRAFT" },
+              orderBy: { versionNum: "desc" },
               take: 1,
             },
           },
@@ -3139,15 +3418,15 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
 
     if (!visit) {
       return res.status(404).json({
-        error: 'NOT_FOUND',
-        message: 'Diagnostic visit not found',
+        error: "NOT_FOUND",
+        message: "Diagnostic visit not found",
       });
     }
 
     if (getReportableOrders(visit.testOrders).length === 0) {
       return res.status(400).json({
-        error: 'BILL_ONLY_VISIT',
-        message: 'Pure bill-only visits do not use report finalization.',
+        error: "BILL_ONLY_VISIT",
+        message: "Pure bill-only visits do not use report finalization.",
       });
     }
 
@@ -3155,7 +3434,7 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
       const billFinancials = computeBillFinancialsFromPersisted(visit.bill);
       if (billFinancials.dueAmountInPaise > 0) {
         return res.status(400).json({
-          error: 'BILL_DUE',
+          error: "BILL_DUE",
           message: `Cannot finalize report while bill has due amount ₹${(billFinancials.dueAmountInPaise / 100).toFixed(2)}.`,
           dueAmountInPaise: billFinancials.dueAmountInPaise,
         });
@@ -3165,8 +3444,8 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
     const draftVersion = visit.report?.versions[0];
     if (!draftVersion) {
       return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: 'No draft report version found',
+        error: "VALIDATION_ERROR",
+        message: "No draft report version found",
       });
     }
 
@@ -3177,24 +3456,24 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
     // Only finalize if status is still DRAFT (updateMany returns count=0 if condition not met)
     await prisma.$transaction(async (tx) => {
       const updated = await tx.reportVersion.updateMany({
-        where: { 
+        where: {
           id: draftVersion.id,
-          status: 'DRAFT'  // Only update if still DRAFT
+          status: "DRAFT", // Only update if still DRAFT
         },
         data: {
-          status: 'FINALIZED',
+          status: "FINALIZED",
           finalizedAt,
         },
       });
 
       // If no rows updated, another request already finalized
       if (updated.count === 0) {
-        throw new Error('ALREADY_FINALIZED');
+        throw new Error("ALREADY_FINALIZED");
       }
 
       await tx.visit.update({
         where: { id },
-        data: { status: 'COMPLETED' },
+        data: { status: "COMPLETED" },
       });
 
       return updated;
@@ -3210,28 +3489,31 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
       accessToken = await createAccessToken(draftVersion.id);
     } catch (snapshotErr) {
       // Log but don't fail - snapshot can be recreated later
-      console.error('Failed to create snapshot/token (non-critical):', snapshotErr);
+      console.error(
+        "Failed to create snapshot/token (non-critical):",
+        snapshotErr,
+      );
     }
 
     // Audit log: Report finalization (CRITICAL)
     await logAction({
       branchId: req.branchId!,
-      actionType: 'FINALIZE',
-      entityType: 'Report',
+      actionType: "FINALIZE",
+      entityType: "Report",
       entityId: draftVersion.id,
       userId: req.user?.id!,
       oldValues: {
-        status: 'DRAFT',
+        status: "DRAFT",
       },
       newValues: {
-        status: 'FINALIZED',
+        status: "FINALIZED",
         reportVersionId: draftVersion.id,
         visitId: visit.id,
         finalizedAt: finalizedAt.toISOString(),
         reportAccessIssued: !!accessToken,
       },
       ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
+      userAgent: req.get("user-agent"),
     });
 
     const periodStartDate = new Date(finalizedAt);
@@ -3241,59 +3523,72 @@ router.post('/:id/finalize', async (req: AuthRequest, res) => {
 
     const payoutRefreshTasks: Array<Promise<unknown>> = [];
     const referralDoctorId = visit.referrals[0]?.referralDoctorId;
-    const diagnosticCenterId = visit.diagnosticCenterReferrals[0]?.diagnosticCenterId;
+    const diagnosticCenterId =
+      visit.diagnosticCenterReferrals[0]?.diagnosticCenterId;
 
     if (referralDoctorId) {
       payoutRefreshTasks.push(
-        derivePayout('REFERRAL', referralDoctorId, visit.branchId, periodStartDate, periodEndDate)
+        derivePayout(
+          "REFERRAL",
+          referralDoctorId,
+          visit.branchId,
+          periodStartDate,
+          periodEndDate,
+        ),
       );
     }
 
     if (diagnosticCenterId) {
       payoutRefreshTasks.push(
         derivePayout(
-          'DIAGNOSTIC_CENTER',
+          "DIAGNOSTIC_CENTER",
           diagnosticCenterId,
           visit.branchId,
           periodStartDate,
-          periodEndDate
-        )
+          periodEndDate,
+        ),
       );
     }
 
     if (payoutRefreshTasks.length > 0) {
       const refreshResults = await Promise.allSettled(payoutRefreshTasks);
       for (const result of refreshResults) {
-        if (result.status === 'rejected') {
-          console.error('Auto-refresh payout after diagnostic finalization failed:', result.reason);
+        if (result.status === "rejected") {
+          console.error(
+            "Auto-refresh payout after diagnostic finalization failed:",
+            result.reason,
+          );
         }
       }
     }
 
     // Fire-and-forget: Send report-ready notification via WhatsApp (non-blocking)
-    import('../services/notificationService').then(({ sendReportReady }) => {
+    import("../services/notificationService").then(({ sendReportReady }) => {
       sendReportReady(visit.id, accessToken || undefined).catch((err) =>
-        console.error('[Notification] Report notification failed (non-blocking):', err.message)
+        console.error(
+          "[Notification] Report notification failed (non-blocking):",
+          err.message,
+        ),
       );
     });
 
-    return res.json({ 
-      success: true, 
-      status: 'COMPLETED',
+    return res.json({
+      success: true,
+      status: "COMPLETED",
       reportFinalizedAt: finalizedAt,
     });
   } catch (err: any) {
     // JIRA-10: Handle race condition gracefully
-    if (err.message === 'ALREADY_FINALIZED') {
+    if (err.message === "ALREADY_FINALIZED") {
       return res.status(409).json({
-        error: 'CONFLICT',
-        message: 'Report was already finalized by another request',
+        error: "CONFLICT",
+        message: "Report was already finalized by another request",
       });
     }
-    console.error('Finalize report error:', err);
+    console.error("Finalize report error:", err);
     return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to finalize report',
+      error: "INTERNAL_ERROR",
+      message: "Failed to finalize report",
     });
   }
 });

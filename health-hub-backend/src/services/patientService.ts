@@ -298,7 +298,7 @@ export async function getPatient360View(patientId: string) {
             select: { id: true, name: true, code: true }
           },
           bill: {
-            select: { paymentType: true, paymentStatus: true, billedAt: true }
+            select: {   paymentStatus: true, billedAt: true }
           },
           report: {
             include: {
