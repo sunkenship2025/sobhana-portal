@@ -1914,6 +1914,8 @@ router.patch("/:id", async (req: AuthRequest, res) => {
 
       // Update bill financials if provided (paymentType no longer exists on bill)
       if (nextBillFinancials) {
+        const currentBillFinancials = buildBillFinancialResponse(existing.bill);
+
         await tx.bill.updateMany({
           where: { visitId: id },
           data: {
@@ -1923,7 +1925,7 @@ router.patch("/:id", async (req: AuthRequest, res) => {
         });
 
         // Record additive transaction for the newly paid amount
-        const previousPaid = existing.bill?.paidAmountInPaise || 0;
+        const previousPaid = currentBillFinancials.paidAmountInPaise;
         const newPaid = nextBillFinancials.paidAmountInPaise;
         const addedAmount = newPaid - previousPaid;
 
@@ -2012,6 +2014,22 @@ router.post("/:id/collect-due", async (req: AuthRequest, res) => {
       });
     }
 
+    const currentBillFinancials = buildBillFinancialResponse(existing.bill);
+    const addedAmountInPaise = Math.max(
+      0,
+      nextBillFinancials.paidAmountInPaise -
+        currentBillFinancials.paidAmountInPaise,
+    );
+    if (addedAmountInPaise <= 0) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "Collection amount must increase paid amount",
+      });
+    }
+
+    const normalizedPaymentType =
+      paymentType === "ONLINE" ? "ONLINE" : "CASH";
+
     const updated = await prisma.bill.update({
       where: { id: existing.bill.id },
       data: {
@@ -2019,12 +2037,8 @@ router.post("/:id/collect-due", async (req: AuthRequest, res) => {
         paymentStatus: nextBillFinancials.paymentStatus,
         transactions: {
           create: {
-            amountInPaise: Math.max(
-              0,
-              nextBillFinancials.paidAmountInPaise -
-                existing.bill.paidAmountInPaise,
-            ),
-            paymentType: paymentType || "CASH",
+            amountInPaise: addedAmountInPaise,
+            paymentType: normalizedPaymentType,
             collectedByUserId: req.user!.id,
           },
         },

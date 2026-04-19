@@ -161,10 +161,22 @@ export function collectBillDue(
     throw new Error("Collection amount cannot exceed due amount");
   }
 
-  return computeBillFinancialsFromPersisted({
-    ...bill,
-    paidAmountInPaise: current.paidAmountInPaise + collectAmountInPaise,
-  });
+  const nextPaidAmountInPaise =
+    current.paidAmountInPaise + collectAmountInPaise;
+  const nextDueAmountInPaise = Math.max(
+    0,
+    current.netAmountInPaise - nextPaidAmountInPaise,
+  );
+
+  return {
+    ...current,
+    paidAmountInPaise: nextPaidAmountInPaise,
+    dueAmountInPaise: nextDueAmountInPaise,
+    paymentStatus:
+      nextDueAmountInPaise === 0
+        ? PaymentStatus.PAID
+        : PaymentStatus.PENDING,
+  };
 }
 
 export function recomputeBillFinancialsForSubtotal(
