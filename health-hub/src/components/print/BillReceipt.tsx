@@ -88,6 +88,13 @@ export const BillReceipt = ({ data, asPage = false, onLogoLoadedChange }: BillRe
         })
       : 'N/A';
 
+  const showDiscount = discountAmount > 0;
+  const hasCalculations = showDiscount || netAmount !== subtotalAmount;
+  const showSubtotal = data.items.length > 1 || showDiscount || paidAmount > 0;
+  const showPaid = paidAmount > 0;
+  const showDue = dueAmount > 0;
+  const finalTotalLabel = hasCalculations ? 'FINAL TOTAL' : 'TOTAL';
+
   // Container classes: if asPage, use print-page styling; otherwise standalone print-content
   const containerClass = asPage
     ? 'print-page bill-receipt-page'
@@ -217,31 +224,39 @@ export const BillReceipt = ({ data, asPage = false, onLogoLoadedChange }: BillRe
                 <td className="px-3 py-3 text-right align-middle">{item.price.toFixed(2)}</td>
               </tr>
             ))}
-            <tr>
-              <td className="border-r border-black px-3 py-3"></td>
-              <td className="border-r border-black px-3 py-3 text-right font-bold">SUBTOTAL</td>
-              <td className="px-3 py-3 text-right font-bold">₹{subtotalAmount.toFixed(2)}</td>
-            </tr>
+            {showSubtotal && (
+              <tr>
+                <td className="border-r border-black px-3 py-2"></td>
+                <td className="border-r border-black px-3 py-2 text-right text-gray-700">SUBTOTAL</td>
+                <td className="px-3 py-2 text-right text-gray-700">₹{subtotalAmount.toFixed(2)}</td>
+              </tr>
+            )}
+            {showDiscount && (
+              <tr>
+                <td className="border-r border-black px-3 py-2"></td>
+                <td className="border-r border-black px-3 py-2 text-right text-gray-700">{discountLabel}</td>
+                <td className="px-3 py-2 text-right text-gray-700">-₹{discountAmount.toFixed(2)}</td>
+              </tr>
+            )}
             <tr>
               <td className="border-r border-black px-3 py-2"></td>
-              <td className="border-r border-black px-3 py-2 text-right">{discountLabel}</td>
-              <td className="px-3 py-2 text-right">-₹{discountAmount.toFixed(2)}</td>
-            </tr>
-            <tr>
-              <td className="border-r border-black px-3 py-2"></td>
-              <td className="border-r border-black px-3 py-2 text-right font-bold">NET PAYABLE</td>
+              <td className="border-r border-black px-3 py-2 text-right font-bold">{finalTotalLabel}</td>
               <td className="px-3 py-2 text-right font-bold">₹{netAmount.toFixed(2)}</td>
             </tr>
-            <tr>
-              <td className="border-r border-black px-3 py-2"></td>
-              <td className="border-r border-black px-3 py-2 text-right">PAID</td>
-              <td className="px-3 py-2 text-right">₹{paidAmount.toFixed(2)}</td>
-            </tr>
-            <tr>
-              <td className="border-r border-black px-3 py-2"></td>
-              <td className="border-r border-black px-3 py-2 text-right font-bold">DUE</td>
-              <td className="px-3 py-2 text-right font-bold">₹{dueAmount.toFixed(2)}</td>
-            </tr>
+            {showPaid && (
+              <tr>
+                <td className="border-r border-black px-3 py-2"></td>
+                <td className="border-r border-black px-3 py-2 text-right text-gray-700">PAID</td>
+                <td className="px-3 py-2 text-right text-gray-700">₹{paidAmount.toFixed(2)}</td>
+              </tr>
+            )}
+            {showDue && (
+              <tr>
+                <td className="border-r border-black px-3 py-2"></td>
+                <td className="border-r border-black px-3 py-2 text-right font-bold">DUE</td>
+                <td className="px-3 py-2 text-right font-bold">₹{dueAmount.toFixed(2)}</td>
+              </tr>
+            )}
           </tbody>
         </table>
 
