@@ -27,7 +27,11 @@ type ClinicVisitRecord = Prisma.VisitGetPayload<{
         clinicDoctor: true;
       };
     };
-    bill: true;
+    bill: {
+      include: {
+        transactions: true;
+      };
+    };
   };
 }>;
 
@@ -178,7 +182,7 @@ async function findLatestRevisitAnchor(
       },
     },
     include: {
-      bill: true,
+      bill: { include: { transactions: true } },
       clinicVisit: {
         include: {
           clinicDoctor: true,
@@ -297,7 +301,8 @@ function transformClinicVisit(
     originalVisitVisitRef: originalVisit?.visitRef || null,
     originalVisitBillNumber: originalVisit?.billNumber || null,
     originalVisitDate: originalVisit?.createdAt || null,
-    paymentType: null,
+    paymentType:
+      Array.isArray((visit as any).bill?.transactions) && (visit as any).bill.transactions.length > 0 ? Array.from(new Set((visit as any).bill.transactions.map((t: any) => t.paymentType))).join(', ') : null,
     paymentStatus: visit.bill?.paymentStatus || null,
     billedAt: visit.bill?.billedAt || visit.bill?.createdAt || null,
     startedAt: visit.clinicVisit?.startedAt || null,
@@ -341,7 +346,7 @@ router.get("/", async (req: AuthRequest, res) => {
             clinicDoctor: true,
           },
         },
-        bill: true,
+        bill: { include: { transactions: true } },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -422,7 +427,7 @@ router.get("/:id", async (req: AuthRequest, res) => {
             clinicDoctor: true,
           },
         },
-        bill: true,
+        bill: { include: { transactions: true } },
       },
     });
 
@@ -458,6 +463,8 @@ router.post("/", async (req: AuthRequest, res) => {
       consultationFee,
       paymentType,
       paymentStatus,
+      payments,
+      paidAmount,
       revisitDecision,
       sendWhatsApp,
     } = req.body;
@@ -536,14 +543,38 @@ router.post("/", async (req: AuthRequest, res) => {
       });
 
       if (!isRevisit) {
+        const paidAmt =
+          paymentStatus === "PAID"
+            ? consultationFeeInPaise
+            : paidAmount
+              ? Math.round(paidAmount * 100)
+              : 0;
         await tx.bill.create({
           data: {
             visitId: visit.id,
             billNumber: visitRef,
             branchId: req.branchId!,
             totalAmountInPaise: consultationFeeInPaise,
-
+            paidAmountInPaise: paidAmt,
             paymentStatus: paymentStatus || "PENDING",
+            ...(paidAmt > 0 && {
+              transactions: {
+                create:
+                  Array.isArray(payments) && payments.length > 0
+                    ? payments.map((p) => ({
+                        amountInPaise: Math.round((p.amount || 0) * 100),
+                        paymentType: p.type || "CASH",
+                        collectedByUserId: req.user!.id,
+                      }))
+                    : [
+                        {
+                          amountInPaise: paidAmt,
+                          paymentType: paymentType || "CASH",
+                          collectedByUserId: req.user!.id,
+                        },
+                      ],
+              },
+            }),
           },
         });
       }
@@ -597,7 +628,7 @@ router.post("/", async (req: AuthRequest, res) => {
             clinicDoctor: true,
           },
         },
-        bill: true,
+        bill: { include: { transactions: true } },
       },
     });
 
@@ -662,7 +693,7 @@ router.patch("/:id", async (req: AuthRequest, res) => {
       },
       include: {
         clinicVisit: true,
-        bill: true,
+        bill: { include: { transactions: true } },
       },
     });
 
@@ -869,7 +900,17 @@ router.patch("/:id", async (req: AuthRequest, res) => {
 
         const oldPaymentData = {
           paymentStatus: existing.bill?.paymentStatus,
-          paymentType: null,
+          paymentType:
+            Array.isArray((existing as any).bill?.transactions) &&
+            (existing as any).bill.transactions.length > 0
+              ? Array.from(
+                  new Set(
+                    (existing as any).bill.transactions.map(
+                      (t: any) => t.paymentType,
+                    ),
+                  ),
+                ).join(", ")
+              : null,
         };
 
         await logAction({
@@ -890,7 +931,10 @@ router.patch("/:id", async (req: AuthRequest, res) => {
 
       return tx.visit.findUnique({
         where: { id },
-        include: { bill: true, clinicVisit: true },
+        include: {
+          bill: { include: { transactions: true } },
+          clinicVisit: true,
+        },
       });
     });
 
@@ -899,7 +943,8 @@ router.patch("/:id", async (req: AuthRequest, res) => {
       hasBill: Boolean(updated!.bill),
       status: updated!.clinicVisit?.status || updated!.status,
       paymentStatus: updated!.bill?.paymentStatus || null,
-      paymentType: null,
+      paymentType:
+        Array.isArray((existing as any).bill?.transactions) && (existing as any).bill.transactions.length > 0 ? Array.from(new Set((existing as any).bill.transactions.map((t: any) => t.paymentType))).join(', ') : null,
       billedAt: updated!.bill?.billedAt || updated!.bill?.createdAt || null,
       startedAt: updated!.clinicVisit?.startedAt || null,
       completedAt: updated!.clinicVisit?.completedAt || null,

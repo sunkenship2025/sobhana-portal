@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
-import { useAuthStore } from '@/store/authStore';
-import { Loader2, AlertTriangle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { API_BASE } from '@/lib/api';
-import { BillReceipt } from '@/components/print/BillReceipt';
-import type { BillReceiptData } from '@/types';
+import { useState, useEffect } from "react";
+import { useParams } from "react-router-dom";
+import { useAuthStore } from "@/store/authStore";
+import { Loader2, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { API_BASE } from "@/lib/api";
+import { BillReceipt } from "@/components/print/BillReceipt";
+import type { BillReceiptData } from "@/types";
 
 // Shape returned by GET /api/bills/:domain/:visitId
 interface ApiBillData {
@@ -14,11 +14,11 @@ interface ApiBillData {
     visitRef?: string;
     billNumber?: string | null;
     hasBill?: boolean;
-    domain: 'CLINIC' | 'DIAGNOSTICS';
+    domain: "CLINIC" | "DIAGNOSTICS";
     status: string;
     createdAt: string;
     totalAmount: number;
-    discountType?: 'FLAT_AMOUNT' | 'PERCENTAGE' | null;
+    discountType?: "FLAT_AMOUNT" | "PERCENTAGE" | null;
     discountPercentage?: number | null;
     discountAmountInPaise?: number;
     paidAmountInPaise?: number;
@@ -32,7 +32,7 @@ interface ApiBillData {
   patient: {
     name: string;
     age: number;
-    ageUnit?: 'DAYS' | 'MONTHS' | 'YEARS';
+    ageUnit?: "DAYS" | "MONTHS" | "YEARS";
     ageDisplay?: string;
     gender: string;
     phone: string;
@@ -44,6 +44,7 @@ interface ApiBillData {
   payment: {
     type?: string | null;
     status?: string | null;
+    transactions?: { paymentType: string; amountInPaise: number }[];
   };
   doctor?: {
     name: string;
@@ -57,7 +58,7 @@ interface ApiBillData {
     name: string;
     code: string;
     price: number;
-    referralCommissionType?: 'PERCENTAGE' | 'FIXED_AMOUNT';
+    referralCommissionType?: "PERCENTAGE" | "FIXED_AMOUNT";
     referralCommissionPercent?: number;
     referralCommissionAmountInPaise?: number;
   }>;
@@ -88,6 +89,7 @@ function toBillReceiptData(api: ApiBillData): BillReceiptData {
     referralDoctor: api.referralDoctor,
     paymentType: api.payment.type,
     paymentStatus: api.payment.status,
+    transactions: api.payment.transactions,
     totalAmount: api.visit.totalAmount,
     discountType: api.visit.discountType,
     discountPercentage: api.visit.discountPercentage,
@@ -113,7 +115,8 @@ export default function BillPrintPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [logoLoaded, setLogoLoaded] = useState(false);
-  const printLabel = billData?.visit.hasBill === false ? 'Print Visit Slip' : 'Print Bill';
+  const printLabel =
+    billData?.visit.hasBill === false ? "Print Visit Slip" : "Print Bill";
 
   useEffect(() => {
     if (domain && visitId) {
@@ -126,16 +129,16 @@ export default function BillPrintPage() {
       setLoading(true);
       const response = await fetch(`${API_BASE}/bills/${domain}/${visitId}`, {
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
         },
       });
 
       if (!response.ok) {
         if (response.status === 404) {
-          throw new Error('Bill not found');
+          throw new Error("Bill not found");
         }
-        throw new Error('Failed to fetch bill data');
+        throw new Error("Failed to fetch bill data");
       }
 
       const data = await response.json();
@@ -173,12 +176,15 @@ export default function BillPrintPage() {
       {/* Print Button (hidden on print) */}
       <div className="no-print fixed top-4 right-4 z-50">
         <Button onClick={() => window.print()} disabled={!logoLoaded}>
-          {logoLoaded ? printLabel : 'Preparing Print...'}
+          {logoLoaded ? printLabel : "Preparing Print..."}
         </Button>
       </div>
 
       {/* Bill Content — shared component */}
-      <BillReceipt data={toBillReceiptData(billData)} onLogoLoadedChange={setLogoLoaded} />
+      <BillReceipt
+        data={toBillReceiptData(billData)}
+        onLogoLoadedChange={setLogoLoaded}
+      />
     </>
   );
 }
