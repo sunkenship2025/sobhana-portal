@@ -296,7 +296,7 @@ router.post('/:id/mark-paid', requireRole('owner', 'staff'), async (req: AuthReq
       });
     }
 
-    const validPaymentMethods: PaymentType[] = ['CASH', 'ONLINE', 'CHEQUE'];
+    const validPaymentMethods: PaymentType[] = ['CASH', 'ONLINE'];
     if (!validPaymentMethods.includes(paymentMethod)) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
