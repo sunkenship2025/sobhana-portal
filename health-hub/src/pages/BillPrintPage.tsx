@@ -5,108 +5,10 @@ import { Loader2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_BASE } from "@/lib/api";
 import { BillReceipt } from "@/components/print/BillReceipt";
-import type { BillReceiptData } from "@/types";
-
-// Shape returned by GET /api/bills/:domain/:visitId
-interface ApiBillData {
-  visit: {
-    id: string;
-    visitRef?: string;
-    billNumber?: string | null;
-    hasBill?: boolean;
-    domain: "CLINIC" | "DIAGNOSTICS";
-    status: string;
-    createdAt: string;
-    totalAmount: number;
-    discountType?: "FLAT_AMOUNT" | "PERCENTAGE" | null;
-    discountPercentage?: number | null;
-    discountAmountInPaise?: number;
-    paidAmountInPaise?: number;
-    netAmountInPaise?: number;
-    dueAmountInPaise?: number;
-    visitType?: string;
-    isRevisit?: boolean;
-    originalVisitBillNumber?: string | null;
-    originalVisitDate?: string | null;
-  };
-  patient: {
-    name: string;
-    age: number;
-    ageUnit?: "DAYS" | "MONTHS" | "YEARS";
-    ageDisplay?: string;
-    gender: string;
-    phone: string;
-  };
-  branch: {
-    name: string;
-    code: string;
-  };
-  payment: {
-    type?: string | null;
-    status?: string | null;
-    transactions?: { paymentType: string; amountInPaise: number }[];
-  };
-  doctor?: {
-    name: string;
-    qualification?: string;
-  };
-  referralDoctor?: {
-    name: string;
-  };
-  items: Array<{
-    id: string;
-    name: string;
-    code: string;
-    price: number;
-    referralCommissionType?: "PERCENTAGE" | "FIXED_AMOUNT";
-    referralCommissionPercent?: number;
-    referralCommissionAmountInPaise?: number;
-  }>;
-}
-
-/** Transform API response → shared BillReceiptData */
-function toBillReceiptData(api: ApiBillData): BillReceiptData {
-  return {
-    visitRef: api.visit.visitRef,
-    billNumber: api.visit.billNumber,
-    hasBill: api.visit.hasBill,
-    date: api.visit.createdAt,
-    domain: api.visit.domain,
-    visitType: api.visit.visitType,
-    isRevisit: api.visit.isRevisit,
-    originalBillNumber: api.visit.originalVisitBillNumber,
-    originalVisitDate: api.visit.originalVisitDate,
-    branchName: api.branch.name,
-    patient: {
-      name: api.patient.name,
-      phone: api.patient.phone,
-      age: api.patient.age,
-      ageUnit: api.patient.ageUnit,
-      ageDisplay: api.patient.ageDisplay,
-      gender: api.patient.gender,
-    },
-    doctor: api.doctor,
-    referralDoctor: api.referralDoctor,
-    paymentType: api.payment.type,
-    paymentStatus: api.payment.status,
-    transactions: api.payment.transactions,
-    totalAmount: api.visit.totalAmount,
-    discountType: api.visit.discountType,
-    discountPercentage: api.visit.discountPercentage,
-    discountAmountInPaise: api.visit.discountAmountInPaise,
-    paidAmountInPaise: api.visit.paidAmountInPaise,
-    netAmountInPaise: api.visit.netAmountInPaise,
-    dueAmountInPaise: api.visit.dueAmountInPaise,
-    items: api.items.map((item) => ({
-      id: item.id,
-      name: item.name,
-      price: item.price,
-      referralType: item.referralCommissionType,
-      referralPercent: item.referralCommissionPercent,
-      referralAmountInPaise: item.referralCommissionAmountInPaise,
-    })),
-  };
-}
+import {
+  mapApiBillToReceiptData,
+  type ApiBillData,
+} from "@/lib/billReceiptMappers";
 
 export default function BillPrintPage() {
   const { domain, visitId } = useParams<{ domain: string; visitId: string }>();
@@ -182,7 +84,7 @@ export default function BillPrintPage() {
 
       {/* Bill Content — shared component */}
       <BillReceipt
-        data={toBillReceiptData(billData)}
+        data={mapApiBillToReceiptData(billData)}
         onLogoLoadedChange={setLogoLoaded}
       />
     </>
