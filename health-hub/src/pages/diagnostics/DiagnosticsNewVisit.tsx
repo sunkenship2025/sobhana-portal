@@ -51,7 +51,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 type DiscountMode = 'NONE' | BillDiscountType;
 
@@ -799,7 +798,7 @@ const DiagnosticsNewVisit = () => {
                     <StatusBadge status={successData.visitView.visit.paymentStatus || 'PENDING'} />
                   </div>
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="text-muted-foreground">Net Payable:</span>
+                    <span className="text-muted-foreground">Final Total:</span>
                     <span className="font-semibold">
                       {formatMoney((successData.visitView.visit.netAmountInPaise ?? successData.visitView.visit.totalAmountInPaise) / 100)}
                     </span>
@@ -1520,104 +1519,71 @@ const DiagnosticsNewVisit = () => {
                 </div>
               )}
 
-              <div className="flex justify-between items-center p-4 bg-muted rounded-lg">
-                <span className="text-lg font-medium">Total Amount</span>
-                <span className="text-2xl font-bold">₹{totalAmount.toLocaleString()}</span>
-              </div>
+              <div className="rounded-lg border bg-background px-4 py-5">
+                <div className="grid gap-4 text-[15px] md:grid-cols-[170px_minmax(0,1fr)] md:items-center">
+                  <div className="font-semibold text-muted-foreground">Total bill</div>
+                  <div className="text-2xl font-bold tracking-tight">{formatMoney(totalAmount)}</div>
 
-              <div className="rounded-xl border bg-card p-4 space-y-4">
-                <Tabs defaultValue="discount" className="space-y-4">
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="discount">Discount</TabsTrigger>
-                    <TabsTrigger value="due">Due</TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="discount" className="space-y-3">
-                    <div className="grid gap-3 md:grid-cols-[180px_1fr]">
-                      <div className="space-y-2">
-                        <Label>Discount Type</Label>
-                        <Select
-                          value={discountMode}
-                          onValueChange={(value) => {
-                            setDiscountMode(value as DiscountMode);
-                            setDiscountValue('');
-                          }}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="NONE">No Discount</SelectItem>
-                            <SelectItem value="FLAT_AMOUNT">Flat Amount</SelectItem>
-                            <SelectItem value="PERCENTAGE">Percentage</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>
-                          {discountMode === 'PERCENTAGE' ? 'Discount (%)' : 'Discount Amount (₹)'}
-                        </Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={discountMode === 'PERCENTAGE' ? 100 : totalAmount}
-                          step={discountMode === 'PERCENTAGE' ? '0.01' : '1'}
-                          value={discountValue}
-                          onChange={(e) => setDiscountValue(e.target.value)}
-                          placeholder={discountMode === 'PERCENTAGE' ? 'Enter %' : 'Enter amount'}
-                          disabled={discountMode === 'NONE'}
-                        />
-                      </div>
-                    </div>
-                  </TabsContent>
-                  <TabsContent value="due" className="space-y-3">
-                    <div className="grid gap-3 md:grid-cols-[1fr_160px] md:items-end">
-                      <div className="space-y-2">
-                        <Label>Paid Now (₹)</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={netPayable}
-                          step="1"
-                          value={paidAmount}
-                          onChange={(e) => setPaidAmount(e.target.value)}
-                          placeholder={netPayable.toFixed(2)}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Leave blank to mark the net payable as fully paid.
-                        </p>
-                      </div>
-                      <div className="rounded-lg border bg-muted/40 p-3 text-right">
-                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Due</p>
-                        <p className={dueAmount > 0 ? 'text-xl font-bold text-amber-700' : 'text-xl font-bold'}>
-                          {formatMoney(dueAmount)}
-                        </p>
-                      </div>
-                    </div>
-                  </TabsContent>
-                </Tabs>
+                  <Label htmlFor="diagnostic-discount-value" className="font-semibold text-muted-foreground">
+                    Discount
+                  </Label>
+                  <div className="grid gap-2 sm:grid-cols-[150px_minmax(0,1fr)]">
+                    <Select
+                      value={discountMode}
+                      onValueChange={(value) => {
+                        setDiscountMode(value as DiscountMode);
+                        setDiscountValue('');
+                      }}
+                    >
+                      <SelectTrigger aria-label="Discount type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NONE">No discount</SelectItem>
+                        <SelectItem value="PERCENTAGE">Percent %</SelectItem>
+                        <SelectItem value="FLAT_AMOUNT">Amount ₹</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      id="diagnostic-discount-value"
+                      type="number"
+                      min={0}
+                      max={discountMode === 'PERCENTAGE' ? 100 : totalAmount}
+                      step={discountMode === 'PERCENTAGE' ? '0.01' : '1'}
+                      value={discountValue}
+                      onChange={(e) => setDiscountValue(e.target.value)}
+                      placeholder={discountMode === 'PERCENTAGE' ? 'Enter discount %' : 'Enter discount amount'}
+                      disabled={discountMode === 'NONE'}
+                    />
+                  </div>
 
-                <div className="grid gap-2 rounded-lg bg-muted/30 p-3 text-sm sm:grid-cols-5">
-                  <div>
-                    <p className="text-muted-foreground">Subtotal</p>
-                    <p className="font-semibold">{formatMoney(totalAmount)}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Discount</p>
-                    <p className="font-semibold">-{formatMoney(discountAmount)}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Net Payable</p>
-                    <p className="font-semibold">{formatMoney(netPayable)}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Paid</p>
-                    <p className="font-semibold">{formatMoney(Math.min(safePaidAmount, netPayable))}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Due</p>
-                    <p className={dueAmount > 0 ? 'font-semibold text-amber-700' : 'font-semibold'}>
+                  <Label htmlFor="diagnostic-paid-amount" className="font-semibold text-muted-foreground">
+                    Received
+                  </Label>
+                  <Input
+                    id="diagnostic-paid-amount"
+                    type="number"
+                    min={0}
+                    max={netPayable}
+                    step="1"
+                    value={paidAmount}
+                    onChange={(e) => setPaidAmount(e.target.value)}
+                    placeholder={`Full amount ${formatMoney(netPayable)}`}
+                  />
+                </div>
+
+                <div className="mt-5 border-t pt-4">
+                  <div className="grid gap-3 text-[15px] md:grid-cols-[170px_minmax(0,1fr)] md:items-baseline">
+                    <div className="font-semibold text-muted-foreground">Discount applied</div>
+                    <div className="font-semibold">-{formatMoney(discountAmount)}</div>
+
+                    <div className="font-semibold text-muted-foreground">Final total</div>
+                    <div className="text-xl font-bold">{formatMoney(netPayable)}</div>
+
+                    <div className="font-semibold text-muted-foreground">Due balance</div>
+                    <div className={dueAmount > 0 ? 'text-xl font-bold text-amber-700' : 'text-xl font-bold'}>
                       {formatMoney(dueAmount)}
-                    </p>
+                    </div>
                   </div>
                 </div>
               </div>
