@@ -390,7 +390,15 @@ router.get("/", async (req: AuthRequest, res) => {
         domain: v.domain,
         status: v.status,
         totalAmount: v.totalAmountInPaise / 100,
-        paymentType: Array.isArray((v as any).bill?.transactions) && (v as any).bill.transactions.length > 0 ? Array.from(new Set((v as any).bill.transactions.map((t: any) => t.paymentType))).join(", ") : null,
+        paymentType:
+          Array.isArray((v as any).bill?.transactions) &&
+          (v as any).bill.transactions.length > 0
+            ? Array.from(
+                new Set(
+                  (v as any).bill.transactions.map((t: any) => t.paymentType),
+                ),
+              ).join(", ")
+            : null,
         paymentStatus: v.bill?.paymentStatus || "PENDING",
         ...billFinancials,
         billedAt: v.bill?.billedAt || v.bill?.createdAt || null,
@@ -887,7 +895,15 @@ router.get("/:id", async (req: AuthRequest, res) => {
       domain: visit.domain,
       status: visit.status,
       totalAmount: visit.totalAmountInPaise / 100,
-      paymentType: Array.isArray((visit as any).bill?.transactions) && (visit as any).bill.transactions.length > 0 ? Array.from(new Set((visit as any).bill.transactions.map((t: any) => t.paymentType))).join(", ") : null,
+      paymentType:
+        Array.isArray((visit as any).bill?.transactions) &&
+        (visit as any).bill.transactions.length > 0
+          ? Array.from(
+              new Set(
+                (visit as any).bill.transactions.map((t: any) => t.paymentType),
+              ),
+            ).join(", ")
+          : null,
       paymentStatus: visit.bill?.paymentStatus || "PENDING",
       ...billFinancials,
       billedAt: visit.bill?.billedAt || visit.bill?.createdAt || null,
@@ -1108,6 +1124,7 @@ router.post("/", async (req: AuthRequest, res) => {
       paymentType,
       discountType,
       discountValue,
+      discountReason,
       paidAmount,
       payments,
       sendWhatsApp,
@@ -1122,6 +1139,13 @@ router.post("/", async (req: AuthRequest, res) => {
       return res.status(400).json({
         error: "VALIDATION_ERROR",
         message: "Patient ID and at least one product or test are required",
+      });
+    }
+
+    if (discountType && discountType !== "NONE" && discountValue > 0 && !discountReason?.trim()) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "A reason must be provided when applying a discount",
       });
     }
 
@@ -1398,6 +1422,7 @@ router.post("/", async (req: AuthRequest, res) => {
           totalAmountInPaise,
           discountType,
           discountValue,
+          discountReason,
           paidAmount,
         },
         { defaultPaidToNet: true },
@@ -1442,6 +1467,7 @@ router.post("/", async (req: AuthRequest, res) => {
             billNumber,
             branchId: req.branchId!,
             totalAmountInPaise,
+            discountReason: billFinancials.discountReason,
             discountType: billFinancials.discountType,
             discountPercentage: billFinancials.discountPercentage,
             discountAmountInPaise: billFinancials.discountAmountInPaise,
@@ -1453,7 +1479,9 @@ router.post("/", async (req: AuthRequest, res) => {
                     create:
                       Array.isArray(payments) && payments.length > 0
                         ? payments.map((p: any) => ({
-                            amountInPaise: p.amountInPaise ?? Math.round((p.amount || 0) * 100),
+                            amountInPaise:
+                              p.amountInPaise ??
+                              Math.round((p.amount || 0) * 100),
                             paymentType: p.paymentType ?? p.type ?? "CASH",
                             collectedByUserId: req.user!.id,
                           }))
@@ -1743,7 +1771,17 @@ router.post("/", async (req: AuthRequest, res) => {
       totalAmount: completeVisit!.totalAmountInPaise / 100,
       status: completeVisit!.status,
       hasBill: true,
-      paymentType: Array.isArray((completeVisit as any)!.bill?.transactions) && (completeVisit as any)!.bill.transactions.length > 0 ? Array.from(new Set(((completeVisit as any)!.bill.transactions as any[]).map((t) => t.paymentType))).join(", ") : null,
+      paymentType:
+        Array.isArray((completeVisit as any)!.bill?.transactions) &&
+        (completeVisit as any)!.bill.transactions.length > 0
+          ? Array.from(
+              new Set(
+                ((completeVisit as any)!.bill.transactions as any[]).map(
+                  (t) => t.paymentType,
+                ),
+              ),
+            ).join(", ")
+          : null,
       paymentStatus: completeVisit!.bill?.paymentStatus || "PENDING",
       ...completeBillFinancials,
       billedAt:
@@ -1849,6 +1887,7 @@ router.patch("/:id", async (req: AuthRequest, res) => {
       try {
         nextBillFinancials = normalizeBillFinancialInput({
           totalAmountInPaise: existing.bill.totalAmountInPaise,
+          discountReason: existing.bill.discountReason,
           discountType: existing.bill.discountType,
           discountValue:
             existing.bill.discountType === "PERCENTAGE"
@@ -1911,7 +1950,17 @@ router.patch("/:id", async (req: AuthRequest, res) => {
       id: updated!.id,
       status: updated!.status,
       paymentStatus: updated!.bill?.paymentStatus,
-      paymentType: Array.isArray((updated as any)!.bill?.transactions) && (updated as any)!.bill.transactions.length > 0 ? Array.from(new Set(((updated as any)!.bill.transactions as any[]).map((t) => t.paymentType))).join(", ") : null,
+      paymentType:
+        Array.isArray((updated as any)!.bill?.transactions) &&
+        (updated as any)!.bill.transactions.length > 0
+          ? Array.from(
+              new Set(
+                ((updated as any)!.bill.transactions as any[]).map(
+                  (t) => t.paymentType,
+                ),
+              ),
+            ).join(", ")
+          : null,
       ...billFinancials,
       billedAt: updated!.bill?.billedAt || updated!.bill?.createdAt || null,
     });
@@ -1987,7 +2036,17 @@ router.post("/:id/collect-due", async (req: AuthRequest, res) => {
     return res.json({
       id: existing.id,
       status: existing.status,
-      paymentType: Array.isArray((updated as any).transactions) && (updated as any).transactions.length > 0 ? Array.from(new Set(((updated as any).transactions as any[]).map((t) => t.paymentType))).join(", ") : null,
+      paymentType:
+        Array.isArray((updated as any).transactions) &&
+        (updated as any).transactions.length > 0
+          ? Array.from(
+              new Set(
+                ((updated as any).transactions as any[]).map(
+                  (t) => t.paymentType,
+                ),
+              ),
+            ).join(", ")
+          : null,
       paymentStatus: updated.paymentStatus,
       ...billFinancials,
       billedAt: updated.billedAt || updated.createdAt,
