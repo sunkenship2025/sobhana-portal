@@ -99,6 +99,7 @@ const DiagnosticsNewVisit = () => {
   const [splitAmounts, setSplitAmounts] = useState({ cash: 0, online: 0 });
   const [discountMode, setDiscountMode] = useState<DiscountMode>("NONE");
   const [discountValue, setDiscountValue] = useState("");
+  const [discountReason, setDiscountReason] = useState("");
   const [paidAmount, setPaidAmount] = useState("");
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("");
   const [referralOverrides, setReferralOverrides] = useState<
@@ -630,6 +631,15 @@ const DiagnosticsNewVisit = () => {
       return;
     }
 
+    if (
+      discountMode !== "NONE" &&
+      safeDiscountNumeric > 0 &&
+      discountReason.trim() === ""
+    ) {
+      toast.error("A reason must be provided when applying a discount");
+      return;
+    }
+
     if (discountMode === "PERCENTAGE" && safeDiscountNumeric > 100) {
       toast.error("Discount percentage cannot exceed 100%");
       return;
@@ -722,6 +732,7 @@ const DiagnosticsNewVisit = () => {
                 payments: [{ type: paymentMode, amount: safePaidAmount }],
                 paymentType: paymentMode,
               }),
+          discountReason: discountMode === "NONE" ? undefined : discountReason,
           discountType: discountMode === "NONE" ? undefined : discountMode,
           discountValue:
             discountMode === "NONE" ? undefined : safeDiscountNumeric,
@@ -1004,6 +1015,8 @@ const DiagnosticsNewVisit = () => {
                       setSelectedProducts([]);
                       setDiscountMode("NONE");
                       setDiscountValue("");
+                      setDiscountReason("");
+                      setDiscountReason("");
                       setPaidAmount("");
                       setShowNewPatientForm(false);
                       setSelectedDoctorId("");
@@ -1883,6 +1896,7 @@ const DiagnosticsNewVisit = () => {
                       onValueChange={(value) => {
                         setDiscountMode(value as DiscountMode);
                         setDiscountValue("");
+                        setDiscountReason("");
                       }}
                     >
                       <SelectTrigger aria-label="Discount type">
@@ -1910,6 +1924,22 @@ const DiagnosticsNewVisit = () => {
                       disabled={discountMode === "NONE"}
                     />
                   </div>
+                  {discountMode !== "NONE" && (
+                    <>
+                      <Label
+                        htmlFor="diagnostic-discount-reason"
+                        className="font-semibold text-muted-foreground"
+                      >
+                        Reason
+                      </Label>
+                      <Input
+                        id="diagnostic-discount-reason"
+                        placeholder="Reason for discount (Required)"
+                        value={discountReason}
+                        onChange={(e) => setDiscountReason(e.target.value)}
+                      />
+                    </>
+                  )}
 
                   <Label
                     htmlFor="diagnostic-paid-amount"
