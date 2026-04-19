@@ -842,7 +842,7 @@ const DiagnosticsNewVisit = () => {
           patientId: patient.id,
           domain: "DIAGNOSTICS",
           totalAmountInPaise,
-          paymentType,
+          paymentType: paymentMode === "SPLIT" ? "SPLIT" : paymentMode,
           paymentStatus:
             visit.paymentStatus ??
             (visit.dueAmountInPaise > 0 ? "PENDING" : "PAID"),
@@ -1999,7 +1999,7 @@ const DiagnosticsNewVisit = () => {
                     setPaymentMode(v as any);
                     if (v === "SPLIT") {
                       setSplitAmounts({
-                        cash: Number(paidAmount || netAmount),
+                        cash: Number(paidAmount || netPayable),
                         online: 0,
                       });
                     }
@@ -2034,7 +2034,7 @@ const DiagnosticsNewVisit = () => {
                             cash,
                             online: Math.max(
                               0,
-                              Number(paidAmount || netAmount) - cash,
+                              Number(paidAmount || netPayable) - cash,
                             ),
                           });
                         }}
@@ -2051,7 +2051,7 @@ const DiagnosticsNewVisit = () => {
                           setSplitAmounts({
                             cash: Math.max(
                               0,
-                              Number(paidAmount || netAmount) - online,
+                              Number(paidAmount || netPayable) - online,
                             ),
                             online,
                           });
