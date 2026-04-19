@@ -480,7 +480,7 @@ const ClinicNewVisit = () => {
 
     return (
       <AppLayout context="clinic" subContext="Reception">
-        <div className="max-w-2xl mx-auto animate-fade-in">
+        <div className="max-w-2xl mx-auto animate-fade-in print:hidden">
           <Card className="border-success/30 bg-success/5">
             <CardContent className="pt-6">
               <div className="text-center space-y-4">
