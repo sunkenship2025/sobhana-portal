@@ -358,7 +358,7 @@ router.get("/", async (req: AuthRequest, res) => {
             test: true,
           },
         },
-        bill: true,
+        bill: { include: { transactions: true } },
         report: {
           include: {
             versions: {
@@ -390,7 +390,7 @@ router.get("/", async (req: AuthRequest, res) => {
         domain: v.domain,
         status: v.status,
         totalAmount: v.totalAmountInPaise / 100,
-        paymentType: null,
+        paymentType: Array.isArray((v as any).bill?.transactions) && (v as any).bill.transactions.length > 0 ? Array.from(new Set((v as any).bill.transactions.map((t: any) => t.paymentType))).join(", ") : null,
         paymentStatus: v.bill?.paymentStatus || "PENDING",
         ...billFinancials,
         billedAt: v.bill?.billedAt || v.bill?.createdAt || null,
@@ -468,7 +468,7 @@ router.get("/:id", async (req: AuthRequest, res) => {
             referralDoctor: true,
           },
         },
-        bill: true,
+        bill: { include: { transactions: true } },
         report: {
           select: {
             id: true,
@@ -887,7 +887,7 @@ router.get("/:id", async (req: AuthRequest, res) => {
       domain: visit.domain,
       status: visit.status,
       totalAmount: visit.totalAmountInPaise / 100,
-      paymentType: null,
+      paymentType: Array.isArray((visit as any).bill?.transactions) && (visit as any).bill.transactions.length > 0 ? Array.from(new Set((visit as any).bill.transactions.map((t: any) => t.paymentType))).join(", ") : null,
       paymentStatus: visit.bill?.paymentStatus || "PENDING",
       ...billFinancials,
       billedAt: visit.bill?.billedAt || visit.bill?.createdAt || null,
@@ -1453,8 +1453,8 @@ router.post("/", async (req: AuthRequest, res) => {
                     create:
                       Array.isArray(payments) && payments.length > 0
                         ? payments.map((p: any) => ({
-                            amountInPaise: p.amountInPaise,
-                            paymentType: p.paymentType,
+                            amountInPaise: p.amountInPaise ?? Math.round((p.amount || 0) * 100),
+                            paymentType: p.paymentType ?? p.type ?? "CASH",
                             collectedByUserId: req.user!.id,
                           }))
                         : [
@@ -1714,7 +1714,7 @@ router.post("/", async (req: AuthRequest, res) => {
             },
           },
         },
-        bill: true,
+        bill: { include: { transactions: true } },
       },
     });
 
@@ -1743,7 +1743,7 @@ router.post("/", async (req: AuthRequest, res) => {
       totalAmount: completeVisit!.totalAmountInPaise / 100,
       status: completeVisit!.status,
       hasBill: true,
-      paymentType: null,
+      paymentType: Array.isArray((completeVisit as any)!.bill?.transactions) && (completeVisit as any)!.bill.transactions.length > 0 ? Array.from(new Set(((completeVisit as any)!.bill.transactions as any[]).map((t) => t.paymentType))).join(", ") : null,
       paymentStatus: completeVisit!.bill?.paymentStatus || "PENDING",
       ...completeBillFinancials,
       billedAt:
@@ -1827,7 +1827,7 @@ router.patch("/:id", async (req: AuthRequest, res) => {
         branchId: req.branchId,
         domain: "DIAGNOSTICS",
       },
-      include: { bill: true },
+      include: { bill: { include: { transactions: true } } },
     });
 
     if (!existing) {
@@ -1873,24 +1873,36 @@ router.patch("/:id", async (req: AuthRequest, res) => {
         });
       }
 
-      if (paymentType || nextBillFinancials) {
+      // Update bill financials if provided (paymentType no longer exists on bill)
+      if (nextBillFinancials) {
         await tx.bill.updateMany({
           where: { visitId: id },
           data: {
-            ...(paymentType && { paymentType }),
-            ...(nextBillFinancials
-              ? {
-                  paidAmountInPaise: nextBillFinancials.paidAmountInPaise,
-                  paymentStatus: nextBillFinancials.paymentStatus,
-                }
-              : {}),
+            paidAmountInPaise: nextBillFinancials.paidAmountInPaise,
+            paymentStatus: nextBillFinancials.paymentStatus,
           },
         });
+
+        // Record additive transaction for the newly paid amount
+        const previousPaid = existing.bill?.paidAmountInPaise || 0;
+        const newPaid = nextBillFinancials.paidAmountInPaise;
+        const addedAmount = newPaid - previousPaid;
+
+        if (addedAmount > 0 && existing.bill) {
+          await tx.paymentTransaction.create({
+            data: {
+              billId: existing.bill.id,
+              amountInPaise: addedAmount,
+              paymentType: paymentType || "CASH",
+              collectedByUserId: req.user!.id,
+            },
+          });
+        }
       }
 
       return tx.visit.findUnique({
         where: { id },
-        include: { bill: true },
+        include: { bill: { include: { transactions: true } } },
       });
     });
     const billFinancials = buildBillFinancialResponse(updated!.bill);
@@ -1899,7 +1911,7 @@ router.patch("/:id", async (req: AuthRequest, res) => {
       id: updated!.id,
       status: updated!.status,
       paymentStatus: updated!.bill?.paymentStatus,
-      paymentType: null,
+      paymentType: Array.isArray((updated as any)!.bill?.transactions) && (updated as any)!.bill.transactions.length > 0 ? Array.from(new Set(((updated as any)!.bill.transactions as any[]).map((t) => t.paymentType))).join(", ") : null,
       ...billFinancials,
       billedAt: updated!.bill?.billedAt || updated!.bill?.createdAt || null,
     });
@@ -1924,7 +1936,7 @@ router.post("/:id/collect-due", async (req: AuthRequest, res) => {
         branchId: req.branchId,
         domain: "DIAGNOSTICS",
       },
-      include: { bill: true },
+      include: { bill: { include: { transactions: true } } },
     });
 
     if (!existing) {
@@ -1975,7 +1987,7 @@ router.post("/:id/collect-due", async (req: AuthRequest, res) => {
     return res.json({
       id: existing.id,
       status: existing.status,
-      paymentType: null,
+      paymentType: Array.isArray((updated as any).transactions) && (updated as any).transactions.length > 0 ? Array.from(new Set(((updated as any).transactions as any[]).map((t) => t.paymentType))).join(", ") : null,
       paymentStatus: updated.paymentStatus,
       ...billFinancials,
       billedAt: updated.billedAt || updated.createdAt,
@@ -2030,7 +2042,7 @@ router.post("/:id/tests", async (req: AuthRequest, res) => {
             priceInPaise: true,
           },
         },
-        bill: true,
+        bill: { include: { transactions: true } },
         report: {
           include: {
             versions: {
@@ -2196,7 +2208,7 @@ router.post("/:id/tests", async (req: AuthRequest, res) => {
           testOrders: {
             include: { test: true },
           },
-          bill: true,
+          bill: { include: { transactions: true } },
         },
       });
     });
@@ -2265,7 +2277,7 @@ router.delete("/:id/tests/:testOrderId", async (req: AuthRequest, res) => {
             priceInPaise: true,
           },
         },
-        bill: true,
+        bill: { include: { transactions: true } },
         report: {
           include: {
             versions: {
@@ -3403,7 +3415,7 @@ router.post("/:id/finalize", async (req: AuthRequest, res) => {
             workflowMode: true,
           },
         },
-        bill: true,
+        bill: { include: { transactions: true } },
         report: {
           include: {
             versions: {

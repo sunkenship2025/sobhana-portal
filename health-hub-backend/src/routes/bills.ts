@@ -34,7 +34,7 @@ router.get("/:domain/:visitId", async (req: AuthRequest, res) => {
           },
         },
         branch: true,
-        bill: true,
+        bill: { include: { transactions: true } },
         testOrders: {
           include: {
             test: true,
@@ -145,6 +145,11 @@ router.get("/:domain/:visitId", async (req: AuthRequest, res) => {
       },
       payment: {
         type: null,
+        transactions:
+          visit.bill?.transactions?.map((t) => ({
+            paymentType: t.paymentType,
+            amountInPaise: t.amountInPaise,
+          })) || [],
         status: visit.bill?.paymentStatus || null,
       },
       doctor: visit.clinicVisit?.clinicDoctor
