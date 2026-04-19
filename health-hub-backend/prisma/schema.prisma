@@ -56,7 +56,6 @@ enum PaymentStatus {
 enum PaymentType {
   CASH
   ONLINE
-  CHEQUE
 }
 
 enum BillDiscountType {
@@ -437,7 +436,8 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  activeBranch Branch @relation(fields: [activeBranchId], references: [id], onDelete: Restrict)
+  activeBranch       Branch               @relation(fields: [activeBranchId], references: [id], onDelete: Restrict)
+  PaymentTransaction PaymentTransaction[]
 
   @@index([role])
   @@index([activeBranchId])
@@ -511,23 +511,23 @@ model ReferralDoctor_Visit {
 
 /// Bill: Single bill per visit (financial anchor)
 model Bill {
-  id                     String            @id @default(cuid())
-  visitId                String            @unique
-  billNumber             String // Duplicated for direct queries; should match Visit.billNumber
-  branchId               String
-  totalAmountInPaise     Int
-  discountType           BillDiscountType?
-  discountPercentage     Float?
-  discountAmountInPaise  Int               @default(0)
-  paidAmountInPaise      Int               @default(0)
-  billedAt               DateTime          @default(now()) // Explicit billing timestamp; remains stable after payment updates
-  paymentType            PaymentType       @default(CASH)
-  paymentStatus          PaymentStatus     @default(PENDING)
-  createdAt              DateTime          @default(now())
-  updatedAt              DateTime          @updatedAt
+  id                    String            @id @default(cuid())
+  visitId               String            @unique
+  billNumber            String // Duplicated for direct queries; should match Visit.billNumber
+  branchId              String
+  totalAmountInPaise    Int
+  discountType          BillDiscountType?
+  discountPercentage    Float?
+  discountAmountInPaise Int               @default(0)
+  paidAmountInPaise     Int               @default(0)
+  billedAt              DateTime          @default(now()) // Explicit billing timestamp; remains stable after payment updates
+  paymentStatus         PaymentStatus     @default(PENDING)
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
 
-  visit  Visit  @relation(fields: [visitId], references: [id], onDelete: Cascade)
-  branch Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  visit        Visit                @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  branch       Branch               @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  transactions PaymentTransaction[]
 
   @@unique([branchId, billNumber])
   @@index([billNumber])
@@ -536,24 +536,44 @@ model Bill {
   @@index([createdAt])
 }
 
+/// PaymentTransaction: Individual transaction ledger for a Bill
+model PaymentTransaction {
+  id                String      @id @default(cuid())
+  billId            String
+  amountInPaise     Int
+  paymentType       PaymentType
+  transactionDate   DateTime    @default(now())
+  referenceData     String? // Optional field for UPI reference, transaction ID, etc.
+  collectedByUserId String // ID of the user who recorded this transaction
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  bill            Bill @relation(fields: [billId], references: [id], onDelete: Cascade)
+  collectedByUser User @relation(fields: [collectedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([billId])
+  @@index([transactionDate])
+  @@index([paymentType])
+}
+
 /// TestOrder: Individual test in a diagnostic visit
 /// Supports per-test commission override snapshots for immutable payout derivation.
 /// E3-03: Test metadata is snapshotted at order time for immutability.
 /// DUAL FK: testId (old LabTest) + testDefinitionId (new TestDefinition) during migration.
 model TestOrder {
-  id                                      String              @id @default(cuid())
+  id                                      String                 @id @default(cuid())
   visitId                                 String
   testId                                  String
   branchId                                String
   workflowMode                            DiagnosticWorkflowMode @default(REPORTABLE)
   priceInPaise                            Int // Snapshot of test price at order time
-  referralCommissionType                  ReferralPayoutType  @default(PERCENTAGE)
+  referralCommissionType                  ReferralPayoutType     @default(PERCENTAGE)
   referralCommissionPercentage            Float? // 0-100 when payout type = PERCENTAGE
   referralCommissionAmountInPaise         Int? // Fixed payout snapshot when payout type = FIXED_AMOUNT
   diagnosticCenterCommissionType          ReferralPayoutType?
   diagnosticCenterCommissionPercentage    Float?
   diagnosticCenterCommissionAmountInPaise Int?
-  createdAt                               DateTime            @default(now())
+  createdAt                               DateTime               @default(now())
 
   // E3-03: Test metadata snapshot (frozen at order time)
   testNameSnapshot      String // Test name at time of order
@@ -1201,16 +1221,16 @@ model InterpretationRule {
 /// ClinicalPanel: Report rendering groups (replaces PanelDefinition for new data)
 /// Each panel has a layout type and config flags that control rendering
 model ClinicalPanel {
-  id               String          @id @default(cuid())
-  name             String          @unique
-  displayName      String // e.g., "LIVER FUNCTION TEST"
-  departmentId     String
-  layoutType       PanelLayoutType @default(STANDARD_TABLE)
-  displayOrder     Int             @default(0)
-  showMethodColumn Boolean         @default(false)
-  sampleType       String? // e.g., "WB-EDTA", "Serum", "Urine"
-  panelMethodText  String?
-  panelMethodItalic Boolean        @default(false)
+  id                    String          @id @default(cuid())
+  name                  String          @unique
+  displayName           String // e.g., "LIVER FUNCTION TEST"
+  departmentId          String
+  layoutType            PanelLayoutType @default(STANDARD_TABLE)
+  displayOrder          Int             @default(0)
+  showMethodColumn      Boolean         @default(false)
+  sampleType            String? // e.g., "WB-EDTA", "Serum", "Urine"
+  panelMethodText       String?
+  panelMethodItalic     Boolean         @default(false)
   narrativeTemplateHtml String?
 
   // Config flags for STANDARD_TABLE rendering variants
@@ -1260,17 +1280,17 @@ model ClinicalPanelItem {
 /// Decoupled from clinical definitions — purely commercial layer.
 /// A product maps to one or more ClinicalPanels (not directly to TestDefinitions).
 model BillableProduct {
-  id               String   @id @default(cuid())
+  id               String                 @id @default(cuid())
   name             String
-  code             String   @unique
+  code             String                 @unique
   description      String?
   basePriceInPaise Int // Default price (can be overridden per branch)
-  isBundle         Boolean  @default(false) // true = package of multiple panels
+  isBundle         Boolean                @default(false) // true = package of multiple panels
   workflowMode     DiagnosticWorkflowMode @default(REPORTABLE)
-  displayOrder     Int      @default(0)
-  isActive         Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  displayOrder     Int                    @default(0)
+  isActive         Boolean                @default(true)
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
 
   panels                BillableProductPanel[]
   branchPricing         ProductBranchPricing[]

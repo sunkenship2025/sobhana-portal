@@ -1,9 +1,9 @@
-import { Router } from 'express';
-import { authMiddleware, AuthRequest } from '../middleware/auth';
-import prisma from '../lib/prisma';
-import { buildDiagnosticBillItems } from '../services/billItemService';
-import { buildBillFinancialResponse } from '../services/billFinancialService';
-import { getPatientAge, getPatientAgeDisplay } from '../utils/validation';
+import { Router } from "express";
+import { authMiddleware, AuthRequest } from "../middleware/auth";
+import prisma from "../lib/prisma";
+import { buildDiagnosticBillItems } from "../services/billItemService";
+import { buildBillFinancialResponse } from "../services/billFinancialService";
+import { getPatientAge, getPatientAgeDisplay } from "../utils/validation";
 
 const router = Router();
 
@@ -11,14 +11,14 @@ const router = Router();
 router.use(authMiddleware);
 
 // GET /api/bills/:domain/:visitId - Get bill data for printing
-router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
+router.get("/:domain/:visitId", async (req: AuthRequest, res) => {
   try {
     const { domain, visitId } = req.params;
 
-    if (domain !== 'CLINIC' && domain !== 'DIAGNOSTICS') {
+    if (domain !== "CLINIC" && domain !== "DIAGNOSTICS") {
       return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: 'Domain must be CLINIC or DIAGNOSTICS',
+        error: "VALIDATION_ERROR",
+        message: "Domain must be CLINIC or DIAGNOSTICS",
       });
     }
 
@@ -56,16 +56,20 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
 
     if (!visit) {
       return res.status(404).json({
-        error: 'NOT_FOUND',
-        message: 'Visit not found',
+        error: "NOT_FOUND",
+        message: "Visit not found",
       });
     }
 
-    const phone = visit.patient.identifiers.find((id) => id.type === 'PHONE')?.value || '';
+    const phone =
+      visit.patient.identifiers.find((id) => id.type === "PHONE")?.value || "";
     const hasReferralDoctor = visit.referrals.length > 0;
-    let originalVisitSummary: { billNumber: string | null; createdAt: Date | null } | null = null;
+    let originalVisitSummary: {
+      billNumber: string | null;
+      createdAt: Date | null;
+    } | null = null;
 
-    if (domain === 'CLINIC' && visit.clinicVisit?.originalVisitId) {
+    if (domain === "CLINIC" && visit.clinicVisit?.originalVisitId) {
       const originalVisit = await prisma.visit.findUnique({
         where: { id: visit.clinicVisit.originalVisitId },
         select: {
@@ -100,7 +104,7 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
         code: string;
         price: number;
         referralCommissionPercent?: number;
-        referralCommissionType?: 'PERCENTAGE' | 'FIXED_AMOUNT';
+        referralCommissionType?: "PERCENTAGE" | "FIXED_AMOUNT";
         referralCommissionAmountInPaise?: number;
       }>;
     } = {
@@ -122,12 +126,15 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
       },
       patient: {
         name: visit.patient.name,
-        age: getPatientAge(visit.patient.dateOfBirth, visit.patient.yearOfBirth),
-        ageUnit: visit.patient.ageUnit || 'YEARS',
+        age: getPatientAge(
+          visit.patient.dateOfBirth,
+          visit.patient.yearOfBirth,
+        ),
+        ageUnit: visit.patient.ageUnit || "YEARS",
         ageDisplay: getPatientAgeDisplay(
           visit.patient.dateOfBirth,
           visit.patient.yearOfBirth,
-          visit.patient.ageUnit
+          visit.patient.ageUnit,
         ),
         gender: visit.patient.gender,
         phone,
@@ -137,7 +144,7 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
         code: visit.branch.code,
       },
       payment: {
-        type: visit.bill?.paymentType || null,
+        type: null,
         status: visit.bill?.paymentStatus || null,
       },
       doctor: visit.clinicVisit?.clinicDoctor
@@ -154,7 +161,7 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
       items: [],
     };
 
-    if (domain === 'DIAGNOSTICS') {
+    if (domain === "DIAGNOSTICS") {
       billData.items = buildDiagnosticBillItems(
         visit.testOrders.map((order) => ({
           id: order.id,
@@ -169,12 +176,16 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
           testName: order.testNameSnapshot || order.test.name,
           testCode: order.testCodeSnapshot || order.test.code,
           priceInPaise: order.priceInPaise,
-          referralCommissionType: hasReferralDoctor ? order.referralCommissionType : undefined,
-          referralCommissionPercentage: hasReferralDoctor ? order.referralCommissionPercentage : undefined,
+          referralCommissionType: hasReferralDoctor
+            ? order.referralCommissionType
+            : undefined,
+          referralCommissionPercentage: hasReferralDoctor
+            ? order.referralCommissionPercentage
+            : undefined,
           referralCommissionAmountInPaise: hasReferralDoctor
             ? order.referralCommissionAmountInPaise
             : undefined,
-        }))
+        })),
       );
     } else {
       // For clinic, items are consultation fees
@@ -185,7 +196,7 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
             name: visit.clinicVisit.isRevisit
               ? `${visit.clinicVisit.visitType} Revisit Consultation`
               : `${visit.clinicVisit.visitType} Consultation`,
-            code: 'CONSULT',
+            code: "CONSULT",
             price: visit.clinicVisit.consultationFeeInPaise / 100,
           },
         ];
@@ -194,10 +205,10 @@ router.get('/:domain/:visitId', async (req: AuthRequest, res) => {
 
     return res.json(billData);
   } catch (error) {
-    console.error('Get bill data error:', error);
+    console.error("Get bill data error:", error);
     return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to retrieve bill data',
+      error: "INTERNAL_ERROR",
+      message: "Failed to retrieve bill data",
     });
   }
 });
