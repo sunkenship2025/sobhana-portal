@@ -26,7 +26,12 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 
-type PaymentType = "CASH" | "ONLINE" | "CHEQUE";
+type PaymentType = "CASH" | "ONLINE";
+
+const toSupportedPaymentType = (value: unknown): PaymentType => {
+  if (value === "ONLINE") return "ONLINE";
+  return "CASH";
+};
 
 const matchesDateFilter = (filter: string, value: string) => {
   if (filter === "all") return true;
@@ -158,11 +163,16 @@ const DiagnosticsPendingResults = () => {
   };
 
   const openCollectDue = (visit: any) => {
+    const firstPaymentType =
+      typeof visit.paymentType === "string"
+        ? visit.paymentType.split(",")[0]?.trim()
+        : undefined;
+
     setDueVisit(visit);
     setCollectAmount(
       visit.dueAmountInPaise ? String(visit.dueAmountInPaise / 100) : "",
     );
-    setCollectPaymentType(visit.paymentType || "CASH");
+    setCollectPaymentType(toSupportedPaymentType(firstPaymentType));
   };
 
   const handleCollectDue = async () => {
@@ -438,7 +448,6 @@ const DiagnosticsPendingResults = () => {
                     <SelectContent>
                       <SelectItem value="CASH">Cash</SelectItem>
                       <SelectItem value="ONLINE">Online</SelectItem>
-                      <SelectItem value="CHEQUE">Cheque</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
