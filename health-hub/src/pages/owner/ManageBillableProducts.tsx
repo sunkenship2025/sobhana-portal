@@ -51,12 +51,14 @@ interface ProductBranchPricing {
   branch?: { id: string; name: string };
 }
 
+type WorkflowMode = 'REPORTABLE' | 'BILL_ONLY' | 'EXTERNAL_UPLOAD';
+
 interface BillableProduct {
   id: string;
   name: string;
   code: string;
   productType: string;
-  workflowMode: 'REPORTABLE' | 'BILL_ONLY';
+  workflowMode: WorkflowMode;
   basePrice: number;
   isActive: boolean;
   description: string | null;
@@ -79,7 +81,14 @@ const PRODUCT_TYPES = [
 const WORKFLOW_MODES = [
   { value: 'REPORTABLE', label: 'Reportable', color: 'bg-emerald-100 text-emerald-800' },
   { value: 'BILL_ONLY', label: 'Bill Only', color: 'bg-amber-100 text-amber-800' },
+  { value: 'EXTERNAL_UPLOAD', label: 'External Upload', color: 'bg-sky-100 text-sky-800' },
 ];
+
+const WORKFLOW_LABELS: Record<WorkflowMode, string> = {
+  REPORTABLE: 'Reportable',
+  BILL_ONLY: 'Bill Only',
+  EXTERNAL_UPLOAD: 'External Upload',
+};
 
 function typeBadgeColor(productType: string) {
   const pt = PRODUCT_TYPES.find(p => p.value === productType);
@@ -121,7 +130,7 @@ export default function ManageBillableProducts() {
   const [formName, setFormName] = useState('');
   const [formCode, setFormCode] = useState('');
   const [formType, setFormType] = useState('INDIVIDUAL_TEST');
-  const [formWorkflowMode, setFormWorkflowMode] = useState<'REPORTABLE' | 'BILL_ONLY'>('REPORTABLE');
+  const [formWorkflowMode, setFormWorkflowMode] = useState<WorkflowMode>('REPORTABLE');
   const [formBasePrice, setFormBasePrice] = useState('');
   const [formActive, setFormActive] = useState(true);
   const [formDescription, setFormDescription] = useState('');
@@ -270,6 +279,10 @@ export default function ManageBillableProducts() {
     }
     if (formWorkflowMode === 'REPORTABLE' && validPanels.length < 1) {
       toast.error('Reportable products must have at least 1 linked panel');
+      return;
+    }
+    if (formWorkflowMode === 'EXTERNAL_UPLOAD' && validPanels.length > 0) {
+      toast.error('External Upload products do not support linked panels');
       return;
     }
 
@@ -480,7 +493,7 @@ export default function ManageBillableProducts() {
                   </TableCell>
                   <TableCell>
                     <Badge className={workflowBadgeColor(product.workflowMode)}>
-                      {product.workflowMode === 'BILL_ONLY' ? 'Bill Only' : 'Reportable'}
+                      {WORKFLOW_LABELS[product.workflowMode] ?? 'Reportable'}
                     </Badge>
                   </TableCell>
                   <TableCell className="font-mono text-sm">{formatPrice(product.basePrice)}</TableCell>
@@ -585,7 +598,7 @@ export default function ManageBillableProducts() {
               <Label>Workflow</Label>
               <Select
                 value={formWorkflowMode}
-                onValueChange={(value) => setFormWorkflowMode(value as 'REPORTABLE' | 'BILL_ONLY')}
+                onValueChange={(value) => setFormWorkflowMode(value as WorkflowMode)}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -612,50 +625,56 @@ export default function ManageBillableProducts() {
           <Separator />
 
           {/* ─── Panels ──────────────────────────────────────────────── */}
-          <div className="mt-2">
-            <div className="flex items-center justify-between mb-2">
-              <Label className="text-sm font-semibold">Panels</Label>
-              <Button size="sm" variant="outline" onClick={addPanel}>
-                <Plus className="h-3 w-3 mr-1" /> Add Panel
-              </Button>
+          {formWorkflowMode === 'EXTERNAL_UPLOAD' ? (
+            <div className="mt-2 rounded border border-dashed p-3 text-xs text-muted-foreground">
+              External Upload products do not require panels. Staff will attach the report PDF on the result-entry screen; the upload is merged into the patient's report with the Sobhana letterhead.
             </div>
-
-            <p className="mb-3 text-xs text-muted-foreground">
-              {formWorkflowMode === 'REPORTABLE'
-                ? 'Reportable products require at least one linked panel.'
-                : 'Bill-only products can be billed without panels. Linked panels are only used after switching back to Reportable.'}
-            </p>
-
-            {formPanels.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No panels linked.</p>
-            ) : (
-              <div className="space-y-2">
-                {formPanels.map((pp, i) => (
-                  <div key={i} className="flex items-center gap-2 border p-2 rounded">
-                    <span className="text-sm text-muted-foreground w-6 text-center">{i + 1}</span>
-                    <Select
-                      value={pp.panelId}
-                      onValueChange={v => updatePanel(i, v)}
-                    >
-                      <SelectTrigger className="flex-1 h-8 text-xs">
-                        <SelectValue placeholder="Select panel..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availablePanels.map(p => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.code} – {p.name}{p.itemCount ? ` (${p.itemCount} tests)` : ''}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button size="sm" variant="ghost" onClick={() => removePanel(i)} className="text-red-500 shrink-0 h-8 w-8 p-0">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                ))}
+          ) : (
+            <div className="mt-2">
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-sm font-semibold">Panels</Label>
+                <Button size="sm" variant="outline" onClick={addPanel}>
+                  <Plus className="h-3 w-3 mr-1" /> Add Panel
+                </Button>
               </div>
-            )}
-          </div>
+
+              <p className="mb-3 text-xs text-muted-foreground">
+                {formWorkflowMode === 'REPORTABLE'
+                  ? 'Reportable products require at least one linked panel.'
+                  : 'Bill-only products can be billed without panels. Linked panels are only used after switching back to Reportable.'}
+              </p>
+
+              {formPanels.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No panels linked.</p>
+              ) : (
+                <div className="space-y-2">
+                  {formPanels.map((pp, i) => (
+                    <div key={i} className="flex items-center gap-2 border p-2 rounded">
+                      <span className="text-sm text-muted-foreground w-6 text-center">{i + 1}</span>
+                      <Select
+                        value={pp.panelId}
+                        onValueChange={v => updatePanel(i, v)}
+                      >
+                        <SelectTrigger className="flex-1 h-8 text-xs">
+                          <SelectValue placeholder="Select panel..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availablePanels.map(p => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.code} – {p.name}{p.itemCount ? ` (${p.itemCount} tests)` : ''}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button size="sm" variant="ghost" onClick={() => removePanel(i)} className="text-red-500 shrink-0 h-8 w-8 p-0">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>

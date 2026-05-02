@@ -105,12 +105,20 @@ async function getDiagnosticVisitNotificationInfo(visitId: string) {
   const hasReportableOrders = visit.testOrders.some(
     (order) => order.workflowMode === DiagnosticWorkflowMode.REPORTABLE
   );
+  const hasExternalUploadOrders = visit.testOrders.some(
+    (order) => order.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD
+  );
+  // The report-ready message ships when the visit produces a patient-facing
+  // PDF — that's REPORTABLE values, EXTERNAL_UPLOAD attached PDFs, or both.
+  const hasReportInclusionOrders = hasReportableOrders || hasExternalUploadOrders;
   return {
     visit,
     patient: visit.patient,
     phone,
     whatsappOptIn: visit.patient.whatsappOptIn,
     hasReportableOrders,
+    hasExternalUploadOrders,
+    hasReportInclusionOrders,
   };
 }
 
@@ -243,7 +251,7 @@ async function dispatchDiagnosticCompletionNotification(input: {
       return { success: true };
     }
 
-    if (!info.hasReportableOrders) {
+    if (!info.hasReportInclusionOrders) {
       return { success: false, error: 'This visit does not have a report-ready notification flow' };
     }
 

@@ -18,7 +18,7 @@ import {
 import { validateToken, recordAccess } from '../services/reportAccessService';
 import { getReportSnapshot } from '../services/reportSnapshotService';
 import { renderReportHtml } from '../services/reportRendererService';
-import { generatePdfFromHtml } from '../services/pdfGenerationService';
+import { generateMergedReportPdf } from '../services/mergedReportPdfService';
 
 const router = Router();
 
@@ -108,14 +108,11 @@ async function buildPdfBuffer(
     color: { dark: '#000000', light: '#ffffff' },
   });
 
-  const profile = mode === 'physical' ? 'pdf-physical' : 'pdf-digital';
-  const html = renderReportHtml(loaded.snapshot, {
-    profile,
+  const pdfBuffer = await generateMergedReportPdf(loaded.snapshot, {
+    mode,
     baseUrl,
     qrDataUrl,
   });
-
-  const pdfBuffer = await generatePdfFromHtml(html, { mode });
 
   return {
     ok: true,

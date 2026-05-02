@@ -149,6 +149,18 @@ export interface VisitSnapshot {
   finalizedAt: string;
 }
 
+export interface ExternalUploadSnapshot {
+  uploadId: string;            // ExternalReportUpload.id (for re-resolving R2 key)
+  testOrderId: string;
+  productName: string;         // e.g. "USG Pelvis - External"
+  productCode: string;
+  r2Key: string;
+  originalFilename: string;
+  pageCount: number | null;
+  displayOrder: number;
+  uploadedAt: string;
+}
+
 export interface ReportSnapshot {
   snapshotVersion: number;   // Schema version for forward-compatible rendering
   reportVersionId: string;
@@ -157,6 +169,7 @@ export interface ReportSnapshot {
   signatures: SignatureSnapshot[];
   patient: PatientSnapshot;
   visit: VisitSnapshot;
+  externalUploads: ExternalUploadSnapshot[];
 }
 
 type LatestDefinitionFormula = {
@@ -323,6 +336,53 @@ function filterReportableOrders<T extends { workflowMode?: DiagnosticWorkflowMod
   return orders.filter(
     (order) => (order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) === DiagnosticWorkflowMode.REPORTABLE
   );
+}
+
+/**
+ * Resolve all non-deleted external upload records for the visit's EXTERNAL_UPLOAD orders,
+ * shaped for snapshot persistence. Returns an empty array when the visit has none.
+ */
+async function buildExternalUploadSnapshots(
+  testOrders: Array<{
+    id: string;
+    workflowMode?: DiagnosticWorkflowMode | null;
+    testNameSnapshot?: string | null;
+    testCodeSnapshot?: string | null;
+  }>
+): Promise<ExternalUploadSnapshot[]> {
+  const uploadOrders = testOrders.filter(
+    (order) => order.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD
+  );
+  if (uploadOrders.length === 0) {
+    return [];
+  }
+
+  const orderById = new Map(uploadOrders.map((order) => [order.id, order]));
+  const uploads = await prisma.externalReportUpload.findMany({
+    where: {
+      testOrderId: { in: uploadOrders.map((order) => order.id) },
+      deletedAt: null,
+    },
+    orderBy: [
+      { displayOrder: 'asc' },
+      { uploadedAt: 'asc' },
+    ],
+  });
+
+  return uploads.map((upload): ExternalUploadSnapshot => {
+    const order = orderById.get(upload.testOrderId);
+    return {
+      uploadId: upload.id,
+      testOrderId: upload.testOrderId,
+      productName: order?.testNameSnapshot || 'External Report',
+      productCode: order?.testCodeSnapshot || 'EXT',
+      r2Key: upload.r2Key,
+      originalFilename: upload.originalFilename,
+      pageCount: upload.pageCount,
+      displayOrder: upload.displayOrder,
+      uploadedAt: upload.uploadedAt.toISOString(),
+    };
+  });
 }
 
 // ============================================================================
@@ -1029,6 +1089,7 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
   const visit = reportVersion.report.visit;
   const patient = visit.patient;
   const reportableOrders = filterReportableOrders(visit.testOrders as any[]);
+  const externalUploads = await buildExternalUploadSnapshots(visit.testOrders as any[]);
   const augmentedTestResults = await backfillDerivedResults(
     reportVersion.testResults as any[],
     reportableOrders as any[],
@@ -1127,6 +1188,7 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
     signatures,
     patient: patientSnapshot,
     visit: visitSnapshot,
+    externalUploads,
   };
 }
 
@@ -1187,6 +1249,7 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
 
   const patient = visit.patient;
   const reportableOrders = filterReportableOrders(visit.testOrders as any[]);
+  const externalUploads = await buildExternalUploadSnapshots(visit.testOrders as any[]);
   const augmentedTestResults = await backfillDerivedResults(
     reportVersion.testResults as any[],
     reportableOrders as any[],
@@ -1275,6 +1338,7 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
     signatures,
     patient: patientSnapshot,
     visit: visitSnapshot,
+    externalUploads,
   };
 }
 
@@ -1293,6 +1357,7 @@ export async function saveReportSnapshot(
       signaturesSnapshot: snapshot.signatures as any,
       patientSnapshot: snapshot.patient as any,
       visitSnapshot: snapshot.visit as any,
+      externalUploadsSnapshot: snapshot.externalUploads as any,
     },
   });
 }
@@ -1312,6 +1377,7 @@ export async function getReportSnapshot(reportVersionId: string): Promise<Report
       signaturesSnapshot: true,
       patientSnapshot: true,
       visitSnapshot: true,
+      externalUploadsSnapshot: true,
     },
   });
 
@@ -1331,6 +1397,9 @@ export async function getReportSnapshot(reportVersionId: string): Promise<Report
     ? await backfillStoredSignatureAssets(storedSignatures)
     : await getLiveSignatureSnapshotsForDepartments(departments.map(department => department.departmentId));
 
+  const externalUploads =
+    (reportVersion.externalUploadsSnapshot as unknown as ExternalUploadSnapshot[] | null) ?? [];
+
   return {
     snapshotVersion: (reportVersion.panelsSnapshot as any)?.snapshotVersion ?? 1,
     reportVersionId: reportVersion.id,
@@ -1339,5 +1408,6 @@ export async function getReportSnapshot(reportVersionId: string): Promise<Report
     signatures,
     patient: reportVersion.patientSnapshot as unknown as PatientSnapshot,
     visit: reportVersion.visitSnapshot as unknown as VisitSnapshot,
+    externalUploads,
   };
 }
