@@ -17,6 +17,7 @@
  */
 
 import { getRedisClient } from '../lib/redis';
+import { logger } from '../lib/logger';
 
 const KEY_PREFIX = 'merged-pdf:v1:';
 const TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -35,7 +36,7 @@ export async function getCachedMergedPdf(
   try {
     return await client.getBuffer(buildKey(reportVersionId));
   } catch (err: any) {
-    console.warn('[mergedReportPdfCache] get failed:', err?.message);
+    logger.warn({ err, reportVersionId }, 'merged-pdf cache: get failed (falling through to regenerate)');
     return null;
   }
 }
@@ -45,8 +46,9 @@ export async function setCachedMergedPdf(
   buffer: Buffer,
 ): Promise<void> {
   if (buffer.length > CACHE_MAX_BYTES) {
-    console.warn(
-      `[mergedReportPdfCache] skipping cache write: buffer ${buffer.length}B exceeds ${CACHE_MAX_BYTES}B cap`,
+    logger.warn(
+      { reportVersionId, sizeBytes: buffer.length, capBytes: CACHE_MAX_BYTES },
+      'merged-pdf cache: skipping write, buffer exceeds size cap',
     );
     return;
   }
@@ -57,6 +59,6 @@ export async function setCachedMergedPdf(
   try {
     await client.set(buildKey(reportVersionId), buffer, 'EX', TTL_SECONDS);
   } catch (err: any) {
-    console.warn('[mergedReportPdfCache] set failed:', err?.message);
+    logger.warn({ err, reportVersionId }, 'merged-pdf cache: set failed');
   }
 }
