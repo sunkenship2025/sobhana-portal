@@ -207,49 +207,40 @@ router.patch('/:id', async (req: AuthRequest, res) => {
 });
 
 // ─── DELETE /api/signing-doctors/:id ────────────────────────────────
-// Delete a signing doctor (hard delete if no rules, soft delete if has rules)
+// Soft-delete a signing doctor (deactivate).
+//
+// IMPORTANT: this is now ALWAYS a soft-delete, even when the doctor has no
+// current signing rules. Reason: report snapshots reference signing doctors by
+// `doctorId` and rely on `SigningDoctor.signatureImageBase64` for rendering at
+// read time (signature dedup, see saveReportSnapshot in reportSnapshotService.ts).
+// Hard-deleting a doctor would break historical reports' signature rendering.
+//
+// If a doctor was added by mistake and has zero historical references, an
+// admin can manually purge the row from the DB after confirming no
+// ReportVersion.signaturesSnapshot or AuditLog references their `doctorId`.
 router.delete('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
 
-    const existing = await prisma.signingDoctor.findUnique({
-      where: { id },
-      include: {
-        _count: {
-          select: { signingRules: true },
-        },
-      },
-    });
+    const existing = await prisma.signingDoctor.findUnique({ where: { id } });
 
     if (!existing) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Signing doctor not found' });
     }
 
-    // If doctor has no rules, hard delete
-    if (existing._count.signingRules === 0) {
-      // Delete signature file if it exists
-      if (existing.signatureImagePath) {
-        const signaturePath = path.join(__dirname, '../../public', existing.signatureImagePath);
-        if (fs.existsSync(signaturePath)) {
-          try { fs.unlinkSync(signaturePath); } catch { /* ignore */ }
-        }
-      }
-
-      await prisma.signingDoctor.delete({
-        where: { id },
-      });
-
-      return res.json({ message: 'Signing doctor deleted' });
+    if (!existing.isActive) {
+      return res.json({ message: 'Signing doctor already deactivated' });
     }
 
-    // If doctor has rules, soft-delete
+    // Mark inactive — historical reports keep working because the row (and its
+    // signatureImageBase64) is still queryable; the renderer doesn't filter on isActive.
     await prisma.signingDoctor.update({
       where: { id },
       data: { isActive: false },
     });
 
     // Hard-delete their signing rules — removes the unique constraint rows
-    // so the same department can be re-assigned to any doctor in future
+    // so the same department can be re-assigned to any doctor in future.
     await prisma.signingRule.deleteMany({
       where: { signingDoctorId: id },
     });
