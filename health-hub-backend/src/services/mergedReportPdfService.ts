@@ -30,6 +30,7 @@ import {
   getCachedMergedPdf,
   setCachedMergedPdf,
 } from './mergedReportPdfCache';
+import { logger } from '../lib/logger';
 import type {
   ExternalUploadSnapshot,
   ReportSnapshot,
@@ -167,9 +168,13 @@ async function mergeUploadsIntoBase(
   const fetchedBuffers = await Promise.all(
     uploads.map((upload) =>
       getObject(upload.r2Key).catch((err) => {
-        console.error(
-          `[mergedReportPdfService] R2 fetch failed for upload ${upload.uploadId}:`,
-          err?.message,
+        logger.error(
+          {
+            err,
+            uploadId: upload.uploadId,
+            reportVersionId: snapshot.reportVersionId,
+          },
+          'R2 fetch failed for upload — skipping in merge',
         );
         return null;
       }),
@@ -194,9 +199,13 @@ async function mergeUploadsIntoBase(
     try {
       await appendUpload(merged, upload, buf, overlayAssets);
     } catch (err: any) {
-      console.error(
-        `[mergedReportPdfService] Skipping upload ${upload.uploadId} after error:`,
-        err?.message,
+      logger.error(
+        {
+          err,
+          uploadId: upload.uploadId,
+          reportVersionId: snapshot.reportVersionId,
+        },
+        'pdf-lib failed to append upload — skipping',
       );
     }
   }
