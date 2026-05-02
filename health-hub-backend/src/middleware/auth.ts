@@ -13,6 +13,7 @@
  */
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { logger as rootLogger } from '../lib/logger';
 
 /**
  * The decoded payload of a Sobhana Health Hub JWT.
@@ -76,21 +77,17 @@ export const authMiddleware = async (
     req.user = decoded;
     next();
   } catch (err: any) {
+    // Use req.log if pino-http has attached it; fall back to root logger.
+    const log = (req as any).log || rootLogger;
     if (err.name === 'JsonWebTokenError') {
-      res.status(401).json({
-        error: 'UNAUTHORIZED',
-        message: 'Invalid token'
-      });
+      log.warn({ ip: req.ip }, 'auth rejected: invalid JWT');
+      res.status(401).json({ error: 'UNAUTHORIZED', message: 'Invalid token' });
     } else if (err.name === 'TokenExpiredError') {
-      res.status(401).json({
-        error: 'UNAUTHORIZED',
-        message: 'Token expired'
-      });
+      log.info({ ip: req.ip }, 'auth rejected: expired JWT');
+      res.status(401).json({ error: 'UNAUTHORIZED', message: 'Token expired' });
     } else {
-      res.status(500).json({
-        error: 'INTERNAL_ERROR',
-        message: 'Authentication failed'
-      });
+      log.error({ err, ip: req.ip }, 'auth middleware crashed');
+      res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Authentication failed' });
     }
   }
 };

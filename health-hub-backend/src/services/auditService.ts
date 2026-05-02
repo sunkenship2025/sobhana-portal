@@ -1,6 +1,7 @@
 import { AuditActionType } from '@prisma/client';
 import crypto from 'crypto';
 import prisma from '../lib/prisma';
+import { logger } from '../lib/logger';
 
 
 export interface AuditLogInput {
@@ -59,7 +60,19 @@ export async function logAction(data: AuditLogInput): Promise<void> {
       }
     });
   } catch (err) {
-    // Log audit failures but don't block main operation
-    console.error('Audit log failed:', err);
+    // Log audit failures but don't block main operation. Audit-write failure
+    // is operationally significant (compliance gap) but must never break the
+    // user-facing action.
+    logger.error(
+      {
+        err,
+        actionType: data.actionType,
+        entityType: data.entityType,
+        entityId: data.entityId,
+        userId: data.userId,
+        branchId: data.branchId,
+      },
+      'Audit log write failed',
+    );
   }
 }
