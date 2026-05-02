@@ -19,6 +19,7 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  HeadBucketCommand,
 } from '@aws-sdk/client-s3';
 
 let cachedClient: S3Client | null = null;
@@ -108,4 +109,13 @@ export async function deleteObject(key: string): Promise<void> {
 
 export function buildExternalUploadKey(visitId: string, uploadId: string): string {
   return `visits/${visitId}/uploads/${uploadId}.pdf`;
+}
+
+/**
+ * Cheap reachability probe used by the /health endpoint. Returns nothing on
+ * success; throws on auth/permission/network failure.
+ */
+export async function headBucket(): Promise<void> {
+  const client = getClient();
+  await client.send(new HeadBucketCommand({ Bucket: getBucket() }));
 }

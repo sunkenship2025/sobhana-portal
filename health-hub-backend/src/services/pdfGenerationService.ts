@@ -240,3 +240,18 @@ export async function warmupPdfService(): Promise<void> {
     console.error('Failed to warmup PDF service:', error);
   }
 }
+
+/**
+ * Peek at the cached browser state without triggering a launch — used by the
+ * /health probe so it doesn't accidentally cold-start Chrome on every poll.
+ */
+export function getPdfServiceStatus():
+  | { state: 'connected'; maxConcurrent: number }
+  | { state: 'not-warmed' }
+  | { state: 'disconnected' } {
+  if (!browserInstance) return { state: 'not-warmed' };
+  if (browserInstance.isConnected()) {
+    return { state: 'connected', maxConcurrent: PDF_MAX_CONCURRENT };
+  }
+  return { state: 'disconnected' };
+}
