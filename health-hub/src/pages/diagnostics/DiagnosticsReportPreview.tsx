@@ -405,6 +405,8 @@ const DiagnosticsReportPreview = () => {
   const handlePreviewReport = async () => {
     setPreviewLoading(true);
     try {
+      // Default response is the merged PDF (rendered values + appended uploads),
+      // so the preview matches byte-for-byte what the patient receives.
       const response = await fetch(`${API_BASE}/visits/diagnostic/${visitId}/preview-report`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -413,11 +415,8 @@ const DiagnosticsReportPreview = () => {
       });
 
       if (response.ok) {
-        const html = await response.text();
-        // Use blob URL so images (signature files) load from absolute http://localhost:3000 URLs
-        const blob = new Blob([html], { type: 'text/html' });
+        const blob = await response.blob();
         const url = URL.createObjectURL(blob);
-        // Revoke previous blob URL
         setPreviewUrl(prev => { if (prev) URL.revokeObjectURL(prev); return url; });
         setShowPreview(true);
       } else {
