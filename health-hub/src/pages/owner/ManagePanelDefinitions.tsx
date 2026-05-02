@@ -28,6 +28,14 @@ import {
   normalizeRichTextForStorage,
   sanitizeRichTextHtml,
 } from '@/lib/richText';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  TestInputConfigEditor,
+  defaultInputConfig,
+  summarizeInputConfig,
+  type TestInputConfigPayload,
+} from '@/components/diagnostics/TestInputConfigEditor';
+import { Settings2 } from 'lucide-react';
 
 /* ───────── Types ───────── */
 
@@ -118,6 +126,132 @@ function getLayoutItemConstraintMessage(layoutType: string, itemCount: number): 
     default:
       return itemCount > 0 ? null : `${layoutType.replace(/_/g, ' ')} panels require at least 1 test item`;
   }
+}
+
+/* ───────── Per-item Value Input popover ─────────
+ * Mounted only when the popover is open (key={rootDefinitionId+open}),
+ * so it loads on first open and saves via PUT /test-input-configs/:rootId.
+ * onSaved bubbles the saved config up to the parent's cache.
+ */
+function ValueInputConfigPopover({
+  rootDefinitionId,
+  testLabel,
+  cached,
+  authHeaders,
+  onSaved,
+}: {
+  rootDefinitionId: string;
+  testLabel: string;
+  cached: TestInputConfigPayload | undefined;
+  authHeaders: Record<string, string>;
+  onSaved: (cfg: TestInputConfigPayload) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [config, setConfig] = useState<TestInputConfigPayload | null>(cached ?? null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (!open || config) return;
+    setLoading(true);
+    fetch(`${API_BASE}/test-input-configs/${rootDefinitionId}`, { headers: authHeaders })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((data) => {
+        setConfig({
+          rootDefinitionId: data.rootDefinitionId ?? rootDefinitionId,
+          inputType: data.inputType ?? 'NUMERIC',
+          defaultValue: data.defaultValue ?? null,
+          valueOptions: Array.isArray(data.valueOptions) ? data.valueOptions : [],
+        });
+      })
+      .catch(() => setConfig(defaultInputConfig(rootDefinitionId)))
+      .finally(() => setLoading(false));
+  }, [open, rootDefinitionId, config, authHeaders]);
+
+  const handleSave = async () => {
+    if (!config) return;
+    setSaving(true);
+    try {
+      const cleanedOptions = config.valueOptions.map((v) => v.trim()).filter(Boolean);
+      const res = await fetch(`${API_BASE}/test-input-configs/${rootDefinitionId}`, {
+        method: 'PUT',
+        headers: authHeaders,
+        body: JSON.stringify({
+          inputType: config.inputType,
+          defaultValue: config.defaultValue?.trim() || null,
+          valueOptions: cleanedOptions,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.message || 'Failed to save input config');
+        return;
+      }
+      const saved = await res.json();
+      const next: TestInputConfigPayload = {
+        rootDefinitionId: saved.rootDefinitionId,
+        inputType: saved.inputType,
+        defaultValue: saved.defaultValue,
+        valueOptions: Array.isArray(saved.valueOptions) ? saved.valueOptions : [],
+      };
+      onSaved(next);
+      setConfig(next);
+      setDirty(false);
+      toast.success('Input config saved');
+      setOpen(false);
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to save input config');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const summary = summarizeInputConfig(cached ?? config ?? null);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button type="button" size="sm" variant="outline" className="h-7 text-xs gap-1.5">
+          <Settings2 className="h-3 w-3" /> Configure presets…
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-[460px] p-3 max-h-[80vh] overflow-y-auto">
+        <div className="space-y-3">
+          <div>
+            <div className="font-medium text-sm">Value input · {testLabel}</div>
+            <div className="text-xs text-muted-foreground">
+              Shared across every panel and every version of this test.
+            </div>
+          </div>
+          {loading || !config ? (
+            <p className="text-xs text-muted-foreground py-3">Loading…</p>
+          ) : (
+            <TestInputConfigEditor
+              rootDefinitionId={rootDefinitionId}
+              config={config}
+              onChange={(next) => {
+                setConfig(next);
+                setDirty(true);
+              }}
+            />
+          )}
+          <div className="flex items-center justify-between gap-2 pt-1 border-t">
+            <span className="text-[11px] text-muted-foreground">{summary}</span>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="button" size="sm" onClick={handleSave} disabled={!dirty || saving || !config}>
+                {saving ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
+                Save
+              </Button>
+            </div>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function renderPreviewLabel(
@@ -215,6 +349,9 @@ export default function ManagePanelDefinitions() {
 
   // Expanded items (for per-item display controls)
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
+
+  // Per-test input config cache (rootDefinitionId → config), populated lazily.
+  const [inputConfigs, setInputConfigs] = useState<Record<string, TestInputConfigPayload>>({});
 
   // Subgroup management (panel-level defined groups)
   const [formSubgroups, setFormSubgroups] = useState<string[]>([]);
@@ -1234,6 +1371,32 @@ export default function ManagePanelDefinitions() {
                                         />
                                       )}
                                     </div>
+                                  </div>
+                                )}
+
+                                {/* Value Input — presets / default / input type */}
+                                {item.testDefinition?.rootDefinitionId && (
+                                  <div className="col-span-2 flex items-start gap-3 pt-1 mt-1 border-t">
+                                    <div className="space-y-0.5 flex-1 min-w-0">
+                                      <Label className="text-xs">Value Input</Label>
+                                      <p className="text-[11px] text-muted-foreground truncate">
+                                        {summarizeInputConfig(
+                                          inputConfigs[item.testDefinition.rootDefinitionId]
+                                        )}
+                                      </p>
+                                    </div>
+                                    <ValueInputConfigPopover
+                                      rootDefinitionId={item.testDefinition.rootDefinitionId}
+                                      testLabel={item.testDefinition.name}
+                                      cached={inputConfigs[item.testDefinition.rootDefinitionId]}
+                                      authHeaders={headers}
+                                      onSaved={(cfg) =>
+                                        setInputConfigs((prev) => ({
+                                          ...prev,
+                                          [cfg.rootDefinitionId]: cfg,
+                                        }))
+                                      }
+                                    />
                                   </div>
                                 )}
                               </div>
