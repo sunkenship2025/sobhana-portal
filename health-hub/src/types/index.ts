@@ -341,7 +341,7 @@ export interface PaymentTransaction {
 }
 export type PaymentStatus = "PAID" | "PENDING";
 export type BillDiscountType = "FLAT_AMOUNT" | "PERCENTAGE";
-export type DiagnosticWorkflowMode = "REPORTABLE" | "BILL_ONLY";
+export type DiagnosticWorkflowMode = "REPORTABLE" | "BILL_ONLY" | "EXTERNAL_UPLOAD";
 export type DiagnosticNextAction = "ENTER_RESULTS" | "NONE";
 export type ClinicRevisitMode = "VISIT" | "REVISIT";
 export type ClinicRevisitDecision = "AUTO" | "FORCE_REVISIT" | "FORCE_NORMAL";

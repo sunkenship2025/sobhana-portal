@@ -316,6 +316,18 @@ function getReportableOrders<
   );
 }
 
+/** Orders that contribute to the patient-facing report (REPORTABLE or EXTERNAL_UPLOAD). */
+function getReportInclusionOrders<
+  T extends { workflowMode?: DiagnosticWorkflowMode | null },
+>(orders: T[]): T[] {
+  return orders.filter(
+    (order) =>
+      (order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) ===
+        DiagnosticWorkflowMode.REPORTABLE ||
+      order.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD,
+  );
+}
+
 // GET /api/visits/diagnostic - List diagnostic visits
 // When patientId is provided: Returns ALL visits for that patient across ALL branches (Patient 360 view)
 // When patientId is omitted: Returns visits for current branch only (daily operations)
@@ -408,6 +420,9 @@ router.get("/", async (req: AuthRequest, res) => {
             : null,
         hasReportableOrders: composition.hasReportableOrders,
         hasBillOnlyOrders: composition.hasBillOnlyOrders,
+        hasExternalUploadOrders: composition.hasExternalUploadOrders,
+        hasReportInclusionOrders: composition.hasReportInclusionOrders,
+        hasEntryScreenOrders: composition.hasEntryScreenOrders,
         hasFinalizedReport: composition.hasFinalizedReport,
         nextAction: composition.nextAction,
         referralDoctorId: v.referrals[0]?.referralDoctorId || null,
@@ -910,6 +925,9 @@ router.get("/:id", async (req: AuthRequest, res) => {
       reportFinalizedAt: latestFinalizedVersion?.finalizedAt || null,
       hasReportableOrders: composition.hasReportableOrders,
       hasBillOnlyOrders: composition.hasBillOnlyOrders,
+      hasExternalUploadOrders: composition.hasExternalUploadOrders,
+      hasReportInclusionOrders: composition.hasReportInclusionOrders,
+      hasEntryScreenOrders: composition.hasEntryScreenOrders,
       hasFinalizedReport: composition.hasFinalizedReport,
       nextAction: composition.nextAction,
       referralDoctorId: visit.referrals[0]?.referralDoctorId || null,
@@ -1438,7 +1456,10 @@ router.post("/", async (req: AuthRequest, res) => {
       testOrderData,
       VisitStatus.WAITING,
     );
-    const initialVisitStatus = createComposition.hasReportableOrders
+    // Visits that require an entry screen (REPORTABLE values OR external uploads)
+    // start as DRAFT and only complete after finalize. Pure bill-only visits skip
+    // straight to COMPLETED because there's nothing to enter.
+    const initialVisitStatus = createComposition.hasReportInclusionOrders
       ? VisitStatus.DRAFT
       : VisitStatus.COMPLETED;
 
@@ -1637,7 +1658,10 @@ router.post("/", async (req: AuthRequest, res) => {
           })),
         });
 
-        if (createComposition.hasReportableOrders) {
+        if (createComposition.hasReportInclusionOrders) {
+          // Both REPORTABLE and EXTERNAL_UPLOAD orders flow into a single
+          // DiagnosticReport — the merged PDF combines rendered values with
+          // appended uploads.
           const report = await tx.diagnosticReport.create({
             data: {
               visitId: visit.id,
@@ -1678,7 +1702,9 @@ router.post("/", async (req: AuthRequest, res) => {
       userAgent: req.get("user-agent"),
     });
 
-    if (!createComposition.hasReportableOrders) {
+    // Auto-refresh payouts only for pure bill-only visits (already COMPLETED).
+    // Visits with REPORTABLE/EXTERNAL_UPLOAD orders complete payouts at finalize time.
+    if (!createComposition.hasReportInclusionOrders) {
       const completedAt = new Date();
       const periodStartDate = new Date(completedAt);
       periodStartDate.setHours(0, 0, 0, 0);
@@ -1789,6 +1815,9 @@ router.post("/", async (req: AuthRequest, res) => {
       reportFinalizedAt: null,
       hasReportableOrders: createComposition.hasReportableOrders,
       hasBillOnlyOrders: createComposition.hasBillOnlyOrders,
+      hasExternalUploadOrders: createComposition.hasExternalUploadOrders,
+      hasReportInclusionOrders: createComposition.hasReportInclusionOrders,
+      hasEntryScreenOrders: createComposition.hasEntryScreenOrders,
       hasFinalizedReport: false,
       nextAction: getVisitComposition(
         completeVisit!.testOrders,
@@ -2397,21 +2426,25 @@ router.delete("/:id/tests/:testOrderId", async (req: AuthRequest, res) => {
       });
     }
 
-    const reportableOrderCount = visit.testOrders.filter(
+    // Block removal if it would leave the visit with no report-inclusion orders
+    // (REPORTABLE or EXTERNAL_UPLOAD). A pure bill-only visit cannot reach the
+    // result-entry/finalize flow that's already underway here.
+    const targetIsReportInclusion =
+      (testOrder.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) ===
+        DiagnosticWorkflowMode.REPORTABLE ||
+      testOrder.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD;
+    const reportInclusionOrderCount = visit.testOrders.filter(
       (order) =>
         (order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) ===
-        DiagnosticWorkflowMode.REPORTABLE,
+          DiagnosticWorkflowMode.REPORTABLE ||
+        order.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD,
     ).length;
 
-    if (
-      (testOrder.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) ===
-        DiagnosticWorkflowMode.REPORTABLE &&
-      reportableOrderCount <= 1
-    ) {
+    if (targetIsReportInclusion && reportInclusionOrderCount <= 1) {
       return res.status(400).json({
         error: "LAST_REPORTABLE_ORDER",
         message:
-          "Cannot remove the last reportable order from a diagnostic visit.",
+          "Cannot remove the last reportable / external-upload order from a diagnostic visit.",
       });
     }
 
@@ -2568,13 +2601,15 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
       });
     }
 
-    const reportableOrders = getReportableOrders(visit.testOrders);
-    if (reportableOrders.length === 0) {
+    // Allow result entry whenever the visit has anything that lands on the
+    // entry screen (REPORTABLE values OR EXTERNAL_UPLOAD attachments).
+    if (getReportInclusionOrders(visit.testOrders).length === 0) {
       return res.status(400).json({
         error: "BILL_ONLY_VISIT",
         message: "Pure bill-only visits do not use result entry.",
       });
     }
+    const reportableOrders = getReportableOrders(visit.testOrders);
 
     const draftVersion = visit.report?.versions[0];
     if (!draftVersion) {
@@ -3122,7 +3157,7 @@ router.get("/:id/report-snapshot", async (req: AuthRequest, res) => {
       return res.status(404).json({ error: "Visit not found" });
     }
 
-    if (getReportableOrders(visit.testOrders).length === 0) {
+    if (getReportInclusionOrders(visit.testOrders).length === 0) {
       return res.status(400).json({
         error: "BILL_ONLY_VISIT",
         message: "Pure bill-only visits do not have a report snapshot.",
@@ -3169,7 +3204,7 @@ router.get("/:id/preview-report", async (req: AuthRequest, res) => {
       return res.status(404).json({ error: "Visit not found" });
     }
 
-    if (getReportableOrders(visit.testOrders).length === 0) {
+    if (getReportInclusionOrders(visit.testOrders).length === 0) {
       return res.status(400).json({
         error: "BILL_ONLY_VISIT",
         message: "Pure bill-only visits do not have a report preview.",
@@ -3352,7 +3387,9 @@ router.post("/:id/confirm-ready", async (req: AuthRequest, res) => {
     }
 
     const composition = getVisitComposition(visit.testOrders, visit.status);
-    if (composition.hasReportableOrders || !composition.hasBillOnlyOrders) {
+    // Only pure bill-only visits skip the entry/finalize flow. Visits with
+    // REPORTABLE or EXTERNAL_UPLOAD orders must go through result entry first.
+    if (composition.hasReportInclusionOrders || !composition.hasBillOnlyOrders) {
       return res.status(400).json({
         error: "REPORTABLE_VISIT",
         message: "This endpoint only applies to legacy pure bill-only visits.",
@@ -3509,7 +3546,7 @@ router.post("/:id/finalize", async (req: AuthRequest, res) => {
       });
     }
 
-    if (getReportableOrders(visit.testOrders).length === 0) {
+    if (getReportInclusionOrders(visit.testOrders).length === 0) {
       return res.status(400).json({
         error: "BILL_ONLY_VISIT",
         message: "Pure bill-only visits do not use report finalization.",

@@ -275,6 +275,18 @@ router.post('/', async (req: AuthRequest, res) => {
         message: 'REPORTABLE products must have at least 1 linked panel',
       });
     }
+    // EXTERNAL_UPLOAD products carry their result as a PDF, not as panel-linked tests.
+    // Reject any attempt to attach panels to them so the data model stays clean.
+    if (
+      resolvedWorkflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD &&
+      panels &&
+      panels.length > 0
+    ) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'EXTERNAL_UPLOAD products do not support linked panels',
+      });
+    }
 
     // Validate panels reference existing ClinicalPanels
     if (panels?.length) {
@@ -381,6 +393,15 @@ router.put('/:id', async (req: AuthRequest, res) => {
           message: 'REPORTABLE products must have at least 1 linked panel',
         });
       }
+      if (
+        resolvedWorkflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD &&
+        panels.length > 0
+      ) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: 'EXTERNAL_UPLOAD products do not support linked panels',
+        });
+      }
     }
 
     if (panels?.length) {
@@ -403,6 +424,11 @@ router.put('/:id', async (req: AuthRequest, res) => {
     const product = await prisma.$transaction(async (tx) => {
       // Replace panel links if provided
       if (panels) {
+        await tx.billableProductPanel.deleteMany({ where: { productId: req.params.id } });
+      }
+      // EXTERNAL_UPLOAD never carries panels; clear stale links if the workflow
+      // was just switched (panel field omitted in the request body).
+      else if (resolvedWorkflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD) {
         await tx.billableProductPanel.deleteMany({ where: { productId: req.params.id } });
       }
 

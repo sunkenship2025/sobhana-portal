@@ -95,7 +95,11 @@ export async function resolveProducts(
 
   const invalidPanels: string[] = [];
   for (const product of products) {
-    if (product.workflowMode === DiagnosticWorkflowMode.BILL_ONLY) {
+    // BILL_ONLY and EXTERNAL_UPLOAD never carry panels — skip panel validation entirely.
+    if (
+      product.workflowMode === DiagnosticWorkflowMode.BILL_ONLY ||
+      product.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD
+    ) {
       continue;
     }
 
@@ -123,7 +127,10 @@ export async function resolveProducts(
   // Collect all unique TestDefinition codes across all panels to batch-fetch LabTests
   const allCodes = new Set<string>();
   for (const product of products) {
-    if (product.workflowMode === DiagnosticWorkflowMode.BILL_ONLY) {
+    if (
+      product.workflowMode === DiagnosticWorkflowMode.BILL_ONLY ||
+      product.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD
+    ) {
       continue;
     }
 
@@ -235,6 +242,38 @@ export async function resolveProducts(
             priceInPaise: effectivePrice,
             productId: product.id,
             workflowMode: DiagnosticWorkflowMode.BILL_ONLY,
+            priceSource,
+          },
+        ],
+      });
+      continue;
+    }
+
+    if (product.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD) {
+      // Reuses the bill-only placeholder LabTest as a generic stub; the placeholder
+      // exists only to satisfy the TestOrder->LabTest FK. The TestOrder still carries
+      // workflowMode=EXTERNAL_UPLOAD so downstream code can branch correctly, and the
+      // uploaded PDF lives in ExternalReportUpload, attached via testOrderId.
+      const placeholder = await ensureBillOnlyPlaceholderLabTest();
+
+      resolved.push({
+        productId: product.id,
+        productName: product.name,
+        productCode: product.code,
+        workflowMode: DiagnosticWorkflowMode.EXTERNAL_UPLOAD,
+        effectivePrice,
+        priceSource,
+        testOrders: [
+          {
+            labTestId: placeholder.id,
+            testName: product.name,
+            testCode: product.code,
+            referenceMin: null,
+            referenceMax: null,
+            referenceUnit: null,
+            priceInPaise: effectivePrice,
+            productId: product.id,
+            workflowMode: DiagnosticWorkflowMode.EXTERNAL_UPLOAD,
             priceSource,
           },
         ],

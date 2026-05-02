@@ -57,6 +57,7 @@ import ownerDashboardRoutes from './routes/ownerDashboard';
 import clinicalDefinitionRoutes from './routes/clinicalDefinitions';
 import clinicalPanelRoutes from './routes/clinicalPanels';
 import billableProductRoutes from './routes/billableProducts';
+import externalUploadRoutes from './routes/externalUploads';
 
 // PDF Service warmup
 import { warmupPdfService, closeBrowser } from './services/pdfGenerationService';
@@ -190,6 +191,7 @@ app.use('/api/owner', ownerDashboardRoutes);
 app.use('/api/clinical-definitions', clinicalDefinitionRoutes);
 app.use('/api/clinical-panels', clinicalPanelRoutes);
 app.use('/api/billable-products', billableProductRoutes);
+app.use('/api/external-uploads', externalUploadRoutes);
 
 // Global error handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
