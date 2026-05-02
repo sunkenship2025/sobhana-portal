@@ -22,6 +22,9 @@ import {
 import prisma from '../lib/prisma';
 import { createAccessToken } from './reportAccessService';
 import { computeBillFinancialsFromPersisted } from './billFinancialService';
+import { logger as rootLogger } from '../lib/logger';
+
+const log = rootLogger.child({ component: 'notificationService' });
 
 type NotificationInfo = Awaited<ReturnType<typeof getPatientNotificationInfo>>;
 type DiagnosticNotificationInfo = Awaited<ReturnType<typeof getDiagnosticVisitNotificationInfo>>;
@@ -247,7 +250,10 @@ async function dispatchDiagnosticCompletionNotification(input: {
     if (input.manual) {
       await autoOptIn(info.patient.id, 'STAFF_MANUAL_SEND');
     } else if (!info.whatsappOptIn) {
-      console.log(`[Notification] Patient ${info.patient.id} not opted in — skipping diagnostic report notification`);
+      log.info(
+        { patientId: info.patient.id, visitId: input.visitId },
+        'patient not opted in — skipping diagnostic report notification',
+      );
       return { success: true };
     }
 
@@ -297,14 +303,15 @@ async function dispatchDiagnosticCompletionNotification(input: {
       ],
     });
 
-    console.log(
-      `[Notification] Report-ready notification sent to ${formattedPhone} for visit ${input.visitId}`
+    log.info(
+      { phone: formattedPhone, visitId: input.visitId, reportVersionId: link.reportVersionId },
+      'report-ready notification sent',
     );
     return { success: true };
   } catch (error: any) {
-    console.error(
-      `[Notification] Failed to send diagnostic report notification for visit ${input.visitId}:`,
-      error.message
+    log.error(
+      { err: error, visitId: input.visitId },
+      'failed to send diagnostic report notification',
     );
     return { success: false, error: error.message };
   }
@@ -329,23 +336,23 @@ export async function sendReportReady(visitId: string, preIssuedToken?: string):
 export async function sendBillConfirmation(visitId: string): Promise<void> {
   try {
     if (!isWhatsAppEnabled()) {
-      console.log(`[Notification] WhatsApp disabled — skipping bill notification for visit ${visitId}`);
+      log.info({ visitId }, 'WhatsApp disabled — skipping bill notification');
       return;
     }
 
     const info = await getPatientNotificationInfo(visitId);
     if (!info) {
-      console.log(`[Notification] No patient/phone found for visit ${visitId}`);
+      log.info({ visitId }, 'no patient/phone found — skipping bill notification');
       return;
     }
 
     if (!info.whatsappOptIn) {
-      console.log(`[Notification] Patient ${info.patient.id} not opted in — skipping bill notification`);
+      log.info({ patientId: info.patient.id, visitId }, 'patient not opted in — skipping bill notification');
       return;
     }
 
     if (!info.bill) {
-      console.log(`[Notification] No bill found for visit ${visitId}`);
+      log.info({ visitId }, 'no bill found — skipping bill notification');
       return;
     }
 
@@ -376,14 +383,9 @@ export async function sendBillConfirmation(visitId: string): Promise<void> {
       ],
     });
 
-    console.log(
-      `[Notification] Bill confirmation sent to ${formattedPhone} for visit ${visitId}`
-    );
+    log.info({ phone: formattedPhone, visitId }, 'bill confirmation sent');
   } catch (error: any) {
-    console.error(
-      `[Notification] Failed to send bill notification for visit ${visitId}:`,
-      error.message
-    );
+    log.error({ err: error, visitId }, 'failed to send bill notification');
   }
 }
 
@@ -452,7 +454,7 @@ export async function resendBillNotification(
 
     return { success: true };
   } catch (error: any) {
-    console.error(`[Notification] Staff bill resend failed for visit ${visitId}:`, error.message);
+    log.error({ err: error, visitId }, 'staff bill resend failed');
     return { success: false, error: error.message };
   }
 }

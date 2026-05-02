@@ -92,7 +92,7 @@ router.get('/by-visit/:visitId', async (req: AuthRequest, res) => {
 
     return res.json(uploads.map(shapeUpload));
   } catch (error: any) {
-    console.error('Error listing external uploads:', error);
+    req.log.error({ err: error, visitId: req.params.visitId }, 'list external uploads failed');
     return res.status(500).json({ error: 'FETCH_FAILED', message: error.message });
   }
 });
@@ -217,7 +217,7 @@ router.post('/', upload.single('pdf'), async (req: AuthRequest, res) => {
 
     return res.status(201).json(shapeUpload(created));
   } catch (error: any) {
-    console.error('Error creating external upload:', error);
+    req.log.error({ err: error }, 'external upload create failed');
     if (error?.code === 'LIMIT_FILE_SIZE') {
       return res.status(413).json({
         error: 'FILE_TOO_LARGE',
@@ -257,7 +257,10 @@ router.delete('/:id', async (req: AuthRequest, res) => {
     }
 
     await deleteObject(upload.r2Key).catch((err) => {
-      console.error('R2 deleteObject failed (proceeding to mark deleted in DB):', err.message);
+      req.log.error(
+        { err, uploadId: upload.id, visitId: upload.visitId },
+        'R2 deleteObject failed — proceeding to mark deleted in DB anyway',
+      );
     });
 
     await prisma.externalReportUpload.update({
@@ -289,7 +292,7 @@ router.delete('/:id', async (req: AuthRequest, res) => {
 
     return res.json({ success: true });
   } catch (error: any) {
-    console.error('Error deleting external upload:', error);
+    req.log.error({ err: error, uploadId: req.params.id }, 'external upload delete failed');
     return res.status(500).json({ error: 'DELETE_FAILED', message: error.message });
   }
 });
@@ -341,7 +344,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
     res.setHeader('Cache-Control', 'no-store');
     return res.send(buffer);
   } catch (error: any) {
-    console.error('Error fetching external upload:', error);
+    req.log.error({ err: error, uploadId: req.params.id }, 'external upload fetch failed');
     return res.status(500).json({ error: 'FETCH_FAILED', message: error.message });
   }
 });

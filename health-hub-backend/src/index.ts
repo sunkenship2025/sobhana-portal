@@ -66,6 +66,9 @@ import prisma from './lib/prisma';
 import { ensureRedisReady, closeRedisClient, isRedisRequired } from './lib/redis';
 import { runHealthChecks } from './lib/healthChecks';
 import { authMiddleware } from './middleware/auth';
+import { logger } from './lib/logger';
+import { requestIdMiddleware } from './middleware/requestId';
+import pinoHttp from 'pino-http';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -73,6 +76,37 @@ const SERVER_STARTED_AT = new Date().toISOString();
 
 // Trust reverse proxy (Render) — ensures req.protocol returns 'https'
 app.set('trust proxy', true);
+
+// Request ID first — must run before pino-http so the auto-attached request
+// logger is tagged with the same id we expose in the response header.
+app.use(requestIdMiddleware);
+
+// Auto-log every request: method, path, status, duration, requestId.
+// Skip /health and /healthz to avoid drowning the log stream in Render's
+// frequent health probes.
+app.use(
+  pinoHttp({
+    logger,
+    genReqId: (req) => (req as any).requestId,
+    autoLogging: {
+      ignore: (req) => req.url === '/health' || req.url === '/healthz',
+    },
+    customLogLevel: (_req, res, err) => {
+      if (err || res.statusCode >= 500) return 'error';
+      if (res.statusCode >= 400) return 'warn';
+      return 'info';
+    },
+    serializers: {
+      req: (req) => ({
+        id: req.id,
+        method: req.method,
+        url: req.url,
+        userId: (req.raw as any)?.user?.id,
+        branchId: (req.raw as any)?.branchId,
+      }),
+    },
+  }),
+);
 
 // Security middleware - relaxed for development
 app.use(helmet({
@@ -230,12 +264,22 @@ app.use('/api/billable-products', billableProductRoutes);
 app.use('/api/external-uploads', externalUploadRoutes);
 app.use('/api/test-input-configs', testInputConfigRoutes);
 
-// Global error handler
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('Unhandled error:', err);
+// Global error handler — structured log + requestId in response so the user
+// can copy a single ID from the toast and we can find every related log line.
+app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  (req.log || logger).error(
+    {
+      err,
+      statusCode: err.statusCode || 500,
+      route: req.path,
+      method: req.method,
+    },
+    'Unhandled error in request',
+  );
   res.status(err.statusCode || 500).json({
     error: err.error || 'INTERNAL_ERROR',
-    message: err.message || 'An unexpected error occurred'
+    message: err.message || 'An unexpected error occurred',
+    requestId: req.requestId,
   });
 });
 
