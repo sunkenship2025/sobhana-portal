@@ -1296,13 +1296,15 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
     throw new Error(`No report version found for visit ${visitId}`);
   }
 
-  if (reportVersion.testResults.length === 0) {
-    throw new Error('No test results entered yet');
-  }
-
   const patient = visit.patient;
   const reportableOrders = filterReportableOrders(visit.testOrders as any[]);
   const externalUploads = await buildExternalUploadSnapshots(visit.testOrders as any[]);
+
+  // External-upload visits have no test results — the report content is the
+  // appended PDFs themselves. Only block when there's neither values nor uploads.
+  if (reportVersion.testResults.length === 0 && externalUploads.length === 0) {
+    throw new Error('No test results entered yet');
+  }
   const augmentedTestResults = await backfillDerivedResults(
     reportVersion.testResults as any[],
     reportableOrders as any[],

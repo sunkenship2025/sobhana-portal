@@ -514,7 +514,11 @@ const DiagnosticsReportPreview = () => {
             </div>
           </CardHeader>
           <CardContent className="pt-6">
-            {reportSnapshot?.departments.length ? (
+            {!reportSnapshot?.departments.length && !results.length && visit.hasExternalUploadOrders ? (
+              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                This visit's report is an external PDF upload. Click <strong>Preview Report Before Finalization</strong> below to see the merged PDF with the Sobhana letterhead applied to your uploaded file(s).
+              </div>
+            ) : reportSnapshot?.departments.length ? (
               <div className="space-y-6">
                 {reportSnapshot.departments.map((department) => (
                   <section key={department.departmentId} className="space-y-4">
