@@ -64,9 +64,12 @@ import testInputConfigRoutes from './routes/testInputConfigs';
 import { warmupPdfService, closeBrowser } from './services/pdfGenerationService';
 import prisma from './lib/prisma';
 import { ensureRedisReady, closeRedisClient, isRedisRequired } from './lib/redis';
+import { runHealthChecks } from './lib/healthChecks';
+import { authMiddleware } from './middleware/auth';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
+const SERVER_STARTED_AT = new Date().toISOString();
 
 // Trust reverse proxy (Render) — ensures req.protocol returns 'https'
 app.set('trust proxy', true);
@@ -143,16 +146,48 @@ app.get('/', (_req, res) => {
   res.json({ status: 'ok', service: 'sobhana-health-hub', timestamp: new Date().toISOString() });
 });
 
-// Health check (no auth required)
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-app.get('/healthz', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+// Health check (no auth required) — actually probes Postgres/Redis/R2/Puppeteer.
+// Returns 503 only when Postgres is down (the one critical dep). Non-critical
+// deps mark the overall status as 'degraded' but still return 200, so a transient
+// R2 / Redis blip doesn't trigger Render restart loops.
+async function handleHealth(_req: express.Request, res: express.Response) {
+  try {
+    const report = await runHealthChecks();
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(report.status === 'unhealthy' ? 503 : 200).json(report);
+  } catch (err: any) {
+    res.status(500).json({ status: 'unhealthy', error: err?.message || 'health-check failed' });
+  }
+}
+app.get('/health', handleHealth);
+app.get('/healthz', handleHealth);
 
 // Auth routes (no branch context required)
 app.use('/api/auth', authRoutes);
+
+// System status — auth-required, more detail than the public /health probe.
+// Includes build version + Node memory so ops can correlate "this bug appeared
+// at 14:23" with "deployed at 14:21" and spot memory leaks.
+app.get('/api/system/status', authMiddleware, async (_req, res) => {
+  try {
+    const report = await runHealthChecks({ skipCache: true });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      ...report,
+      build: {
+        version: process.env.GIT_SHA || process.env.RENDER_GIT_COMMIT || 'unknown',
+        nodeEnv: process.env.NODE_ENV || 'development',
+        startedAt: SERVER_STARTED_AT,
+      },
+      runtime: {
+        uptimeSeconds: Math.floor(process.uptime()),
+        memory: process.memoryUsage(),
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ status: 'unhealthy', error: err?.message || 'status check failed' });
+  }
+});
 
 // Report PDF download (token-based, no auth required) - PUBLIC ROUTE
 // Direct PDF download: /reports/:token
