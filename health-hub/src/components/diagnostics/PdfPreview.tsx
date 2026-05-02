@@ -66,6 +66,15 @@ export function PdfPreview({ src, className }: PdfPreviewProps) {
   // 32px of horizontal padding on either side.
   const pageWidth = Math.min(Math.max(containerWidth - 64, 320), 900);
 
+  // Force HiDPI rendering. pdf.js defaults to window.devicePixelRatio, which
+  // is 1 on most non-Retina monitors — at 1× very thin patterns (the report's
+  // 2px striped header band, 2px red footer line) suffer from subpixel
+  // anti-aliasing artifacts and can shift toward pink/magenta. 2× minimum
+  // matches what Chrome's native PDF viewer does internally and renders the
+  // stripes in their true colors.
+  const renderDpr =
+    typeof window !== 'undefined' ? Math.max(2, window.devicePixelRatio || 1) : 2;
+
   return (
     <div
       ref={containerRef}
@@ -98,6 +107,7 @@ export function PdfPreview({ src, className }: PdfPreviewProps) {
                     key={i + 1}
                     pageNumber={i + 1}
                     width={pageWidth || undefined}
+                    devicePixelRatio={renderDpr}
                     className="overflow-hidden rounded-md border bg-white shadow-md"
                     renderAnnotationLayer={false}
                     renderTextLayer={false}
