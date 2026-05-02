@@ -912,6 +912,24 @@ const DiagnosticsResultEntry = () => {
       (inputConfig.inputType === 'TEXT_WITH_PRESETS' || inputConfig.inputType === 'SELECT_ONLY') &&
       inputConfig.valueOptions.length > 0;
 
+    // How wide should the Value cell be?
+    //   - NUMERIC          → 1 col (120px) — numbers fit fine
+    //   - FREE_TEXT        → if test has reference text ("Negative" etc), span 2
+    //                        cols (absorb Flag only, keep Reference visible);
+    //                        otherwise span 3 (absorb both).
+    //   - Combobox / Select→ span 3 cols. Long morphology phrasings need width;
+    //                        these tests rarely have a meaningful reference.
+    const hasReferenceContent = !!referenceRange.text || hasNumericRange;
+    const valueCellSpan: 1 | 2 | 3 = (() => {
+      if (isAutoDerived) return 1; // derived numeric tests stay tight
+      if (inputConfig.inputType === 'NUMERIC') return 1;
+      if (usePresetCombobox) return 3;
+      // FREE_TEXT
+      return hasReferenceContent ? 2 : 3;
+    })();
+    const showReferenceCell = valueCellSpan < 3;
+    const showFlagCell = valueCellSpan < 2;
+
     return (
       <div
         key={testId}
@@ -941,7 +959,18 @@ const DiagnosticsResultEntry = () => {
           </div>
         </div>
 
-        <div className="space-y-1">
+        {/*
+          Value cell span adapts to input type:
+          • Numeric           → 1 col (120px)
+          • Free text w/ ref  → 2 cols (200px, Reference still shown)
+          • Free text no ref  → 3 cols (380px)
+          • Combobox / Select → 3 cols (380px) — fits long morphology phrasings
+        */}
+        <div className={cn(
+          'space-y-1',
+          valueCellSpan === 2 && 'md:col-span-2',
+          valueCellSpan === 3 && 'md:col-span-3'
+        )}>
           <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground md:hidden">
             Value
           </span>
@@ -990,33 +1019,37 @@ const DiagnosticsResultEntry = () => {
           </div>
         </div>
 
-        <div className="space-y-1 text-sm text-muted-foreground md:text-center">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground md:hidden">
-            Reference Range
-          </span>
-          <div>
-            {referenceRange.text ? (
-              referenceRange.text
-            ) : hasNumericRange ? (
-              `${referenceRange.min || ''} – ${referenceRange.max || ''} ${referenceRange.unit}`
-            ) : (
-              '—'
-            )}
+        {showReferenceCell && (
+          <div className="space-y-1 text-sm text-muted-foreground md:text-center">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground md:hidden">
+              Reference Range
+            </span>
+            <div>
+              {referenceRange.text ? (
+                referenceRange.text
+              ) : hasNumericRange ? (
+                `${referenceRange.min || ''} – ${referenceRange.max || ''} ${referenceRange.unit}`
+              ) : (
+                '—'
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className="space-y-1">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground md:hidden">
-            Flag
-          </span>
-          <div className="flex md:justify-center">
-            {flag ? (
-              <FlagBadge flag={flag} />
-            ) : (
-              <span className="text-muted-foreground">—</span>
-            )}
+        {showFlagCell && (
+          <div className="space-y-1">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground md:hidden">
+              Flag
+            </span>
+            <div className="flex md:justify-center">
+              {flag ? (
+                <FlagBadge flag={flag} />
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     );
   };

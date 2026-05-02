@@ -1,13 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
-import { GripVertical, Plus, Trash2 } from 'lucide-react';
+import { AlertCircle, GripVertical, Plus, Trash2, X } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { TestValueCombobox } from '@/components/diagnostics/TestValueCombobox';
 
 export type TestInputType = 'NUMERIC' | 'FREE_TEXT' | 'TEXT_WITH_PRESETS' | 'SELECT_ONLY';
 
@@ -119,23 +123,6 @@ export function TestInputConfigEditor({ rootDefinitionId, config, onChange, test
         </div>
       </div>
 
-      <div className="space-y-1.5">
-        <Label>Default value (optional)</Label>
-        <Input
-          value={config.defaultValue ?? ''}
-          onChange={(e) => update({ defaultValue: e.target.value })}
-          inputMode={config.inputType === 'NUMERIC' ? 'decimal' : 'text'}
-          placeholder={
-            config.inputType === 'NUMERIC'
-              ? 'e.g., 14'
-              : 'e.g., NORMOCYTIC/NORMOCHROMIC'
-          }
-        />
-        <p className="text-xs text-muted-foreground">
-          Pre-fills the field when the tech opens the form (only when no value is saved).
-        </p>
-      </div>
-
       {showPresets && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
@@ -211,6 +198,125 @@ export function TestInputConfigEditor({ rootDefinitionId, config, onChange, test
           )}
         </div>
       )}
+
+      {/*
+        Default value renders differently per input type so the admin can't
+        configure an unselectable default (e.g. text "MAYBE" when the strict
+        dropdown only allows "Positive" / "Negative").
+        • NUMERIC          → number-only input
+        • FREE_TEXT        → plain text input
+        • TEXT_WITH_PRESETS→ combobox (pick from presets or type custom — same
+                              widget the tech uses at result entry, so the
+                              admin can preview the runtime UX)
+        • SELECT_ONLY      → select limited to preset values; disabled until
+                              presets exist, since strict dropdowns can't
+                              accept arbitrary text.
+      */}
+      {(() => {
+        const dv = config.defaultValue ?? '';
+        const numericInvalid =
+          config.inputType === 'NUMERIC' && dv !== '' && Number.isNaN(Number(dv));
+        const selectInvalid =
+          config.inputType === 'SELECT_ONLY' && dv !== '' && !config.valueOptions.includes(dv);
+
+        return (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label>Default value (optional)</Label>
+              {dv && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-[11px] text-muted-foreground"
+                  onClick={() => update({ defaultValue: null })}
+                >
+                  <X className="h-3 w-3 mr-1" /> Clear
+                </Button>
+              )}
+            </div>
+
+            {config.inputType === 'NUMERIC' && (
+              <Input
+                value={dv}
+                onChange={(e) => update({ defaultValue: e.target.value })}
+                inputMode="decimal"
+                pattern="[0-9.\-]*"
+                placeholder="e.g., 14"
+              />
+            )}
+
+            {config.inputType === 'FREE_TEXT' && (
+              <Input
+                value={dv}
+                onChange={(e) => update({ defaultValue: e.target.value })}
+                placeholder="e.g., Negative"
+              />
+            )}
+
+            {config.inputType === 'TEXT_WITH_PRESETS' && (
+              config.valueOptions.length === 0 ? (
+                <Input
+                  value={dv}
+                  onChange={(e) => update({ defaultValue: e.target.value })}
+                  placeholder="Add presets above, or type a custom default"
+                />
+              ) : (
+                <TestValueCombobox
+                  value={dv}
+                  onChange={(next) => update({ defaultValue: next })}
+                  options={config.valueOptions}
+                  allowCustom={true}
+                  placeholder="Pick a preset or type custom…"
+                />
+              )
+            )}
+
+            {config.inputType === 'SELECT_ONLY' && (
+              config.valueOptions.length === 0 ? (
+                <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  Add at least one preset above to pick a default. A strict
+                  dropdown can't accept values that aren't in the list.
+                </div>
+              ) : (
+                <Select
+                  value={dv || '__none__'}
+                  onValueChange={(v) => update({ defaultValue: v === '__none__' ? null : v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pick a preset…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No default</SelectItem>
+                    {config.valueOptions.map((opt) => (
+                      <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )
+            )}
+
+            {numericInvalid && (
+              <p className="flex items-center gap-1 text-xs text-amber-600">
+                <AlertCircle className="h-3 w-3" /> Default isn't a number — it
+                won't pre-fill correctly for a numeric test.
+              </p>
+            )}
+            {selectInvalid && (
+              <p className="flex items-center gap-1 text-xs text-amber-600">
+                <AlertCircle className="h-3 w-3" /> Default "{dv}" isn't in the
+                preset list above — strict dropdown will reject it. Pick a
+                preset or clear the default.
+              </p>
+            )}
+
+            <p className="text-xs text-muted-foreground">
+              Pre-fills the field when the tech opens the form (only when no
+              value is saved).
+            </p>
+          </div>
+        );
+      })()}
 
       <p className="text-[11px] text-muted-foreground">
         Saved per <span className="font-mono">rootDefinitionId</span>: <span className="font-mono">{rootDefinitionId}</span>
