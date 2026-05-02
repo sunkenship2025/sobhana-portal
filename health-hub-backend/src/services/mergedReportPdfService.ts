@@ -143,11 +143,11 @@ export async function generateMergedReportPdf(
     }
 
     // Continue with merge — load the base PDF, append uploads with overlay.
-    return await mergeUploadsIntoBase(basePdf, uploads, snapshot, cache);
+    return await mergeUploadsIntoBase(basePdf, uploads, snapshot, cache, mode);
   }
 
   // skipBaseRender path: start from a blank document, append uploads with overlay only.
-  return await mergeUploadsIntoBase(null, uploads, snapshot, cache);
+  return await mergeUploadsIntoBase(null, uploads, snapshot, cache, mode);
 }
 
 async function mergeUploadsIntoBase(
@@ -155,7 +155,13 @@ async function mergeUploadsIntoBase(
   uploads: ExternalUploadSnapshot[],
   snapshot: ReportSnapshot,
   cache: boolean,
+  mode: 'physical' | 'digital',
 ): Promise<Buffer> {
+  // Physical mode prints on pre-printed Sobhana letterhead — the paper already
+  // carries the logo + stripe + footer, so drawing our overlay on top would
+  // double up. Skip the overlay; appended pages print as-is into the
+  // letterhead's content area.
+  const drawOverlay = mode === 'digital';
 
   // Fetch all uploads in parallel — saves N× R2 latency for multi-upload visits.
   const fetchedBuffers = await Promise.all(
@@ -171,9 +177,14 @@ async function mergeUploadsIntoBase(
   );
 
   const merged = basePdf ? await PDFDocument.load(basePdf) : await PDFDocument.create();
-  const helvetica = await merged.embedFont(StandardFonts.Helvetica);
-  const helveticaBold = await merged.embedFont(StandardFonts.HelveticaBold);
-  const logoImage = await merged.embedPng(getLogoBytes());
+  // Only embed font/logo when we're going to draw the overlay.
+  const overlayAssets = drawOverlay
+    ? {
+        helvetica: await merged.embedFont(StandardFonts.Helvetica),
+        helveticaBold: await merged.embedFont(StandardFonts.HelveticaBold),
+        logoImage: await merged.embedPng(getLogoBytes()),
+      }
+    : null;
 
   for (let i = 0; i < uploads.length; i++) {
     const upload = uploads[i];
@@ -181,14 +192,7 @@ async function mergeUploadsIntoBase(
     if (!buf) continue; // R2 fetch failed for this one — skip, keep going.
 
     try {
-      await appendUploadWithOverlay(
-        merged,
-        upload,
-        buf,
-        logoImage,
-        helvetica,
-        helveticaBold,
-      );
+      await appendUpload(merged, upload, buf, overlayAssets);
     } catch (err: any) {
       console.error(
         `[mergedReportPdfService] Skipping upload ${upload.uploadId} after error:`,
@@ -206,13 +210,17 @@ async function mergeUploadsIntoBase(
   return out;
 }
 
-async function appendUploadWithOverlay(
+interface OverlayAssets {
+  logoImage: PDFImage;
+  helvetica: PDFFont;
+  helveticaBold: PDFFont;
+}
+
+async function appendUpload(
   merged: PDFDocument,
   upload: ExternalUploadSnapshot,
   uploadBuffer: Buffer,
-  logoImage: PDFImage,
-  helvetica: PDFFont,
-  helveticaBold: PDFFont,
+  overlayAssets: OverlayAssets | null,
 ): Promise<void> {
   void upload; // reserved for future per-upload labels in the band
   const src = await PDFDocument.load(uploadBuffer, { ignoreEncryption: true });
@@ -220,7 +228,14 @@ async function appendUploadWithOverlay(
 
   for (const page of copied) {
     merged.addPage(page);
-    drawOverlayOnPage(page, logoImage, helvetica, helveticaBold);
+    if (overlayAssets) {
+      drawOverlayOnPage(
+        page,
+        overlayAssets.logoImage,
+        overlayAssets.helvetica,
+        overlayAssets.helveticaBold,
+      );
+    }
   }
 }
 

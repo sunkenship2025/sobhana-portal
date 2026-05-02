@@ -9,7 +9,7 @@ import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { FlagBadge } from '@/components/ui/flag-badge';
 import { toast } from 'sonner';
-import { downloadFinalizedReportPdf } from '@/lib/reportAccess';
+import { downloadFinalizedReportPdf, openFinalizedReportWindow } from '@/lib/reportAccess';
 import { AlertTriangle, ArrowLeft, CheckCircle2, Lock, Printer, MessageCircle, Loader2, Eye, X } from 'lucide-react';
 import {
   AlertDialog,
@@ -370,35 +370,16 @@ const DiagnosticsReportPreview = () => {
       return;
     }
 
-    // Open the merged PDF in a new tab so the browser's PDF viewer (which knows
-    // how to print PDFs cleanly) handles it. The previous HTML auto-print path
-    // never included external-upload pages.
     try {
-      const response = await fetch(
-        `${API_BASE}/visits/diagnostic/${visitId}/finalized-report/pdf?mode=digital`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'X-Branch-Id': activeBranchId,
-          },
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error('Failed to load report');
-      }
-
-      const blob = await response.blob();
-      if (blob.size === 0) throw new Error('Empty report PDF');
-
-      const url = URL.createObjectURL(blob);
-      const opened = window.open(url, '_blank', 'noopener,noreferrer');
-      if (!opened) {
-        URL.revokeObjectURL(url);
-        toast.error('Pop-up was blocked — allow pop-ups and try again.');
-        return;
-      }
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      // Opens a wrapper window with the merged PDF embedded and auto-triggers
+      // the browser's print dialog — same one-click experience as before, but
+      // now the PDF includes external uploads (the old HTML path didn't).
+      await openFinalizedReportWindow({
+        visitId,
+        token,
+        branchId: activeBranchId,
+        autoPrint: true,
+      });
     } catch (error: any) {
       console.error('Print failed:', error);
       toast.error(error?.message || 'Failed to open print view');

@@ -29,6 +29,12 @@ import {
   Collapsible, CollapsibleContent, CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { Switch } from '@/components/ui/switch';
+import {
+  TestInputConfigEditor,
+  defaultInputConfig,
+  summarizeInputConfig,
+  type TestInputConfigPayload,
+} from '@/components/diagnostics/TestInputConfigEditor';
 
 /* ───────── Types ───────── */
 
@@ -251,6 +257,10 @@ export default function ManageClinicalDefinitions() {
   const [formGeneralCriticalMax, setFormGeneralCriticalMax] = useState('');
   const [formSampleType, setFormSampleType] = useState('');
 
+  // Value-input config (separate sibling table — shared across versions)
+  const [formInputConfig, setFormInputConfig] = useState<TestInputConfigPayload | null>(null);
+  const [inputConfigDirty, setInputConfigDirty] = useState(false);
+
   // Code validation
   const [codeAvailable, setCodeAvailable] = useState<boolean | null>(null);
   const [codeChecking, setCodeChecking] = useState(false);
@@ -327,6 +337,8 @@ export default function ManageClinicalDefinitions() {
     setFormShowCritical(false);
     setFormGeneralCriticalMin(''); setFormGeneralCriticalMax('');
     setFormSampleType('');
+    setFormInputConfig(null);
+    setInputConfigDirty(false);
     setEditingDef(null);
     setCodeAvailable(null); setCodeChecking(false);
   };
@@ -377,6 +389,28 @@ export default function ManageClinicalDefinitions() {
       setEditingDef(full);
       setFormMode('new-version');
       setDialogOpen(true);
+
+      // Load input config for the (shared) rootDefinitionId
+      try {
+        const cfgRes = await fetch(
+          `${API_BASE}/test-input-configs/${full.rootDefinitionId}`,
+          { headers }
+        );
+        if (cfgRes.ok) {
+          const cfg = await cfgRes.json();
+          setFormInputConfig({
+            rootDefinitionId: cfg.rootDefinitionId ?? full.rootDefinitionId,
+            inputType: cfg.inputType ?? 'NUMERIC',
+            defaultValue: cfg.defaultValue ?? null,
+            valueOptions: Array.isArray(cfg.valueOptions) ? cfg.valueOptions : [],
+          });
+        } else {
+          setFormInputConfig(defaultInputConfig(full.rootDefinitionId));
+        }
+        setInputConfigDirty(false);
+      } catch {
+        setFormInputConfig(defaultInputConfig(full.rootDefinitionId));
+      }
     } catch {
       toast.error('Failed to load definition details');
     }
@@ -456,6 +490,32 @@ export default function ManageClinicalDefinitions() {
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.message || 'Save failed');
+      }
+
+      // Persist the input config (sibling table — shared across versions)
+      // if the user touched it. We save by rootDefinitionId; for 'create'
+      // the rootDefinitionId comes back in the response.
+      if (inputConfigDirty && formInputConfig) {
+        const saved = await res.clone().json().catch(() => null);
+        const rootId = saved?.rootDefinitionId || editingDef?.rootDefinitionId;
+        if (rootId) {
+          const cleanedOptions = formInputConfig.valueOptions
+            .map((v) => v.trim())
+            .filter(Boolean);
+          const cfgRes = await fetch(`${API_BASE}/test-input-configs/${rootId}`, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify({
+              inputType: formInputConfig.inputType,
+              defaultValue: formInputConfig.defaultValue?.trim() || null,
+              valueOptions: cleanedOptions,
+            }),
+          });
+          if (!cfgRes.ok) {
+            const err = await cfgRes.json().catch(() => ({}));
+            toast.error(err.message || 'Definition saved, but failed to save input config');
+          }
+        }
       }
 
       toast.success(formMode === 'create' ? 'Definition created' : 'New version created');
@@ -959,6 +1019,42 @@ export default function ManageClinicalDefinitions() {
                     <p className="text-xs text-muted-foreground">For qualitative tests, use text instead of min/max values</p>
                   </div>
                 </div>
+              </AccordionContent>
+            </AccordionItem>
+
+            {/* ─── Value Input (presets / default / input type) ─────── */}
+            <AccordionItem value="value-input">
+              <AccordionTrigger className="hover:no-underline">
+                <div className="flex items-center gap-2">
+                  <SectionStatus ok={true} />
+                  <span className="font-medium">Value Input</span>
+                  <span className="text-xs text-muted-foreground ml-2">
+                    {formInputConfig
+                      ? summarizeInputConfig(formInputConfig)
+                      : formMode === 'create'
+                        ? 'Configurable after first save'
+                        : 'Loading…'}
+                  </span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent>
+                {formMode === 'create' ? (
+                  <p className="text-sm text-muted-foreground py-3">
+                    Save the definition first to configure presets, default value, and input type.
+                    These settings are shared across every version of this test.
+                  </p>
+                ) : formInputConfig ? (
+                  <TestInputConfigEditor
+                    rootDefinitionId={formInputConfig.rootDefinitionId}
+                    config={formInputConfig}
+                    onChange={(next) => {
+                      setFormInputConfig(next);
+                      setInputConfigDirty(true);
+                    }}
+                  />
+                ) : (
+                  <p className="text-sm text-muted-foreground py-3">Loading input config…</p>
+                )}
               </AccordionContent>
             </AccordionItem>
 

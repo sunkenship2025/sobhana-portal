@@ -197,6 +197,18 @@ enum InterpretationRuleType {
   CATEGORY_MATCH
 }
 
+// Entry-time UI affordance for clinical tests (separate from clinical contract).
+// NUMERIC: <input inputMode=decimal> (existing default behavior)
+// FREE_TEXT: plain text input
+// TEXT_WITH_PRESETS: combobox — preset list + free typing allowed
+// SELECT_ONLY: dropdown locked to listed presets
+enum TestInputType {
+  NUMERIC
+  FREE_TEXT
+  TEXT_WITH_PRESETS
+  SELECT_ONLY
+}
+
 // ============================================================================
 // NUMBER SEQUENCE (For auto-generating P-00001, RD-00001, D-MPR-00001, etc.)
 // ============================================================================
@@ -1375,6 +1387,21 @@ model ProductBranchPricing {
   @@unique([productId, branchId])
   @@index([productId])
   @@index([branchId])
+}
+
+/// TestInputConfig: Entry-time UI configuration for a clinical test.
+/// Keyed by rootDefinitionId so config is shared across every version of the test
+/// (v1, v2, v3 of HB all share one row). Sits OUTSIDE the TestDefinition versioning
+/// rules — these fields don't affect stored results or finalized reports, so admins
+/// can edit them freely even on LOCKED test definitions. No row = use defaults
+/// (NUMERIC, no presets, no default value).
+model TestInputConfig {
+  rootDefinitionId String        @id // Matches TestDefinition.rootDefinitionId (not a Prisma FK because that field isn't unique on TestDefinition — every version row carries the same rootDefinitionId)
+  inputType        TestInputType @default(NUMERIC)
+  defaultValue     String? // Optional pre-fill for the input on first entry
+  valueOptions     Json          @default("[]") // string[] of preset values, in display order
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 }
 
 /// DerivedParameterDef: Formula-based calculated parameters (new architecture)
