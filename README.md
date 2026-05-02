@@ -140,10 +140,6 @@ sobhana-portal/
    npx prisma db seed
    ```
    
-   **Default credentials:**
-   - Username: `owner@sobhana.com`
-   - Password: `password123`
-   - Branch: Madhapur
 
 6. **Start the backend server**
    ```bash
