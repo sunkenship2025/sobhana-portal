@@ -112,6 +112,10 @@ async function buildPdfBuffer(
     mode,
     baseUrl,
     qrDataUrl,
+    // Public token-gated path serves only finalized snapshots, so caching is
+    // safe here. Staff/preview callers leave this off to avoid serving stale
+    // bytes for a draft.
+    cache: true,
   });
 
   return {

@@ -169,8 +169,12 @@ export async function generatePdfFromHtml(
       const mediaType = options.mode === 'digital' ? 'screen' : 'print';
       await page.emulateMediaType(mediaType);
 
+      // ASSUMES all assets are inlined (logo as base64 data URI, signatures as
+      // data URIs, CSS as inline <style>). If anyone later adds an external
+      // <img src="https://..."> or <link rel="stylesheet"> to the report HTML,
+      // switch back to 'networkidle0' or this asset will render blank.
       await page.setContent(html, {
-        waitUntil: 'networkidle0',
+        waitUntil: 'domcontentloaded',
         timeout: 30000,
       });
 
