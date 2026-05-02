@@ -84,6 +84,7 @@ type LatestDefinitionFormula = {
   displayOrder: number;
   formulaExpression: string | null;
   dependsOnCodes: unknown;
+  rootDefinitionId: string;
 };
 
 const DERIVED_MANUAL_OVERRIDE_NOTE = "__DERIVED_MANUAL_OVERRIDE__";
@@ -159,6 +160,50 @@ function isManualDerivedOverrideNote(
   return notes?.trim() === DERIVED_MANUAL_OVERRIDE_NOTE;
 }
 
+type TestInputConfigPayload = {
+  inputType: 'NUMERIC' | 'FREE_TEXT' | 'TEXT_WITH_PRESETS' | 'SELECT_ONLY';
+  defaultValue: string | null;
+  valueOptions: string[];
+};
+
+const DEFAULT_INPUT_CONFIG: TestInputConfigPayload = {
+  inputType: 'NUMERIC',
+  defaultValue: null,
+  valueOptions: [],
+};
+
+function normalizeInputConfig(row: {
+  inputType: string;
+  defaultValue: string | null;
+  valueOptions: any;
+} | null | undefined): TestInputConfigPayload {
+  if (!row) return DEFAULT_INPUT_CONFIG;
+  const opts = Array.isArray(row.valueOptions)
+    ? row.valueOptions.filter((v: any): v is string => typeof v === 'string')
+    : [];
+  return {
+    inputType: row.inputType as TestInputConfigPayload['inputType'],
+    defaultValue: row.defaultValue ?? null,
+    valueOptions: opts,
+  };
+}
+
+/**
+ * Bulk-fetch entry-time UI configs for the given rootDefinitionIds.
+ * Returns Map<rootDefinitionId, TestInputConfigPayload>.
+ * rootDefinitionIds without a row in TestInputConfig are simply absent from the map.
+ */
+async function loadInputConfigsByRootId(
+  rootIds: Iterable<string>,
+): Promise<Map<string, TestInputConfigPayload>> {
+  const unique = [...new Set([...rootIds].filter(Boolean))];
+  if (unique.length === 0) return new Map();
+  const rows = await prisma.testInputConfig.findMany({
+    where: { rootDefinitionId: { in: unique } },
+  });
+  return new Map(rows.map((row) => [row.rootDefinitionId, normalizeInputConfig(row)]));
+}
+
 async function loadLatestDefinitionFormulasByCode(
   codes: Iterable<string>,
 ): Promise<Map<string, LatestDefinitionFormula>> {
@@ -185,6 +230,7 @@ async function loadLatestDefinitionFormulasByCode(
       displayOrder: true,
       formulaExpression: true,
       dependsOnCodes: true,
+      rootDefinitionId: true,
     },
   });
 
@@ -608,6 +654,7 @@ router.get("/:id", async (req: AuthRequest, res) => {
           select: {
             id: true,
             code: true,
+            rootDefinitionId: true,
             formulaExpression: true,
             dependsOnCodes: true,
             referenceMin: true,
@@ -873,6 +920,23 @@ router.get("/:id", async (req: AuthRequest, res) => {
         ]),
       );
 
+    // Bulk-fetch entry-time input configs (presets, default value, input type)
+    // for every test in this visit. Keyed by rootDefinitionId.
+    const rootIdsToFetch = new Set<string>();
+    for (const to of reportableOrders) {
+      if (to.testDefinition?.rootDefinitionId) {
+        rootIdsToFetch.add(to.testDefinition.rootDefinitionId);
+      }
+      // For legacy panel children, look up by code to find the latest TestDefinition's rootId
+      for (const child of to.test.childTests) {
+        const latestForChild = latestDefinitionFormulasByCode.get(child.code);
+        if (latestForChild?.rootDefinitionId) {
+          rootIdsToFetch.add(latestForChild.rootDefinitionId);
+        }
+      }
+    }
+    const inputConfigsByRootId = await loadInputConfigsByRootId(rootIdsToFetch);
+
     // Helper to build referenceRange from resolved + fallback data
     const buildRange = (
       testId: string,
@@ -952,6 +1016,11 @@ router.get("/:id", async (req: AuthRequest, res) => {
                 latestOrderDefinition?.dependsOnCodes,
               );
 
+        const orderRootId =
+          to.testDefinition?.rootDefinitionId ?? latestOrderDefinition?.rootDefinitionId;
+        const orderInputConfig =
+          (orderRootId && inputConfigsByRootId.get(orderRootId)) || DEFAULT_INPUT_CONFIG;
+
         return {
           id: to.id,
           visitId: to.visitId,
@@ -970,6 +1039,7 @@ router.get("/:id", async (req: AuthRequest, res) => {
           isDerived: orderDerived.isDerived,
           formulaExpression: orderDerived.formulaExpression,
           dependsOnCodes: orderDerived.dependsOnCodes,
+          inputConfig: orderInputConfig,
           department: (() => {
             const dept =
               to.testDefinition?.panelItems?.[0]?.panel?.department ||
@@ -1030,6 +1100,10 @@ router.get("/:id", async (req: AuthRequest, res) => {
                   ct.derivedParameter?.dependsOnTestCodes ||
                     latestChildDefinition?.dependsOnCodes,
                 );
+                const childRootId = latestChildDefinition?.rootDefinitionId;
+                const childInputConfig =
+                  (childRootId && inputConfigsByRootId.get(childRootId)) ||
+                  DEFAULT_INPUT_CONFIG;
 
                 return {
                   id: ct.id,
@@ -1039,6 +1113,7 @@ router.get("/:id", async (req: AuthRequest, res) => {
                   isDerived: childDerived.isDerived,
                   formulaExpression: childDerived.formulaExpression,
                   dependsOnCodes: childDerived.dependsOnCodes,
+                  inputConfig: childInputConfig,
                   referenceRange: buildRange(
                     ct.id,
                     ct.referenceMin,
