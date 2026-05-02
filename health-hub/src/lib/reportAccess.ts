@@ -87,30 +87,86 @@ export async function fetchFinalizedReportPdfBlobUrl(
 }
 
 /**
- * Open the finalized report in a new tab. The browser's native PDF viewer
- * handles printing via its toolbar — better than the previous HTML-auto-print
- * path which silently dropped external upload pages.
+ * Open the finalized report in a new tab.
  *
- * `autoPrint` is accepted for backward compatibility but is now a no-op;
- * browsers' PDF viewers don't expose a programmatic print trigger from a
- * cross-origin blob URL.
+ * When `autoPrint` is true, wraps the merged PDF in a thin HTML shell that
+ * embeds the PDF and triggers `window.print()` on load — restoring the
+ * one-click "open and print" behavior the staff had before, but now backed
+ * by the merged PDF (which includes external upload pages) instead of HTML
+ * (which never could).
+ *
+ * When `autoPrint` is false, opens the merged PDF directly so the user can
+ * read/download/print at their leisure from the PDF viewer toolbar.
  */
 export async function openFinalizedReportWindow(
   request: StaffReportRequest & { autoPrint?: boolean }
 ): Promise<void> {
-  const blobUrl = await fetchFinalizedReportPdfBlobUrl({
+  // Print goes on pre-printed Sobhana letterhead (logo + stripe + footer
+  // already on the paper), so we use physical mode — no rendered/overlaid
+  // header/footer. The non-print path uses digital mode for full Sobhana
+  // branding because it's viewed on screen / shared digitally.
+  const pdfUrl = await fetchFinalizedReportPdfBlobUrl({
     visitId: request.visitId,
     token: request.token,
     branchId: request.branchId,
+    mode: request.autoPrint ? 'physical' : 'digital',
   });
-  const opened = window.open(blobUrl, '_blank', 'noopener,noreferrer');
 
-  if (!opened) {
-    URL.revokeObjectURL(blobUrl);
-    throw new Error('Unable to open report window');
+  if (!request.autoPrint) {
+    const opened = window.open(pdfUrl, '_blank', 'noopener,noreferrer');
+    if (!opened) {
+      URL.revokeObjectURL(pdfUrl);
+      throw new Error('Unable to open report window');
+    }
+    window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 60_000);
+    return;
   }
 
-  window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+  // Auto-print path: HTML wrapper embeds the PDF and calls window.print()
+  // after the embed reports load. The wrapper is its own blob URL so the
+  // browser allows programmatic print on the wrapper window.
+  const wrapperHtml = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Print Report</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #525659; }
+    embed { width: 100vw; height: 100vh; border: 0; }
+  </style>
+</head>
+<body>
+  <embed id="pdf" type="application/pdf" src="${pdfUrl}" />
+  <script>
+    var embed = document.getElementById('pdf');
+    var fired = false;
+    function tryPrint() {
+      if (fired) return;
+      fired = true;
+      try { window.focus(); window.print(); } catch (e) { /* user can use toolbar */ }
+    }
+    // Most browsers won't fire 'load' on <embed> for PDFs reliably, so use a timer.
+    embed.addEventListener('load', tryPrint);
+    setTimeout(tryPrint, 1500);
+  </script>
+</body>
+</html>`;
+
+  const wrapperBlob = new Blob([wrapperHtml], { type: 'text/html' });
+  const wrapperUrl = URL.createObjectURL(wrapperBlob);
+  const opened = window.open(wrapperUrl, '_blank');
+
+  if (!opened) {
+    URL.revokeObjectURL(pdfUrl);
+    URL.revokeObjectURL(wrapperUrl);
+    throw new Error('Pop-up was blocked — allow pop-ups and try again.');
+  }
+
+  // Revoke both after enough time for the print dialog to come up and close.
+  window.setTimeout(() => {
+    URL.revokeObjectURL(pdfUrl);
+    URL.revokeObjectURL(wrapperUrl);
+  }, 120_000);
 }
 
 export async function downloadFinalizedReportPdf(

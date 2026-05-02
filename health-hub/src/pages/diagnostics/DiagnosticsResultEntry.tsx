@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RichTextNarrativeEditor } from '@/components/diagnostics/RichTextNarrativeEditor';
+import { TestValueCombobox } from '@/components/diagnostics/TestValueCombobox';
 import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
 import { FlagBadge } from '@/components/ui/flag-badge';
@@ -42,6 +43,20 @@ interface ReferenceRange {
   text?: string;
 }
 
+type TestInputType = 'NUMERIC' | 'FREE_TEXT' | 'TEXT_WITH_PRESETS' | 'SELECT_ONLY';
+
+interface TestInputConfig {
+  inputType: TestInputType;
+  defaultValue: string | null;
+  valueOptions: string[];
+}
+
+const DEFAULT_INPUT_CONFIG: TestInputConfig = {
+  inputType: 'NUMERIC',
+  defaultValue: null,
+  valueOptions: [],
+};
+
 interface ChildTest {
   id: string;
   name: string;
@@ -51,6 +66,7 @@ interface ChildTest {
   formulaExpression?: string | null;
   dependsOnCodes?: string[] | null;
   referenceRange: ReferenceRange;
+  inputConfig?: TestInputConfig;
 }
 
 interface TestOrder {
@@ -66,6 +82,7 @@ interface TestOrder {
   formulaExpression?: string | null;
   dependsOnCodes?: string[] | null;
   referenceRange: ReferenceRange;
+  inputConfig?: TestInputConfig;
   childTests: ChildTest[];
   department?: {
     id: string;
@@ -265,6 +282,21 @@ const DiagnosticsResultEntry = () => {
     return map;
   }, [visit]);
 
+  // Map testId → entry-time input config (presets, default value, input type)
+  const testInputConfigByTestId = useMemo(() => {
+    const map = new Map<string, TestInputConfig>();
+    if (!visit) return map;
+    visit.testOrders.forEach((order) => {
+      if (order.inputConfig) map.set(order.testId, order.inputConfig);
+      if (order.isPanel && order.childTests) {
+        order.childTests.forEach((child) => {
+          if (child.inputConfig) map.set(child.id, child.inputConfig);
+        });
+      }
+    });
+    return map;
+  }, [visit]);
+
   // Build reverse dependency map
   const reverseDependencyMap = useMemo(() => {
     return buildReverseDependencyMap(derivedTestsInfo);
@@ -432,6 +464,20 @@ const DiagnosticsResultEntry = () => {
           fetchedNarrativeTemplateByTestId.forEach((templateHtml, testId) => {
             if (!initialResults[testId] && hasMeaningfulRichText(templateHtml)) {
               initialResults[testId] = templateHtml;
+            }
+          });
+
+          // Pre-fill input default values for tests that have one configured AND
+          // have no saved/in-progress value yet. Defaults never overwrite saved data.
+          data.testOrders.forEach((order: TestOrder) => {
+            const apply = (testId: string, cfg?: TestInputConfig) => {
+              if (!cfg?.defaultValue) return;
+              if (initialResults[testId]) return;
+              initialResults[testId] = cfg.defaultValue;
+            };
+            apply(order.testId, order.inputConfig);
+            if (order.isPanel && order.childTests) {
+              order.childTests.forEach((child) => apply(child.id, child.inputConfig));
             }
           });
 
@@ -860,6 +906,11 @@ const DiagnosticsResultEntry = () => {
     const isAutoDerived = isDerived && !isManualDerived;
 
     const hasNumericRange = referenceRange.min > 0 || referenceRange.max > 0;
+    const inputConfig = testInputConfigByTestId.get(testId) ?? DEFAULT_INPUT_CONFIG;
+    const usePresetCombobox =
+      !isAutoDerived &&
+      (inputConfig.inputType === 'TEXT_WITH_PRESETS' || inputConfig.inputType === 'SELECT_ONLY') &&
+      inputConfig.valueOptions.length > 0;
 
     return (
       <div
@@ -895,19 +946,36 @@ const DiagnosticsResultEntry = () => {
             Value
           </span>
           <div className="flex items-center gap-2">
-            <Input
-              type="text"
-              inputMode={hasNumericRange ? 'decimal' : 'text'}
-              placeholder={isAutoDerived ? 'Auto-calculated' : 'Value'}
-              value={valueStr}
-              onChange={(e) => handleValueChange(testId, e.target.value)}
-              readOnly={isAutoDerived}
-              disabled={isAutoDerived}
-              className={cn(
-                'text-center',
-                isAutoDerived && 'bg-muted cursor-not-allowed text-muted-foreground'
-              )}
-            />
+            {usePresetCombobox ? (
+              <TestValueCombobox
+                value={valueStr}
+                onChange={(next) => handleValueChange(testId, next)}
+                options={inputConfig.valueOptions}
+                allowCustom={inputConfig.inputType === 'TEXT_WITH_PRESETS'}
+                placeholder="Select value…"
+                disabled={isAutoDerived}
+              />
+            ) : (
+              <Input
+                type="text"
+                inputMode={
+                  inputConfig.inputType === 'FREE_TEXT'
+                    ? 'text'
+                    : hasNumericRange || inputConfig.inputType === 'NUMERIC'
+                      ? 'decimal'
+                      : 'text'
+                }
+                placeholder={isAutoDerived ? 'Auto-calculated' : 'Value'}
+                value={valueStr}
+                onChange={(e) => handleValueChange(testId, e.target.value)}
+                readOnly={isAutoDerived}
+                disabled={isAutoDerived}
+                className={cn(
+                  'text-center',
+                  isAutoDerived && 'bg-muted cursor-not-allowed text-muted-foreground'
+                )}
+              />
+            )}
             {isDerived && (
               <Button
                 type="button"
