@@ -60,7 +60,22 @@ const baseOptions: LoggerOptions = {
   timestamp: pino.stdTimeFunctions.isoTime,
 };
 
-const transport = !isProd
+/**
+ * Defensive: only enable pino-pretty if (a) we're not in production, AND
+ * (b) the package is actually resolvable at runtime. Prod containers run
+ * `npm ci --omit=dev` so pino-pretty (a devDep) isn't present — without
+ * this check the process crashes at boot.
+ */
+function canResolvePinoPretty(): boolean {
+  try {
+    require.resolve('pino-pretty');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const transport = !isProd && canResolvePinoPretty()
   ? {
       target: 'pino-pretty',
       options: {
