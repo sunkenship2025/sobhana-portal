@@ -1039,7 +1039,9 @@ const DiagnosticsNewVisit = () => {
                   >
                     Create Another Visit
                   </Button>
-                  {successData.visitView.visit.hasReportableOrders ? (
+                  {(successData.visitView.visit.hasReportInclusionOrders
+                    ?? (successData.visitView.visit.hasReportableOrders
+                      || successData.visitView.visit.hasExternalUploadOrders)) ? (
                     <Button
                       className="w-full sm:w-auto"
                       variant="outline"

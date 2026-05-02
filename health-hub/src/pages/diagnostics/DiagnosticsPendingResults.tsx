@@ -137,7 +137,11 @@ const DiagnosticsPendingResults = () => {
 
   const filteredVisits = useMemo(() => {
     return visitsWithDetails.filter(({ patient, visit }) => {
-      if (!visit.hasReportableOrders || visit.nextAction !== "ENTER_RESULTS") {
+      // Include both REPORTABLE and EXTERNAL_UPLOAD visits — both land on the entry screen.
+      const hasInclusion =
+        visit.hasReportInclusionOrders ??
+        (visit.hasReportableOrders || visit.hasExternalUploadOrders);
+      if (!hasInclusion || visit.nextAction !== "ENTER_RESULTS") {
         return false;
       }
 

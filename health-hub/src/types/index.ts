@@ -393,6 +393,9 @@ export interface BaseVisit {
   hasBill?: boolean;
   hasReportableOrders?: boolean;
   hasBillOnlyOrders?: boolean;
+  hasExternalUploadOrders?: boolean;
+  hasReportInclusionOrders?: boolean;
+  hasEntryScreenOrders?: boolean;
   hasFinalizedReport?: boolean;
   nextAction?: DiagnosticNextAction;
   billedAt?: Date | string | null;
