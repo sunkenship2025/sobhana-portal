@@ -336,7 +336,9 @@ const DiagnosticsPendingResults = () => {
                             .join(", ")}
                         </span>
                         {visit.hasBillOnlyOrders &&
-                          visit.hasReportableOrders && (
+                          (visit.hasReportInclusionOrders ??
+                            (visit.hasReportableOrders ||
+                              visit.hasExternalUploadOrders)) && (
                             <span className="text-amber-700">
                               Includes bill-only items
                             </span>

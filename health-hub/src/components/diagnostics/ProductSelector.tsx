@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { X, Search, Plus, Package, FlaskConical, Layers } from 'lucide-react';
+import { X, Search, Plus, Package, FlaskConical, Layers, FileUp } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ export interface ProductForSelector {
   name: string;
   code: string;
   productType: string;          // 'INDIVIDUAL_TEST' | 'PANEL_BUNDLE' | 'CUSTOM_PACKAGE'
-  workflowMode?: 'REPORTABLE' | 'BILL_ONLY';
+  workflowMode?: 'REPORTABLE' | 'BILL_ONLY' | 'EXTERNAL_UPLOAD';
   basePrice: number;            // in ₹
   effectivePrice: number;       // branch-resolved ₹
   priceSource: string;          // 'BASE' | 'BRANCH_OVERRIDE'
@@ -30,11 +30,16 @@ interface ProductSelectorProps {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
-type ProductVisualKind = 'BILL_ONLY' | 'PANEL_BUNDLE' | 'CUSTOM_PACKAGE' | 'INDIVIDUAL_TEST';
+type ProductVisualKind = 'BILL_ONLY' | 'EXTERNAL_UPLOAD' | 'PANEL_BUNDLE' | 'CUSTOM_PACKAGE' | 'INDIVIDUAL_TEST';
 
 function getProductVisualKind(product: Pick<ProductForSelector, 'productType' | 'workflowMode'>): ProductVisualKind {
+  // Workflow takes precedence over product type for external uploads and bill-only,
+  // because both carry their result in a way that doesn't fit the standard test/panel/package taxonomy.
   if (product.workflowMode === 'BILL_ONLY') {
     return 'BILL_ONLY';
+  }
+  if (product.workflowMode === 'EXTERNAL_UPLOAD') {
+    return 'EXTERNAL_UPLOAD';
   }
   return (product.productType || 'INDIVIDUAL_TEST') as ProductVisualKind;
 }
@@ -42,6 +47,7 @@ function getProductVisualKind(product: Pick<ProductForSelector, 'productType' | 
 function typeLabel(kind: ProductVisualKind) {
   switch (kind) {
     case 'BILL_ONLY': return 'Bill Item';
+    case 'EXTERNAL_UPLOAD': return 'External';
     case 'PANEL_BUNDLE': return 'Panel';
     case 'CUSTOM_PACKAGE': return 'Package';
     default: return 'Test';
@@ -51,6 +57,7 @@ function typeLabel(kind: ProductVisualKind) {
 function typeColor(kind: ProductVisualKind) {
   switch (kind) {
     case 'BILL_ONLY': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300';
+    case 'EXTERNAL_UPLOAD': return 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300';
     case 'PANEL_BUNDLE': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300';
     case 'CUSTOM_PACKAGE': return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300';
     default: return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300';
@@ -60,6 +67,7 @@ function typeColor(kind: ProductVisualKind) {
 function groupLabel(kind: ProductVisualKind) {
   switch (kind) {
     case 'BILL_ONLY': return 'Bill-Only Items';
+    case 'EXTERNAL_UPLOAD': return 'External Reports';
     case 'PANEL_BUNDLE': return 'Panels';
     case 'CUSTOM_PACKAGE': return 'Packages';
     default: return 'Tests';
@@ -70,6 +78,8 @@ function TypeIcon({ productType, className }: { productType: ProductVisualKind; 
   switch (productType) {
     case 'BILL_ONLY':
       return <Package className={className} />;
+    case 'EXTERNAL_UPLOAD':
+      return <FileUp className={className} />;
     case 'PANEL_BUNDLE':
       return <Layers className={className} />;
     case 'CUSTOM_PACKAGE':
@@ -121,8 +131,8 @@ export function ProductSelector({
       typeMap.get(key)!.push(product);
     }
 
-    // Sort: reportable tests first, then panels, then packages, then bill-only items
-    const order: ProductVisualKind[] = ['INDIVIDUAL_TEST', 'PANEL_BUNDLE', 'CUSTOM_PACKAGE', 'BILL_ONLY'];
+    // Sort: reportable tests first, then panels, then packages, then external reports, then bill-only items
+    const order: ProductVisualKind[] = ['INDIVIDUAL_TEST', 'PANEL_BUNDLE', 'CUSTOM_PACKAGE', 'EXTERNAL_UPLOAD', 'BILL_ONLY'];
     for (const key of order) {
       const items = typeMap.get(key);
       if (items && items.length > 0) {
