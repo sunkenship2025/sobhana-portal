@@ -16,6 +16,7 @@ import { PDFDocument } from 'pdf-lib';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import prisma from '../lib/prisma';
+import { logAction } from '../services/auditService';
 import {
   putPdf,
   getObject,
@@ -194,6 +195,26 @@ router.post('/', upload.single('pdf'), async (req: AuthRequest, res) => {
       },
     });
 
+    // Audit: who uploaded what, when, against which order. Insert-only.
+    void logAction({
+      branchId: req.branchId!,
+      userId,
+      actionType: 'CREATE',
+      entityType: 'ExternalReportUpload',
+      entityId: created.id,
+      newValues: {
+        testOrderId,
+        visitId: testOrder.visitId,
+        originalFilename: file.originalname,
+        fileSizeBytes: file.size,
+        pageCount,
+        r2Key,
+        displayOrder: nextDisplayOrder,
+      },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+
     return res.status(201).json(shapeUpload(created));
   } catch (error: any) {
     console.error('Error creating external upload:', error);
@@ -244,6 +265,28 @@ router.delete('/:id', async (req: AuthRequest, res) => {
       data: { deletedAt: new Date() },
     });
 
+    // Audit: who removed an upload pre-finalize. Captures the prior file metadata
+    // so a tampering attempt (delete + re-upload of a different file) is reconstructable.
+    void logAction({
+      branchId: req.branchId!,
+      userId: req.user?.id ?? null,
+      actionType: 'DELETE',
+      entityType: 'ExternalReportUpload',
+      entityId: upload.id,
+      oldValues: {
+        testOrderId: upload.testOrderId,
+        visitId: upload.visitId,
+        originalFilename: upload.originalFilename,
+        fileSizeBytes: upload.fileSizeBytes,
+        pageCount: upload.pageCount,
+        r2Key: upload.r2Key,
+        uploadedByUserId: upload.uploadedByUserId,
+        uploadedAt: upload.uploadedAt.toISOString(),
+      },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+
     return res.json({ success: true });
   } catch (error: any) {
     console.error('Error deleting external upload:', error);
@@ -269,6 +312,25 @@ router.get('/:id', async (req: AuthRequest, res) => {
     }
 
     const buffer = await getObject(upload.r2Key);
+
+    // Audit: who viewed which uploaded patient PDF, when, from where.
+    // Equivalent to ReportAccessLog for the public report path, but for staff-
+    // gated views of source uploads.
+    void logAction({
+      branchId: req.branchId!,
+      userId: req.user?.id ?? null,
+      actionType: 'REPORT_ACCESS',
+      entityType: 'ExternalReportUpload',
+      entityId: upload.id,
+      newValues: {
+        visitId: upload.visitId,
+        testOrderId: upload.testOrderId,
+        originalFilename: upload.originalFilename,
+        accessKind: 'STAFF_VIEW',
+      },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
