@@ -856,6 +856,9 @@ const DiagnosticsNewVisit = () => {
           hasBill: visit.hasBill ?? true,
           hasReportableOrders: visit.hasReportableOrders,
           hasBillOnlyOrders: visit.hasBillOnlyOrders,
+          hasExternalUploadOrders: visit.hasExternalUploadOrders,
+          hasReportInclusionOrders: visit.hasReportInclusionOrders,
+          hasEntryScreenOrders: visit.hasEntryScreenOrders,
           hasFinalizedReport: visit.hasFinalizedReport,
           nextAction: visit.nextAction,
           status: visit.status,
@@ -968,24 +971,36 @@ const DiagnosticsNewVisit = () => {
                       )}
                     </span>
                   </div>
-                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="text-muted-foreground">Visit Status:</span>
-                    <span className="text-sm font-medium">
-                      {successData.visitView.visit.hasReportableOrders
-                        ? "Waiting for results entry"
-                        : "Completed at billing"}
-                    </span>
-                  </div>
-                  {!successData.visitView.visit.hasReportableOrders && (
-                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                      <span className="text-muted-foreground">
-                        Report Flow:
-                      </span>
-                      <span className="text-sm font-medium">
-                        No report workflow for bill-only items
-                      </span>
-                    </div>
-                  )}
+                  {(() => {
+                    const v = successData.visitView.visit;
+                    const inclusion =
+                      v.hasReportInclusionOrders ??
+                      (v.hasReportableOrders || v.hasExternalUploadOrders);
+                    return (
+                      <>
+                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                          <span className="text-muted-foreground">Visit Status:</span>
+                          <span className="text-sm font-medium">
+                            {inclusion
+                              ? v.hasExternalUploadOrders && !v.hasReportableOrders
+                                ? "Waiting for external report upload"
+                                : "Waiting for results entry"
+                              : "Completed at billing"}
+                          </span>
+                        </div>
+                        {!inclusion && (
+                          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                            <span className="text-muted-foreground">
+                              Report Flow:
+                            </span>
+                            <span className="text-sm font-medium">
+                              No report workflow for bill-only items
+                            </span>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                   {successData.visitView.referralDoctor && (
                     <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                       <span className="text-muted-foreground">
