@@ -14,7 +14,6 @@ import {
   normalizeDependencyCodes,
   type DerivedFormulaTarget,
 } from "../services/derivedParameterService";
-import { generatePdfFromHtml } from "../services/pdfGenerationService";
 import { resolveReferenceRanges } from "../services/referenceRangeService";
 import {
   createAccessToken,
@@ -3333,12 +3332,16 @@ router.get("/:id/finalized-report/pdf", async (req: AuthRequest, res) => {
       color: { dark: "#000000", light: "#ffffff" },
     });
 
-    const html = renderReportHtml(loaded.snapshot, {
-      profile: mode === "physical" ? "pdf-physical" : "pdf-digital",
+    // Use the merged-PDF writer so any external uploads attached to this visit
+    // are included in the staff download/print, with the Sobhana band overlaid
+    // on every appended page. Cache is keyed on reportVersionId so finalize
+    // path and staff-download path share the same cached bytes.
+    const pdfBuffer = await generateMergedReportPdf(loaded.snapshot, {
+      mode,
       baseUrl,
       qrDataUrl,
+      cache: true,
     });
-    const pdfBuffer = await generatePdfFromHtml(html, { mode });
 
     await recordAccessByReportVersionId(
       loaded.reportVersionId,

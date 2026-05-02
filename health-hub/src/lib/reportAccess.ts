@@ -51,27 +51,58 @@ function shouldOpenPdfInNewTab(): boolean {
   return /Android|iPhone|iPad|iPod|WhatsApp|FBAN|FBAV|Instagram/i.test(userAgent);
 }
 
-export async function fetchFinalizedReportHtml(
-  request: StaffReportRequest & { autoPrint?: boolean }
+/**
+ * Fetch the finalized report as a merged PDF and return a blob URL.
+ * Caller is responsible for revoking the URL when done (or relying on the
+ * 60s safety net in openFinalizedReportWindow).
+ *
+ * Uses the merged-PDF writer so external uploads are included with the
+ * Sobhana band overlay. Replaces the legacy HTML view path which never
+ * included appended uploads.
+ */
+export async function fetchFinalizedReportPdfBlobUrl(
+  request: StaffReportRequest & { mode?: 'digital' | 'physical' }
 ): Promise<string> {
-  const query = request.autoPrint ? '?print=true' : '';
-  const response = await fetch(`${API_BASE}/visits/diagnostic/${request.visitId}/finalized-report${query}`, {
-    headers: buildReportHeaders(request.token, request.branchId),
-  });
+  const mode = request.mode === 'physical' ? 'physical' : 'digital';
+  const response = await fetch(
+    `${API_BASE}/visits/diagnostic/${request.visitId}/finalized-report/pdf?mode=${mode}`,
+    { headers: buildReportHeaders(request.token, request.branchId) },
+  );
 
   if (!response.ok) {
-    throw new Error('Failed to load finalized report');
+    throw new Error(await extractDownloadError(response));
   }
 
-  return response.text();
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/pdf')) {
+    throw new Error(await extractDownloadError(response));
+  }
+
+  const blob = await response.blob();
+  if (blob.size === 0) {
+    throw new Error('Generated report PDF was empty');
+  }
+
+  return URL.createObjectURL(blob);
 }
 
+/**
+ * Open the finalized report in a new tab. The browser's native PDF viewer
+ * handles printing via its toolbar — better than the previous HTML-auto-print
+ * path which silently dropped external upload pages.
+ *
+ * `autoPrint` is accepted for backward compatibility but is now a no-op;
+ * browsers' PDF viewers don't expose a programmatic print trigger from a
+ * cross-origin blob URL.
+ */
 export async function openFinalizedReportWindow(
   request: StaffReportRequest & { autoPrint?: boolean }
 ): Promise<void> {
-  const html = await fetchFinalizedReportHtml(request);
-  const blob = new Blob([html], { type: 'text/html' });
-  const blobUrl = URL.createObjectURL(blob);
+  const blobUrl = await fetchFinalizedReportPdfBlobUrl({
+    visitId: request.visitId,
+    token: request.token,
+    branchId: request.branchId,
+  });
   const opened = window.open(blobUrl, '_blank', 'noopener,noreferrer');
 
   if (!opened) {
