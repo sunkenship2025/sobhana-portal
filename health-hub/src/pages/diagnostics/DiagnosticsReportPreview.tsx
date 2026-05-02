@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect } from 'react';
+import { Fragment, useState, useEffect, lazy, Suspense } from 'react';
 import { API_BASE } from '@/lib/api';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -10,6 +10,11 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { FlagBadge } from '@/components/ui/flag-badge';
 import { toast } from 'sonner';
 import { downloadFinalizedReportPdf, openFinalizedReportWindow } from '@/lib/reportAccess';
+// Lazy-load the PDF preview so pdf.js (~470kB) only ships to users who
+// actually open the preview pane, not on every page load.
+const PdfPreview = lazy(() =>
+  import('@/components/diagnostics/PdfPreview').then((m) => ({ default: m.PdfPreview }))
+);
 import { AlertTriangle, ArrowLeft, CheckCircle2, Lock, Printer, MessageCircle, Loader2, Eye, X } from 'lucide-react';
 import {
   AlertDialog,
@@ -768,14 +773,20 @@ const DiagnosticsReportPreview = () => {
               </Button>
             </div>
           </div>
-          {/* Iframe with Report HTML */}
-          <div className="flex-1 overflow-hidden bg-muted p-4">
-            <iframe
-              src={previewUrl}
-              className="w-full h-full rounded-lg shadow-xl border bg-white mx-auto"
-              style={{ maxWidth: '900px', display: 'block', margin: '0 auto' }}
-              title="Report Preview"
-            />
+          {/* Cross-browser PDF preview — renders pages via pdf.js so the
+              browser's native PDF chrome (Chrome's dark toolbar, Safari's
+              bar, Firefox's sidebar) never appears. Looks identical
+              everywhere. Print/download buttons live on the page header. */}
+          <div className="flex-1 overflow-hidden">
+            <Suspense
+              fallback={
+                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading viewer…
+                </div>
+              }
+            >
+              <PdfPreview src={previewUrl} />
+            </Suspense>
           </div>
         </div>
       )}

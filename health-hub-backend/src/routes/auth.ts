@@ -22,13 +22,18 @@ router.post('/login', loginIpRateLimit, loginCredentialRateLimit, async (req, re
 
     return res.json(result);
   } catch (err: any) {
+    if (err.statusCode === 423 && typeof err.retryAfterSec === 'number') {
+      // Lockout: tell the client when to retry. Some clients respect Retry-After.
+      res.setHeader('Retry-After', String(err.retryAfterSec));
+    }
     if (err.statusCode) {
       return res.status(err.statusCode).json({
         error: err.error,
-        message: err.message
+        message: err.message,
+        ...(typeof err.retryAfterSec === 'number' ? { retryAfterSec: err.retryAfterSec } : {}),
       });
     } else {
-      console.error('Login error:', err);
+      (req as any).log?.error?.({ err }, 'login crashed') ?? console.error('Login error:', err);
       return res.status(500).json({
         error: 'INTERNAL_ERROR',
         message: 'Login failed'

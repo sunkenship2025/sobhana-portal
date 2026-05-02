@@ -453,6 +453,238 @@ function DoctorContributionChart({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Business Metrics Panel — KPI cards backed by /api/owner/metrics
+// ---------------------------------------------------------------------------
+
+type MetricsWindow = 'today' | '7d' | '30d';
+
+interface OwnerMetricsResponse {
+  window: MetricsWindow;
+  windowStart: string;
+  windowEnd: string;
+  generatedAt: string;
+  visits: { total: number; diagnostics: number; clinic: number };
+  revenue: {
+    grossInPaise: number;
+    netInPaise: number;
+    paidInPaise: number;
+    dueInPaise: number;
+    discountInPaise: number;
+    billCount: number;
+    averageBillInPaise: number;
+  };
+  mix: { reportable: number; billOnly: number; externalUpload: number };
+  operations: {
+    reportsFinalized: number;
+    timeToFinalize: { p50Minutes: number | null; p95Minutes: number | null; samples: number };
+    whatsapp: { sent: number; delivered: number; failed: number; deliveryRatePct: number | null };
+  };
+  topTests: Array<{ key: string; label: string; count: number }>;
+  topReferringDoctors: Array<{ key: string; label: string; count: number; totalPayoutInPaise: number }>;
+}
+
+function formatRupeesFromPaise(paise: number): string {
+  return `₹${Math.round(paise / 100).toLocaleString('en-IN')}`;
+}
+
+function formatMinutes(min: number | null): string {
+  if (min === null) return '—';
+  if (min < 60) return `${Math.round(min)}m`;
+  const h = Math.floor(min / 60);
+  const m = Math.round(min % 60);
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+function BusinessMetricsPanel() {
+  const [window, setWindow] = useState<MetricsWindow>('7d');
+
+  const metricsQuery = useQuery({
+    queryKey: ['owner-metrics', window],
+    queryFn: () => apiRequest<OwnerMetricsResponse>(`${API_BASE}/owner/metrics?window=${window}`),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  const windowLabel: Record<MetricsWindow, string> = {
+    today: 'Today',
+    '7d': 'Last 7 days',
+    '30d': 'Last 30 days',
+  };
+
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight">Business snapshot</h2>
+          <p className="text-sm text-muted-foreground">
+            Volume, revenue, operations — at a glance.
+            {metricsQuery.data ? ` Updated ${new Date(metricsQuery.data.generatedAt).toLocaleTimeString()}` : ''}
+          </p>
+        </div>
+        <div className="inline-flex rounded-xl border bg-muted/30 p-1">
+          {(['today', '7d', '30d'] as MetricsWindow[]).map((w) => (
+            <button
+              key={w}
+              type="button"
+              onClick={() => setWindow(w)}
+              className={cn(
+                'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                window === w ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {windowLabel[w]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {metricsQuery.isLoading && (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-32 w-full rounded-2xl" />
+          ))}
+        </div>
+      )}
+
+      {metricsQuery.isError && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            Could not load business metrics: {(metricsQuery.error as Error)?.message || 'unknown error'}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {metricsQuery.data && (
+        <>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <Card className="border-border/70">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Visits</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-3xl font-semibold">{metricsQuery.data.visits.total.toLocaleString('en-IN')}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {metricsQuery.data.visits.diagnostics} diagnostics · {metricsQuery.data.visits.clinic} clinic
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/70">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Net revenue</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-3xl font-semibold">{formatRupeesFromPaise(metricsQuery.data.revenue.netInPaise)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Paid {formatRupeesFromPaise(metricsQuery.data.revenue.paidInPaise)} · Due{' '}
+                  <span className={metricsQuery.data.revenue.dueInPaise > 0 ? 'font-medium text-amber-700' : ''}>
+                    {formatRupeesFromPaise(metricsQuery.data.revenue.dueInPaise)}
+                  </span>
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/70">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Reports finalized</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-3xl font-semibold">{metricsQuery.data.operations.reportsFinalized.toLocaleString('en-IN')}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Time-to-finalize p50 {formatMinutes(metricsQuery.data.operations.timeToFinalize.p50Minutes)} · p95{' '}
+                  {formatMinutes(metricsQuery.data.operations.timeToFinalize.p95Minutes)}
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/70">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">WhatsApp delivery</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-3xl font-semibold">
+                  {metricsQuery.data.operations.whatsapp.deliveryRatePct === null
+                    ? '—'
+                    : `${metricsQuery.data.operations.whatsapp.deliveryRatePct}%`}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {metricsQuery.data.operations.whatsapp.delivered} delivered ·{' '}
+                  <span className={metricsQuery.data.operations.whatsapp.failed > 0 ? 'font-medium text-red-600' : ''}>
+                    {metricsQuery.data.operations.whatsapp.failed} failed
+                  </span>
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card className="border-border/70">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Visit mix</CardTitle>
+                <CardDescription>By workflow type</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Reportable</span>
+                  <span className="font-medium">{metricsQuery.data.mix.reportable}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Bill-only</span>
+                  <span className="font-medium">{metricsQuery.data.mix.billOnly}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">External upload</span>
+                  <span className="font-medium">{metricsQuery.data.mix.externalUpload}</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/70">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Top tests</CardTitle>
+                <CardDescription>By order count</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-1.5 text-sm">
+                {metricsQuery.data.topTests.length === 0 ? (
+                  <p className="text-muted-foreground">No reportable tests in window</p>
+                ) : (
+                  metricsQuery.data.topTests.map((t) => (
+                    <div key={t.key} className="flex justify-between">
+                      <span className="truncate text-muted-foreground">{t.label}</span>
+                      <span className="font-medium">{t.count}</span>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/70">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Top referring doctors</CardTitle>
+                <CardDescription>By visit count</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-1.5 text-sm">
+                {metricsQuery.data.topReferringDoctors.length === 0 ? (
+                  <p className="text-muted-foreground">No referrals in window</p>
+                ) : (
+                  metricsQuery.data.topReferringDoctors.map((d) => (
+                    <div key={d.key} className="flex justify-between">
+                      <span className="truncate text-muted-foreground">{d.label}</span>
+                      <span className="font-medium">{d.count}</span>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function DashboardSkeleton() {
   return (
     <div className="space-y-6">
@@ -587,6 +819,8 @@ const OwnerDashboard = () => {
             </div>
           </div>
         </section>
+
+        <BusinessMetricsPanel />
 
         <section className="space-y-4">
           <LayerHeading
