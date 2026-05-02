@@ -31,6 +31,7 @@ import {
   ProductResolutionError,
 } from "../services/productOrderService";
 import { renderReportHtml } from "../services/reportRendererService";
+import { generateMergedReportPdf } from "../services/mergedReportPdfService";
 import prisma from "../lib/prisma";
 import { buildDiagnosticBillItems } from "../services/billItemService";
 import {
@@ -3180,11 +3181,15 @@ router.get("/:id/report-snapshot", async (req: AuthRequest, res) => {
   }
 });
 
-// GET /api/visits/diagnostic/:id/preview-report - Generate ephemeral HTML preview of the report
-// Staff can see the actual branded report layout BEFORE finalizing (nothing is saved)
+// GET /api/visits/diagnostic/:id/preview-report - Generate ephemeral preview of the report
+// Staff can see the actual branded report layout BEFORE finalizing (nothing is saved).
+// Default response is the merged PDF (rendered base + appended external uploads), so
+// the staff preview matches byte-for-byte what the patient receives. Pass ?format=html
+// for the legacy HTML-only view (which does NOT show appended uploads).
 router.get("/:id/preview-report", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
+    const format = req.query.format === "html" ? "html" : "pdf";
 
     // Verify the visit belongs to this branch
     const visit = await prisma.visit.findFirst({
@@ -3213,16 +3218,29 @@ router.get("/:id/preview-report", async (req: AuthRequest, res) => {
 
     // Build ephemeral snapshot from live data (no persistence)
     const snapshot = await buildEphemeralSnapshot(id);
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
 
-    // Render HTML using the same renderer as the PDF pipeline
-    const html = renderReportHtml(snapshot, {
-      profile: "screen",
-      baseUrl: `${req.protocol}://${req.get("host")}`,
+    if (format === "html") {
+      const html = renderReportHtml(snapshot, { profile: "screen", baseUrl });
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      return res.send(html);
+    }
+
+    // Default: merged PDF — same writer as the public download path so staff
+    // preview matches what the patient downloads (rendered values + appended uploads).
+    const pdfBuffer = await generateMergedReportPdf(snapshot, {
+      mode: "digital",
+      baseUrl,
+      qrDataUrl: "", // QR encodes the public token which doesn't exist for drafts
+      cache: false,  // never cache draft previews — they change as staff edits
     });
 
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "inline");
+    res.setHeader("Content-Length", pdfBuffer.length);
     res.setHeader("Cache-Control", "no-store");
-    return res.send(html);
+    return res.send(pdfBuffer);
   } catch (err: any) {
     console.error("Preview report error:", err);
     return res.status(500).json({
