@@ -14,6 +14,7 @@ import jwt from 'jsonwebtoken';
 import { ValidationError, UnauthorizedError } from '../utils/errors';
 import { logAction } from './auditService';
 import prisma from '../lib/prisma';
+import { checkLockout, recordFailedAttempt, clearAttempts } from '../lib/loginLockout';
 
 /**
  * Authenticates a user by email and password.
@@ -33,7 +34,51 @@ import prisma from '../lib/prisma';
  * // token: 'eyJhbGci...'  (1-day JWT)
  * // user: { id, email, name, role, activeBranch }
  */
+/**
+ * Thrown when an email is currently in lockout. Distinct from UnauthorizedError
+ * so the route handler can return 423 (Locked) instead of 401 — and the
+ * frontend can show "Too many attempts, try again in N minutes" instead of
+ * the generic "invalid credentials".
+ */
+export class LoginLockedError extends Error {
+  statusCode = 423;
+  error = 'LOCKED';
+  retryAfterSec: number;
+  constructor(retryAfterSec: number) {
+    super(
+      `Too many failed attempts. Try again in ${Math.ceil(retryAfterSec / 60)} minute(s).`,
+    );
+    this.retryAfterSec = retryAfterSec;
+  }
+}
+
 export async function login(email: string, password: string, ipAddress?: string, userAgent?: string) {
+  // 0) Reject early if this email is currently locked. We don't even hit the DB
+  // for locked accounts — saves a query + denies attackers feedback about
+  // whether the email exists.
+  const lockStatus = await checkLockout(email);
+  if (lockStatus.locked) {
+    const systemBranch = await prisma.branch.findFirst();
+    if (systemBranch) {
+      await logAction({
+        branchId: systemBranch.id,
+        actionType: 'UPDATE',
+        entityType: 'AuthEvent',
+        entityId: 'LOGIN_BLOCKED',
+        userId: null,
+        newValues: {
+          action: 'LOGIN_BLOCKED',
+          email,
+          reason: 'LOCKED_OUT',
+          retryAfterSec: lockStatus.retryAfterSec,
+        },
+        ipAddress,
+        userAgent,
+      });
+    }
+    throw new LoginLockedError(lockStatus.retryAfterSec);
+  }
+
   // Find user
   const user = await prisma.user.findUnique({
     where: { email },
@@ -43,8 +88,10 @@ export async function login(email: string, password: string, ipAddress?: string,
   });
 
   if (!user) {
-    // Audit log: Failed login attempt
-    // Use a system branch ID for failed auth events (get first branch as fallback)
+    // Record the attempt against the email even if it doesn't exist —
+    // otherwise an attacker can probe for valid emails by watching whether
+    // the lockout counter changes.
+    const status = await recordFailedAttempt(email);
     const systemBranch = await prisma.branch.findFirst();
     if (systemBranch) {
       await logAction({
@@ -57,16 +104,19 @@ export async function login(email: string, password: string, ipAddress?: string,
           action: 'LOGIN_FAILED',
           email,
           reason: 'USER_NOT_FOUND',
+          attemptsInWindow: status.attemptsInWindow,
         },
         ipAddress,
         userAgent,
       });
     }
+    if (status.locked) throw new LoginLockedError(status.retryAfterSec);
     throw new UnauthorizedError('Invalid credentials');
   }
 
   if (!user.isActive) {
-    // Audit log: Failed login (account disabled)
+    // Disabled accounts don't increment the lockout counter (no point — we
+    // already know they can't log in regardless of password).
     await logAction({
       branchId: user.activeBranchId,
       actionType: 'UPDATE',
@@ -88,7 +138,7 @@ export async function login(email: string, password: string, ipAddress?: string,
   const isValidPassword = await bcrypt.compare(password, user.passwordHash);
 
   if (!isValidPassword) {
-    // Audit log: Failed login (wrong password)
+    const status = await recordFailedAttempt(email);
     await logAction({
       branchId: user.activeBranchId,
       actionType: 'UPDATE',
@@ -99,12 +149,17 @@ export async function login(email: string, password: string, ipAddress?: string,
         action: 'LOGIN_FAILED',
         email,
         reason: 'INVALID_PASSWORD',
+        attemptsInWindow: status.attemptsInWindow,
       },
       ipAddress,
       userAgent,
     });
+    if (status.locked) throw new LoginLockedError(status.retryAfterSec);
     throw new UnauthorizedError('Invalid credentials');
   }
+
+  // Successful login — wipe any prior failed-attempt counters for this email.
+  await clearAttempts(email);
 
   // Generate JWT
   const token = jwt.sign(

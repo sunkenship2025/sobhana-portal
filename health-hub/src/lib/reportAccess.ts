@@ -122,32 +122,42 @@ export async function openFinalizedReportWindow(
     return;
   }
 
-  // Auto-print path: HTML wrapper embeds the PDF and calls window.print()
-  // after the embed reports load. The wrapper is its own blob URL so the
-  // browser allows programmatic print on the wrapper window.
+  // Auto-print path: wrapper HTML embeds the PDF in an <iframe> (NOT <embed>)
+  // and calls iframe.contentWindow.print() — that's the cross-browser pattern
+  // that actually triggers Chrome's PDF viewer to open the print dialog.
+  // window.print() on the parent wrapper would just print the wrapper page
+  // (blank) instead of the PDF content.
   const wrapperHtml = `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
   <title>Print Report</title>
   <style>
-    html, body { margin: 0; padding: 0; height: 100%; background: #525659; }
-    embed { width: 100vw; height: 100vh; border: 0; }
+    html, body { margin: 0; padding: 0; height: 100%; background: #525659; overflow: hidden; }
+    iframe { width: 100vw; height: 100vh; border: 0; display: block; }
   </style>
 </head>
 <body>
-  <embed id="pdf" type="application/pdf" src="${pdfUrl}" />
+  <iframe id="pdf" src="${pdfUrl}"></iframe>
   <script>
-    var embed = document.getElementById('pdf');
+    var iframe = document.getElementById('pdf');
     var fired = false;
     function tryPrint() {
       if (fired) return;
       fired = true;
-      try { window.focus(); window.print(); } catch (e) { /* user can use toolbar */ }
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } catch (e) {
+        // Cross-origin or sandboxed PDF viewer — fall back to printing the
+        // wrapper window. Worst case: user clicks Print in the PDF toolbar.
+        try { window.print(); } catch (e2) { /* user can use toolbar */ }
+      }
     }
-    // Most browsers won't fire 'load' on <embed> for PDFs reliably, so use a timer.
-    embed.addEventListener('load', tryPrint);
-    setTimeout(tryPrint, 1500);
+    // iframe 'load' event fires reliably for blob: PDF URLs in Chrome.
+    // Backup timer guards against rare timing issues.
+    iframe.addEventListener('load', function() { setTimeout(tryPrint, 300); });
+    setTimeout(tryPrint, 2500);
   </script>
 </body>
 </html>`;
