@@ -1400,16 +1400,37 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
 /**
  * Saves the snapshot to the ReportVersion record.
  * Called during finalization.
+ *
+ * SIGNATURE DEDUPLICATION:
+ * Signature image bytes (`signatureImageBase64`, ~30-150KB per ReportVersion)
+ * are NOT persisted into `signaturesSnapshot`. Instead the snapshot stores
+ * doctor identity + cosmetic fields, and `getReportSnapshot` re-hydrates the
+ * image bytes from `SigningDoctor` at read time via `backfillStoredSignatureAssets`.
+ *
+ * Trade-off: if a doctor's signature image is later updated, historical
+ * reports will render with the new image. Doctor identity (name, registration
+ * number) is still snapshotted, so the legal/identifying info is preserved.
+ *
+ * IMPORTANT: do NOT hard-delete `SigningDoctor` rows — historical reports
+ * will lose their signature image. Soft-delete via `isActive=false` only.
  */
 export async function saveReportSnapshot(
   reportVersionId: string,
   snapshot: ReportSnapshot
 ): Promise<void> {
+  // Strip signature image bytes before persisting. They live on `SigningDoctor`
+  // and are hydrated at read time by `backfillStoredSignatureAssets`.
+  const slimSignatures = snapshot.signatures.map((sig) => {
+    const { signatureImageBase64: _omit, ...rest } = sig;
+    void _omit;
+    return rest;
+  });
+
   await prisma.reportVersion.update({
     where: { id: reportVersionId },
     data: {
       panelsSnapshot: snapshot.departments as any,
-      signaturesSnapshot: snapshot.signatures as any,
+      signaturesSnapshot: slimSignatures as any,
       patientSnapshot: snapshot.patient as any,
       visitSnapshot: snapshot.visit as any,
       externalUploadsSnapshot: snapshot.externalUploads as any,
