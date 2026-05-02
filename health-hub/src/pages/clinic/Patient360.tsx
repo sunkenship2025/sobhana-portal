@@ -17,7 +17,7 @@ import { useBranchStore } from '@/store/branchStore';
 import type { Patient360View, VisitTimelineItem, VisitDomain } from '@/types';
 import { toast } from 'sonner';
 import { PatientEditDialog } from '@/components/patient360/PatientEditDialog';
-import { fetchFinalizedReportHtml, openFinalizedReportWindow } from '@/lib/reportAccess';
+import { fetchFinalizedReportPdfBlobUrl, openFinalizedReportWindow } from '@/lib/reportAccess';
 
 /**
  * PATIENT 360 — CANONICAL PATIENT VIEW (Phase-1)
@@ -336,7 +336,7 @@ export default function Patient360() {
   const [selectedVisit, setSelectedVisit] = useState<VisitTimelineItem | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
-  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
@@ -365,12 +365,14 @@ export default function Patient360() {
   const handlePreviewReport = async (visitId: string) => {
     setPreviewLoading(true);
     try {
-      const html = await fetchFinalizedReportHtml({
+      // Revoke any previously-shown blob URL before loading the next one.
+      if (previewPdfUrl) URL.revokeObjectURL(previewPdfUrl);
+      const blobUrl = await fetchFinalizedReportPdfBlobUrl({
         visitId,
         token,
         branchId: activeBranchId,
       });
-      setPreviewHtml(html);
+      setPreviewPdfUrl(blobUrl);
       setShowPreview(true);
     } catch (error) {
       console.error('Preview failed:', error);
@@ -711,7 +713,7 @@ export default function Patient360() {
       />
 
       {/* Full-Screen Report Preview Modal */}
-      {showPreview && previewHtml && (
+      {showPreview && previewPdfUrl && (
         <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col">
           {/* Modal Header */}
           <div className="flex items-center justify-between px-6 py-3 border-b bg-background">
@@ -758,21 +760,23 @@ export default function Patient360() {
                 size="icon"
                 onClick={() => {
                   setShowPreview(false);
-                  setPreviewHtml(null);
+                  if (previewPdfUrl) {
+                    URL.revokeObjectURL(previewPdfUrl);
+                    setPreviewPdfUrl(null);
+                  }
                 }}
               >
                 <X className="h-5 w-5" />
               </Button>
             </div>
           </div>
-          {/* Iframe with Report HTML */}
+          {/* Iframe with merged report PDF (browser PDF viewer) */}
           <div className="flex-1 overflow-hidden bg-muted p-4">
             <iframe
-              srcDoc={previewHtml}
+              src={previewPdfUrl}
               className="w-full h-full rounded-lg shadow-xl border bg-white mx-auto"
               style={{ maxWidth: '900px', display: 'block', margin: '0 auto' }}
               title="Report Preview"
-              sandbox="allow-same-origin"
             />
           </div>
         </div>
