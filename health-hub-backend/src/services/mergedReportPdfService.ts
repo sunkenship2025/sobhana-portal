@@ -35,18 +35,31 @@ import type {
   ReportSnapshot,
 } from './reportSnapshotService';
 
-// Page-anchored overlay sizing. Drawn relative to each appended page's actual
-// dimensions so non-A4 imaging PDFs still get a properly proportioned band.
-const HEADER_LOGO_HEIGHT_PT = 55;
-const HEADER_LOGO_LEFT_PT = 14;
-const HEADER_LOGO_TOP_OFFSET_PT = 8;
-const HEADER_STRIPE_HEIGHT_PT = 10;
-const HEADER_STRIPE_TOP_OFFSET_PT = HEADER_LOGO_HEIGHT_PT + HEADER_LOGO_TOP_OFFSET_PT + 4;
+// Page-anchored overlay sizing. Values mirror the report's CSS via the standard
+// 1 CSS px = 0.75pt ratio (Puppeteer renders at 96dpi, PDF is 72dpi). That way
+// the overlay band on appended pages looks identical to the rendered base report.
+//
+// CSS reference: public/css/report-screen.css (.header, .header-logo,
+// .header-stripe-band, .footer, .footer-stripe, .footer-content).
+const HEADER_LOGO_HEIGHT_PT = 41;          // CSS .header-logo height: 55px
+const HEADER_LOGO_LEFT_PT = 15;            // CSS .header-logo-row padding-left: 20px
+const HEADER_LOGO_TOP_OFFSET_PT = 7.5;     // CSS .header-logo-row padding-top: 10px
+const HEADER_LOGO_STRIPE_GAP_PT = 3;       // CSS .header-logo-row padding-bottom: 4px
+const HEADER_STRIPE_LINE_PT = 1.5;         // CSS stripe: 2px-thick blue lines
+const HEADER_STRIPE_GAP_PT = 1.5;          // CSS stripe: 2px-thick white gaps
 
-const FOOTER_STRIPE_HEIGHT_PT = 2;
-const FOOTER_TEXT_TOP_PT = 24; // distance from bottom edge to the top text line
-const FOOTER_TEXT_LEFT_PT = 24;
-const FOOTER_TEXT_RIGHT_MARGIN_PT = 24;
+// Footer is anchored to the page bottom and stacked from the bottom up:
+// [bottom padding] → [PARTIAL/phone line] → [Note/address line] → [stripe] → [...up the page]
+const FOOTER_BOTTOM_PADDING_PT = 7;        // CSS .footer-content padding-bottom: 8px ≈ 6pt + descender slack
+const FOOTER_LINE_GAP_PT = 1;              // CSS .text margin-bottom: 1px
+const FOOTER_NOTE_SIZE_PT = 7;             // CSS .note-text font-size: 7pt
+const FOOTER_PARTIAL_SIZE_PT = 6.5;        // CSS .partial-text font-size: 6.5pt
+const FOOTER_ADDRESS_SIZE_PT = 7;          // CSS .address-text font-size: 7pt
+const FOOTER_PHONE_SIZE_PT = 7.5;          // CSS .phone-text font-size: 7.5pt
+const FOOTER_TEXT_LEFT_PT = 18;            // CSS .footer-content padding-left: 24px
+const FOOTER_TEXT_RIGHT_MARGIN_PT = 18;    // CSS .footer-content padding-right: 24px
+const FOOTER_STRIPE_TOP_GAP_PT = 4.5;      // CSS .footer-content padding-top: 6px
+const FOOTER_STRIPE_HEIGHT_PT = 1.5;       // CSS .footer-stripe height: 2px
 
 // Brand palette (mirrors public/css/report-screen.css).
 const COLOR_PRIMARY = rgb(0x1f / 0xff, 0x3e / 0xff, 0x6e / 0xff); // #1f3e6e
@@ -104,10 +117,6 @@ export async function generateMergedReportPdf(
     if (hit) return hit;
   }
 
-  const profile = mode === 'physical' ? 'pdf-physical' : 'pdf-digital';
-  const html = renderReportHtml(snapshot, { profile, baseUrl, qrDataUrl });
-  const basePdf = await generatePdfFromHtml(html, { mode });
-
   const uploads = (snapshot.externalUploads ?? [])
     .slice()
     .sort((a, b) => {
@@ -115,12 +124,38 @@ export async function generateMergedReportPdf(
       return a.uploadedAt.localeCompare(b.uploadedAt);
     });
 
-  if (uploads.length === 0) {
-    if (cache) {
-      void setCachedMergedPdf(snapshot.reportVersionId, basePdf);
+  // Pure external-upload visit: every report page is an external lab report that
+  // already carries patient identifiers and lab branding. A blank Sobhana cover
+  // adds no value, so skip the Puppeteer render entirely and start the merge
+  // from an empty document. Saves ~1s per request and avoids a wasted page.
+  const skipBaseRender = snapshot.departments.length === 0 && uploads.length > 0;
+
+  if (!skipBaseRender) {
+    const profile = mode === 'physical' ? 'pdf-physical' : 'pdf-digital';
+    const html = renderReportHtml(snapshot, { profile, baseUrl, qrDataUrl });
+    const basePdf = await generatePdfFromHtml(html, { mode });
+
+    if (uploads.length === 0) {
+      if (cache) {
+        void setCachedMergedPdf(snapshot.reportVersionId, basePdf);
+      }
+      return basePdf;
     }
-    return basePdf;
+
+    // Continue with merge — load the base PDF, append uploads with overlay.
+    return await mergeUploadsIntoBase(basePdf, uploads, snapshot, cache);
   }
+
+  // skipBaseRender path: start from a blank document, append uploads with overlay only.
+  return await mergeUploadsIntoBase(null, uploads, snapshot, cache);
+}
+
+async function mergeUploadsIntoBase(
+  basePdf: Buffer | null,
+  uploads: ExternalUploadSnapshot[],
+  snapshot: ReportSnapshot,
+  cache: boolean,
+): Promise<Buffer> {
 
   // Fetch all uploads in parallel — saves N× R2 latency for multi-upload visits.
   const fetchedBuffers = await Promise.all(
@@ -135,7 +170,7 @@ export async function generateMergedReportPdf(
     ),
   );
 
-  const merged = await PDFDocument.load(basePdf);
+  const merged = basePdf ? await PDFDocument.load(basePdf) : await PDFDocument.create();
   const helvetica = await merged.embedFont(StandardFonts.Helvetica);
   const helveticaBold = await merged.embedFont(StandardFonts.HelveticaBold);
   const logoImage = await merged.embedPng(getLogoBytes());
@@ -197,70 +232,85 @@ function drawOverlayOnPage(
 ): void {
   const { width, height } = page.getSize();
 
-  // ── Header band ─────────────────────────────────────────────────────
-  // Logo, scaled to a fixed height, anchored at top-left.
+  // ── Header band (top of page, top-down layout) ──────────────────────
+  // Logo: scaled to a fixed height, anchored top-left. width auto via aspect.
   const logoDims = logoImage.scale(HEADER_LOGO_HEIGHT_PT / logoImage.height);
+  const logoBottomY = height - HEADER_LOGO_TOP_OFFSET_PT - logoDims.height;
   page.drawImage(logoImage, {
     x: HEADER_LOGO_LEFT_PT,
-    y: height - HEADER_LOGO_TOP_OFFSET_PT - logoDims.height,
+    y: logoBottomY,
     width: logoDims.width,
     height: logoDims.height,
   });
 
-  // Solid stripe band below the logo (vector — no rasterization, scales perfectly).
-  page.drawRectangle({
-    x: 0,
-    y: height - HEADER_STRIPE_TOP_OFFSET_PT - HEADER_STRIPE_HEIGHT_PT,
-    width,
-    height: HEADER_STRIPE_HEIGHT_PT,
-    color: COLOR_PRIMARY,
-  });
+  // Striped band immediately below the logo. Three 1.5pt blue lines separated
+  // by 1.5pt white gaps = 7.5pt total. Mirrors the CSS repeating-linear-gradient
+  // (2px blue / 2px white pattern) at the 0.75 px→pt ratio.
+  const stripeTopY = logoBottomY - HEADER_LOGO_STRIPE_GAP_PT;
+  for (let i = 0; i < 3; i++) {
+    const lineTopY = stripeTopY - i * (HEADER_STRIPE_LINE_PT + HEADER_STRIPE_GAP_PT);
+    page.drawRectangle({
+      x: 0,
+      y: lineTopY - HEADER_STRIPE_LINE_PT,
+      width,
+      height: HEADER_STRIPE_LINE_PT,
+      color: COLOR_PRIMARY,
+    });
+  }
 
-  // ── Footer band ─────────────────────────────────────────────────────
-  // Red 2pt stripe at the very bottom + 2 lines of text above it.
+  // ── Footer band (bottom of page, bottom-up stack) ───────────────────
+  // Layout from page bottom upwards:
+  //   [FOOTER_BOTTOM_PADDING_PT]
+  //   [PARTIAL / phone line]
+  //   [FOOTER_LINE_GAP_PT]
+  //   [Note / address line]
+  //   [FOOTER_STRIPE_TOP_GAP_PT]
+  //   [Red stripe]
+  const partialBaselineY = FOOTER_BOTTOM_PADDING_PT;
+  const noteBaselineY =
+    partialBaselineY + FOOTER_PARTIAL_SIZE_PT + FOOTER_LINE_GAP_PT;
+  const stripeBottomY =
+    noteBaselineY + FOOTER_NOTE_SIZE_PT + FOOTER_STRIPE_TOP_GAP_PT;
+
+  // Red stripe ABOVE the text (matches HTML order: <footer-stripe> then <footer-content>)
   page.drawRectangle({
     x: 0,
-    y: 0,
+    y: stripeBottomY,
     width,
     height: FOOTER_STRIPE_HEIGHT_PT,
     color: COLOR_RED,
   });
 
-  const noteSize = 7;
-  const partialSize = 6.5;
-  const addressSize = 7;
-  const phoneSize = 7.5;
-
-  // Left column: note + partial-reproduction line
+  // Left column
   page.drawText(FOOTER_NOTE_LINE_1, {
     x: FOOTER_TEXT_LEFT_PT,
-    y: FOOTER_TEXT_TOP_PT,
-    size: noteSize,
+    y: noteBaselineY,
+    size: FOOTER_NOTE_SIZE_PT,
     font: helveticaBold,
     color: COLOR_DARK,
   });
   page.drawText(FOOTER_NOTE_LINE_2, {
     x: FOOTER_TEXT_LEFT_PT,
-    y: FOOTER_TEXT_TOP_PT - 10,
-    size: partialSize,
+    y: partialBaselineY,
+    size: FOOTER_PARTIAL_SIZE_PT,
     font: helveticaBold,
     color: COLOR_DARK,
   });
 
-  // Right column: address + phone (right-aligned by measuring text width)
-  const addressWidth = helvetica.widthOfTextAtSize(FOOTER_ADDRESS_LINE, addressSize);
+  // Right column — right-aligned by measuring rendered text width.
+  const addressWidth = helvetica.widthOfTextAtSize(FOOTER_ADDRESS_LINE, FOOTER_ADDRESS_SIZE_PT);
   page.drawText(FOOTER_ADDRESS_LINE, {
     x: width - FOOTER_TEXT_RIGHT_MARGIN_PT - addressWidth,
-    y: FOOTER_TEXT_TOP_PT,
-    size: addressSize,
+    y: noteBaselineY,
+    size: FOOTER_ADDRESS_SIZE_PT,
     font: helvetica,
     color: COLOR_DARK,
   });
-  const phoneWidth = helveticaBold.widthOfTextAtSize(FOOTER_PHONE_LINE, phoneSize);
+  const phoneWidth = helveticaBold.widthOfTextAtSize(FOOTER_PHONE_LINE, FOOTER_PHONE_SIZE_PT);
   page.drawText(FOOTER_PHONE_LINE, {
     x: width - FOOTER_TEXT_RIGHT_MARGIN_PT - phoneWidth,
-    y: FOOTER_TEXT_TOP_PT - 11,
-    size: phoneSize,
+    y: partialBaselineY,
+    size: FOOTER_PHONE_SIZE_PT,
     font: helveticaBold,
     color: COLOR_DARK,
   });
