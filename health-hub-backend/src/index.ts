@@ -29,6 +29,11 @@ import path from 'path';
 // Load environment variables
 dotenv.config();
 
+// Initialize Sentry as early as possible so it can capture errors during
+// route module loading. DSN-gated — does nothing if SENTRY_DSN isn't set.
+import { initSentry, Sentry, isSentryEnabled } from './lib/sentry';
+initSentry();
+
 // Routes
 import authRoutes from './routes/auth';
 import branchRoutes from './routes/branches';
@@ -264,9 +269,23 @@ app.use('/api/billable-products', billableProductRoutes);
 app.use('/api/external-uploads', externalUploadRoutes);
 app.use('/api/test-input-configs', testInputConfigRoutes);
 
+// Sentry's Express error handler must be registered AFTER all routes but
+// BEFORE the global error handler. It only captures unhandled errors (5xx);
+// 4xx client errors are filtered out by default. Inert if Sentry is disabled.
+if (isSentryEnabled()) {
+  Sentry.setupExpressErrorHandler(app);
+}
+
 // Global error handler — structured log + requestId in response so the user
 // can copy a single ID from the toast and we can find every related log line.
 app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  // Tag the Sentry event with the request ID so a triage from Sentry → logs is one query.
+  if (isSentryEnabled() && req.requestId) {
+    Sentry.getCurrentScope().setTag('request_id', req.requestId);
+    if ((req as any).user?.id) {
+      Sentry.getCurrentScope().setUser({ id: (req as any).user.id });
+    }
+  }
   (req.log || logger).error(
     {
       err,
