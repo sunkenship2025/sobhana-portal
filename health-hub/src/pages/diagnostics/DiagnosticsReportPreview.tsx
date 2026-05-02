@@ -52,6 +52,8 @@ interface Visit {
   dueAmountInPaise?: number;
   hasReportableOrders?: boolean;
   hasBillOnlyOrders?: boolean;
+  hasExternalUploadOrders?: boolean;
+  hasReportInclusionOrders?: boolean;
   hasFinalizedReport?: boolean;
   nextAction?: 'ENTER_RESULTS' | 'NONE';
   createdAt: string;
@@ -201,7 +203,11 @@ const DiagnosticsReportPreview = () => {
 
         if (visitResponse.ok) {
           const data = await visitResponse.json();
-          if (data.hasReportableOrders === false) {
+          // Allow preview for REPORTABLE OR EXTERNAL_UPLOAD visits — both produce a merged PDF.
+          const hasInclusion =
+            data.hasReportInclusionOrders ??
+            (data.hasReportableOrders || data.hasExternalUploadOrders);
+          if (hasInclusion === false) {
             toast.error('This visit is bill-only and does not have a report preview.');
             navigate('/diagnostics/pending');
             return;

@@ -22,6 +22,8 @@ type DiagnosticVisitSummary = {
   branchId: string;
   status: string;
   hasReportableOrders?: boolean;
+  hasExternalUploadOrders?: boolean;
+  hasReportInclusionOrders?: boolean;
   hasFinalizedReport?: boolean;
   createdAt: string;
 };
@@ -98,7 +100,9 @@ const Dashboard = () => {
   const metrics = useMemo(() => {
     const today = new Date();
     const pendingResults = diagnosticVisits.filter(
-      (visit) => visit.hasReportableOrders && (visit.status === 'DRAFT' || visit.status === 'WAITING'),
+      (visit) =>
+        (visit.hasReportInclusionOrders ?? (visit.hasReportableOrders || visit.hasExternalUploadOrders))
+        && (visit.status === 'DRAFT' || visit.status === 'WAITING'),
     );
     const finalizedReports = diagnosticVisits.filter((visit) => visit.hasFinalizedReport);
     const waitingOP = clinicVisits.filter(
