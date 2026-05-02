@@ -71,6 +71,7 @@ enum ReportStatus {
 enum DiagnosticWorkflowMode {
   REPORTABLE
   BILL_ONLY
+  EXTERNAL_UPLOAD
 }
 
 enum TestResultFlag {
@@ -436,8 +437,9 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  activeBranch       Branch               @relation(fields: [activeBranchId], references: [id], onDelete: Restrict)
-  PaymentTransaction PaymentTransaction[]
+  activeBranch         Branch                 @relation(fields: [activeBranchId], references: [id], onDelete: Restrict)
+  PaymentTransaction   PaymentTransaction[]
+  ExternalReportUpload ExternalReportUpload[]
 
   @@index([role])
   @@index([activeBranchId])
@@ -478,6 +480,9 @@ model Visit {
   /// Diagnostics data (if domain = DIAGNOSTICS)
   testOrders TestOrder[]
   report     DiagnosticReport?
+
+  /// External diagnostic report uploads (PDF) attached to this visit's EXTERNAL_UPLOAD test orders
+  externalReportUploads ExternalReportUpload[]
 
   /// Clinic data (if domain = CLINIC)
   clinicVisit ClinicVisit?
@@ -595,6 +600,9 @@ model TestOrder {
   /// Results for this test
   testResults TestResult[]
 
+  /// External PDF uploads attached to this order (only for EXTERNAL_UPLOAD workflow)
+  externalUploads ExternalReportUpload[]
+
   @@index([visitId])
   @@index([testId])
   @@index([testDefinitionId])
@@ -637,6 +645,7 @@ model ReportVersion {
   patientSnapshot         Json? // Patient demographics at finalization
   visitSnapshot           Json? // Visit metadata at finalization
   interpretationsSnapshot Json? // Resolved interpretation texts
+  externalUploadsSnapshot Json? // EXTERNAL_UPLOAD product metadata + R2 keys at finalization
 
   report DiagnosticReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
 
@@ -1322,6 +1331,32 @@ model BillableProductPanel {
   @@unique([productId, panelId])
   @@index([productId])
   @@index([panelId])
+}
+
+/// ExternalReportUpload: PDF files attached to EXTERNAL_UPLOAD test orders.
+/// Stored in Cloudflare R2; only the metadata + r2Key live in the database.
+/// Soft-deleted via deletedAt so finalized snapshots can still resolve historical uploads.
+model ExternalReportUpload {
+  id               String    @id @default(cuid())
+  testOrderId      String
+  visitId          String // denormalized for visit-scope queries & cleanup
+  r2Key            String // e.g. visits/{visitId}/uploads/{uuid}.pdf
+  originalFilename String
+  mimeType         String // always "application/pdf" for v1
+  fileSizeBytes    Int
+  pageCount        Int? // populated by pdf-lib at upload time
+  displayOrder     Int       @default(0)
+  uploadedByUserId String
+  uploadedAt       DateTime  @default(now())
+  deletedAt        DateTime?
+
+  testOrder  TestOrder @relation(fields: [testOrderId], references: [id], onDelete: Cascade)
+  visit      Visit     @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  uploadedBy User      @relation(fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([testOrderId])
+  @@index([visitId])
+  @@index([deletedAt])
 }
 
 /// ProductBranchPricing: Per-branch price overrides for products

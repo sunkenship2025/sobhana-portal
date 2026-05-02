@@ -57,7 +57,7 @@ interface TestOrder {
   id: string;
   testId: string;
   testDefinitionId?: string;
-  workflowMode?: 'REPORTABLE' | 'BILL_ONLY';
+  workflowMode?: 'REPORTABLE' | 'BILL_ONLY' | 'EXTERNAL_UPLOAD';
   testName: string;
   testCode: string;
   price: number;
@@ -82,11 +82,24 @@ interface TestOrder {
   } | null;
 }
 
+interface ExternalUpload {
+  id: string;
+  testOrderId: string;
+  visitId: string;
+  originalFilename: string;
+  fileSizeBytes: number;
+  pageCount: number | null;
+  displayOrder: number;
+  uploadedAt: string;
+}
+
 interface Visit {
   id: string;
   billNumber: string;
   status: string;
   hasReportableOrders?: boolean;
+  hasExternalUploadOrders?: boolean;
+  hasReportInclusionOrders?: boolean;
   nextAction?: 'ENTER_RESULTS' | 'NONE';
   patient: {
     name: string;
@@ -179,6 +192,10 @@ const DiagnosticsResultEntry = () => {
   const [showWarning, setShowWarning] = useState(false);
   const [extremeValues, setExtremeValues] = useState<string[]>([]);
   const [expandedPanels, setExpandedPanels] = useState<Record<string, boolean>>({});
+  // Uploads keyed by testOrderId. Populated from /api/external-uploads/by-visit on mount
+  // and mutated locally as the user uploads / deletes files.
+  const [uploadsByOrder, setUploadsByOrder] = useState<Record<string, ExternalUpload[]>>({});
+  const [uploadingOrderId, setUploadingOrderId] = useState<string | null>(null);
 
   const textLayoutByTestId = useMemo(() => {
     const map = new Map<string, string>();
@@ -343,7 +360,13 @@ const DiagnosticsResultEntry = () => {
 
         if (response.ok) {
           const data = await response.json();
-          if (data.hasReportableOrders === false) {
+          // The visit needs entry only if it has REPORTABLE values OR EXTERNAL_UPLOAD attachments.
+          // hasReportInclusionOrders is the canonical flag (added when EXTERNAL_UPLOAD shipped);
+          // fall back to the older fields for backward compatibility.
+          const hasInclusion =
+            data.hasReportInclusionOrders ??
+            (data.hasReportableOrders || data.hasExternalUploadOrders);
+          if (hasInclusion === false) {
             toast.error('This visit is bill-only and does not use result entry.');
             navigate('/diagnostics/pending');
             return;
@@ -430,6 +453,95 @@ const DiagnosticsResultEntry = () => {
 
     fetchVisit();
   }, [visitId, token, activeBranchId]);
+
+  // Fetch external uploads for the visit (renders the per-order upload zones).
+  useEffect(() => {
+    if (!visitId || !token || !activeBranchId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`${API_BASE}/external-uploads/by-visit/${visitId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'X-Branch-Id': activeBranchId,
+          },
+        });
+        if (!response.ok) return;
+        const list: ExternalUpload[] = await response.json();
+        if (cancelled) return;
+        const grouped: Record<string, ExternalUpload[]> = {};
+        for (const upload of list) {
+          if (!grouped[upload.testOrderId]) grouped[upload.testOrderId] = [];
+          grouped[upload.testOrderId].push(upload);
+        }
+        setUploadsByOrder(grouped);
+      } catch (error) {
+        console.error('Failed to fetch external uploads:', error);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [visitId, token, activeBranchId]);
+
+  const uploadFileForOrder = useCallback(async (testOrderId: string, file: File) => {
+    if (!token || !activeBranchId) return;
+    if (file.type && file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      toast.error('Only PDF files are supported');
+      return;
+    }
+    setUploadingOrderId(testOrderId);
+    try {
+      const formData = new FormData();
+      formData.append('pdf', file);
+      formData.append('testOrderId', testOrderId);
+      const response = await fetch(`${API_BASE}/external-uploads`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Branch-Id': activeBranchId,
+        },
+        body: formData,
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.message || 'Upload failed');
+      }
+      const created: ExternalUpload = await response.json();
+      setUploadsByOrder((prev) => ({
+        ...prev,
+        [testOrderId]: [...(prev[testOrderId] || []), created],
+      }));
+      toast.success(`Uploaded ${created.originalFilename}`);
+    } catch (error: any) {
+      toast.error(error.message || 'Upload failed');
+    } finally {
+      setUploadingOrderId(null);
+    }
+  }, [token, activeBranchId]);
+
+  const deleteUpload = useCallback(async (uploadId: string, testOrderId: string) => {
+    if (!token || !activeBranchId) return;
+    try {
+      const response = await fetch(`${API_BASE}/external-uploads/${uploadId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Branch-Id': activeBranchId,
+        },
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.message || 'Delete failed');
+      }
+      setUploadsByOrder((prev) => ({
+        ...prev,
+        [testOrderId]: (prev[testOrderId] || []).filter((u) => u.id !== uploadId),
+      }));
+      toast.success('Upload removed');
+    } catch (error: any) {
+      toast.error(error.message || 'Delete failed');
+    }
+  }, [token, activeBranchId]);
+
   if (loading) {
     return (
       <AppLayout context="diagnostics">
@@ -485,6 +597,8 @@ const DiagnosticsResultEntry = () => {
     const allTests: Array<{ testId: string; code: string; min: number; max: number; isDerived: boolean }> = [];
 
     testOrders.forEach((order) => {
+      // EXTERNAL_UPLOAD orders carry their result as a PDF — never as values.
+      if (order.workflowMode === 'EXTERNAL_UPLOAD') return;
       if (order.isPanel && order.childTests && order.childTests.length > 0) {
         order.childTests.forEach((child) => {
           allTests.push({
@@ -564,9 +678,17 @@ const DiagnosticsResultEntry = () => {
           };
         });
 
+      // Pure external-upload visits won't have any value rows — that's fine,
+      // the uploaded PDFs carry the report. Skip the results POST and go to preview.
+      const hasAnyExternalUpload = Object.values(uploadsByOrder).some((arr) => arr && arr.length > 0);
       if (resultsArray.length === 0) {
-        toast.error('Please enter at least one test result');
-        setSaving(false);
+        if (!hasAnyExternalUpload) {
+          toast.error('Please enter at least one test result');
+          setSaving(false);
+          return;
+        }
+        toast.success('Uploads saved');
+        navigate(`/diagnostics/preview/${visitId}`);
         return;
       }
 
@@ -613,6 +735,112 @@ const DiagnosticsResultEntry = () => {
       delete next[testId];
       return next;
     });
+  };
+
+  const renderExternalUploadOrder = (order: TestOrder) => {
+    const uploads = uploadsByOrder[order.id] || [];
+    const isThisOrderUploading = uploadingOrderId === order.id;
+    const formatBytes = (n: number) => {
+      if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+      if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+      return `${n} B`;
+    };
+    const fileViewUrl = (uploadId: string) =>
+      `${API_BASE}/external-uploads/${uploadId}`;
+
+    return (
+      <div key={order.id} className="overflow-hidden rounded-lg border">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-4 py-3">
+          <div>
+            <div className="font-semibold">{order.testName}</div>
+            <div className="text-xs text-muted-foreground">
+              External report (PDF) — uploaded files merge into the final report.
+            </div>
+          </div>
+          <span
+            className={cn(
+              'rounded-full px-2 py-0.5 text-[11px] font-medium',
+              uploads.length === 0
+                ? 'bg-amber-100 text-amber-700'
+                : 'bg-emerald-100 text-emerald-700'
+            )}
+          >
+            {uploads.length === 0
+              ? '0 files'
+              : `${uploads.length} file${uploads.length === 1 ? '' : 's'} uploaded`}
+          </span>
+        </div>
+        <div className="space-y-3 p-4">
+          {uploads.length > 0 && (
+            <ul className="space-y-2">
+              {uploads.map((upload) => (
+                <li
+                  key={upload.id}
+                  className="flex items-center justify-between gap-2 rounded border bg-background px-3 py-2 text-sm"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{upload.originalFilename}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {upload.pageCount != null ? `${upload.pageCount} page${upload.pageCount === 1 ? '' : 's'} · ` : ''}
+                      {formatBytes(upload.fileSizeBytes)}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <a
+                      href={fileViewUrl(upload.id)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-medium text-primary hover:underline"
+                    >
+                      View
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => deleteUpload(upload.id, order.id)}
+                      className="text-xs font-medium text-red-600 hover:underline"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div>
+            <label
+              className={cn(
+                'inline-flex cursor-pointer items-center gap-2 rounded border border-dashed px-3 py-2 text-sm font-medium hover:bg-muted/50',
+                isThisOrderUploading && 'pointer-events-none opacity-60'
+              )}
+            >
+              <input
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                disabled={isThisOrderUploading}
+                onChange={async (e) => {
+                  const files = Array.from(e.target.files || []);
+                  e.target.value = '';
+                  for (const file of files) {
+                    await uploadFileForOrder(order.id, file);
+                  }
+                }}
+                multiple
+              />
+              {isThisOrderUploading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Uploading…
+                </>
+              ) : uploads.length === 0 ? (
+                'Upload PDF'
+              ) : (
+                'Add another PDF'
+              )}
+            </label>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const renderTestInput = (
@@ -870,10 +1098,20 @@ const DiagnosticsResultEntry = () => {
     return null;
   };
 
+  // True if anything renders an editable surface — value-input rows OR an upload zone.
   const hasReportableInputs = testOrders.some((order) => {
+    if (order.workflowMode === 'EXTERNAL_UPLOAD') return true;
     if (!order.isPanel) return true;
     return order.childTests.length > 0;
   });
+
+  // EXTERNAL_UPLOAD orders are only "ready" once at least one PDF is attached.
+  // Used to block the Save Draft button until the user finishes uploading.
+  const externalUploadOrdersMissingFiles = testOrders.filter((order) => {
+    if (order.workflowMode !== 'EXTERNAL_UPLOAD') return false;
+    return !uploadsByOrder[order.id] || uploadsByOrder[order.id].length === 0;
+  });
+  const hasMissingExternalUploads = externalUploadOrdersMissingFiles.length > 0;
 
   return (
     <AppLayout context="diagnostics">
@@ -999,6 +1237,9 @@ const DiagnosticsResultEntry = () => {
 
                     // Render single order (legacy panel with childTests or individual test)
                     const order = group.order;
+                    if (order.workflowMode === 'EXTERNAL_UPLOAD') {
+                      return renderExternalUploadOrder(order);
+                    }
                     const isLegacyPanel = order.isPanel && order.childTests && order.childTests.length > 0;
                     const isExpanded = expandedPanels[order.id] ?? false;
                     const filled = countFilledResults(order);
@@ -1122,7 +1363,17 @@ const DiagnosticsResultEntry = () => {
               </div>
             ))}
 
-            <Button className="w-full mt-6" size="lg" onClick={handleSaveDraft} disabled={saving || !hasReportableInputs}>
+            {hasMissingExternalUploads && (
+              <p className="mt-4 text-sm text-amber-700">
+                Upload a PDF for {externalUploadOrdersMissingFiles.map((o) => o.testName).join(', ')} before saving.
+              </p>
+            )}
+            <Button
+              className="w-full mt-6"
+              size="lg"
+              onClick={handleSaveDraft}
+              disabled={saving || !hasReportableInputs || hasMissingExternalUploads}
+            >
               {saving ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
