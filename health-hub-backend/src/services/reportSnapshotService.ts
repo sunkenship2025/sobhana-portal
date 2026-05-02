@@ -814,6 +814,63 @@ function buildPanelsAndDepartments(
 ): DepartmentSnapshot[] {
   const panelMap = new Map<string, { panel: any; results: any[] }>();
 
+  // _AUTO_<CODE> panels are auto-generated single-test wrappers created so that
+  // standalone tests can be billed and ordered. They are not real clinical groupings.
+  // When several auto-only results share a real parent panel (e.g. RFT_PNL holds
+  // BLOOD_UREA + S_CREATININE + S_URIC_ACID), render them under the parent panel.
+  const isAutoPanelName = (name: string | null | undefined): boolean =>
+    typeof name === 'string' && name.startsWith('_AUTO_');
+
+  const rescueScores = new Map<string, number>();
+  if (orderedPanelIds && orderedPanelIds.size > 0) {
+    for (const result of testResults) {
+      const testDef = result.testDefinition;
+      const test = result.test;
+      const items: any[] = (testDef && testDef.panelItems && testDef.panelItems.length > 0)
+        ? testDef.panelItems
+        : (test.panelItems || []);
+      const orderedItems = items.filter((pi: any) => orderedPanelIds.has(pi.panel.id));
+      if (orderedItems.length === 0) continue;
+      const hasOrderedNonAuto = orderedItems.some((pi: any) => !isAutoPanelName(pi.panel.name));
+      if (hasOrderedNonAuto) continue;
+      const seen = new Set<string>();
+      for (const pi of items) {
+        const p = pi.panel;
+        if (isAutoPanelName(p.name)) continue;
+        if (seen.has(p.id)) continue;
+        seen.add(p.id);
+        rescueScores.set(p.id, (rescueScores.get(p.id) || 0) + 1);
+      }
+    }
+  }
+
+  const pickRenderPanelItems = (allPanelItems: any[]): any[] => {
+    if (!orderedPanelIds || orderedPanelIds.size === 0) {
+      return allPanelItems;
+    }
+    const orderedItems = allPanelItems.filter((pi: any) => orderedPanelIds.has(pi.panel.id));
+    if (orderedItems.length === 0) return [];
+    const orderedNonAuto = orderedItems.filter((pi: any) => !isAutoPanelName(pi.panel.name));
+    if (orderedNonAuto.length > 0) {
+      // Real panel was ordered; ignore AUTO duplicates.
+      return orderedNonAuto;
+    }
+    // Auto-only — try to rescue to a shared non-AUTO parent panel.
+    const rescueOptions = allPanelItems.filter(
+      (pi: any) => !isAutoPanelName(pi.panel.name) && (rescueScores.get(pi.panel.id) || 0) >= 2
+    );
+    if (rescueOptions.length > 0) {
+      rescueOptions.sort((a: any, b: any) => {
+        const sa = rescueScores.get(a.panel.id) || 0;
+        const sb = rescueScores.get(b.panel.id) || 0;
+        if (sb !== sa) return sb - sa;
+        return (a.panel.displayOrder ?? 0) - (b.panel.displayOrder ?? 0);
+      });
+      return [rescueOptions[0]];
+    }
+    return orderedItems;
+  };
+
   for (const result of testResults) {
     const test = result.test;
     const testDef = result.testDefinition;
@@ -823,14 +880,10 @@ function buildPanelsAndDepartments(
 
     if (useNewChain) {
       // ━━ NEW ARCHITECTURE: ClinicalPanelItem → ClinicalPanel ━━
-      for (const panelItem of testDef.panelItems) {
+      const chosenItems = pickRenderPanelItems(testDef.panelItems);
+      for (const panelItem of chosenItems) {
         const panel = panelItem.panel;
         const key = panel.id;
-
-        // Skip panels that were not ordered (prevents duplicate panels)
-        if (orderedPanelIds && !orderedPanelIds.has(key)) {
-          continue;
-        }
 
         if (!panelMap.has(key)) {
           panelMap.set(key, { panel, results: [] });
