@@ -439,7 +439,7 @@ body.report-body {
   font-size: 8.5pt;
 }
 
-.interpretation-block p { line-height: 1.4; }
+.interpretation-block p { line-height: 1.4; white-space: pre-wrap; }
 
 /* ============================================================================
    TEXT-ONLY RESULTS
