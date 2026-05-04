@@ -855,7 +855,10 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
             box-shadow: none;
             margin: 0 auto;
             max-width: 210mm;
-            min-height: 297mm;
+            /* 290mm — ~7mm shy of A4 (297mm) so sub-pixel rendering can't
+               push the footer past the page boundary. Signatures still
+               glued to bottom via .report-bottom-section margin-top: auto. */
+            min-height: 290mm;
           }
           body.report-body { background: white; padding: 0; }
           /* digital-PDF compaction — whitespace + auxiliary text only.
@@ -869,7 +872,8 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
           .department { margin-bottom: 6px; }
           .smear-section { margin-top: 4px; margin-bottom: 4px; padding: 3px 10px; }
           .report-note { margin-top: 6px; }
-          .footer { padding-top: 8px; }
+          .report-content { padding: 8px 24px 4px 24px; }
+          .footer { padding-top: 4px; }
           .signatures-section { gap: 16px; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }`,
         bodyClass: 'screen-mode',
