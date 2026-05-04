@@ -41,7 +41,14 @@ export interface AuthRequest extends Request {
 /**
  * Express middleware that verifies the JWT and attaches `req.user`.
  *
- * Returns 401 if the token is missing, malformed, or expired.
+ * Token resolution order:
+ *   1. `req.cookies.jwt` — set by the login route as an httpOnly cookie. This
+ *      is the preferred source: the token is not exposed to JavaScript on the
+ *      frontend, so XSS cannot exfiltrate it.
+ *   2. `Authorization: Bearer <token>` — kept for backward compatibility with
+ *      callers that still attach the token from in-memory authStore state.
+ *
+ * Returns 401 if neither source provides a valid token.
  * Returns 500 for unexpected errors (e.g. JWT_SECRET misconfiguration).
  */
 export const authMiddleware = async (
@@ -50,22 +57,20 @@ export const authMiddleware = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const authHeader = req.headers.authorization;
+    // Prefer the httpOnly cookie (XSS-safe) over the Authorization header.
+    let token: string | undefined = (req as any).cookies?.jwt;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      res.status(401).json({
-        error: 'UNAUTHORIZED',
-        message: 'No token provided'
-      });
-      return;
+    if (!token) {
+      const authHeader = req.headers.authorization;
+      if (authHeader?.startsWith('Bearer ')) {
+        token = authHeader.split(' ')[1];
+      }
     }
-
-    const token = authHeader.split(' ')[1];
 
     if (!token) {
       res.status(401).json({
         error: 'UNAUTHORIZED',
-        message: 'Invalid token format'
+        message: 'No token provided'
       });
       return;
     }

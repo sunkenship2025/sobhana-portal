@@ -1,304 +1,369 @@
 # Architecture Decision Records (ADRs)
 
-This document captures significant architectural decisions made in the Sobhana Health Hub project. Each entry explains the context, the options considered, the chosen approach, and the consequences.
+Significant architectural decisions and the reasoning behind them. New ADRs are appended at the end and never edited after merge — corrections happen in a follow-up ADR that supersedes the prior one.
+
+Format: each entry has **Context** (why this decision was needed), **Options considered**, **Decision**, and **Consequences** (what we live with as a result).
 
 ---
 
-## ADR-001: Render + Docker over serverless for the backend
+## ADR-001 — Render + Docker for the backend
 
-**Date:** 2025-12 (initial deployment)
-**Status:** Accepted
+**Date:** 2025-12 · **Status:** Accepted
 
 ### Context
+The backend uses Puppeteer to render PDFs from HTML. Puppeteer needs a long-lived Chromium process; cold-starting it on every request adds 2–3 s per PDF.
 
-We needed to host an Express + Puppeteer backend. Puppeteer requires a Chromium process for PDF generation.
-
-### Options Considered
-
-| Option | Pros | Cons |
-|--------|------|------|
-| **Render (Docker)** | Persistent process; Chromium stays warm; free tier available | Spins down on free tier after 15min inactivity (cold start ~30s) |
-| **AWS Lambda / Vercel Functions** | No server management; instant scale | Cold start per request for Puppeteer is 2-3s; 15-min execution limit; harder to bundle Chromium |
-| **VPS (Hetzner/DigitalOcean)** | Full control; no cold starts | Requires sysadmin; no auto-deploy |
-| **Railway** | Similar to Render | Smaller ecosystem; less docs |
+### Options
+| | Pros | Cons |
+|---|---|---|
+| Render (Docker) | Persistent process; Chromium stays warm; managed Postgres in same region | Free tier sleeps after 15 min idle (~30 s cold start) |
+| Lambda / Vercel Functions | No server management; instant scale | Per-invocation cold start fatal for Puppeteer; 15 min execution cap |
+| Self-managed VPS | Full control | Sysadmin burden; manual deploy |
+| Railway | Similar to Render | Smaller ecosystem |
 
 ### Decision
-
-Use **Render with a Dockerfile** (`node:18-slim` + system Chromium via `apt-get`). This gives:
-- Persistent Puppeteer browser instance (warmed up at startup, reused across requests)
-- Git-push auto-deploy via Render's GitHub integration
-- Managed PostgreSQL in the same region reduces DB latency
-- `prisma migrate deploy` runs automatically in the Docker CMD before the server starts
+**Render + Dockerfile**, `node:20-slim` with system Chromium installed via `apt-get`. Container starts: `npx prisma migrate deploy && node dist/index.js`. Puppeteer is warmed at startup and reused across requests.
 
 ### Consequences
-
-- Render free tier sleeps after 15 minutes of inactivity → ~30-second cold start on first request after sleep. Acceptable for current scale; upgrade to paid tier if this becomes a problem.
-- We set `app.set('trust proxy', true)` because Render uses a reverse proxy — without this, Express reports the wrong client IP.
+- `app.set('trust proxy', true)` is required because Render terminates TLS at a load balancer; without it, Express logs the wrong client IP and rate limiting breaks.
+- Free tier sleep is fine while the load is light. Upgrade tier if cold start becomes user-visible.
+- A Chromium crash kills PDF generation until container restart. Mitigated by Render's healthcheck-driven auto-restart.
 
 ---
 
-## ADR-002: Prisma ORM over raw SQL or raw query builders
+## ADR-002 — Prisma ORM over raw SQL
 
-**Date:** 2025-12
-**Status:** Accepted
+**Date:** 2025-12 · **Status:** Accepted
 
 ### Context
+~30 (now 47) related tables, all-TypeScript codebase. Need type-safe DB access.
 
-The data model has ~30 related tables. We needed type-safe DB access across a TypeScript codebase.
-
-### Options Considered
-
-| Option | Pros | Cons |
-|--------|------|------|
-| **Prisma** | Full TypeScript types generated from schema; good migrations; readable queries | Some raw SQL still needed for complex aggregations; migration system can be tricky |
-| **Drizzle ORM** | Lightweight; closer to SQL | Smaller ecosystem; less documentation at time of decision |
-| **TypeORM** | Mature; good ecosystem | Decorators pattern feels heavy; known migration issues |
-| **Knex.js** | Flexible query builder | No type generation; more boilerplate |
-| **Raw pg driver** | Maximum control | No type safety; all SQL manual |
+### Options
+| | Pros | Cons |
+|---|---|---|
+| Prisma | Generated types from schema; clean migrations | Some complex aggregations need raw SQL; `migrate dev` has quirks |
+| Drizzle | Closer to SQL; lightweight | Smaller ecosystem at decision time |
+| TypeORM | Mature | Decorator-heavy; migration foot-guns |
+| Raw `pg` | Maximum control | No type safety; hand-written SQL everywhere |
 
 ### Decision
-
-**Prisma** was chosen for:
-- Schema-first development: `schema.prisma` is the single source of truth for the DB shape
-- Generated TypeScript types are immediately usable in service files — no hand-written interfaces needed for DB entities
-- Migration history in `prisma/migrations/` provides a clear, auditable change log
-- `npx prisma migrate deploy` in Docker CMD gives zero-friction production deploys
+**Prisma.** `schema.prisma` is the source of truth for the DB shape. Generated client gives compile-time safety on queries.
 
 ### Consequences
-
-- We use a singleton pattern (`lib/prisma.ts`) to avoid `PrismaClient` connection pool exhaustion in a long-running Node process. Without this, each `new PrismaClient()` opens a pool of connections that are never closed.
-- For complex aggregations (e.g., payout calculations), we use Prisma's `$queryRaw` with tagged template literals (still parameterized, not injectable).
+- Singleton `PrismaClient` in `lib/prisma.ts`. Multiple instances exhaust connection pools.
+- Complex aggregations use `prisma.$queryRaw` with tagged template literals (still parameterized — not injection-prone).
+- Shadow-DB issues with Neon force occasional hand-written migrations + `migrate deploy`. See ADR-013.
 
 ---
 
-## ADR-003: Clone-on-write versioning for TestDefinition
+## ADR-003 — Clone-on-edit versioning for `TestDefinition`
 
-**Date:** 2025-12
-**Status:** Accepted
+**Date:** 2025-12 · **Status:** Accepted
 
 ### Context
+Lab test reference ranges and configurations evolve. Historical reports must reflect the configuration that was active when the result was entered, not whatever it is today.
 
-Lab test reference ranges and configurations change over time (e.g., an age threshold is adjusted, a formula is corrected). We needed historical reports to reflect the configuration that was active when the report was generated, not the current configuration.
-
-### Options Considered
-
-| Option | Pros | Cons |
-|--------|------|------|
-| **Clone-on-write (current)** | Old rows permanently locked; history is self-contained in the DB | More rows in DB; queries must filter to `isActive=true` versions |
-| **Audit table / event sourcing** | Full change history | Complex reconstruction; queries need to replay history |
-| **Soft-delete with timestamp** | Simple | Hard to reconstruct "what was active when" |
-| **No versioning (edit in place)** | Simple | Destroys history; historical reports would show wrong ranges |
+### Options
+| | Pros | Cons |
+|---|---|---|
+| Clone-on-edit | Old rows permanently locked; history self-contained | More rows; queries need `isLatest` filter |
+| Audit / event sourcing | Full change history | Complex reconstruction |
+| Soft-delete + timestamp | Simple | Hard to "what was active when X" |
+| Edit in place | Simple | Destroys history; legally indefensible |
 
 ### Decision
+Editing a `TestDefinition` creates a new row with `version+1` and the same `rootDefinitionId`. The old row's `status` becomes `LOCKED` once a finalized result references it. `TestResult` rows always reference a specific version, not "latest".
 
-**Clone-on-write**: editing a `TestDefinition` creates a new row (v+1) and locks the old row. The old row's `status` is set to `INACTIVE`. References from `TestResult` records point to the specific `TestDefinitionId` (not the "latest"), so historical results always know what ranges were valid.
-
-Key implementation: `@@unique([rootDefinitionId, version])` ensures you can't have two records with the same version for the same test lineage.
+Constraint: `@@unique([rootDefinitionId, version])`.
 
 ### Consequences
-
-- The previous constraint `@@unique([code, isLatest])` caused a bug where creating a third version (v3) failed because both v1 and v2 had `isLatest=false` with the same code. Fixed in migration `20260302000000`.
-- `clinicalDefinitionService.createNewVersion()` uses a `pick()` helper (not `??` null-coalescing) when copying fields to the new version. This matters because `null` is a valid intentional value for optional fields like `formula`; using `??` would accidentally keep the old formula when the user intends to remove it.
+- Earlier `@@unique([code, isLatest])` was buggy — a third version (v3) couldn't be created because v1 and v2 both had `isLatest=false` with the same `code`. Replaced by migration `20260302000000`.
+- `clinicalDefinitionService.createNewVersion()` uses a `pick()` helper, **not** `??` null-coalescing, when copying fields. `null` is a meaningful intentional reset (e.g., removing a formula); `??` would silently keep the old value.
 
 ---
 
-## ADR-004: Immutable report snapshots
+## ADR-004 — Immutable report snapshots
 
-**Date:** 2025-12
-**Status:** Accepted
+**Date:** 2025-12 · **Status:** Accepted
 
 ### Context
+Once a diagnostic report is finalized and sent to a patient, the rendered content must never change. Editing patient demographics or reassigning signing doctors after the fact must not alter delivered reports.
 
-Once a diagnostic report is finalized and sent to a patient, we must guarantee that the patient always downloads the same content. Editing patient demographics, reassigning signing doctors, or modifying test configurations after finalization must not alter finalized reports.
-
-### Options Considered
-
-| Option | Pros | Cons |
-|--------|------|------|
-| **Full JSON snapshot (current)** | Complete isolation; one DB read to render | Snapshot size can be large; data duplication |
-| **Foreign key references + DB constraints** | Normalized; no duplication | Cannot prevent soft-edit of referenced rows |
-| **Signed PDF stored on S3** | Final artifact stored; no re-render | Storage cost; PDF generation unavoidable |
-| **Nothing (render live)** | Simple | Legal risk; report changes after delivery |
+### Options
+| | Pros | Cons |
+|---|---|---|
+| JSON snapshot per ReportVersion (current) | Complete isolation; one DB read to render | Snapshot size; data duplication |
+| FK references + write-locks | Normalized | Can't prevent editing referenced rows |
+| Pre-render PDF and store in R2 | Final artifact frozen | Storage cost; can't re-render in new style |
+| Render live each time | Simple | Legal risk; report changes after delivery |
 
 ### Decision
-
-**`ReportSnapshot`** captures the complete report state as a JSON blob at finalization time:
-- Patient name, DOB, gender, identifier
-- Branch name, address
-- All test results with values, units, reference ranges
-- Signing doctor full name, degrees, designation, signature image path
-
-All future PDF renders use this snapshot. The live DB rows for patient, doctor, etc. are completely ignored.
+On finalize, write `panelsSnapshot`, `signaturesSnapshot`, `patientSnapshot`, `visitSnapshot`, `interpretationsSnapshot`, `externalUploadsSnapshot` (all `Json` columns on `ReportVersion`). All future PDF rendering reads from these snapshots — never live rows.
 
 ### Consequences
-
-- `reportRendererService` only needs to accept a `ReportSnapshot` object, not a visit ID. This makes the PDF pipeline fully deterministic and testable.
-- Signature images are stored by **filesystem path** in the snapshot (not base64, to keep snapshot size manageable). `inlineSignatureImage()` reads the file at render time and converts to base64. If the file is deleted from the server, the signature will be missing in the rendered PDF (logged as a warning).
-- Snapshots have no `updatedAt` field in the schema — they are intentionally write-once.
+- `reportRendererService` accepts a snapshot, not a visit ID. Pipeline is fully deterministic.
+- Signature images are stored as **filesystem path** in the snapshot; `inlineSignatureImage()` reads the file and inlines as base64 at render time. If the file is moved, the signature silently disappears.
+- Snapshots are write-once — no `updatedAt` column.
 
 ---
 
-## ADR-005: Token-based public report access
+## ADR-005 — Token-based public report access
 
-**Date:** 2025-12
-**Status:** Accepted
+**Date:** 2025-12 · **Status:** Accepted
 
 ### Context
+Patients access reports via WhatsApp link without logging in.
 
-Patients need to access their lab reports without creating an account or knowing any credentials. The delivery channel is a WhatsApp link.
-
-### Options Considered
-
-| Option | Pros | Cons |
-|--------|------|------|
-| **Random token in URL (current)** | No login needed; easy to share; works in any browser | Token never expires by default; if shared, anyone can view |
-| **OTP via SMS/WhatsApp** | Higher security | Patient must actively retrieve OTP; friction |
-| **Patient portal with login** | Full access control | Requires patient account creation; friction |
-| **Signed JWT link** | Self-contained; can encode expiry | Longer URL; patient-facing JWT is unusual |
+### Options
+| | Pros | Cons |
+|---|---|---|
+| Random opaque token (current) | No login; share-friendly | Tokens don't expire by default; if leaked, anyone can view |
+| OTP via SMS/WhatsApp | Higher security | Friction for the patient |
+| Patient portal with login | Full access control | Heavy onboarding for one-time access |
+| Signed JWT in URL | Self-contained | Long URL; unusual for patient-facing |
 
 ### Decision
+**12-character base64url bearer** generated with `nanoid(12)` (~72 bits entropy). Stored in `ReportAccessToken` as a **SHA-256 hash** — bearer is never persisted. Link pattern: `GET /reports/:token`.
 
-**12-character base64url random token** (`nanoid(12)`) stored in `ReportAccessToken`, linked 1:1 to a `ReportSnapshot`. The URL pattern is:
+### Consequences
+- Token brute-force is computationally infeasible (~149 years at 1B guesses/sec).
+- `expiresAt` exists in the schema but is `null` today. Adding expiry is a config change.
+- The route is mounted before auth middleware. Anyone with the URL can download. By design — patients share it however they want.
+- Every access logged to `ReportAccessLog` (IP, UA, accessType: VIEW/DOWNLOAD/PRINT).
 
+---
+
+## ADR-006 — Fire-and-forget WhatsApp notifications
+
+**Date:** 2025-12 · **Status:** Accepted
+
+### Context
+Meta Cloud API can fail (invalid number, rate limits, transient outages). Report finalization must not depend on notification delivery.
+
+### Options
+| | Pros | Cons |
+|---|---|---|
+| Fire-and-forget (current) | Finalize always succeeds | Failures silent unless someone checks `MessageLog` |
+| Await + fail on error | Visible failure | Blocks finalization on a notification problem |
+| Queue (BullMQ) | Retry; resilient | Extra infrastructure |
+
+### Decision
+Call `notificationService.sendReportReady(visitId).catch(logger.error)` after finalization, **without** `await`. HTTP response returns immediately. Delivery state goes to `MessageLog` regardless of outcome.
+
+### Consequences
+- Staff have to check `MessageLog` to know if delivery actually happened.
+- `notificationService` itself never throws — every internal call is wrapped. Violation crashes the server with `UnhandledPromiseRejection`.
+- A real queue (BullMQ on the existing Redis) is on the roadmap for retries.
+
+---
+
+## ADR-007 — Singleton Puppeteer browser
+
+**Date:** 2025-12 · **Status:** Accepted
+
+### Context
+`browser.launch()` takes 2–3 s. Bursts of PDF requests (multiple staff finalizing simultaneously) make per-request launch unworkable.
+
+### Options
+| | Pros | Cons |
+|---|---|---|
+| Singleton (current) | Fast; one Chromium | Crash kills PDF gen until restart |
+| New browser per request | Crash-isolated | 2–3 s latency hit; memory pressure |
+| Worker pool | Controlled parallelism | Extra complexity |
+| WeasyPrint / wkhtmltopdf | No Chromium | Worse CSS coverage; design parity hard |
+
+### Decision
+Module-level `browser` in `pdfGenerationService.ts`. Warmed at startup via `warmupPdfService()`. New `Page` per request, closed after. Concurrency capped at 2.
+
+### Consequences
+- A Chromium crash makes PDFs fail until container restart — Render's healthcheck restarts on probe failure.
+- `PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium` + `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true` keep the Docker image lean (saves ~200 MB).
+
+---
+
+## ADR-008 — Vercel for the SPA
+
+**Date:** 2025-12 · **Status:** Accepted
+
+### Context
+Vite SPA needs HTTPS, a CDN, and auto-deploy from `main`.
+
+### Decision
+**Vercel.** Zero config for Vite. Edge CDN performs well across India. `vercel.json` adds the SPA-fallback rewrite so deep links don't 404.
+
+### Consequences
+- All env vars set in the Vercel dashboard, not in `.env`.
+- One config file, one platform — simple. Vendor lock-in is acceptable here.
+
+---
+
+## ADR-009 — Zustand for frontend state
+
+**Date:** 2025-12 · **Status:** Accepted
+
+### Context
+Auth state (JWT + user), active branch, minor UI state. Must persist across reload.
+
+### Decision
+**Zustand** with `persist` middleware: three small stores (`authStore`, `branchStore`, `appStore`), all under ~50 LOC. JWT and active branch stored in `localStorage`.
+
+### Consequences
+- No Provider — components import the hook directly. By design.
+- Branch switch should clear server-state cache to avoid showing stale data from the old branch. We're not on react-query yet so this is moot today; will matter when we migrate.
+- localStorage storage of JWT is XSS-vulnerable — see ADR-015.
+
+---
+
+## ADR-010 — Pino structured logging
+
+**Date:** 2026-04 · **Status:** Accepted
+
+### Context
+`console.log` produces unstructured logs. Render's tail is the only log destination, and grepping unstructured output is painful. Sentry catches errors but not request lifecycles.
+
+### Decision
+**Pino** as the backend logger with `pino-http` middleware:
+- All HTTP requests auto-logged as JSON (method, path, status, duration, requestId, userId, branchId).
+- `/health` and `/healthz` skipped to avoid drowning the stream.
+- Custom `customLogLevel` — 5xx → error, 4xx → warn, else info.
+- Pretty-printed in dev (via `pino-pretty`), JSON in prod.
+
+### Consequences
+- Render logs are now greppable by structured fields.
+- We're paying nothing for log aggregation today. When traffic justifies it, ship to Logtail / Datadog / Loki — Pino streams JSON to stdout, integrations are trivial.
+- **Open issue:** PHI (patient names, identifiers) is *not* redacted. Pino has a `redact` config we should turn on.
+
+---
+
+## ADR-011 — Sentry on backend (and FE)
+
+**Date:** 2026-04 · **Status:** Accepted
+
+### Context
+Production errors that don't crash the process are invisible without an aggregator.
+
+### Decision
+Initialize `@sentry/node` on the backend (DSN-gated by `SENTRY_DSN`). Tag every event with the `requestId` from `requestIdMiddleware`. 10% trace sample rate by default. Frontend uses `@sentry/react` separately.
+
+### Consequences
+- Backend errors and slow requests show up in Sentry with the requestId so we can correlate with Pino logs.
+- **Open issue:** FE Sentry doesn't propagate the requestId across to BE. A frontend error and its corresponding backend error are two separate events. Generating a request ID on the FE and sending as `X-Request-Id` would close this loop.
+
+---
+
+## ADR-012 — Redis for rate limit + login lockout (+ optional cache)
+
+**Date:** 2026-04 · **Status:** Accepted
+
+### Context
+Login brute-force, abusive clients, and the cost of regenerating finalized merged PDFs all argue for ephemeral state outside Postgres. Postgres-backed rate limiting works but bloats audit-quality data with per-request churn.
+
+### Decision
+**ioredis** singleton in `lib/redis.ts`. Required in production (`NODE_ENV=production` + `REDIS_URL` set), optional in dev (falls back to in-memory).
+
+Three uses today:
+1. Rate limiting (`middleware/rateLimit.ts`) — sliding window per IP.
+2. Login lockout (`lib/loginLockout.ts`) — per-email failure counter.
+3. Merged report PDF cache (`mergedReportPdfCache.ts`) — 7-day TTL keyed by snapshot ID + branding version.
+
+### Consequences
+- Optional in dev means tests/local can run without Redis. Production must enforce — `isRedisRequired()` check at startup.
+- Redis availability is part of `/health` but a Redis blip marks the dep `degraded`, not unhealthy — so transient blips don't trigger restart loops.
+
+---
+
+## ADR-013 — `TestInputConfig` as a sibling table, not on `TestDefinition`
+
+**Date:** 2026-05-03 · **Status:** Accepted
+
+### Context
+We needed per-test entry-time UI configuration: input type (`NUMERIC` / `FREE_TEXT` / `TEXT_WITH_PRESETS` / `SELECT_ONLY`), an optional default value, and a preset list of suggested values. Initial instinct was to add columns to `TestDefinition`.
+
+### Why that would be wrong
+`TestDefinition` is **versioned via clone-on-edit** (ADR-003). Once a row is `LOCKED`, mutating it is forbidden. If preset values lived on `TestDefinition`, every preset edit on a locked test would force a full clone-and-version cycle — so adding one phrasing to "RBC Morphology" would create v2, v3, v4 of the test for no clinical reason.
+
+These fields are also **entry-time UI hints** — not part of the clinical contract. Changing the preset list does not retroactively change any stored result; the tech's typed value lands in `TestResult.textValue` exactly as entered. Versioning isn't needed; versioning is harmful.
+
+### Decision
+New table `TestInputConfig` keyed by `rootDefinitionId` (shared across all versions of a test):
+
+```prisma
+model TestInputConfig {
+  rootDefinitionId String        @id
+  inputType        TestInputType @default(NUMERIC)
+  defaultValue     String?
+  valueOptions     Json          @default("[]")
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+}
 ```
-GET /reports/<token>  →  PDF streamed
-```
 
-72 bits of entropy makes brute-forcing infeasible (at 1 billion guesses/second, would take ~149 years to exhaust the space).
-
-`expiresAt` is stored in the `ReportAccessToken` table and currently set to `null` (no expiry). Future expiry can be added by setting a timestamp without changing the architecture.
+No FK to `TestDefinition` — `rootDefinitionId` isn't unique on that table (every version row carries the same value). The route layer reads/writes by `rootDefinitionId`. Lazy creation: no row → defaults (NUMERIC, no presets, no default).
 
 ### Consequences
+- Admins can edit presets freely on any test, even `LOCKED` ones. No clone, no version bump.
+- Schema is slightly less normalized (no FK). Acceptable — the trade-off is explicit and documented.
+- The diagnostic-visit GET response eager-loads `TestInputConfig` keyed by `rootDefinitionId` so the result-entry frontend has it inline without a second roundtrip.
 
-- Tokens do not require authentication. Anyone with the URL can download the report. This is by design — the patient shares the URL however they want (forward to family, save, print).
-- Production: `PUBLIC_REPORT_BASE_URL` must be set to the backend's public URL (`https://reports.sobhanaportal.com/reports`) so the correct link is sent in WhatsApp messages.
-- The `/reports/:token` route is explicitly listed before auth middleware in `index.ts` so it does not require a JWT.
+### Migration note
+The `prisma migrate dev` command failed on Neon's shadow DB because of a pre-existing migration history quirk. Workaround: hand-write the migration SQL under `prisma/migrations/<timestamp>_add_test_input_config/migration.sql` and apply with `npx prisma migrate deploy`. This is documented in [`runbooks/database-migrations.md`](runbooks/database-migrations.md).
 
 ---
 
-## ADR-006: Fire-and-forget WhatsApp notifications
+## ADR-014 — pdf.js (`react-pdf`) for in-app PDF preview
 
-**Date:** 2025-12
-**Status:** Accepted
+**Date:** 2026-05-03 · **Status:** Accepted
 
 ### Context
+The report preview pane in `DiagnosticsReportPreview.tsx` originally used `<iframe src={pdfBlobUrl}>`. Each browser wraps this differently: Chrome shows its dark PDF chrome (toolbar, page count, zoom, download), Safari shows its own bar, Firefox shows a sidebar. Result: inconsistent and ugly.
 
-WhatsApp message delivery via Meta Cloud API can fail for many reasons: invalid number, network issues, WhatsApp not installed, API rate limits. Report finalization must not fail because of a notification error.
+`#toolbar=0` URL fragment fixes Chrome but Firefox/Safari ignore it.
 
-### Options Considered
-
-| Option | Pros | Cons |
-|--------|------|------|
-| **Fire-and-forget (current)** | Finalization always succeeds; patient UX is fast | Notification failures silently logged; staff may not notice |
-| **Await and fail on error** | Visible failure if WA down | Blocks the main operation for notification failure |
-| **Queue (BullMQ/Redis)** | Retry logic; resilient | Added infrastructure (Redis); complexity |
-| **Polling / retry in the same request** | No extra infra | Slower user response; complex code |
+### Options
+| | Pros | Cons |
+|---|---|---|
+| Native iframe + `#toolbar=0` | Trivial | Browser-dependent; only Chrome respects |
+| `react-pdf` (pdf.js) | Identical rendering everywhere | +470 KB chunk for pdf.js |
+| Server-side rasterize to images | No client code | Backend cost; no text selection |
 
 ### Decision
+**`react-pdf`** in a custom `<PdfPreview>` component. All pages stacked vertically in a scroll container — no toolbar, no buttons, just pages. `devicePixelRatio={Math.max(2, window.devicePixelRatio)}` to avoid aliasing on the report's thin striped header band (which renders as pink-tinged at 1×).
 
-`notificationService.sendReportReady()` is called with `.catch(console.error)` but **not awaited** in the route handler. The HTTP response returns immediately after report finalization. Delivery is logged to `MessageLog` regardless of success or failure.
-
-Pattern:
-```typescript
-await finalizeReport(visitId);
-notificationService.sendReportReady(visitId).catch(console.error); // fire-and-forget
-res.json({ success: true });
-```
+`PdfPreview` is loaded via `React.lazy()` so pdf.js doesn't ship to users who never open a preview.
 
 ### Consequences
-
-- If WhatsApp is down or the patient's number is invalid, the finalization succeeds and the error is logged to `MessageLog`. Staff can check `MessageLog` to identify undelivered reports.
-- `notificationService` never throws — all internal calls are wrapped in try/catch. This is a hard rule; violating it would cause the server to crash with an "UnhandledPromiseRejection".
-- Future improvement: add a retry queue using BullMQ if reliable delivery becomes critical.
+- Identical preview in Chrome, Safari, Firefox, Edge.
+- First-open shows a "Loading viewer…" spinner while the chunk + worker download (~140 KB gzipped). Subsequent opens are instant (cached).
+- Print and download remain on the existing page-level buttons (which use the merged-PDF endpoint), so we don't lose the byte-for-byte-with-external-uploads guarantee.
 
 ---
 
-## ADR-007: Singleton Puppeteer browser
+## ADR-015 — Tracked debts (deferred decisions)
 
-**Date:** 2025-12
-**Status:** Accepted
+**Date:** 2026-05 · **Status:** Documented
 
-### Context
+These decisions have been explicitly deferred. Calling them out so newcomers don't think they're invisible — and so we can debate them again with full context when capacity allows.
 
-Puppeteer's `browser.launch()` takes 2-3 seconds and spawns a Chromium process. For lab report downloads, which may happen in bursts (multiple staff generating PDFs simultaneously), launching a new browser per request is too slow and too resource-intensive.
+| Debt | Reason for deferral | Impact if left |
+|---|---|---|
+| **JWT in localStorage**, no refresh token, no MFA | Worked at MVP; full revamp is a quarter-scale project | XSS → full account takeover, indefinitely |
+| **CSP disabled in Helmet** | Inline scripts (Vite dev) and shadcn injection complicated the policy | XSS surface unrestricted |
+| **react-query installed, unused** | ~150 inline `fetch()` calls — incremental migration only | Repeated boilerplate; no caching |
+| **react-hook-form + zod installed, unused** | Same — pages use `useState` + manual validation | Form bugs; runtime validation gaps |
+| **No automated tests** | Net negative effort to add to god files first; refactor + tests together | Finance regressions ship silently |
+| **God files** (`diagnosticVisits.ts` 3.8k LOC, several pages >1.5k LOC) | Decomposition is high-risk without tests | Most "fix" commits cluster here |
+| **Dual FK migration** (`testId` + `testDefinitionId`) | Mid-migration; can't drop legacy yet | Branching logic everywhere |
+| **No CI pipeline** | Solo dev iteration speed wins today | Anyone can break `main` silently |
+| **Secrets historically in git** | Old `.env` was committed | Must rotate everything in `SECURITY.md` |
+| **No background job runner** | Synchronous works at current scale | Slow user response on WhatsApp/PDF/payout fan-out |
 
-### Options Considered
-
-| Option | Pros | Cons |
-|--------|------|------|
-| **Singleton browser (current)** | Fast; one Chromium process | Must handle browser crashes; no parallel PDF limit |
-| **New browser per request** | Isolated; crash-safe | 2-3s startup per request; memory pressure |
-| **Worker pool** | Controlled parallelism | Complex implementation |
-| **WeasyPrint / wkhtmltopdf** | No Chromium needed | CSS coverage significantly worse; harder to match design |
-
-### Decision
-
-`pdfGenerationService.ts` maintains a **module-level `browser` variable**. It is:
-- Initialized at server startup in `index.ts` (`warmupBrowser()`)
-- Reused for all subsequent requests (one `browser.newPage()` per request, page closed after done)
-- Reconnected if it crashes (the page creation will fail and the error surfaces to the caller)
-
-### Consequences
-
-- If the Chromium process crashes, subsequent PDF requests fail until the server restarts. Render's health checks and auto-restart mitigate this on the hosted environment.
-- A new `Page` is opened and closed per PDF request — this prevents state leakage between reports.
-- `PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium` is set in the Dockerfile to use the system Chromium installed via `apt-get` instead of the bundled one (saves ~200MB in the Docker image).
+Each of these has a specific exit plan tracked in the [README's docs structure](../README.md) — see the relevant runbook or the individual ADR when one is written.
 
 ---
 
-## ADR-008: Vercel for frontend hosting
+## Adding a new ADR
 
-**Date:** 2025-12
-**Status:** Accepted
-
-### Context
-
-The frontend is a pure SPA (React + Vite). It needs HTTPS, a CDN, and auto-deploy from GitHub.
-
-### Options Considered
-
-| Option | Pros | Cons |
-|--------|------|------|
-| **Vercel (current)** | Zero config for Vite; global CDN; free tier generous; auto-deploy | Vendor lock-in |
-| **Netlify** | Similar to Vercel | Slightly less TypeScript/Vite native |
-| **Render Static Sites** | Same platform as backend; simpler billing | Slower CDN |
-| **AWS CloudFront + S3** | Maximum control; cheap at scale | Manual setup; complex CI/CD |
-| **Serve from backend** | One platform | Misses CDN benefits; couples deployments |
-
-### Decision
-
-**Vercel** — zero configuration needed for a Vite project, global edge CDN for low latency across India, auto-deploys on push to `main`, generous free tier, and `vercel.json` handles the SPA fallback with two lines.
-
-### Consequences
-
-- `vercel.json` must contain the SPA rewrite rule, or direct navigation to React routes (e.g., `/diagnostics/result-entry`) will return 404 from Vercel's static file server.
-- All environment variables must be set in the Vercel dashboard (not in `.env` committed to the repo).
-
----
-
-## ADR-009: Zustand over Redux for frontend state
-
-**Date:** 2025-12
-**Status:** Accepted
-
-### Context
-
-The frontend needs to manage auth state (JWT token + user), active branch, and minor UI state across components. This state must persist across page refreshes.
-
-### Options Considered
-
-| Option | Pros | Cons |
-|--------|------|------|
-| **Zustand (current)** | Minimal boilerplate; built-in persist middleware; simple API | Less ecosystem tooling vs Redux |
-| **Redux Toolkit** | Mature; Redux DevTools; good for complex state | Boilerplate even with RTK; overkill for 3 stores |
-| **Context API** | No dependency | Re-renders on any change; no persistence built-in |
-| **Jotai** | Atomic; lightweight | Different mental model; less common |
-
-### Decision
-
-**Zustand** — three stores (`authStore`, `branchStore`, `appStore`) each under 50 lines. Persist middleware handles `localStorage` serialization. Entire auth state is restored on page load without a loading flash.
-
-### Consequences
-
-- Stores are imported directly by components — no Provider needed. This is a Zustand feature, not a bug.
-- Branch switching in `branchStore.setActiveBranch()` should always be followed by `queryClient.clear()` to flush TanStack Query's cache (otherwise stale data from the previous branch may be shown).
+1. Take the next number (ADR-016, etc.).
+2. Heading and four sections: **Context** / **Options** / **Decision** / **Consequences**.
+3. Don't edit prior ADRs after merge — append a follow-up that supersedes if the decision changes. Mark superseded ADRs with `Status: Superseded by ADR-NNN`.
+4. Reference the ADR from the code where it matters (`// rationale: see DECISIONS.md ADR-013`).

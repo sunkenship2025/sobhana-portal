@@ -1,541 +1,486 @@
-# Architecture — Sobhana Health Hub
+# Architecture
 
-This document describes the system design, data flow, key architectural patterns, and the rationale behind the structural decisions made in this project.
+System design, data flow, and the rationale behind structural decisions.
 
----
-
-## Table of Contents
-
-1. [System Overview](#1-system-overview)
-2. [Component Diagram](#2-component-diagram)
-3. [Backend Architecture](#3-backend-architecture)
-4. [Frontend Architecture](#4-frontend-architecture)
-5. [Database Schema Summary](#5-database-schema-summary)
-6. [Key Data Flows](#6-key-data-flows)
-7. [Security Model](#7-security-model)
-8. [Infrastructure & Deployment](#8-infrastructure--deployment)
+For change rationale (why X was chosen) see [`DECISIONS.md`](DECISIONS.md). For operational procedures see [`runbooks/`](runbooks/).
 
 ---
 
-## 1. System Overview
+## Contents
 
-Sobhana Health Hub is a **multi-branch, role-based healthcare portal** that serves three distinct user types:
-
-| Role | What they do |
-|------|-------------|
-| `staff` | Register patients, create bills, enter lab results, finalize reports |
-| `doctor` | Review finalized reports, access Doctor Dashboard |
-| `owner` | Full access — plus payouts, audit logs, test catalog management, signing-doctor management |
-
-Every piece of data is **branch-scoped**. A single database serves all branches, but staff at Branch A cannot see or modify Branch B's patients, visits, or bills.
-
----
-
-## 2. Component Diagram
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Staff / Doctor Browser                       │
-│                                                                     │
-│  React 18 + TypeScript                  Zustand Stores              │
-│  TanStack Query (data fetching)         ┌─────────────┐            │
-│  React Router 6                         │ authStore   │ ← JWT token │
-│  Shadcn/ui + Tailwind CSS              │ branchStore │ ← active    │
-│  Vite build (deployed on Vercel)        │ appStore    │   branch ID │
-│                                         └─────────────┘            │
-└─────────────────────────┬───────────────────────────────────────────┘
-                          │
-                          │ HTTPS
-                          │ Authorization: Bearer <JWT>
-                          │ X-Branch-Id: <branchId>
-                          │
-┌─────────────────────────▼───────────────────────────────────────────┐
-│                    Express API Server (Node 18)                     │
-│                  Deployed on Render via Docker                       │
-│                                                                     │
-│  ┌────────────────────────────────────────────────────────────┐    │
-│  │                     Middleware Stack                        │    │
-│  │  cors → helmet → json → morgan → auth → branchContext      │    │
-│  └────────────────────────────────────────────────────────────┘    │
-│                                                                     │
-│  ┌──────────────┐  ┌──────────────────────────────────────────┐   │
-│  │   24 Route   │  │              Service Layer                │   │
-│  │   Modules    │──│  authService    reportRendererService     │   │
-│  │  /api/*      │  │  patientService  pdfGenerationService     │   │
-│  └──────────────┘  │  clinicalDef.   notificationService       │   │
-│                    │  reportSnapshot  auditService              │   │
-│                    └──────────────┬───────────────────────────┘   │
-│                                   │                                 │
-│  ┌──────────────────┐             │ Puppeteer  ┌─────────────────┐ │
-│  │ /reports/:token  │             │ (PDF gen.) │  public/css/    │ │
-│  │ (public route —  │             │            │  report-*.css   │ │
-│  │  no auth needed) │             │            └─────────────────┘ │
-│  └──────────────────┘             │                                 │
-└───────────────────────────────────┼─────────────────────────────────┘
-                                    │
-                         ┌──────────▼──────────┐
-                         │  Prisma ORM         │
-                         │  (type-safe queries)│
-                         └──────────┬──────────┘
-                                    │
-                         ┌──────────▼──────────┐
-                         │  PostgreSQL          │
-                         │  (Render managed DB) │
-                         │  30+ models          │
-                         └─────────────────────┘
-
-   ┌─────────────────────┐
-   │ WhatsApp Cloud API  │◄── notificationService (fire-and-forget)
-   │ Meta Graph API      │    on report finalization
-   └─────────────────────┘
-
-   ┌─────────────────────┐
-   │  Patient's Phone    │◄── receives WhatsApp link
-   │  (web browser)      │    opens /reports/:token → PDF streamed
-   └─────────────────────┘
-```
+1. [System overview](#1-system-overview)
+2. [Component diagram](#2-component-diagram)
+3. [Backend architecture](#3-backend-architecture)
+4. [Frontend architecture](#4-frontend-architecture)
+5. [Database schema](#5-database-schema)
+6. [Critical data flows](#6-critical-data-flows)
+7. [Security model](#7-security-model)
+8. [Infrastructure & deployment](#8-infrastructure--deployment)
+9. [Known architectural debts](#9-known-architectural-debts)
 
 ---
 
-## 3. Backend Architecture
+## 1. System overview
 
-### 3.1 Entry Point (`src/index.ts`)
+A **multi-branch, role-based** healthcare portal for diagnostics and clinic visits. One Postgres instance serves all branches; isolation is enforced at the application layer via `branchId` filtering on every query.
 
-The Express app is assembled in a single entry file:
+**Roles** (`UserRole` enum in `prisma/schema.prisma`):
 
-1. **Trust proxy** — tells Express to trust `X-Forwarded-For` from Render's load balancer (required for rate limiting and IP logging to work correctly).
-2. **CORS** — configured with an explicit `allowedHeaders` list including `If-Match` (needed for optimistic-lock version creation) and `X-Branch-Id`.
-3. **Singleton Prisma** — imported from `lib/prisma.ts`; one client for the entire process lifetime.
-4. **Singleton Puppeteer** — browser warmed up at startup; reused across PDF requests to avoid 2-3 second cold start per request.
-5. **Routes** — all 24 route modules mounted under `/api/*`, except:
-   - `GET /reports/:token` — public PDF delivery (no auth)
-   - `POST /webhooks/whatsapp` — Meta webhook (no auth)
-6. **Graceful shutdown** — `SIGINT`/`SIGTERM` handlers close the Puppeteer browser and disconnect Prisma before the process exits.
+| Role | Capabilities |
+|---|---|
+| `staff` | Register patients, create bills/visits, enter results, finalize reports |
+| `doctor` | Review finalized reports, doctor dashboard |
+| `owner` | Everything `staff` + `doctor` can do, plus payouts, audit logs, test catalog, signing-doctor management |
+| `admin` | Reserved — used for cross-branch admin tooling |
 
-### 3.2 Middleware Stack
+**Domains**
 
-Request processing order:
+- **Diagnostics** — lab work: register → order tests → enter results → finalize → deliver via WhatsApp
+- **Clinic** — outpatient/inpatient consultations, doctor dashboards, prescription printing
+- **Owner** — catalog, payouts, audit, signing-doctor configuration
+- **Public** — token-protected report download (no login)
+
+---
+
+## 2. Component diagram
 
 ```
-Incoming Request
-     ↓
-cors()              ← CORS preflight + headers
-     ↓
-helmet()            ← Security headers (CSP, HSTS, etc.)
-     ↓
-express.json()      ← Parse JSON body
-     ↓
-morgan()            ← Request logging (dev only)
-     ↓
-authenticateToken   ← Verify JWT → attach req.user  (skipped on public routes)
-     ↓
-attachBranchContext ← Read X-Branch-Id → attach req.branchId  (skipped on /auth, public)
-     ↓
-Route Handler
-     ↓
-requireRole(...)    ← RBAC guard (inline in routes that need it)
+┌──────────────────────────────────────────────────────────────────────┐
+│                  Browser (lab tech / doctor / owner)                 │
+│                                                                      │
+│  React 18 + TypeScript     Zustand stores (localStorage-persisted)   │
+│  Vite dev server / build   ├─ authStore   ← JWT + user               │
+│  React Router 6            ├─ branchStore ← active branch ID         │
+│  Tailwind + shadcn/ui      └─ appStore                               │
+└────────────────────────────────┬─────────────────────────────────────┘
+                                 │ HTTPS
+                                 │ Authorization: Bearer <JWT>
+                                 │ X-Branch-Id: <branchId>
+                                 │ X-Request-Id (echoed back)
+                                 ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│              Express API server (Node 20, TypeScript)                │
+│                Render Docker container — system Chromium             │
+│                                                                      │
+│  Middleware chain                                                    │
+│  ─ requestId → pino-http → helmet → CORS → no-store → json           │
+│  ─ authMiddleware → branchContextMiddleware → route → rbac (inline)  │
+│                                                                      │
+│  27 route modules @ /api/*           28 services (business logic)    │
+│  ─ auth, patients, visits/diagnostic, ─ patientService, billFinancialService
+│    visits/clinic, bills, payouts,        productOrderService, payoutService,
+│    clinical-definitions, clinical-       reportSnapshotService, reportRendererService,
+│    panels, billable-products,            pdfGenerationService, mergedReportPdfService,
+│    test-input-configs, external-         notificationService, whatsappService,
+│    uploads, reports, …                   referenceRangeService, …
+│                                                                      │
+│  Public routes (no auth):                                            │
+│  ─ GET  /reports/:token   ← patient PDF download                     │
+│  ─ POST /webhooks/whatsapp ← Meta delivery callbacks                 │
+└────┬───────────────┬──────────────┬──────────────┬─────────────┬─────┘
+     │               │              │              │             │
+     ▼               ▼              ▼              ▼             ▼
+┌─────────┐    ┌──────────┐  ┌────────────┐ ┌──────────┐ ┌─────────────┐
+│ Prisma  │    │  Redis   │  │   R2       │ │ Puppeteer│ │ WhatsApp    │
+│ ORM     │    │ (ioredis)│  │(Cloudflare)│ │ Chromium │ │ Cloud API   │
+│         │    │ rate-lim │  │ external   │ │ singleton│ │ (Meta Graph)│
+│         │    │ lockout  │  │ uploads    │ │ + pdf-lib│ │             │
+│         │    │ cache    │  │            │ │          │ │             │
+└────┬────┘    └──────────┘  └────────────┘ └──────────┘ └─────────────┘
+     ▼
+┌─────────────────┐
+│  PostgreSQL     │
+│  Neon           │
+│  47 models      │
+└─────────────────┘
 ```
 
-#### `middleware/auth.ts`
-- Reads `Authorization: Bearer <token>` header
-- Verifies with `JWT_SECRET`
-- On success: sets `req.user = { id, email, role }`
-- On failure: returns `401 Unauthorized`
+---
 
-#### `middleware/branch.ts`
-- Reads `X-Branch-Id` from request header
-- Validates the branch exists in DB and is active
-- Sets `req.branchId`; returns `400` / `403` on invalid/inactive branch
+## 3. Backend architecture
 
-#### `middleware/rbac.ts`
-- `requireRole('owner')` — factory that returns a middleware
-- Checks `req.user.role` against allowed roles
-- Returns `403 Forbidden` if not allowed
+### 3.1 Entry point — [`src/index.ts`](../health-hub-backend/src/index.ts)
 
-### 3.3 Route → Service Pattern
+In order:
 
-Routes are thin. They:
-1. Extract and validate input from `req.body` / `req.params` / `req.query`
-2. Call one or more service functions
-3. Return the result as JSON
+1. **`dotenv.config()`** → loads `.env`.
+2. `app.set('trust proxy', true)` — Render's load balancer sets `X-Forwarded-For`; without trust proxy, Express logs the wrong client IP and rate limiting breaks.
+3. **Request-ID middleware** — assigns or echoes a UUID per request. Available as `req.requestId` and exposed in the `X-Request-Id` response header.
+4. **Pino HTTP** — auto-logs every request as structured JSON. Skips `/health` / `/healthz` to avoid drowning the log stream in health probes.
+5. **Helmet** — security headers. CSP currently disabled (`contentSecurityPolicy: false`) — see [Known architectural debts](#9-known-architectural-debts).
+6. **CORS** — origin allowlist from `FRONTEND_URL` (comma-separated). Empty/unset → allow all (dev only). Headers explicitly include `Authorization`, `X-Branch-Id`, `If-Match`, `Cache-Control`.
+7. **No-store cache headers** for all `/api/*` responses — prevents Arc/Safari caching bugs.
+8. **`express.json()`** body parser.
+9. **Routes** — auth-protected `/api/*` and public `/reports/:token`, `/webhooks/whatsapp`.
+10. **Global error handler** — converts custom errors (`ValidationError`, `NotFoundError`, etc. from [`utils/errors.ts`](../health-hub-backend/src/utils/errors.ts)) to JSON with stable `error` / `message` / `requestId` shape. Tags Sentry with the request ID before reporting.
+11. **Puppeteer warmup** — `warmupPdfService()` opens a Chromium process at startup so the first PDF render isn't a 2-3 s cold start.
+12. **Graceful shutdown** — SIGTERM/SIGINT → close Puppeteer, close Redis, disconnect Prisma, exit.
 
-All business logic lives in `src/services/`. This makes services independently testable.
+### 3.2 Middleware
 
-### 3.4 Services Overview
+| File | Role |
+|---|---|
+| [`middleware/requestId.ts`](../health-hub-backend/src/middleware/requestId.ts) | Generates / echoes `X-Request-Id` |
+| [`middleware/auth.ts`](../health-hub-backend/src/middleware/auth.ts) | Verifies JWT, sets `req.user = { id, email, role }` |
+| [`middleware/branch.ts`](../health-hub-backend/src/middleware/branch.ts) | Reads `X-Branch-Id`, validates, sets `req.branchId` |
+| [`middleware/rbac.ts`](../health-hub-backend/src/middleware/rbac.ts) | `requireRole('owner', 'staff')` factory |
+| [`middleware/rateLimit.ts`](../health-hub-backend/src/middleware/rateLimit.ts) | Redis-backed rate limit (login + sensitive endpoints) |
+
+### 3.3 Routes layer
+
+27 files in [`src/routes/`](../health-hub-backend/src/routes/), one per resource. The biggest files have absorbed business logic that should live in services:
+
+| Route file | LOC | Notes |
+|---|---|---|
+| `diagnosticVisits.ts` | ~3,800 | Visit lifecycle, results, finalize, snapshot. Hot spot — see [DECISIONS.md ADR-013](DECISIONS.md). |
+| `clinicVisits.ts` | ~1,000 | Clinic visit lifecycle, queue, revisit logic |
+| `labTests.ts` | ~640 | **Legacy** — superseded by `clinicalDefinitions` + `clinicalPanels` + `billableProducts`. Mounted only conditionally. |
+| `patients.ts` | ~600 | Patient CRUD, identifier mgmt, deduplication |
+| `clinicalDefinitions.ts` | ~360 | Versioned `TestDefinition` CRUD (clone-on-edit) |
+| `clinicalPanels.ts` | ~500 | Panel definitions for report layout |
+| `billableProducts.ts` | ~600 | Commercial-layer products (decoupled from clinical) |
+| `testInputConfigs.ts` | ~140 | Entry-time UI config (presets, default values, input type) |
+| `externalUploads.ts` | ~450 | PDF uploads to R2 for EXTERNAL_UPLOAD workflow |
+
+### 3.4 Services layer
+
+28 files in [`src/services/`](../health-hub-backend/src/services/) — all business logic. Routes are *thin*: extract input → call service(s) → return JSON.
 
 | Service | Responsibility |
-|---------|---------------|
-| `authService` | Login, JWT creation, audit logging |
-| `patientService` | Patient CRUD, identifier management |
-| `patientMatchingService` | Deduplication at registration (phone/email/Aadhaar matching) |
-| `numberService` | Generates sequential bill numbers and patient numbers per branch |
-| `clinicalDefinitionService` | Clone-on-write versioning for `TestDefinition` records |
-| `derivedParameterService` | Evaluates JS-like formula expressions for calculated test results |
-| `referenceRangeService` | Picks the correct reference range for a patient's age/gender |
+|---|---|
+| `authService` | Login, JWT issuance, audit logging |
+| `patientService`, `patientMatchingService` | Patient CRUD, deduplication |
+| `numberService` | Sequential per-branch numbering (bills, patient IDs) |
+| `billFinancialService` | Discount, partial payment, due computation |
 | `productOrderService` | Maps `BillableProduct` → `ClinicalPanel` → `TestDefinition` at visit creation |
-| `reportSnapshotService` | Creates an immutable `ReportSnapshot` JSON blob when a report is finalized |
-| `reportRendererService` | Converts a `ReportSnapshot` into a fully self-contained HTML string (all images as base64) |
-| `pdfGenerationService` | Runs Puppeteer to render the HTML snapshot as a PDF buffer |
-| `reportAccessService` | Generates/validates 12-char base64url tokens for public PDF links |
-| `notificationService` | Orchestrates WhatsApp messages; fire-and-forget, never throws |
-| `whatsappCloudService` | Low-level Meta Graph API calls (`sendTextMessage`, `sendTemplateMessage`) |
-| `auditService` | Appends records to `AuditLog`; always fire-and-forget |
-| `payoutService` | Calculates doctor commissions on finalized visits |
-| `tokenService` | Legacy token utility (kept for backward compatibility) |
+| `clinicalDefinitionService` | Clone-on-edit versioning of `TestDefinition` |
+| `referenceRangeService` | Resolves the right reference range for patient age/gender |
+| `derivedParameterService` | Evaluates formula expressions for calculated test results |
+| `reportSnapshotService` | Captures immutable JSON snapshot at finalization |
+| `reportRendererService` | Snapshot → fully self-contained HTML |
+| `pdfGenerationService` | Puppeteer wrapper, max 2 concurrent jobs |
+| `mergedReportPdfService` | Appends external PDF uploads to base report via pdf-lib |
+| `mergedReportPdfCache` | 7-day Redis cache of rendered merged PDFs |
+| `reportAccessService` | Token generation/validation for public report URLs |
+| `notificationService` + `whatsappCloudService` | Fire-and-forget WhatsApp delivery |
+| `payoutService` | Doctor commission derivation per finalized visit |
+| `auditService` | Append to `AuditLog` (insert-only) |
+| `signingDoctorService` | Signature image storage + signing rule resolution |
+| `ownerDashboardService` | Aggregated metrics for owner dashboard |
 
-### 3.5 Key Architectural Patterns
+### 3.5 Key patterns
 
-#### Clone-on-Write Test Versioning
+**Singleton Prisma.** [`lib/prisma.ts`](../health-hub-backend/src/lib/prisma.ts) exports one `PrismaClient`. Importing `new PrismaClient()` anywhere else opens an unmanaged connection pool — never do that.
 
-`TestDefinition` records track the exact configuration of a lab test (units, reference ranges, formula). When an owner edits a test:
+**Singleton Puppeteer.** [`services/pdfGenerationService.ts`](../health-hub-backend/src/services/pdfGenerationService.ts) maintains one Chromium process. New `Page` per request, closed after. If Chromium crashes, the next request fails and Render auto-restarts the container.
 
-```
-TestDefinition (v1, ACTIVE)
-  ├── edit triggered
-  ├── v1 → status = INACTIVE (locked forever)
-  └── TestDefinition (v2, ACTIVE) ← new record with rootDefinitionId = v1's rootDefinitionId
-```
+**Clone-on-edit `TestDefinition`.** Editing creates a new row (`version+1`) with the same `rootDefinitionId`. The old row's `status` flips to `LOCKED` once finalized results reference it. Queries always filter on `isLatest: true` for the active version, but `TestResult` rows pin the *exact* version they were entered against — so historical reports stay correct even after edits.
 
-This means: any `TestResult` that references a `TestDefinition` will always be linked to the exact version that was active when results were entered. Historical reports remain correct even after the test is reconfigured later.
+**Sibling tables for non-versioned config.** [`TestInputConfig`](../health-hub-backend/prisma/schema.prisma) lives in a separate table keyed by `rootDefinitionId`. Entry-time UI hints (presets, default values) don't belong in the versioned clinical contract — see [DECISIONS ADR-013](DECISIONS.md).
 
-The unique constraint is `@@unique([rootDefinitionId, version])` — it prevents two active versions with the same lineage.
+**Immutable report snapshots.** `ReportVersion.panelsSnapshot` (and friends) capture full JSON at finalization. PDF rendering reads only from snapshots, never from live rows. Editing a patient's name later doesn't change historical reports — by design.
 
-#### Immutable Report Snapshots
+**Token-based public access.** `ReportAccessToken.token` is a SHA-256 hash of a 12-char base64url bearer token. The bearer is never stored — only the hash. Rotation: generate new token, soft-expire old.
 
-When a report is finalized, `reportSnapshotService` captures:
-- Patient demographics at that moment
-- All test results and reference ranges
-- Signing doctor details (name, degrees, signature image path)
-- Branch letterhead configuration
-
-This JSON blob is stored in `ReportSnapshot.data`. All subsequent PDF rendering reads from this snapshot — never from live DB rows. This means:
-- Editing a patient's name after finalization does NOT change already-finalized reports
-- Changing a signing doctor's details does NOT affect old reports
-- The report is legally/forensically immutable
-
-#### Token-Based Public Report Access
-
-`ReportAccessToken` holds a 12-character random base64url token linked to a `ReportSnapshot`. The token is sent to the patient via WhatsApp:
-
-```
-https://reports.sobhanaportal.com/reports/<token>
-```
-
-The public `/reports/:token` route:
-1. Looks up the token in the DB
-2. Checks expiry (currently null = never expires)
-3. Renders the snapshot to HTML
-4. Runs Puppeteer to generate PDF
-5. Streams the PDF with `Content-Disposition: attachment`
-
-No authentication is required for this route — the randomness of the token IS the access control.
-
-#### Fire-and-Forget Notifications
-
-`notificationService` is called after report finalization but never awaited for the response. Pattern:
-
-```typescript
-// In the route handler:
-await finalizeReport(visitId);
-notificationService.sendReportReady(visitId).catch(console.error); // ← not awaited
-res.json({ success: true }); // ← user gets response immediately
-```
-
-If WhatsApp delivery fails, it's logged to `MessageLog` but does not fail the HTTP request or the finalization.
+**Fire-and-forget side effects.** WhatsApp delivery, audit log writes, payout derivation refresh — all wrapped with `.catch(logger.error)` and never awaited in the request handler. The user gets their response immediately; failures show up in `MessageLog` / Sentry.
 
 ---
 
-## 4. Frontend Architecture
+## 4. Frontend architecture
 
-### 4.1 Routing (`App.tsx`)
+### 4.1 Routing — [`App.tsx`](../health-hub/src/App.tsx)
 
-React Router 6 with a `<ProtectedRoute>` wrapper that:
-1. Checks `authStore.isAuthenticated`
-2. Calls `authStore.checkTokenExpiration()` before each render — auto-logout on expired JWT
-3. Accepts an `allowedRoles` prop for role-based page access
+React Router 6 with `<ProtectedRoute>`:
+1. Checks `authStore.isAuthenticated`.
+2. Calls `authStore.checkTokenExpiration()` → auto-logout on expired JWT.
+3. Optional `allowedRoles` prop for role-gated pages.
 
-Route groups:
-
-| Path prefix | Who can access |
-|-------------|---------------|
+| Path prefix | Roles |
+|---|---|
 | `/diagnostics/*` | `staff`, `owner` |
 | `/clinic/*` | `staff`, `owner` |
 | `/doctor` | `doctor`, `owner` |
-| `/owner/*` | `owner` only |
-| `/bill-print/:visitId` | `staff`, `owner` |
-| `/report/:visitId` | `staff`, `owner`, `doctor` |
-| `/reports/*` | Public (served by backend, not React Router) |
+| `/owner/*` | `owner` |
+| `/bill-print/:visitId`, `/report/:visitId` | `staff`, `owner`, `doctor` |
+| `/reports/*` | public — served by backend, not React Router |
 
-### 4.2 State Management (Zustand)
+Code-splitting today: `AdminConfigCenter` lazy-loads its 5–7 admin tab pages, and `DiagnosticsReportPreview` lazy-loads `PdfPreview` (react-pdf is ~140 KB gzipped). Other routes are eagerly imported — see [Known architectural debts](#9-known-architectural-debts).
 
-Three stores — each minimal and purpose-specific:
+### 4.2 State
 
-**`authStore`**
-- Holds: `token (string)`, `user ({id, email, role, name})`, `isAuthenticated (boolean)`
-- Actions: `login(token, user)`, `logout()`, `checkTokenExpiration()`
-- Persistence: `localStorage` via Zustand persist middleware
-- Token expiry: `checkTokenExpiration()` decodes the JWT and compares `exp` to `Date.now()`; if expired, calls `logout()` automatically
+Three Zustand stores in [`src/store/`](../health-hub/src/store/):
 
-**`branchStore`**
-- Holds: `activeBranchId (string | null)`, `branches (Branch[])`
-- Actions: `setActiveBranch(id)`, `setBranches(branches)`
-- Persistence: `localStorage` — survives page refresh
-- Usage: every API call (via React Query) includes `X-Branch-Id: activeBranchId`
+- **`authStore`** — `token`, `user`, `isAuthenticated`. localStorage-persisted via `persist` middleware. JWT decoded client-side to detect expiry.
+- **`branchStore`** — `activeBranchId`, `branches`. Persisted. Every API call includes `X-Branch-Id: activeBranchId`.
+- **`appStore`** — minor UI state, not persisted.
 
-**`appStore`**
-- Holds: general UI state (sidebar open/closed, etc.)
-- Not persisted
+`@tanstack/react-query` is in `package.json` and a `QueryClient` is instantiated in `App.tsx`, but **it is not currently used** for fetches — pages call `fetch()` directly. This is technical debt; see [Known architectural debts](#9-known-architectural-debts).
 
-### 4.3 Data Fetching (TanStack Query)
-
-All server state is managed via React Query:
-- Requests made with `fetch` + `Authorization` + `X-Branch-Id` headers
-- Query keys include `branchId` to prevent cross-branch cache pollution
-- Mutations use `queryClient.invalidateQueries()` for optimistic cache refresh
-- Error states surface via toast notifications
-
-### 4.4 Component Hierarchy
+### 4.3 Components
 
 ```
-App.tsx (Router)
-  └── ProtectedRoute
-        └── AppLayout (Sidebar + TopNav)
-              ├── pages/diagnostics/
-              │     ├── DiagnosticsNewVisit ─────────── creates visit + bill
-              │     ├── DiagnosticsPendingResults ───── lists visits needing results
-              │     ├── DiagnosticsResultEntry ──────── enter per-test values
-              │     ├── DiagnosticsFinalizedReports ─── view/search completed reports
-              │     └── DiagnosticsReportPreview ─────── preview HTML, trigger PDF
-              ├── pages/clinic/
-              │     ├── ClinicNewVisit ──────────────── create consultation
-              │     ├── ClinicVisitQueue ────────────── today's queue
-              │     ├── GlobalPatientSearch ─────────── cross-branch lookup
-              │     └── Patient360 ──────────────────── unified patient history
-              ├── pages/owner/
-              │     ├── OwnerDashboard
-              │     ├── AdminConfigCenter ────────────── tab hub
-              │     ├── ManageSigningDoctors ─────────── doctor + signature CRUD
-              │     ├── ManageClinicalDefinitions ─────── versioned test catalog
-              │     ├── PayoutsList
-              │     └── PayoutDetail
-              └── pages/doctor/
-                    └── DoctorDashboard
+health-hub/src/
+├── components/
+│   ├── ui/                  shadcn primitives — do not edit
+│   ├── layout/              AppLayout, Sidebar, ProtectedRoute
+│   ├── diagnostics/         Domain widgets — RichTextNarrativeEditor, TestValueCombobox,
+│   │                        TestInputConfigEditor, PdfPreview, ProductSelector, TestSelector
+│   ├── print/               BillReceipt, ClinicPrescriptionPrint
+│   └── patient360/          Patient360-specific widgets
+├── pages/                   One file per page — many >800 LOC (god files; see ADR-014)
+├── store/                   Zustand
+├── hooks/                   use-mobile, use-toast (sparse — most logic is inlined in pages)
+├── lib/                     api, validation, referralPayouts, richText, formulaUtils
+└── types/                   Single index.ts of shared interfaces
 ```
+
+### 4.4 Data fetching pattern (current)
+
+```ts
+const headers = { Authorization: `Bearer ${token}`, 'X-Branch-Id': branchId };
+const res = await fetch(`${API_BASE}/foo`, { headers });
+if (!res.ok) { toast.error('…'); return; }
+const data = await res.json();
+```
+
+Repeated ~150 times across pages. Centralizing it in a `lib/apiClient.ts` + react-query wrapper is on the [refactor list](DECISIONS.md).
 
 ---
 
-## 5. Database Schema Summary
+## 5. Database schema
 
-> Full schema: `health-hub-backend/prisma/schema.prisma`
+> Full schema: [`prisma/schema.prisma`](../health-hub-backend/prisma/schema.prisma) — **47 models, 41 enums**. Architectural rules pinned at the top of that file.
 
-### Core Entities
+### Core entities
 
 | Model | Purpose |
-|-------|---------|
-| `User` | System user (staff/doctor/owner); has one branch |
+|---|---|
 | `Branch` | Physical location; scopes all data |
-| `Patient` | Patient record; one per unique individual |
-| `PatientIdentifier` | Phone / email / Aadhaar for a patient |
-| `DiagnosticVisit` | One lab visit; has many `TestOrder`s and one `Bill` |
-| `ClinicVisit` | One clinic consultation; has one `Bill` |
-| `Bill` | Financial record; immutable once confirmed |
-| `BillSnapshot` | Snapshot of bill at confirmation time |
-| `TestOrder` | One ordered test within a diagnostic visit |
-| `TestResult` | The entered value for one `TestOrder` |
-| `ReportVersion` | Each "draft" or "finalized" state of a diagnostic report |
-| `ReportSnapshot` | Immutable JSON blob captured at finalization |
-| `ReportAccessToken` | Short token linking to a `ReportSnapshot` for public access |
+| `User` | Staff / doctor / owner / admin; has one `activeBranch` |
+| `Patient` | Globally unique person (not branch-scoped) |
+| `PatientIdentifier` | Phone / email / Aadhaar / other. *Indexed not unique* — multiple patients may share a phone (family). |
+| `Visit` | Anchor row for diagnostic OR clinic activity |
+| `Bill` + `PaymentTransaction` | Per-visit billing + payments ledger |
 
-### Clinical Catalog
+### Diagnostics
 
 | Model | Purpose |
-|-------|---------|
-| `TestDefinition` | A lab test (e.g., "Hemoglobin") — versioned via rootDefinitionId |
-| `TestDefinitionRange` | Reference range for a `TestDefinition` (age/gender specific) |
-| `InterpretationRule` | Auto-interpretation text based on result value |
-| `ClinicalPanel` | A group of related tests (e.g., "CBC") |
-| `ClinicalPanelItem` | Junction between `ClinicalPanel` and `TestDefinition` |
-| `BillableProduct` | A purchasable item that maps to panels or standalone tests |
-| `BillableProductPanel` | Junction between `BillableProduct` and `ClinicalPanel` |
+|---|---|
+| `TestOrder` | One ordered test per visit. **Dual FK** during migration: `testId` (legacy `LabTest`) + `testDefinitionId` (new) |
+| `TestResult` | One value per `TestOrder`. Same dual FK. Immutable once `ReportVersion.status = FINALIZED` |
+| `DiagnosticReport` → `ReportVersion` | Versioned report container. `status: DRAFT \| FINALIZED`. `finalizedAt` set on finalize. |
+| `ReportAccessToken` | SHA-256 hashed bearer token → `ReportVersion`. Used in patient-facing URLs. |
+| `ReportAccessLog` | Append-only — every view/download/print event |
 
-### Doctors & Signing
+### Clinical catalog (new architecture)
 
 | Model | Purpose |
-|-------|---------|
-| `SigningDoctor` | A doctor whose signature appears on reports |
-| `SigningRule` | Rule that assigns a `SigningDoctor` to specific test panels/products |
-| `ReferralDoctor` | External doctor who referred the patient; earns commissions |
-| `Department` | Clinical department (for clinic visits) |
+|---|---|
+| `TestDefinition` | Versioned via clone-on-edit. `rootDefinitionId` groups versions. |
+| `TestDefinitionRange` | Age/gender-specific reference ranges per `TestDefinition` |
+| `InterpretationRule` | Auto-generated interpretation text per result |
+| `ClinicalPanel` | Report rendering group (e.g. CBP). Has `layoutType` enum. |
+| `ClinicalPanelItem` | Junction `Panel ↔ TestDefinition` with display rules (subgroup, indent, bold) |
+| `BillableProduct` | Commercial product. `BillableProductPanel` joins to `ClinicalPanel`. |
+| `ProductBranchPricing` | Per-branch price overrides |
+| `TestInputConfig` | **Sibling table** (not versioned with TestDefinition). Holds `inputType` (NUMERIC/FREE_TEXT/TEXT_WITH_PRESETS/SELECT_ONLY), `defaultValue`, `valueOptions`. See ADR-013. |
+
+### Clinical catalog (legacy, being phased out)
+
+| Model | Purpose |
+|---|---|
+| `LabTest` | Original test model. New `TestDefinition` replaces it. Both still in use during migration. |
+| `PanelDefinition` + `PanelTestItem` | Original panel layout. Superseded by `ClinicalPanel` + `ClinicalPanelItem`. |
+
+### Doctors & signing
+
+| Model | Purpose |
+|---|---|
+| `ReferralDoctor` + `ReferralDoctor_Visit` | External referrer. Visit access is **explicit** via the join table (no implicit `referralDoctorId` FK on Visit). |
+| `ClinicDoctor` | In-house consulting doctor |
+| `SigningDoctor` + `SigningRule` | Doctor whose signature appears on reports + assignment rules per department |
+| `DiagnosticReferralCenter` + `DiagnosticCenter_Visit` | External diagnostic centers (referred-to / referred-from) |
 
 ### Operational
 
 | Model | Purpose |
-|-------|---------|
-| `AuditLog` | Append-only activity log (login, finalize, edit, etc.) |
-| `MessageLog` | WhatsApp message delivery log (status, error) |
-| `DoctorPayout` | A processed commission payment record |
+|---|---|
+| `AuditLog` | Append-only — login, finalize, payout, edit. Insert-only by convention (no UPDATE/DELETE in code). |
+| `MessageLog` | WhatsApp / SMS delivery log |
+| `DoctorPayoutLedger` | Payout snapshots per period |
+| `ExternalReportUpload` | PDFs uploaded for `EXTERNAL_UPLOAD` workflow, stored in R2, soft-deleted via `deletedAt` |
 
-### Key Constraints
+### Key constraints
 
-- **`TestDefinition`**: `@@unique([rootDefinitionId, version])` — prevents two versions with the same lineage number.
-- **`Bill`**: has a `confirmedAt` timestamp; once confirmed, lines are immutable (enforced in route logic).
-- **`ReportSnapshot`**: no `updatedAt` — snapshots are write-once.
-- **`PatientIdentifier`**: `@@unique([type, value, branchId])` — prevents duplicate phones per branch.
-
----
-
-## 6. Key Data Flows
-
-### 6.1 Diagnostic Visit → Report → Patient
-
-```
-Staff: POST /api/diagnostic-visits
-  └── patientMatchingService.findOrCreate(phone)   ← dedup check
-  └── numberService.nextBillNumber(branchId)       ← sequential numbering
-  └── productOrderService.createOrdersForProducts(products, visitId)
-        └── maps BillableProduct → ClinicalPanel → TestDefinition
-  └── Creates Visit + Bill + TestOrders in a Prisma transaction
-  └── Returns { visitId, billId }
-
-Staff: PATCH /api/diagnostic-visits/:id/results
-  └── For each TestOrder:
-        └── referenceRangeService.getRange(testDef, patient.dob, patient.gender)
-        └── derivedParameterService.evaluate(formula, results)  ← if calculated
-        └── Upsert TestResult
-
-Staff: POST /api/diagnostic-visits/:id/finalize
-  └── reportSnapshotService.createSnapshot(visitId)
-        └── Fetches: visit, patient, all test results + ranges, signing doctor
-        └── Inlines signature image path
-        └── Writes ReportSnapshot { data: JSON blob }
-  └── reportAccessService.createToken(snapshotId)
-        └── nanoid(12) → base64url token
-        └── Writes ReportAccessToken
-  └── notificationService.sendReportReady(visitId)  ← fire-and-forget
-        └── whatsappCloudService.sendTemplateMessage(phone, token)
-
-Patient: GET /reports/:token
-  └── reportAccessService.validateToken(token)
-  └── reportRendererService.renderReportHtml(snapshot)
-        └── inlineSignatureImage()  ← reads file → base64 data URI
-  └── pdfGenerationService.generatePdf(html)
-        └── Puppeteer: emulateMediaType('screen') for digital PDF
-  └── res.send(pdfBuffer) with Content-Type: application/pdf
-```
-
-### 6.2 Test Catalog: Creating a New Version
-
-```
-Owner: POST /api/clinical-definitions/:id/new-version
-  Headers: If-Match: <currentUpdatedAt>    ← optimistic lock
-  
-  └── clinicalDefinitionService.createNewVersion(id, data)
-        └── Check: DB updatedAt === If-Match value  ← conflict check
-        └── Lock: UPDATE existing to status=INACTIVE
-        └── Clone: INSERT new TestDefinition with:
-              rootDefinitionId = original.rootDefinitionId (or original.id for v1)
-              version = old.version + 1
-              status = ACTIVE
-              ...all other fields from request body
-        └── Copy: reference ranges, interpretation rules → new version
-  └── Returns new TestDefinition
-```
-
-### 6.3 Authentication Flow
-
-```
-User: POST /api/auth/login { email, password }
-  └── authService.login(email, password)
-        └── Prisma: find User by email
-        └── bcrypt.compare(password, user.passwordHash)
-        └── jwt.sign({ id, email, role }, JWT_SECRET, { expiresIn: '7d' })
-        └── auditService.log(LOGIN_SUCCESS | LOGIN_FAILED, userId, ...)
-  └── Returns { token, user: { id, email, role, name } }
-
-Frontend: authStore.login(token, user)
-  └── Stores in localStorage (Zustand persist)
-  └── All subsequent requests: Authorization: Bearer <token>
-
-Frontend periodic check: authStore.checkTokenExpiration()
-  └── jwt-decode(token).exp < Date.now() / 1000
-  └── If expired: authStore.logout() → redirect to /login
-```
+- `Visit @@unique([branchId, billNumber])` — bill numbers are sequential per branch.
+- `Bill.visitId @unique` — one bill per visit.
+- `TestDefinition @@unique([rootDefinitionId, version])` — prevents duplicate versions per lineage.
+- `ClinicalPanelItem @@unique([panelId, testDefinitionId])` — a test can't be in the same panel twice.
+- `ReportVersion @@unique([reportId, versionNum])` — sequential version numbers.
 
 ---
 
-## 7. Security Model
+## 6. Critical data flows
+
+### 6.1 Diagnostic visit → report → patient
+
+```
+POST /api/visits/diagnostic
+  patientMatchingService → find or create Patient
+  numberService → next bill number for branch
+  productOrderService → maps products → panels → test definitions
+  Prisma transaction: Visit + Bill + TestOrders all-or-nothing
+  → returns { visitId, billId }
+
+POST /api/visits/diagnostic/:id/results
+  for each TestOrder:
+    referenceRangeService.resolve(testDef, patient.age, patient.gender)
+    derivedParameterService.evaluate(formula, sibling results)   ← if calculated
+    upsert TestResult (computes flag NORMAL/HIGH/LOW/CRITICAL_HIGH/CRITICAL_LOW)
+
+POST /api/visits/diagnostic/:id/finalize
+  reportSnapshotService.create(visitId)
+    → fetch visit, patient, results, ranges, signing doctors
+    → write panelsSnapshot, signaturesSnapshot, patientSnapshot, … to ReportVersion
+    → status = FINALIZED, finalizedAt = now
+  reportAccessService.createToken(reportVersionId)
+    → SHA-256 hashed bearer token written to ReportAccessToken
+  notificationService.sendReportReady(visitId)   ← fire-and-forget
+    → WhatsApp template message with link
+
+GET /reports/:token   ← public, no auth
+  reportAccessService.validate(token)
+  mergedReportPdfService.generate(snapshot)
+    → reportRendererService → HTML
+    → pdfGenerationService → Puppeteer PDF buffer (digital mode)
+    → if external uploads exist: pdf-lib appends them to the base
+    → cached in Redis for 7 days
+  → res.send(pdfBuffer)
+  ReportAccessLog appended
+```
+
+### 6.2 New version of a TestDefinition
+
+```
+POST /api/clinical-definitions/:rootId/new-version
+  Header: If-Match: <updatedAt>             ← optimistic lock
+
+  clinicalDefinitionService.createNewVersion()
+    → If-Match check (CONFLICT 409 if mismatched)
+    → UPDATE existing version: isLatest = false, status = LOCKED
+    → INSERT new TestDefinition:
+        rootDefinitionId = same
+        version = old.version + 1
+        isLatest = true, status = ACTIVE
+        + caller's payload (uses pick() helper, NOT ?? — null is a meaningful reset)
+    → copy ranges + interpretation rules to new version
+  → returns new TestDefinition
+```
+
+### 6.3 Authentication
+
+```
+POST /api/auth/login { email, password }
+  authService.login()
+    → Prisma find user
+    → bcrypt.compare()
+    → loginLockout check (Redis-backed; configurable failures-per-window)
+    → audit LOGIN_SUCCESS / LOGIN_FAILED
+    → jwt.sign({ id, email, role }, JWT_SECRET, { expiresIn: '7d' })
+  → returns { token, user }
+
+Frontend: authStore.login() → localStorage
+Every fetch: Authorization: Bearer <token> + X-Branch-Id
+authStore.checkTokenExpiration() → auto-logout on expired exp claim
+```
+
+---
+
+## 7. Security model
 
 ### Authentication
-- All routes except `/reports/:token`, `/webhooks/whatsapp`, and `/api/auth/login` require a valid JWT.
-- JWT signed with `JWT_SECRET` (symmetric HS256). Rotation requires re-login of all users.
-- Tokens expire in 7 days (configurable in `authService.ts`).
+- JWT bearer (HS256) signed with `JWT_SECRET`. 7-day expiry. **Stored in localStorage** — XSS-vulnerable; see [Known architectural debts](#9-known-architectural-debts).
+- No refresh token; expiry forces re-login.
+- bcrypt password hashing. No MFA.
+- Login lockout via Redis (configurable thresholds in [`lib/loginLockout.ts`](../health-hub-backend/src/lib/loginLockout.ts)).
 
-### Authorization (RBAC)
-- Three roles: `staff`, `doctor`, `owner`.
-- Routes use `requireRole(...)` middleware inline.
-- `owner` can always do what `staff` or `doctor` can do (by listing multiple roles).
+### Authorization
+- `requireRole(...)` middleware factory.
+- Branch isolation is **application-enforced** — every Prisma query filters by `branchId`. Not enforced at DB level (no Row Level Security). Consistency depends on developer discipline; one missed filter is a data leak.
 
-### Branch Isolation
-- Every DB query in every service includes `branchId: req.branchId` in the `where` clause.
-- This is not enforced at the DB level (no Row Level Security) — it is an application-level convention. Consistency is critical.
+### Public report tokens
+- 12-char base64url bearer (~72 bits entropy → infeasible to brute-force).
+- Only the SHA-256 hash is stored (`ReportAccessToken.token`). Bearer is not recoverable.
+- Tokens currently do not expire (`expiresAt: null`). Setting `expiresAt` is supported by the schema with no code change.
+- Every access logged to `ReportAccessLog` (IP, user-agent, accessType: VIEW/DOWNLOAD/PRINT).
 
-### Input Validation
-- Route handlers validate request bodies using inline checks.
-- `utils/validation.ts` provides shared validators.
-- Prisma parameterizes all queries — no raw SQL injection risk except in intentional raw queries (none currently).
+### Transport
+- HTTPS in production (Render terminates TLS).
+- CORS origin allowlist via `FRONTEND_URL`. Headers explicitly include `Authorization`, `X-Branch-Id`, `If-Match`.
+- Helmet headers — note **CSP is currently disabled**.
 
-### Public Report Access
-- The 12-character base64url token has 72 bits of entropy — brute-forcing is computationally infeasible.
-- Tokens currently do not expire (`expiresAt: null`). Expiry can be added by setting `expiresAt` on the `ReportAccessToken` record.
+### Audit
+- `AuditLog` is append-only (no UPDATE/DELETE in code; not enforced at DB level).
+- Captures: `LOGIN_SUCCESS/FAILED`, `FINALIZE`, `CREATE`, `UPDATE`, `DELETE`, `PAYOUT_DERIVE`, `PAYOUT_PAID`, `REPORT_ACCESS`.
+- Coverage uneven — some hot paths still missing audit hooks.
 
-### WhatsApp Webhook Verification
-- Meta sends a `hub.verify_token` on webhook setup. Must match `WHATSAPP_VERIFY_TOKEN` env var.
-- Incoming messages validated via Meta's signature header (planned — currently trust-based).
+### Secrets
+- `.env` is in `.gitignore`. **Anything previously committed must be rotated** — see [`SECURITY.md`](../SECURITY.md).
+- Production secrets live in Render env vars / Vercel project settings.
 
 ---
 
-## 8. Infrastructure & Deployment
+## 8. Infrastructure & deployment
 
-### Services Map
+| Layer | Platform | Trigger |
+|---|---|---|
+| Frontend SPA | Vercel | push to `main` (verify per env) |
+| Backend API | Render (Docker) | push to `main` |
+| Database | Neon Postgres | manual via `prisma migrate deploy` at container start |
+| Object storage | Cloudflare R2 | provisioned manually |
+| Redis | Render Redis (or external) | provisioned manually |
 
-| Service | Platform | URL | Deploy Trigger |
-|---------|----------|-----|---------------|
-| Frontend | Vercel | `sobhanaportal.com` | Push to `main` |
-| Backend API | Render (Docker) | `reports.sobhanaportal.com` | Push to `main` |
-| Database | Render Managed PostgreSQL | (internal) | Manual migration on deploy |
-
-### Backend Docker Build
+### Backend Docker image (simplified)
 
 ```dockerfile
-# health-hub-backend/Dockerfile (simplified)
-FROM node:18-slim
-# Install system Chromium (for Puppeteer in headless mode)
-RUN apt-get install -y chromium
-# Set env to use system Chrome instead of bundled
+FROM node:20-slim
+RUN apt-get update && apt-get install -y chromium
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY . .
-RUN npx tsc
-# Run migrations at container start, then launch server
+RUN npx prisma generate && npx tsc
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
 ```
 
-### Why Render + Docker (not serverless)?
+### Health check
+- `GET /health` runs Postgres, Redis, R2, Puppeteer probes. Returns 503 only if Postgres is unhealthy (the one critical dep) — others mark `degraded` but return 200 so transient blips don't trigger restart loops.
+- Render's healthcheck path: `/health` (verify per env).
 
-Puppeteer requires a persistent Chromium process. Serverless functions cold-start too slowly (2-3s per PDF) and have execution time limits incompatible with Puppeteer's startup overhead. A persistent Docker container on Render keeps Chromium pre-warmed. See `docs/DECISIONS.md` for the full ADR.
+### Migrations
+- Applied automatically at container start. Migration files in [`prisma/migrations/`](../health-hub-backend/prisma/migrations/).
+- For destructive or risky migrations: see [`runbooks/database-migrations.md`](runbooks/database-migrations.md).
+- Never run `prisma migrate dev` against production — it can reset the DB.
 
-### Database Migrations
+### Vercel SPA fallback
+- `health-hub/vercel.json` rewrites all paths to `/` so React Router handles deep links instead of returning 404.
 
-Prisma migrations are applied automatically at container start (`prisma migrate deploy`). The migration history is in `health-hub-backend/prisma/migrations/`. Never use `prisma migrate dev` in production — it can reset the DB.
+---
 
-### Vercel SPA Configuration
+## 9. Known architectural debts
 
-`health-hub/vercel.json` contains a catch-all rewrite:
-```json
-{ "rewrites": [{ "source": "/(.*)", "destination": "/" }] }
-```
-This ensures React Router handles all navigation client-side and refreshing `/diagnostics/result-entry` doesn't return a 404.
+These exist; they're tracked here so newcomers don't think they're invisible.
+
+1. **`diagnosticVisits.ts` is ~3,800 LOC** — needs to be split per endpoint into a feature folder. Most "fix the bill" commits in git history land here.
+2. **Dual FK migration in flight** — `TestOrder.testId` (legacy `LabTest`) and `TestOrder.testDefinitionId` (new) both populated. Code branches on which is present. Finishing the migration is a tracked refactor.
+3. **`@tanstack/react-query` is installed but unused** — every page reconstructs `fetch()` calls inline (~150 sites). Migrating one page at a time is incremental.
+4. **`react-hook-form` + `zod` installed, unused** — forms hand-rolled with `useState`. Same incremental migration plan.
+5. **No automated test suite** — see [`TESTING.md`](TESTING.md) for the strategy.
+6. **CSP disabled** in Helmet config — `contentSecurityPolicy: false`. Should be re-enabled with a tested policy.
+7. **JWT in localStorage** — XSS-vulnerable. Long-term move to httpOnly cookie + CSRF token.
+8. **No FE↔BE shared types** — `health-hub/src/types/index.ts` redeclares interfaces that exist in Prisma. Manual sync, drift-prone.
+9. **God pages on the frontend** — `DiagnosticsNewVisit.tsx` 2,234 LOC, `ManagePanelDefinitions.tsx` 1,769, etc. Decomposition is a tracked refactor.
+10. **No background-job runner** — WhatsApp, payouts, snapshot generation all run in-request. A proper queue (BullMQ etc.) is on the roadmap.
+11. **Routes call Prisma directly** — should go through a `repositories/` layer. Repeated `include` patterns are duplicated across files.

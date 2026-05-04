@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/<owner>/<repo>/blob/main/SECURITY.md
+    about: Do not file a public issue. Follow the disclosure process in SECURITY.md.
+  - name: Question or how-to
+    url: https://github.com/<owner>/<repo>/blob/main/documentation/CONTRIBUTING.md
+    about: Read CONTRIBUTING.md and the runbooks first. Open an issue only if you can't find an answer.

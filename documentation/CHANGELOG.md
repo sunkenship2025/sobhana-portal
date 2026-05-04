@@ -1,151 +1,209 @@
-# Changelog — Sobhana Health Hub
+# Changelog
 
-All notable changes to this project are documented here in reverse chronological order.
+All notable changes are documented here in reverse chronological order. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md). For operational impact (e.g. migrations to apply), see the **Migration notes** at the bottom of each entry where relevant.
 
 ---
 
 ## [Unreleased]
 
-_Nothing pending._
+_Tracked here as commits land on `main`. Entries are promoted to a versioned section at release time — see [`RELEASE.md`](RELEASE.md)._
 
 ---
 
-## [1.5.0] — 2026-03-02 — Version Creation Fix + CORS
+## [1.9.0] — 2026-05-03 — Default values for panels + cross-browser PDF preview
+
+### Added
+- **Per-test entry-time UI configuration.** Admins can now configure, per `TestDefinition`:
+  - `inputType`: `NUMERIC` (default), `FREE_TEXT`, `TEXT_WITH_PRESETS` (combobox), or `SELECT_ONLY` (strict dropdown)
+  - `defaultValue`: optional pre-fill for the result-entry field
+  - `valueOptions`: list of preset phrasings (used for combobox / strict dropdown)
+- New table `TestInputConfig` keyed by `rootDefinitionId` — sibling to `TestDefinition`, **not** versioned. See [DECISIONS ADR-013](DECISIONS.md#adr-013--testinputconfig-as-a-sibling-table-not-on-testdefinition).
+- New backend route: `GET/PUT /api/test-input-configs/:rootDefinitionId` plus bulk `GET ?rootIds=…`.
+- New frontend components:
+  - `TestValueCombobox` — shadcn Popover + cmdk Command with editable typing for combobox tests, "Use custom" footer for free-typed values.
+  - `TestInputConfigEditor` — admin editor for input type, default value, drag-reorderable preset list, bulk paste.
+  - `PdfPreview` — cross-browser PDF preview using `react-pdf` (pdf.js). Replaces the native `<iframe>` preview to eliminate browser-specific PDF chrome (Chrome's dark toolbar, Safari's bar, Firefox's sidebar). Lazy-loaded to keep main bundle unchanged.
+- Result entry rendering: combobox / select-only tests now span the full width of the value-cell row (absorbing the always-empty Reference / Flag columns for text-based tests like RBC Morphology), so long preset phrasings like `NORMOCYTIC HYPOCHROMIC FEW MICROCYTES` display without truncation.
+- Diagnostic-visit GET response now embeds `inputConfig` on each `TestOrder` and each `childTest`, eager-loaded by `rootDefinitionId`.
 
 ### Fixed
-- **Critical:** `If-Match` header was not listed in CORS `allowedHeaders` on the backend. The browser's preflight request blocked any PUT/version-creation request that included this header, resulting in "Failed to fetch" errors on the frontend with no server-side log. Added `If-Match` to `allowedHeaders` in `health-hub-backend/src/index.ts`.
-- **Critical:** `@@unique([code, isLatest])` constraint on `TestDefinition` prevented creating a third or higher version of any test. When v1 → v2, both v1 and v2 have `isLatest=false` with the same `code`, violating the unique constraint. Replaced with `@@unique([rootDefinitionId, version])`. Migration `20260302000000` applied.
-- `createNewVersion` in `clinicalDefinitionService.ts` used `??` (null-coalescing) to copy field values during cloning, silently discarding intentional `null` resets. Replaced with a `pick()` helper that correctly passes `null` through.
+- **Pink stripe artifact in PDF preview.** Report header/footer thin striped bands rendered as pink/magenta in the new `PdfPreview` due to subpixel anti-aliasing at 1× DPR. Forced `devicePixelRatio={Math.max(2, window.devicePixelRatio)}` on each `<Page>` — stripes now render in their true colors.
 
-### Changed
-- `TestDefinition` unique constraint: `@@unique([code, isLatest])` → `@@unique([rootDefinitionId, version])`
+### Migration notes
+- New migration `20260503000000_add_test_input_config`. Pure additive (new enum + new table). Apply with `npx prisma migrate deploy`. The `migrate dev` shadow-DB path failed in our environment due to a pre-existing migration history quirk on Neon; the migration SQL is hand-written and committed alongside.
 
 ---
 
-## [1.4.0] — 2026-02-28 — Report Layout Restructure + Signature Upload Fix
+## [1.8.0] — 2026-05-02 — Sentry, Pino-as-default, login rate limit, signature snapshotting fix
+
+### Added
+- **Pino structured logging** as the default backend logger. Pretty-printed in dev, JSON in prod. `pino-http` middleware auto-logs every request with method/path/status/duration/requestId. `/health` is excluded to avoid log-stream noise.
+- **Sentry** on backend (DSN-gated by `SENTRY_DSN`). Each event tagged with the request ID. 10% trace sample rate.
+- **Login rate limit / lockout** via Redis (`lib/loginLockout.ts`). Per-email failure counter; configurable thresholds.
+- Business metrics endpoint for owner dashboard.
+
+### Changed
+- **Signatures no longer stored in the report snapshot.** Previously, `ReportVersion.signaturesSnapshot` JSON included full base64 signature image data, bloating row size. Now only the signing-doctor *reference* + filesystem path is snapshotted; rendering inlines the image at PDF time. Existing snapshots still work because `inlineSignatureImage()` accepts both shapes.
+- Result-entry: result rows are wider; presets and default value pre-fill empty fields.
 
 ### Fixed
-- Signature upload during doctor creation: previously the upload API required the doctor record to already exist (`editingDoctorId`). Signatures could only be uploaded on the edit form. Fixed by tracking `pendingSignatureFile` / `pendingSignaturePreview` in component state — the file is stored locally, and after the POST to create the doctor succeeds, the signature is uploaded automatically using the new `id`.
-
-### Changed
-- **Report layout:** Clinical note (interpretation text) moved out of `report-bottom-section` to render directly below the results table with a 25px top margin. This makes the note flow naturally with the results rather than floating at the bottom.
-- **Report layout:** `report-bottom-section` now contains only the "Authorized Signatory" label and signature images (right-aligned), followed by a thin horizontal divider, followed by the footer with 30px top padding.
-- Applies to both `report-screen.css` and `report-print.css`.
+- Several PDF rendering issues for external-upload pages.
 
 ---
 
-## [1.3.0] — 2026-02-15 — Report Text & Divider Cleanup
+## [1.7.0] — 2026-04-30 — External report uploads + merged PDF pipeline
+
+### Added
+- **`EXTERNAL_UPLOAD` workflow mode** for `TestOrder`. Lab can upload PDF files (e.g., outsourced reports from another diagnostic center) instead of entering numeric values.
+- New table `ExternalReportUpload` (R2-stored PDFs, soft-deleted via `deletedAt`).
+- `mergedReportPdfService` — appends external upload pages to the base report PDF using `pdf-lib`. Native PDF page concatenation without re-rendering through Puppeteer.
+- 7-day Redis cache (`mergedReportPdfCache.ts`) keyed by snapshot ID + branding version.
+- Parallel R2 fetches for multi-upload visits.
+- Puppeteer `domcontentloaded` wait (vs default `load`) — ~30% faster page renders without breaking signature inlining.
 
 ### Changed
-- Removed "END OF REPORT" text that appeared at the bottom of every report.
+- Report preview (`/preview-report`) now returns the merged PDF (not standalone HTML), so what staff preview matches what the patient downloads byte-for-byte.
+
+---
+
+## [1.6.0] — 2026-04-18 — Bill discounts, partial payments, due tracking
+
+### Added
+- `BillDiscountType` enum: `FLAT_AMOUNT` | `PERCENTAGE`.
+- `Bill.discountType`, `discountAmountInPaise`, `discountPercentage`, `discountReason`, `paidAmountInPaise`.
+- `PaymentTransaction` ledger: per-bill payment records (cash + online; multiple per bill).
+- New endpoint `POST /api/visits/diagnostic/:id/collect-due` — additive due collection.
+- Report finalization is now blocked while a due exists.
+- Add/remove-test flows recompute bill totals; removal is rejected if it would create overpayment.
+- Referral percentage payouts use the post-discount allocated amount; fixed payouts are unchanged.
+- Patient-facing UI: due warning + "Collect Due" affordance on Pending Results page.
+- Print outputs: bills now show subtotal, discount, net payable, paid, due.
+
+---
+
+## [1.5.0] — 2026-03-02 — Version creation fix + CORS
+
+### Fixed
+- `If-Match` header was missing from CORS `allowedHeaders`. Browser preflight blocked PUT / new-version requests; the failure mode was a silent "Failed to fetch" with no server log. Added `If-Match` to `allowedHeaders` in [`src/index.ts`](../health-hub-backend/src/index.ts).
+- `@@unique([code, isLatest])` on `TestDefinition` prevented creating v3+ of any test (both v1 and v2 have `isLatest=false` with the same code, violating the constraint). Replaced with `@@unique([rootDefinitionId, version])`. Migration `20260302000000`.
+- `clinicalDefinitionService.createNewVersion()` used `??` when copying fields, silently discarding intentional `null` resets (e.g., removing a formula). Replaced with a `pick()` helper.
+
+### Changed
+- `TestDefinition` unique constraint: `@@unique([code, isLatest])` → `@@unique([rootDefinitionId, version])`.
+
+---
+
+## [1.4.0] — 2026-02-28 — Report layout restructure + signature upload fix
+
+### Fixed
+- Signature upload on doctor creation: previously upload required the doctor record to exist (`editingDoctorId`). Signatures could only be added on edit. Fixed by tracking `pendingSignatureFile` / `pendingSignaturePreview` in component state — local until POST succeeds, then uploaded with the new doctor's `id`.
+
+### Changed
+- **Report layout:** Clinical interpretation moved out of `report-bottom-section` to render directly below the results table with a 25 px top margin.
+- **Report layout:** `report-bottom-section` now contains only the "Authorized Signatory" label and signature images (right-aligned), then a thin horizontal divider, then the footer with 30 px top padding. Applies to both `report-screen.css` and `report-print.css`.
+
+---
+
+## [1.3.0] — 2026-02-15 — Report text & divider cleanup
+
+### Changed
+- Removed "END OF REPORT" footer text.
 - Removed dotted divider lines between report sections.
-- Added standard medico-legal disclaimer line: _"This report should be interpreted in conjunction with clinical findings."_
+- Added the standard medico-legal disclaimer line: *"This report should be interpreted in conjunction with clinical findings."*
 - Authorized Signatory label added above signatures.
 
 ---
 
-## [1.2.0] — 2026-02-10 — Signature Inlining in PDFs
+## [1.2.0] — 2026-02-10 — Signature inlining
 
 ### Fixed
-- Doctor signature images were not appearing in PDFs downloaded by patients. Root cause: Puppeteer renders HTML in a sandboxed context without access to the server's filesystem, so `<img src="/uploads/signatures/xxx.png">` resolved to nothing. Fixed by reading the signature file from disk in `reportRendererService.inlineSignatureImage()` and converting it to a base64 data URI before passing HTML to Puppeteer.
+- Doctor signatures missing from patient-downloaded PDFs. Root cause: Puppeteer renders HTML in a sandbox without filesystem access, so `<img src="/uploads/signatures/xxx.png">` resolved to nothing. Fixed by `reportRendererService.inlineSignatureImage()` reading the file and inlining as a base64 data URI before Puppeteer sees it.
 
 ### Changed
-- `reportRendererService.renderReportHtml()` now inlines all signature images as base64 data URIs.
-- Report snapshots store the **filesystem path** to the signature image (not a URL), so the backend can always read the file at render time.
+- Snapshots store the **filesystem path** of the signature, not a URL — so the backend can always read it at render time.
 
 ---
 
-## [1.1.0] — 2026-01-30 — Digital vs Print PDF Modes
+## [1.1.0] — 2026-01-30 — Digital vs print PDF modes
 
 ### Added
 - Two PDF rendering modes:
-  - **Digital** (`emulateMediaType: 'screen'`): renders `report-screen.css`, includes colored header/footer in page content, uses 10mm margins on all sides.
-  - **Print / Physical** (no media override): renders `report-print.css`, assumes pre-printed letterhead, uses 32mm top margin and 15.5mm bottom margin.
-- Frontend toggle in `DiagnosticsReportPreview.tsx` lets staff select which PDF mode to download.
+  - **Digital** (`emulateMediaType: 'screen'`): renders `report-screen.css`; full Sobhana branding, 10 mm margins all around.
+  - **Print / Physical** (no media override): renders `report-print.css`; assumes pre-printed letterhead, 32 mm top / 15.5 mm bottom margins.
+- Frontend toggle in `DiagnosticsReportPreview.tsx`.
 
 ### Changed
-- `pdfGenerationService.generatePdf()` accepts an `options.pdfType` parameter: `'digital'` or `'print'`.
+- `pdfGenerationService.generatePdf()` accepts `options.pdfType: 'digital' | 'print'`.
 
 ---
 
-## [1.0.0] — 2026-01-20 — Initial Production Release
+## [1.0.0] — 2026-01-20 — Initial production release
 
 ### Added
 
-**Core Platform**
-- Multi-branch architecture: all data scoped to `Branch`. Staff can switch active branch.
-- Three user roles: `staff`, `doctor`, `owner`, each with different route access.
-- JWT authentication (HS256, 7-day expiry) with bcrypt password hashing.
-- Zustand-based auth and branch state management with localStorage persistence.
-- Append-only `AuditLog` model for all sensitive actions (login, finalize, edit).
+**Core platform**
+- Multi-branch architecture; all data scoped to `Branch`. Active-branch switcher.
+- Three user roles: `staff`, `doctor`, `owner`. Plus reserved `admin`.
+- JWT auth (HS256, 7-day expiry) + bcrypt.
+- Zustand auth + branch state, `localStorage`-persisted.
+- Append-only `AuditLog` for sensitive actions.
 
-**Patient Management**
-- Patient registration with phone, email, and Aadhaar identifiers.
-- Deduplication on registration: `patientMatchingService` warns when an existing patient with the same phone/email/Aadhaar is found.
-- Patient 360 view: full cross-branch visit history.
-- Global patient search across branches.
+**Patient management**
+- Multi-identifier registration (phone, email, Aadhaar, other).
+- Deduplication on registration via `patientMatchingService`.
+- Patient 360 cross-branch view; global patient search.
 
-**Diagnostic Workflow**
-- Create diagnostic visit: select products/tests, auto-generate bill.
-- Sequential bill numbering per branch via `numberService`.
-- Result entry: enter values for each ordered test, flag HIGH/LOW.
-- Age- and gender-specific reference ranges via `referenceRangeService`.
-- Formula-based derived parameters via `derivedParameterService` (mathematical expressions evaluated safely).
-- Report finalization: creates immutable `ReportSnapshot` JSON blob.
+**Diagnostic workflow**
+- Visit creation → product/test selection → auto bill.
+- Per-branch sequential bill numbers via `numberService`.
+- Result entry with HIGH/LOW/CRITICAL flagging.
+- Age- and gender-specific reference ranges.
+- Formula-based derived parameters (safe expression evaluator).
+- Report finalization → immutable snapshot.
 
-**Report System**
-- Immutable report snapshots: all report data (patient info, results, ranges, doctor details) captured at finalization and never changed.
-- Versioned test catalog: `TestDefinition` uses clone-on-write versioning — editing creates a new version, old version locked.
-- 12-character random base64url access tokens for public report delivery.
-- HTML report rendering with fully inlined base64 images.
-- PDF generation via Puppeteer singleton (stays warm between requests).
-- Public report URL: `GET /reports/:token` — no auth required.
+**Reports**
+- Versioned, finalize-once snapshots.
+- 12-character base64url access tokens (SHA-256 hashed in DB).
+- HTML rendering with all images base64-inlined.
+- Puppeteer PDF generation, singleton browser.
+- Public `/reports/:token` route, no auth.
 
-**WhatsApp Notifications**
-- On report finalization, patient receives a WhatsApp message with the public report link.
-- Fire-and-forget pattern — notification failure does not block finalization.
-- Opt-in required (checked before sending).
-- All delivery attempts logged to `MessageLog`.
+**WhatsApp**
+- Patient gets WhatsApp link on finalize.
+- Fire-and-forget — finalization never blocked by delivery failure.
+- Opt-in tracking; full delivery log in `MessageLog`.
 
 **Billing**
-- Bill auto-generated from test products selected at visit creation.
-- Bill snapshot captured at confirmation — immutable thereafter.
-- Multiple payment methods: CASH, CARD, UPI, CREDIT.
-- Payout calculation for referring doctors (commission per visit).
+- Auto-generated from product selection.
+- CASH / CARD / UPI / CREDIT.
+- Doctor commission per finalized visit.
 
-**Clinical Test Catalog (Owner)**
-- Full CRUD for `TestDefinition` with versioning.
-- Reference ranges: multiple per test, filterable by age range and gender.
-- Interpretation rules: auto-generated text based on result numeric ranges.
-- `ClinicalPanel` grouping of tests.
-- `BillableProduct` maps to panels for billing.
+**Catalog (owner)**
+- `TestDefinition` with clone-on-edit versioning.
+- Reference ranges by age/gender.
+- Interpretation rules for auto-text.
+- `ClinicalPanel` grouping; `BillableProduct` for billing.
 
-**Signing Doctors**
-- Add signing doctors with degrees, designation, registration number, and signature image.
-- `SigningRule` assigns a signing doctor to specific test panels or products.
-- Signatures appear on finalized reports.
+**Signing doctors**
+- Add doctors with degrees, designation, registration number, signature image.
+- `SigningRule` assigns a signing doctor to specific panels/products.
 
 **Deployment**
-- Backend: Render (Docker), `node:18-slim` + system Chromium.
-- Frontend: Vercel, SPA fallback via `vercel.json`.
-- Custom domain: `sobhanaportal.com` (frontend), `reports.sobhanaportal.com` (backend).
-- Automatic DB migrations on container start (`prisma migrate deploy`).
+- Backend: Render Docker (`node:20-slim` + system Chromium).
+- Frontend: Vercel + SPA fallback.
+- DB: Neon Postgres.
 
 ---
 
-## Migration Notes
+## How to add an entry
 
-### 1.5.0 — DB Migration Required
+When merging a PR:
 
-Migration `20260302000000` must be applied. It:
-1. Drops `@@unique([code, isLatest])` constraint from `TestDefinition`
-2. Adds `@@unique([rootDefinitionId, version])` constraint
-3. This migration is applied automatically on Render via `prisma migrate deploy` in the Dockerfile CMD
+1. Pick a section under `[Unreleased]` (`Added` / `Changed` / `Fixed` / `Deprecated` / `Removed` / `Security`).
+2. Write a sentence in the user-impact voice: *what* changed, *why it matters*. Not internal refactor noise.
+3. Add a **Migration notes** sub-bullet if the change requires action (env var, migration, manual data fix).
+4. At release time, promote `[Unreleased]` to a versioned section per [`RELEASE.md`](RELEASE.md).
 
-If applying manually to a local DB:
-```bash
-cd health-hub-backend
-npx prisma migrate deploy
-```
+Refactors that touch nothing user-visible go *only* in the commit log, not here.

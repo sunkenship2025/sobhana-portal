@@ -122,20 +122,15 @@ body.report-body {
 }
 
 .header-stripe-band {
-  height: 10px;
-  background: repeating-linear-gradient(
-    to bottom,
-    var(--color-primary) 0px,
-    var(--color-primary) 2px,
-    white 2px,
-    white 4px,
-    var(--color-primary) 4px,
-    var(--color-primary) 6px,
-    white 6px,
-    white 8px,
-    var(--color-primary) 8px,
-    var(--color-primary) 10px
-  );
+  height: 13px;
+  background-color: white;
+  background-image:
+    linear-gradient(var(--color-primary), var(--color-primary)),
+    linear-gradient(var(--color-primary), var(--color-primary)),
+    linear-gradient(var(--color-primary), var(--color-primary));
+  background-size: 100% 3px;
+  background-position: 0 0, 0 5px, 0 10px;
+  background-repeat: no-repeat;
   margin: 0;
 }
 

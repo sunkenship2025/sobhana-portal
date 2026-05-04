@@ -33,18 +33,32 @@ import NotFound from "./pages/NotFound";
 const queryClient = new QueryClient();
 
 function AppRoutes() {
-  const { isAuthenticated, user, checkTokenExpiration } = useAuthStore();
+  const {
+    isAuthenticated,
+    user,
+    token,
+    isHydrating,
+    checkTokenExpiration,
+    hydrateFromCookie,
+  } = useAuthStore();
+
+  // On app boot, restore the in-memory token from the httpOnly cookie if the
+  // persisted state says we were logged in. The token isn't stored in
+  // localStorage anymore (XSS hardening), so a page refresh leaves the
+  // user/isAuthenticated flags but no token; /api/auth/me re-issues it from
+  // the cookie if it's still valid.
+  useEffect(() => {
+    if (isAuthenticated && !token && !isHydrating) {
+      void hydrateFromCookie();
+    }
+  }, [isAuthenticated, token, isHydrating, hydrateFromCookie]);
 
   // Check token expiration on app load and periodically
   useEffect(() => {
-    // Check immediately on load
     checkTokenExpiration();
-    
-    // Check every 60 seconds
     const interval = setInterval(() => {
       checkTokenExpiration();
     }, 60000);
-    
     return () => clearInterval(interval);
   }, [checkTokenExpiration]);
 

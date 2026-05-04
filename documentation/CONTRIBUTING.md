@@ -1,355 +1,364 @@
-# Contributing Guide — Sobhana Health Hub
+# Contributing
 
-Welcome. This document explains how the codebase is structured, what conventions to follow, and how to add new features correctly.
+How the codebase is structured, what conventions to follow, and how to make a change land cleanly.
 
----
-
-## Table of Contents
-
-1. [Getting Your Environment Running](#1-getting-your-environment-running)
-2. [Codebase Tour](#2-codebase-tour)
-3. [Coding Conventions](#3-coding-conventions)
-4. [Adding a New Feature — Walkthrough](#4-adding-a-new-feature--walkthrough)
-5. [Database Changes](#5-database-changes)
-6. [Common Pitfalls](#6-common-pitfalls)
-7. [Commit & Branch Workflow](#7-commit--branch-workflow)
+For setup instructions: [`README.md`](../README.md). For architectural context: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ---
 
-## 1. Getting Your Environment Running
+## Contents
 
-Follow the README for full setup. Quick summary:
+1. [Local environment](#1-local-environment)
+2. [Codebase layout](#2-codebase-layout)
+3. [Coding conventions](#3-coding-conventions)
+4. [Making a change end-to-end](#4-making-a-change-end-to-end)
+5. [Database changes](#5-database-changes)
+6. [Common pitfalls](#6-common-pitfalls)
+7. [Commit and PR workflow](#7-commit-and-pr-workflow)
+8. [Things we do *not* have yet](#8-things-we-do-not-have-yet)
+
+---
+
+## 1. Local environment
+
+Quick start (full instructions in [`README.md`](../README.md)):
 
 ```bash
 # Backend
 cd health-hub-backend
 npm install
-cp .env.example .env   # Fill in DATABASE_URL and JWT_SECRET
-npx prisma migrate dev
-npm run dev             # http://localhost:3000
+# create .env from the README's env-var table
+npx prisma migrate deploy
+npm run db:seed && npm run seed:catalog   # optional demo data
+npm run dev                                # → http://localhost:10000
 
 # Frontend (new terminal)
 cd health-hub
 npm install
-npm run dev             # http://localhost:5173
+npm run dev                                # → http://localhost:8080
 ```
 
-Essential: set `VITE_API_BASE_URL=http://localhost:3000` in `health-hub/.env.local`.
+Frontend points at backend via `VITE_API_BASE_URL` (defaults to `http://localhost:3000` so set it for our `10000` port).
 
 ---
 
-## 2. Codebase Tour
+## 2. Codebase layout
 
-### Backend: Where things live
+### Backend
 
 ```
 health-hub-backend/src/
-├── index.ts               ← START HERE — wires everything together
-├── lib/prisma.ts          ← the ONE PrismaClient instance
+├── index.ts                ← start here — wires middleware + routes + warms Puppeteer
+├── lib/
+│   ├── prisma.ts           ← THE singleton PrismaClient
+│   ├── redis.ts            ← optional Redis client
+│   ├── logger.ts           ← Pino instance
+│   ├── sentry.ts           ← Sentry init
+│   ├── healthChecks.ts     ← /health probe logic
+│   └── loginLockout.ts     ← per-email lockout via Redis
 ├── middleware/
-│   ├── auth.ts            ← JWT → req.user
-│   ├── branch.ts          ← X-Branch-Id header → req.branchId
-│   └── rbac.ts            ← requireRole() factory
-├── routes/                ← HTTP interface only; no business logic
-│   └── <resource>.ts      ← One file per REST resource
-├── services/              ← ALL business logic lives here
+│   ├── auth.ts             ← JWT → req.user
+│   ├── branch.ts           ← X-Branch-Id → req.branchId
+│   ├── rbac.ts             ← requireRole(...)
+│   ├── rateLimit.ts        ← Redis-backed rate limit
+│   └── requestId.ts        ← X-Request-Id propagation
+├── routes/                 ← thin HTTP layer — no business logic
+│   └── <resource>.ts
+├── services/               ← all business logic
 │   └── <feature>Service.ts
 └── utils/
-    ├── errors.ts          ← Custom Error subclasses
-    └── validation.ts      ← Reusable input validators
+    ├── errors.ts           ← ValidationError, NotFoundError, etc.
+    ├── validation.ts       ← shared input validators
+    └── clinicalValidation.ts
 ```
 
-**Rule**: Route files call service functions. Route files do not contain business logic.
+**Rule.** Routes call services. Routes do not call Prisma directly except for trivial lookups. Services do not import from `routes/`.
 
-### Frontend: Where things live
+### Frontend
 
 ```
 health-hub/src/
-├── App.tsx                ← All routes defined here
-├── lib/api.ts             ← API_BASE_URL — only place to define the backend URL
-├── store/                 ← Zustand: authStore, branchStore, appStore
-├── hooks/                 ← Custom hooks (use-mobile, use-toast)
+├── App.tsx                 ← React Router routes + global providers
+├── main.tsx                ← entry
+├── lib/
+│   ├── api.ts              ← API_BASE constant (only place to set the backend URL)
+│   ├── validation.ts       ← form validators
+│   ├── richText.ts         ← sanitize / normalize HTML for narrative reports
+│   ├── formulaUtils.ts     ← derived-parameter evaluator
+│   └── reportAccess.ts     ← open / download / print finalized reports
+├── store/                  ← Zustand: authStore, branchStore, appStore
+├── hooks/                  ← use-mobile, use-toast (sparse — most pages inline state)
 ├── components/
-│   ├── layout/            ← AppLayout, Sidebar, TopNav, ProtectedRoute
-│   └── ui/                ← Shadcn components (do not edit these directly)
-├── pages/                 ← One file per page/view
+│   ├── ui/                 ← shadcn primitives — DO NOT EDIT
+│   ├── layout/             ← AppLayout, Sidebar, ProtectedRoute
+│   ├── diagnostics/        ← TestValueCombobox, RichTextNarrativeEditor, PdfPreview, …
+│   ├── print/              ← BillReceipt, ClinicPrescriptionPrint
+│   └── patient360/
+├── pages/                  ← one file per page; many >800 LOC (god files — see ADR-014)
 │   ├── diagnostics/
 │   ├── clinic/
 │   ├── owner/
-│   └── doctor/
-└── types/                 ← TypeScript interfaces shared across pages
+│   ├── doctor/
+│   └── legal/              ← Privacy, ToS, Data Deletion
+└── types/index.ts          ← shared TS interfaces (currently duplicated with Prisma — drift risk)
 ```
 
-**Rule**: Business logic stays in services (backend). Pages and components should only call APIs and render responses.
+**Rule.** Pages do not contain business logic — they orchestrate hooks/components and call APIs. New domain-level UI belongs in `components/<domain>/`, not inlined in a page file.
 
 ---
 
-## 3. Coding Conventions
+## 3. Coding conventions
 
 ### TypeScript
 
-- **Strict mode is on** (`"strict": true` in both `tsconfig.json`s).
-- Never use `any`. Use `unknown` if you don't know the type and narrow it.
-- For API response types: define them in `health-hub/src/types/` and import from there.
+- **Strict mode is on** in both packages' `tsconfig.json`. Never reach for `any` — use `unknown` and narrow.
+- Type API responses in `health-hub/src/types/index.ts` and import from there.
+- Backend uses Prisma-generated types (`@prisma/client`) directly for DB models. Frontend redeclares them — this is current technical debt; if you change a DB shape, update both sides.
 
 ### Naming
 
 | What | Convention | Example |
-|------|-----------|---------|
-| React component files | PascalCase | `PatientCard.tsx` |
-| Service/util files | camelCase | `reportSnapshotService.ts` |
-| React components | PascalCase | `function PatientCard(...)` |
-| Functions | camelCase | `async function createSnapshot(...)` |
-| Variables | camelCase | `const branchId = req.branchId` |
-| Constants | UPPER_SNAKE_CASE | `const MAX_RANGE_OVERLAP = 0` |
-| DB model fields | camelCase (Prisma default) | `createdAt`, `branchId` |
-| CSS class names | kebab-case | `.report-bottom-section` |
+|---|---|---|
+| React component file | PascalCase | `PatientCard.tsx` |
+| Service/util file | camelCase | `reportSnapshotService.ts` |
+| React component | PascalCase | `function PatientCard() {}` |
+| Function | camelCase | `async function createSnapshot() {}` |
+| Variable | camelCase | `const branchId = req.branchId` |
+| Constant | UPPER_SNAKE_CASE | `const MAX_RANGE_OVERLAP = 0` |
+| Prisma model field | camelCase | `createdAt`, `branchId` |
+| CSS class | kebab-case | `.report-bottom-section` |
 
-### File Organization
+### File layout
 
-- One React component per file (except tiny sub-components used only within one file).
-- One service export per service file (though multiple functions are fine in one service file).
-- Route files are named after the resource in plural: `patients.ts`, `signingDoctors.ts`.
+- One React component per file (small inline sub-components are OK).
+- One service module per file. Multiple exports inside one file are fine — group by feature.
+- Route files are plural-resource named: `patients.ts`, `signingDoctors.ts`, `clinicalDefinitions.ts`.
 
-### Error Handling
+### Errors
 
-**Backend:**
-- Throw `ValidationError`, `NotFoundError`, or standard `Error` from services.
-- Route handlers wrap service calls in `try/catch` and return appropriate HTTP status codes.
-- Never let an unhandled promise rejection crash the server — always `.catch(console.error)` on fire-and-forget calls.
+**Backend.** Throw `ValidationError`, `NotFoundError`, `ConflictError`, `UnauthorizedError`, `ForbiddenError`, or `InternalError` from [`utils/errors.ts`](../health-hub-backend/src/utils/errors.ts). The global error handler in `index.ts` translates them to JSON. **Never `res.status(500).json(...)` in a route handler** — throw and let the handler do it. Keeps shape consistent, attaches `requestId`, reports to Sentry.
 
-**Frontend:**
-- React Query surfaces errors automatically; display them with a toast using `useToast()`.
-- For mutations, use the `onError` callback in `useMutation`: `onError: (err) => toast({ title: 'Error', description: err.message })`.
+```ts
+if (!visit) throw new NotFoundError('Visit not found');
+if (alreadyFinalized) throw new ConflictError('Cannot edit a finalized report');
+```
+
+**Frontend.** Surface errors via `toast.error(...)` from `sonner`. Don't let UI crash — wrap risky renders with an `ErrorBoundary` once we add one (current gap).
 
 ### Comments
 
-Write comments that explain **why**, not **what**. The code already says what — explain the reasoning:
+Explain *why*, not *what*. Code already says what.
 
-```typescript
-// BAD:
-// increment version number
-const newVersion = currentVersion + 1;
+```ts
+// BAD
+// increment version
+const next = current + 1;
 
-// GOOD:
-// Version numbers are 1-based and strictly increasing per rootDefinitionId.
-// We cannot reuse a version number even after deletion (would confuse audit logs).
-const newVersion = currentVersion + 1;
+// GOOD
+// Version numbers are 1-based, strictly increasing per rootDefinitionId.
+// We never reuse a version even after a soft-delete — would confuse audit logs.
+const next = current + 1;
 ```
 
-For public service functions, write a JSDoc block:
+JSDoc on exported service functions:
 
-```typescript
+```ts
 /**
- * Creates a new immutable version of a TestDefinition.
+ * Clones a TestDefinition into a new ACTIVE version, locking the prior version.
+ * Reference ranges and interpretation rules are copied to the new row.
  *
- * The existing version is locked (status → INACTIVE) and cannot be edited again.
- * All reference ranges and interpretation rules are copied to the new version.
- *
- * @param id - The ID of the currently ACTIVE TestDefinition to version
- * @param data - The new field values for the version; null values are intentional resets
- * @param currentUpdatedAt - The expectedUpdatedAt for optimistic concurrency check
- * @returns The newly created TestDefinition (next version)
- * @throws ValidationError if the definition is not currently ACTIVE
- * @throws ConflictError if another update has occurred since currentUpdatedAt
+ * @throws ConflictError if If-Match doesn't match current updatedAt
+ * @throws ValidationError if the definition's status doesn't allow new versions
  */
-async function createNewVersion(id: string, data: UpdatePayload, currentUpdatedAt: Date) { ... }
+export async function createNewVersion(rootId: string, data: UpdatePayload, ifMatch: string) { … }
 ```
 
-### Branch Isolation — Critical Convention
+### The branch-isolation rule
 
-Every Prisma query in every service MUST include `branchId: req.branchId` (or equivalent) in the `where` clause. Missing this causes data leakage between branches. Example:
+Every Prisma query for branch-scoped data **must** include `branchId` in the `where` clause:
 
-```typescript
-// CORRECT:
-const patient = await prisma.patient.findFirst({
-  where: { id: patientId, branchId: req.branchId }
-});
+```ts
+// CORRECT
+await prisma.patient.findFirst({ where: { id, branchId: req.branchId } });
 
-// DANGEROUS (leaks data from other branches):
-const patient = await prisma.patient.findFirst({
-  where: { id: patientId }
-});
+// LEAKS DATA across branches
+await prisma.patient.findFirst({ where: { id } });
 ```
+
+This is enforced by convention, not by the database. One missed filter = a cross-branch data leak.
+
+### Money
+
+All amounts live as **integer paise** (`Int` in Prisma), never as float. Use the helpers in `lib/referralPayouts.ts` to format for display. Never do float arithmetic on money.
+
+### Time
+
+Stored as `DateTime` (UTC) by Postgres. Display in `BUSINESS_TIME_ZONE` (default `Asia/Kolkata`). Use the formatters in [`reportRendererService`](../health-hub-backend/src/services/reportRendererService.ts) — don't reimplement.
 
 ---
 
-## 4. Adding a New Feature — Walkthrough
+## 4. Making a change end-to-end
 
-Example: Adding a "referral source" tracking field to diagnostic visits.
+Walkthrough: adding a `referralSource` field to diagnostic visits.
 
-### Step 1: Update the Prisma schema
+### 4.1 Schema
 
-In `health-hub-backend/prisma/schema.prisma`, add the field:
+In [`prisma/schema.prisma`](../health-hub-backend/prisma/schema.prisma):
 
 ```prisma
-model DiagnosticVisit {
-  ...
-  referralSource String? // ← new field (nullable is usually safer for existing rows)
+model Visit {
+  …
+  referralSource String?    // nullable so existing rows are valid
 }
 ```
 
-### Step 2: Create and apply the migration
+### 4.2 Migration
 
 ```bash
 cd health-hub-backend
-npx prisma migrate dev --name add-referral-source-to-diagnostic-visit
+npx prisma migrate dev --name add_referral_source_to_visit
 ```
 
-This generates a migration file in `prisma/migrations/`. Commit this file.
+If migrate-dev fails on the shadow DB (a known Neon issue we've hit before), create the migration SQL by hand under `prisma/migrations/<timestamp>_add_referral_source_to_visit/migration.sql` and apply with `npx prisma migrate deploy`. Then `npx prisma generate`. Commit the migration directory.
 
-### Step 3: Add the backend service logic
+### 4.3 Service
 
-Create or update the relevant service. For a simple field, the update may just be adding it to the `prisma.diagnosticVisit.create({ data: { ...input } })` call.
+Add the field to whichever service writes to `Visit`. Validate at the entry point.
 
-### Step 4: Add the route
+### 4.4 Route
 
-In `src/routes/diagnosticVisits.ts`, accept the new field in the POST body:
+In [`routes/diagnosticVisits.ts`](../health-hub-backend/src/routes/diagnosticVisits.ts), accept the field on `POST /` (and any update endpoint), validate, pass to the service.
 
-```typescript
-const { referralSource } = req.body; // add to destructuring
-```
+### 4.5 Frontend type
 
-Pass it to the service call.
+In [`health-hub/src/types/index.ts`](../health-hub/src/types/index.ts) extend the `Visit` interface. Until we have shared types this stays manual.
 
-### Step 5: Add the TypeScript type to the frontend
+### 4.6 UI
 
-In `health-hub/src/types/`, update or add the interface:
+Add the input to `DiagnosticsNewVisit.tsx` (or the relevant page). Include in the mutation payload.
 
-```typescript
-interface DiagnosticVisit {
-  ...
-  referralSource?: string;
-}
-```
+### 4.7 Verify
 
-### Step 6: Update the form/page
-
-In the relevant page (`DiagnosticsNewVisit.tsx`), add the input field and include it in the mutation payload.
-
-### Step 7: Test end-to-end
-
-1. Create a diagnostic visit with a referral source via the UI
-2. Check the DB has the value: `npx prisma studio`
-3. Verify the value appears in the visit detail response
+- Backend typecheck: `npm run type-check` in `health-hub-backend`.
+- Frontend typecheck: `npx tsc --noEmit` in `health-hub`.
+- Manual: create a visit with the new field set, hit the GET endpoint, inspect the response.
+- DB sanity: `npm run db:studio` → check the row has the value.
 
 ---
 
-## 5. Database Changes
+## 5. Database changes
 
 ### Do
-
-- Always create a migration with `npx prisma migrate dev --name <description>`
-- Commit the generated migration file in `prisma/migrations/`
-- Make new fields nullable if they will be added to existing rows (otherwise migration fails on non-empty DB)
-- Run `npx prisma generate` if you change `schema.prisma` in a way that affects the Prisma client types
+- Always create a migration file. Always commit it.
+- Make new columns nullable when added to a populated table (otherwise migration fails).
+- Run `npx prisma generate` after schema edits.
+- For renames or destructive changes use a multi-step migration: add new column → backfill → switch reads → switch writes → drop old column. Spread across multiple deploys.
 
 ### Don't
+- Don't run `npx prisma migrate reset` on anything that isn't your local dev DB. It drops everything.
+- Don't edit a migration file after it has been applied anywhere. Write a new corrective migration instead.
+- Don't change `@@unique` constraints on a populated table without a planned data migration.
 
-- Never run `npx prisma migrate reset` in production — it drops all data
-- Never edit existing migration files — create a new corrective migration instead
-- Never modify `@@unique` or `@id` constraints on live tables without a carefully planned migration (may require data backfill)
-
-### Seeding
-
-If your feature needs default data, add it to the appropriate seed file in `prisma/`. Run:
-
-```bash
-npx tsx prisma/seed-full-catalog.ts
-```
+For real production migrations, follow [`runbooks/database-migrations.md`](runbooks/database-migrations.md).
 
 ---
 
-## 6. Common Pitfalls
+## 6. Common pitfalls
 
 ### "Failed to fetch" from the frontend
+Almost always CORS. Check, in order:
+1. Backend running? `curl http://localhost:10000/health`
+2. `VITE_API_BASE_URL` correctly pointed at the backend?
+3. Header you're sending listed in `allowedHeaders` in [`src/index.ts`](../health-hub-backend/src/index.ts)?
 
-Usually a CORS issue. Check:
-1. Is the header you're sending listed in `allowedHeaders` in `health-hub-backend/src/index.ts`?
-2. Is the frontend `VITE_API_BASE_URL` correct?
-3. Is the backend running?
+### Branch context missing in a new route
+If `req.branchId` is undefined inside your route handler, you forgot to mount the route after `branchContextMiddleware` in `index.ts`. All public routes (`/reports/:token`, `/webhooks/whatsapp`) are deliberately mounted *before* it.
 
-### Prisma unique constraint errors on version creation
+### Prisma client doesn't know about your new model
+Run `npx prisma generate`. The IDE TypeScript server may also cache the old client — restart the TS server after a generate.
 
-The `TestDefinition` model has `@@unique([rootDefinitionId, version])`. You cannot insert two records with the same `rootDefinitionId` and `version`. This constraint replaced an older `@@unique([code, isLatest])` (migration `20260302000000`). If you see constraint violations creating versions, ensure `createNewVersion` increments the version number correctly.
+### Migration fails on shadow DB but works in prod
+Known issue with Neon + Prisma's `migrate dev`. Workaround: write the migration SQL by hand and use `migrate deploy`. See ADR-013 in [`DECISIONS.md`](DECISIONS.md).
 
-### Report snapshot missing signature
+### React Query showing stale data after a mutation
+We're not using react-query consistently yet — most pages refetch via `useEffect`. If you do reach for react-query, remember to invalidate the relevant query key after a mutation.
 
-If a newly added signing doctor's signature is not appearing in PDFs:
-1. Check the signature file exists in the upload directory on the server
-2. Check `reportRendererService.inlineSignatureImage()` — it reads the file path from the snapshot and converts to base64. If the path is wrong or the file is missing, it logs a warning and renders without the signature.
-3. In dev: signature files are served from `health-hub-backend/public/uploads/signatures/`
+### Signature missing in PDF
+`reportRendererService.inlineSignatureImage()` reads the signature path from the snapshot and converts to base64 before the HTML hits Puppeteer. If the file is gone from disk / R2, the PDF renders without the signature and a warning is logged. Check storage.
 
-### React Query stale data after mutation
-
-After a mutation, you must invalidate the relevant query:
-
-```typescript
-await queryClient.invalidateQueries({ queryKey: ['visits', branchId] });
-```
-
-If you forget this, the UI shows stale data until the user refreshes.
-
-### Branch context missing
-
-If you write a new route that should be branch-scoped but forget to register it after `authenticateToken` and `attachBranchContext` middleware in `index.ts`, `req.branchId` will be undefined and all DB queries will silently return cross-branch data or error.
-
-Check: is the route mounted inside the section of `index.ts` that applies both middleware?
-
-### TypeScript path aliases
-
-The backend uses relative imports. The frontend uses the `@/` alias (mapped to `src/`). Example:
-
-```typescript
-// Frontend — correct:
-import { Button } from '@/components/ui/button';
-
-// Frontend — also works but less clean:
-import { Button } from '../../components/ui/button';
-```
+### TypeScript `@/` alias
+Frontend uses `@/` mapped to `src/`. Use `import { Button } from '@/components/ui/button'` over relative imports.
 
 ---
 
-## 7. Commit & Branch Workflow
+## 7. Commit and PR workflow
 
-### Branch naming
+### Branches
 
-```
-feature/short-description     ← new functionality
-fix/short-description         ← bug fix
-chore/short-description       ← maintenance (deps, refactor, docs)
-hotfix/short-description      ← urgently needed fix on main
-```
-
-### Commit message format
+We're loose with branch naming today. The conventions we'd like to see going forward:
 
 ```
-<type>: <short description>
-
-<optional body: what and why, not how>
+feat/<short-description>      ← new functionality
+fix/<short-description>       ← bug fix
+chore/<short-description>     ← deps, refactor, docs
+hotfix/<short-description>    ← urgent prod fix
 ```
 
-Types: `feat`, `fix`, `chore`, `docs`, `refactor`, `style`
+### Commits
 
-Examples:
+Conventional Commits style is preferred but not enforced (no commit-lint hook yet).
+
 ```
-feat: add referral source field to diagnostic visits
-fix: include If-Match in CORS allowed headers
-chore: update Prisma to 5.x
-docs: add ARCHITECTURE.md
-refactor: extract referenceRangeService from resultEntryService
+<type>(<scope>): <short description>
+
+<body — what changed and *why*; not *how* (the diff shows how)>
 ```
 
-### Before pushing
+Types: `feat`, `fix`, `chore`, `docs`, `refactor`, `perf`, `style`, `test`, `build`, `ci`.
+
+Bad: `redid the bill fix`, `fixes`, `wip`. (Yes, our git log has these. Aim higher.)
+Good: `fix(diagnostics): include If-Match header in CORS allowlist for new-version endpoint`
+
+### Pre-push checks
 
 ```bash
 # Backend
 cd health-hub-backend
-npm run build    # must succeed with zero TypeScript errors
+npm run type-check        # tsc --noEmit, must pass
+npm run lint              # eslint, should pass
+npm run build             # tsc, must pass
 
 # Frontend
 cd health-hub
-npm run build    # must succeed
+npx tsc --noEmit          # must pass
+npm run build             # vite build, must pass
+npm run lint              # should pass
 ```
 
-Do not push code that fails to compile.
+Open a PR using the [PR template](../.github/pull_request_template.md). Self-review the diff before requesting review.
+
+### What "done" means
+
+- Typecheck + build pass on both packages
+- Manual smoke test of the affected flow
+- Any new env var documented in `README.md`
+- Any new ADR-worthy decision recorded in `DECISIONS.md`
+- Any migration committed alongside the schema change
+
+---
+
+## 8. Things we do *not* have yet
+
+So you don't waste time looking:
+
+- **Automated tests** (Vitest/Jest, Playwright, etc.) — see [`TESTING.md`](TESTING.md) for the plan
+- **CI pipeline** (`.github/workflows/`) — none currently
+- **Branch protection on `main`** — direct commits visible in history
+- **Pre-commit hooks** (husky / lefthook / lint-staged) — none
+- **Renovate / Dependabot** — not configured
+- **Codecov / coverage gates** — none
+- **Storybook** — none
+- **Generated API client / OpenAPI spec** — none
+- **react-query usage** — installed, not used. Same for react-hook-form + zod.
+
+Each of these is a worthwhile addition — see [`DECISIONS.md`](DECISIONS.md) for the long-term direction.
