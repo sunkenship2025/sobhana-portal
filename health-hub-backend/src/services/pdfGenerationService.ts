@@ -130,8 +130,30 @@ const PHYSICAL_PDF_OPTIONS: PDFOptions = {
 };
 
 /**
+ * Digital footer is drawn by Puppeteer on every page so it can never be
+ * pushed off-page by content overflow. Inline styles only — Puppeteer's
+ * footer template is rendered in an isolated context and ignores document CSS.
+ * Default font-size in that context is ~0; explicit pt values are required.
+ */
+const DIGITAL_FOOTER_TEMPLATE = `
+<div style="font-family: Helvetica, Arial, sans-serif; width: 100%; color: #333; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
+  <div style="height: 2px; background: #cc2222; width: 100%;"></div>
+  <div style="display: flex; justify-content: space-between; padding: 4px 24px 0 24px; box-sizing: border-box;">
+    <div style="max-width: 50%;">
+      <div style="font-weight: bold; font-size: 7pt; margin-bottom: 1px;">Note : This report is subject to the terms and conditions overleaf.</div>
+      <div style="font-weight: bold; text-transform: uppercase; font-size: 6.5pt;">Partial reproduction of this report is not permitted.</div>
+    </div>
+    <div style="text-align: right; max-width: 50%;">
+      <div style="font-weight: 500; font-size: 7pt; margin-bottom: 1px;">Balanagar : # 3-67, Sobhana Complex, Balanagar, Hyderabad-500042.</div>
+      <div style="font-weight: 600; font-size: 7.5pt;">Ph : 040-2377 2929, 4016 3301</div>
+    </div>
+  </div>
+</div>`;
+
+/**
  * PDF options for digital-first PDFs.
- * Header and footer are rendered inside the HTML so preview and download match.
+ * Header is drawn inline; footer is drawn by Puppeteer at every page bottom
+ * (margin.bottom reserves the space) so content overflow can't orphan it.
  */
 const DIGITAL_PDF_OPTIONS: PDFOptions = {
   format: 'A4',
@@ -139,11 +161,13 @@ const DIGITAL_PDF_OPTIONS: PDFOptions = {
   preferCSSPageSize: false,
   margin: {
     top: '0',
-    bottom: '0',
+    bottom: '12mm',
     left: '0',
     right: '0',
   },
-  displayHeaderFooter: false,
+  displayHeaderFooter: true,
+  headerTemplate: '<div></div>',
+  footerTemplate: DIGITAL_FOOTER_TEMPLATE,
 };
 
 export interface PdfGenerationOptions {
