@@ -1046,11 +1046,16 @@ function buildPanelsAndDepartments(
     const shouldShowInterp = panel.showInterpretation === true
       || panel.layoutType === 'INTERPRETATION_SINGLE'; // legacy compat
     if (shouldShowInterp) {
-      const interpretations = results
-        .filter((r: any) => r.interpretationText)
-        .map((r: any) => r.interpretationText);
-      if (interpretations.length > 0) {
-        interpretationHtml = interpretations.join('\n\n');
+      const panelTemplate = panel.summaryInterpretationTemplate?.trim();
+      if (panelTemplate) {
+        interpretationHtml = panelTemplate;
+      } else {
+        const interpretations = results
+          .filter((r: any) => r.interpretationText)
+          .map((r: any) => r.interpretationText);
+        if (interpretations.length > 0) {
+          interpretationHtml = interpretations.join('\n\n');
+        }
       }
     }
 
