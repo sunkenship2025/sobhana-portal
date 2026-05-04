@@ -858,6 +858,19 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
             min-height: 297mm;
           }
           body.report-body { background: white; padding: 0; }
+          /* digital-PDF compaction — whitespace + auxiliary text only.
+             Body font-size and line-height unchanged. Targets ~52mm savings
+             so a worst-case Hemogram (measured 344mm) fits in 297mm A4. */
+          .results-table td { padding: 2pt 8pt 2pt; }
+          .results-table th { padding: 3pt 8pt; }
+          .test-method, .panel-method { font-size: 7pt; line-height: 1.15; }
+          .panel { margin-bottom: 6px; }
+          .patient-info { margin-bottom: 4px; padding: 5px 12px; }
+          .department { margin-bottom: 6px; }
+          .smear-section { margin-top: 4px; margin-bottom: 4px; padding: 3px 10px; }
+          .report-note { margin-top: 6px; }
+          .footer { padding-top: 8px; }
+          .signatures-section { gap: 16px; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }`,
         bodyClass: 'screen-mode',
       };
@@ -884,7 +897,9 @@ function renderHeaderHtml(baseUrl: string, qrImgSrc: string): string {
         </div>
         ` : ''}
       </div>
-      <div class="header-stripe-band"></div>
+      <div class="header-stripe-band">
+        <div></div><div></div><div></div>
+      </div>
       <div class="report-badge-row">
         <span class="report-badge">REPORT</span>
       </div>
