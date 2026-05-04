@@ -123,15 +123,15 @@ body.report-body {
 
 .header-stripe-band {
   height: 13px;
-  background-color: white;
-  background-image:
-    linear-gradient(var(--color-primary), var(--color-primary)),
-    linear-gradient(var(--color-primary), var(--color-primary)),
-    linear-gradient(var(--color-primary), var(--color-primary));
-  background-size: 100% 3px;
-  background-position: 0 0, 0 5px, 0 10px;
-  background-repeat: no-repeat;
+  background: white;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
   margin: 0;
+}
+.header-stripe-band > div {
+  height: 3px;
+  background: var(--color-primary);
 }
 
 .report-badge-row {
