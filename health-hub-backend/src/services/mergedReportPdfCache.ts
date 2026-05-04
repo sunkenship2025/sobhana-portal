@@ -23,31 +23,35 @@ const KEY_PREFIX = 'merged-pdf:v2:';
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 const CACHE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — skip outliers so they don't flush LRU
 
-function buildKey(reportVersionId: string): string {
-  return `${KEY_PREFIX}${reportVersionId}`;
+export type MergedPdfMode = 'digital' | 'physical';
+
+function buildKey(reportVersionId: string, mode: MergedPdfMode): string {
+  return `${KEY_PREFIX}${mode}:${reportVersionId}`;
 }
 
 export async function getCachedMergedPdf(
   reportVersionId: string,
+  mode: MergedPdfMode,
 ): Promise<Buffer | null> {
   const client = getRedisClient();
   if (!client) return null;
 
   try {
-    return await client.getBuffer(buildKey(reportVersionId));
+    return await client.getBuffer(buildKey(reportVersionId, mode));
   } catch (err: any) {
-    logger.warn({ err, reportVersionId }, 'merged-pdf cache: get failed (falling through to regenerate)');
+    logger.warn({ err, reportVersionId, mode }, 'merged-pdf cache: get failed (falling through to regenerate)');
     return null;
   }
 }
 
 export async function setCachedMergedPdf(
   reportVersionId: string,
+  mode: MergedPdfMode,
   buffer: Buffer,
 ): Promise<void> {
   if (buffer.length > CACHE_MAX_BYTES) {
     logger.warn(
-      { reportVersionId, sizeBytes: buffer.length, capBytes: CACHE_MAX_BYTES },
+      { reportVersionId, mode, sizeBytes: buffer.length, capBytes: CACHE_MAX_BYTES },
       'merged-pdf cache: skipping write, buffer exceeds size cap',
     );
     return;
@@ -57,8 +61,8 @@ export async function setCachedMergedPdf(
   if (!client) return;
 
   try {
-    await client.set(buildKey(reportVersionId), buffer, 'EX', TTL_SECONDS);
+    await client.set(buildKey(reportVersionId, mode), buffer, 'EX', TTL_SECONDS);
   } catch (err: any) {
-    logger.warn({ err, reportVersionId }, 'merged-pdf cache: set failed');
+    logger.warn({ err, reportVersionId, mode }, 'merged-pdf cache: set failed');
   }
 }
