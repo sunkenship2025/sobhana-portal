@@ -114,7 +114,7 @@ export async function generateMergedReportPdf(
   const { mode, baseUrl, qrDataUrl, cache = false } = options;
 
   if (cache) {
-    const hit = await getCachedMergedPdf(snapshot.reportVersionId).catch(() => null);
+    const hit = await getCachedMergedPdf(snapshot.reportVersionId, mode).catch(() => null);
     if (hit) return hit;
   }
 
@@ -138,7 +138,7 @@ export async function generateMergedReportPdf(
 
     if (uploads.length === 0) {
       if (cache) {
-        void setCachedMergedPdf(snapshot.reportVersionId, basePdf);
+        void setCachedMergedPdf(snapshot.reportVersionId, mode, basePdf);
       }
       return basePdf;
     }
@@ -213,7 +213,7 @@ async function mergeUploadsIntoBase(
   const out = Buffer.from(await merged.save());
 
   if (cache) {
-    void setCachedMergedPdf(snapshot.reportVersionId, out);
+    void setCachedMergedPdf(snapshot.reportVersionId, mode, out);
   }
 
   return out;
