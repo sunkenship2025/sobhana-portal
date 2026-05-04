@@ -1,0 +1,33 @@
+# CODEOWNERS for the Sobhana Portal monorepo
+#
+# Lines later in this file take precedence — most specific patterns last.
+# GitHub auto-requests review from the listed owner(s) when files match.
+#
+# Update <github-handle> placeholders before this file does anything useful.
+
+# Default — anything not matched below
+*                                       @<github-handle>
+
+# Backend
+/health-hub-backend/                    @<github-handle>
+/health-hub-backend/prisma/             @<github-handle>
+/health-hub-backend/src/services/       @<github-handle>
+/health-hub-backend/src/routes/         @<github-handle>
+
+# Frontend
+/health-hub/                            @<github-handle>
+/health-hub/src/components/             @<github-handle>
+/health-hub/src/pages/                  @<github-handle>
+
+# Documentation, security, ops — narrow ownership for these
+/README.md                              @<github-handle>
+/SECURITY.md                            @<github-handle>
+/documentation/                         @<github-handle>
+/documentation/DECISIONS.md             @<github-handle>
+/documentation/runbooks/                @<github-handle>
+
+# Build / CI / infra-as-code
+/.github/                               @<github-handle>
+/health-hub-backend/Dockerfile          @<github-handle>
+/health-hub/vite.config.ts              @<github-handle>
+/health-hub-backend/prisma/schema.prisma @<github-handle>
