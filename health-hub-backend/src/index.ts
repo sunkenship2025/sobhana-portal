@@ -23,6 +23,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import path from 'path';
 
@@ -174,6 +175,10 @@ app.use((_req, res, next) => {
 });
 
 app.use(express.json());
+
+// Parse Set-Cookie / Cookie headers — required for httpOnly JWT auth.
+// Mounted after express.json() and CORS; cookies arrive as req.cookies.
+app.use(cookieParser());
 
 // Static files for reports (CSS, images, fonts)
 app.use('/css', express.static(path.join(__dirname, '../public/css')));

@@ -66,8 +66,13 @@ export function computeBillFinancialsFromPersisted(
     Math.max(0, Math.round(bill.discountAmountInPaise ?? 0)),
   );
   const netAmountInPaise = Math.max(0, subtotal - discountAmountInPaise);
+  // Source of truth for paid: prefer the transactions list when it actually
+  // contains entries; otherwise use the cached paidAmountInPaise field on the
+  // Bill row. Empty array does NOT override the cached field — that prevents a
+  // foot-gun where a caller passes `{transactions: []}` thinking "I haven't
+  // loaded any" and silently zeros out paid.
   let rawPaidAmount = Math.max(0, Math.round(bill.paidAmountInPaise ?? 0));
-  if (bill.transactions && Array.isArray(bill.transactions)) {
+  if (Array.isArray(bill.transactions) && bill.transactions.length > 0) {
     rawPaidAmount = bill.transactions.reduce(
       (sum, tx) => sum + (tx.amountInPaise || 0),
       0,
@@ -195,19 +200,28 @@ export function recomputeBillFinancialsForSubtotal(
     0,
     subtotal - nextDiscountAmountInPaise,
   );
+  // Resolve the actual amount paid: prefer the transactions list when it has
+  // entries (authoritative), otherwise fall back to the cached field on the
+  // Bill row.
   let rawPaidAmount = Math.max(0, Math.round(bill.paidAmountInPaise ?? 0));
-  if (bill.transactions && Array.isArray(bill.transactions)) {
+  if (Array.isArray(bill.transactions) && bill.transactions.length > 0) {
     rawPaidAmount = bill.transactions.reduce(
       (sum, tx) => sum + (tx.amountInPaise || 0),
       0,
     );
   }
-  const paidAmountInPaise = Math.min(nextNetAmountInPaise, rawPaidAmount);
 
-  if (paidAmountInPaise > nextNetAmountInPaise) {
-    throw new Error("Paid amount would exceed the new net payable");
+  // If reducing the subtotal would put us below what's already been paid, the
+  // patient has overpaid — refuse rather than silently dropping the overpayment.
+  // The caller (typically a "remove test from visit" flow) must explicitly
+  // refund the difference first.
+  if (rawPaidAmount > nextNetAmountInPaise) {
+    throw new Error(
+      `Cannot reduce subtotal below the already-paid amount (paid ₹${(rawPaidAmount / 100).toFixed(2)}, new net ₹${(nextNetAmountInPaise / 100).toFixed(2)}). Refund the overpayment before reducing the bill.`,
+    );
   }
 
+  const paidAmountInPaise = rawPaidAmount;
   const dueAmountInPaise = Math.max(
     0,
     nextNetAmountInPaise - paidAmountInPaise,

@@ -1,10 +1,32 @@
-import { Router } from 'express';
+import { Router, Response } from 'express';
 import * as authService from '../services/authService';
+import prisma from '../lib/prisma';
 import { requireRole } from '../middleware/rbac';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { loginCredentialRateLimit, loginIpRateLimit } from '../middleware/rateLimit';
 
 const router = Router();
+
+// JWT cookie configuration. httpOnly keeps the token out of JS so an XSS
+// payload can't read it. SameSite=lax allows top-level navigation (so
+// patients clicking a /reports/:token link arrive properly) while still
+// preventing CSRF on cross-site form posts.
+const JWT_COOKIE_NAME = 'jwt';
+const JWT_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // matches JWT 7-day expiry
+
+function setJwtCookie(res: Response, token: string) {
+  res.cookie(JWT_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: JWT_COOKIE_MAX_AGE_MS,
+    path: '/',
+  });
+}
+
+function clearJwtCookie(res: Response) {
+  res.clearCookie(JWT_COOKIE_NAME, { path: '/' });
+}
 
 // POST /api/auth/login - Public
 router.post('/login', loginIpRateLimit, loginCredentialRateLimit, async (req, res) => {
@@ -19,6 +41,14 @@ router.post('/login', loginIpRateLimit, loginCredentialRateLimit, async (req, re
     }
 
     const result = await authService.login(email, password, req.ip, req.get('user-agent'));
+
+    // Set the JWT in an httpOnly cookie. We also still return the token in the
+    // response body so existing in-memory state on the frontend continues to
+    // work without changes to the ~150 inline fetches that send Authorization
+    // headers. The cookie is the persistent layer (survives refresh); the
+    // returned token is what the frontend uses for the current session's
+    // Authorization headers, kept in memory only (not localStorage).
+    setJwtCookie(res, result.token);
 
     return res.json(result);
   } catch (err: any) {
@@ -40,6 +70,68 @@ router.post('/login', loginIpRateLimit, loginCredentialRateLimit, async (req, re
       });
     }
   }
+});
+
+// GET /api/auth/me - Hydrate session after page refresh.
+// The browser sent the httpOnly cookie automatically; authMiddleware verified
+// it and attached req.user. We reload the User row to fetch the fields the
+// JWT doesn't carry (name, activeBranch) and return the same shape as login,
+// so the frontend can re-populate authStore without forcing a re-login.
+router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'UNAUTHORIZED', message: 'No active session' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      include: { activeBranch: true },
+    });
+
+    if (!user || !user.isActive) {
+      // The JWT was valid but the user is gone or deactivated. Clear the
+      // cookie so the next request doesn't keep failing.
+      clearJwtCookie(res);
+      return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Account not found or disabled' });
+    }
+
+    // Hand back the original token from the cookie (still valid until JWT
+    // expiry). We deliberately do NOT re-issue a fresh token here — that
+    // would extend session lifetime indefinitely and weaken the 7-day cap.
+    const cookieToken = (req as any).cookies?.jwt as string | undefined;
+    if (!cookieToken) {
+      // Caller authenticated via Authorization header rather than cookie.
+      // Nothing to hand back; ask the client to log in again to get a cookie.
+      return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Session not cookie-based — please log in again' });
+    }
+
+    return res.json({
+      token: cookieToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        activeBranch: {
+          id: user.activeBranch.id,
+          name: user.activeBranch.name,
+          code: user.activeBranch.code,
+        },
+      },
+    });
+  } catch (err: any) {
+    (req as any).log?.error?.({ err }, '/me crashed') ?? console.error('/me error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to load session' });
+  }
+});
+
+// POST /api/auth/logout - Clear the JWT cookie.
+// We don't blacklist the JWT server-side (no infrastructure for that today),
+// so the token remains valid until expiry. This route's job is to clean up
+// the persistent state on the client; in-memory state is the frontend's job.
+router.post('/logout', (_req, res) => {
+  clearJwtCookie(res);
+  return res.status(204).end();
 });
 
 // POST /api/auth/register - Admin only
