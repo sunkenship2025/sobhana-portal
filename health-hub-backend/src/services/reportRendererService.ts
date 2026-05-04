@@ -855,15 +855,21 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
             box-shadow: none;
             margin: 0 auto;
             max-width: 210mm;
-            /* 290mm — ~7mm shy of A4 (297mm) so sub-pixel rendering can't
-               push the footer past the page boundary. Signatures still
-               glued to bottom via .report-bottom-section margin-top: auto. */
-            min-height: 290mm;
+            /* 285mm — A4 (297mm) minus the 12mm Puppeteer footer reservation
+               (set in DIGITAL_PDF_OPTIONS.margin.bottom). Stays a few mm shy
+               so sub-pixel rendering can't bleed into the footer band.
+               Signatures glue to bottom via .report-bottom-section margin-top: auto. */
+            min-height: 285mm;
           }
           body.report-body { background: white; padding: 0; }
           /* digital-PDF compaction — whitespace + auxiliary text only.
-             Body font-size and line-height unchanged. Targets ~52mm savings
-             so a worst-case Hemogram (measured 344mm) fits in 297mm A4. */
+             Body font-size and line-height unchanged. Hemogram is the
+             worst-case footprint and must fit within 285mm (= A4 - 12mm
+             footer reservation). Header + signature heights also trimmed. */
+          .header-logo { height: 40px; }
+          .header-logo-row { padding: 6px 20px 2px 20px; }
+          .signature-image { height: 35px; }
+          .lab-incharge-line { height: 35px; }
           .results-table td { padding: 2pt 8pt 2pt; }
           .results-table th { padding: 3pt 8pt; }
           .test-method, .panel-method { font-size: 7pt; line-height: 1.15; }
@@ -872,8 +878,7 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
           .department { margin-bottom: 6px; }
           .smear-section { margin-top: 4px; margin-bottom: 4px; padding: 3px 10px; }
           .report-note { margin-top: 6px; }
-          .report-content { padding: 8px 24px 4px 24px; }
-          .footer { padding-top: 4px; }
+          .report-content { padding: 4px 24px 4px 24px; }
           .signatures-section { gap: 16px; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }`,
         bodyClass: 'screen-mode',
@@ -1197,6 +1202,12 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
   };
 
   const fragments = buildReportFragments(snapshot, baseUrl, qrDataUrl);
+  if (profile === 'pdf-digital') {
+    // Footer is drawn by Puppeteer's footerTemplate (see DIGITAL_PDF_OPTIONS).
+    // Pulling it out of the document flow guarantees it always anchors to the
+    // page bottom and can't be orphaned to its own page when content is dense.
+    fragments.footerHtml = '';
+  }
   const pages = buildReportPages(snapshot, profile, renderDepartmentSection)
     .map(page => renderReportPage(page, fragments, snapshot, baseUrl))
     .join('');
