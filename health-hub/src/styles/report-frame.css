@@ -1,0 +1,226 @@
+/* Visual chrome for the WYSIWYG framed narrative editor.
+   Mirrors the look of the finalized report HTML produced by
+   health-hub-backend/src/services/reportRendererService.ts so staff see
+   the report as they type. Scoped under .report-frame-scope to avoid
+   bleeding into the rest of the app. */
+
+.report-frame-scope {
+  --rfs-font-primary: 'Times New Roman', Times, serif;
+  --rfs-color-primary: #1f3e6e;
+  --rfs-color-red: #b22222;
+  --rfs-color-text: #1a202c;
+  --rfs-color-text-light: #4a5568;
+  --rfs-color-border: #ccc;
+  --rfs-color-border-light: #e2e2e2;
+  --rfs-color-section-bg: #eef1f5;
+  --rfs-color-bg: #ffffff;
+
+  font-family: var(--rfs-font-primary);
+  font-size: 10pt;
+  line-height: 1.35;
+  color: var(--rfs-color-text);
+}
+
+.report-frame-page {
+  max-width: 210mm;
+  margin: 0 auto;
+  background: var(--rfs-color-bg);
+  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.15);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.report-frame-content {
+  padding: 16px 24px 24px 24px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+.report-frame-scope .header {
+  background: white;
+  padding: 0;
+}
+
+.report-frame-scope .header-logo-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 20px 4px 20px;
+}
+
+.report-frame-scope .header-logo {
+  width: auto;
+  height: 55px;
+}
+
+.report-frame-scope .header-stripe-band {
+  height: 13px;
+  background: white;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  margin: 0;
+}
+
+.report-frame-scope .header-stripe-band > div {
+  height: 3px;
+  background: var(--rfs-color-primary);
+}
+
+.report-frame-scope .report-badge-row {
+  text-align: center;
+  padding: 3px 0 6px 0;
+}
+
+.report-frame-scope .report-badge {
+  display: inline-block;
+  background: var(--rfs-color-red);
+  color: white;
+  font-weight: bold;
+  font-size: 9pt;
+  letter-spacing: 3px;
+  padding: 4px 22px;
+  text-transform: uppercase;
+}
+
+/* Patient info grid */
+.report-frame-scope .patient-info {
+  border: 1px solid var(--rfs-color-border);
+  padding: 8px 14px;
+  margin-bottom: 14px;
+}
+
+.report-frame-scope .info-grid {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.report-frame-scope .info-row {
+  display: table-row;
+}
+
+.report-frame-scope .info-item {
+  display: table-cell;
+  width: 50%;
+  padding: 2px 0;
+  font-size: 9pt;
+  line-height: 1.5;
+}
+
+.report-frame-scope .info-item .label {
+  font-weight: bold;
+  color: #333;
+  display: inline-block;
+  min-width: 120px;
+}
+
+.report-frame-scope .info-item .label::after {
+  content: ':';
+  margin-right: 8px;
+}
+
+.report-frame-scope .info-item .value {
+  font-weight: 500;
+  color: var(--rfs-color-text);
+}
+
+/* Department header */
+.report-frame-scope .department-header {
+  font-size: 10.5pt;
+  font-weight: bold;
+  color: var(--rfs-color-primary);
+  border-bottom: 1.5px solid var(--rfs-color-primary);
+  padding-bottom: 3px;
+  margin-bottom: 8px;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Panel title (test name banner, e.g., "2D-ECHO") */
+.report-frame-scope .panel-title {
+  font-size: 9.5pt;
+  font-weight: bold;
+  color: var(--rfs-color-primary);
+  margin-bottom: 6px;
+  padding: 3px 8px;
+  background: var(--rfs-color-section-bg);
+  text-align: center;
+}
+
+/* Editable narrative area */
+.report-frame-scope .imaging-narrative {
+  color: var(--rfs-color-text);
+  font-size: 9pt;
+  line-height: 1.65;
+  padding: 12px 14px;
+  border: 1px dashed transparent;
+  border-radius: 4px;
+  outline: none;
+  min-height: 220px;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.report-frame-scope .imaging-narrative:hover {
+  border-color: #d6deeb;
+}
+
+.report-frame-scope .imaging-narrative:focus,
+.report-frame-scope .imaging-narrative:focus-visible {
+  border-color: var(--rfs-color-primary);
+  background: #fcfdff;
+}
+
+.report-frame-scope .imaging-narrative[data-empty='true']:before {
+  content: attr(data-placeholder);
+  color: #94a3b8;
+  font-style: italic;
+  pointer-events: none;
+  display: block;
+}
+
+.report-frame-scope .imaging-narrative p,
+.report-frame-scope .imaging-narrative div,
+.report-frame-scope .imaging-narrative ul,
+.report-frame-scope .imaging-narrative ol,
+.report-frame-scope .imaging-narrative h1,
+.report-frame-scope .imaging-narrative h2,
+.report-frame-scope .imaging-narrative h3,
+.report-frame-scope .imaging-narrative h4 {
+  margin: 0 0 8px;
+}
+
+.report-frame-scope .imaging-narrative p:last-child,
+.report-frame-scope .imaging-narrative div:last-child,
+.report-frame-scope .imaging-narrative ul:last-child,
+.report-frame-scope .imaging-narrative ol:last-child,
+.report-frame-scope .imaging-narrative h1:last-child,
+.report-frame-scope .imaging-narrative h2:last-child,
+.report-frame-scope .imaging-narrative h3:last-child,
+.report-frame-scope .imaging-narrative h4:last-child {
+  margin-bottom: 0;
+}
+
+.report-frame-scope .imaging-narrative ul,
+.report-frame-scope .imaging-narrative ol {
+  padding-left: 22px;
+}
+
+.report-frame-scope .imaging-narrative h1 { font-size: 15pt; }
+.report-frame-scope .imaging-narrative h2 { font-size: 13pt; }
+.report-frame-scope .imaging-narrative h3 { font-size: 11pt; }
+.report-frame-scope .imaging-narrative h4 { font-size: 10pt; }
+
+/* Note line at the bottom of the report */
+.report-frame-scope .report-note {
+  font-size: 8pt;
+  color: #333;
+  text-align: left;
+  margin-top: 16px;
+  font-weight: 600;
+}
