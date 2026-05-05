@@ -57,6 +57,17 @@ function normalizeDiscountType(
   return null;
 }
 
+/**
+ * INVARIANT: every callsite that creates a `PaymentTransaction` MUST also
+ * update `Bill.paidAmountInPaise` in the same transaction (and vice versa).
+ * The two are kept in sync deliberately so `computeBillFinancialsFromPersisted`
+ * works whether or not transactions are loaded — most read paths skip the
+ * `transactions` include for perf. As of 2026-05, the only mutation paths are:
+ *   - routes/diagnosticVisits.ts (POST /, PATCH /:id, /:id/collect-due, /:id/tests, DELETE /:id/tests/:testOrderId)
+ *   - routes/clinicVisits.ts (POST /, PATCH /:id)
+ * If you add a new path that creates a transaction, update the cached field
+ * too — otherwise the two diverge and bills show wrong dues silently.
+ */
 export function computeBillFinancialsFromPersisted(
   bill: PersistedBillFinancials,
 ): BillFinancialFields {

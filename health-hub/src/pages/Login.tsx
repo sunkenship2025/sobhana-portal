@@ -1,32 +1,28 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuthStore, UserRole } from '@/store/authStore';
+import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
-import { Stethoscope, Building2, Users, Mail, Lock, LogIn } from 'lucide-react';
-
-const ROLES: { value: UserRole; label: string; icon: React.ElementType; desc: string }[] = [
-  { value: 'doctor', label: 'Doctor', icon: Stethoscope, desc: 'View lab reports' },
-  { value: 'owner', label: 'Owner', icon: Building2, desc: 'Full Access' },
-  { value: 'staff', label: 'Staff', icon: Users, desc: 'Clinic reception' },
-];
+import { Mail, Lock, LogIn } from 'lucide-react';
 
 const Login = () => {
   const navigate = useNavigate();
   const { login } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<UserRole>('staff');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
-    const result = await login(email, password, role);
+    // Role is determined by the backend's User record — there's no client-side
+    // choice. Post-login routing keys off `result.user.role` so each user
+    // lands on their own dashboard regardless of how they came in.
+    const result = await login(email, password, 'staff');
 
     if (result.success) {
-      const roleLabel = ROLES.find((r) => r.value === role)?.label ?? role;
-      toast.success('Welcome! Logged in as ' + roleLabel);
+      const role = useAuthStore.getState().user?.role;
+      toast.success('Welcome back');
       if (role === 'doctor') navigate('/doctor');
       else if (role === 'owner') navigate('/owner');
       else navigate('/');
@@ -40,14 +36,27 @@ const Login = () => {
   return (
     <div className="h-screen flex overflow-hidden bg-white font-sans antialiased text-gray-900">
 
-      {/* ── Left Hero Panel ── */}
-      <div className="hidden lg:flex lg:w-1/2 relative bg-[#1B2B58]">
-        <img
-          src="https://lh3.googleusercontent.com/aida-public/AB6AXuAJCqoXJSoTkrjKSdEXs4DJx4D4x9Ob9KTwKxs0-Y3tT6D2KEWOU076lWn2XD5RTdY3nRmNfOmTFbXYYBqDnqYa9-Sv5OkY9aHwpfWFhrNGPEJXGHfkLTM7KLPDLSVHVhhYI23YmYIEjlrZuW5eivX_iGf3e024KoWLccFyEG4OQF1jba2llN0flFjCh8q4JP1dpm-jsuG1NQZ1zpW9y7pXIzqPQV7vVaIaG4nykeBieWC8y1aYTTiLPB7FNfhW4Qbj--6rzC1maA"
-          alt="Medical laboratory"
-          className="absolute inset-0 w-full h-full object-cover mix-blend-overlay opacity-60"
+      {/* ── Left Hero Panel ──
+          Pure CSS hero — gradient + decorative pattern. The previous version
+          loaded a Google CDN URL (lh3.googleusercontent.com) which can rot,
+          can be tracked by Google, and bleeds the user's referrer. */}
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-[#0f1f3f] via-[#1B2B58] to-[#25397a]">
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 opacity-30"
+          style={{
+            backgroundImage:
+              'radial-gradient(circle at 20% 20%, rgba(255,255,255,0.15) 0, transparent 35%), radial-gradient(circle at 80% 70%, rgba(217,28,43,0.25) 0, transparent 40%), radial-gradient(circle at 50% 100%, rgba(255,255,255,0.08) 0, transparent 50%)',
+          }}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#1B2B58]/95 to-[#1B2B58]/50" />
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 opacity-10"
+          style={{
+            backgroundImage:
+              'repeating-linear-gradient(45deg, rgba(255,255,255,0.08) 0 2px, transparent 2px 24px)',
+          }}
+        />
         <div className="relative z-10 flex flex-col justify-end p-16 text-white">
           <h2 className="text-4xl font-extrabold mb-4 tracking-tight">
             Advanced Healthcare Management
@@ -148,61 +157,6 @@ const Login = () => {
                 </div>
               </div>
 
-              {/* Role Selector */}
-              <div>
-                <label className="block text-sm font-bold text-[#1B2B58] mb-3">Select Role</label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {ROLES.map((r) => {
-                    const Icon = r.icon;
-                    const isSelected = role === r.value;
-                    return (
-                      <button
-                        key={r.value}
-                        type="button"
-                        onClick={() => setRole(r.value)}
-                        className={[
-                          'relative p-4 rounded-lg border transition-all duration-200 h-full flex flex-col items-center text-center cursor-pointer group',
-                          isSelected
-                            ? 'border-[#D91C2B] ring-1 ring-[#D91C2B] bg-red-50 shadow-sm'
-                            : 'border-gray-200 bg-white hover:border-[#D91C2B]',
-                        ].join(' ')}
-                      >
-                        {/* Selected dot indicator */}
-                        {isSelected && (
-                          <div className="absolute -top-1 -right-1 h-3 w-3 bg-[#D91C2B] rounded-full border-2 border-white z-10" />
-                        )}
-                        <Icon className={[
-                          'h-7 w-7 mb-2 transition-colors',
-                          isSelected ? 'text-[#D91C2B]' : 'text-gray-500 group-hover:text-[#D91C2B]',
-                        ].join(' ')} />
-                        <span className={[
-                          'block text-sm font-bold',
-                          isSelected ? 'text-[#D91C2B]' : 'text-[#1B2B58]',
-                        ].join(' ')}>{r.label}</span>
-                        <span className="block text-xs text-gray-500 mt-1">{r.desc}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* Remember Me + Forgot Password */}
-            <div className="flex items-center justify-between mt-2">
-              <div className="flex items-center">
-                <input
-                  id="remember-me"
-                  name="remember-me"
-                  type="checkbox"
-                  className="h-4 w-4 text-[#D91C2B] focus:ring-[#D91C2B] border-gray-300 rounded"
-                />
-                <label htmlFor="remember-me" className="ml-2 block text-sm font-medium text-gray-700">
-                  Remember me
-                </label>
-              </div>
-              <a href="#" className="text-sm font-bold text-[#1B2B58] hover:text-[#D91C2B] transition-colors">
-                Forgot password?
-              </a>
             </div>
 
             {/* Sign In Button */}

@@ -35,7 +35,11 @@ export function validatePatientDemographics(input: PatientDemographicInput): Val
     errors.name = 'Name must be at least 2 characters';
   } else if (trimmedName.length > 100) {
     errors.name = 'Name cannot exceed 100 characters';
-  } else if (!/^[a-zA-Z\s.'-]+$/.test(trimmedName)) {
+  } else if (!/^[\p{L}\s.'-]+$/u.test(trimmedName)) {
+    // \p{L} matches any Unicode letter so Telugu / Tamil / Hindi / Bengali /
+    // Arabic names register without error. The previous [a-zA-Z]-only regex
+    // rejected non-Latin scripts entirely, which broke registration for a
+    // huge fraction of patients on an Indian-healthcare system.
     errors.name = 'Name can only contain letters, spaces, dots, hyphens, and apostrophes';
   }
 

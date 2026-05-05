@@ -16,6 +16,17 @@ import { logAction } from './auditService';
 import prisma from '../lib/prisma';
 import { checkLockout, recordFailedAttempt, clearAttempts } from '../lib/loginLockout';
 
+// Precomputed bcrypt hash used to equalize timing on unknown-email logins.
+// Without this, bcrypt.compare only runs when the email exists, so a request
+// for a real email takes ~200-500ms while an unknown email returns in ~5ms —
+// letting an attacker enumerate valid emails by measuring response time alone
+// (lockout doesn't help: one attempt per email is enough).
+//
+// The hash is for the literal string "dummy" — irrelevant since we never
+// expect it to match anything; we only need bcrypt.compare to do the same
+// amount of work it does for a real user.
+const DUMMY_BCRYPT_HASH = '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
+
 /**
  * Authenticates a user by email and password.
  *
@@ -88,6 +99,11 @@ export async function login(email: string, password: string, ipAddress?: string,
   });
 
   if (!user) {
+    // Equalize timing: still run bcrypt.compare against a dummy hash so the
+    // unknown-email path takes the same wall time as the wrong-password path.
+    // Without this, response time alone leaks whether an email is valid.
+    await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
+
     // Record the attempt against the email even if it doesn't exist —
     // otherwise an attacker can probe for valid emails by watching whether
     // the lockout counter changes.

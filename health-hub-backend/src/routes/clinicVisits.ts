@@ -958,16 +958,29 @@ router.patch("/:id", async (req: AuthRequest, res) => {
   }
 });
 
-// DELETE /api/visits/clinic/:id - Delete/cancel clinic visit
+// DELETE /api/visits/clinic/:id - Cancel clinic visit
+//
+// Cancellation must reverse the visit's financial side effects:
+//   1. Block the cancel if the bill is paid — staff must refund manually
+//      first (or owner can override via ?force=true) so the cash side stays
+//      auditable.
+//   2. Decrement the doctor's payout ledger entry for the day if the visit
+//      was COMPLETED (which is the only path that increments the ledger).
+//      Without this, doctors get paid for cancelled consults silently.
 router.delete("/:id", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
+    const force = req.query.force === 'true';
 
     const existing = await prisma.visit.findFirst({
       where: {
         id,
         branchId: req.branchId,
         domain: "CLINIC",
+      },
+      include: {
+        bill: true,
+        clinicVisit: true,
       },
     });
 
@@ -978,9 +991,85 @@ router.delete("/:id", async (req: AuthRequest, res) => {
       });
     }
 
-    await prisma.visit.update({
-      where: { id },
-      data: { status: "CANCELLED" },
+    if (existing.status === 'CANCELLED') {
+      return res.json({ success: true, alreadyCancelled: true });
+    }
+
+    const billPaidPaise = existing.bill?.paidAmountInPaise ?? 0;
+    if (billPaidPaise > 0 && !(force && req.user?.role === 'owner')) {
+      return res.status(409).json({
+        error: 'BILL_PAID',
+        message: `Cannot cancel — bill has ₹${(billPaidPaise / 100).toFixed(2)} already paid. Refund first, or owner can override with ?force=true.`,
+        paidAmountInPaise: billPaidPaise,
+      });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.visit.update({
+        where: { id },
+        data: { status: 'CANCELLED' },
+      });
+      if (existing.clinicVisit) {
+        await tx.clinicVisit.update({
+          where: { id: existing.clinicVisit.id },
+          data: { status: 'CANCELLED' },
+        });
+      }
+
+      // Undo the day's payout ledger entry if PATCH /:id ever marked this
+      // visit COMPLETED (which is the codepath that adds consultation fees
+      // to DoctorPayoutLedger). Skip if the doctor was already paid — that
+      // becomes an out-of-band ops correction.
+      if (
+        existing.status === 'COMPLETED' &&
+        existing.clinicVisit?.clinicDoctorId &&
+        existing.clinicVisit.completedAt
+      ) {
+        const completedAt = existing.clinicVisit.completedAt;
+        const startOfDay = new Date(completedAt);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(completedAt);
+        endOfDay.setHours(23, 59, 59, 999);
+
+        const dayLedger = await tx.doctorPayoutLedger.findFirst({
+          where: {
+            branchId: existing.branchId,
+            doctorType: 'CLINIC',
+            clinicDoctorId: existing.clinicVisit.clinicDoctorId,
+            periodStartDate: startOfDay,
+            periodEndDate: endOfDay,
+          },
+        });
+
+        const fee = existing.clinicVisit.consultationFeeInPaise || existing.totalAmountInPaise || 0;
+        if (dayLedger && !dayLedger.paidAt && fee > 0) {
+          const nextAmount = Math.max(0, dayLedger.derivedAmountInPaise - fee);
+          if (nextAmount === 0) {
+            await tx.doctorPayoutLedger.delete({ where: { id: dayLedger.id } });
+          } else {
+            await tx.doctorPayoutLedger.update({
+              where: { id: dayLedger.id },
+              data: { derivedAmountInPaise: nextAmount, derivedAt: new Date() },
+            });
+          }
+        }
+      }
+    });
+
+    await logAction({
+      userId: req.user?.id!,
+      actionType: 'DELETE',
+      entityType: 'VISIT',
+      entityId: id,
+      branchId: req.branchId!,
+      oldValues: {
+        status: existing.status,
+        billNumber: existing.billNumber,
+        paidAmountInPaise: billPaidPaise,
+      },
+      newValues: { status: 'CANCELLED', forced: force },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
     });
 
     return res.json({ success: true });

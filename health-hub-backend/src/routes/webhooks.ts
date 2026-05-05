@@ -1,20 +1,54 @@
 /**
  * WhatsApp Webhook Route
- * 
+ *
  * Handles Meta WhatsApp Cloud API webhooks:
  * - GET  /webhooks/whatsapp — Verification challenge (Meta setup)
  * - POST /webhooks/whatsapp — Delivery status updates (sent → delivered → read)
- * 
+ *
  * PUBLIC ROUTE — No auth middleware. Mounted before auth in index.ts.
- * 
+ *
+ * The POST handler verifies Meta's `X-Hub-Signature-256` HMAC against the raw
+ * request body before doing anything. Without this, anyone can POST forged
+ * delivery statuses and corrupt MessageLog. We use express.raw on this route
+ * specifically so the signature can be computed over the exact bytes Meta sent
+ * (JSON.stringify(req.body) wouldn't reproduce key order or whitespace).
+ *
  * Docs: https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks
  */
 
-import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
+import express, { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { whatsappWebhookRateLimit } from '../middleware/rateLimit';
 
 const router = Router();
+
+/**
+ * Verify Meta's `X-Hub-Signature-256` against the raw body.
+ * If WHATSAPP_APP_SECRET is unset (dev / pre-onboarding), logs a warning and
+ * accepts the call so onboarding flows still work — but production MUST set it.
+ */
+function verifyMetaSignature(req: Request, rawBody: Buffer): boolean {
+  const appSecret = process.env.WHATSAPP_APP_SECRET || '';
+  if (!appSecret) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[Webhook] WHATSAPP_APP_SECRET not set in production — REJECTING');
+      return false;
+    }
+    console.warn('[Webhook] WHATSAPP_APP_SECRET not set — accepting payload (dev only)');
+    return true;
+  }
+  const header = req.header('x-hub-signature-256') || '';
+  if (!header.startsWith('sha256=')) return false;
+  const provided = header.slice('sha256='.length);
+  const expected = crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex');
+  if (provided.length !== expected.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(provided, 'hex'), Buffer.from(expected, 'hex'));
+  } catch {
+    return false;
+  }
+}
 
 /**
  * GET /webhooks/whatsapp
@@ -39,96 +73,93 @@ router.get('/', (req: Request, res: Response) => {
 
 /**
  * POST /webhooks/whatsapp
- * Receives delivery status updates from Meta.
- * Updates MessageLog: SENT → DELIVERED → READ with timestamps.
- * 
- * Payload structure:
- * {
- *   object: "whatsapp_business_account",
- *   entry: [{
- *     changes: [{
- *       value: {
- *         statuses: [{
- *           id: "wamid.xxx",
- *           status: "sent" | "delivered" | "read" | "failed",
- *           timestamp: "1234567890",
- *           errors: [{ code, title, message }]
- *         }]
- *       }
- *     }]
- *   }]
- * }
+ * Receives delivery status updates from Meta. Updates MessageLog with timestamps.
+ *
+ * `express.raw` runs BEFORE the global `express.json` for this route, so we
+ * capture the unmodified bytes for HMAC verification. After signature check
+ * passes, we parse the JSON ourselves.
  */
-router.post('/', whatsappWebhookRateLimit, async (req: Request, res: Response) => {
-  // Always return 200 immediately — Meta retries on non-200
-  res.status(200).json({ status: 'received' });
+router.post(
+  '/',
+  express.raw({ type: 'application/json', limit: '128kb' }),
+  whatsappWebhookRateLimit,
+  async (req: Request, res: Response) => {
+    const rawBody: Buffer = Buffer.isBuffer(req.body) ? (req.body as Buffer) : Buffer.from('');
 
-  try {
-    const body = req.body;
-
-    if (body.object !== 'whatsapp_business_account') {
-      return;
+    if (!verifyMetaSignature(req, rawBody)) {
+      console.warn('[Webhook] Rejected forged or unsigned WhatsApp webhook');
+      return res.status(401).json({ error: 'INVALID_SIGNATURE' });
     }
 
-    for (const entry of body.entry || []) {
-      for (const change of entry.changes || []) {
-        const statuses = change.value?.statuses || [];
+    // Always return 200 immediately — Meta retries on non-200
+    res.status(200).json({ status: 'received' });
 
-        for (const status of statuses) {
-          const waMessageId = status.id;
-          const statusValue = status.status;
-          const timestamp = status.timestamp ? new Date(parseInt(status.timestamp) * 1000) : new Date();
-          const errorInfo = status.errors?.[0];
+    try {
+      const body = JSON.parse(rawBody.toString('utf8') || '{}');
 
-          if (!waMessageId) continue;
+      if (body.object !== 'whatsapp_business_account') {
+        return;
+      }
 
-          // Map Meta status to our MessageStatus enum
-          const updateData: any = {};
+      for (const entry of body.entry || []) {
+        for (const change of entry.changes || []) {
+          const statuses = change.value?.statuses || [];
 
-          switch (statusValue) {
-            case 'sent':
-              updateData.status = 'SENT';
-              updateData.sentAt = timestamp;
-              break;
+          for (const status of statuses) {
+            const waMessageId = status.id;
+            const statusValue = status.status;
+            const timestamp = status.timestamp ? new Date(parseInt(status.timestamp) * 1000) : new Date();
+            const errorInfo = status.errors?.[0];
 
-            case 'delivered':
-              updateData.status = 'DELIVERED';
-              updateData.deliveredAt = timestamp;
-              break;
+            if (!waMessageId) continue;
 
-            case 'read':
-              updateData.status = 'READ';
-              updateData.readAt = timestamp;
-              break;
+            const updateData: any = {};
 
-            case 'failed':
-              updateData.status = 'FAILED';
-              updateData.failureReason = errorInfo
-                ? `${errorInfo.code}: ${errorInfo.title} — ${errorInfo.message}`
-                : 'Unknown failure';
-              break;
+            switch (statusValue) {
+              case 'sent':
+                updateData.status = 'SENT';
+                updateData.sentAt = timestamp;
+                break;
 
-            default:
-              console.log(`[Webhook] Unknown status "${statusValue}" for ${waMessageId}`);
-              continue;
-          }
+              case 'delivered':
+                updateData.status = 'DELIVERED';
+                updateData.deliveredAt = timestamp;
+                break;
 
-          // Update MessageLog by waMessageId
-          const updated = await prisma.messageLog.updateMany({
-            where: { waMessageId },
-            data: updateData,
-          });
+              case 'read':
+                updateData.status = 'READ';
+                updateData.readAt = timestamp;
+                break;
 
-          if (updated.count > 0) {
-            console.log(`[Webhook] Updated ${waMessageId} → ${statusValue}`);
+              case 'failed':
+                updateData.status = 'FAILED';
+                updateData.failureReason = errorInfo
+                  ? `${errorInfo.code}: ${errorInfo.title} — ${errorInfo.message}`
+                  : 'Unknown failure';
+                break;
+
+              default:
+                console.log(`[Webhook] Unknown status "${statusValue}" for ${waMessageId}`);
+                continue;
+            }
+
+            const updated = await prisma.messageLog.updateMany({
+              where: { waMessageId },
+              data: updateData,
+            });
+
+            if (updated.count > 0) {
+              console.log(`[Webhook] Updated ${waMessageId} → ${statusValue}`);
+            }
           }
         }
       }
+    } catch (error) {
+      // Don't throw — we already sent 200
+      console.error('[Webhook] Error processing WhatsApp webhook:', error);
     }
-  } catch (error) {
-    // Don't throw — we already sent 200
-    console.error('[Webhook] Error processing WhatsApp webhook:', error);
-  }
-});
+    return;
+  },
+);
 
 export default router;
