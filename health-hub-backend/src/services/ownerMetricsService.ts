@@ -206,17 +206,35 @@ export async function getOwnerMetrics(window: MetricsWindow): Promise<OwnerMetri
   const p50Minutes = percentile(durations, 50);
   const p95Minutes = percentile(durations, 95);
 
-  // WhatsApp delivery
+  // WhatsApp delivery counters.
+  //
+  // Each MessageLog row has ONE current status — Meta updates the same row
+  // through PENDING → SENT → DELIVERED → READ. The groupBy returns counts per
+  // current status, so a delivered message appears ONLY in DELIVERED. The
+  // previous code added DELIVERED rows to BOTH `sent` AND `delivered`, which
+  // double-counted and made the delivery rate mathematically pinned ≥50%.
+  //
+  // We now expose the totals separately:
+  //   attempted = SENT + DELIVERED + READ + FAILED   (everything that left us)
+  //   delivered = DELIVERED + READ                    (Meta confirmed delivery)
+  //   failed    = FAILED
+  // and compute delivery rate as delivered / attempted.
   const wa = { sent: 0, delivered: 0, failed: 0 };
+  let attempted = 0;
   for (const row of messageStats) {
     const c = (row._count as any) ?? 0;
-    if (row.status === 'SENT') wa.sent += c;
-    else if (row.status === 'DELIVERED' || row.status === 'READ') {
+    if (row.status === 'SENT') {
+      wa.sent += c;
+      attempted += c;
+    } else if (row.status === 'DELIVERED' || row.status === 'READ') {
       wa.delivered += c;
-      wa.sent += c; // delivered/read implies it was sent
-    } else if (row.status === 'FAILED') wa.failed += c;
+      attempted += c;
+    } else if (row.status === 'FAILED') {
+      wa.failed += c;
+      attempted += c;
+    }
   }
-  const deliveryRatePct = wa.sent > 0 ? Math.round((wa.delivered / wa.sent) * 100) : null;
+  const deliveryRatePct = attempted > 0 ? Math.round((wa.delivered / attempted) * 100) : null;
 
   // Top tests — already include code; one short query for names
   const topTests: CountByKey[] = topTestsRaw
@@ -227,9 +245,13 @@ export async function getOwnerMetrics(window: MetricsWindow): Promise<OwnerMetri
       count: (row._count as any)._all ?? 0,
     }));
 
-  // Top referring doctors — resolve names + total payout
+  // Top referring doctors — resolve names + total payout.
+  //
+  // For "total payout in window", we sum DoctorPayoutLedger.derivedAmountInPaise
+  // grouped by doctor. That table is the canonical record /api/payouts shows,
+  // so the top-list matches the payout detail screens exactly.
   const doctorIds = topDoctorsRaw.map((r) => r.referralDoctorId);
-  const [doctors, payouts] = await Promise.all([
+  const [doctors, ledgerSums] = await Promise.all([
     doctorIds.length
       ? prisma.referralDoctor.findMany({
           where: { id: { in: doctorIds } },
@@ -237,34 +259,33 @@ export async function getOwnerMetrics(window: MetricsWindow): Promise<OwnerMetri
         })
       : Promise.resolve([]),
     doctorIds.length
-      ? prisma.testOrder.groupBy({
-          by: ['visitId'],
+      ? prisma.doctorPayoutLedger.groupBy({
+          by: ['referralDoctorId'],
           where: {
-            createdAt: { gte: since },
-            visit: {
-              referrals: { some: { referralDoctorId: { in: doctorIds } } },
-            },
+            doctorType: 'REFERRAL',
+            referralDoctorId: { in: doctorIds },
+            derivedAt: { gte: since },
           },
-          _sum: { referralCommissionAmountInPaise: true },
+          _sum: { derivedAmountInPaise: true },
         })
-      : Promise.resolve([] as any[]),
+      : Promise.resolve([] as Array<{ referralDoctorId: string | null; _sum: { derivedAmountInPaise: number | null } }>),
   ]);
   const doctorMap = new Map(doctors.map((d) => [d.id, d]));
-  // Payouts attribution per doctor — simplification: sum referral commission
-  // across all test orders whose visit references each doctor. Good enough for
-  // a top-5 ranking; precise per-doctor reconciliation lives in /api/payouts.
+  const payoutByDoctorId = new Map<string, number>();
+  for (const row of ledgerSums) {
+    if (row.referralDoctorId) {
+      payoutByDoctorId.set(row.referralDoctorId, row._sum.derivedAmountInPaise ?? 0);
+    }
+  }
   const topReferringDoctors = topDoctorsRaw.map((row) => {
     const doctor = doctorMap.get(row.referralDoctorId);
     return {
       key: row.referralDoctorId,
       label: doctor?.name || `(unknown ${row.referralDoctorId.slice(0, 8)})`,
       count: (row._count as any)._all ?? 0,
-      totalPayoutInPaise: 0, // populated below
+      totalPayoutInPaise: payoutByDoctorId.get(row.referralDoctorId) ?? 0,
     };
   });
-  // Naive payout total per doctor — uses the same payouts list (may slightly
-  // double-count visits with multiple referrals; acceptable for top-list UX).
-  void payouts; // (kept for future precision; payout breakdown is on /api/payouts)
 
   const report: OwnerMetricsReport = {
     window,

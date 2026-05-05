@@ -193,9 +193,13 @@ router.post('/derive', requireRole('owner', 'staff'), async (req: AuthRequest, r
 // Access: owner, staff
 // NOTE: Must come BEFORE /:id route to avoid matching "doctors" as an id
 // ===========================================================================
-router.get('/doctors/referral', requireRole('owner', 'staff'), async (_req: AuthRequest, res) => {
+router.get('/doctors/referral', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
   try {
-    const doctors = await payoutService.getReferralDoctors(true);
+    // Pass `?scope=branch` to limit to doctors with payout activity in this
+    // branch. Default keeps the global list so owners switching branches
+    // can still pick any doctor.
+    const branchScope = req.query.scope === 'branch' ? req.branchId : undefined;
+    const doctors = await payoutService.getReferralDoctors(true, branchScope);
     return res.json({ data: doctors });
   } catch (err: any) {
     console.error('Get referral doctors error:', err);
@@ -210,9 +214,10 @@ router.get('/doctors/referral', requireRole('owner', 'staff'), async (_req: Auth
 // GET /api/payouts/doctors/clinic - Get all clinic doctors for dropdown
 // Access: owner, staff
 // ===========================================================================
-router.get('/doctors/clinic', requireRole('owner', 'staff'), async (_req: AuthRequest, res) => {
+router.get('/doctors/clinic', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
   try {
-    const doctors = await payoutService.getClinicDoctors(true);
+    const branchScope = req.query.scope === 'branch' ? req.branchId : undefined;
+    const doctors = await payoutService.getClinicDoctors(true, branchScope);
     return res.json({ data: doctors });
   } catch (err: any) {
     console.error('Get clinic doctors error:', err);
@@ -227,9 +232,10 @@ router.get('/doctors/clinic', requireRole('owner', 'staff'), async (_req: AuthRe
 // GET /api/payouts/doctors/diagnostic-centers - Get all diagnostic centers for dropdown
 // Access: owner, staff
 // ===========================================================================
-router.get('/doctors/diagnostic-centers', requireRole('owner', 'staff'), async (_req: AuthRequest, res) => {
+router.get('/doctors/diagnostic-centers', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
   try {
-    const centers = await payoutService.getDiagnosticCenters(true);
+    const branchScope = req.query.scope === 'branch' ? req.branchId : undefined;
+    const centers = await payoutService.getDiagnosticCenters(true, branchScope);
     return res.json({ data: centers });
   } catch (err: any) {
     console.error('Get diagnostic centers error:', err);

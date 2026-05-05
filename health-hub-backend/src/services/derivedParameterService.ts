@@ -12,8 +12,7 @@
  * dependsOnTestCodes: ["ALB", "GLOB"]
  */
 
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
+import prisma from '../lib/prisma';
 
 /**
  * A single derived-parameter evaluation result

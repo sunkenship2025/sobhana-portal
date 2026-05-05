@@ -19,15 +19,14 @@
  * - interpretationsSnapshot: Resolved interpretation texts
  */
 
-import { PrismaClient, ReportVersion, TestResult, Gender, DiagnosticWorkflowMode } from '@prisma/client';
+import { Gender, DiagnosticWorkflowMode } from '@prisma/client';
 import { resolveReferenceRanges } from './referenceRangeService';
 import {
   evaluateDerivedTargets,
   normalizeDependencyCodes,
   type DerivedFormulaTarget,
 } from './derivedParameterService';
-
-const prisma = new PrismaClient();
+import prisma from '../lib/prisma';
 
 // ============================================================================
 // TYPES
