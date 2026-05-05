@@ -26,6 +26,37 @@ const PDF_MAX_CONCURRENT = Math.min(
   ),
 );
 
+// Max queued (waiting) jobs. Past this we reject fast with 503 rather than
+// piling up indefinitely — without a cap, a Chrome hang or burst would OOM.
+const PDF_MAX_QUEUE = Math.max(
+  4,
+  Number.parseInt(process.env.PDF_MAX_QUEUE || '50', 10) || 50,
+);
+
+// Hard timeout per render. If Puppeteer hangs (it occasionally does on Render
+// with large images), the slot is released and the next job runs instead of
+// blocking the queue forever.
+const PDF_JOB_TIMEOUT_MS = Math.max(
+  10_000,
+  Number.parseInt(process.env.PDF_JOB_TIMEOUT_MS || '60000', 10) || 60_000,
+);
+
+export class PdfServiceOverloadedError extends Error {
+  statusCode = 503;
+  error = 'PDF_SERVICE_OVERLOADED';
+  constructor() {
+    super('PDF service queue is full — try again shortly');
+  }
+}
+
+export class PdfJobTimeoutError extends Error {
+  statusCode = 504;
+  error = 'PDF_JOB_TIMEOUT';
+  constructor() {
+    super('PDF generation timed out');
+  }
+}
+
 let activePdfJobs = 0;
 const pendingPdfJobs: Array<() => void> = [];
 
@@ -33,6 +64,10 @@ async function acquirePdfSlot(): Promise<void> {
   if (activePdfJobs < PDF_MAX_CONCURRENT) {
     activePdfJobs += 1;
     return;
+  }
+
+  if (pendingPdfJobs.length >= PDF_MAX_QUEUE) {
+    throw new PdfServiceOverloadedError();
   }
 
   await new Promise<void>((resolve) => {
@@ -53,9 +88,14 @@ function releasePdfSlot(): void {
 
 async function withPdfSlot<T>(task: () => Promise<T>): Promise<T> {
   await acquirePdfSlot();
+  let timer: NodeJS.Timeout | undefined;
   try {
-    return await task();
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new PdfJobTimeoutError()), PDF_JOB_TIMEOUT_MS);
+    });
+    return await Promise.race([task(), timeout]);
   } finally {
+    if (timer) clearTimeout(timer);
     releasePdfSlot();
   }
 }

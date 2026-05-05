@@ -71,8 +71,11 @@ export async function generateNextNumber(
           WHERE id = ${sequenceId}
         `;
 
-        // Format with leading zeros (5 digits)
-        const paddedNumber = nextValue.toString().padStart(5, '0');
+        // Format with leading zeros (6 digits — covers up to 999,999 entries
+        // before width changes). 5 digits would have started overflowing past
+        // the 100K-th patient on a busy multi-branch deployment, breaking any
+        // UI/filename code that assumed fixed width.
+        const paddedNumber = nextValue.toString().padStart(6, '0');
         return `${prefix}-${paddedNumber}`;
       });
     } catch (error: any) {

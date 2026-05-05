@@ -1067,6 +1067,14 @@ export async function getPayoutDetail(payoutId: string): Promise<PayoutDetail | 
 /**
  * Mark a payout as paid.
  * IMMUTABLE after this operation - no further changes allowed.
+ *
+ * Concurrency: uses an atomic conditional updateMany so two simultaneous
+ * mark-paid calls don't both succeed (which would double-pay the doctor).
+ *
+ * Cascade: payouts whose period falls inside this payout's period AND that
+ * were derived BEFORE this one was paid are also marked paid. Newly-derived
+ * payouts created AFTER the human approved the outer payment are NOT
+ * auto-paid — they need their own approval.
  */
 export async function markPayoutPaid(
   payoutId: string,
@@ -1074,7 +1082,7 @@ export async function markPayoutPaid(
   paymentReferenceId?: string,
   notes?: string
 ): Promise<PayoutDetail> {
-  // Get current payout
+  // Get current payout (read-only context for downstream details).
   const existing = await prisma.doctorPayoutLedger.findUnique({
     where: { id: payoutId },
   });
@@ -1090,18 +1098,20 @@ export async function markPayoutPaid(
   const paidAt = new Date();
   const doctorId = extractDoctorId(existing);
 
-  // Update with payment info
   await prisma.$transaction(async (tx) => {
-    await tx.doctorPayoutLedger.update({
-      where: { id: payoutId },
-      data: {
-        paidAt,
-        paymentMethod,
-        paymentReferenceId,
-        notes,
-      },
+    // Atomic conditional update — if another request raced us and already
+    // flipped paidAt, our updateMany returns count=0 and we abort.
+    const claim = await tx.doctorPayoutLedger.updateMany({
+      where: { id: payoutId, paidAt: null },
+      data: { paidAt, paymentMethod, paymentReferenceId, notes },
     });
+    if (claim.count === 0) {
+      throw new Error('Payout already marked as paid - cannot modify');
+    }
 
+    // Cascade-pay only payouts that existed (derivedAt <= our paidAt) at the
+    // moment of approval. Anything derived later is intentionally untouched
+    // so it requires its own human review.
     await tx.doctorPayoutLedger.updateMany({
       where: {
         id: { not: payoutId },
@@ -1111,13 +1121,9 @@ export async function markPayoutPaid(
         paidAt: null,
         periodStartDate: { gte: existing.periodStartDate },
         periodEndDate: { lte: existing.periodEndDate },
+        derivedAt: { lte: paidAt },
       },
-      data: {
-        paidAt,
-        paymentMethod,
-        paymentReferenceId,
-        notes,
-      },
+      data: { paidAt, paymentMethod, paymentReferenceId, notes },
     });
   });
 
@@ -1131,11 +1137,19 @@ export async function markPayoutPaid(
 }
 
 /**
- * Get all referral doctors for dropdown selection.
+ * Get referral doctors for dropdown selection.
+ * Doctors are global by design (a referral doctor can refer patients to any
+ * branch), so by default all are returned. Pass `branchId` to scope to those
+ * who actually have payout activity in that branch — useful for the per-branch
+ * payouts UI to filter out inactive doctors who never refer here.
  */
-export async function getReferralDoctors(isActive?: boolean) {
+export async function getReferralDoctors(isActive?: boolean, branchId?: string) {
+  const where: any = isActive !== undefined ? { isActive } : {};
+  if (branchId) {
+    where.payoutLedger = { some: { branchId } };
+  }
   return prisma.referralDoctor.findMany({
-    where: isActive !== undefined ? { isActive } : undefined,
+    where,
     select: {
       id: true,
       doctorNumber: true,
@@ -1150,11 +1164,15 @@ export async function getReferralDoctors(isActive?: boolean) {
 }
 
 /**
- * Get all clinic doctors for dropdown selection.
+ * Get clinic doctors for dropdown selection. See note above on branchId.
  */
-export async function getClinicDoctors(isActive?: boolean) {
+export async function getClinicDoctors(isActive?: boolean, branchId?: string) {
+  const where: any = isActive !== undefined ? { isActive } : {};
+  if (branchId) {
+    where.payoutLedger = { some: { branchId } };
+  }
   return prisma.clinicDoctor.findMany({
-    where: isActive !== undefined ? { isActive } : undefined,
+    where,
     select: {
       id: true,
       doctorNumber: true,
@@ -1167,11 +1185,15 @@ export async function getClinicDoctors(isActive?: boolean) {
 }
 
 /**
- * Get all diagnostic centers for dropdown selection.
+ * Get diagnostic centers for dropdown selection. See note above on branchId.
  */
-export async function getDiagnosticCenters(isActive?: boolean) {
+export async function getDiagnosticCenters(isActive?: boolean, branchId?: string) {
+  const where: any = isActive !== undefined ? { isActive } : {};
+  if (branchId) {
+    where.payoutLedger = { some: { branchId } };
+  }
   return prisma.diagnosticReferralCenter.findMany({
-    where: isActive !== undefined ? { isActive } : undefined,
+    where,
     select: {
       id: true,
       centerNumber: true,

@@ -384,35 +384,52 @@ export async function getOwnerDashboardData(): Promise<OwnerDashboardResponse> {
     return emptyResponse;
   }
 
-  const [bills, visits, clinicDoctorVisits, diagnosticReferralVisits] = await Promise.all([
-    prisma.bill.findMany({
-      where: {
-        branchId: { in: branchIds },
-        billedAt: { gte: historyStart },
-      },
-      select: {
-        branchId: true,
-        billedAt: true,
-        totalAmountInPaise: true,
-        visit: {
-          select: {
-            domain: true,
-          },
-        },
-      },
-    }),
-    prisma.visit.findMany({
-      where: {
-        branchId: { in: branchIds },
-        createdAt: { gte: historyStart },
-        status: { not: 'CANCELLED' },
-      },
-      select: {
-        branchId: true,
-        createdAt: true,
-        domain: true,
-      },
-    }),
+  // Aggregate in Postgres rather than streaming every Bill/Visit row into Node.
+  // The previous version pulled every bill in HISTORY_DAYS for every branch,
+  // which OOMed the dyno once volumes crossed ~50K rows. Postgres `date_trunc`
+  // gives us per-day rollups in a single query each.
+  //
+  // Note on time-zone: `date_trunc` runs in UTC by default. We apply the
+  // BUSINESS_TIME_ZONE conversion before truncation so the date keys match
+  // what `getLocalDateKey` produces in JS. AT TIME ZONE expects a timestamptz.
+  type RevenueRow = {
+    branchId: string;
+    dateKey: string;
+    domain: 'CLINIC' | 'DIAGNOSTICS';
+    revenuePaise: bigint;
+  };
+  type VisitRow = {
+    branchId: string;
+    dateKey: string;
+    domain: 'CLINIC' | 'DIAGNOSTICS';
+    visitCount: bigint;
+  };
+
+  const [billRollups, visitRollups, clinicDoctorVisits, diagnosticReferralVisits] = await Promise.all([
+    prisma.$queryRaw<RevenueRow[]>`
+      SELECT
+        b."branchId" AS "branchId",
+        to_char((b."billedAt" AT TIME ZONE ${BUSINESS_TIME_ZONE})::date, 'YYYY-MM-DD') AS "dateKey",
+        v.domain::text AS "domain",
+        COALESCE(SUM(b."totalAmountInPaise"), 0)::bigint AS "revenuePaise"
+      FROM "Bill" b
+      JOIN "Visit" v ON v.id = b."visitId"
+      WHERE b."branchId" = ANY(${branchIds}::text[])
+        AND b."billedAt" >= ${historyStart}
+      GROUP BY b."branchId", "dateKey", v.domain
+    `,
+    prisma.$queryRaw<VisitRow[]>`
+      SELECT
+        v."branchId" AS "branchId",
+        to_char((v."createdAt" AT TIME ZONE ${BUSINESS_TIME_ZONE})::date, 'YYYY-MM-DD') AS "dateKey",
+        v.domain::text AS "domain",
+        COUNT(*)::bigint AS "visitCount"
+      FROM "Visit" v
+      WHERE v."branchId" = ANY(${branchIds}::text[])
+        AND v."createdAt" >= ${historyStart}
+        AND v.status <> 'CANCELLED'
+      GROUP BY v."branchId", "dateKey", v.domain
+    `,
     prisma.visit.findMany({
       where: {
         branchId: { in: branchIds },
@@ -426,10 +443,7 @@ export async function getOwnerDashboardData(): Promise<OwnerDashboardResponse> {
         clinicVisit: {
           select: {
             clinicDoctor: {
-              select: {
-                id: true,
-                name: true,
-              },
+              select: { id: true, name: true },
             },
           },
         },
@@ -447,10 +461,7 @@ export async function getOwnerDashboardData(): Promise<OwnerDashboardResponse> {
         referrals: {
           select: {
             referralDoctor: {
-              select: {
-                id: true,
-                name: true,
-              },
+              select: { id: true, name: true },
             },
           },
         },
@@ -461,44 +472,41 @@ export async function getOwnerDashboardData(): Promise<OwnerDashboardResponse> {
   const totalsByDate = new Map<string, DailyAggregate>();
   const totalsByBranchDate = new Map<string, DailyAggregate>();
 
-  for (const bill of bills) {
-    const dateKey = getLocalDateKey(bill.billedAt);
-    const amount = roundToTwo(bill.totalAmountInPaise / 100);
-
-    const totalAggregate = getAggregateRecord(totalsByDate, dateKey);
+  for (const row of billRollups) {
+    const amount = roundToTwo(Number(row.revenuePaise) / 100);
+    const totalAggregate = getAggregateRecord(totalsByDate, row.dateKey);
     totalAggregate.revenue += amount;
-    if (bill.visit.domain === 'CLINIC') {
+    if (row.domain === 'CLINIC') {
       totalAggregate.clinicRevenue += amount;
     } else {
       totalAggregate.diagnosticsRevenue += amount;
     }
 
-    const branchAggregate = getAggregateRecord(totalsByBranchDate, `${bill.branchId}:${dateKey}`);
+    const branchAggregate = getAggregateRecord(totalsByBranchDate, `${row.branchId}:${row.dateKey}`);
     branchAggregate.revenue += amount;
-    if (bill.visit.domain === 'CLINIC') {
+    if (row.domain === 'CLINIC') {
       branchAggregate.clinicRevenue += amount;
     } else {
       branchAggregate.diagnosticsRevenue += amount;
     }
   }
 
-  for (const visit of visits) {
-    const dateKey = getLocalDateKey(visit.createdAt);
-
-    const totalAggregate = getAggregateRecord(totalsByDate, dateKey);
-    totalAggregate.patients += 1;
-    if (visit.domain === 'CLINIC') {
-      totalAggregate.clinic += 1;
+  for (const row of visitRollups) {
+    const count = Number(row.visitCount);
+    const totalAggregate = getAggregateRecord(totalsByDate, row.dateKey);
+    totalAggregate.patients += count;
+    if (row.domain === 'CLINIC') {
+      totalAggregate.clinic += count;
     } else {
-      totalAggregate.diagnostics += 1;
+      totalAggregate.diagnostics += count;
     }
 
-    const branchAggregate = getAggregateRecord(totalsByBranchDate, `${visit.branchId}:${dateKey}`);
-    branchAggregate.patients += 1;
-    if (visit.domain === 'CLINIC') {
-      branchAggregate.clinic += 1;
+    const branchAggregate = getAggregateRecord(totalsByBranchDate, `${row.branchId}:${row.dateKey}`);
+    branchAggregate.patients += count;
+    if (row.domain === 'CLINIC') {
+      branchAggregate.clinic += count;
     } else {
-      branchAggregate.diagnostics += 1;
+      branchAggregate.diagnostics += count;
     }
   }
 

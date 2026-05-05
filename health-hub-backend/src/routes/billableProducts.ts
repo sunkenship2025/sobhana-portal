@@ -149,10 +149,27 @@ router.post('/quick-create-bill-only', async (req: AuthRequest, res) => {
       });
     }
 
+    // Apply the same code-format check as the regular POST path. Without
+    // this, the quick path lets in lowercase / special-char codes that the
+    // rest of the codebase assumes are uppercase alphanumeric.
+    const normalizedCode = String(code).trim().toUpperCase();
+    if (!CODE_REGEX.test(normalizedCode)) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'code must be 2-20 uppercase alphanumeric characters or underscores (e.g. CBC_PANEL)',
+      });
+    }
+    if (!Number.isFinite(resolvedPriceInPaise) || !Number.isInteger(resolvedPriceInPaise) || resolvedPriceInPaise < 0) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'basePriceInPaise must be a non-negative integer',
+      });
+    }
+
     const product = await prisma.billableProduct.create({
       data: {
         name: String(name).trim(),
-        code: String(code).trim().toUpperCase(),
+        code: normalizedCode,
         description: description ?? null,
         basePriceInPaise: resolvedPriceInPaise,
         isBundle: false,
@@ -166,6 +183,12 @@ router.post('/quick-create-bill-only', async (req: AuthRequest, res) => {
 
     return res.status(201).json(withResolvedPrice(product));
   } catch (error: any) {
+    if (error?.code === 'P2002') {
+      return res.status(409).json({
+        error: 'CONFLICT',
+        message: `Product code "${req.body.code}" already exists`,
+      });
+    }
     console.error('Error quick-creating bill-only product:', error);
     return res.status(500).json({ error: 'CREATE_FAILED', message: error.message });
   }
@@ -494,11 +517,28 @@ router.patch('/:id', async (req: AuthRequest, res) => {
 });
 
 // ─── DELETE /:id — Delete product ────────────────────────────────────
+// Hard-delete is only safe for products with NO historical TestOrder
+// references. If any past visit ordered this product, hard-deleting would
+// break the bill receipt for that visit (FK Restrict → 500, or FK SetNull →
+// silent data loss). Falls back to soft-delete (isActive=false) so admins
+// have a recoverable path.
 router.delete('/:id', async (req: AuthRequest, res) => {
   try {
     const existing = await prisma.billableProduct.findUnique({ where: { id: req.params.id } });
     if (!existing) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Product not found' });
+    }
+
+    const orderRefCount = await prisma.testOrder.count({
+      where: { productId: req.params.id },
+    });
+
+    if (orderRefCount > 0) {
+      return res.status(409).json({
+        error: 'CONFLICT',
+        message: `Cannot hard-delete: ${orderRefCount} historical test order(s) reference this product. Deactivate it instead via PATCH /:id { isActive: false }.`,
+        referenceCount: orderRefCount,
+      });
     }
 
     await prisma.$transaction([
@@ -543,6 +583,27 @@ router.put('/:id/pricing', async (req: AuthRequest, res) => {
     }
 
     const productId = req.params.id;
+
+    // Validate every entry up front so a malformed row doesn't half-apply
+    // (the $transaction would abort, but Prisma's error mapping is messy).
+    for (const [index, p] of (pricing as any[]).entries()) {
+      if (!p || typeof p.branchId !== 'string' || !p.branchId) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: `pricing[${index}].branchId must be a non-empty string`,
+        });
+      }
+      if (
+        !Number.isFinite(p.priceInPaise) ||
+        !Number.isInteger(p.priceInPaise) ||
+        p.priceInPaise < 0
+      ) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: `pricing[${index}].priceInPaise must be a non-negative integer`,
+        });
+      }
+    }
 
     const results = await prisma.$transaction(
       pricing.map((p: any) =>

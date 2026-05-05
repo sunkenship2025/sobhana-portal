@@ -12,6 +12,7 @@
 import { ReportSnapshot, PanelSnapshot, TestResultSnapshot, SignatureSnapshot } from './reportSnapshotService';
 import fs from 'fs';
 import path from 'path';
+import sanitizeHtml from 'sanitize-html';
 
 // ============================================================================
 // INLINE ASSETS — loaded once at startup, embedded in every report HTML
@@ -117,261 +118,52 @@ const ALLOWED_RICH_TEXT_TAGS = new Set([
   'h4',
 ]);
 
-const FONT_SIZE_BY_COMMAND_VALUE: Record<string, string> = {
-  '1': '10px',
-  '2': '12px',
-  '3': '14px',
-  '4': '18px',
-  '5': '24px',
-  '6': '32px',
-  '7': '48px',
-};
-
-function escapeHtmlAttribute(text: string): string {
-  return escapeHtml(text);
-}
-
-function normalizeColorValue(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const normalized = value.trim().toLowerCase();
-  if (/^#[0-9a-f]{3}([0-9a-f]{3})?$/.test(normalized)) {
-    return normalized;
-  }
-  if (/^rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/.test(normalized)) {
-    return normalized;
-  }
-  return null;
-}
-
-function normalizeFontFamilyValue(value: string | null | undefined): string | null {
-  if (!value) return null;
-  return value.replace(/['"]/g, '').replace(/[^a-zA-Z0-9,\- ]/g, '').trim() || null;
-}
-
-function normalizeFontSizeValue(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const normalized = value.trim().toLowerCase();
-
-  if (FONT_SIZE_BY_COMMAND_VALUE[normalized]) {
-    return FONT_SIZE_BY_COMMAND_VALUE[normalized];
-  }
-
-  const keywordMap: Record<string, string> = {
-    'xx-small': '10px',
-    'x-small': '12px',
-    small: '12px',
-    medium: '14px',
-    large: '18px',
-    'x-large': '24px',
-    'xx-large': '32px',
-    'xxx-large': '48px',
-  };
-
-  if (keywordMap[normalized]) {
-    return keywordMap[normalized];
-  }
-
-  const match = normalized.match(/^(\d+(?:\.\d+)?)(px|pt)$/);
-  if (!match) return null;
-
-  const [, amount, unit] = match;
-  const numeric = parseFloat(amount);
-  if (Number.isNaN(numeric) || numeric < 8 || numeric > 72) {
-    return null;
-  }
-
-  return `${numeric}${unit}`;
-}
-
-function normalizeTextAlignValue(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const normalized = value.trim().toLowerCase();
-  return ['left', 'center', 'right', 'justify'].includes(normalized)
-    ? normalized
-    : null;
-}
-
-function sanitizeRichTextStyles(styleValue: string | null | undefined): string | null {
-  if (!styleValue) return null;
-
-  const safeEntries: string[] = [];
-  styleValue.split(';').forEach((declaration) => {
-    const [rawProperty, ...rest] = declaration.split(':');
-    if (!rawProperty || rest.length === 0) {
-      return;
-    }
-
-    const property = rawProperty.trim().toLowerCase();
-    const value = rest.join(':').trim();
-    if (!value) {
-      return;
-    }
-
-    switch (property) {
-      case 'text-align': {
-        const safe = normalizeTextAlignValue(value);
-        if (safe) safeEntries.push(`text-align: ${safe}`);
-        break;
-      }
-      case 'color': {
-        const safe = normalizeColorValue(value);
-        if (safe) safeEntries.push(`color: ${safe}`);
-        break;
-      }
-      case 'background-color': {
-        const safe = normalizeColorValue(value);
-        if (safe) safeEntries.push(`background-color: ${safe}`);
-        break;
-      }
-      case 'font-family': {
-        const safe = normalizeFontFamilyValue(value);
-        if (safe) safeEntries.push(`font-family: ${safe}`);
-        break;
-      }
-      case 'font-size': {
-        const safe = normalizeFontSizeValue(value);
-        if (safe) safeEntries.push(`font-size: ${safe}`);
-        break;
-      }
-      case 'font-weight': {
-        if (value === 'bold' || value === '700' || value === '600') {
-          safeEntries.push('font-weight: 700');
-        }
-        break;
-      }
-      case 'font-style': {
-        if (value === 'italic') {
-          safeEntries.push('font-style: italic');
-        }
-        break;
-      }
-      case 'text-decoration': {
-        if (value.includes('underline')) {
-          safeEntries.push('text-decoration: underline');
-        }
-        break;
-      }
-      default:
-        break;
-    }
-  });
-
-  return safeEntries.length > 0 ? safeEntries.join('; ') : null;
-}
-
-function sanitizeRichTextAttributes(sourceTag: string, rawAttributes: string): string {
-  const styleEntries: string[] = [];
-  const attributeRegex = /([a-zA-Z:-]+)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
-  let match: RegExpExecArray | null;
-
-  while ((match = attributeRegex.exec(rawAttributes)) !== null) {
-    const attributeName = match[1].toLowerCase();
-    const attributeValue = match[3] ?? match[4] ?? match[5] ?? '';
-
-    if (attributeName === 'style') {
-      const safeStyle = sanitizeRichTextStyles(attributeValue);
-      if (safeStyle) {
-        styleEntries.push(safeStyle);
-      }
-      continue;
-    }
-
-    if (attributeName === 'align') {
-      const safeAlign = normalizeTextAlignValue(attributeValue);
-      if (safeAlign) {
-        styleEntries.push(`text-align: ${safeAlign}`);
-      }
-      continue;
-    }
-
-    if (sourceTag === 'font') {
-      if (attributeName === 'face') {
-        const safeFontFamily = normalizeFontFamilyValue(attributeValue);
-        if (safeFontFamily) {
-          styleEntries.push(`font-family: ${safeFontFamily}`);
-        }
-      } else if (attributeName === 'size') {
-        const safeFontSize = normalizeFontSizeValue(attributeValue);
-        if (safeFontSize) {
-          styleEntries.push(`font-size: ${safeFontSize}`);
-        }
-      } else if (attributeName === 'color') {
-        const safeColor = normalizeColorValue(attributeValue);
-        if (safeColor) {
-          styleEntries.push(`color: ${safeColor}`);
-        }
-      }
-    }
-  }
-
-  const mergedStyle = styleEntries.filter(Boolean).join('; ');
-  return mergedStyle ? ` style="${escapeHtmlAttribute(mergedStyle)}"` : '';
-}
-
+/**
+ * Sanitize rich-text HTML coming from the DB before embedding it in a report.
+ *
+ * Previously this used a hand-rolled regex tokenizer that mishandled `<` / `>`
+ * inside attribute values and could leave dangling closing tags. We now defer
+ * to `sanitize-html`, a parser-based sanitizer that matches what the frontend
+ * does with DOMParser — same trust model, no asymmetric XSS surface.
+ *
+ * The allowed tag/attribute set mirrors `ALLOWED_RICH_TEXT_TAGS` so anything
+ * already stored from the frontend admin UI passes through unchanged.
+ */
 function sanitizeRichTextHtml(html: string | null | undefined): string {
   if (!html) return '';
 
-  const cleaned = html
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<(script|style|iframe|object|embed)\b[\s\S]*?<\/\1>/gi, '');
+  // Map legacy `<b>`, `<i>`, `<font>` to the modern equivalents the rest of
+  // the renderer expects.
+  const tagMap = { b: 'strong', i: 'em', font: 'span' } as const;
 
-  const tokens = cleaned.match(/<\/?[^>]+>|[^<]+/g) || [];
-  const output: string[] = [];
-  const stack: string[] = [];
+  const result = sanitizeHtml(html, {
+    allowedTags: Array.from(ALLOWED_RICH_TEXT_TAGS).concat(['b', 'i', 'font']),
+    allowedAttributes: {
+      '*': ['style', 'align'],
+      font: ['face', 'size', 'color'],
+    },
+    allowedStyles: {
+      '*': {
+        // Match the property allowlist + value normalizers used elsewhere.
+        'text-align': [/^(left|center|right|justify)$/i],
+        color: [/^#[0-9a-f]{3}([0-9a-f]{3})?$/i, /^rgba?\(/i],
+        'background-color': [/^#[0-9a-f]{3}([0-9a-f]{3})?$/i, /^rgba?\(/i],
+        'font-family': [/^[a-zA-Z0-9,\- ]+$/],
+        'font-size': [/^\d+(?:\.\d+)?(px|pt)$/, /^(small|medium|large|x-large|xx-large|xxx-large|x-small|xx-small)$/],
+        'font-weight': [/^(bold|600|700)$/],
+        'font-style': [/^italic$/],
+        'text-decoration': [/underline/i],
+      },
+    },
+    transformTags: tagMap,
+    // Drop disallowed-tag content entirely (matches old behavior of dropping
+    // <script> blocks etc.). Default behavior keeps the inner text — for
+    // these specific tags, we want nothing.
+    nonTextTags: ['script', 'style', 'iframe', 'object', 'embed'],
+    disallowedTagsMode: 'discard',
+  });
 
-  for (const token of tokens) {
-    if (!token.startsWith('<')) {
-      output.push(escapeHtml(token));
-      continue;
-    }
-
-    const tagMatch = token.match(/^<\/?\s*([a-zA-Z0-9]+)([^>]*)\/?>$/);
-    if (!tagMatch) {
-      continue;
-    }
-
-    const [, rawTagName, rawAttributes = ''] = tagMatch;
-    const sourceTag = rawTagName.toLowerCase();
-    const normalizedTag =
-      sourceTag === 'b' ? 'strong' :
-      sourceTag === 'i' ? 'em' :
-      sourceTag === 'font' ? 'span' :
-      sourceTag;
-    const isClosingTag = /^<\s*\//.test(token);
-    const isSelfClosing = /\/>$/.test(token) || normalizedTag === 'br';
-
-    if (!ALLOWED_RICH_TEXT_TAGS.has(normalizedTag)) {
-      continue;
-    }
-
-    if (isClosingTag) {
-      if (normalizedTag === 'br') {
-        continue;
-      }
-
-      while (stack.length > 0) {
-        const openTag = stack.pop()!;
-        output.push(`</${openTag}>`);
-        if (openTag === normalizedTag) {
-          break;
-        }
-      }
-      continue;
-    }
-
-    const safeAttributes = sanitizeRichTextAttributes(sourceTag, rawAttributes);
-    output.push(`<${normalizedTag}${safeAttributes}>`);
-
-    if (!isSelfClosing) {
-      stack.push(normalizedTag);
-    }
-  }
-
-  while (stack.length > 0) {
-    output.push(`</${stack.pop()!}>`);
-  }
-
-  return output.join('').trim();
+  return result.trim();
 }
 
 function renderNarrativeContent(text: string | null | undefined): string {
