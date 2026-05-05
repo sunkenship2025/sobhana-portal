@@ -3783,7 +3783,7 @@ router.post("/:id/finalize", async (req: AuthRequest, res) => {
 
     // Fire-and-forget: Send report-ready notification via WhatsApp (non-blocking)
     import("../services/notificationService").then(({ sendReportReady }) => {
-      sendReportReady(visit.id, accessToken || undefined).catch((err) =>
+      sendReportReady(visit.id, accessToken || undefined, "final").catch((err) =>
         console.error(
           "[Notification] Report notification failed (non-blocking):",
           err.message,
@@ -3808,6 +3808,246 @@ router.post("/:id/finalize", async (req: AuthRequest, res) => {
     return res.status(500).json({
       error: "INTERNAL_ERROR",
       message: "Failed to finalize report",
+    });
+  }
+});
+
+// POST /api/visits/diagnostic/:id/release-partial
+// Release the results that are ready now while leaving the visit open for
+// remaining tests. Finalizes the current DRAFT version, creates a new DRAFT
+// (carrying forward existing results), and sends the partial WhatsApp template.
+// Visit stays in IN_PROGRESS/WAITING (NOT COMPLETED) and payout is NOT refreshed —
+// both happen on the final /finalize call.
+router.post("/:id/release-partial", async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+
+    const visit = await prisma.visit.findFirst({
+      where: {
+        id,
+        branchId: req.branchId,
+        domain: "DIAGNOSTICS",
+      },
+      include: {
+        testOrders: {
+          select: {
+            id: true,
+            workflowMode: true,
+            testResults: {
+              select: { id: true, reportVersionId: true },
+            },
+          },
+        },
+        bill: { include: { transactions: true } },
+        report: {
+          include: {
+            versions: {
+              where: { status: "DRAFT" },
+              orderBy: { versionNum: "desc" },
+              take: 1,
+              include: {
+                testResults: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!visit) {
+      return res.status(404).json({
+        error: "NOT_FOUND",
+        message: "Diagnostic visit not found",
+      });
+    }
+
+    if (getReportInclusionOrders(visit.testOrders).length === 0) {
+      return res.status(400).json({
+        error: "BILL_ONLY_VISIT",
+        message: "Pure bill-only visits do not use partial release.",
+      });
+    }
+
+    if (!visit.report) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "Report container not found for this visit",
+      });
+    }
+
+    // Bill-due guard — verbatim from /finalize. Backend is the authoritative
+    // gate even if the frontend allows the click through.
+    if (visit.bill) {
+      const billFinancials = computeBillFinancialsFromPersisted(visit.bill);
+      if (billFinancials.dueAmountInPaise > 0) {
+        return res.status(400).json({
+          error: "BILL_DUE",
+          message: `Cannot release partial report while bill has due amount ₹${(billFinancials.dueAmountInPaise / 100).toFixed(2)}.`,
+          dueAmountInPaise: billFinancials.dueAmountInPaise,
+        });
+      }
+    }
+
+    const draftVersion = visit.report.versions[0];
+    if (!draftVersion) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "No draft report version found",
+      });
+    }
+
+    // Partial-release pre-conditions: at least one reportable order is ready
+    // AND at least one reportable order is still pending. Otherwise the
+    // staff should be using /finalize (everything ready) or entering results
+    // first (nothing ready yet).
+    const reportableOrders = getReportableOrders(visit.testOrders);
+    const draftResultOrderIds = new Set(
+      draftVersion.testResults.map((r) => r.testOrderId),
+    );
+    const readyReportableCount = reportableOrders.filter((o) =>
+      draftResultOrderIds.has(o.id),
+    ).length;
+    const pendingReportableCount =
+      reportableOrders.length - readyReportableCount;
+
+    if (readyReportableCount === 0) {
+      return res.status(400).json({
+        error: "NO_RESULTS_TO_RELEASE",
+        message:
+          "Enter results for at least one test before releasing a partial report.",
+      });
+    }
+
+    if (pendingReportableCount === 0) {
+      return res.status(400).json({
+        error: "USE_FINALIZE_INSTEAD",
+        message:
+          "All reportable tests have results. Use Finalize Report to send the complete report.",
+      });
+    }
+
+    let accessToken: string | null = null;
+    let newDraftVersionId: string | null = null;
+    const finalizedAt = new Date();
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Atomically finalize the current DRAFT (race-safe — same pattern as /finalize).
+      const updated = await tx.reportVersion.updateMany({
+        where: {
+          id: draftVersion.id,
+          status: "DRAFT",
+        },
+        data: {
+          status: "FINALIZED",
+          finalizedAt,
+        },
+      });
+
+      if (updated.count === 0) {
+        throw new Error("ALREADY_FINALIZED");
+      }
+
+      // 2. Create the next DRAFT version for incoming results.
+      const nextVersion = await tx.reportVersion.create({
+        data: {
+          reportId: visit.report!.id,
+          versionNum: draftVersion.versionNum + 1,
+          status: "DRAFT",
+        },
+      });
+      newDraftVersionId = nextVersion.id;
+
+      // 3. Carry forward existing test results so the next finalize() snapshot
+      //    is cumulative (final report contains tests from every batch).
+      if (draftVersion.testResults.length > 0) {
+        await tx.testResult.createMany({
+          data: draftVersion.testResults.map((r) => ({
+            testOrderId: r.testOrderId,
+            testId: r.testId,
+            reportVersionId: nextVersion.id,
+            value: r.value,
+            textValue: r.textValue,
+            flag: r.flag,
+            notes: r.notes,
+            testDefinitionId: r.testDefinitionId,
+          })),
+        });
+      }
+
+      // NOTE: visit.status is intentionally NOT set to COMPLETED here.
+      // The visit stays open so staff can keep entering results into
+      // the new DRAFT version.
+    });
+
+    // Snapshot + access token (outside the transaction, same pattern as /finalize).
+    try {
+      const snapshot = await createReportSnapshot(draftVersion.id);
+      await saveReportSnapshot(draftVersion.id, snapshot);
+      accessToken = await createAccessToken(draftVersion.id);
+    } catch (snapshotErr) {
+      console.error(
+        "Failed to create snapshot/token for partial release (non-critical):",
+        snapshotErr,
+      );
+    }
+
+    // Audit log — uses FINALIZE actionType (no schema migration) but newValues
+    // marks this as a partial release for filtering/reporting.
+    await logAction({
+      branchId: req.branchId!,
+      actionType: "FINALIZE",
+      entityType: "Report",
+      entityId: draftVersion.id,
+      userId: req.user?.id!,
+      oldValues: {
+        status: "DRAFT",
+      },
+      newValues: {
+        status: "FINALIZED",
+        kind: "PARTIAL",
+        reportVersionId: draftVersion.id,
+        nextDraftVersionId: newDraftVersionId,
+        visitId: visit.id,
+        finalizedAt: finalizedAt.toISOString(),
+        readyReportableCount,
+        pendingReportableCount,
+        reportAccessIssued: !!accessToken,
+      },
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+    });
+
+    // Fire-and-forget partial WhatsApp notification.
+    import("../services/notificationService").then(({ sendReportReady }) => {
+      sendReportReady(visit.id, accessToken || undefined, "partial").catch((err) =>
+        console.error(
+          "[Notification] Partial report notification failed (non-blocking):",
+          err.message,
+        ),
+      );
+    });
+
+    return res.json({
+      success: true,
+      kind: "partial",
+      finalizedVersionId: draftVersion.id,
+      finalizedVersionNum: draftVersion.versionNum,
+      nextDraftVersionId: newDraftVersionId,
+      readyReportableCount,
+      pendingReportableCount,
+      reportFinalizedAt: finalizedAt,
+    });
+  } catch (err: any) {
+    if (err.message === "ALREADY_FINALIZED") {
+      return res.status(409).json({
+        error: "CONFLICT",
+        message: "Report version was already finalized by another request",
+      });
+    }
+    console.error("Release partial report error:", err);
+    return res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: "Failed to release partial report",
     });
   }
 });
