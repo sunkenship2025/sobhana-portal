@@ -1299,9 +1299,23 @@ const DiagnosticsResultEntry = () => {
     return false;
   });
 
+  // True if any test in this visit needs the structured Test/Value/Range/Flag
+  // column header. Narrative tests don't, so the header is hidden when every
+  // test is narrative — it would just confuse the user (radiology has no
+  // numeric "value" or "reference range").
+  const hasNonNarrativeTests = testOrders.some((order) => {
+    if (order.workflowMode === 'EXTERNAL_UPLOAD') return false;
+    if (order.isPanel && order.childTests && order.childTests.length > 0) {
+      return order.childTests.some(
+        (child) => !isRichTextPanelLayout(textLayoutByTestId.get(child.id))
+      );
+    }
+    return !isRichTextPanelLayout(textLayoutByTestId.get(order.testId));
+  });
+
   return (
     <AppLayout context="diagnostics">
-      <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
+      <div className={cn('mx-auto space-y-6 animate-fade-in', hasNarrativeTests ? 'max-w-6xl' : 'max-w-4xl')}>
         {/* Prior partial-release banner — shown when one or more partial reports
             have already been sent to the patient. Edits to already-sent tests
             only appear in the next finalized version (this DRAFT). */}
@@ -1377,12 +1391,14 @@ const DiagnosticsResultEntry = () => {
         <Card>
           <CardHeader>
             <CardTitle>Enter Test Results</CardTitle>
-            <div className="hidden border-b pb-2 pt-4 text-xs uppercase tracking-wide text-muted-foreground md:grid md:grid-cols-[1fr_120px_180px_80px] md:gap-4">
-              <div>Test Name</div>
-              <div className="text-center">Value</div>
-              <div className="text-center">Reference Range</div>
-              <div className="text-center">Flag</div>
-            </div>
+            {hasNonNarrativeTests && (
+              <div className="hidden border-b pb-2 pt-4 text-xs uppercase tracking-wide text-muted-foreground md:grid md:grid-cols-[1fr_120px_180px_80px] md:gap-4">
+                <div>Test Name</div>
+                <div className="text-center">Value</div>
+                <div className="text-center">Reference Range</div>
+                <div className="text-center">Flag</div>
+              </div>
+            )}
           </CardHeader>
           <CardContent className="space-y-6 pt-0">
             {!hasReportableInputs ? (
