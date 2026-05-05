@@ -198,7 +198,19 @@ export async function createPatient(input: CreatePatientInput) {
     newValues: patient
   });
 
-  return patient;
+  // Return the same shape as searchPatients / getPatient360View — including
+  // computed `age` and `ageDisplay`. Without these, downstream UI (bill
+  // receipt, queue cards) falls back to "N/A" for newly-created patients
+  // because the raw Prisma row only has yearOfBirth/dateOfBirth.
+  return {
+    ...patient,
+    age: getPatientAge(patient.dateOfBirth, patient.yearOfBirth),
+    ageDisplay: getPatientAgeDisplay(
+      patient.dateOfBirth,
+      patient.yearOfBirth,
+      patient.ageUnit,
+    ),
+  };
 }
 
 /**
