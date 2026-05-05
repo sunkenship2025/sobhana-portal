@@ -5,8 +5,13 @@
  * Supports:
  * - Bill confirmation at billing time
  * - Diagnostic report-ready notices for finalized report visits
- *   - lab_report_ready
+ *   - lab_report_ready          → final/complete report (visit fully done)
+ *   - lab_report_partial_ready  → partial release: some tests ready, more coming
  */
+
+export type ReportNotificationKind = 'partial' | 'final';
+const PARTIAL_TEMPLATE_NAME = 'lab_report_partial_ready';
+const FINAL_TEMPLATE_NAME = 'lab_report_ready';
 
 import {
   DiagnosticWorkflowMode,
@@ -236,6 +241,7 @@ async function dispatchDiagnosticCompletionNotification(input: {
   preIssuedToken?: string;
   staffUserId?: string;
   manual?: boolean;
+  kind?: ReportNotificationKind;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     if (!isWhatsAppEnabled()) {
@@ -269,11 +275,13 @@ async function dispatchDiagnosticCompletionNotification(input: {
     }
 
     const reportUrl = `${process.env.PUBLIC_REPORT_BASE_URL || 'http://localhost:3000/reports'}/${link.reportToken}`;
+    const kind: ReportNotificationKind = input.kind ?? 'final';
+    const templateName = kind === 'partial' ? PARTIAL_TEMPLATE_NAME : FINAL_TEMPLATE_NAME;
 
     await createAndSendTemplateMessage({
       patientId: info.patient.id,
       phone: formattedPhone,
-      templateName: 'lab_report_ready',
+      templateName,
       templateParams: {
         patientName: info.patient.name,
         billNumber: info.visit.billNumber,
@@ -281,6 +289,7 @@ async function dispatchDiagnosticCompletionNotification(input: {
         reportToken: link.reportToken,
         reportVersionId: link.reportVersionId,
         hasReportLink: true,
+        kind,
         resendBy: input.staffUserId || null,
       },
       contextId: input.visitId,
@@ -304,7 +313,7 @@ async function dispatchDiagnosticCompletionNotification(input: {
     });
 
     log.info(
-      { phone: formattedPhone, visitId: input.visitId, reportVersionId: link.reportVersionId },
+      { phone: formattedPhone, visitId: input.visitId, reportVersionId: link.reportVersionId, kind, templateName },
       'report-ready notification sent',
     );
     return { success: true };
@@ -319,13 +328,19 @@ async function dispatchDiagnosticCompletionNotification(input: {
 
 /**
  * Backward-compatible wrapper used by report finalization flow.
- * Only finalized report visits use the existing lab_report_ready template.
+ * `kind` defaults to 'final' (lab_report_ready template). Pass 'partial' from the
+ * partial-release flow so the patient gets the lab_report_partial_ready template instead.
  */
-export async function sendReportReady(visitId: string, preIssuedToken?: string): Promise<void> {
+export async function sendReportReady(
+  visitId: string,
+  preIssuedToken?: string,
+  kind: ReportNotificationKind = 'final',
+): Promise<void> {
   await dispatchDiagnosticCompletionNotification({
     visitId,
     preIssuedToken,
     manual: false,
+    kind,
   });
 }
 
@@ -395,16 +410,24 @@ export async function sendBillConfirmation(visitId: string): Promise<void> {
 
 /**
  * Backward-compatible manual resend entry point.
- * Only finalized report visits can send the report-ready template.
+ * Picks the partial vs final template from the visit's current state — a visit
+ * still IN_PROGRESS (or WAITING) means the latest finalized version is a partial
+ * release, so the partial template is appropriate.
  */
 export async function resendReportNotification(
   visitId: string,
   staffUserId?: string
 ): Promise<{ success: boolean; error?: string }> {
+  const visit = await prisma.visit.findUnique({
+    where: { id: visitId },
+    select: { status: true },
+  });
+  const kind: ReportNotificationKind = visit?.status === 'COMPLETED' ? 'final' : 'partial';
   return dispatchDiagnosticCompletionNotification({
     visitId,
     staffUserId,
     manual: true,
+    kind,
   });
 }
 

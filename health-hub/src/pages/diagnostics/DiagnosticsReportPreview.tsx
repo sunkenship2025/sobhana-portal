@@ -45,6 +45,14 @@ interface TestResult {
   notes?: string;
 }
 
+interface ReportVersionSummary {
+  id: string;
+  versionNum: number;
+  status: 'DRAFT' | 'FINALIZED' | string;
+  finalizedAt?: string | null;
+  testResults?: Array<{ id: string; testOrderId: string; testId: string }>;
+}
+
 interface Visit {
   id: string;
   billNumber: string;
@@ -74,6 +82,7 @@ interface Visit {
     testId: string;
     testName: string;
     testCode: string;
+    workflowMode?: 'REPORTABLE' | 'BILL_ONLY' | 'EXTERNAL_UPLOAD' | string;
     referenceRange: { min: number; max: number; unit: string };
   }>;
   referralDoctor?: { name: string } | null;
@@ -84,6 +93,7 @@ interface Visit {
       status: string;
       testResults?: TestResult[];
     };
+    versions?: ReportVersionSummary[];
   };
 }
 
@@ -174,7 +184,9 @@ const DiagnosticsReportPreview = () => {
   const [reportSnapshot, setReportSnapshot] = useState<ReportSnapshotData | null>(null);
   const [loading, setLoading] = useState(true);
   const [finalizing, setFinalizing] = useState(false);
+  const [releasing, setReleasing] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showReleaseConfirm, setShowReleaseConfirm] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);  // blob URL for iframe
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -316,6 +328,45 @@ const DiagnosticsReportPreview = () => {
   const dueAmountInPaise = visit.dueAmountInPaise ?? 0;
   const hasDue = dueAmountInPaise > 0;
 
+  // Partial-release support: count reportable test orders that have results
+  // entered into the current DRAFT vs those still pending. Used to decide
+  // whether to show the "Release Partial" button or the "Finalize" button —
+  // they're mutually exclusive (XOR), so staff can never accidentally finalize
+  // an incomplete report as if it were the final one.
+  const reportableOrders = (visit.testOrders ?? []).filter(
+    (order) => order.workflowMode === 'REPORTABLE' || order.workflowMode === undefined,
+  );
+  const versions = (visit.report as any)?.versions as ReportVersionSummary[] | undefined;
+  const finalizedVersions = (versions ?? []).filter((v) => v.status === 'FINALIZED');
+  const draftVersion = (versions ?? []).find((v) => v.status === 'DRAFT');
+  const draftResultOrderIds = new Set(
+    (draftVersion?.testResults ?? []).map((r) => r.testOrderId),
+  );
+  const readyReportableCount = reportableOrders.filter((o) =>
+    draftResultOrderIds.has(o.id),
+  ).length;
+  const totalReportableCount = reportableOrders.length;
+  const pendingReportableCount = Math.max(
+    totalReportableCount - readyReportableCount,
+    0,
+  );
+  const canReleasePartial =
+    pendingReportableCount > 0 && readyReportableCount > 0;
+  const canFinalizeAll =
+    totalReportableCount > 0 && pendingReportableCount === 0;
+  // Test orders already sent to the patient in a prior finalized version —
+  // shown with a "Sent in v{N}" hint so staff understand edits only affect v{N+1}.
+  const sentTestOrderVersions = new Map<string, number>();
+  for (const v of finalizedVersions) {
+    for (const r of v.testResults ?? []) {
+      if (!sentTestOrderVersions.has(r.testOrderId)) {
+        sentTestOrderVersions.set(r.testOrderId, v.versionNum);
+      }
+    }
+  }
+  const lastFinalizedVersion = finalizedVersions[0];
+  const nextVersionNum = (lastFinalizedVersion?.versionNum ?? 0) + 1;
+
   const handleFinalize = async () => {
     if (hasDue) {
       toast.error('Collect due before finalizing this report');
@@ -366,6 +417,64 @@ const DiagnosticsReportPreview = () => {
       toast.error('Failed to finalize report');
     } finally {
       setFinalizing(false);
+    }
+  };
+
+  const handleReleasePartial = async () => {
+    if (hasDue) {
+      toast.error('Collect due before releasing this partial report');
+      return;
+    }
+
+    setReleasing(true);
+    try {
+      const response = await fetch(
+        `${API_BASE}/visits/diagnostic/${visitId}/release-partial`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'X-Branch-Id': activeBranchId,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      if (response.ok) {
+        await response.json();
+        toast.success(
+          `Partial report released — patient notified. ${pendingReportableCount} test${pendingReportableCount === 1 ? '' : 's'} still pending.`,
+        );
+        setShowReleaseConfirm(false);
+        // Reset preview-reviewed state so staff has to preview the next batch
+        // before releasing/finalizing it (the session key is keyed on version id,
+        // so it'll naturally reset, but clear here too to be explicit).
+        setHasReviewedPreview(false);
+
+        // Refresh visit data so the new DRAFT version (v+1) and prior finalized
+        // version are visible.
+        const refreshResponse = await fetch(
+          `${API_BASE}/visits/diagnostic/${visitId}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'X-Branch-Id': activeBranchId,
+            },
+          },
+        );
+        if (refreshResponse.ok) {
+          const refreshData = await refreshResponse.json();
+          setVisit(refreshData);
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        toast.error(errorData.message || 'Failed to release partial report');
+      }
+    } catch (error) {
+      console.error('Failed to release partial:', error);
+      toast.error('Failed to release partial report');
+    } finally {
+      setReleasing(false);
     }
   };
 
@@ -463,6 +572,16 @@ const DiagnosticsReportPreview = () => {
     setShowConfirm(true);
   };
 
+  const handleReleasePartialFromPreview = () => {
+    if (hasDue) {
+      toast.error('Collect due before releasing this partial report');
+      return;
+    }
+    setShowPreview(false);
+    markPreviewReviewed();
+    setShowReleaseConfirm(true);
+  };
+
   return (
     <AppLayout context="diagnostics">
       {/* Screen Content - Hidden when printing */}
@@ -498,6 +617,28 @@ const DiagnosticsReportPreview = () => {
             </div>
           )}
         </div>
+
+        {/* Prior partial-release banner — visible after a partial release while
+            the visit stays open for the next batch of results. */}
+        {!isFinalized && finalizedVersions.length > 0 && (
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 flex items-start gap-2">
+            <Lock className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-700" />
+            <div>
+              <p className="font-medium">
+                {finalizedVersions.length === 1
+                  ? `Version ${lastFinalizedVersion.versionNum} sent to patient${
+                      lastFinalizedVersion.finalizedAt
+                        ? ` on ${new Date(lastFinalizedVersion.finalizedAt).toLocaleString()}`
+                        : ''
+                    }.`
+                  : `${finalizedVersions.length} versions already sent to patient (latest: v${lastFinalizedVersion.versionNum}).`}
+              </p>
+              <p className="mt-0.5 text-blue-800">
+                Editing remaining tests for version {nextVersionNum}. Earlier versions are locked — edits to already-sent tests will only appear in v{nextVersionNum}.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Report Card */}
         <Card className={isFinalized ? 'border-success/30' : 'border-warning/30'}>
@@ -671,14 +812,14 @@ const DiagnosticsReportPreview = () => {
         {/* Actions */}
         {!isFinalized && (
           <div className="flex gap-3">
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => navigate(`/diagnostics/results/${visit.id}`)}
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back to Edit
             </Button>
-            <Button 
+            <Button
               variant="secondary"
               className="flex-1"
               onClick={handlePreviewReport}
@@ -691,7 +832,18 @@ const DiagnosticsReportPreview = () => {
               )}
               {previewLoading ? 'Generating...' : 'Preview Report Before Finalization'}
             </Button>
-            {hasReviewedPreview && (
+            {hasReviewedPreview && canReleasePartial && (
+              <Button
+                onClick={() => setShowReleaseConfirm(true)}
+                disabled={hasDue}
+              >
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                {hasDue
+                  ? 'Collect Due Before Releasing'
+                  : `Release Partial Report (${readyReportableCount} of ${totalReportableCount} ready)`}
+              </Button>
+            )}
+            {hasReviewedPreview && canFinalizeAll && (
               <Button
                 onClick={() => setShowConfirm(true)}
                 disabled={hasDue}
@@ -755,15 +907,29 @@ const DiagnosticsReportPreview = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                variant="default"
-                size="sm"
-                onClick={handleFinalizeFromPreview}
-                disabled={hasDue}
-              >
-                <CheckCircle2 className="mr-2 h-4 w-4" />
-                {hasDue ? 'Collect Due Before Finalizing' : 'Looks Good — Finalize'}
-              </Button>
+              {canReleasePartial ? (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleReleasePartialFromPreview}
+                  disabled={hasDue}
+                >
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  {hasDue
+                    ? 'Collect Due Before Releasing'
+                    : `Looks Good — Release ${readyReportableCount} of ${totalReportableCount}`}
+                </Button>
+              ) : canFinalizeAll ? (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleFinalizeFromPreview}
+                  disabled={hasDue}
+                >
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  {hasDue ? 'Collect Due Before Finalizing' : 'Looks Good — Finalize'}
+                </Button>
+              ) : null}
               <Button
                 variant="ghost"
                 size="icon"
@@ -790,6 +956,51 @@ const DiagnosticsReportPreview = () => {
           </div>
         </div>
       )}
+
+      {/* Partial Release Confirmation */}
+      <AlertDialog open={showReleaseConfirm} onOpenChange={setShowReleaseConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Release Partial Report?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  Send the {readyReportableCount} test{readyReportableCount === 1 ? '' : 's'} that {readyReportableCount === 1 ? 'is' : 'are'} ready now. The patient will receive a partial report immediately and a separate WhatsApp message when the remaining {pendingReportableCount} test{pendingReportableCount === 1 ? '' : 's'} {pendingReportableCount === 1 ? 'is' : 'are'} completed.
+                </p>
+                <p className="text-muted-foreground">
+                  This finalizes version {(draftVersion?.versionNum ?? nextVersionNum)}. Edits to these tests after release will only appear in the next version.
+                </p>
+                {hasAbnormalValues && (
+                  <p className="font-medium text-warning">
+                    ⚠ This batch contains abnormal values.
+                  </p>
+                )}
+                {hasDue && (
+                  <p className="font-medium text-amber-700">
+                    Bill due {formatMoneyFromPaise(dueAmountInPaise)} must be collected before release.
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleReleasePartial}
+              disabled={releasing || hasDue}
+            >
+              {releasing ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+              )}
+              {releasing ? 'Releasing...' : 'Release Partial Report'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Finalize Confirmation */}
       <AlertDialog open={showConfirm} onOpenChange={setShowConfirm}>
