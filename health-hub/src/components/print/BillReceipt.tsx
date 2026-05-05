@@ -16,7 +16,11 @@ interface BillReceiptProps {
  * - DiagnosticsNewVisit (inline print)
  * - BillPrintPage (Patient360 reprint)
  */
-const BILL_LOGO_URL = `${API_BASE_URL}/images/sobhana-clinic-logo.png`;
+// Use the color logo (red + navy) — same one the patient report uses, so the
+// bill and the report keep a consistent brand. The previous black-and-white
+// `sobhana-clinic-logo.png` reads as a fax-era artifact next to the rest of
+// the print stack.
+const BILL_LOGO_URL = `${API_BASE_URL}/images/sobhana-logo-cropped.png`;
 
 export const BillReceipt = ({
   data,
