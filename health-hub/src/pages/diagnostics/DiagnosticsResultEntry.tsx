@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { API_BASE } from '@/lib/api';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -6,7 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { RichTextNarrativeEditor } from '@/components/diagnostics/RichTextNarrativeEditor';
+import { ReportFramedNarrativeEditor } from '@/components/diagnostics/ReportFramedNarrativeEditor';
+import { RichTextToolbar } from '@/components/diagnostics/RichTextToolbar';
+import {
+  DEFAULT_TOOLBAR_STATE,
+  type RichTextSurfaceHandle,
+  type ToolbarState,
+} from '@/components/diagnostics/RichTextSurface';
 import { TestValueCombobox } from '@/components/diagnostics/TestValueCombobox';
 import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
@@ -216,6 +222,14 @@ const DiagnosticsResultEntry = () => {
   // and mutated locally as the user uploads / deletes files.
   const [uploadsByOrder, setUploadsByOrder] = useState<Record<string, ExternalUpload[]>>({});
   const [uploadingOrderId, setUploadingOrderId] = useState<string | null>(null);
+
+  // Active narrative editor — tracks which framed editor on the page currently
+  // owns the cursor, so the single sticky toolbar can dispatch its commands to
+  // that editor's contentEditable surface.
+  const activeSurfaceRef = useRef<RichTextSurfaceHandle | null>(null);
+  const activeSurfaceTestIdRef = useRef<string | null>(null);
+  const [activeSurfaceTestId, setActiveSurfaceTestId] = useState<string | null>(null);
+  const [sharedToolbarState, setSharedToolbarState] = useState<ToolbarState>(DEFAULT_TOOLBAR_STATE);
 
   const textLayoutByTestId = useMemo(() => {
     const map = new Map<string, string>();
@@ -1097,32 +1111,52 @@ const DiagnosticsResultEntry = () => {
     testName: string,
     testCode: string,
     placeholder: string,
-    isSubTest: boolean = false
+    _isSubTest: boolean = false,
+    panelDisplayName?: string,
+    departmentName?: string
   ) => {
     const valueStr = results[testId] || '';
 
     return (
-      <div
-        key={testId}
-        className={cn(
-          'space-y-2 border-b py-3 last:border-0',
-          isSubTest ? 'md:pl-4' : ''
-        )}
-      >
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <Label className={cn('font-medium', isSubTest ? 'text-sm' : 'text-base')}>
-              {testName}
-            </Label>
-            <span className="text-xs text-muted-foreground">({testCode})</span>
-          </div>
-        </div>
-
-        <RichTextNarrativeEditor
+      <div key={testId} className="py-3">
+        <ReportFramedNarrativeEditor
           value={valueStr}
           onChange={(nextValue) => handleValueChange(testId, nextValue)}
+          patient={{
+            name: visit?.patient.name || '',
+            ageDisplay: visit?.patient.yearOfBirth
+              ? `${new Date().getFullYear() - visit.patient.yearOfBirth} Years`
+              : undefined,
+            gender: visit?.patient.gender,
+            patientNumber: undefined,
+          }}
+          visit={{
+            billNumber: visit?.billNumber || '',
+            createdAt: undefined,
+            collectedAt: null,
+            reportedAt: null,
+            sampleType: null,
+          }}
+          departmentName={departmentName || 'Tests'}
+          panelDisplayName={panelDisplayName || testName}
+          testCode={testCode}
           placeholder={placeholder}
-          minHeightClassName="min-h-[280px]"
+          onSurfaceStateChange={(state) => {
+            if (activeSurfaceTestIdRef.current === testId) {
+              setSharedToolbarState(state);
+            }
+          }}
+          onActivate={(handle) => {
+            activeSurfaceRef.current = handle;
+            activeSurfaceTestIdRef.current = testId;
+            setActiveSurfaceTestId(testId);
+          }}
+          onDeactivate={() => {
+            // Don't clear immediately on blur — the user may be clicking a toolbar
+            // button, which would lose focus on the contentEditable. Toolbar buttons
+            // re-focus the surface via runCommand → editor.focus(). We only clear
+            // when another editor takes focus or the page unmounts.
+          }}
         />
       </div>
     );
@@ -1252,6 +1286,19 @@ const DiagnosticsResultEntry = () => {
   });
   const hasMissingExternalUploads = externalUploadOrdersMissingFiles.length > 0;
 
+  // True if any test in this visit uses the WYSIWYG framed narrative editor.
+  // Used to decide whether to show the sticky shared rich-text toolbar at the
+  // top of the page.
+  const hasNarrativeTests = testOrders.some((order) => {
+    if (isRichTextPanelLayout(textLayoutByTestId.get(order.testId))) return true;
+    if (order.isPanel && order.childTests) {
+      return order.childTests.some((child) =>
+        isRichTextPanelLayout(textLayoutByTestId.get(child.id))
+      );
+    }
+    return false;
+  });
+
   return (
     <AppLayout context="diagnostics">
       <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
@@ -1310,6 +1357,22 @@ const DiagnosticsResultEntry = () => {
           </CardContent>
         </Card>
 
+        {/* Shared rich-text toolbar — sticky at the top of the page so it stays
+            in reach as the user scrolls through long narrative reports. Routes
+            commands to whichever framed editor is currently focused. Hidden
+            entirely when this visit has no narrative tests. */}
+        {hasNarrativeTests && (
+          <div className="sticky top-0 z-30 -mx-2 px-2 py-2 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+            <RichTextToolbar
+              state={sharedToolbarState}
+              active={activeSurfaceTestId !== null}
+              onCommand={(command, value) => {
+                activeSurfaceRef.current?.runCommand(command, value);
+              }}
+            />
+          </div>
+        )}
+
         {/* Test Results */}
         <Card>
           <CardHeader>
@@ -1337,6 +1400,92 @@ const DiagnosticsResultEntry = () => {
 
                 <div className="space-y-3">
                   {department.orderGroups.map((group) => {
+                    // Narrative-only groups (radiology / imaging / text-only) skip
+                    // the collapsible panel chrome and render directly as report-
+                    // framed editors — the frame itself shows the panel/test name,
+                    // so the outer container would just duplicate it.
+                    const isNarrativeOnlyGroup =
+                      group.type === 'panel'
+                        ? group.orders.every((o) =>
+                            isRichTextPanelLayout(textLayoutByTestId.get(o.testId))
+                          )
+                        : (() => {
+                            const o = group.order;
+                            if (o.workflowMode === 'EXTERNAL_UPLOAD') return false;
+                            if (o.isPanel && o.childTests && o.childTests.length > 0) {
+                              return o.childTests.every((c) =>
+                                isRichTextPanelLayout(textLayoutByTestId.get(c.id))
+                              );
+                            }
+                            return isRichTextPanelLayout(
+                              textLayoutByTestId.get(o.testId)
+                            );
+                          })();
+
+                    if (isNarrativeOnlyGroup) {
+                      if (group.type === 'panel') {
+                        return (
+                          <div key={group.panelId} className="space-y-4">
+                            {group.orders.map((order) => {
+                              const textLayout = textLayoutByTestId.get(order.testId);
+                              return renderNarrativeInput(
+                                order.testId,
+                                order.testName,
+                                order.testCode,
+                                textLayout === 'IMAGING_NARRATIVE'
+                                  ? 'Enter narrative report...'
+                                  : 'Enter text result...',
+                                false,
+                                group.panelDisplayName || group.panelName,
+                                department.name
+                              );
+                            })}
+                          </div>
+                        );
+                      }
+
+                      const order = group.order;
+                      // Single narrative order — could be a legacy panel with all-narrative children
+                      // or a standalone narrative test.
+                      if (order.isPanel && order.childTests && order.childTests.length > 0) {
+                        return (
+                          <div key={order.id} className="space-y-4">
+                            {order.childTests.map((child) => {
+                              const textLayout = textLayoutByTestId.get(child.id);
+                              return renderNarrativeInput(
+                                child.id,
+                                child.name,
+                                child.code,
+                                textLayout === 'IMAGING_NARRATIVE'
+                                  ? 'Enter narrative report...'
+                                  : 'Enter text result...',
+                                false,
+                                order.panel?.displayName || order.panel?.name || order.testName,
+                                department.name
+                              );
+                            })}
+                          </div>
+                        );
+                      }
+
+                      const textLayout = textLayoutByTestId.get(order.testId);
+                      return (
+                        <div key={order.id}>
+                          {renderNarrativeInput(
+                            order.testId,
+                            order.testName,
+                            order.testCode,
+                            textLayout === 'IMAGING_NARRATIVE'
+                              ? 'Enter narrative report...'
+                              : 'Enter text result...',
+                            false,
+                            order.panel?.displayName || order.panel?.name || order.testName,
+                            department.name
+                          )}
+                        </div>
+                      );
+                    }
+
                     // Render grouped panel (multiple orders with same panel.id)
                     if (group.type === 'panel') {
                       const panelGroup = group;
