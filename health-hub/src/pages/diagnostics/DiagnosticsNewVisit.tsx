@@ -570,13 +570,18 @@ const DiagnosticsNewVisit = () => {
           );
 
           if (userConfirm) {
-            // Use existing patient
+            // Use existing patient. Carry through ageDisplay/ageUnit so the
+            // bill receipt renders the smart age string instead of falling
+            // back to "N/A" (the receipt prefers ageDisplay over numeric age).
             patient = {
               id: existing.id,
               patientNumber: existing.patientNumber,
               name: existing.name,
               age: existing.age,
+              ageUnit: existing.ageUnit,
+              ageDisplay: existing.ageDisplay,
               yearOfBirth: existing.yearOfBirth,
+              dateOfBirth: existing.dateOfBirth,
               gender: existing.gender,
               identifiers: existing.identifiers || [],
               createdAt: existing.createdAt || new Date(),
