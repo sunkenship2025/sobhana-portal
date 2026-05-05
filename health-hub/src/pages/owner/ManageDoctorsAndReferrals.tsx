@@ -76,7 +76,7 @@ const EMPTY_REFERRAL_FORM = {
   name: '',
   phone: '',
   commissionType: 'PERCENTAGE' as const,
-  commissionPercent: '',
+  commissionPercent: '50',
   commissionAmount: '',
   productRules: [] as ReferralRuleFormItem[],
 };
@@ -109,7 +109,7 @@ export default function ManageDoctorsAndReferrals() {
   const [clinicForm, setClinicForm] = useState({
     name: '', qualification: '', specialty: '', registrationNumber: '', phone: '', letterheadNote: '',
     commissionType: 'PERCENTAGE' as 'PERCENTAGE' | 'FIXED_AMOUNT',
-    commissionPercent: '100',
+    commissionPercent: '50',
     commissionAmount: '',
   });
 
@@ -257,8 +257,8 @@ export default function ManageDoctorsAndReferrals() {
   };
 
   const handleRefSubmit = async () => {
-    if (!refForm.name || !refForm.phone) {
-      toast.error('Please fill all fields'); return;
+    if (!refForm.name) {
+      toast.error('Doctor name is required'); return;
     }
 
     if (refForm.commissionType === 'PERCENTAGE') {
@@ -413,7 +413,7 @@ export default function ManageDoctorsAndReferrals() {
   };
 
   const clinicResetForm = () => {
-    setClinicForm({ name: '', qualification: '', specialty: '', registrationNumber: '', phone: '', letterheadNote: '', commissionType: 'PERCENTAGE', commissionPercent: '100', commissionAmount: '' });
+    setClinicForm({ name: '', qualification: '', specialty: '', registrationNumber: '', phone: '', letterheadNote: '', commissionType: 'PERCENTAGE', commissionPercent: '50', commissionAmount: '' });
     setClinicShowForm(false);
     setClinicEditingId(null);
     setClinicExistingDoctor(null);
@@ -692,8 +692,8 @@ export default function ManageDoctorsAndReferrals() {
                       onChange={(e) => handleRefNameChange(e.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <Label>Phone *</Label>
-                    <Input placeholder="10-digit phone" value={refForm.phone} maxLength={10}
+                    <Label>Phone</Label>
+                    <Input placeholder="10-digit phone (optional)" value={refForm.phone} maxLength={10}
                       onChange={(e) => {
                         const next = e.target.value.replace(/\D/g, '').slice(0, 10);
                         setRefForm((f) => ({ ...f, phone: next }));
