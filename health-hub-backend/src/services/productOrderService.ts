@@ -188,10 +188,14 @@ export async function resolveProducts(
     // Deduplicate by code
     const uniqueDefs = new Map(missingDefs.map(d => [d.code, d]));
 
-    // Create LabTest records for each missing TestDefinition
+    // Upsert (not raw create) so two concurrent visit-creation requests for
+    // the same test don't both try to create a LabTest with the same code
+    // and one hits a P2002 unique-constraint error → returned as 500.
+    // `code` has a unique constraint on LabTest, which is what `where` keys on.
     for (const [code, def] of uniqueDefs) {
-      const created = await prisma.labTest.create({
-        data: {
+      const upserted = await prisma.labTest.upsert({
+        where: { code: def.code },
+        create: {
           name: def.name,
           code: def.code,
           priceInPaise: 0,  // Price is tracked via BillableProduct
@@ -201,10 +205,10 @@ export async function resolveProducts(
           isActive: true,
           isPanel: false,
         },
+        update: {}, // existing row is fine; we only need an id back
         select: { id: true, name: true, code: true, referenceMin: true, referenceMax: true, referenceUnit: true },
       });
-      labTestByCode.set(code, created);
-      console.log(`[productOrderService] Auto-created LabTest bridge record for code "${code}" (id: ${created.id})`);
+      labTestByCode.set(code, upserted);
     }
   }
 

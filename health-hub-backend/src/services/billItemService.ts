@@ -20,6 +20,10 @@ export interface DiagnosticBillItem {
   id: string;
   name: string;
   code: string;
+  /** Item price in paise (integer). Use `priceInPaise / 100` at display time. */
+  priceInPaise: number;
+  /** Convenience: same price in rupees. Computed once per item, not per
+   *  accumulation step, so float drift can't compound across many items. */
   price: number;
   referralCommissionType?: ReferralCommissionType;
   referralCommissionPercent?: number;
@@ -74,11 +78,13 @@ function mergeReferralMetadata(target: DiagnosticBillItem, order: DiagnosticBill
 }
 
 function toStandaloneBillItem(order: DiagnosticBillOrderInput): DiagnosticBillItem {
+  const priceInPaise = order.priceInPaise;
   return {
     id: order.id,
     name: order.testName,
     code: order.testCode,
-    price: order.priceInPaise / 100,
+    priceInPaise,
+    price: priceInPaise / 100,
     referralCommissionType: order.referralCommissionType ?? undefined,
     referralCommissionPercent: order.referralCommissionPercentage ?? undefined,
     referralCommissionAmountInPaise: order.referralCommissionAmountInPaise ?? undefined,
@@ -86,6 +92,11 @@ function toStandaloneBillItem(order: DiagnosticBillOrderInput): DiagnosticBillIt
 }
 
 export function buildDiagnosticBillItems(orders: DiagnosticBillOrderInput[]): DiagnosticBillItem[] {
+  // Aggregate in paise (integers) to avoid float drift. The previous version
+  // did `existing.price += priceInPaise / 100` per order — for visits with
+  // many panel members this accumulates rounding error visible across
+  // bill reprints (one print shows ₹1234.99, the next ₹1234.98). Keep paise
+  // as integer through the loop and divide once at the end.
   const items: DiagnosticBillItem[] = [];
   const groupedByProductId = new Map<string, DiagnosticBillItem>();
 
@@ -101,6 +112,7 @@ export function buildDiagnosticBillItems(orders: DiagnosticBillOrderInput[]): Di
         id: order.product.id,
         name: order.product.name,
         code: order.product.code,
+        priceInPaise: order.priceInPaise,
         price: order.priceInPaise / 100,
       };
       mergeReferralMetadata(groupedItem, order);
@@ -109,7 +121,8 @@ export function buildDiagnosticBillItems(orders: DiagnosticBillOrderInput[]): Di
       continue;
     }
 
-    existing.price += order.priceInPaise / 100;
+    existing.priceInPaise += order.priceInPaise;
+    existing.price = existing.priceInPaise / 100;
     mergeReferralMetadata(existing, order);
   }
 

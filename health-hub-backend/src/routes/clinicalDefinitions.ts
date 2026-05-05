@@ -27,6 +27,7 @@ import {
   getDependents,
   sandboxPreview,
 } from '../services/clinicalDefinitionService';
+import { checkConcurrency } from '../utils/clinicalValidation';
 
 const router = Router();
 
@@ -259,6 +260,16 @@ router.patch('/:id/toggle-visibility', async (req: AuthRequest, res) => {
     if (!def) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Test definition not found' });
     }
+    // Optimistic concurrency: same protocol the other clinicalDef endpoints
+    // use. Two admins viewing the row at the same time would otherwise stomp
+    // each other's toggle silently.
+    const ifMatch = req.headers['if-match'] as string | undefined;
+    if (!checkConcurrency(ifMatch, def.updatedAt)) {
+      return res.status(409).json({
+        error: 'CONFLICT',
+        message: 'This definition was modified by another user. Refresh and try again.',
+      });
+    }
     const updated = await prisma.testDefinition.update({
       where: { id: req.params.id },
       data: { isActive: !def.isActive },
@@ -281,11 +292,23 @@ router.delete('/:rootId', async (req: AuthRequest, res) => {
   try {
     const versions = await prisma.testDefinition.findMany({
       where: { rootDefinitionId: req.params.rootId },
-      select: { id: true, code: true, name: true },
+      select: { id: true, code: true, name: true, isLatest: true, updatedAt: true },
     });
 
     if (versions.length === 0) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Test definition not found' });
+    }
+
+    // Optimistic concurrency vs. the latest version's updatedAt — same
+    // protocol as PATCH /:id/status and POST /:rootId/new-version. Without
+    // this check, a delete can race with a concurrent edit and silently win.
+    const latest = versions.find((v) => v.isLatest) ?? versions[0];
+    const ifMatch = req.headers['if-match'] as string | undefined;
+    if (!checkConcurrency(ifMatch, latest.updatedAt)) {
+      return res.status(409).json({
+        error: 'CONFLICT',
+        message: 'This definition was modified by another user. Refresh and try again.',
+      });
     }
 
     const versionIds = versions.map(v => v.id);

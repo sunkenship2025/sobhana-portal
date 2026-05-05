@@ -11,8 +11,12 @@ const router = Router();
 // payload can't read it. SameSite=lax allows top-level navigation (so
 // patients clicking a /reports/:token link arrive properly) while still
 // preventing CSRF on cross-site form posts.
+//
+// MaxAge MUST match the JWT `expiresIn` set in authService.login() — otherwise
+// the cookie sits in the browser past JWT expiry, every authMiddleware run
+// returns 401, and the user gets bounced to /login mid-session.
 const JWT_COOKIE_NAME = 'jwt';
-const JWT_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // matches JWT 7-day expiry
+const JWT_COOKIE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 1 day — matches JWT expiresIn '1d'
 
 function setJwtCookie(res: Response, token: string) {
   res.cookie(JWT_COOKIE_NAME, token, {
@@ -95,18 +99,28 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Account not found or disabled' });
     }
 
-    // Hand back the original token from the cookie (still valid until JWT
-    // expiry). We deliberately do NOT re-issue a fresh token here — that
-    // would extend session lifetime indefinitely and weaken the 7-day cap.
+    // Resolve the token to hand back. authMiddleware already verified it from
+    // either source; we just need to find which one for the response body.
+    // Header-only callers (privacy-mode browsers, clients with cookies stripped)
+    // get a fresh cookie set so the next request can use it; their existing
+    // header-based call already authenticated them.
     const cookieToken = (req as any).cookies?.jwt as string | undefined;
-    if (!cookieToken) {
-      // Caller authenticated via Authorization header rather than cookie.
-      // Nothing to hand back; ask the client to log in again to get a cookie.
-      return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Session not cookie-based — please log in again' });
+    const headerAuth = req.headers.authorization;
+    const headerToken = headerAuth?.startsWith('Bearer ')
+      ? headerAuth.split(' ')[1]
+      : undefined;
+    const token = cookieToken || headerToken;
+    if (!token) {
+      return res.status(401).json({ error: 'UNAUTHORIZED', message: 'No session token' });
+    }
+    if (!cookieToken && headerToken) {
+      // Re-issue the cookie so the client can stop relying on the header on
+      // subsequent requests (header path is the legacy compat hatch).
+      setJwtCookie(res, headerToken);
     }
 
     return res.json({
-      token: cookieToken,
+      token,
       user: {
         id: user.id,
         email: user.email,

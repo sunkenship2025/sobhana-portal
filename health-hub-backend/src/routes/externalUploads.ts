@@ -336,9 +336,13 @@ router.get('/:id', async (req: AuthRequest, res) => {
     });
 
     res.setHeader('Content-Type', 'application/pdf');
+    // Strip quotes AND CRLF — newlines in the filename would let a crafted
+    // upload inject arbitrary response headers (CRLF injection). Express
+    // usually sanitizes at the HTTP layer, but defense-in-depth is cheap.
+    const safeName = upload.originalFilename.replace(/[\r\n"]/g, '');
     res.setHeader(
       'Content-Disposition',
-      `inline; filename="${upload.originalFilename.replace(/"/g, '')}"`,
+      `inline; filename="${safeName}"`,
     );
     res.setHeader('Content-Length', buffer.length);
     res.setHeader('Cache-Control', 'no-store');

@@ -37,7 +37,10 @@ export function validatePatientForm(data: PatientFormData): ValidationErrors {
     errors.name = 'Name must be at least 2 characters';
   } else if (trimmedName.length > 100) {
     errors.name = 'Name cannot exceed 100 characters';
-  } else if (!/^[a-zA-Z\s.'-]+$/.test(trimmedName)) {
+  } else if (!/^[\p{L}\s.'-]+$/u.test(trimmedName)) {
+    // \p{L} matches any Unicode letter — Telugu / Tamil / Hindi / Bengali /
+    // Arabic names all pass. The previous [a-zA-Z]-only regex rejected every
+    // non-Latin script, blocking registration for a big fraction of patients.
     errors.name = 'Name can only contain letters, spaces, dots, hyphens, and apostrophes';
   }
 
@@ -140,26 +143,39 @@ export function validateEmail(email: string): string | null {
 }
 
 /**
- * Real-time validation for individual fields
- * Use this for onChange handlers to provide immediate feedback
+ * Real-time validation for individual fields.
+ * Use this for onChange handlers to provide immediate feedback.
+ *
+ * For `age` the caller MUST pass `ageUnit` so the upper bound matches the
+ * unit (30 days / 24 months / 120 years). Without unit context the realtime
+ * validator caps at 120 always, which falsely flagged pediatric patients
+ * with `ageUnit='MONTHS'` and age 18+ as over-limit.
  */
-export function validateField(fieldName: keyof PatientFormData, value: any): string | null {
+export function validateField(
+  fieldName: keyof PatientFormData,
+  value: any,
+  context?: { ageUnit?: 'DAYS' | 'MONTHS' | 'YEARS' },
+): string | null {
   switch (fieldName) {
     case 'name':
       const trimmed = value?.trim();
       if (!trimmed) return 'Name is required';
       if (trimmed.length < 2) return 'Name must be at least 2 characters';
       if (trimmed.length > 100) return 'Too long';
-      if (!/^[a-zA-Z\s.'-]+$/.test(trimmed)) return 'Only letters, spaces, dots, hyphens allowed';
+      if (!/^[\p{L}\s.'-]+$/u.test(trimmed)) return 'Only letters, spaces, dots, hyphens allowed';
       return null;
 
-    case 'age':
+    case 'age': {
       const age = typeof value === 'string' ? parseInt(value) : value;
       if (value === '' || value === null) return 'Age is required';
       if (isNaN(age)) return 'Must be a number';
       if (age < 0) return 'Cannot be negative';
-      if (age > 120) return 'Cannot exceed 120';
+      const unit = context?.ageUnit || 'YEARS';
+      if (unit === 'DAYS' && age > 30) return 'For ages over 30 days, use Months';
+      if (unit === 'MONTHS' && age > 24) return 'For ages over 24 months, use Years';
+      if (unit === 'YEARS' && age > 120) return 'Cannot exceed 120';
       return null;
+    }
 
     case 'gender':
       if (!value) return 'Gender is required';

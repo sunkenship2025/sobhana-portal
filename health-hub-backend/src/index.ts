@@ -114,28 +114,48 @@ app.use(
   }),
 );
 
-// Security middleware - relaxed for development
+// Security middleware. CSP stays on in production; turn it off in dev so the
+// report HTML preview tooling and Vite's HMR don't fight it.
+const isProduction = process.env.NODE_ENV === 'production';
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
   crossOriginOpenerPolicy: { policy: "unsafe-none" },
-  contentSecurityPolicy: false, // Disable CSP in development
+  contentSecurityPolicy: isProduction
+    ? {
+        useDefaults: true,
+        directives: {
+          // Reports embed CSS and the logo as data: URIs, then make XHR back to /api/*.
+          // 'unsafe-inline' on style-src is required for shadcn + tailwind-merge
+          // (they emit inline <style> blocks at runtime).
+          "default-src": ["'self'"],
+          "img-src": ["'self'", "data:", "blob:"],
+          "script-src": ["'self'"],
+          "style-src": ["'self'", "'unsafe-inline'"],
+          "connect-src": ["'self'"],
+          "frame-ancestors": ["'none'"],
+          "object-src": ["'none'"],
+        },
+      }
+    : false,
 }));
 
-// CORS - Production-safe origin whitelist
+// CORS — exact-match allowlist. The previous `*.vercel.app` substring let any
+// attacker-deployed Vercel preview issue credentialed requests with the user's
+// auth cookie attached.
 const allowedOrigins = process.env.FRONTEND_URL
-  ? process.env.FRONTEND_URL.split(',').map(s => s.trim())
+  ? process.env.FRONTEND_URL.split(',').map(s => s.trim()).filter(Boolean)
   : [];
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, curl, server-to-server)
+    // Same-origin / non-browser callers (Postman, server-to-server, Puppeteer)
+    // omit Origin entirely; allow them. Browsers always send Origin for cross-
+    // origin credentialed requests, so the cookie auth path is still gated below.
     if (!origin) return callback(null, true);
-    // In development (no FRONTEND_URL set), allow all origins
-    if (allowedOrigins.length === 0) return callback(null, true);
-    // In production, check whitelist
-    if (allowedOrigins.some(allowed => origin === allowed || origin.endsWith('.vercel.app'))) {
-      return callback(null, true);
-    }
+    // In dev (no FRONTEND_URL set on a non-prod box) allow any origin so
+    // localhost ports can iterate. Prod is guarded by a startup check.
+    if (!isProduction && allowedOrigins.length === 0) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
@@ -162,15 +182,19 @@ app.use(cors(corsOptions));
 // Handle preflight for all routes explicitly
 app.options('*', cors(corsOptions));
 
-// Disable ALL caching for API responses (fixes Arc, Safari, aggressive caching)
-app.use((_req, res, next) => {
-  res.set({
-    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
-    'Pragma': 'no-cache',
-    'Expires': '0',
-    'Surrogate-Control': 'no-store',
-    'Vary': 'Origin, Accept-Encoding',
-  });
+// Disable caching for API + token-gated routes only. Static `/css`, `/images`,
+// `/fonts` mounted below are immutable assets used in report HTML — letting
+// browsers + the Puppeteer pool cache them is a real perf win.
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/reports') || req.path.startsWith('/webhooks')) {
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Surrogate-Control': 'no-store',
+      'Vary': 'Origin, Accept-Encoding',
+    });
+  }
   next();
 });
 
@@ -315,6 +339,15 @@ async function shutdown(): Promise<void> {
 }
 
 async function startServer(): Promise<void> {
+  if (isProduction && allowedOrigins.length === 0) {
+    throw new Error(
+      'FRONTEND_URL must be set in production — refusing to start with an empty CORS allowlist.',
+    );
+  }
+  if (isProduction && !process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET must be set in production.');
+  }
+
   if (isRedisRequired()) {
     await ensureRedisReady();
     console.log('Redis connection verified for production startup.');

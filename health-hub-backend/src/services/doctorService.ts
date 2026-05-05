@@ -320,18 +320,21 @@ export async function searchReferralDoctorByContact(
   phone?: string,
   email?: string
 ) {
-  if (!phone && !email) {
-    return null;
-  }
+  // Build OR list from only the fields that are actually set. Previous code did
+  // `OR: [phone ? { phone } : {}, ...]` which becomes `OR: [{}]` when both are
+  // missing, and Prisma treats an empty object as "match every row" — so the
+  // helper would return the first active doctor and break duplicate-create
+  // checks for doctors registered without contact info.
+  const conditions: any[] = [];
+  if (phone) conditions.push({ phone });
+  if (email) conditions.push({ email });
+  if (conditions.length === 0) return null;
 
   return prisma.referralDoctor.findFirst({
     where: {
-      OR: [
-        phone ? { phone } : {},
-        email ? { email } : {}
-      ],
-      isActive: true
-    }
+      OR: conditions,
+      isActive: true,
+    },
   });
 }
 
@@ -354,13 +357,23 @@ export interface CreateClinicDoctorInput {
 }
 
 export async function createClinicDoctor(input: CreateClinicDoctorInput) {
+  // Registration number is required and must be unique. The Postgres unique
+  // constraint treats NULL = NULL as "not equal", so a nullable column with
+  // multiple null rows wouldn't catch duplicates — and `findUnique({ where:
+  // { registrationNumber: null } })` is a Prisma type error anyway. Reject
+  // missing/blank registration numbers up front.
+  const trimmedReg = input.registrationNumber?.trim();
+  if (!trimmedReg) {
+    throw new ValidationError('Registration number is required for clinic doctors');
+  }
+
   // Check for duplicate registration number
   const existingReg = await prisma.clinicDoctor.findUnique({
-    where: { registrationNumber: input.registrationNumber }
+    where: { registrationNumber: trimmedReg }
   });
   if (existingReg) {
     throw new ConflictError(
-      `Clinic doctor with registration ${input.registrationNumber} already exists: ${existingReg.name} (${existingReg.doctorNumber})`
+      `Clinic doctor with registration ${trimmedReg} already exists: ${existingReg.name} (${existingReg.doctorNumber})`
     );
   }
 
@@ -395,7 +408,7 @@ export async function createClinicDoctor(input: CreateClinicDoctorInput) {
       name: input.name,
       qualification: input.qualification,
       specialty: input.specialty,
-      registrationNumber: input.registrationNumber,
+      registrationNumber: trimmedReg,
       phone: input.phone,
       email: input.email,
       letterheadNote: input.letterheadNote,
@@ -499,17 +512,17 @@ export async function searchClinicDoctorByContact(
   phone?: string,
   email?: string
 ) {
-  if (!phone && !email) {
-    return null;
-  }
+  // See note on searchReferralDoctorByContact — OR with empty objects is a
+  // match-everything trap.
+  const conditions: any[] = [];
+  if (phone) conditions.push({ phone });
+  if (email) conditions.push({ email });
+  if (conditions.length === 0) return null;
 
   return prisma.clinicDoctor.findFirst({
     where: {
-      OR: [
-        phone ? { phone } : {},
-        email ? { email } : {}
-      ],
-      isActive: true
-    }
+      OR: conditions,
+      isActive: true,
+    },
   });
 }

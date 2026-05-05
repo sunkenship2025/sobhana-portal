@@ -11,8 +11,8 @@
  * Falls back to the default reference values if no age-specific range matches.
  */
 
-import { PrismaClient, Gender } from '@prisma/client';
-const prisma = new PrismaClient();
+import { Gender } from '@prisma/client';
+import prisma from '../lib/prisma';
 
 /**
  * Calculate patient age in days.

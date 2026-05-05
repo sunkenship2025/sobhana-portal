@@ -39,6 +39,29 @@ const uploadSignature = multer({
   },
 });
 
+/**
+ * Sniff the first bytes of an uploaded file. Extension-only check is
+ * bypassable: rename `evil.exe → sig.png` and Multer accepts it. We then
+ * base64-encode it into the DB, embed it as `<img src>` in every report,
+ * and ship arbitrary bytes to patients.
+ */
+function isAllowedImageMagic(buf: Buffer): boolean {
+  if (buf.length < 12) return false;
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47 &&
+    buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a
+  ) return true;
+  // JPEG: FF D8 FF
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return true;
+  // WEBP: RIFF....WEBP
+  if (
+    buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+    buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50
+  ) return true;
+  return false;
+}
+
 // All routes require auth + branch context
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
@@ -270,6 +293,18 @@ router.post('/:id/upload-signature', uploadSignature.single('signature'), async 
       return res.status(400).json({ error: 'NO_FILE', message: 'No signature image uploaded. Use field name "signature".' });
     }
 
+    // Magic-byte sniff: confirm the bytes actually match an allowed image
+    // format. Multer's fileFilter only checks extension which is trivially
+    // bypassable.
+    const fileBytes = fs.readFileSync(req.file.path);
+    if (!isAllowedImageMagic(fileBytes)) {
+      try { fs.unlinkSync(req.file.path); } catch { /* ignore */ }
+      return res.status(400).json({
+        error: 'INVALID_FILE_TYPE',
+        message: 'File contents are not a valid PNG, JPEG, or WebP image',
+      });
+    }
+
     // Delete old signature file if it exists
     if (doctor.signatureImagePath) {
       const oldPath = path.join(__dirname, '../../public', doctor.signatureImagePath);
@@ -284,7 +319,7 @@ router.post('/:id/upload-signature', uploadSignature.single('signature'), async 
     // Encode to base64 immediately — survives Render's ephemeral filesystem across deploys
     const ext = path.extname(req.file.filename).toLowerCase();
     const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
-    const imageBase64 = `data:${mime};base64,${fs.readFileSync(req.file.path).toString('base64')}`;
+    const imageBase64 = `data:${mime};base64,${fileBytes.toString('base64')}`;
 
     const updated = await prisma.signingDoctor.update({
       where: { id },

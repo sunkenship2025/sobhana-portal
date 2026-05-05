@@ -116,37 +116,33 @@ export async function createAccessToken(
     throw new Error('Cannot create access token for non-finalized report');
   }
 
-  // Generate unique token
-  let token = generateToken();
-  let tokenHash = hashToken(token);
-  let attempts = 0;
+  // Generate unique token. Try create-then-catch-P2002 instead of pre-checking
+  // for existence — the pre-check has a race window where two concurrent
+  // create calls can both pass the findUnique and only the second hits a
+  // P2002 that the loop wasn't catching, surfacing as a 500.
   const maxAttempts = 10;
-
-  while (attempts < maxAttempts) {
-    const exists = await prisma.reportAccessToken.findUnique({
-      where: { token: tokenHash },
-    });
-    
-    if (!exists) break;
-    token = generateToken();
-    tokenHash = hashToken(token);
-    attempts++;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const token = generateToken();
+    const tokenHash = hashToken(token);
+    try {
+      await prisma.reportAccessToken.create({
+        data: {
+          token: tokenHash,
+          reportVersionId,
+          expiresAt: expiresAt || null, // null = never expires (legacy default)
+        },
+      });
+      return token;
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        // Collision on the unique `token` column — regenerate and retry.
+        continue;
+      }
+      throw err;
+    }
   }
 
-  if (attempts >= maxAttempts) {
-    throw new Error('Failed to generate unique token');
-  }
-
-  // Create token record
-  await prisma.reportAccessToken.create({
-    data: {
-      token: tokenHash,
-      reportVersionId,
-      expiresAt: expiresAt || null, // null = never expires
-    },
-  });
-
-  return token;
+  throw new Error('Failed to generate unique token');
 }
 
 /**

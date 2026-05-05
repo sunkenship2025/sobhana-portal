@@ -69,8 +69,11 @@ export async function putPdf(input: PutPdfInput): Promise<void> {
       Key: input.key,
       Body: input.body,
       ContentType: 'application/pdf',
+      // Strip quotes AND CRLF — newlines in the filename would let a crafted
+      // upload inject response headers when R2 serves the object back via
+      // signed URL or via our /api/external-uploads/:id passthrough.
       ContentDisposition: input.originalFilename
-        ? `inline; filename="${input.originalFilename.replace(/"/g, '')}"`
+        ? `inline; filename="${input.originalFilename.replace(/[\r\n"]/g, '')}"`
         : undefined,
     }),
   );
