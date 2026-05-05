@@ -37,25 +37,17 @@ const Login = () => {
     <div className="h-screen flex overflow-hidden bg-white font-sans antialiased text-gray-900">
 
       {/* ── Left Hero Panel ──
-          Pure CSS hero — gradient + decorative pattern. The previous version
-          loaded a Google CDN URL (lh3.googleusercontent.com) which can rot,
-          can be tracked by Google, and bleeds the user's referrer. */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-[#0f1f3f] via-[#1B2B58] to-[#25397a]">
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 opacity-30"
-          style={{
-            backgroundImage:
-              'radial-gradient(circle at 20% 20%, rgba(255,255,255,0.15) 0, transparent 35%), radial-gradient(circle at 80% 70%, rgba(217,28,43,0.25) 0, transparent 40%), radial-gradient(circle at 50% 100%, rgba(255,255,255,0.08) 0, transparent 50%)',
-          }}
+          Self-hosted microscope image (in /public) — avoids the Google CDN
+          dependency the prior version had while keeping the visual identity. */}
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-[#1B2B58]">
+        <img
+          src="/pngtree-flat-microscope-image_1174913.jpg"
+          alt="Medical laboratory"
+          className="absolute inset-0 w-full h-full object-cover opacity-60 mix-blend-overlay"
         />
         <div
           aria-hidden="true"
-          className="absolute inset-0 opacity-10"
-          style={{
-            backgroundImage:
-              'repeating-linear-gradient(45deg, rgba(255,255,255,0.08) 0 2px, transparent 2px 24px)',
-          }}
+          className="absolute inset-0 bg-gradient-to-br from-[#0f1f3f]/60 via-[#1B2B58]/40 to-[#25397a]/60"
         />
         <div className="relative z-10 flex flex-col justify-end p-16 text-white">
           <h2 className="text-4xl font-extrabold mb-4 tracking-tight">
