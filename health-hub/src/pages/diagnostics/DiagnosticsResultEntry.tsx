@@ -12,7 +12,7 @@ import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
 import { FlagBadge } from '@/components/ui/flag-badge';
 import { toast } from 'sonner';
-import { AlertTriangle, Save, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { AlertTriangle, Save, Loader2, ChevronDown, ChevronUp, Lock } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -128,9 +128,12 @@ interface Visit {
     id: string;
     versions?: Array<{
       id: string;
+      versionNum?: number;
       status: string;
+      finalizedAt?: string | null;
       testResults?: Array<{
         testId: string;
+        testOrderId?: string;
         value: number;
         textValue?: string | null;
         notes?: string | null;
@@ -614,6 +617,41 @@ const DiagnosticsResultEntry = () => {
   const { patient, testOrders } = visit;
   const currentYear = new Date().getFullYear();
   const age = patient.yearOfBirth ? currentYear - patient.yearOfBirth : null;
+
+  // After a partial release the visit stays open with a fresh DRAFT version.
+  // Surface the prior finalized versions so staff understand that edits to
+  // already-sent tests will only appear in the next version, not retroactively.
+  const versions = visit.report?.versions ?? [];
+  const finalizedVersions = versions.filter((v) => v.status === 'FINALIZED');
+  const lastFinalizedVersion = finalizedVersions.reduce<typeof versions[number] | null>(
+    (latest, v) => (latest && (latest.versionNum ?? 0) > (v.versionNum ?? 0) ? latest : v),
+    null,
+  );
+  // Map every previously-sent test order to the FIRST version it appeared in,
+  // so per-row hints can show the exact "Sent in v{N}" label. Iterating in
+  // ascending version order guarantees we record the earliest occurrence.
+  const sentTestOrderVersions = new Map<string, number>();
+  const finalizedAsc = [...finalizedVersions].sort(
+    (a, b) => (a.versionNum ?? 0) - (b.versionNum ?? 0),
+  );
+  for (const v of finalizedAsc) {
+    for (const r of v.testResults ?? []) {
+      if (r.testOrderId && !sentTestOrderVersions.has(r.testOrderId)) {
+        sentTestOrderVersions.set(r.testOrderId, v.versionNum ?? 0);
+      }
+    }
+  }
+  const sentTestOrderCount = sentTestOrderVersions.size;
+  const nextVersionNum = (lastFinalizedVersion?.versionNum ?? 0) + 1;
+  /** Earliest version any of the given order ids was sent in, or null. */
+  const earliestSentVersion = (orderIds: string[]): number | null => {
+    let earliest: number | null = null;
+    for (const id of orderIds) {
+      const v = sentTestOrderVersions.get(id);
+      if (v !== undefined && (earliest === null || v < earliest)) earliest = v;
+    }
+    return earliest;
+  };
 
   const computeFlag = (value: number, min: number, max: number): 'NORMAL' | 'HIGH' | 'LOW' | null => {
     if (min === 0 && max === 0) return null;
@@ -1217,6 +1255,43 @@ const DiagnosticsResultEntry = () => {
   return (
     <AppLayout context="diagnostics">
       <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
+        {/* Prior partial-release banner — shown when one or more partial reports
+            have already been sent to the patient. Edits to already-sent tests
+            only appear in the next finalized version (this DRAFT). */}
+        {finalizedVersions.length > 0 && (
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 flex items-start gap-2">
+            <svg
+              className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-700"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+              aria-hidden="true"
+            >
+              <path
+                fillRule="evenodd"
+                d="M5 9V7a5 5 0 0 1 10 0v2h.5A1.5 1.5 0 0 1 17 10.5v6A1.5 1.5 0 0 1 15.5 18h-11A1.5 1.5 0 0 1 3 16.5v-6A1.5 1.5 0 0 1 4.5 9H5Zm2 0h6V7a3 3 0 1 0-6 0v2Z"
+                clipRule="evenodd"
+              />
+            </svg>
+            <div>
+              <p className="font-medium">
+                {finalizedVersions.length === 1
+                  ? `Version ${lastFinalizedVersion?.versionNum ?? 1} already sent to patient${
+                      lastFinalizedVersion?.finalizedAt
+                        ? ` on ${new Date(lastFinalizedVersion.finalizedAt).toLocaleString()}`
+                        : ''
+                    }.`
+                  : `${finalizedVersions.length} partial reports already sent (latest: v${lastFinalizedVersion?.versionNum ?? finalizedVersions.length}).`}
+                {sentTestOrderCount > 0 && (
+                  <span> {sentTestOrderCount} test{sentTestOrderCount === 1 ? '' : 's'} already delivered.</span>
+                )}
+              </p>
+              <p className="mt-0.5 text-blue-800">
+                You're editing version {nextVersionNum}. Earlier versions are locked — any edits here will only appear in v{nextVersionNum}, not retroactively.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Visit Summary - Pinned */}
         <Card className="border-primary/20 bg-accent/30">
           <CardContent className="pt-6">
@@ -1286,6 +1361,19 @@ const DiagnosticsResultEntry = () => {
                                 <span className="text-xs text-muted-foreground">
                                   ({filled}/{total} filled)
                                 </span>
+                                {(() => {
+                                  const sentV = earliestSentVersion(panelGroup.orders.map((o) => o.id));
+                                  if (sentV === null) return null;
+                                  return (
+                                    <span
+                                      className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-800 border border-blue-200"
+                                      title={`This panel was sent to the patient in version ${sentV}. Edits here will only appear in v${nextVersionNum}.`}
+                                    >
+                                      <Lock className="h-3 w-3" />
+                                      Sent in v{sentV}
+                                    </span>
+                                  );
+                                })()}
                               </div>
                               {panelGroup.panelMethodText && (
                                 <div className={cn(
@@ -1371,6 +1459,15 @@ const DiagnosticsResultEntry = () => {
                                   <span className="text-xs text-muted-foreground">
                                     ({filled}/{total} filled)
                                   </span>
+                                  {sentTestOrderVersions.get(order.id) !== undefined && (
+                                    <span
+                                      className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-800 border border-blue-200"
+                                      title={`Sent to patient in version ${sentTestOrderVersions.get(order.id)}. Edits will only appear in v${nextVersionNum}.`}
+                                    >
+                                      <Lock className="h-3 w-3" />
+                                      Sent in v{sentTestOrderVersions.get(order.id)}
+                                    </span>
+                                  )}
                                 </div>
                                 {panelMethodText && (
                                   <div className={cn(
@@ -1421,7 +1518,18 @@ const DiagnosticsResultEntry = () => {
                         ) : (
                           <>
                             <div className="border-b bg-muted/30 px-4 py-3">
-                              <div className="font-semibold">{order.testName}</div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="font-semibold">{order.testName}</div>
+                                {sentTestOrderVersions.get(order.id) !== undefined && (
+                                  <span
+                                    className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-800 border border-blue-200"
+                                    title={`Sent to patient in version ${sentTestOrderVersions.get(order.id)}. Edits will only appear in v${nextVersionNum}.`}
+                                  >
+                                    <Lock className="h-3 w-3" />
+                                    Sent in v{sentTestOrderVersions.get(order.id)}
+                                  </span>
+                                )}
+                              </div>
                               {panelMethodText && (
                                 <div className={cn(
                                   'mt-1 text-sm text-muted-foreground',

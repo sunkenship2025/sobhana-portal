@@ -19,6 +19,10 @@ import GlobalPatientSearch from "./pages/clinic/GlobalPatientSearch";
 import Patient360 from "./pages/clinic/Patient360";
 import DoctorDashboard from "./pages/doctor/DoctorDashboard";
 import OwnerDashboard from "./pages/owner/OwnerDashboard";
+import OwnerDashboardV2 from "./pages/owner/OwnerDashboardV2";
+import OwnerMoneyPage from "./pages/owner/OwnerMoneyPage";
+import OwnerDoctorsPage from "./pages/owner/OwnerDoctorsPage";
+import OwnerOperationsPage from "./pages/owner/OwnerOperationsPage";
 
 import AdminConfigCenter from "./pages/owner/AdminConfigCenter";
 import PayoutsList from "./pages/owner/PayoutsList";
@@ -132,10 +136,55 @@ function AppRoutes() {
         </ProtectedRoute>
       } />
       
-      {/* Owner only */}
+      {/* Owner only — new decision-first dashboard at /owner; legacy preserved at /owner/legacy */}
       <Route path="/owner" element={
         <ProtectedRoute allowedRoles={['owner']}>
+          <OwnerDashboardV2 />
+        </ProtectedRoute>
+      } />
+      <Route path="/owner/legacy" element={
+        <ProtectedRoute allowedRoles={['owner']}>
           <OwnerDashboard />
+        </ProtectedRoute>
+      } />
+      <Route path="/money/bills" element={
+        <ProtectedRoute allowedRoles={['owner']}>
+          <OwnerMoneyPage />
+        </ProtectedRoute>
+      } />
+      <Route path="/money/cash" element={
+        <ProtectedRoute allowedRoles={['owner']}>
+          <OwnerMoneyPage />
+        </ProtectedRoute>
+      } />
+      <Route path="/money/discounts" element={
+        <ProtectedRoute allowedRoles={['owner']}>
+          <OwnerMoneyPage />
+        </ProtectedRoute>
+      } />
+      <Route path="/people/doctors" element={
+        <ProtectedRoute allowedRoles={['owner']}>
+          <OwnerDoctorsPage />
+        </ProtectedRoute>
+      } />
+      <Route path="/people/doctors/:id" element={
+        <ProtectedRoute allowedRoles={['owner']}>
+          <OwnerDoctorsPage />
+        </ProtectedRoute>
+      } />
+      <Route path="/ops/queue" element={
+        <ProtectedRoute allowedRoles={['owner']}>
+          <OwnerOperationsPage />
+        </ProtectedRoute>
+      } />
+      <Route path="/ops/pending" element={
+        <ProtectedRoute allowedRoles={['owner']}>
+          <OwnerOperationsPage />
+        </ProtectedRoute>
+      } />
+      <Route path="/ops/audit" element={
+        <ProtectedRoute allowedRoles={['owner']}>
+          <OwnerOperationsPage />
         </ProtectedRoute>
       } />
       <Route path="/owner/doctors" element={<Navigate to="/owner/config?tab=referrals" replace />} />
