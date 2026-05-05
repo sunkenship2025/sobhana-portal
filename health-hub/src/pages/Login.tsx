@@ -36,19 +36,14 @@ const Login = () => {
   return (
     <div className="h-screen flex overflow-hidden bg-white font-sans antialiased text-gray-900">
 
-      {/* ── Left Hero Panel ──
-          Self-hosted microscope image (in /public) — avoids the Google CDN
-          dependency the prior version had while keeping the visual identity. */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-[#1B2B58]">
+      {/* ── Left Hero Panel ── */}
+      <div className="hidden lg:flex lg:w-1/2 relative bg-[#1B2B58]">
         <img
-          src="/pngtree-flat-microscope-image_1174913.jpg"
+          src="https://lh3.googleusercontent.com/aida-public/AB6AXuAJCqoXJSoTkrjKSdEXs4DJx4D4x9Ob9KTwKxs0-Y3tT6D2KEWOU076lWn2XD5RTdY3nRmNfOmTFbXYYBqDnqYa9-Sv5OkY9aHwpfWFhrNGPEJXGHfkLTM7KLPDLSVHVhhYI23YmYIEjlrZuW5eivX_iGf3e024KoWLccFyEG4OQF1jba2llN0flFjCh8q4JP1dpm-jsuG1NQZ1zpW9y7pXIzqPQV7vVaIaG4nykeBieWC8y1aYTTiLPB7FNfhW4Qbj--6rzC1maA"
           alt="Medical laboratory"
-          className="absolute inset-0 w-full h-full object-cover opacity-60 mix-blend-overlay"
+          className="absolute inset-0 w-full h-full object-cover mix-blend-overlay opacity-60"
         />
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 bg-gradient-to-br from-[#0f1f3f]/60 via-[#1B2B58]/40 to-[#25397a]/60"
-        />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#1B2B58]/95 to-[#1B2B58]/50" />
         <div className="relative z-10 flex flex-col justify-end p-16 text-white">
           <h2 className="text-4xl font-extrabold mb-4 tracking-tight">
             Advanced Healthcare Management
