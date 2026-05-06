@@ -592,7 +592,6 @@ interface ResolvedProfile {
 
 interface ReportFragments {
   headerHtml: string;
-  patientInfoHtml: string;
   footerHtml: string;
   qrImgSrc: string;
 }
@@ -600,6 +599,10 @@ interface ReportFragments {
 interface ReportPageModel {
   departmentId: string | null;
   departmentHtml: string;
+  // Sample types for ONLY the panels rendered on this page. Patient info on
+  // each page shows just these — so the LFT page reads "Serum" and the CBP
+  // page reads "WB-EDTA" rather than the union of every panel in the report.
+  sampleTypes: string[];
   includePatientInfo: boolean;
   includeReportBottom: boolean;
   includeQr: boolean;
@@ -847,19 +850,22 @@ function renderFooterHtml(): string {
     </footer>`;
 }
 
-function buildReportFragments(snapshot: ReportSnapshot, baseUrl: string, qrDataUrl: string): ReportFragments {
-  const sampleTypes = [...new Set(
-    snapshot.departments
-      .flatMap(department => department.panels.map(panel => panel.sampleType))
-      .filter((sampleType): sampleType is string => Boolean(sampleType)),
-  )];
-
+function buildReportFragments(_snapshot: ReportSnapshot, baseUrl: string, qrDataUrl: string): ReportFragments {
+  // Patient info is now rendered per-page in renderReportPage so the Sample
+  // Type field can match the panels actually shown on that page.
   return {
     headerHtml: renderHeaderHtml(baseUrl, qrDataUrl),
-    patientInfoHtml: renderPatientInfoHtml(snapshot, sampleTypes),
     footerHtml: renderFooterHtml(),
     qrImgSrc: qrDataUrl,
   };
+}
+
+function uniqueSampleTypesFromPanels(panels: PanelSnapshot[]): string[] {
+  return [...new Set(
+    panels
+      .map(panel => panel.sampleType)
+      .filter((s): s is string => Boolean(s)),
+  )];
 }
 
 function shouldIsolatePanel(panel: PanelSnapshot): boolean {
@@ -902,6 +908,7 @@ function buildReportPages(
     return [{
       departmentId: null,
       departmentHtml: '',
+      sampleTypes: [],
       includePatientInfo: true,
       includeReportBottom: true,
       includeQr: true,
@@ -917,6 +924,7 @@ function buildReportPages(
       pages.push({
         departmentId: department.departmentId,
         departmentHtml: renderDepartmentSection(department, panels),
+        sampleTypes: uniqueSampleTypesFromPanels(panels),
         includePatientInfo: true,
         includeReportBottom: true,
         includeQr: profile !== 'screen',
@@ -946,7 +954,7 @@ function renderReportPage(
   <div class="report-page">
     ${fragments.headerHtml}
     <main class="report-content">
-      ${page.includePatientInfo ? fragments.patientInfoHtml : ''}
+      ${page.includePatientInfo ? renderPatientInfoHtml(snapshot, page.sampleTypes) : ''}
       <div class="results-container">
         ${page.departmentHtml}
       </div>
