@@ -243,6 +243,58 @@ function renderTestRow(test: TestResultSnapshot, indent: boolean = false, valueP
       </tr>`;
 }
 
+/** Partition tests into runs: each run starts at joinPrevious=false and absorbs subsequent joinPrevious=true items */
+function partitionGridRuns(tests: TestResultSnapshot[]): TestResultSnapshot[][] {
+  const runs: TestResultSnapshot[][] = [];
+  for (const test of tests) {
+    if (!test.joinPrevious || runs.length === 0) {
+      runs.push([test]);
+    } else {
+      runs[runs.length - 1].push(test);
+    }
+  }
+  return runs;
+}
+
+/** Render a multi-item run as one table row containing a flex grid of label:value cells */
+function renderGridRow(run: TestResultSnapshot[], valuePrefix: string | null = null): string {
+  const cells = run.map((test) => {
+    const flag = computeFlag(test.value, test.referenceMin, test.referenceMax);
+    const isAbnormal = flag === 'H' || flag === 'L';
+    let valueDisplay = test.textValue || formatNumericValue(test.value);
+    if (valuePrefix && valueDisplay && valueDisplay !== '\u2014') {
+      valueDisplay = `${valuePrefix}${valueDisplay}`;
+    }
+    const flexStyle = test.gridWidth
+      ? `flex: ${test.gridWidth} 0 0;`
+      : 'flex: 1 0 0;';
+    return `
+        <div class="result-grid-cell" style="${flexStyle}">
+          <span class="grid-cell-label${test.isBold ? ' is-bold' : ''}">${escapeHtml(test.testName)}</span>
+          <span class="grid-cell-sep">:</span>
+          <span class="grid-cell-value${isAbnormal ? ' abnormal' : ''}">${escapeHtml(valueDisplay)}</span>
+        </div>`;
+  }).join('');
+
+  return `
+      <tr class="grid-row-tr">
+        <td colspan="4" class="grid-row-cell">
+          <div class="result-grid-row">${cells}
+          </div>
+        </td>
+      </tr>`;
+}
+
+/** Render a list of tests, grouping joinPrevious runs into grid rows */
+function renderTestsWithGridRuns(tests: TestResultSnapshot[], valuePrefix: string | null = null): string {
+  const runs = partitionGridRuns(tests);
+  return runs.map((run) =>
+    run.length === 1
+      ? renderTestRow(run[0], false, valuePrefix)
+      : renderGridRow(run, valuePrefix)
+  ).join('');
+}
+
 /** Standard table for most panels */
 function renderStandardTable(panel: PanelSnapshot): string {
   const useSubgroups = panel.showSubgroups === true;
@@ -300,11 +352,11 @@ function renderStandardTable(panel: PanelSnapshot): string {
       </tr>`;
           }
         }
-        rowsHtml += tests.map(t => renderTestRow(t, false, panel.valueDisplayPrefix ?? null)).join('');
+        rowsHtml += renderTestsWithGridRuns(tests, panel.valueDisplayPrefix ?? null);
       }
     }
   } else {
-    rowsHtml = panel.tests.map((t: TestResultSnapshot) => renderTestRow(t, false, panel.valueDisplayPrefix ?? null)).join('');
+    rowsHtml = renderTestsWithGridRuns(panel.tests, panel.valueDisplayPrefix ?? null);
   }
 
   let interpretBlock = '';

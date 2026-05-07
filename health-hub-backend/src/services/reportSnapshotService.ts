@@ -55,6 +55,8 @@ export interface TestResultSnapshot {
   isBold?: boolean;
   isItalic?: boolean;
   subGroup: string | null;
+  joinPrevious?: boolean;
+  gridWidth?: number | null;
 }
 
 export interface PanelSnapshot {
@@ -920,6 +922,8 @@ function buildPanelsAndDepartments(
           isBold: panelItem.isBold,
           isItalic: panelItem.isItalic,
           subGroup: panelItem.subGroup,
+          joinPrevious: panelItem.joinPrevious ?? false,
+          gridWidth: panelItem.gridWidth ?? null,
           interpretationText,
         });
       }

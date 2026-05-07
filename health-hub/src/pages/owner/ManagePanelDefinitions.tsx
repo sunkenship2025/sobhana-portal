@@ -65,6 +65,8 @@ interface ClinicalPanelItem {
   isBold: boolean;
   isItalic: boolean;
   subGroup: string | null;
+  joinPrevious: boolean;
+  gridWidth: number | null;
   testDefinition?: TestDefinitionSummary;
 }
 
@@ -510,6 +512,8 @@ export default function ManagePanelDefinitions() {
       isBold: item.isBold ?? false,
       isItalic: item.isItalic ?? false,
       subGroup: item.subGroup ?? null,
+      joinPrevious: item.joinPrevious ?? false,
+      gridWidth: item.gridWidth ?? null,
       testDefinition: item.testDefinition,
     }));
     setFormItems(items);
@@ -563,6 +567,8 @@ export default function ManagePanelDefinitions() {
       isBold: false,
       isItalic: false,
       subGroup: null,
+      joinPrevious: false,
+      gridWidth: null,
     }]);
   };
 
@@ -741,6 +747,8 @@ export default function ManagePanelDefinitions() {
           isBold: item.isBold ?? false,
           isItalic: item.isItalic ?? false,
           subGroup: item.subGroup || null,
+          joinPrevious: i > 0 && (item.joinPrevious ?? false),
+          gridWidth: item.gridWidth ?? null,
         })),
       };
 
@@ -1353,6 +1361,40 @@ export default function ManagePanelDefinitions() {
                                     </SelectContent>
                                   </Select>
                                 </div>
+                                {/* Row */}
+                                {i > 0 && (
+                                  <div>
+                                    <Label className="text-xs">Row</Label>
+                                    <Select
+                                      value={item.joinPrevious ? 'continue' : 'new'}
+                                      onValueChange={v => updateItem(i, 'joinPrevious', v === 'continue')}
+                                    >
+                                      <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="new">New row</SelectItem>
+                                        <SelectItem value="continue">Continue row above</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                )}
+                                {/* Width */}
+                                <div>
+                                  <Label className="text-xs">Width</Label>
+                                  <Select
+                                    value={item.gridWidth == null ? 'auto' : String(item.gridWidth)}
+                                    onValueChange={v => updateItem(i, 'gridWidth', v === 'auto' ? null : parseInt(v))}
+                                  >
+                                    <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="auto">Auto</SelectItem>
+                                      <SelectItem value="3">Quarter (1/4)</SelectItem>
+                                      <SelectItem value="4">Third (1/3)</SelectItem>
+                                      <SelectItem value="6">Half (1/2)</SelectItem>
+                                      <SelectItem value="8">Two thirds</SelectItem>
+                                      <SelectItem value="12">Full</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
                                 {/* Per-item Method */}
                                 {formShowMethod && (
                                   <div className="col-span-2">
@@ -1500,6 +1542,60 @@ export default function ManagePanelDefinitions() {
                         <tbody>
                           {formItems.length > 0 ? (() => {
                             const colCount = 4;
+                            // Group consecutive items into runs (joinPrevious=true continues the previous run)
+                            const partitionRuns = (items: typeof formItems): typeof formItems[] => {
+                              const runs: typeof formItems[] = [];
+                              for (const it of items) {
+                                if (!it.joinPrevious || runs.length === 0) runs.push([it]);
+                                else runs[runs.length - 1].push(it);
+                              }
+                              return runs;
+                            };
+                            const renderSingleItemRow = (item: typeof formItems[number], key: string) => {
+                              const td = availableDefs.find(d => d.id === item.testDefinitionId);
+                              const method = item.showMethod ? (item.methodText || td?.method || null) : null;
+                              return (
+                                <tr key={key} className="border-b border-dashed">
+                                  <td className="align-top">
+                                    {renderPreviewLabel(td?.name, {
+                                      isBold: item.isBold,
+                                      isItalic: item.isItalic,
+                                      method,
+                                      paddingLeft: (item.indentLevel || 0) * 12,
+                                    })}
+                                  </td>
+                                  <td className="py-1 text-muted-foreground">{formValuePrefix}\u2014</td>
+                                  <td className="py-1 text-muted-foreground">{td?.referenceUnit || '\u2014'}</td>
+                                  <td className="py-1 text-muted-foreground">{td?.referenceText || (td?.referenceMin != null && td?.referenceMax != null ? `${td.referenceMin}\u2013${td.referenceMax}` : '\u2014')}</td>
+                                </tr>
+                              );
+                            };
+                            const renderGridRow = (run: typeof formItems, key: string) => (
+                              <tr key={key} className="border-b border-dashed">
+                                <td colSpan={colCount} className="py-1.5">
+                                  <div className="flex items-baseline gap-4">
+                                    {run.map((item, j) => {
+                                      const td = availableDefs.find(d => d.id === item.testDefinitionId);
+                                      const flexStyle = item.gridWidth ? { flex: `${item.gridWidth} 0 0` } : { flex: '1 0 0' };
+                                      return (
+                                        <div key={j} className="flex items-baseline gap-1.5 min-w-0" style={flexStyle}>
+                                          <span className={`truncate ${item.isBold ? 'font-semibold' : ''}`}>{td?.name || 'Test'}</span>
+                                          <span className="text-muted-foreground">:</span>
+                                          <span className="text-muted-foreground">{formValuePrefix}\u2014</span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                            const renderRuns = (items: typeof formItems, keyPrefix: string) =>
+                              partitionRuns(items).map((run, idx) =>
+                                run.length === 1
+                                  ? renderSingleItemRow(run[0], `${keyPrefix}-${idx}`)
+                                  : renderGridRow(run, `${keyPrefix}-${idx}`)
+                              );
+
                             if (formShowSubgroups) {
                               // Group by subGroup
                               const groups: Record<string, typeof formItems> = {};
@@ -1524,48 +1620,12 @@ export default function ManagePanelDefinitions() {
                                       </td>
                                     </tr>
                                   )}
-                                  {items.map((item, j) => {
-                                    const td = availableDefs.find(d => d.id === item.testDefinitionId);
-                                    const method = item.showMethod ? (item.methodText || td?.method || null) : null;
-                                    return (
-                                      <tr key={j} className="border-b border-dashed">
-                                        <td className="align-top">
-                                          {renderPreviewLabel(td?.name, {
-                                            isBold: item.isBold,
-                                            isItalic: item.isItalic,
-                                            method,
-                                            paddingLeft: (item.indentLevel || 0) * 12,
-                                          })}
-                                        </td>
-                                        <td className="py-1 text-muted-foreground">{formValuePrefix}\u2014</td>
-                                        <td className="py-1 text-muted-foreground">{td?.referenceUnit || '\u2014'}</td>
-                                        <td className="py-1 text-muted-foreground">{td?.referenceText || (td?.referenceMin != null && td?.referenceMax != null ? `${td.referenceMin}\u2013${td.referenceMax}` : '\u2014')}</td>
-                                      </tr>
-                                    );
-                                  })}
+                                  {renderRuns(items, group || '__none')}
                                 </Fragment>
                               ));
                             }
                             // Flat list
-                            return formItems.map((item, i) => {
-                              const td = availableDefs.find(d => d.id === item.testDefinitionId);
-                              const method = item.showMethod ? (item.methodText || td?.method || null) : null;
-                              return (
-                                <tr key={i} className="border-b border-dashed">
-                                  <td className="align-top">
-                                    {renderPreviewLabel(td?.name, {
-                                      isBold: item.isBold,
-                                      isItalic: item.isItalic,
-                                      method,
-                                      paddingLeft: (item.indentLevel || 0) * 12,
-                                    })}
-                                  </td>
-                                  <td className="py-1 text-muted-foreground">{formValuePrefix}\u2014</td>
-                                  <td className="py-1 text-muted-foreground">{td?.referenceUnit || '\u2014'}</td>
-                                  <td className="py-1 text-muted-foreground">{td?.referenceText || (td?.referenceMin != null && td?.referenceMax != null ? `${td.referenceMin}\u2013${td.referenceMax}` : '\u2014')}</td>
-                                </tr>
-                              );
-                            });
+                            return renderRuns(formItems, 'flat');
                           })() : (
                             <tr>
                               <td colSpan={4} className="text-center py-4 text-muted-foreground">
