@@ -113,6 +113,8 @@ interface ReportSnapshotTest {
   isBold?: boolean;
   isItalic?: boolean;
   subGroup: string | null;
+  joinPrevious?: boolean;
+  gridWidth?: number | null;
 }
 
 interface ReportSnapshotPanel {
@@ -704,54 +706,109 @@ const DiagnosticsReportPreview = () => {
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {panel.tests.map((result, index) => {
-                                const subgroupName = result.subGroup?.trim() || null;
-                                const showGroupRow = Boolean(
-                                  panel.showSubgroups && subgroupName && subgroupName !== previousGroup
-                                );
-                                previousGroup = subgroupName;
+                              {(() => {
+                                // Partition consecutive tests into runs (joinPrevious continues the previous run)
+                                const runs: ReportSnapshotTest[][] = [];
+                                for (const t of panel.tests) {
+                                  if (!t.joinPrevious || runs.length === 0) runs.push([t]);
+                                  else runs[runs.length - 1].push(t);
+                                }
+                                return runs.map((run, runIndex) => {
+                                  const head = run[0];
+                                  const subgroupName = head.subGroup?.trim() || null;
+                                  const showGroupRow = Boolean(
+                                    panel.showSubgroups && subgroupName && subgroupName !== previousGroup
+                                  );
+                                  previousGroup = subgroupName;
 
-                                return (
-                                  <Fragment key={`${panel.panelId}-${result.testId}-${index}`}>
-                                    {showGroupRow && (
+                                  if (run.length > 1) {
+                                    return (
+                                      <Fragment key={`${panel.panelId}-grid-${runIndex}`}>
+                                        {showGroupRow && (
+                                          <TableRow>
+                                            <TableCell colSpan={4} className="bg-muted/40 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                              {subgroupName}
+                                              {subgroupName && panel.subgroupMethods?.[subgroupName] ? (
+                                                <span className="ml-2 normal-case tracking-normal italic">
+                                                  Method : {panel.subgroupMethods[subgroupName]}
+                                                </span>
+                                              ) : null}
+                                            </TableCell>
+                                          </TableRow>
+                                        )}
+                                        <TableRow>
+                                          <TableCell colSpan={4} className="py-2">
+                                            <div className="flex items-baseline gap-6">
+                                              {run.map((cell, cellIdx) => {
+                                                const flexStyle = cell.gridWidth
+                                                  ? { flex: `${cell.gridWidth} 0 0` }
+                                                  : { flex: '1 0 0' };
+                                                return (
+                                                  <div
+                                                    key={`${cell.testId}-${cellIdx}`}
+                                                    className="flex items-baseline gap-2 min-w-0"
+                                                    style={flexStyle}
+                                                  >
+                                                    <span className={`truncate ${cell.isBold ? 'font-semibold' : ''}`}>
+                                                      {cell.testName}
+                                                    </span>
+                                                    <span className="text-muted-foreground">:</span>
+                                                    <span className="font-mono">
+                                                      {formatResultValue(cell)}
+                                                    </span>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          </TableCell>
+                                        </TableRow>
+                                      </Fragment>
+                                    );
+                                  }
+
+                                  const result = head;
+                                  return (
+                                    <Fragment key={`${panel.panelId}-${result.testId}-${runIndex}`}>
+                                      {showGroupRow && (
+                                        <TableRow>
+                                          <TableCell colSpan={4} className="bg-muted/40 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                            {subgroupName}
+                                            {subgroupName && panel.subgroupMethods?.[subgroupName] ? (
+                                              <span className="ml-2 normal-case tracking-normal italic">
+                                                Method : {panel.subgroupMethods[subgroupName]}
+                                              </span>
+                                            ) : null}
+                                          </TableCell>
+                                        </TableRow>
+                                      )}
                                       <TableRow>
-                                        <TableCell colSpan={4} className="bg-muted/40 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                          {subgroupName}
-                                          {subgroupName && panel.subgroupMethods?.[subgroupName] ? (
-                                            <span className="ml-2 normal-case tracking-normal italic">
-                                              Method : {panel.subgroupMethods[subgroupName]}
-                                            </span>
-                                          ) : null}
+                                        <TableCell className="align-top">
+                                          <div
+                                            className={`leading-tight${result.isBold ? ' font-semibold' : ''}${result.isItalic ? ' italic' : ''}`}
+                                            style={{ paddingLeft: `${(result.indentLevel || 0) * 12}px` }}
+                                          >
+                                            {result.testName}
+                                          </div>
+                                          {result.showMethod && result.methodText && (
+                                            <div className={`mt-1 text-xs text-muted-foreground${result.isItalic ? ' italic' : ''}`}>
+                                              (Method : {result.methodText})
+                                            </div>
+                                          )}
+                                        </TableCell>
+                                        <TableCell className="text-right font-mono">
+                                          {formatResultValue(result)}
+                                        </TableCell>
+                                        <TableCell className="text-right text-muted-foreground">
+                                          {formatReferenceRange(result)}
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                          <FlagBadge flag={normalizeFlagForBadge(result.flag)} />
                                         </TableCell>
                                       </TableRow>
-                                    )}
-                                    <TableRow>
-                                      <TableCell className="align-top">
-                                        <div
-                                          className={`leading-tight${result.isBold ? ' font-semibold' : ''}${result.isItalic ? ' italic' : ''}`}
-                                          style={{ paddingLeft: `${(result.indentLevel || 0) * 12}px` }}
-                                        >
-                                          {result.testName}
-                                        </div>
-                                        {result.showMethod && result.methodText && (
-                                          <div className={`mt-1 text-xs text-muted-foreground${result.isItalic ? ' italic' : ''}`}>
-                                            (Method : {result.methodText})
-                                          </div>
-                                        )}
-                                      </TableCell>
-                                      <TableCell className="text-right font-mono">
-                                        {formatResultValue(result)}
-                                      </TableCell>
-                                      <TableCell className="text-right text-muted-foreground">
-                                        {formatReferenceRange(result)}
-                                      </TableCell>
-                                      <TableCell className="text-right">
-                                        <FlagBadge flag={normalizeFlagForBadge(result.flag)} />
-                                      </TableCell>
-                                    </TableRow>
-                                  </Fragment>
-                                );
-                              })}
+                                    </Fragment>
+                                  );
+                                });
+                              })()}
                             </TableBody>
                           </Table>
                         </div>

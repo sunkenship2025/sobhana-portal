@@ -104,7 +104,11 @@ export async function resolveProducts(
     }
 
     for (const productPanel of product.panels) {
+      // Skip child-product line items — they don't have a panel of their own.
+      // The child's own resolution (if any) happens when it's ordered directly.
       const panel = productPanel.panel;
+      if (!panel) continue;
+
       const itemCount = panel.items.length;
       const message = validatePanelItemCount(panel.layoutType, itemCount);
 
@@ -135,6 +139,7 @@ export async function resolveProducts(
     }
 
     for (const pp of product.panels) {
+      if (!pp.panel) continue; // child-product line — no panel items to collect
       for (const item of pp.panel.items) {
         allCodes.add(item.testDefinition.code);
       }
@@ -171,6 +176,7 @@ export async function resolveProducts(
     const missingDefs: Array<{ code: string; name: string; referenceMin: number | null; referenceMax: number | null; referenceUnit: string | null }> = [];
     for (const product of products) {
       for (const pp of product.panels) {
+        if (!pp.panel) continue; // child-product line
         for (const item of pp.panel.items) {
           if (missingCodes.includes(item.testDefinition.code)) {
             missingDefs.push({
@@ -285,9 +291,12 @@ export async function resolveProducts(
       continue;
     }
 
-    // Flatten all panel items into test orders
+    // Flatten all panel items into test orders. Child-product lines don't
+    // contribute test orders here — they're priced into the parent's effective
+    // price, and the bill receipt itemizes them separately at render time.
     const allItems: Array<{ testDefinition: any }> = [];
     for (const pp of product.panels) {
+      if (!pp.panel) continue;
       for (const item of pp.panel.items) {
         allItems.push(item);
       }

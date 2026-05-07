@@ -26,6 +26,43 @@ router.use(branchContextMiddleware);
 // ─── Code format validation ───────────────────────────────────────────
 const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
 
+// ─── Cycle check ──────────────────────────────────────────────────────
+// Walks the child-product graph downward from `startId`. Returns true if
+// `targetId` is reachable — used to reject `parent → child` lines that
+// would create a cycle (parent already inside child's subtree).
+async function reachesProduct(startId: string, targetId: string): Promise<boolean> {
+  if (startId === targetId) return true;
+  const visited = new Set<string>([startId]);
+  const queue: string[] = [startId];
+  while (queue.length) {
+    const current = queue.shift()!;
+    const links = await prisma.billableProductPanel.findMany({
+      where: { productId: current, childProductId: { not: null } },
+      select: { childProductId: true },
+    });
+    for (const link of links) {
+      const next = link.childProductId;
+      if (!next || visited.has(next)) continue;
+      if (next === targetId) return true;
+      visited.add(next);
+      queue.push(next);
+    }
+  }
+  return false;
+}
+
+// ─── Line-item validation ─────────────────────────────────────────────
+// Each line points at exactly one of: a clinical panel, OR a child product.
+// Returns null if valid, or an error message string.
+function validateLineShape(p: any, idx: number): string | null {
+  const hasPanel = !!p?.panelId;
+  const hasChild = !!p?.childProductId;
+  if (hasPanel === hasChild) {
+    return `panels[${idx}] must specify exactly one of panelId or childProductId`;
+  }
+  return null;
+}
+
 // ─── Helper ──────────────────────────────────────────────────────────
 function transformProduct(product: any) {
   return {
@@ -219,6 +256,12 @@ router.get('/:id', async (req: AuthRequest, res) => {
                 },
               },
             },
+            childProduct: {
+              select: {
+                id: true, name: true, code: true,
+                workflowMode: true, basePriceInPaise: true, isActive: true,
+              },
+            },
             testDefinition: {
               select: { id: true, name: true, code: true, version: true, status: true },
             },
@@ -276,7 +319,15 @@ router.post('/', async (req: AuthRequest, res) => {
       });
     }
 
-    // Validate panel count based on workflow mode and product type
+    // Validate each line points at exactly one of panel/child product
+    if (panels?.length) {
+      for (const [idx, p] of panels.entries()) {
+        const err = validateLineShape(p, idx);
+        if (err) return res.status(400).json({ error: 'VALIDATION_ERROR', message: err });
+      }
+    }
+
+    // Validate line counts based on workflow mode and product type
     const resolvedProductType = productType ?? (resolvedIsBundle ? 'PANEL_BUNDLE' : 'INDIVIDUAL_TEST');
     if (
       resolvedWorkflowMode === DiagnosticWorkflowMode.REPORTABLE &&
@@ -295,11 +346,11 @@ router.post('/', async (req: AuthRequest, res) => {
     ) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'REPORTABLE products must have at least 1 linked panel',
+        message: 'REPORTABLE products must have at least 1 line item (panel or sub-product)',
       });
     }
     // EXTERNAL_UPLOAD products carry their result as a PDF, not as panel-linked tests.
-    // Reject any attempt to attach panels to them so the data model stays clean.
+    // Reject any attempt to attach lines to them so the data model stays clean.
     if (
       resolvedWorkflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD &&
       panels &&
@@ -307,24 +358,40 @@ router.post('/', async (req: AuthRequest, res) => {
     ) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'EXTERNAL_UPLOAD products do not support linked panels',
+        message: 'EXTERNAL_UPLOAD products do not support linked panels or sub-products',
       });
     }
 
-    // Validate panels reference existing ClinicalPanels
-    if (panels?.length) {
-      const panelIds = panels.map((p: any) => p.panelId);
+    // Validate panel references
+    const panelIds = (panels ?? []).filter((p: any) => p.panelId).map((p: any) => p.panelId);
+    if (panelIds.length) {
       const found = await prisma.clinicalPanel.findMany({
         where: { id: { in: panelIds } },
         select: { id: true },
       });
-
       const foundIds = new Set(found.map((p: any) => p.id));
       const missing = panelIds.filter((id: string) => !foundIds.has(id));
       if (missing.length > 0) {
         return res.status(400).json({
           error: 'VALIDATION_ERROR',
           message: `Clinical panels not found: ${missing.join(', ')}`,
+        });
+      }
+    }
+
+    // Validate child-product references
+    const childProductIds = (panels ?? []).filter((p: any) => p.childProductId).map((p: any) => p.childProductId);
+    if (childProductIds.length) {
+      const found = await prisma.billableProduct.findMany({
+        where: { id: { in: childProductIds } },
+        select: { id: true },
+      });
+      const foundIds = new Set(found.map((p: any) => p.id));
+      const missing = childProductIds.filter((id: string) => !foundIds.has(id));
+      if (missing.length > 0) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: `Sub-products not found: ${missing.join(', ')}`,
         });
       }
     }
@@ -340,7 +407,8 @@ router.post('/', async (req: AuthRequest, res) => {
         displayOrder: displayOrder ?? 0,
         panels: panels?.length ? {
           create: panels.map((p: any, idx: number) => ({
-            panelId: p.panelId,
+            panelId: p.panelId ?? null,
+            childProductId: p.childProductId ?? null,
             testDefinitionId: p.testDefinitionId ?? null,
             displayOrder: p.displayOrder ?? idx,
           })),
@@ -351,6 +419,9 @@ router.post('/', async (req: AuthRequest, res) => {
           include: {
             panel: {
               select: { id: true, name: true, displayName: true },
+            },
+            childProduct: {
+              select: { id: true, name: true, code: true, workflowMode: true, basePriceInPaise: true },
             },
             testDefinition: {
               select: { id: true, name: true, code: true, version: true },
@@ -393,7 +464,15 @@ router.put('/:id', async (req: AuthRequest, res) => {
 
     const resolvedWorkflowMode = workflowMode ?? existing.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE;
 
-    // Validate panel count based on effective product type
+    // Validate each line points at exactly one of panel/child product
+    if (panels !== undefined) {
+      for (const [idx, p] of panels.entries()) {
+        const err = validateLineShape(p, idx);
+        if (err) return res.status(400).json({ error: 'VALIDATION_ERROR', message: err });
+      }
+    }
+
+    // Validate line counts based on effective product type
     if (panels !== undefined) {
       const effectiveIsBundle = resolvedIsBundle ?? existing.isBundle;
       const effectiveType = productType ?? (effectiveIsBundle ? 'PANEL_BUNDLE' : 'INDIVIDUAL_TEST');
@@ -413,7 +492,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
       ) {
         return res.status(400).json({
           error: 'VALIDATION_ERROR',
-          message: 'REPORTABLE products must have at least 1 linked panel',
+          message: 'REPORTABLE products must have at least 1 line item (panel or sub-product)',
         });
       }
       if (
@@ -422,18 +501,18 @@ router.put('/:id', async (req: AuthRequest, res) => {
       ) {
         return res.status(400).json({
           error: 'VALIDATION_ERROR',
-          message: 'EXTERNAL_UPLOAD products do not support linked panels',
+          message: 'EXTERNAL_UPLOAD products do not support linked panels or sub-products',
         });
       }
     }
 
-    if (panels?.length) {
-      const panelIds = panels.map((p: any) => p.panelId);
+    // Validate panel references
+    const panelIds = (panels ?? []).filter((p: any) => p.panelId).map((p: any) => p.panelId);
+    if (panelIds.length) {
       const found = await prisma.clinicalPanel.findMany({
         where: { id: { in: panelIds } },
         select: { id: true },
       });
-
       const foundIds = new Set(found.map((p: any) => p.id));
       const missing = panelIds.filter((panelId: string) => !foundIds.has(panelId));
       if (missing.length > 0) {
@@ -441,6 +520,41 @@ router.put('/:id', async (req: AuthRequest, res) => {
           error: 'VALIDATION_ERROR',
           message: `Clinical panels not found: ${missing.join(', ')}`,
         });
+      }
+    }
+
+    // Validate child-product references + cycle check
+    const childProductIds = (panels ?? []).filter((p: any) => p.childProductId).map((p: any) => p.childProductId);
+    if (childProductIds.length) {
+      // No self-reference
+      if (childProductIds.includes(req.params.id)) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: 'A product cannot include itself as a sub-product',
+        });
+      }
+
+      const found = await prisma.billableProduct.findMany({
+        where: { id: { in: childProductIds } },
+        select: { id: true },
+      });
+      const foundIds = new Set(found.map((p: any) => p.id));
+      const missing = childProductIds.filter((id: string) => !foundIds.has(id));
+      if (missing.length > 0) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: `Sub-products not found: ${missing.join(', ')}`,
+        });
+      }
+
+      // Cycle check: each candidate child must not transitively contain `this`
+      for (const childId of childProductIds) {
+        if (await reachesProduct(childId, req.params.id)) {
+          return res.status(400).json({
+            error: 'VALIDATION_ERROR',
+            message: `Adding sub-product ${childId} would create a cycle`,
+          });
+        }
       }
     }
 
@@ -466,7 +580,8 @@ router.put('/:id', async (req: AuthRequest, res) => {
           displayOrder: displayOrder ?? existing.displayOrder,
           panels: panels ? {
             create: panels.map((p: any, idx: number) => ({
-              panelId: p.panelId,
+              panelId: p.panelId ?? null,
+              childProductId: p.childProductId ?? null,
               testDefinitionId: p.testDefinitionId ?? null,
               displayOrder: p.displayOrder ?? idx,
             })),
@@ -477,6 +592,9 @@ router.put('/:id', async (req: AuthRequest, res) => {
             include: {
               panel: {
                 select: { id: true, name: true, displayName: true },
+              },
+              childProduct: {
+                select: { id: true, name: true, code: true, workflowMode: true, basePriceInPaise: true },
               },
               testDefinition: {
                 select: { id: true, name: true, code: true, version: true },
@@ -538,6 +656,21 @@ router.delete('/:id', async (req: AuthRequest, res) => {
         error: 'CONFLICT',
         message: `Cannot hard-delete: ${orderRefCount} historical test order(s) reference this product. Deactivate it instead via PATCH /:id { isActive: false }.`,
         referenceCount: orderRefCount,
+      });
+    }
+
+    // Block hard-delete if this product is a sub-product of any package.
+    // The FK is Restrict, so a delete would fail anyway, but a clean 409 is
+    // friendlier than a generic 500.
+    const childRefCount = await prisma.billableProductPanel.count({
+      where: { childProductId: req.params.id },
+    });
+
+    if (childRefCount > 0) {
+      return res.status(409).json({
+        error: 'CONFLICT',
+        message: `Cannot hard-delete: this product is a sub-product of ${childRefCount} package(s). Remove it from those packages first, or deactivate it instead.`,
+        referenceCount: childRefCount,
       });
     }
 
