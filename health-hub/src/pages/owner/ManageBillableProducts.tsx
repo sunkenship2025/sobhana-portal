@@ -36,11 +36,22 @@ interface PanelSummary {
   itemCount?: number;
 }
 
+interface ProductSummary {
+  id: string;
+  code: string;
+  name: string;
+  workflowMode: WorkflowMode;
+  basePriceInPaise?: number;
+  basePrice?: number;
+}
+
 interface ProductPanel {
   id?: string;
-  panelId: string;
+  panelId?: string | null;
+  childProductId?: string | null;
   displayOrder: number;
   panel?: PanelSummary;
+  childProduct?: ProductSummary;
 }
 
 interface ProductBranchPricing {
@@ -112,6 +123,7 @@ export default function ManageBillableProducts() {
 
   const [products, setProducts] = useState<BillableProduct[]>([]);
   const [availablePanels, setAvailablePanels] = useState<PanelSummary[]>([]);
+  const [availableSubProducts, setAvailableSubProducts] = useState<ProductSummary[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -161,12 +173,24 @@ export default function ManageBillableProducts() {
 
   const fetchDependencies = useCallback(async () => {
     try {
-      const [panelsRes, branchRes] = await Promise.all([
+      const [panelsRes, branchRes, billOnlyRes] = await Promise.all([
         fetch(`${API_BASE}/clinical-panels`, { headers }),
         fetch(`${API_BASE}/branches`, { headers }),
+        fetch(`${API_BASE}/billable-products?workflowMode=BILL_ONLY`, { headers }),
       ]);
       if (panelsRes.ok) setAvailablePanels(await panelsRes.json());
       if (branchRes.ok) setBranches(await branchRes.json());
+      if (billOnlyRes.ok) {
+        const items: any[] = await billOnlyRes.json();
+        setAvailableSubProducts(items.map((p) => ({
+          id: p.id,
+          code: p.code,
+          name: p.name,
+          workflowMode: p.workflowMode,
+          basePrice: p.basePrice,
+          basePriceInPaise: p.basePriceInPaise,
+        })));
+      }
     } catch { /* ignore */ }
   }, []);
 
@@ -213,9 +237,11 @@ export default function ManageBillableProducts() {
     setFormActive(p.isActive);
     setFormDescription(p.description || '');
     setFormPanels((p.panels || []).map(pp => ({
-      panelId: pp.panelId || pp.panel?.id || '',
+      panelId: pp.panelId ?? pp.panel?.id ?? null,
+      childProductId: pp.childProductId ?? pp.childProduct?.id ?? null,
       displayOrder: pp.displayOrder,
       panel: pp.panel,
+      childProduct: pp.childProduct,
     })));
   };
 
@@ -238,19 +264,32 @@ export default function ManageBillableProducts() {
 
   const addPanel = () => {
     setFormPanels([...formPanels, {
-      panelId: '',
+      panelId: null,
+      childProductId: null,
       displayOrder: formPanels.length,
     }]);
   };
 
-  const updatePanel = (idx: number, panelId: string) => {
+  // The combined dropdown encodes selections as `panel:<id>` or `child:<id>`
+  // so a single Select can drive both kinds. Save logic reads back the prefix.
+  const updatePanel = (idx: number, value: string) => {
     const updated = [...formPanels];
-    updated[idx] = { ...updated[idx], panelId };
+    if (value.startsWith('panel:')) {
+      updated[idx] = { ...updated[idx], panelId: value.slice('panel:'.length), childProductId: null };
+    } else if (value.startsWith('child:')) {
+      updated[idx] = { ...updated[idx], childProductId: value.slice('child:'.length), panelId: null };
+    }
     setFormPanels(updated);
   };
 
   const removePanel = (idx: number) => {
     setFormPanels(formPanels.filter((_, i) => i !== idx));
+  };
+
+  const lineSelectValue = (pp: ProductPanel): string => {
+    if (pp.panelId) return `panel:${pp.panelId}`;
+    if (pp.childProductId) return `child:${pp.childProductId}`;
+    return '';
   };
 
   // ─── Save product ──────────────────────────────────────────────────────
@@ -271,18 +310,18 @@ export default function ManageBillableProducts() {
       return;
     }
 
-    // Panel count validation
-    const validPanels = formPanels.filter(p => p.panelId);
-    if (formWorkflowMode === 'REPORTABLE' && formType === 'INDIVIDUAL_TEST' && validPanels.length > 1) {
-      toast.error('Individual Test products can have at most 1 panel');
+    // Line-item validation — each row points at exactly one of panel/sub-product
+    const validLines = formPanels.filter(p => p.panelId || p.childProductId);
+    if (formWorkflowMode === 'REPORTABLE' && formType === 'INDIVIDUAL_TEST' && validLines.length > 1) {
+      toast.error('Individual Test products can have at most 1 line item');
       return;
     }
-    if (formWorkflowMode === 'REPORTABLE' && validPanels.length < 1) {
-      toast.error('Reportable products must have at least 1 linked panel');
+    if (formWorkflowMode === 'REPORTABLE' && validLines.length < 1) {
+      toast.error('Reportable products must have at least 1 line item');
       return;
     }
-    if (formWorkflowMode === 'EXTERNAL_UPLOAD' && validPanels.length > 0) {
-      toast.error('External Upload products do not support linked panels');
+    if (formWorkflowMode === 'EXTERNAL_UPLOAD' && validLines.length > 0) {
+      toast.error('External Upload products do not support line items');
       return;
     }
 
@@ -302,9 +341,10 @@ export default function ManageBillableProducts() {
         isActive: formActive,
         description: formDescription || null,
         panels: formPanels
-          .filter(p => p.panelId)
+          .filter(p => p.panelId || p.childProductId)
           .map((p, i) => ({
-            panelId: p.panelId,
+            panelId: p.panelId ?? null,
+            childProductId: p.childProductId ?? null,
             displayOrder: i,
           })),
       };
@@ -632,38 +672,57 @@ export default function ManageBillableProducts() {
           ) : (
             <div className="mt-2">
               <div className="flex items-center justify-between mb-2">
-                <Label className="text-sm font-semibold">Panels</Label>
+                <Label className="text-sm font-semibold">Line Items</Label>
                 <Button size="sm" variant="outline" onClick={addPanel}>
-                  <Plus className="h-3 w-3 mr-1" /> Add Panel
+                  <Plus className="h-3 w-3 mr-1" /> Add Item
                 </Button>
               </div>
 
               <p className="mb-3 text-xs text-muted-foreground">
                 {formWorkflowMode === 'REPORTABLE'
-                  ? 'Reportable products require at least one linked panel.'
-                  : 'Bill-only products can be billed without panels. Linked panels are only used after switching back to Reportable.'}
+                  ? 'Reportable products require at least one line item — a clinical panel or a bill-only sub-product.'
+                  : 'Bill-only products can be billed without lines. Linked lines are only used after switching back to Reportable.'}
               </p>
 
               {formPanels.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No panels linked.</p>
+                <p className="text-sm text-muted-foreground">No items linked.</p>
               ) : (
                 <div className="space-y-2">
                   {formPanels.map((pp, i) => (
                     <div key={i} className="flex items-center gap-2 border p-2 rounded">
                       <span className="text-sm text-muted-foreground w-6 text-center">{i + 1}</span>
                       <Select
-                        value={pp.panelId}
+                        value={lineSelectValue(pp)}
                         onValueChange={v => updatePanel(i, v)}
                       >
                         <SelectTrigger className="flex-1 h-8 text-xs">
-                          <SelectValue placeholder="Select panel..." />
+                          <SelectValue placeholder="Select panel or bill-only item..." />
                         </SelectTrigger>
                         <SelectContent>
+                          {availablePanels.length > 0 && (
+                            <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                              Clinical Panels
+                            </div>
+                          )}
                           {availablePanels.map(p => (
-                            <SelectItem key={p.id} value={p.id}>
+                            <SelectItem key={`panel:${p.id}`} value={`panel:${p.id}`}>
                               {p.code} – {p.name}{p.itemCount ? ` (${p.itemCount} tests)` : ''}
                             </SelectItem>
                           ))}
+                          {availableSubProducts.length > 0 && (
+                            <div className="px-2 py-1 mt-1 border-t text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                              Bill-Only Items
+                            </div>
+                          )}
+                          {availableSubProducts
+                            // Don't allow a product to include itself
+                            .filter(sp => !editingProduct || sp.id !== editingProduct.id)
+                            .map(sp => (
+                              <SelectItem key={`child:${sp.id}`} value={`child:${sp.id}`}>
+                                {sp.code} – {sp.name}
+                                {sp.basePrice != null ? ` (₹${sp.basePrice})` : ''}
+                              </SelectItem>
+                            ))}
                         </SelectContent>
                       </Select>
                       <Button size="sm" variant="ghost" onClick={() => removePanel(i)} className="text-red-500 shrink-0 h-8 w-8 p-0">

@@ -1288,6 +1288,8 @@ model ClinicalPanelItem {
   isBold           Boolean  @default(false)
   isItalic         Boolean  @default(false)
   subGroup         String? // e.g., "MAIN", "DIFFERENTIAL", "SMEAR" for subgroup rendering
+  joinPrevious     Boolean  @default(false) // true: render on same line as previous item (by displayOrder)
+  gridWidth        Int? // 1-12 grid units; null = auto / even split within the row
   createdAt        DateTime @default(now())
 
   panel          ClinicalPanel  @relation(fields: [panelId], references: [id], onDelete: Cascade)
@@ -1314,7 +1316,8 @@ model BillableProduct {
   createdAt        DateTime               @default(now())
   updatedAt        DateTime               @updatedAt
 
-  panels                BillableProductPanel[]
+  panels                BillableProductPanel[]        @relation("ProductLines")
+  parentLines           BillableProductPanel[]        @relation("ProductChildren")
   branchPricing         ProductBranchPricing[]
   testOrders            TestOrder[]
   referralDoctorRules   ReferralDoctorProductRule[]
@@ -1326,23 +1329,30 @@ model BillableProduct {
   @@index([workflowMode])
 }
 
-/// BillableProductPanel: Join table linking products to clinical panels
-/// Product → Panel → PanelItems → TestDefinitions (no direct TestDefinition link)
+/// BillableProductPanel: Line items inside a billable product
+/// Each line points at exactly one of: a ClinicalPanel (panelId) OR another
+/// BillableProduct (childProductId). The latter lets a package include
+/// bill-only items (e.g. sample collection charge) alongside panels, and
+/// transparently picks up the child's panels if the child becomes reportable.
 model BillableProductPanel {
   id               String   @id @default(cuid())
   productId        String
-  panelId          String
+  panelId          String? // null when this line points at a child product instead
+  childProductId   String? // null when this line points at a panel instead
   testDefinitionId String? // Optional: direct test reference for single-test products
   displayOrder     Int      @default(0)
   createdAt        DateTime @default(now())
 
-  product        BillableProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
-  panel          ClinicalPanel   @relation(fields: [panelId], references: [id], onDelete: Restrict)
-  testDefinition TestDefinition? @relation(fields: [testDefinitionId], references: [id], onDelete: SetNull)
+  product        BillableProduct  @relation("ProductLines", fields: [productId], references: [id], onDelete: Cascade)
+  panel          ClinicalPanel?   @relation(fields: [panelId], references: [id], onDelete: Restrict)
+  childProduct   BillableProduct? @relation("ProductChildren", fields: [childProductId], references: [id], onDelete: Restrict)
+  testDefinition TestDefinition?  @relation(fields: [testDefinitionId], references: [id], onDelete: SetNull)
 
   @@unique([productId, panelId])
+  @@unique([productId, childProductId])
   @@index([productId])
   @@index([panelId])
+  @@index([childProductId])
 }
 
 /// ExternalReportUpload: PDF files attached to EXTERNAL_UPLOAD test orders.

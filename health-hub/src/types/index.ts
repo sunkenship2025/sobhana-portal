@@ -242,9 +242,17 @@ export interface ClinicalPanel {
 export interface BillableProductPanel {
   id: string;
   productId: string;
-  panelId: string;
+  panelId?: string | null;
+  childProductId?: string | null;
   displayOrder: number;
   panel?: ClinicalPanel;
+  childProduct?: {
+    id: string;
+    name: string;
+    code: string;
+    workflowMode: DiagnosticWorkflowMode;
+    basePriceInPaise: number;
+  };
 }
 
 export interface ProductBranchPricing {
