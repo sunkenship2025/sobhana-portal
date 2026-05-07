@@ -1,4 +1,4 @@
-'import { DiagnosticWorkflowMode, ReportStatus, VisitStatus } from '@prisma/client';
+import { DiagnosticWorkflowMode, ReportStatus, VisitStatus } from '@prisma/client';
 import prisma from '../lib/prisma';
 
 export const BILL_ONLY_PLACEHOLDER_CODE = '__BILL_ONLY_PLACEHOLDER__';
