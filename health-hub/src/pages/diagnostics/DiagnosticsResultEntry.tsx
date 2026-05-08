@@ -190,6 +190,38 @@ function isManualDerivedOverride(
   );
 }
 
+function formatRelativeTime(timestamp: number | null): string {
+  if (!timestamp) return 'just now';
+  const diffSec = Math.floor((Date.now() - timestamp) / 1000);
+  if (diffSec < 5) return 'just now';
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  return 'a while ago';
+}
+
+function renderAutoSaveStatus(
+  status: 'idle' | 'unsaved' | 'saving' | 'saved' | 'error',
+  lastSavedAt: number | null,
+): JSX.Element | null {
+  switch (status) {
+    case 'saving':
+      return <p className="mt-4 text-right text-sm text-muted-foreground">Saving…</p>;
+    case 'saved':
+      return (
+        <p className="mt-4 text-right text-sm text-muted-foreground">
+          Saved · {formatRelativeTime(lastSavedAt)}
+        </p>
+      );
+    case 'unsaved':
+      return <p className="mt-4 text-right text-sm text-muted-foreground">Unsaved changes</p>;
+    case 'error':
+      return <p className="mt-4 text-right text-sm text-amber-700">Save failed — will retry</p>;
+    default:
+      return null;
+  }
+}
+
 function areResultsEqual(
   left: Record<string, string>,
   right: Record<string, string>
@@ -222,6 +254,17 @@ const DiagnosticsResultEntry = () => {
   // and mutated locally as the user uploads / deletes files.
   const [uploadsByOrder, setUploadsByOrder] = useState<Record<string, ExternalUpload[]>>({});
   const [uploadingOrderId, setUploadingOrderId] = useState<string | null>(null);
+
+  // Auto-save: debounced background persistence so techs never have to think
+  // about saving. Status drives the inline indicator above the explicit button.
+  type AutoSaveStatus = 'idle' | 'unsaved' | 'saving' | 'saved' | 'error';
+  const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>('idle');
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const dirtyRef = useRef(false);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inFlightSaveRef = useRef<Promise<'saved' | 'empty' | 'failed'> | null>(null);
+  // Skips the very first results-changed render after fetchVisit populates state.
+  const autoSavePrimedRef = useRef(false);
 
   // Active narrative editor — tracks which framed editor on the page currently
   // owns the cursor, so the single sticky toolbar can dispatch its commands to
@@ -605,6 +648,170 @@ const DiagnosticsResultEntry = () => {
     }
   }, [token, activeBranchId]);
 
+  // Build the same {testId, value, textValue, flag, ...} payload that the
+  // explicit save uses, but as a pure function so both the auto-save effect
+  // and saveResults() share one source of truth. Returns 'empty' when there
+  // is nothing meaningful to send (e.g. external-upload-only visit before the
+  // PDF is attached) so callers can decide whether that's a valid state.
+  const persistDraft = useCallback(async (): Promise<'saved' | 'empty' | 'failed'> => {
+    if (!visit || !visitId) return 'empty';
+
+    type TestForSave = { testId: string; min: number; max: number; isDerived: boolean };
+    const allTests: TestForSave[] = [];
+    visit.testOrders.forEach((order) => {
+      if (order.workflowMode === 'EXTERNAL_UPLOAD') return;
+      if (order.isPanel && order.childTests && order.childTests.length > 0) {
+        order.childTests.forEach((child) => {
+          allTests.push({
+            testId: child.id,
+            min: child.referenceRange.min,
+            max: child.referenceRange.max,
+            isDerived: !!child.isDerived,
+          });
+        });
+      } else {
+        allTests.push({
+          testId: order.testId,
+          min: order.referenceRange.min,
+          max: order.referenceRange.max,
+          isDerived: !!order.isDerived,
+        });
+      }
+    });
+
+    const flagFor = (value: number, min: number, max: number): 'NORMAL' | 'HIGH' | 'LOW' | null => {
+      if (min === 0 && max === 0) return null;
+      if (min > 0 && value < min) return 'LOW';
+      if (max > 0 && value > max) return 'HIGH';
+      return 'NORMAL';
+    };
+
+    const resultsArray = allTests
+      .filter((test) => hasResultValue(results[test.testId], textLayoutByTestId.get(test.testId)))
+      .map((test) => {
+        const layoutType = textLayoutByTestId.get(test.testId);
+        const rawValue = results[test.testId];
+        const valueStr = isRichTextPanelLayout(layoutType)
+          ? normalizeNarrativeContent(rawValue)
+          : rawValue;
+        const forceTextValue = textLayoutByTestId.has(test.testId);
+        const parsedValue = parseFloat(valueStr);
+        const isNumeric = !forceTextValue && !isNaN(parsedValue) && valueStr.trim() !== '';
+        const flag = isNumeric ? flagFor(parsedValue, test.min, test.max) : null;
+        return {
+          testId: test.testId,
+          value: isNumeric ? parsedValue : null,
+          textValue: valueStr,
+          flag: isNumeric ? (flag || 'NORMAL') : null,
+          notes: null,
+          manualOverride: test.isDerived ? !!derivedManualOverrides[test.testId] : false,
+        };
+      });
+
+    if (resultsArray.length === 0) {
+      return 'empty';
+    }
+
+    try {
+      const response = await fetch(`${API_BASE}/visits/diagnostic/${visitId}/results`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Branch-Id': activeBranchId,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ results: resultsArray }),
+      });
+      return response.ok ? 'saved' : 'failed';
+    } catch (error) {
+      console.error('persistDraft failed:', error);
+      return 'failed';
+    }
+  }, [visit, visitId, results, derivedManualOverrides, textLayoutByTestId, token, activeBranchId]);
+
+  // Drive the inline status indicator. Coordinates in-flight saves so we don't
+  // race two POSTs.
+  const runAutoSave = useCallback(async () => {
+    if (inFlightSaveRef.current) return;
+    setAutoSaveStatus('saving');
+    const promise = persistDraft();
+    inFlightSaveRef.current = promise;
+    try {
+      const result = await promise;
+      if (result === 'saved') {
+        dirtyRef.current = false;
+        setLastSavedAt(Date.now());
+        setAutoSaveStatus('saved');
+      } else if (result === 'empty') {
+        dirtyRef.current = false;
+        setAutoSaveStatus('idle');
+      } else {
+        setAutoSaveStatus('error');
+      }
+    } finally {
+      inFlightSaveRef.current = null;
+    }
+  }, [persistDraft]);
+
+  // Schedule a debounced auto-save whenever the user edits results. The very
+  // first non-loading render is the initial population from fetchVisit, not a
+  // user edit — that one is suppressed via autoSavePrimedRef.
+  useEffect(() => {
+    if (loading || !visit) return;
+    if (!autoSavePrimedRef.current) {
+      autoSavePrimedRef.current = true;
+      return;
+    }
+
+    // Mirror the disabled-button conditions: nothing to save yet, or the form
+    // is in an invalid state pending external uploads.
+    const hasAnyManualValueShape = visit.testOrders.some((order) => {
+      if (order.workflowMode === 'EXTERNAL_UPLOAD') return false;
+      if (!order.isPanel) return true;
+      return order.childTests.length > 0;
+    });
+    const missingExternalUpload = visit.testOrders.some(
+      (order) =>
+        order.workflowMode === 'EXTERNAL_UPLOAD' &&
+        (!uploadsByOrder[order.id] || uploadsByOrder[order.id].length === 0),
+    );
+    if (!hasAnyManualValueShape || missingExternalUpload) return;
+
+    dirtyRef.current = true;
+    setAutoSaveStatus('unsaved');
+
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+    autoSaveTimerRef.current = setTimeout(() => {
+      autoSaveTimerRef.current = null;
+      void runAutoSave();
+    }, 1500);
+  }, [results, derivedManualOverrides, loading, visit, uploadsByOrder, runAutoSave]);
+
+  // Clear any pending debounce on unmount.
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // Field-level blur: if the user tabs/clicks out of a dirty field, save now
+  // rather than waiting out the 1.5s debounce. React's onBlur bubbles, so a
+  // single listener on the form container catches every input/textarea/
+  // contenteditable inside.
+  const handleFormBlur = useCallback(() => {
+    if (!dirtyRef.current) return;
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    void runAutoSave();
+  }, [runAutoSave]);
+
   if (loading) {
     return (
       <AppLayout context="diagnostics">
@@ -750,39 +957,26 @@ const DiagnosticsResultEntry = () => {
 
   const saveResults = async () => {
     setSaving(true);
+    // Cancel any pending debounced auto-save so we don't fire two POSTs back-to-back.
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
 
     try {
-      const allTests = getAllTestsForValidation();
-      const resultsArray = allTests
-        .filter((test) => hasResultValue(results[test.testId], textLayoutByTestId.get(test.testId)))
-        .map((test) => {
-          const layoutType = textLayoutByTestId.get(test.testId);
-          const rawValue = results[test.testId];
-          const valueStr = isRichTextPanelLayout(layoutType)
-            ? normalizeNarrativeContent(rawValue)
-            : rawValue;
-          const forceTextValue = textLayoutByTestId.has(test.testId);
-          const parsedValue = parseFloat(valueStr);
-          const isNumeric = !forceTextValue && !isNaN(parsedValue) && valueStr.trim() !== '';
-          const flag = isNumeric ? computeFlag(parsedValue, test.min, test.max) : null;
+      // If an auto-save is already mid-flight, let it finish before we POST again.
+      if (inFlightSaveRef.current) {
+        await inFlightSaveRef.current;
+      }
 
-          return {
-            testId: test.testId,
-            value: isNumeric ? parsedValue : null,
-            textValue: valueStr,
-            flag: isNumeric ? (flag || 'NORMAL') : null,
-            notes: null,
-            manualOverride: test.isDerived ? !!derivedManualOverrides[test.testId] : false,
-          };
-        });
-
-      // Pure external-upload visits won't have any value rows — that's fine,
-      // the uploaded PDFs carry the report. Skip the results POST and go to preview.
       const hasAnyExternalUpload = Object.values(uploadsByOrder).some((arr) => arr && arr.length > 0);
-      if (resultsArray.length === 0) {
+      const result = await persistDraft();
+
+      if (result === 'empty') {
+        // Pure external-upload visits won't have any value rows — that's fine,
+        // the uploaded PDFs carry the report.
         if (!hasAnyExternalUpload) {
           toast.error('Please enter at least one test result');
-          setSaving(false);
           return;
         }
         toast.success('Uploads saved');
@@ -790,25 +984,17 @@ const DiagnosticsResultEntry = () => {
         return;
       }
 
-      const response = await fetch(`${API_BASE}/visits/diagnostic/${visitId}/results`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'X-Branch-Id': activeBranchId,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ results: resultsArray })
-      });
-
-      if (response.ok) {
+      if (result === 'saved') {
+        dirtyRef.current = false;
+        setLastSavedAt(Date.now());
+        setAutoSaveStatus('saved');
         toast.success('Results saved as draft');
         navigate(`/diagnostics/preview/${visitId}`);
-      } else {
-        const errorData = await response.json();
-        toast.error(errorData.message || 'Failed to save results');
+        return;
       }
-    } catch (error) {
-      console.error('Failed to save results:', error);
+
+      // result === 'failed'
+      setAutoSaveStatus('error');
       toast.error('Failed to save results');
     } finally {
       setSaving(false);
@@ -1400,7 +1586,7 @@ const DiagnosticsResultEntry = () => {
               </div>
             )}
           </CardHeader>
-          <CardContent className="space-y-6 pt-0">
+          <CardContent className="space-y-6 pt-0" onBlur={handleFormBlur}>
             {!hasReportableInputs ? (
               <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
                 No reportable test items are linked to this visit yet. Add the required backing test item to the panel definition, then reopen this visit.
@@ -1742,19 +1928,43 @@ const DiagnosticsResultEntry = () => {
                 Upload a PDF for {externalUploadOrdersMissingFiles.map((o) => o.testName).join(', ')} before saving.
               </p>
             )}
-            <Button
-              className="w-full mt-6"
-              size="lg"
-              onClick={handleSaveDraft}
-              disabled={saving || !hasReportableInputs || hasMissingExternalUploads}
-            >
-              {saving ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="mr-2 h-4 w-4" />
-              )}
-              {saving ? 'Saving...' : 'Save Draft & Preview Report'}
-            </Button>
+            {(() => {
+              // The button used to be "Save Draft & Preview Report". Auto-save
+              // now handles the persistence side; the click is purely a
+              // navigation to preview. The label flips to signal whether the
+              // tech is about to release a partial vs complete report.
+              const allTests = getAllTestsForValidation();
+              // External-upload-only visits have no manual tests; completeness is
+              // purely about whether the required PDFs are attached.
+              const allTestsHaveValues =
+                allTests.length === 0 ||
+                allTests.every((t) =>
+                  hasResultValue(results[t.testId], textLayoutByTestId.get(t.testId)),
+                );
+              const isReportComplete = !hasMissingExternalUploads && allTestsHaveValues;
+              const buttonLabel = isReportComplete
+                ? 'Review & Finalize'
+                : 'Continue with Partial Report';
+
+              return (
+                <>
+                  {renderAutoSaveStatus(autoSaveStatus, lastSavedAt)}
+                  <Button
+                    className="w-full mt-2"
+                    size="lg"
+                    onClick={handleSaveDraft}
+                    disabled={saving || !hasReportableInputs || hasMissingExternalUploads}
+                  >
+                    {saving ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="mr-2 h-4 w-4" />
+                    )}
+                    {saving ? 'Saving...' : buttonLabel}
+                  </Button>
+                </>
+              );
+            })()}
           </CardContent>
         </Card>
       </div>
