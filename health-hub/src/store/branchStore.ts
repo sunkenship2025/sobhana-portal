@@ -29,19 +29,22 @@ interface BranchState {
   branches: Branch[];
   activeBranchId: string | null;
   isLoading: boolean;
-  
+  /** True after a fresh staff/owner login until they confirm the branch via the modal. */
+  awaitingBranchConfirm: boolean;
+
   // Getters
   getActiveBranch: () => Branch | undefined;
   getBranchById: (id: string) => Branch | undefined;
   getAllBranches: () => Branch[];
-  
+
   // Setters
   setActiveBranch: (branchId: string) => void;
   setBranches: (branches: Branch[]) => void;
-  
+  setAwaitingBranchConfirm: (awaiting: boolean) => void;
+
   // Actions
   fetchBranches: () => Promise<void>;
-  
+
   // CRUD
   addBranch: (branch: Branch) => void;
   updateBranch: (id: string, updates: Partial<Branch>) => void;
@@ -56,7 +59,8 @@ export const useBranchStore = create<BranchState>()(
       branches: [],
       activeBranchId: null,
       isLoading: false,
-      
+      awaitingBranchConfirm: false,
+
       getActiveBranch: () => {
         const { branches, activeBranchId } = get();
         return branches.find((b) => b.id === activeBranchId);
@@ -78,6 +82,10 @@ export const useBranchStore = create<BranchState>()(
       
       setBranches: (branches) => {
         set({ branches });
+      },
+
+      setAwaitingBranchConfirm: (awaiting) => {
+        set({ awaitingBranchConfirm: awaiting });
       },
       
       fetchBranches: async () => {
@@ -125,6 +133,12 @@ export const useBranchStore = create<BranchState>()(
     }),
     {
       name: 'branch-storage',
+      // awaitingBranchConfirm is transient — never persist it, otherwise the
+      // modal would re-open on every page refresh.
+      partialize: (state) => ({
+        branches: state.branches,
+        activeBranchId: state.activeBranchId,
+      }) as Partial<BranchState>,
     }
   )
 );

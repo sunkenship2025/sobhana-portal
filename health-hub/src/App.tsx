@@ -6,6 +6,8 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "./store/authStore";
 import { useEffect } from "react";
 import { ProtectedRoute } from "./components/layout/ProtectedRoute";
+import { BranchConfirmModal } from "./components/layout/BranchConfirmModal";
+import { useBranchStore } from "./store/branchStore";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import DiagnosticsNewVisit from "./pages/diagnostics/DiagnosticsNewVisit";
@@ -35,6 +37,19 @@ import DataDeletion from "./pages/legal/DataDeletion";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
+
+/**
+ * Mounted globally so the post-login branch picker survives the navigation
+ * from /login → /, /owner, etc. (Putting it inside Login.tsx unmounts it the
+ * moment isAuthenticated flips and the route redirects away.)
+ */
+function GlobalBranchConfirmGate() {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const awaiting = useBranchStore((s) => s.awaitingBranchConfirm);
+  const setAwaiting = useBranchStore((s) => s.setAwaitingBranchConfirm);
+  const open = isAuthenticated && awaiting;
+  return <BranchConfirmModal open={open} onConfirm={() => setAwaiting(false)} />;
+}
 
 function AppRoutes() {
   const {
@@ -224,13 +239,22 @@ function AppRoutes() {
   );
 }
 
+function AppShell() {
+  return (
+    <>
+      <GlobalBranchConfirmGate />
+      <AppRoutes />
+    </>
+  );
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <AppRoutes />
+        <AppShell />
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
