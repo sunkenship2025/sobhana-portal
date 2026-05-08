@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
 import { Mail, Lock, LogIn } from 'lucide-react';
-import { BranchConfirmModal } from '@/components/layout/BranchConfirmModal';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -11,7 +10,6 @@ const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [pendingPath, setPendingPath] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,32 +17,21 @@ const Login = () => {
 
     // Role is determined by the backend's User record — there's no client-side
     // choice. Post-login routing keys off `result.user.role` so each user
-    // lands on their own dashboard regardless of how they came in.
+    // lands on their own dashboard regardless of how they came in. The
+    // branch-confirm modal is mounted globally in App.tsx and triggered by
+    // authStore.login(), so it overlays whatever route we navigate to here.
     const result = await login(email, password, 'staff');
 
     if (result.success) {
       const role = useAuthStore.getState().user?.role;
       toast.success('Welcome back');
       const target = role === 'doctor' ? '/doctor' : role === 'owner' ? '/owner' : '/';
-      // Doctors are read-only on branch — skip the picker.
-      if (role === 'doctor') {
-        navigate(target);
-      } else {
-        setPendingPath(target);
-      }
+      navigate(target);
     } else {
       toast.error(result.error || 'Login failed');
     }
 
     setIsLoading(false);
-  };
-
-  const handleBranchConfirmed = () => {
-    if (pendingPath) {
-      const target = pendingPath;
-      setPendingPath(null);
-      navigate(target);
-    }
   };
 
   return (
@@ -177,7 +164,6 @@ const Login = () => {
         </div>
       </div>
 
-      <BranchConfirmModal open={pendingPath !== null} onConfirm={handleBranchConfirmed} />
     </div>
   );
 };
