@@ -47,12 +47,17 @@ export function BranchConfirmModal({ open, onConfirm }: BranchConfirmModalProps)
   }, [open, branches.length, isLoading, fetchBranches]);
 
   // Seed the dropdown: previously-used branch wins, otherwise first available.
+  // Deps deliberately exclude `activeBranches` — it's a new array reference on
+  // every render (filtered inline), which would re-fire this effect after the
+  // user picks a different branch and reset the selection back to the store's
+  // activeBranchId. Re-seed only when the modal opens or branches finish loading.
   useEffect(() => {
     if (!open) return;
     if (activeBranches.length === 0) return;
     const remembered = activeBranches.find((b) => b.id === activeBranchId);
     setSelectedId(remembered ? remembered.id : activeBranches[0].id);
-  }, [open, activeBranchId, activeBranches]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, branches.length]);
 
   const handleConfirm = () => {
     if (!selectedId) return;
@@ -69,7 +74,7 @@ export function BranchConfirmModal({ open, onConfirm }: BranchConfirmModalProps)
   return (
     <Dialog open={open}>
       <DialogContent
-        className="sm:max-w-md"
+        className="sm:max-w-md [&>button.absolute]:hidden"
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
       >
