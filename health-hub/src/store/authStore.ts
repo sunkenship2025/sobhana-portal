@@ -130,9 +130,9 @@ export const useAuthStore = create<AuthState>()(
             }
 
             // Doctors are read-only on branch — skip the confirmation step.
-            // Staff and owners must explicitly confirm/pick the branch they
-            // want to work in for this session.
-            if (data.user.role !== 'doctor') {
+            // Owners operate across all branches (admin views are global) so
+            // they also skip. Only branch-bound staff need to pick.
+            if (data.user.role !== 'doctor' && data.user.role !== 'owner') {
               branchStore.setAwaitingBranchConfirm(true);
             }
 
