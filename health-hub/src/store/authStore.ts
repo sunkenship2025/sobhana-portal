@@ -129,6 +129,13 @@ export const useAuthStore = create<AuthState>()(
               branchStore.setActiveBranch(data.user.activeBranch.id);
             }
 
+            // Doctors are read-only on branch — skip the confirmation step.
+            // Staff and owners must explicitly confirm/pick the branch they
+            // want to work in for this session.
+            if (data.user.role !== 'doctor') {
+              branchStore.setAwaitingBranchConfirm(true);
+            }
+
             return { success: true };
           } else {
             return { success: false, error: data.message || 'Login failed' };

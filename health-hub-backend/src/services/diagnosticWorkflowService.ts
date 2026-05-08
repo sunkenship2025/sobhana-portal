@@ -58,9 +58,14 @@ export function deriveDiagnosticVisitComposition(
   const hasExternalUploadOrders = orders.some(isExternalUploadOrder);
   const hasReportInclusionOrders = hasReportableOrders || hasExternalUploadOrders;
   const hasEntryScreenOrders = hasReportInclusionOrders;
-  const hasFinalizedReport = reportVersions.some(
-    (version) => version.status === ReportStatus.FINALIZED
-  );
+  // A partial release finalizes the current version (v_n) and creates a fresh
+  // DRAFT (v_n+1) while leaving visit.status as WAITING — so "any version
+  // finalized" no longer implies the visit is done. Gate on visit.status so
+  // the next batch's preview/finalize buttons stay visible until the FINAL
+  // /finalize call (which is the only path that flips status to COMPLETED).
+  const hasFinalizedReport =
+    visitStatus === VisitStatus.COMPLETED &&
+    reportVersions.some((version) => version.status === ReportStatus.FINALIZED);
 
   let nextAction: DiagnosticNextAction = 'NONE';
 
