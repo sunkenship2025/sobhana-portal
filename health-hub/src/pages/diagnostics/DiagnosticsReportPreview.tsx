@@ -192,11 +192,7 @@ const DiagnosticsReportPreview = () => {
   const [showPreview, setShowPreview] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);  // blob URL for iframe
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [hasReviewedPreview, setHasReviewedPreview] = useState(false);
   const latestVersionId = (visit as any)?.report?.versions?.[0]?.id ?? visit?.report?.currentVersion?.id ?? null;
-  const previewReviewSessionKey = visitId && latestVersionId
-    ? `diagnostics-report-preview-reviewed:${visitId}:${latestVersionId}`
-    : null;
 
   // Fetch visit from API
   useEffect(() => {
@@ -267,15 +263,6 @@ const DiagnosticsReportPreview = () => {
       return null;
     });
   }, [visitId, latestVersionId]);
-
-  useEffect(() => {
-    if (!previewReviewSessionKey) {
-      setHasReviewedPreview(false);
-      return;
-    }
-
-    setHasReviewedPreview(sessionStorage.getItem(previewReviewSessionKey) === 'true');
-  }, [previewReviewSessionKey]);
 
   useEffect(() => {
     return () => {
@@ -455,10 +442,6 @@ const DiagnosticsReportPreview = () => {
           `Partial report released — patient notified. ${pendingReportableCount} test${pendingReportableCount === 1 ? '' : 's'} still pending.`,
         );
         setShowReleaseConfirm(false);
-        // Reset preview-reviewed state so staff has to preview the next batch
-        // before releasing/finalizing it (the session key is keyed on version id,
-        // so it'll naturally reset, but clear here too to be explicit).
-        setHasReviewedPreview(false);
 
         // Refresh visit data so the new DRAFT version (v+1) and prior finalized
         // version are visible.
@@ -559,16 +542,8 @@ const DiagnosticsReportPreview = () => {
     }
   };
 
-  const markPreviewReviewed = () => {
-    setHasReviewedPreview(true);
-    if (previewReviewSessionKey) {
-      sessionStorage.setItem(previewReviewSessionKey, 'true');
-    }
-  };
-
   const handlePreviewClose = () => {
     setShowPreview(false);
-    markPreviewReviewed();
   };
 
   const handleFinalizeFromPreview = () => {
@@ -577,7 +552,6 @@ const DiagnosticsReportPreview = () => {
       return;
     }
     setShowPreview(false);
-    markPreviewReviewed();
     setShowConfirm(true);
   };
 
@@ -587,7 +561,6 @@ const DiagnosticsReportPreview = () => {
       return;
     }
     setShowPreview(false);
-    markPreviewReviewed();
     setShowReleaseConfirm(true);
   };
 
@@ -873,7 +846,9 @@ const DiagnosticsReportPreview = () => {
           </CardContent>
         </Card>
 
-        {/* Actions */}
+        {/* Actions — Finalize / Release lives only inside the preview modal so
+            staff are forced to review the rendered PDF before sending. The main
+            page only offers "Preview" (and Back to Edit). */}
         {!isFinalized && (
           <div className="flex gap-3">
             <Button
@@ -896,26 +871,6 @@ const DiagnosticsReportPreview = () => {
               )}
               {previewLoading ? 'Generating...' : 'Preview Report Before Finalization'}
             </Button>
-            {hasReviewedPreview && canReleasePartial && (
-              <Button
-                onClick={() => setShowReleaseConfirm(true)}
-                disabled={hasDue}
-              >
-                <CheckCircle2 className="mr-2 h-4 w-4" />
-                {hasDue
-                  ? 'Collect Due Before Releasing'
-                  : `Release Partial Report (${readyReportableCount} of ${totalReportableCount} ready)`}
-              </Button>
-            )}
-            {hasReviewedPreview && canFinalizeAll && (
-              <Button
-                onClick={() => setShowConfirm(true)}
-                disabled={hasDue}
-              >
-                <CheckCircle2 className="mr-2 h-4 w-4" />
-                {hasDue ? 'Collect Due Before Finalizing' : 'Finalize Report'}
-              </Button>
-            )}
           </div>
         )}
 
