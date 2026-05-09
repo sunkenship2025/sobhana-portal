@@ -1,10 +1,12 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
   RichTextSurface,
   type RichTextSurfaceHandle,
   type ToolbarState,
+  DEFAULT_TOOLBAR_STATE,
 } from './RichTextSurface';
+import { RichTextToolbar } from './RichTextToolbar';
 import '@/styles/report-frame.css';
 
 export interface FramedPatient {
@@ -31,12 +33,10 @@ interface ReportFramedNarrativeEditorProps {
   panelDisplayName: string;
   testCode?: string;
   placeholder?: string;
-  /** Called whenever this editor's selection state changes. The parent uses it to drive the shared toolbar when this editor is active. */
-  onSurfaceStateChange?: (state: ToolbarState) => void;
-  /** Called when the editor becomes the focused/active surface so the parent can route toolbar commands here. */
-  onActivate?: (handle: RichTextSurfaceHandle) => void;
-  /** Called on blur. */
-  onDeactivate?: () => void;
+  /** Fires the first time the editor gains focus. The parent uses this as a
+   *  proxy for "the radiologist actually touched this report" so the partial-
+   *  release dialog can default-uncheck untouched template-only narratives. */
+  onFirstTouch?: () => void;
 }
 
 const DASH = '—';
@@ -71,114 +71,127 @@ export function ReportFramedNarrativeEditor({
   panelDisplayName,
   testCode,
   placeholder = 'Start writing the narrative report...',
-  onSurfaceStateChange,
-  onActivate,
-  onDeactivate,
+  onFirstTouch,
 }: ReportFramedNarrativeEditorProps) {
   const surfaceRef = useRef<RichTextSurfaceHandle>(null);
-
-  const handleActiveChange = (active: boolean) => {
-    if (active) {
-      if (surfaceRef.current) onActivate?.(surfaceRef.current);
-    } else {
-      onDeactivate?.();
-    }
-  };
+  const [toolbarState, setToolbarState] = useState<ToolbarState>(DEFAULT_TOOLBAR_STATE);
+  // Toolbar is muted (semi-transparent) until the editor underneath it has
+  // focus — small visual hint that buttons only do something when the
+  // cursor is in this report's narrative area.
+  const [isActive, setIsActive] = useState(false);
+  // Fire `onFirstTouch` exactly once per editor lifetime when the user first
+  // focuses the narrative area. A ref guards re-firing — focus/blur cycle
+  // many times during normal use.
+  const firstTouchFiredRef = useRef(false);
 
   return (
-    <div className="report-frame-scope">
-      <div className="report-frame-page">
-        <header className="header">
-          <div className="header-logo-row">
-            <img
-              src="/sobhana-logo-cropped.png"
-              alt="Sobhana Diagnostic Centre"
-              className="header-logo"
-            />
-          </div>
-          <div className="header-stripe-band">
-            <div></div>
-            <div></div>
-            <div></div>
-          </div>
-          <div className="report-badge-row">
-            <span className="report-badge">REPORT</span>
-          </div>
-        </header>
+    <div className="space-y-2">
+      <RichTextToolbar
+        state={toolbarState}
+        active={isActive}
+        onCommand={(command, valueArg) => surfaceRef.current?.runCommand(command, valueArg)}
+      />
 
-        <div className="report-frame-content">
-          <section className="patient-info">
-            <div className="info-grid">
-              <div className="info-row">
-                <div className="info-item">
-                  <span className="label">Patient Name</span>
-                  <span className="value">{patient.name || DASH}</span>
-                </div>
-                <div className="info-item">
-                  <span className="label">Bill No</span>
-                  <span className="value">{visit.billNumber || DASH}</span>
-                </div>
-              </div>
-              <div className="info-row">
-                <div className="info-item">
-                  <span className="label">Age / Gender</span>
-                  <span className="value">
-                    {patient.ageDisplay || DASH} / {formatGender(patient.gender)}
-                  </span>
-                </div>
-                <div className="info-item">
-                  <span className="label">Patient ID</span>
-                  <span className="value">{patient.patientNumber || DASH}</span>
-                </div>
-              </div>
-              <div className="info-row">
-                <div className="info-item">
-                  <span className="label">Sample Type</span>
-                  <span className="value">{visit.sampleType || DASH}</span>
-                </div>
-                <div className="info-item">
-                  <span className="label">Registered On</span>
-                  <span className="value">{formatDateTime(visit.createdAt)}</span>
-                </div>
-              </div>
-              <div className="info-row">
-                <div className="info-item">
-                  <span className="label">Collected On</span>
-                  <span className="value">
-                    {formatDateTime(visit.collectedAt || visit.createdAt)}
-                  </span>
-                </div>
-                <div className="info-item">
-                  <span className="label">Reported On</span>
-                  <span className="value">{formatDateTime(visit.reportedAt)}</span>
-                </div>
-              </div>
+      <div className="report-frame-scope">
+        <div className="report-frame-page">
+          <header className="header">
+            <div className="header-logo-row">
+              <img
+                src="/sobhana-logo-cropped.png"
+                alt="Sobhana Diagnostic Centre"
+                className="header-logo"
+              />
             </div>
-          </section>
+            <div className="header-stripe-band">
+              <div></div>
+              <div></div>
+              <div></div>
+            </div>
+            <div className="report-badge-row">
+              <span className="report-badge">REPORT</span>
+            </div>
+          </header>
 
-          <div className="department-header">
-            DEPARTMENT OF {departmentName.toUpperCase()}
-          </div>
+          <div className="report-frame-content">
+            <section className="patient-info">
+              <div className="info-grid">
+                <div className="info-row">
+                  <div className="info-item">
+                    <span className="label">Patient Name</span>
+                    <span className="value">{patient.name || DASH}</span>
+                  </div>
+                  <div className="info-item">
+                    <span className="label">Bill No</span>
+                    <span className="value">{visit.billNumber || DASH}</span>
+                  </div>
+                </div>
+                <div className="info-row">
+                  <div className="info-item">
+                    <span className="label">Age / Gender</span>
+                    <span className="value">
+                      {patient.ageDisplay || DASH} / {formatGender(patient.gender)}
+                    </span>
+                  </div>
+                  <div className="info-item">
+                    <span className="label">Patient ID</span>
+                    <span className="value">{patient.patientNumber || DASH}</span>
+                  </div>
+                </div>
+                <div className="info-row">
+                  <div className="info-item">
+                    <span className="label">Sample Type</span>
+                    <span className="value">{visit.sampleType || DASH}</span>
+                  </div>
+                  <div className="info-item">
+                    <span className="label">Registered On</span>
+                    <span className="value">{formatDateTime(visit.createdAt)}</span>
+                  </div>
+                </div>
+                <div className="info-row">
+                  <div className="info-item">
+                    <span className="label">Collected On</span>
+                    <span className="value">
+                      {formatDateTime(visit.collectedAt || visit.createdAt)}
+                    </span>
+                  </div>
+                  <div className="info-item">
+                    <span className="label">Reported On</span>
+                    <span className="value">{formatDateTime(visit.reportedAt)}</span>
+                  </div>
+                </div>
+              </div>
+            </section>
 
-          <div className="panel-title">
-            {panelDisplayName}
-            {testCode && testCode !== panelDisplayName ? (
-              <span className="ml-2 text-[8pt] font-normal opacity-70">({testCode})</span>
-            ) : null}
-          </div>
+            <div className="department-header">
+              DEPARTMENT OF {departmentName.toUpperCase()}
+            </div>
 
-          <RichTextSurface
-            ref={surfaceRef}
-            value={value}
-            onChange={onChange}
-            placeholder={placeholder}
-            contentClassName={cn('imaging-narrative')}
-            onToolbarStateChange={onSurfaceStateChange}
-            onActiveChange={handleActiveChange}
-          />
+            <div className="panel-title">
+              {panelDisplayName}
+              {testCode && testCode !== panelDisplayName ? (
+                <span className="ml-2 text-[8pt] font-normal opacity-70">({testCode})</span>
+              ) : null}
+            </div>
 
-          <div className="report-note">
-            Note: Please correlate clinically if necessary.
+            <RichTextSurface
+              ref={surfaceRef}
+              value={value}
+              onChange={onChange}
+              placeholder={placeholder}
+              contentClassName={cn('imaging-narrative')}
+              onToolbarStateChange={setToolbarState}
+              onActiveChange={(active) => {
+                setIsActive(active);
+                if (active && !firstTouchFiredRef.current) {
+                  firstTouchFiredRef.current = true;
+                  onFirstTouch?.();
+                }
+              }}
+            />
+
+            <div className="report-note">
+              Note: Please correlate clinically if necessary.
+            </div>
           </div>
         </div>
       </div>

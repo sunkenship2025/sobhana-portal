@@ -7,12 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ReportFramedNarrativeEditor } from '@/components/diagnostics/ReportFramedNarrativeEditor';
-import { RichTextToolbar } from '@/components/diagnostics/RichTextToolbar';
-import {
-  DEFAULT_TOOLBAR_STATE,
-  type RichTextSurfaceHandle,
-  type ToolbarState,
-} from '@/components/diagnostics/RichTextSurface';
 import {
   PartialReleaseSelectorDialog,
   type PartialReleaseGroup,
@@ -44,6 +38,7 @@ import {
   hasMeaningfulRichText,
   normalizeRichTextForStorage,
   plainTextToRichText,
+  richTextToPlainText,
 } from '@/lib/richText';
 
 interface ReferenceRange {
@@ -270,19 +265,27 @@ const DiagnosticsResultEntry = () => {
   // Skips the very first results-changed render after fetchVisit populates state.
   const autoSavePrimedRef = useRef(false);
 
-  // Active narrative editor — tracks which framed editor on the page currently
-  // owns the cursor, so the single sticky toolbar can dispatch its commands to
-  // that editor's contentEditable surface.
-  const activeSurfaceRef = useRef<RichTextSurfaceHandle | null>(null);
-  const activeSurfaceTestIdRef = useRef<string | null>(null);
-  const [activeSurfaceTestId, setActiveSurfaceTestId] = useState<string | null>(null);
-  const [sharedToolbarState, setSharedToolbarState] = useState<ToolbarState>(DEFAULT_TOOLBAR_STATE);
-
   // Partial-release selector dialog state. Opens when staff clicks
   // "Continue with Partial Report" and there's a real choice to make
   // (more than one ready test, or template-only narratives need to be
   // explicitly opted into).
   const [partialDialogOpen, setPartialDialogOpen] = useState(false);
+
+  // Set of testIds whose narrative editor the radiologist has actually
+  // *clicked into* this session. Used as the "did they touch it?" signal
+  // for partial-release pre-selection: untouched narratives stay unchecked
+  // by default so the unedited template can never silently ship.
+  const [touchedNarrativeTestIds, setTouchedNarrativeTestIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const markNarrativeTouched = useCallback((testId: string) => {
+    setTouchedNarrativeTestIds((prev) => {
+      if (prev.has(testId)) return prev;
+      const next = new Set(prev);
+      next.add(testId);
+      return next;
+    });
+  }, []);
 
   const textLayoutByTestId = useMemo(() => {
     const map = new Map<string, string>();
@@ -1368,22 +1371,7 @@ const DiagnosticsResultEntry = () => {
           panelDisplayName={panelDisplayName || testName}
           testCode={testCode}
           placeholder={placeholder}
-          onSurfaceStateChange={(state) => {
-            if (activeSurfaceTestIdRef.current === testId) {
-              setSharedToolbarState(state);
-            }
-          }}
-          onActivate={(handle) => {
-            activeSurfaceRef.current = handle;
-            activeSurfaceTestIdRef.current = testId;
-            setActiveSurfaceTestId(testId);
-          }}
-          onDeactivate={() => {
-            // Don't clear immediately on blur — the user may be clicking a toolbar
-            // button, which would lose focus on the contentEditable. Toolbar buttons
-            // re-focus the surface via runCommand → editor.focus(). We only clear
-            // when another editor takes focus or the page unmounts.
-          }}
+          onFirstTouch={() => markNarrativeTouched(testId)}
         />
       </div>
     );
@@ -1549,9 +1537,20 @@ const DiagnosticsResultEntry = () => {
 
       if (isRichTextPanelLayout(layout)) {
         anyNarrative = true;
+        // A narrative counts as `complete` only when its saved content
+        // *differs* from the panel's template (i.e. a real edit landed —
+        // possibly in a prior session). Clicking the editor without typing
+        // anything is NOT enough to promote the status — clicks can be
+        // accidental, so the radiologist must always confirm via the
+        // partial-release dialog before a touched-but-unedited narrative
+        // ships. The touch signal is used elsewhere to drive the dialog
+        // pre-tick (so the user can confirm or untick), not status.
         const template = narrativeTemplateByTestId.get(id);
-        const normalizedValue = normalizeRichTextForStorage(value);
-        if (!template || normalizedValue !== template) {
+        const templatePlain = template ? richTextToPlainText(template).trim() : '';
+        const valuePlain = richTextToPlainText(value).trim();
+        const htmlDiffersFromTemplate =
+          templatePlain.length > 0 && valuePlain !== templatePlain;
+        if (htmlDiffersFromTemplate) {
           allTemplateOnly = false;
         }
       } else {
@@ -1576,12 +1575,11 @@ const DiagnosticsResultEntry = () => {
     testOrders.every((o) => orderStatuses.get(o.id) === 'complete');
   // Orders that could appear in a partial release. Empty orders are excluded
   // entirely (nothing to ship). Template-only narratives are eligible but
-  // pre-unchecked.
+  // pre-unchecked. Per-order pre-tick rules live with the dialog data builder
+  // below — there's no global "default selection" set anymore because the
+  // narrative path now defers to the per-editor touched signal.
   const partialEligibleOrderIds = testOrders
     .filter((o) => orderStatuses.get(o.id) !== 'empty')
-    .map((o) => o.id);
-  const defaultPartialSelectionIds = testOrders
-    .filter((o) => orderStatuses.get(o.id) === 'complete')
     .map((o) => o.id);
 
   // True if any test in this visit uses the WYSIWYG framed narrative editor.
@@ -1668,22 +1666,6 @@ const DiagnosticsResultEntry = () => {
             </div>
           </CardContent>
         </Card>
-
-        {/* Shared rich-text toolbar — sticky at the top of the page so it stays
-            in reach as the user scrolls through long narrative reports. Routes
-            commands to whichever framed editor is currently focused. Hidden
-            entirely when this visit has no narrative tests. */}
-        {hasNarrativeTests && (
-          <div className="sticky top-0 z-30 -mx-2 px-2 py-2 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-            <RichTextToolbar
-              state={sharedToolbarState}
-              active={activeSurfaceTestId !== null}
-              onCommand={(command, value) => {
-                activeSurfaceRef.current?.runCommand(command, value);
-              }}
-            />
-          </div>
-        )}
 
         {/* Test Results */}
         <Card>
@@ -2051,23 +2033,19 @@ const DiagnosticsResultEntry = () => {
                 : 'Continue with Partial Report';
 
               const handleClick = () => {
-                if (fullyDone || partialEligibleOrderIds.length <= 1) {
-                  // Nothing to choose between — save & navigate. If exactly one
-                  // order is eligible, pre-select it so the backend ships only
-                  // that one (avoids accidentally including a template-only
-                  // narrative that happens to also be eligible).
-                  const single =
-                    !fullyDone && partialEligibleOrderIds.length === 1
-                      ? partialEligibleOrderIds
-                      : undefined;
+                if (fullyDone) {
                   // Reuse the existing extreme-value validation flow so we
                   // don't bypass the warning dialog for fully-done visits.
-                  if (fullyDone) {
-                    handleSaveDraft();
-                    return;
-                  }
-                  // For the single-order partial path, validate then save with selection.
-                  void saveResults(single);
+                  handleSaveDraft();
+                  return;
+                }
+                if (partialEligibleOrderIds.length <= 1) {
+                  // Zero or one eligible order — no choice to make in a
+                  // dialog. Route through the standard save path with NO
+                  // partialSelection; the preview page then decides between
+                  // /finalize and /release-partial based on whether other
+                  // reportable orders in the visit are still pending.
+                  void saveResults(undefined);
                   return;
                 }
                 // Multiple orders eligible — open the selector dialog.
@@ -2148,6 +2126,28 @@ const DiagnosticsResultEntry = () => {
               }
             }
 
+            // Pre-tick rule:
+            //   • Non-narrative (numeric / external upload): tick if `complete`.
+            //   • Narrative: tick if the radiologist either touched the editor
+            //     this session OR the saved content differs from the template
+            //     (i.e. status === 'complete'). Touched-but-unedited narratives
+            //     show up pre-ticked so the radiologist can confirm or untick
+            //     — clicks can be accidental, so a touched narrative still
+            //     forces the dialog to open instead of going straight to
+            //     finalize.
+            const narrativeIds = (
+              order.isPanel && order.childTests && order.childTests.length > 0
+                ? order.childTests.map((c) => c.id)
+                : [order.testId]
+            ).filter((id) => isRichTextPanelLayout(textLayoutByTestId.get(id)));
+            const isNarrativeOrder = narrativeIds.length > 0;
+            const narrativeTouched = narrativeIds.some((id) =>
+              touchedNarrativeTestIds.has(id),
+            );
+            const defaultChecked = isNarrativeOrder
+              ? narrativeTouched || status === 'complete'
+              : status === 'complete';
+
             const label = order.panel?.displayName || order.panel?.name || order.testName;
             groupMap.get(deptName)!.orders.push({
               id: order.id,
@@ -2155,7 +2155,7 @@ const DiagnosticsResultEntry = () => {
               sublabel,
               hint,
               hintVariant,
-              defaultChecked: status === 'complete',
+              defaultChecked,
             });
           });
           return Array.from(groupMap.values());
@@ -2163,7 +2163,17 @@ const DiagnosticsResultEntry = () => {
         busy={saving}
         onConfirm={(selectedOrderIds) => {
           setPartialDialogOpen(false);
-          void saveResults(selectedOrderIds);
+          // If the radiologist ticked every eligible order, the release is
+          // effectively a full finalize. Skip passing `partialSelection` so
+          // the preview page treats this exactly like the fullyDone path:
+          // user sees "Looks Good — Finalize" in the preview modal and the
+          // backend hits /finalize (closes visit, refreshes payouts, sends
+          // the "final" WhatsApp template). Otherwise it's a real partial.
+          const selectedSet = new Set(selectedOrderIds);
+          const isFullSelection =
+            selectedOrderIds.length === partialEligibleOrderIds.length &&
+            partialEligibleOrderIds.every((id) => selectedSet.has(id));
+          void saveResults(isFullSelection ? undefined : selectedOrderIds);
         }}
       />
 
