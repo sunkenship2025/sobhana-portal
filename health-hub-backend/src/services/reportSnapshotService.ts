@@ -1102,8 +1102,17 @@ function buildPanelsAndDepartments(
 /**
  * Creates a complete snapshot of the report at finalization time.
  * This data is FROZEN and used for all future rendering.
+ *
+ * @param reportVersionId Version to snapshot.
+ * @param options.selectedTestOrderIds When provided, the snapshot only
+ *   includes results AND external uploads tied to these test orders. Used
+ *   by the partial-release flow so unselected uploads (e.g. an MRI PDF the
+ *   radiologist held back) don't get baked into the finalized version.
  */
-export async function createReportSnapshot(reportVersionId: string): Promise<ReportSnapshot> {
+export async function createReportSnapshot(
+  reportVersionId: string,
+  options?: { selectedTestOrderIds?: string[] | null },
+): Promise<ReportSnapshot> {
   // Fetch all required data
   // IMPORTANT: panelItems lives on the INDIVIDUAL test (e.g. HB, RBC), NOT the parent panel (CBP).
   // testResult.test = the actual sub-test → has panelItems
@@ -1149,10 +1158,32 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
 
   const visit = reportVersion.report.visit;
   const patient = visit.patient;
-  const reportableOrders = filterReportableOrders(visit.testOrders as any[]);
-  const externalUploads = await buildExternalUploadSnapshots(visit.testOrders as any[]);
+  const allReportableOrders = filterReportableOrders(visit.testOrders as any[]);
+
+  // Optional per-order scoping: when this snapshot is being created from a
+  // partial release that explicitly excluded some orders (typically external
+  // PDF uploads the radiologist held back), the snapshot should only contain
+  // the selected orders. Otherwise the "all visit.testOrders" path would
+  // silently bake the excluded MRI/X-ray PDFs into the finalized merged PDF.
+  const selectedSet =
+    options?.selectedTestOrderIds && options.selectedTestOrderIds.length > 0
+      ? new Set(options.selectedTestOrderIds)
+      : null;
+  const reportableOrders = selectedSet
+    ? allReportableOrders.filter((o: any) => selectedSet.has(o.id))
+    : allReportableOrders;
+  const filteredTestOrders = selectedSet
+    ? (visit.testOrders as any[]).filter((o: any) => selectedSet.has(o.id))
+    : (visit.testOrders as any[]);
+  const filteredTestResults = selectedSet
+    ? (reportVersion.testResults as any[]).filter((r: any) =>
+        selectedSet.has(r.testOrderId),
+      )
+    : (reportVersion.testResults as any[]);
+
+  const externalUploads = await buildExternalUploadSnapshots(filteredTestOrders);
   const augmentedTestResults = await backfillDerivedResults(
-    reportVersion.testResults as any[],
+    filteredTestResults as any[],
     reportableOrders as any[],
     reportVersion.id
   );
