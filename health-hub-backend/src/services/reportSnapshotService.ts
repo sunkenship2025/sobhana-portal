@@ -1257,8 +1257,17 @@ export async function createReportSnapshot(reportVersionId: string): Promise<Rep
  * Builds an ephemeral (non-persisted) snapshot from live draft data.
  * Used for staff preview before finalization — same rendering pipeline,
  * but nothing is saved and no finalization status is required.
+ *
+ * @param visitId Diagnostic visit id.
+ * @param options.selectedTestOrderIds When provided, the snapshot only includes
+ *   results and external uploads tied to these test orders. Used by the staff
+ *   "preview before partial release" flow so the preview matches what will
+ *   actually ship to the patient.
  */
-export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSnapshot> {
+export async function buildEphemeralSnapshot(
+  visitId: string,
+  options?: { selectedTestOrderIds?: string[] | null },
+): Promise<ReportSnapshot> {
   // Find the visit's report and its latest version (DRAFT)
   const visit = await prisma.visit.findUnique({
     where: { id: visitId },
@@ -1305,16 +1314,37 @@ export async function buildEphemeralSnapshot(visitId: string): Promise<ReportSna
   }
 
   const patient = visit.patient;
-  const reportableOrders = filterReportableOrders(visit.testOrders as any[]);
-  const externalUploads = await buildExternalUploadSnapshots(visit.testOrders as any[]);
+  const allReportableOrders = filterReportableOrders(visit.testOrders as any[]);
+
+  // Optional per-test scoping: when staff arrived via the partial-release
+  // selector dialog, only the chosen test orders should appear in the
+  // preview / snapshot. Unsupplied or empty filter ⇒ include everything,
+  // matching the legacy behavior.
+  const selectedSet =
+    options?.selectedTestOrderIds && options.selectedTestOrderIds.length > 0
+      ? new Set(options.selectedTestOrderIds)
+      : null;
+  const reportableOrders = selectedSet
+    ? allReportableOrders.filter((o: any) => selectedSet.has(o.id))
+    : allReportableOrders;
+  const filteredTestOrders = selectedSet
+    ? (visit.testOrders as any[]).filter((o: any) => selectedSet.has(o.id))
+    : (visit.testOrders as any[]);
+  const filteredTestResults = selectedSet
+    ? (reportVersion.testResults as any[]).filter((r: any) =>
+        selectedSet.has(r.testOrderId),
+      )
+    : (reportVersion.testResults as any[]);
+
+  const externalUploads = await buildExternalUploadSnapshots(filteredTestOrders);
 
   // External-upload visits have no test results — the report content is the
   // appended PDFs themselves. Only block when there's neither values nor uploads.
-  if (reportVersion.testResults.length === 0 && externalUploads.length === 0) {
+  if (filteredTestResults.length === 0 && externalUploads.length === 0) {
     throw new Error('No test results entered yet');
   }
   const augmentedTestResults = await backfillDerivedResults(
-    reportVersion.testResults as any[],
+    filteredTestResults as any[],
     reportableOrders as any[],
     reportVersion.id
   );

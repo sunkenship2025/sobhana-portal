@@ -13,6 +13,10 @@ import {
   type RichTextSurfaceHandle,
   type ToolbarState,
 } from '@/components/diagnostics/RichTextSurface';
+import {
+  PartialReleaseSelectorDialog,
+  type PartialReleaseGroup,
+} from '@/components/diagnostics/PartialReleaseSelectorDialog';
 import { TestValueCombobox } from '@/components/diagnostics/TestValueCombobox';
 import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
@@ -274,6 +278,12 @@ const DiagnosticsResultEntry = () => {
   const [activeSurfaceTestId, setActiveSurfaceTestId] = useState<string | null>(null);
   const [sharedToolbarState, setSharedToolbarState] = useState<ToolbarState>(DEFAULT_TOOLBAR_STATE);
 
+  // Partial-release selector dialog state. Opens when staff clicks
+  // "Continue with Partial Report" and there's a real choice to make
+  // (more than one ready test, or template-only narratives need to be
+  // explicitly opted into).
+  const [partialDialogOpen, setPartialDialogOpen] = useState(false);
+
   const textLayoutByTestId = useMemo(() => {
     const map = new Map<string, string>();
     if (!visit) return map;
@@ -287,6 +297,29 @@ const DiagnosticsResultEntry = () => {
           map.set(order.testId, layoutType);
         }
       }
+    });
+
+    return map;
+  }, [visit]);
+
+  // Map of testId → normalized narrativeTemplateHtml for narrative tests.
+  // Used to detect when a narrative test still has only the unedited template
+  // (so partial release pre-unchecks it instead of silently shipping the
+  // boilerplate as if it were the actual report).
+  const narrativeTemplateByTestId = useMemo(() => {
+    const map = new Map<string, string>();
+    if (!visit) return map;
+
+    visit.testOrders.forEach((order) => {
+      const layoutType = order.panel?.layoutType;
+      if (!isRichTextPanelLayout(layoutType)) return;
+      const tpl = normalizeNarrativeContent(order.panel?.narrativeTemplateHtml);
+      if (!hasMeaningfulRichText(tpl)) return;
+      const targets =
+        order.isPanel && order.childTests.length > 0
+          ? order.childTests.map((c) => c.id)
+          : [order.testId];
+      targets.forEach((id) => map.set(id, tpl));
     });
 
     return map;
@@ -955,7 +988,7 @@ const DiagnosticsResultEntry = () => {
     saveResults();
   };
 
-  const saveResults = async () => {
+  const saveResults = async (partialSelection?: string[]) => {
     setSaving(true);
     // Cancel any pending debounced auto-save so we don't fire two POSTs back-to-back.
     if (autoSaveTimerRef.current) {
@@ -971,6 +1004,14 @@ const DiagnosticsResultEntry = () => {
 
       const hasAnyExternalUpload = Object.values(uploadsByOrder).some((arr) => arr && arr.length > 0);
       const result = await persistDraft();
+      // Carry the per-test selection (if any) forward to the preview page so
+      // the eventual /release-partial call only ships the chosen test orders.
+      // When omitted the preview falls back to "release everything in draft",
+      // matching the historical behavior.
+      const navState =
+        partialSelection && partialSelection.length > 0
+          ? { state: { partialSelection } as { partialSelection: string[] } }
+          : undefined;
 
       if (result === 'empty') {
         // Pure external-upload visits won't have any value rows — that's fine,
@@ -980,7 +1021,7 @@ const DiagnosticsResultEntry = () => {
           return;
         }
         toast.success('Uploads saved');
-        navigate(`/diagnostics/preview/${visitId}`);
+        navigate(`/diagnostics/preview/${visitId}`, navState);
         return;
       }
 
@@ -989,7 +1030,7 @@ const DiagnosticsResultEntry = () => {
         setLastSavedAt(Date.now());
         setAutoSaveStatus('saved');
         toast.success('Results saved as draft');
-        navigate(`/diagnostics/preview/${visitId}`);
+        navigate(`/diagnostics/preview/${visitId}`, navState);
         return;
       }
 
@@ -1472,6 +1513,77 @@ const DiagnosticsResultEntry = () => {
   });
   const hasMissingExternalUploads = externalUploadOrdersMissingFiles.length > 0;
 
+  // Per-test-order status used to drive the partial-release selector.
+  //   'complete'      — order has real content (numeric value, edited narrative, or upload)
+  //   'template-only' — order is a narrative whose only content is the unedited template
+  //   'empty'         — order has no content yet
+  type TestOrderStatus = 'complete' | 'template-only' | 'empty';
+  const computeOrderStatus = (order: TestOrder): TestOrderStatus => {
+    if (order.workflowMode === 'EXTERNAL_UPLOAD') {
+      const uploads = uploadsByOrder[order.id];
+      return uploads && uploads.length > 0 ? 'complete' : 'empty';
+    }
+
+    const ids: string[] =
+      order.isPanel && order.childTests && order.childTests.length > 0
+        ? order.childTests.map((c) => c.id)
+        : [order.testId];
+
+    let sawContent = false;
+    let allTemplateOnly = true;
+    let anyNarrative = false;
+
+    for (const id of ids) {
+      const layout = textLayoutByTestId.get(id);
+      const value = results[id];
+      const filled = hasResultValue(value, layout);
+      if (!filled) {
+        // Empty narrative slot in a multi-test panel still contributes — the
+        // panel is incomplete, but for the purpose of "did anything actually
+        // get filled in" it doesn't help. Treat the whole order as template-
+        // only/empty unless another sub-test has real content.
+        continue;
+      }
+
+      sawContent = true;
+
+      if (isRichTextPanelLayout(layout)) {
+        anyNarrative = true;
+        const template = narrativeTemplateByTestId.get(id);
+        const normalizedValue = normalizeRichTextForStorage(value);
+        if (!template || normalizedValue !== template) {
+          allTemplateOnly = false;
+        }
+      } else {
+        // Non-narrative test with content is unambiguously complete.
+        allTemplateOnly = false;
+      }
+    }
+
+    if (!sawContent) return 'empty';
+    if (anyNarrative && allTemplateOnly) return 'template-only';
+    return 'complete';
+  };
+
+  const orderStatuses = new Map<string, TestOrderStatus>(
+    testOrders.map((o) => [o.id, computeOrderStatus(o)] as const),
+  );
+  // Visit is "fully done" when every reportable order is `complete` — no
+  // template-only narratives, no empty slots, no missing external uploads.
+  const fullyDone =
+    !hasMissingExternalUploads &&
+    testOrders.length > 0 &&
+    testOrders.every((o) => orderStatuses.get(o.id) === 'complete');
+  // Orders that could appear in a partial release. Empty orders are excluded
+  // entirely (nothing to ship). Template-only narratives are eligible but
+  // pre-unchecked.
+  const partialEligibleOrderIds = testOrders
+    .filter((o) => orderStatuses.get(o.id) !== 'empty')
+    .map((o) => o.id);
+  const defaultPartialSelectionIds = testOrders
+    .filter((o) => orderStatuses.get(o.id) === 'complete')
+    .map((o) => o.id);
+
   // True if any test in this visit uses the WYSIWYG framed narrative editor.
   // Used to decide whether to show the sticky shared rich-text toolbar at the
   // top of the page.
@@ -1929,22 +2041,38 @@ const DiagnosticsResultEntry = () => {
               </p>
             )}
             {(() => {
-              // The button used to be "Save Draft & Preview Report". Auto-save
-              // now handles the persistence side; the click is purely a
-              // navigation to preview. The label flips to signal whether the
-              // tech is about to release a partial vs complete report.
-              const allTests = getAllTestsForValidation();
-              // External-upload-only visits have no manual tests; completeness is
-              // purely about whether the required PDFs are attached.
-              const allTestsHaveValues =
-                allTests.length === 0 ||
-                allTests.every((t) =>
-                  hasResultValue(results[t.testId], textLayoutByTestId.get(t.testId)),
-                );
-              const isReportComplete = !hasMissingExternalUploads && allTestsHaveValues;
-              const buttonLabel = isReportComplete
+              // Button label flips between full-finalize and partial-release.
+              // `fullyDone` (computed above) only returns true when every order
+              // is genuinely complete — template-only narratives count as
+              // incomplete here so the staff sees the "partial" path and gets
+              // the selector dialog.
+              const buttonLabel = fullyDone
                 ? 'Review & Finalize'
                 : 'Continue with Partial Report';
+
+              const handleClick = () => {
+                if (fullyDone || partialEligibleOrderIds.length <= 1) {
+                  // Nothing to choose between — save & navigate. If exactly one
+                  // order is eligible, pre-select it so the backend ships only
+                  // that one (avoids accidentally including a template-only
+                  // narrative that happens to also be eligible).
+                  const single =
+                    !fullyDone && partialEligibleOrderIds.length === 1
+                      ? partialEligibleOrderIds
+                      : undefined;
+                  // Reuse the existing extreme-value validation flow so we
+                  // don't bypass the warning dialog for fully-done visits.
+                  if (fullyDone) {
+                    handleSaveDraft();
+                    return;
+                  }
+                  // For the single-order partial path, validate then save with selection.
+                  void saveResults(single);
+                  return;
+                }
+                // Multiple orders eligible — open the selector dialog.
+                setPartialDialogOpen(true);
+              };
 
               return (
                 <>
@@ -1952,7 +2080,7 @@ const DiagnosticsResultEntry = () => {
                   <Button
                     className="w-full mt-2"
                     size="lg"
-                    onClick={handleSaveDraft}
+                    onClick={handleClick}
                     disabled={saving || !hasReportableInputs || hasMissingExternalUploads}
                   >
                     {saving ? (
@@ -1968,6 +2096,76 @@ const DiagnosticsResultEntry = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Partial-release selector — opens when staff hits "Continue with
+          Partial Report" and there's a real choice to make. Smart-defaulted
+          so most clicks are pass-through; the explicit step prevents shipping
+          template-only narratives that look "ready" by row presence alone. */}
+      <PartialReleaseSelectorDialog
+        open={partialDialogOpen}
+        onOpenChange={setPartialDialogOpen}
+        groups={(() => {
+          const groupMap = new Map<string, PartialReleaseGroup>();
+          testOrders.forEach((order) => {
+            const status = orderStatuses.get(order.id);
+            if (status === 'empty') return;
+
+            const deptName = order.department?.name || 'Tests';
+            if (!groupMap.has(deptName)) {
+              groupMap.set(deptName, { departmentName: deptName, orders: [] });
+            }
+
+            // Build a status hint per order. The hint is the only place where
+            // staff sees *why* a test is/isn't pre-checked.
+            let hint: string | undefined;
+            let hintVariant: 'normal' | 'warning' | undefined;
+            let sublabel: string | undefined;
+
+            if (order.workflowMode === 'EXTERNAL_UPLOAD') {
+              const count = uploadsByOrder[order.id]?.length ?? 0;
+              hint = `${count} file${count === 1 ? '' : 's'} uploaded`;
+            } else if (status === 'template-only') {
+              hint = 'Template only — not edited yet';
+              hintVariant = 'warning';
+            } else {
+              // Summarise content for non-narrative tests so staff sees the
+              // actual value before deciding to release.
+              const ids =
+                order.isPanel && order.childTests && order.childTests.length > 0
+                  ? order.childTests.map((c) => c.id)
+                  : [order.testId];
+              const filledIds = ids.filter((id) =>
+                hasResultValue(results[id], textLayoutByTestId.get(id)),
+              );
+              if (
+                ids.length === 1 &&
+                !isRichTextPanelLayout(textLayoutByTestId.get(ids[0]))
+              ) {
+                const v = results[ids[0]];
+                if (v) sublabel = `value: ${v}`;
+              } else if (filledIds.length > 0) {
+                hint = `${filledIds.length} of ${ids.length} parameters entered`;
+              }
+            }
+
+            const label = order.panel?.displayName || order.panel?.name || order.testName;
+            groupMap.get(deptName)!.orders.push({
+              id: order.id,
+              label,
+              sublabel,
+              hint,
+              hintVariant,
+              defaultChecked: status === 'complete',
+            });
+          });
+          return Array.from(groupMap.values());
+        })()}
+        busy={saving}
+        onConfirm={(selectedOrderIds) => {
+          setPartialDialogOpen(false);
+          void saveResults(selectedOrderIds);
+        }}
+      />
 
       {/* Extreme Value Warning */}
       <AlertDialog open={showWarning} onOpenChange={setShowWarning}>
