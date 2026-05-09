@@ -3977,8 +3977,13 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
     }
 
     if (!explicitSelection && effectivePendingReportableCount === 0) {
-      // Explicit selection always means "I want a partial," even if every
-      // order is selected — the caller chose this path, respect it.
+      // Legacy callers (no explicit body) reaching this with nothing pending
+      // shouldn't be running partial — caller should use /finalize. Explicit-
+      // selection callers can have pending===0 legitimately when the user
+      // ticked everything in the dialog: the preview page then routes to
+      // /finalize (no body), so /release-partial bodies-with-everything
+      // shouldn't happen in normal flow. If they do, we still proceed —
+      // the worst case is a duplicate v2 DRAFT that staff can ignore.
       return res.status(400).json({
         error: "USE_FINALIZE_INSTEAD",
         message:
@@ -4056,9 +4061,16 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
       // the new DRAFT version.
     });
 
-    // Snapshot + access token (outside the transaction, same pattern as /finalize).
+    // Snapshot + access token (outside the transaction, same pattern as
+    // /finalize). When the staff explicitly excluded some orders via the
+    // partial-release dialog, scope the snapshot to the selection so external
+    // uploads tied to *unselected* orders (e.g. an MRI PDF the radiologist
+    // held back) don't get baked into the finalized merged PDF — those
+    // uploads stay on the test order and ship in a future version.
     try {
-      const snapshot = await createReportSnapshot(draftVersion.id);
+      const snapshot = await createReportSnapshot(draftVersion.id, {
+        selectedTestOrderIds: explicitSelection ?? null,
+      });
       await saveReportSnapshot(draftVersion.id, snapshot);
       accessToken = await createAccessToken(draftVersion.id);
     } catch (snapshotErr) {
