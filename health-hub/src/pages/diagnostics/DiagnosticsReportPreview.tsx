@@ -354,8 +354,15 @@ const DiagnosticsReportPreview = () => {
   );
   const canReleasePartial =
     pendingReportableCount > 0 && readyReportableCount > 0;
+  // External-upload-only visits have no reportable orders to "complete", but
+  // they're still finalizable — the uploaded PDF is the report. The entry page
+  // blocks save until uploads are attached, so by the time we reach the preview
+  // the upload is already there.
+  const isExternalUploadOnly =
+    totalReportableCount === 0 && Boolean(visit.hasExternalUploadOrders);
   const canFinalizeAll =
-    totalReportableCount > 0 && pendingReportableCount === 0;
+    (totalReportableCount > 0 && pendingReportableCount === 0) ||
+    isExternalUploadOnly;
   // Test orders already sent to the patient in a prior finalized version —
   // shown with a "Sent in v{N}" hint so staff understand edits only affect v{N+1}.
   const sentTestOrderVersions = new Map<string, number>();
