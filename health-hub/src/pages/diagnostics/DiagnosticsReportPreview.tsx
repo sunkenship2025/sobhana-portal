@@ -1,6 +1,6 @@
 import { Fragment, useState, useEffect, lazy, Suspense } from 'react';
 import { API_BASE } from '@/lib/api';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -179,6 +179,19 @@ function formatMoneyFromPaise(amountInPaise?: number | null): string {
 const DiagnosticsReportPreview = () => {
   const { visitId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Selection arriving from the entry page's partial-release dialog. When
+  // present, the preview and the eventual /release-partial call only ship
+  // these test orders; the rest stay in the next draft. Stored in state so
+  // it persists across re-renders even after react-router clears the
+  // navigation `state` reference.
+  const partialSelectionFromNav =
+    (location.state as { partialSelection?: string[] } | null)?.partialSelection;
+  const [partialSelection] = useState<string[] | null>(
+    partialSelectionFromNav && partialSelectionFromNav.length > 0
+      ? partialSelectionFromNav
+      : null,
+  );
   const { activeBranchId } = useBranchStore();
   const { token } = useAuthStore();
   
@@ -339,17 +352,24 @@ const DiagnosticsReportPreview = () => {
     totalReportableCount - readyReportableCount,
     0,
   );
-  const canReleasePartial =
-    pendingReportableCount > 0 && readyReportableCount > 0;
+  // When the user arrived here from the per-test selector with an explicit
+  // subset, this preview is unambiguously a partial release — even if every
+  // order in the visit happens to be "ready" by row count. Force the modal
+  // into the partial path so the right button and confirm copy appear.
+  const userPickedSubset = partialSelection !== null;
+  const canReleasePartial = userPickedSubset
+    ? true
+    : pendingReportableCount > 0 && readyReportableCount > 0;
   // External-upload-only visits have no reportable orders to "complete", but
   // they're still finalizable — the uploaded PDF is the report. The entry page
   // blocks save until uploads are attached, so by the time we reach the preview
   // the upload is already there.
   const isExternalUploadOnly =
     totalReportableCount === 0 && Boolean(visit.hasExternalUploadOrders);
-  const canFinalizeAll =
-    (totalReportableCount > 0 && pendingReportableCount === 0) ||
-    isExternalUploadOnly;
+  const canFinalizeAll = userPickedSubset
+    ? false
+    : (totalReportableCount > 0 && pendingReportableCount === 0) ||
+      isExternalUploadOnly;
   // Test orders already sent to the patient in a prior finalized version —
   // shown with a "Sent in v{N}" hint so staff understand edits only affect v{N+1}.
   const sentTestOrderVersions = new Map<string, number>();
@@ -433,6 +453,13 @@ const DiagnosticsReportPreview = () => {
             'X-Branch-Id': activeBranchId,
             'Content-Type': 'application/json',
           },
+          // When the user arrived here from the per-test selector dialog,
+          // the body restricts the release to those orders. Omitting the
+          // body falls back to the legacy "release all draft results"
+          // behavior, so direct nav / older clients still work.
+          body: partialSelection
+            ? JSON.stringify({ testOrderIds: partialSelection })
+            : undefined,
         },
       );
 
@@ -518,12 +545,21 @@ const DiagnosticsReportPreview = () => {
     try {
       // Default response is the merged PDF (rendered values + appended uploads),
       // so the preview matches byte-for-byte what the patient receives.
-      const response = await fetch(`${API_BASE}/visits/diagnostic/${visitId}/preview-report`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'X-Branch-Id': activeBranchId
-        }
-      });
+      // When the user arrived here from the partial-release selector, scope
+      // the preview to those test orders so the rendered PDF matches what
+      // will actually ship.
+      const previewQuery = partialSelection
+        ? `?testOrderIds=${partialSelection.join(',')}`
+        : '';
+      const response = await fetch(
+        `${API_BASE}/visits/diagnostic/${visitId}/preview-report${previewQuery}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'X-Branch-Id': activeBranchId,
+          },
+        },
+      );
 
       if (response.ok) {
         const blob = await response.blob();

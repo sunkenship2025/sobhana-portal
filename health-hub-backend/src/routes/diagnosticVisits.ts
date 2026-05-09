@@ -3290,8 +3290,18 @@ router.get("/:id/preview-report", async (req: AuthRequest, res) => {
       });
     }
 
+    // Optional per-test scoping passed by the partial-release selector so the
+    // preview matches exactly what /release-partial will eventually ship.
+    // Accepted as either repeated query params or a comma-separated list.
+    const rawTestOrderIds = req.query.testOrderIds;
+    const selectedTestOrderIds: string[] | null = Array.isArray(rawTestOrderIds)
+      ? rawTestOrderIds.map(String)
+      : typeof rawTestOrderIds === "string" && rawTestOrderIds.length > 0
+        ? rawTestOrderIds.split(",").map((s) => s.trim()).filter(Boolean)
+        : null;
+
     // Build ephemeral snapshot from live data (no persistence)
-    const snapshot = await buildEphemeralSnapshot(id);
+    const snapshot = await buildEphemeralSnapshot(id, { selectedTestOrderIds });
     const baseUrl = `${req.protocol}://${req.get("host")}`;
 
     if (format === "html") {
@@ -3910,7 +3920,55 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
     const pendingReportableCount =
       reportableOrders.length - readyReportableCount;
 
-    if (readyReportableCount === 0) {
+    // Optional explicit selection from the entry-page partial-release dialog.
+    // When provided, only these test orders go into the released version; the
+    // rest stay in the next draft. Without it, behaviour is the legacy
+    // "release every test order that has a draft result" — kept for
+    // backwards compatibility with any caller that doesn't send the body.
+    const requestedOrderIds: unknown = (req.body as Record<string, unknown> | undefined)
+      ?.testOrderIds;
+    const explicitSelection: string[] | null =
+      Array.isArray(requestedOrderIds) &&
+      requestedOrderIds.every((x) => typeof x === "string")
+        ? (requestedOrderIds as string[])
+        : null;
+
+    if (explicitSelection) {
+      const validVisitOrderIds = new Set(visit.testOrders.map((o) => o.id));
+      const invalid = explicitSelection.filter((id) => !validVisitOrderIds.has(id));
+      if (invalid.length > 0) {
+        return res.status(400).json({
+          error: "INVALID_TEST_ORDERS",
+          message:
+            "One or more selected test orders do not belong to this visit.",
+          invalid,
+        });
+      }
+      if (explicitSelection.length === 0) {
+        return res.status(400).json({
+          error: "NO_RESULTS_TO_RELEASE",
+          message: "Select at least one test to release.",
+        });
+      }
+    }
+
+    // Effective set of order ids that will be shipped in the partial release.
+    const releaseOrderIds = new Set<string>(
+      explicitSelection ?? Array.from(draftResultOrderIds),
+    );
+
+    // The "ready/pending" gating below uses the *effective* selection so
+    // `release-partial` is a no-op when nothing would actually get released.
+    const effectiveReadyReportableCount = reportableOrders.filter((o) =>
+      releaseOrderIds.has(o.id) && draftResultOrderIds.has(o.id),
+    ).length;
+    const effectivePendingReportableCount =
+      reportableOrders.length - effectiveReadyReportableCount;
+
+    if (effectiveReadyReportableCount === 0 && !explicitSelection) {
+      // Legacy callers (no explicit selection) need at least one ready test;
+      // when explicit, external-upload-only releases are valid even with zero
+      // reportable rows.
       return res.status(400).json({
         error: "NO_RESULTS_TO_RELEASE",
         message:
@@ -3918,7 +3976,9 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
       });
     }
 
-    if (pendingReportableCount === 0) {
+    if (!explicitSelection && effectivePendingReportableCount === 0) {
+      // Explicit selection always means "I want a partial," even if every
+      // order is selected — the caller chose this path, respect it.
       return res.status(400).json({
         error: "USE_FINALIZE_INSTEAD",
         message:
@@ -3931,7 +3991,23 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
     const finalizedAt = new Date();
 
     await prisma.$transaction(async (tx) => {
-      // 1. Atomically finalize the current DRAFT (race-safe — same pattern as /finalize).
+      // 1. If a subset was requested, move the un-selected draft results out of
+      //    the current draft *before* finalizing it. They land in a temporary
+      //    holding area (the new DRAFT we create in step 3); the current
+      //    draft then contains only the selected rows and can be finalized.
+      const carryForwardData = draftVersion.testResults; // snapshot before mutation
+      if (explicitSelection) {
+        const idsToRemoveFromDraft = draftVersion.testResults
+          .filter((r) => !releaseOrderIds.has(r.testOrderId))
+          .map((r) => r.id);
+        if (idsToRemoveFromDraft.length > 0) {
+          await tx.testResult.deleteMany({
+            where: { id: { in: idsToRemoveFromDraft } },
+          });
+        }
+      }
+
+      // 2. Atomically finalize the current DRAFT (race-safe — same pattern as /finalize).
       const updated = await tx.reportVersion.updateMany({
         where: {
           id: draftVersion.id,
@@ -3947,7 +4023,7 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
         throw new Error("ALREADY_FINALIZED");
       }
 
-      // 2. Create the next DRAFT version for incoming results.
+      // 3. Create the next DRAFT version for incoming results.
       const nextVersion = await tx.reportVersion.create({
         data: {
           reportId: visit.report!.id,
@@ -3957,11 +4033,12 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
       });
       newDraftVersionId = nextVersion.id;
 
-      // 3. Carry forward existing test results so the next finalize() snapshot
-      //    is cumulative (final report contains tests from every batch).
-      if (draftVersion.testResults.length > 0) {
+      // 4. Carry forward ALL original draft results (selected + unselected) so
+      //    the next finalize() snapshot is cumulative AND the unselected
+      //    template-only narratives stay editable in the new draft.
+      if (carryForwardData.length > 0) {
         await tx.testResult.createMany({
-          data: draftVersion.testResults.map((r) => ({
+          data: carryForwardData.map((r) => ({
             testOrderId: r.testOrderId,
             testId: r.testId,
             reportVersionId: nextVersion.id,
@@ -4009,8 +4086,9 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
         nextDraftVersionId: newDraftVersionId,
         visitId: visit.id,
         finalizedAt: finalizedAt.toISOString(),
-        readyReportableCount,
-        pendingReportableCount,
+        readyReportableCount: effectiveReadyReportableCount,
+        pendingReportableCount: effectivePendingReportableCount,
+        explicitSelection: explicitSelection ?? null,
         reportAccessIssued: !!accessToken,
       },
       ipAddress: req.ip,
@@ -4033,8 +4111,8 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
       finalizedVersionId: draftVersion.id,
       finalizedVersionNum: draftVersion.versionNum,
       nextDraftVersionId: newDraftVersionId,
-      readyReportableCount,
-      pendingReportableCount,
+      readyReportableCount: effectiveReadyReportableCount,
+      pendingReportableCount: effectivePendingReportableCount,
       reportFinalizedAt: finalizedAt,
     });
   } catch (err: any) {
