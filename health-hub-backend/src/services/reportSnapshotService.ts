@@ -192,6 +192,31 @@ type LatestDefinitionFormula = {
   criticalMax?: number | null;
 };
 
+/**
+ * Derive a generic "Consultant <X>" designation from a department name when no
+ * SigningRule is configured for that department. Heuristic only:
+ *   - "-OLOGY"  → "-ologist"  (RADIOLOGY → Radiologist, PATHOLOGY → Pathologist)
+ *   - "-ISTRY"  → "-ist"       (BIOCHEMISTRY → Biochemist, DENTISTRY → Dentist)
+ *   - otherwise → "Consultant <Title-cased name>"
+ */
+function deriveConsultantTitle(departmentName: string): string {
+  const lower = departmentName.toLowerCase().trim();
+  if (!lower) return 'Consultant';
+
+  if (lower.endsWith('ology')) {
+    const stem = lower.slice(0, -5);
+    return `Consultant ${stem.charAt(0).toUpperCase()}${stem.slice(1)}ologist`;
+  }
+
+  if (lower.endsWith('istry')) {
+    const stem = lower.slice(0, -3);
+    return `Consultant ${stem.charAt(0).toUpperCase()}${stem.slice(1)}ist`;
+  }
+
+  const titled = lower.replace(/\b\w/g, (c) => c.toUpperCase());
+  return `Consultant ${titled}`;
+}
+
 async function getLiveSignatureSnapshotsForDepartments(departmentIds: string[]): Promise<SignatureSnapshot[]> {
   const uniqueDepartmentIds = [...new Set(departmentIds.filter(Boolean))];
   if (uniqueDepartmentIds.length === 0) {
@@ -248,50 +273,47 @@ async function getLiveSignatureSnapshotsForDepartments(departmentIds: string[]):
     ],
   });
 
-  if (signingRules.length > 0) {
-    return signingRules.map(mapRuleToSnapshot);
+  const ruleSignatures = signingRules.map(mapRuleToSnapshot);
+  const matchedDepartmentIds = new Set(
+    ruleSignatures
+      .map((s) => s.departmentId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const unmatchedDepartmentIds = uniqueDepartmentIds.filter(
+    (id) => !matchedDepartmentIds.has(id),
+  );
+
+  if (unmatchedDepartmentIds.length === 0) {
+    return ruleSignatures;
   }
 
-  const fallbackRules = await prisma.signingRule.findMany({
-    where: {
-      isActive: true,
-      signingDoctor: {
-        isActive: true,
-      },
-    },
-    include: {
-      department: true,
-      signingDoctor: true,
-    },
-    orderBy: [
-      { department: { displayOrder: 'asc' } },
-      { displayOrder: 'asc' },
-    ],
+  // For every report-touching department that has no SigningRule, emit a
+  // department-scoped placeholder ("Consultant Radiologist", etc.) instead of
+  // borrowing a doctor from another department. doctorId is left empty so the
+  // renderer can short-circuit to a designation-only block.
+  const unmatchedDepartments = await prisma.department.findMany({
+    where: { id: { in: unmatchedDepartmentIds } },
+    select: { id: true, name: true, displayOrder: true },
+    orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
   });
 
-  if (fallbackRules.length > 0) {
-    return fallbackRules.map(mapRuleToSnapshot);
-  }
+  const placeholderSignatures: SignatureSnapshot[] = unmatchedDepartments.map(
+    (dept, index) => ({
+      departmentId: dept.id,
+      departmentName: dept.name,
+      doctorId: '',
+      doctorName: '',
+      degrees: '',
+      designation: deriveConsultantTitle(dept.name),
+      registrationNumber: null,
+      signatureImagePath: null,
+      signatureImageBase64: null,
+      showLabInchargeNote: false,
+      displayOrder: index,
+    }),
+  );
 
-  const fallbackDoctors = await prisma.signingDoctor.findMany({
-    where: { isActive: true },
-    orderBy: [
-      { createdAt: 'asc' },
-      { name: 'asc' },
-    ],
-  });
-
-  return fallbackDoctors.map((doctor, index) => ({
-    doctorId: doctor.id,
-    doctorName: doctor.name,
-    degrees: doctor.degrees,
-    designation: doctor.designation,
-    registrationNumber: doctor.registrationNumber,
-    signatureImagePath: doctor.signatureImagePath,
-    signatureImageBase64: doctor.signatureImageBase64 || null,
-    showLabInchargeNote: index === 0,
-    displayOrder: index,
-  }));
+  return [...ruleSignatures, ...placeholderSignatures];
 }
 
 async function backfillStoredSignatureAssets(signatures: SignatureSnapshot[]): Promise<SignatureSnapshot[]> {

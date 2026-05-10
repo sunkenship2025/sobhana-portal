@@ -178,7 +178,7 @@ In order:
 
 **Sibling tables for non-versioned config.** [`TestInputConfig`](../health-hub-backend/prisma/schema.prisma) lives in a separate table keyed by `rootDefinitionId`. Entry-time UI hints (presets, default values) don't belong in the versioned clinical contract — see [DECISIONS ADR-013](DECISIONS.md).
 
-**Immutable report snapshots.** `ReportVersion.panelsSnapshot` (and friends) capture full JSON at finalization. PDF rendering reads only from snapshots, never from live rows. Editing a patient's name later doesn't change historical reports — by design.
+**Immutable report snapshots.** `ReportVersion.panelsSnapshot` (and friends) capture full JSON at finalization. PDF rendering reads only from snapshots, never from live rows. Editing a patient's name later doesn't change historical reports — by design. Both `createReportSnapshot` and `buildEphemeralSnapshot` accept an optional `{ selectedTestOrderIds }` filter so partial-release flows can scope the snapshot to a chosen subset of test orders — both the results AND the external uploads tied to unselected orders are excluded from the resulting snapshot, so an MRI/X-ray PDF the radiologist held back stays attached to its order for a later version rather than getting baked into today's merged PDF.
 
 **Token-based public access.** `ReportAccessToken.token` is a SHA-256 hash of a 12-char base64url bearer token. The bearer is never stored — only the hash. Rotation: generate new token, soft-expire old.
 
@@ -224,7 +224,8 @@ health-hub/src/
 │   ├── ui/                  shadcn primitives — do not edit
 │   ├── layout/              AppLayout, Sidebar, ProtectedRoute
 │   ├── diagnostics/         Domain widgets — RichTextNarrativeEditor, TestValueCombobox,
-│   │                        TestInputConfigEditor, PdfPreview, ProductSelector, TestSelector
+│   │                        TestInputConfigEditor, PdfPreview, PartialReleaseSelectorDialog,
+│   │                        ProductSelector, TestSelector
 │   ├── print/               BillReceipt, ClinicPrescriptionPrint
 │   └── patient360/          Patient360-specific widgets
 ├── pages/                   One file per page — many >800 LOC (god files; see ADR-014)
@@ -234,7 +235,17 @@ health-hub/src/
 └── types/                   Single index.ts of shared interfaces
 ```
 
-### 4.4 Data fetching pattern (current)
+### 4.4 Result-entry auto-save
+
+[`DiagnosticsResultEntry`](../health-hub/src/pages/diagnostics/DiagnosticsResultEntry.tsx) persists draft results in the background so techs never have to think about saving:
+
+- A 1.5 s debounce timer fires after the last keystroke; an `onBlur` listener on the form container also fires immediately when the user tabs out of a field.
+- A single source of truth — `persistDraft()` — assembles the same payload the explicit-save button uses, so auto-save and click-save can never diverge.
+- `inFlightSaveRef` guards against concurrent POSTs; the explicit save will `await` an in-flight auto-save before issuing its own request.
+- An `autoSavePrimedRef` skips the very first results-changed render after `fetchVisit` populates state, so the initial load doesn't trigger a no-op POST.
+- An inline status indicator (`Saving…` / `Saved · just now` / `Unsaved changes` / `Save failed — will retry`) sits above the action button. The action button itself flips between **Review & Finalize** and **Continue with Partial Report** based on whether every reportable test has a value AND every required external upload is attached.
+
+### 4.5 Data fetching pattern (current)
 
 ```ts
 const headers = { Authorization: `Bearer ${token}`, 'X-Branch-Id': branchId };
@@ -347,6 +358,22 @@ POST /api/visits/diagnostic/:id/finalize
     → SHA-256 hashed bearer token written to ReportAccessToken
   notificationService.sendReportReady(visitId)   ← fire-and-forget
     → WhatsApp template message with link
+
+POST /api/visits/diagnostic/:id/release-partial
+  body { testOrderIds?: string[] }   ← optional explicit selection from PartialReleaseSelectorDialog
+  prisma.$transaction:
+    1. If explicit selection: deleteMany draft TestResult rows whose testOrderId is NOT selected
+       (their values still live in carryForwardData captured before mutation)
+    2. updateMany draftVersion → FINALIZED   ← race-safe atomic flip
+    3. create next ReportVersion (DRAFT, versionNum+1)
+    4. createMany TestResults on the new draft from carryForwardData
+       (every prior result, selected or not, so the next finalize() snapshot is cumulative
+        and unselected rows stay editable)
+  createReportSnapshot(finalizedVersion.id, { selectedTestOrderIds })
+    → snapshot scoped to selection — unselected results AND external uploads are excluded
+  reportAccessService.createToken(finalizedVersion.id)
+  → returns { finalizedVersionId, finalizedVersionNum, nextDraftVersionId,
+              readyReportableCount, pendingReportableCount }
 
 GET /reports/:token   ← public, no auth
   reportAccessService.validate(token)
