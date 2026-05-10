@@ -338,7 +338,7 @@ export interface TestResult {
 // ============================================
 export type VisitDomain = "DIAGNOSTICS" | "CLINIC";
 export type VisitType = "OP" | "IP"; // Only for CLINIC domain
-export type PaymentType = "CASH" | "ONLINE";
+export type PaymentType = "CASH" | "ONLINE" | "CHEQUE";
 
 export interface PaymentTransaction {
   id?: string;
@@ -615,6 +615,74 @@ export interface PayoutDetail extends PayoutSummary {
   notes: string | null;
   reviewedAt: string | null;
   lineItems: PayoutLineItem[];
+}
+
+// ============================================
+// PAYOUTS — list query / response shapes
+// ============================================
+
+export type PayoutSortField =
+  | "derivedAt"
+  | "doctorName"
+  | "amount"
+  | "periodStart"
+  | "paidAt";
+export type PayoutSortDir = "asc" | "desc";
+
+export interface PayoutListResponse {
+  data: PayoutSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totals?: {
+    pendingCount: number;
+    pendingAmountInPaise: number;
+    paidCount: number;
+    paidAmountInPaise: number;
+  };
+}
+
+// ============================================
+// PAYOUTS — by-doctor pivot
+// ============================================
+export interface DoctorPayoutRollup {
+  doctorId: string;
+  doctorType: PayoutDoctorType;
+  doctorName: string;
+  periodCount: number;
+  pendingTotalInPaise: number;
+  paidTotalInPaise: number;
+  lastPaidAt: string | null;
+}
+
+// ============================================
+// PAYOUTS — bulk derive preview + result
+// ============================================
+export interface PayoutDerivePreviewBucket {
+  doctorId: string;
+  doctorName: string;
+}
+
+export interface PayoutDerivePreviewResult {
+  willDerive: PayoutDerivePreviewBucket[];
+  alreadyDerived: (PayoutDerivePreviewBucket & { payoutId: string })[];
+  noEligibleVisits: PayoutDerivePreviewBucket[];
+}
+
+export interface PayoutBulkDeriveResult {
+  derived: PayoutSummary[];
+  alreadyExisted: PayoutSummary[];
+  skipped: { doctorId: string; doctorName: string; reason: string }[];
+}
+
+// ============================================
+// PAYOUTS — bulk mark-paid
+// ============================================
+export interface PayoutBulkMarkPaidResult {
+  paidIds: string[];
+  conflictIds: string[];
+  notFoundIds: string[];
+  totalPaidInPaise: number;
 }
 
 // ============================================

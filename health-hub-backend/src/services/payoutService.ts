@@ -613,6 +613,7 @@ async function findCoveringPaidPayout(
       doctorType,
       ...doctorIdWhereClause(doctorType, doctorId),
       branchId,
+      deletedAt: null,
       paidAt: { not: null },
       periodStartDate: { lte: periodStartDate },
       periodEndDate: { gte: periodEndDate },
@@ -807,12 +808,14 @@ export async function derivePayout(
   periodStartDate: Date,
   periodEndDate: Date
 ): Promise<{ payout: PayoutDetail; isNew: boolean }> {
-  // Check if payout already exists
+  // Check if payout already exists (only among non-deleted rows; a soft-deleted
+  // row for the same (doctor, period) is allowed to be re-derived).
   const existing = await prisma.doctorPayoutLedger.findFirst({
     where: {
       doctorType,
       ...doctorIdWhereClause(doctorType, doctorId),
       branchId,
+      deletedAt: null,
       periodStartDate,
       periodEndDate,
     },
@@ -954,18 +957,49 @@ export async function derivePayout(
 /**
  * Get all payouts for a branch with optional filters.
  */
+export type PayoutSortField = 'derivedAt' | 'doctorName' | 'amount' | 'periodStart' | 'paidAt';
+export type SortDir = 'asc' | 'desc';
+
+export interface ListPayoutsFilters {
+  doctorType?: PayoutDoctorType;
+  doctorId?: string;
+  isPaid?: boolean;
+  startDate?: Date;
+  endDate?: Date;
+  q?: string;                  // free-text search (doctor name, reference id)
+  page?: number;               // 1-based
+  pageSize?: number;           // default 50
+  sortBy?: PayoutSortField;    // default derivedAt
+  sortDir?: SortDir;           // default desc
+  // Sum-totals are computed across the FULL filtered set, not just the page,
+  // so the summary cards stay correct when paginated.
+  includeTotals?: boolean;
+}
+
+export interface ListPayoutsResult {
+  rows: PayoutSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totals?: {
+    pendingCount: number;
+    pendingAmountInPaise: number;
+    paidCount: number;
+    paidAmountInPaise: number;
+  };
+}
+
 export async function listPayouts(
   branchId: string,
-  filters?: {
-    doctorType?: PayoutDoctorType;
-    doctorId?: string;
-    isPaid?: boolean;
-    startDate?: Date;
-    endDate?: Date;
-  }
-): Promise<PayoutSummary[]> {
+  filters?: ListPayoutsFilters
+): Promise<ListPayoutsResult> {
   await syncReferralPayoutsForBranch(branchId, filters);
   await syncDiagnosticCenterPayoutsForBranch(branchId, filters);
+
+  const page = Math.max(1, filters?.page ?? 1);
+  const pageSize = Math.min(500, Math.max(1, filters?.pageSize ?? 50));
+  const sortBy: PayoutSortField = filters?.sortBy ?? 'derivedAt';
+  const sortDir: SortDir = filters?.sortDir ?? 'desc';
 
   const doctorIdFilter = filters?.doctorId
     ? filters.doctorType
@@ -979,25 +1013,81 @@ export async function listPayouts(
         }
     : {};
 
-  const payouts = await prisma.doctorPayoutLedger.findMany({
-    where: {
-      branchId,
-      ...(filters?.doctorType && { doctorType: filters.doctorType }),
-      ...doctorIdFilter,
-      ...(filters?.isPaid !== undefined && {
-        paidAt: filters.isPaid ? { not: null } : null,
-      }),
-      ...(filters?.startDate && { periodStartDate: { gte: filters.startDate } }),
-      ...(filters?.endDate && { periodEndDate: { lte: filters.endDate } }),
-    },
-    include: {
-      referralDoctor: { select: { name: true } },
-      clinicDoctor: { select: { name: true } },
-      diagnosticCenter: { select: { name: true } },
-      branch: { select: { name: true } },
-    },
-    orderBy: { derivedAt: 'desc' },
-  });
+  // Free-text search: matches doctor name across all three doctor tables OR
+  // payment reference id. Case-insensitive substring match.
+  const q = filters?.q?.trim();
+  const searchFilter = q
+    ? {
+        OR: [
+          { referralDoctor: { name: { contains: q, mode: 'insensitive' as const } } },
+          { clinicDoctor: { name: { contains: q, mode: 'insensitive' as const } } },
+          { diagnosticCenter: { name: { contains: q, mode: 'insensitive' as const } } },
+          { paymentReferenceId: { contains: q, mode: 'insensitive' as const } },
+        ],
+      }
+    : {};
+
+  const where: Prisma.DoctorPayoutLedgerWhereInput = {
+    branchId,
+    deletedAt: null,
+    ...(filters?.doctorType && { doctorType: filters.doctorType }),
+    ...doctorIdFilter,
+    ...(filters?.isPaid !== undefined && {
+      paidAt: filters.isPaid ? { not: null } : null,
+    }),
+    ...(filters?.startDate && { periodStartDate: { gte: filters.startDate } }),
+    ...(filters?.endDate && { periodEndDate: { lte: filters.endDate } }),
+    ...searchFilter,
+  };
+
+  // Map sort field to Prisma orderBy.
+  // Doctor-name sort: ordering by a relation field requires multiple orderBys
+  // because a row only has ONE of three doctor relations populated. Using
+  // [referralDoctor, clinicDoctor, diagnosticCenter] in order makes Prisma sort
+  // by whichever name is set per row (the others are null and sort to one end).
+  const orderBy: Prisma.DoctorPayoutLedgerOrderByWithRelationInput[] = (() => {
+    switch (sortBy) {
+      case 'amount':
+        return [{ derivedAmountInPaise: sortDir }];
+      case 'periodStart':
+        return [{ periodStartDate: sortDir }];
+      case 'paidAt':
+        return [{ paidAt: sortDir }];
+      case 'doctorName':
+        return [
+          { referralDoctor: { name: sortDir } },
+          { clinicDoctor: { name: sortDir } },
+          { diagnosticCenter: { name: sortDir } },
+        ];
+      case 'derivedAt':
+      default:
+        return [{ derivedAt: sortDir }];
+    }
+  })();
+
+  const [payouts, total, totalsAgg] = await Promise.all([
+    prisma.doctorPayoutLedger.findMany({
+      where,
+      include: {
+        referralDoctor: { select: { name: true } },
+        clinicDoctor: { select: { name: true } },
+        diagnosticCenter: { select: { name: true } },
+        branch: { select: { name: true } },
+      },
+      orderBy,
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.doctorPayoutLedger.count({ where }),
+    filters?.includeTotals
+      ? prisma.doctorPayoutLedger.groupBy({
+          by: ['paidAt'],
+          where,
+          _count: { _all: true },
+          _sum: { derivedAmountInPaise: true },
+        })
+      : Promise.resolve(null),
+  ]);
 
   const summaries = payouts.map((p) => ({
     id: p.id,
@@ -1014,7 +1104,33 @@ export async function listPayouts(
     paymentMethod: p.paymentMethod,
   }));
 
-  return summaries;
+  let totals: ListPayoutsResult['totals'] | undefined;
+  if (totalsAgg) {
+    let pendingCount = 0;
+    let pendingAmount = 0;
+    let paidCount = 0;
+    let paidAmount = 0;
+    // groupBy on a nullable column returns one bucket per distinct value,
+    // including a null bucket; collapse all non-null paidAt values into one.
+    for (const row of totalsAgg) {
+      const isPaid = row.paidAt !== null;
+      if (isPaid) {
+        paidCount += row._count._all;
+        paidAmount += row._sum.derivedAmountInPaise ?? 0;
+      } else {
+        pendingCount += row._count._all;
+        pendingAmount += row._sum.derivedAmountInPaise ?? 0;
+      }
+    }
+    totals = {
+      pendingCount,
+      pendingAmountInPaise: pendingAmount,
+      paidCount,
+      paidAmountInPaise: paidAmount,
+    };
+  }
+
+  return { rows: summaries, total, page, pageSize, totals };
 }
 
 /**
@@ -1031,7 +1147,8 @@ export async function getPayoutDetail(payoutId: string): Promise<PayoutDetail | 
     },
   });
 
-  if (!payout) return null;
+  // Soft-deleted rows are invisible: callers see this as "not found".
+  if (!payout || payout.deletedAt) return null;
 
   const doctorId = extractDoctorId(payout);
 
@@ -1087,7 +1204,7 @@ export async function markPayoutPaid(
     where: { id: payoutId },
   });
 
-  if (!existing) {
+  if (!existing || existing.deletedAt) {
     throw new Error('Payout not found');
   }
 
@@ -1102,7 +1219,7 @@ export async function markPayoutPaid(
     // Atomic conditional update — if another request raced us and already
     // flipped paidAt, our updateMany returns count=0 and we abort.
     const claim = await tx.doctorPayoutLedger.updateMany({
-      where: { id: payoutId, paidAt: null },
+      where: { id: payoutId, deletedAt: null, paidAt: null },
       data: { paidAt, paymentMethod, paymentReferenceId, notes },
     });
     if (claim.count === 0) {
@@ -1118,6 +1235,7 @@ export async function markPayoutPaid(
         doctorType: existing.doctorType,
         ...doctorIdWhereClause(existing.doctorType, doctorId),
         branchId: existing.branchId,
+        deletedAt: null,
         paidAt: null,
         periodStartDate: { gte: existing.periodStartDate },
         periodEndDate: { lte: existing.periodEndDate },
@@ -1205,4 +1323,389 @@ export async function getDiagnosticCenters(isActive?: boolean, branchId?: string
     },
     orderBy: { name: 'asc' },
   });
+}
+
+// ===========================================================================
+// SOFT DELETE
+// ===========================================================================
+
+/**
+ * Soft-delete a single payout. Hidden from every read (list, detail, summary,
+ * exports, doctor pivot). Re-deriving the same (doctor, period) afterwards is
+ * permitted because the partial unique index ignores deleted rows.
+ *
+ * Returns the updated row's id (or null if not found / already deleted).
+ */
+export async function softDeletePayout(
+  payoutId: string,
+  branchId: string
+): Promise<{ id: string } | null> {
+  const result = await prisma.doctorPayoutLedger.updateMany({
+    where: { id: payoutId, branchId, deletedAt: null },
+    data: { deletedAt: new Date() },
+  });
+  return result.count > 0 ? { id: payoutId } : null;
+}
+
+/**
+ * Bulk soft-delete. Returns the count actually flipped to deleted (rows that
+ * were already deleted or out of branch are silently ignored).
+ */
+export async function bulkSoftDeletePayouts(
+  payoutIds: string[],
+  branchId: string
+): Promise<{ deletedCount: number }> {
+  if (payoutIds.length === 0) return { deletedCount: 0 };
+  const result = await prisma.doctorPayoutLedger.updateMany({
+    where: { id: { in: payoutIds }, branchId, deletedAt: null },
+    data: { deletedAt: new Date() },
+  });
+  return { deletedCount: result.count };
+}
+
+// ===========================================================================
+// BULK MARK-PAID
+// ===========================================================================
+
+export interface BulkMarkPaidResult {
+  paidIds: string[];
+  conflictIds: string[]; // already paid
+  notFoundIds: string[]; // out-of-branch or deleted
+  totalPaidInPaise: number;
+}
+
+/**
+ * Apply ONE payment record (method + reference + notes) to N selected payouts
+ * in a single transaction. Rows already marked paid are reported as conflicts.
+ * Each row gets its own paidAt (within ms of each other).
+ */
+export async function markPayoutsPaidBulk(
+  payoutIds: string[],
+  branchId: string,
+  payment: { paymentMethod: PaymentType; paymentReferenceId?: string; notes?: string }
+): Promise<BulkMarkPaidResult> {
+  if (payoutIds.length === 0) {
+    return { paidIds: [], conflictIds: [], notFoundIds: [], totalPaidInPaise: 0 };
+  }
+
+  const paidAt = new Date();
+
+  return prisma.$transaction(async (tx) => {
+    // Fetch the candidates first so we can categorize the response.
+    const candidates = await tx.doctorPayoutLedger.findMany({
+      where: { id: { in: payoutIds }, branchId, deletedAt: null },
+      select: { id: true, paidAt: true, derivedAmountInPaise: true },
+    });
+
+    const candidateIds = new Set(candidates.map(c => c.id));
+    const notFoundIds = payoutIds.filter(id => !candidateIds.has(id));
+
+    const eligibleIds: string[] = [];
+    const conflictIds: string[] = [];
+    let totalPaid = 0;
+    for (const c of candidates) {
+      if (c.paidAt) {
+        conflictIds.push(c.id);
+      } else {
+        eligibleIds.push(c.id);
+        totalPaid += c.derivedAmountInPaise;
+      }
+    }
+
+    if (eligibleIds.length > 0) {
+      await tx.doctorPayoutLedger.updateMany({
+        where: { id: { in: eligibleIds }, paidAt: null, deletedAt: null },
+        data: {
+          paidAt,
+          paymentMethod: payment.paymentMethod,
+          paymentReferenceId: payment.paymentReferenceId ?? null,
+          notes: payment.notes ?? null,
+        },
+      });
+    }
+
+    return {
+      paidIds: eligibleIds,
+      conflictIds,
+      notFoundIds,
+      totalPaidInPaise: totalPaid,
+    };
+  });
+}
+
+// ===========================================================================
+// BULK DERIVE + PREVIEW
+// ===========================================================================
+
+export interface DerivePreviewBucket {
+  doctorId: string;
+  doctorName: string;
+}
+
+export interface DerivePreviewResult {
+  willDerive: DerivePreviewBucket[];
+  alreadyDerived: (DerivePreviewBucket & { payoutId: string })[];
+  noEligibleVisits: DerivePreviewBucket[];
+}
+
+/**
+ * Resolve which doctor IDs to include for bulk derive. `'all'` expands to
+ * every active doctor of the given type that has activity in the branch.
+ */
+async function resolveDoctorIds(
+  doctorType: PayoutDoctorType,
+  doctorIds: string[] | 'all',
+  branchId: string
+): Promise<{ id: string; name: string }[]> {
+  if (doctorIds !== 'all' && doctorIds.length > 0) {
+    const list = await getDoctorsByIds(doctorType, doctorIds);
+    return list;
+  }
+  // 'all' or empty: get every active doctor with branch activity
+  if (doctorType === 'REFERRAL') {
+    const docs = await getReferralDoctors(true, branchId);
+    return docs.map(d => ({ id: d.id, name: d.name }));
+  }
+  if (doctorType === 'CLINIC') {
+    const docs = await getClinicDoctors(true, branchId);
+    return docs.map(d => ({ id: d.id, name: d.name }));
+  }
+  const docs = await getDiagnosticCenters(true, branchId);
+  return docs.map(d => ({ id: d.id, name: d.name }));
+}
+
+async function getDoctorsByIds(
+  doctorType: PayoutDoctorType,
+  ids: string[]
+): Promise<{ id: string; name: string }[]> {
+  if (doctorType === 'REFERRAL') {
+    return prisma.referralDoctor.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true },
+    });
+  }
+  if (doctorType === 'CLINIC') {
+    return prisma.clinicDoctor.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true },
+    });
+  }
+  return prisma.diagnosticReferralCenter.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, name: true },
+  });
+}
+
+/**
+ * Preview a bulk derive: bucketize each doctor into willDerive / alreadyDerived
+ * / noEligibleVisits. No writes. Drives the Run Cycle sheet's preview panel.
+ */
+export async function previewDerivePayouts(args: {
+  doctorType: PayoutDoctorType;
+  doctorIds: string[] | 'all';
+  branchId: string;
+  periodStartDate: Date;
+  periodEndDate: Date;
+}): Promise<DerivePreviewResult> {
+  const doctors = await resolveDoctorIds(args.doctorType, args.doctorIds, args.branchId);
+
+  const willDerive: DerivePreviewBucket[] = [];
+  const alreadyDerived: (DerivePreviewBucket & { payoutId: string })[] = [];
+  const noEligibleVisits: DerivePreviewBucket[] = [];
+
+  for (const d of doctors) {
+    const existing = await prisma.doctorPayoutLedger.findFirst({
+      where: {
+        doctorType: args.doctorType,
+        ...doctorIdWhereClause(args.doctorType, d.id),
+        branchId: args.branchId,
+        periodStartDate: args.periodStartDate,
+        periodEndDate: args.periodEndDate,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      alreadyDerived.push({ doctorId: d.id, doctorName: d.name, payoutId: existing.id });
+      continue;
+    }
+
+    // Quick eligibility probe — derive yields a non-zero amount if there's any
+    // eligible visit in the period. We check by computing the line items
+    // (cheap-ish: a few SQL queries per doctor). For 50 doctors this runs in
+    // well under a second.
+    const probe = await deriveByType(
+      args.doctorType,
+      d.id,
+      args.branchId,
+      args.periodStartDate,
+      args.periodEndDate
+    );
+    if (probe.lineItems.length === 0 && probe.derivedAmountInPaise === 0) {
+      noEligibleVisits.push({ doctorId: d.id, doctorName: d.name });
+    } else {
+      willDerive.push({ doctorId: d.id, doctorName: d.name });
+    }
+  }
+
+  return { willDerive, alreadyDerived, noEligibleVisits };
+}
+
+export interface BulkDeriveResult {
+  derived: PayoutSummary[];      // newly created
+  alreadyExisted: PayoutSummary[]; // already had a payout (returned, not re-derived)
+  skipped: { doctorId: string; doctorName: string; reason: string }[];
+}
+
+/**
+ * Bulk derive — runs derivePayout per doctor, swallowing per-doctor failures
+ * into the `skipped` bucket so one bad doctor doesn't sink the whole cycle.
+ * Idempotent: re-running classifies pre-existing rows into `alreadyExisted`.
+ */
+export async function derivePayoutsBulk(args: {
+  doctorType: PayoutDoctorType;
+  doctorIds: string[] | 'all';
+  branchId: string;
+  periodStartDate: Date;
+  periodEndDate: Date;
+}): Promise<BulkDeriveResult> {
+  const doctors = await resolveDoctorIds(args.doctorType, args.doctorIds, args.branchId);
+
+  const derived: PayoutSummary[] = [];
+  const alreadyExisted: PayoutSummary[] = [];
+  const skipped: { doctorId: string; doctorName: string; reason: string }[] = [];
+
+  for (const d of doctors) {
+    try {
+      const result = await derivePayout(
+        args.doctorType,
+        d.id,
+        args.branchId,
+        args.periodStartDate,
+        args.periodEndDate
+      );
+      const summary: PayoutSummary = {
+        id: result.payout.id,
+        doctorType: result.payout.doctorType,
+        doctorId: result.payout.doctorId,
+        doctorName: result.payout.doctorName,
+        branchId: result.payout.branchId,
+        branchName: result.payout.branchName,
+        periodStartDate: result.payout.periodStartDate,
+        periodEndDate: result.payout.periodEndDate,
+        derivedAmountInPaise: result.payout.derivedAmountInPaise,
+        derivedAt: result.payout.derivedAt,
+        paidAt: result.payout.paidAt,
+        paymentMethod: result.payout.paymentMethod,
+      };
+      if (result.isNew) {
+        derived.push(summary);
+      } else {
+        alreadyExisted.push(summary);
+      }
+    } catch (err: any) {
+      skipped.push({
+        doctorId: d.id,
+        doctorName: d.name,
+        reason: err?.message ?? 'derivation failed',
+      });
+    }
+  }
+
+  return { derived, alreadyExisted, skipped };
+}
+
+// ===========================================================================
+// BY-DOCTOR AGGREGATION
+// ===========================================================================
+
+export interface DoctorPayoutRollup {
+  doctorId: string;
+  doctorType: PayoutDoctorType;
+  doctorName: string;
+  periodCount: number;
+  pendingTotalInPaise: number;
+  paidTotalInPaise: number;
+  lastPaidAt: Date | null;
+}
+
+/**
+ * One row per (doctor, doctorType) for the By Doctor tab. Uses raw findMany
+ * because Prisma's groupBy doesn't let us include relation fields needed for
+ * doctor names; we aggregate in memory after the fetch. For typical branches
+ * this stays under a few thousand rows so memory aggregation is fine.
+ */
+export async function groupPayoutsByDoctor(
+  branchId: string,
+  filters?: { doctorType?: PayoutDoctorType; startDate?: Date; endDate?: Date; q?: string }
+): Promise<DoctorPayoutRollup[]> {
+  const q = filters?.q?.trim();
+  const searchFilter = q
+    ? {
+        OR: [
+          { referralDoctor: { name: { contains: q, mode: 'insensitive' as const } } },
+          { clinicDoctor: { name: { contains: q, mode: 'insensitive' as const } } },
+          { diagnosticCenter: { name: { contains: q, mode: 'insensitive' as const } } },
+        ],
+      }
+    : {};
+
+  const rows = await prisma.doctorPayoutLedger.findMany({
+    where: {
+      branchId,
+      deletedAt: null,
+      ...(filters?.doctorType && { doctorType: filters.doctorType }),
+      ...(filters?.startDate && { periodStartDate: { gte: filters.startDate } }),
+      ...(filters?.endDate && { periodEndDate: { lte: filters.endDate } }),
+      ...searchFilter,
+    },
+    select: {
+      doctorType: true,
+      referralDoctorId: true,
+      clinicDoctorId: true,
+      diagnosticCenterId: true,
+      derivedAmountInPaise: true,
+      paidAt: true,
+      referralDoctor: { select: { name: true } },
+      clinicDoctor: { select: { name: true } },
+      diagnosticCenter: { select: { name: true } },
+    },
+  });
+
+  const map = new Map<string, DoctorPayoutRollup>();
+  for (const r of rows) {
+    const doctorId =
+      r.referralDoctorId ?? r.clinicDoctorId ?? r.diagnosticCenterId ?? '';
+    const doctorName =
+      r.referralDoctor?.name ?? r.clinicDoctor?.name ?? r.diagnosticCenter?.name ?? '';
+    const key = `${r.doctorType}:${doctorId}`;
+
+    let bucket = map.get(key);
+    if (!bucket) {
+      bucket = {
+        doctorId,
+        doctorType: r.doctorType,
+        doctorName,
+        periodCount: 0,
+        pendingTotalInPaise: 0,
+        paidTotalInPaise: 0,
+        lastPaidAt: null,
+      };
+      map.set(key, bucket);
+    }
+
+    bucket.periodCount += 1;
+    if (r.paidAt) {
+      bucket.paidTotalInPaise += r.derivedAmountInPaise;
+      if (!bucket.lastPaidAt || r.paidAt > bucket.lastPaidAt) {
+        bucket.lastPaidAt = r.paidAt;
+      }
+    } else {
+      bucket.pendingTotalInPaise += r.derivedAmountInPaise;
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) =>
+    a.doctorName.localeCompare(b.doctorName)
+  );
 }
