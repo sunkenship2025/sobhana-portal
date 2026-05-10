@@ -141,8 +141,8 @@ In order:
 1. Switch active branch (top-left dropdown)
 2. **Patients** → search by phone → register a new one
 3. **Diagnostics → New Visit** → select a product → save
-4. **Diagnostics → Pending Results** → enter values for the test you ordered
-5. Save → finalize → preview the PDF
+4. **Diagnostics → Pending Results** → enter values for the test you ordered (auto-save runs ~1.5 s after each keystroke; watch the inline status text)
+5. Click **Review & Finalize** (or **Continue with Partial Report** if some tests are still empty) → preview modal opens → finalize / release inside the modal
 6. Open the staff finalized-report URL — confirm the PDF renders
 
 If any step blows up: check the browser console + the backend's Pino log. The `X-Request-Id` in the response headers connects them.
