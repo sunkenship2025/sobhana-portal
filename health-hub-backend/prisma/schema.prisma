@@ -56,6 +56,7 @@ enum PaymentStatus {
 enum PaymentType {
   CASH
   ONLINE
+  CHEQUE
 }
 
 enum BillDiscountType {
@@ -109,6 +110,7 @@ enum AuditActionType {
   FINALIZE
   PAYOUT_DERIVE
   PAYOUT_PAID
+  PAYOUT_DELETE
   REPORT_ACCESS
 }
 
@@ -767,19 +769,25 @@ model DoctorPayoutLedger {
   paymentReferenceId   String? // Cheque #, transaction ID, etc.
   notes                String?
   createdAt            DateTime         @default(now())
+  deletedAt            DateTime? // Soft delete: hidden from all views; partial unique index allows re-derive after delete
 
   referralDoctor   ReferralDoctor?           @relation(fields: [referralDoctorId], references: [id], onDelete: Restrict)
   clinicDoctor     ClinicDoctor?             @relation(fields: [clinicDoctorId], references: [id], onDelete: Restrict)
   diagnosticCenter DiagnosticReferralCenter? @relation(fields: [diagnosticCenterId], references: [id], onDelete: Restrict)
   branch           Branch                    @relation(fields: [branchId], references: [id], onDelete: Restrict)
 
-  @@unique([doctorType, referralDoctorId, clinicDoctorId, diagnosticCenterId, branchId, periodStartDate, periodEndDate])
+  // Uniqueness on (doctor, period, branch) is enforced by a partial unique index
+  // (WHERE deletedAt IS NULL) created in migration 20260511000000_add_payout_soft_delete.
+  // Prisma cannot express partial uniques, so we declare a regular index here for
+  // query performance only; the partial unique constraint lives in raw SQL.
+  @@index([doctorType, referralDoctorId, clinicDoctorId, diagnosticCenterId, branchId, periodStartDate, periodEndDate], name: "DoctorPayoutLedger_lookup_idx")
   @@index([doctorType])
   @@index([referralDoctorId])
   @@index([clinicDoctorId])
   @@index([diagnosticCenterId])
   @@index([branchId])
   @@index([paidAt])
+  @@index([deletedAt])
 }
 
 // ============================================================================
