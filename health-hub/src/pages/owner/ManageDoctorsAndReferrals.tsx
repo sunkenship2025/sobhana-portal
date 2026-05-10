@@ -20,8 +20,9 @@ import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import {
-  Plus, Pencil, Trash2, X, Check, AlertTriangle, Link as LinkIcon,
+  Plus, Pencil, Trash2, X, Check, AlertTriangle, Link as LinkIcon, IndianRupee,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -85,6 +86,10 @@ const EMPTY_REFERRAL_FORM = {
 
 export default function ManageDoctorsAndReferrals() {
   const { token } = useAuthStore();
+  const navigate = useNavigate();
+  const goToPayouts = (doctorId: string, doctorType: 'REFERRAL' | 'CLINIC' | 'DIAGNOSTIC_CENTER') => {
+    navigate(`/owner/payouts?doctorId=${doctorId}&doctorType=${doctorType}`);
+  };
 
   // ── Referral Doctors state ────────────────────────────────────────────────
   const [referralDoctors, setReferralDoctors] = useState<ReferralDoctor[]>([]);
@@ -938,6 +943,14 @@ export default function ManageDoctorsAndReferrals() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex gap-2 justify-end">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => goToPayouts(doc.id, 'REFERRAL')}
+                        title="View payouts"
+                      >
+                        <IndianRupee className="h-4 w-4" />
+                      </Button>
                       <Button variant="ghost" size="icon" onClick={() => handleRefEdit(doc)}><Pencil className="h-4 w-4" /></Button>
                       <Button variant="ghost" size="icon" onClick={() => setRefDeleteId(doc.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                     </div>
@@ -1116,6 +1129,14 @@ export default function ManageDoctorsAndReferrals() {
                   <TableCell>{doc.phone || '—'}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex gap-2 justify-end">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => goToPayouts(doc.id, 'CLINIC')}
+                        title="View payouts"
+                      >
+                        <IndianRupee className="h-4 w-4" />
+                      </Button>
                       <Button variant="ghost" size="icon" onClick={() => handleClinicEdit(doc)}><Pencil className="h-4 w-4" /></Button>
                       <Button variant="ghost" size="icon" onClick={() => setClinicDeleteId(doc.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                     </div>
@@ -1428,6 +1449,14 @@ export default function ManageDoctorsAndReferrals() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex gap-2 justify-end">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => goToPayouts(center.id, 'DIAGNOSTIC_CENTER')}
+                        title="View payouts"
+                      >
+                        <IndianRupee className="h-4 w-4" />
+                      </Button>
                       <Button variant="ghost" size="icon" onClick={() => handleCenterEdit(center)}><Pencil className="h-4 w-4" /></Button>
                       <Button variant="ghost" size="icon" onClick={() => setCenterDeleteId(center.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                     </div>

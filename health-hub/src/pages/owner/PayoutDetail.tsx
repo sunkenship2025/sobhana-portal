@@ -1,24 +1,25 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { API_BASE } from '@/lib/api';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
-import { 
-  ArrowLeft, 
-  Calendar, 
-  Check, 
-  Clock, 
-  CreditCard, 
+import {
+  ArrowLeft,
+  Calendar,
+  Check,
+  Clock,
+  CreditCard,
+  Download,
   FileText,
   IndianRupee,
   Printer,
+  Search,
+  Trash2,
   User
 } from 'lucide-react';
 import {
@@ -29,25 +30,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { PayoutDetail as PayoutDetailType, PaymentType } from '@/types';
 import { formatReferralPayout } from '@/lib/referralPayouts';
+import { PayoutMarkPaidDialog } from '@/components/payouts/PayoutMarkPaidDialog';
+import { PayoutDeleteDialog } from '@/components/payouts/PayoutDeleteDialog';
 
 // Helper to format amount in Rupees
 const formatRupees = (paise: number): string => {
@@ -100,13 +88,9 @@ const PayoutDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [showPayDialog, setShowPayDialog] = useState(false);
   const [paying, setPaying] = useState(false);
-
-  // Mark paid form
-  const [payForm, setPayForm] = useState({
-    paymentMethod: 'CASH' as PaymentType,
-    paymentReferenceId: '',
-    notes: '',
-  });
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [lineItemSearch, setLineItemSearch] = useState('');
 
   // Fetch payout detail
   const fetchPayout = async () => {
@@ -144,8 +128,11 @@ const PayoutDetailPage = () => {
     fetchPayout();
   }, [token, id, activeBranchId]);
 
-  // Mark as paid
-  const handleMarkPaid = async () => {
+  const handleMarkPaid = async (payment: {
+    paymentMethod: PaymentType;
+    paymentReferenceId?: string;
+    notes?: string;
+  }) => {
     if (!id || !activeBranchId) return;
     setPaying(true);
     try {
@@ -156,17 +143,13 @@ const PayoutDetailPage = () => {
           Authorization: `Bearer ${token}`,
           'X-Branch-Id': activeBranchId,
         },
-        body: JSON.stringify({
-          paymentMethod: payForm.paymentMethod,
-          paymentReferenceId: payForm.paymentReferenceId || undefined,
-          notes: payForm.notes || undefined,
-        }),
+        body: JSON.stringify(payment),
       });
 
       const data = await res.json();
 
       if (res.ok) {
-        toast.success('Payout marked as paid successfully');
+        toast.success('Payout marked as paid');
         setShowPayDialog(false);
         setPayout(data.data);
       } else if (res.status === 409) {
@@ -183,7 +166,62 @@ const PayoutDetailPage = () => {
     }
   };
 
-  // Print functionality
+  const handleDelete = async () => {
+    if (!id || !activeBranchId) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`${API_BASE}/payouts/${id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'X-Branch-Id': activeBranchId,
+        },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast.success('Payout deleted');
+        navigate('/owner/payouts');
+      } else {
+        toast.error(data.message || 'Failed to delete payout');
+      }
+    } catch (err) {
+      console.error('Error deleting payout:', err);
+      toast.error('Error deleting payout');
+    } finally {
+      setDeleting(false);
+      setShowDeleteDialog(false);
+    }
+  };
+
+  const handleExport = async () => {
+    if (!id || !activeBranchId) return;
+    try {
+      const res = await fetch(`${API_BASE}/payouts/${id}/export`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'X-Branch-Id': activeBranchId,
+        },
+      });
+      if (!res.ok) {
+        toast.error('Failed to export');
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const safeName = (payout?.doctorName || 'payout').replace(/\s+/g, '_');
+      a.download = `payout-${safeName}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      toast.error('Error exporting payout');
+    }
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -209,7 +247,19 @@ const PayoutDetailPage = () => {
   }
 
   const canMarkPaid = !payout.paidAt && (user?.role === 'owner' || user?.role === 'staff');
+  const canDelete = user?.role === 'owner';
   const showsCommission = payout.doctorType !== 'CLINIC';
+
+  const filteredLineItems = useMemo(() => {
+    if (!lineItemSearch.trim()) return payout.lineItems;
+    const q = lineItemSearch.trim().toLowerCase();
+    return payout.lineItems.filter(
+      (li) =>
+        li.billNumber.toLowerCase().includes(q) ||
+        li.patientName.toLowerCase().includes(q) ||
+        li.testOrFee.toLowerCase().includes(q)
+    );
+  }, [payout.lineItems, lineItemSearch]);
 
   return (
     <AppLayout context="owner" subContext="payouts">
@@ -227,6 +277,10 @@ const PayoutDetailPage = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={handleExport}>
+              <Download className="h-4 w-4 mr-2" />
+              Export Excel
+            </Button>
             <Button variant="outline" onClick={handlePrint}>
               <Printer className="h-4 w-4 mr-2" />
               Print
@@ -235,6 +289,16 @@ const PayoutDetailPage = () => {
               <Button onClick={() => setShowPayDialog(true)}>
                 <CreditCard className="h-4 w-4 mr-2" />
                 Mark as Paid
+              </Button>
+            )}
+            {canDelete && (
+              <Button
+                variant="outline"
+                onClick={() => setShowDeleteDialog(true)}
+                className="border-destructive/50 text-destructive hover:bg-destructive hover:text-destructive-foreground"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
               </Button>
             )}
           </div>
@@ -373,9 +437,23 @@ const PayoutDetailPage = () => {
             </CardTitle>
           </CardHeader>
           <CardContent className="print:px-0 print:pb-0">
-            {payout.lineItems.length === 0 ? (
+            {/* Line-item search */}
+            {payout.lineItems.length > 0 && (
+              <div className="relative max-w-sm mb-4 print:hidden">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  className="pl-9"
+                  placeholder="Search bill #, patient, product…"
+                  value={lineItemSearch}
+                  onChange={(e) => setLineItemSearch(e.target.value)}
+                />
+              </div>
+            )}
+            {filteredLineItems.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
-                No line items found for this period.
+                {lineItemSearch
+                  ? 'No line items match your search.'
+                  : 'No line items found for this period.'}
               </div>
             ) : (
               <Table>
@@ -393,7 +471,7 @@ const PayoutDetailPage = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {payout.lineItems.map((item, idx) => (
+                  {filteredLineItems.map((item, idx) => (
                     <TableRow key={idx}>
                       <TableCell>{formatDate(item.date)}</TableCell>
                       <TableCell className="font-mono text-sm">{item.billNumber}</TableCell>
@@ -449,75 +527,23 @@ const PayoutDetailPage = () => {
         </Card>
       </div>
 
-      {/* Mark Paid Dialog */}
-      <Dialog open={showPayDialog} onOpenChange={setShowPayDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Mark Payout as Paid</DialogTitle>
-            <DialogDescription>
-              This action is <strong>permanent</strong>. Once marked as paid, this payout cannot be modified.
-            </DialogDescription>
-          </DialogHeader>
+      <PayoutMarkPaidDialog
+        open={showPayDialog}
+        onOpenChange={setShowPayDialog}
+        busy={paying}
+        payout={payout}
+        onConfirm={handleMarkPaid}
+      />
 
-          <div className="space-y-4">
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Doctor:</span>
-                <span className="font-medium">{payout.doctorName}</span>
-              </div>
-              <div className="flex justify-between mt-2">
-                <span className="text-gray-600">Amount:</span>
-                <span className="font-bold text-green-700">{formatRupees(payout.derivedAmountInPaise)}</span>
-              </div>
-            </div>
-
-            <div>
-              <Label>Payment Method *</Label>
-              <Select 
-                value={payForm.paymentMethod} 
-                onValueChange={(v) => setPayForm(prev => ({ ...prev, paymentMethod: v as PaymentType }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="CASH">Cash</SelectItem>
-                  <SelectItem value="ONLINE">Online Transfer</SelectItem>
-                  <SelectItem value="CHEQUE">Cheque</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label>Reference ID (Optional)</Label>
-              <Input
-                placeholder={payForm.paymentMethod === 'CHEQUE' ? 'Cheque number' : 'Transaction ID'}
-                value={payForm.paymentReferenceId}
-                onChange={(e) => setPayForm(prev => ({ ...prev, paymentReferenceId: e.target.value }))}
-              />
-            </div>
-
-            <div>
-              <Label>Notes (Optional)</Label>
-              <Textarea
-                placeholder="Any additional notes about this payment"
-                value={payForm.notes}
-                onChange={(e) => setPayForm(prev => ({ ...prev, notes: e.target.value }))}
-                rows={2}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPayDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleMarkPaid} disabled={paying}>
-              {paying ? 'Processing...' : 'Confirm Payment'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {canDelete && (
+        <PayoutDeleteDialog
+          open={showDeleteDialog}
+          onOpenChange={setShowDeleteDialog}
+          count={1}
+          busy={deleting}
+          onConfirm={handleDelete}
+        />
+      )}
     </AppLayout>
   );
 };
