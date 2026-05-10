@@ -5,103 +5,130 @@ import { branchContextMiddleware } from '../middleware/branch';
 import { PayoutDoctorType, PaymentType } from '@prisma/client';
 import * as payoutService from '../services/payoutService';
 import { logAction } from '../services/auditService';
+import {
+  buildPayoutListWorkbook,
+  buildSinglePayoutWorkbook,
+} from '../services/payoutExportService';
 
 const router = Router();
 
-// All routes require authentication and branch context
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
 
-// ===========================================================================
-// GET /api/payouts - List payouts for current branch
-// Query params: doctorType, doctorId, isPaid, startDate, endDate
-// Access: owner, staff
-// ===========================================================================
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
+
+const VALID_DOCTOR_TYPES: PayoutDoctorType[] = ['REFERRAL', 'CLINIC', 'DIAGNOSTIC_CENTER'];
+const VALID_PAYMENT_METHODS: PaymentType[] = ['CASH', 'ONLINE', 'CHEQUE'];
+
+function parseDate(value: unknown): Date | undefined {
+  if (typeof value !== 'string' || !value) return undefined;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+function parseDoctorType(value: unknown): PayoutDoctorType | undefined {
+  return typeof value === 'string' && VALID_DOCTOR_TYPES.includes(value as PayoutDoctorType)
+    ? (value as PayoutDoctorType)
+    : undefined;
+}
+
+// ============================================================================
+// GET /api/payouts — list (server-side: q, page, sort, totals)
+// Access: owner + staff
+// ============================================================================
 router.get('/', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
   try {
     const branchId = req.branchId!;
-    const { doctorType, doctorId, isPaid, startDate, endDate } = req.query;
+    const {
+      doctorType,
+      doctorId,
+      isPaid,
+      startDate,
+      endDate,
+      q,
+      page,
+      pageSize,
+      sortBy,
+      sortDir,
+      includeTotals,
+    } = req.query;
 
-    // Validate doctorType if provided
-    let validatedDoctorType: PayoutDoctorType | undefined;
-    if (doctorType) {
-      const validTypes = ['REFERRAL', 'CLINIC', 'DIAGNOSTIC_CENTER'];
-      if (!validTypes.includes(doctorType as string)) {
-        return res.status(400).json({
-          error: 'VALIDATION_ERROR',
-          message: 'doctorType must be REFERRAL, CLINIC, or DIAGNOSTIC_CENTER',
-        });
-      }
-      validatedDoctorType = doctorType as PayoutDoctorType;
-    }
-
-    if (doctorId && typeof doctorId !== 'string') {
+    const validatedDoctorType = doctorType ? parseDoctorType(doctorType) : undefined;
+    if (doctorType && !validatedDoctorType) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'doctorId must be a string',
+        message: 'doctorType must be REFERRAL, CLINIC, or DIAGNOSTIC_CENTER',
       });
     }
 
-    // Parse isPaid
-    let validatedIsPaid: boolean | undefined;
-    if (isPaid !== undefined) {
-      validatedIsPaid = isPaid === 'true';
-    }
-
-    // Parse dates
-    let validatedStartDate: Date | undefined;
-    let validatedEndDate: Date | undefined;
-    if (startDate) {
-      validatedStartDate = new Date(startDate as string);
-      if (isNaN(validatedStartDate.getTime())) {
-        return res.status(400).json({
-          error: 'VALIDATION_ERROR',
-          message: 'Invalid startDate format',
-        });
-      }
-    }
-    if (endDate) {
-      validatedEndDate = new Date(endDate as string);
-      if (isNaN(validatedEndDate.getTime())) {
-        return res.status(400).json({
-          error: 'VALIDATION_ERROR',
-          message: 'Invalid endDate format',
-        });
-      }
-    }
-
-    const payouts = await payoutService.listPayouts(branchId, {
+    const result = await payoutService.listPayouts(branchId, {
       doctorType: validatedDoctorType,
-      doctorId: doctorId as string | undefined,
-      isPaid: validatedIsPaid,
-      startDate: validatedStartDate,
-      endDate: validatedEndDate,
+      doctorId: typeof doctorId === 'string' ? doctorId : undefined,
+      isPaid: isPaid === 'true' ? true : isPaid === 'false' ? false : undefined,
+      startDate: parseDate(startDate),
+      endDate: parseDate(endDate),
+      q: typeof q === 'string' ? q : undefined,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+      sortBy: typeof sortBy === 'string' ? (sortBy as any) : undefined,
+      sortDir: sortDir === 'asc' || sortDir === 'desc' ? sortDir : undefined,
+      includeTotals: includeTotals === 'true',
     });
 
     return res.json({
-      data: payouts,
-      count: payouts.length,
+      data: result.rows,
+      total: result.total,
+      page: result.page,
+      pageSize: result.pageSize,
+      totals: result.totals,
     });
   } catch (err: any) {
     console.error('List payouts error:', err);
-    return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to list payouts',
-    });
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to list payouts' });
   }
 });
 
-// ===========================================================================
-// POST /api/payouts/derive - Derive a new payout
-// Body: { doctorType, doctorId, periodStartDate, periodEndDate }
-// Access: owner, staff
-// ===========================================================================
+// ============================================================================
+// GET /api/payouts/summary-by-doctor — pivot: one row per doctor
+// Access: owner + staff
+// ============================================================================
+router.get('/summary-by-doctor', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+  try {
+    const branchId = req.branchId!;
+    const { doctorType, startDate, endDate, q } = req.query;
+
+    const validatedDoctorType = doctorType ? parseDoctorType(doctorType) : undefined;
+    if (doctorType && !validatedDoctorType) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'doctorType must be REFERRAL, CLINIC, or DIAGNOSTIC_CENTER',
+      });
+    }
+
+    const rows = await payoutService.groupPayoutsByDoctor(branchId, {
+      doctorType: validatedDoctorType,
+      startDate: parseDate(startDate),
+      endDate: parseDate(endDate),
+      q: typeof q === 'string' ? q : undefined,
+    });
+
+    return res.json({ data: rows });
+  } catch (err: any) {
+    console.error('Group by doctor error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to group payouts' });
+  }
+});
+
+// ============================================================================
+// POST /api/payouts/derive — derive a single payout (owner + staff)
+// ============================================================================
 router.post('/derive', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
   try {
     const branchId = req.branchId!;
     const { doctorType, doctorId, periodStartDate, periodEndDate } = req.body;
 
-    // Validate required fields
     if (!doctorType || !doctorId || !periodStartDate || !periodEndDate) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
@@ -109,26 +136,19 @@ router.post('/derive', requireRole('owner', 'staff'), async (req: AuthRequest, r
       });
     }
 
-    // Validate doctorType
-    const validTypes = ['REFERRAL', 'CLINIC', 'DIAGNOSTIC_CENTER'];
-    if (!validTypes.includes(doctorType)) {
+    const validatedDoctorType = parseDoctorType(doctorType);
+    if (!validatedDoctorType) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
         message: 'doctorType must be REFERRAL, CLINIC, or DIAGNOSTIC_CENTER',
       });
     }
 
-    // Parse dates
-    const startDate = new Date(periodStartDate);
-    const endDate = new Date(periodEndDate);
-
-    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-      return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: 'Invalid date format',
-      });
+    const startDate = parseDate(periodStartDate);
+    const endDate = parseDate(periodEndDate);
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Invalid date format' });
     }
-
     if (startDate > endDate) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
@@ -137,17 +157,16 @@ router.post('/derive', requireRole('owner', 'staff'), async (req: AuthRequest, r
     }
 
     const result = await payoutService.derivePayout(
-      doctorType as PayoutDoctorType,
+      validatedDoctorType,
       doctorId,
       branchId,
       startDate,
       endDate
     );
 
-    // Audit log: Payout derivation
     if (result.isNew) {
       await logAction({
-        branchId: req.branchId!,
+        branchId,
         actionType: 'PAYOUT_DERIVE',
         entityType: 'Payout',
         entityId: result.payout.id,
@@ -169,51 +188,310 @@ router.post('/derive', requireRole('owner', 'staff'), async (req: AuthRequest, r
     return res.status(result.isNew ? 201 : 200).json({
       data: result.payout,
       isNew: result.isNew,
-      message: result.isNew
-        ? 'Payout derived successfully'
-        : 'Existing payout found for this period',
+      message: result.isNew ? 'Payout derived successfully' : 'Existing payout found',
     });
   } catch (err: any) {
     console.error('Derive payout error:', err);
     if (err.message?.includes('not found')) {
-      return res.status(404).json({
-        error: 'NOT_FOUND',
-        message: err.message,
-      });
+      return res.status(404).json({ error: 'NOT_FOUND', message: err.message });
     }
-    return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to derive payout',
-    });
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to derive payout' });
   }
 });
 
-// ===========================================================================
-// GET /api/payouts/doctors/referral - Get all referral doctors for dropdown
-// Access: owner, staff
-// NOTE: Must come BEFORE /:id route to avoid matching "doctors" as an id
-// ===========================================================================
+// ============================================================================
+// GET /api/payouts/derive/preview — preview bulk-derive buckets
+// Access: owner + staff
+// ============================================================================
+router.get('/derive/preview', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+  try {
+    const branchId = req.branchId!;
+    const { doctorType, doctorIds, periodStartDate, periodEndDate } = req.query;
+
+    const validatedDoctorType = parseDoctorType(doctorType);
+    if (!validatedDoctorType) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'doctorType must be REFERRAL, CLINIC, or DIAGNOSTIC_CENTER',
+      });
+    }
+
+    const startDate = parseDate(periodStartDate);
+    const endDate = parseDate(periodEndDate);
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Invalid date format' });
+    }
+
+    let resolvedDoctorIds: string[] | 'all';
+    if (doctorIds === 'all' || doctorIds === undefined) {
+      resolvedDoctorIds = 'all';
+    } else if (typeof doctorIds === 'string') {
+      resolvedDoctorIds = doctorIds.split(',').filter(Boolean);
+    } else {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'doctorIds invalid' });
+    }
+
+    const preview = await payoutService.previewDerivePayouts({
+      doctorType: validatedDoctorType,
+      doctorIds: resolvedDoctorIds,
+      branchId,
+      periodStartDate: startDate,
+      periodEndDate: endDate,
+    });
+
+    return res.json({ data: preview });
+  } catch (err: any) {
+    console.error('Preview derive error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to preview derive' });
+  }
+});
+
+// ============================================================================
+// POST /api/payouts/derive/bulk — derive for many doctors at once
+// Access: owner + staff
+// Body: { doctorType, doctorIds: string[] | 'all', periodStartDate, periodEndDate }
+// ============================================================================
+router.post('/derive/bulk', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+  try {
+    const branchId = req.branchId!;
+    const { doctorType, doctorIds, periodStartDate, periodEndDate } = req.body;
+
+    const validatedDoctorType = parseDoctorType(doctorType);
+    if (!validatedDoctorType) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'doctorType must be REFERRAL, CLINIC, or DIAGNOSTIC_CENTER',
+      });
+    }
+
+    const startDate = parseDate(periodStartDate);
+    const endDate = parseDate(periodEndDate);
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Invalid date format' });
+    }
+    if (startDate > endDate) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'periodStartDate must be before periodEndDate',
+      });
+    }
+
+    let resolvedDoctorIds: string[] | 'all';
+    if (doctorIds === 'all') {
+      resolvedDoctorIds = 'all';
+    } else if (Array.isArray(doctorIds)) {
+      resolvedDoctorIds = doctorIds.filter((x) => typeof x === 'string');
+      if (resolvedDoctorIds.length === 0) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: 'doctorIds must be a non-empty string array or "all"',
+        });
+      }
+    } else {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'doctorIds must be a string array or "all"',
+      });
+    }
+
+    const result = await payoutService.derivePayoutsBulk({
+      doctorType: validatedDoctorType,
+      doctorIds: resolvedDoctorIds,
+      branchId,
+      periodStartDate: startDate,
+      periodEndDate: endDate,
+    });
+
+    if (result.derived.length > 0) {
+      await logAction({
+        branchId,
+        actionType: 'PAYOUT_DERIVE',
+        entityType: 'Payout',
+        entityId: 'BULK',
+        userId: req.user?.id!,
+        newValues: {
+          mode: 'bulk',
+          doctorType,
+          periodStart: periodStartDate,
+          periodEnd: periodEndDate,
+          newCount: result.derived.length,
+          existingCount: result.alreadyExisted.length,
+          skippedCount: result.skipped.length,
+          newPayoutIds: result.derived.map(p => p.id),
+        },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+    }
+
+    return res.json({ data: result });
+  } catch (err: any) {
+    console.error('Bulk derive error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to bulk derive' });
+  }
+});
+
+// ============================================================================
+// POST /api/payouts/mark-paid/bulk — apply ONE payment record to N rows
+// Access: owner + staff
+// Body: { ids: string[], paymentMethod, paymentReferenceId?, notes? }
+// ============================================================================
+router.post('/mark-paid/bulk', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+  try {
+    const branchId = req.branchId!;
+    const { ids, paymentMethod, paymentReferenceId, notes } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'ids must be a non-empty array',
+      });
+    }
+    const cleanIds = ids.filter((x: any) => typeof x === 'string');
+    if (cleanIds.length === 0) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'ids must contain strings' });
+    }
+
+    if (!paymentMethod || !VALID_PAYMENT_METHODS.includes(paymentMethod)) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: `paymentMethod must be one of: ${VALID_PAYMENT_METHODS.join(', ')}`,
+      });
+    }
+
+    const result = await payoutService.markPayoutsPaidBulk(cleanIds, branchId, {
+      paymentMethod: paymentMethod as PaymentType,
+      paymentReferenceId,
+      notes,
+    });
+
+    if (result.paidIds.length > 0) {
+      await logAction({
+        branchId,
+        actionType: 'PAYOUT_PAID',
+        entityType: 'Payout',
+        entityId: 'BULK',
+        userId: req.user?.id!,
+        newValues: {
+          mode: 'bulk',
+          paidCount: result.paidIds.length,
+          paidIds: result.paidIds,
+          totalAmount: result.totalPaidInPaise / 100,
+          paymentMethod,
+          paymentReferenceId,
+          conflictIds: result.conflictIds,
+          notFoundIds: result.notFoundIds,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+    }
+
+    return res.json({ data: result });
+  } catch (err: any) {
+    console.error('Bulk mark paid error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to bulk mark paid' });
+  }
+});
+
+// ============================================================================
+// DELETE /api/payouts/bulk — soft-delete many payouts (OWNER ONLY)
+// Body: { ids: string[] }
+// ============================================================================
+router.delete('/bulk', requireRole('owner'), async (req: AuthRequest, res) => {
+  try {
+    const branchId = req.branchId!;
+    const { ids } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'ids must be a non-empty array',
+      });
+    }
+    const cleanIds = ids.filter((x: any) => typeof x === 'string');
+
+    const result = await payoutService.bulkSoftDeletePayouts(cleanIds, branchId);
+
+    if (result.deletedCount > 0) {
+      await logAction({
+        branchId,
+        actionType: 'PAYOUT_DELETE',
+        entityType: 'Payout',
+        entityId: 'BULK',
+        userId: req.user?.id!,
+        oldValues: { ids: cleanIds },
+        newValues: { mode: 'bulk', deletedCount: result.deletedCount },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+    }
+
+    return res.json({ data: result });
+  } catch (err: any) {
+    console.error('Bulk delete error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to delete payouts' });
+  }
+});
+
+// ============================================================================
+// GET /api/payouts/export — Excel export of the filtered list
+// Access: owner + staff
+// ============================================================================
+router.get('/export', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+  try {
+    const branchId = req.branchId!;
+    const { doctorType, doctorId, isPaid, startDate, endDate, q, sortBy, sortDir } = req.query;
+
+    const validatedDoctorType = doctorType ? parseDoctorType(doctorType) : undefined;
+    if (doctorType && !validatedDoctorType) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'doctorType must be REFERRAL, CLINIC, or DIAGNOSTIC_CENTER',
+      });
+    }
+
+    const result = await payoutService.listPayouts(branchId, {
+      doctorType: validatedDoctorType,
+      doctorId: typeof doctorId === 'string' ? doctorId : undefined,
+      isPaid: isPaid === 'true' ? true : isPaid === 'false' ? false : undefined,
+      startDate: parseDate(startDate),
+      endDate: parseDate(endDate),
+      q: typeof q === 'string' ? q : undefined,
+      sortBy: typeof sortBy === 'string' ? (sortBy as any) : undefined,
+      sortDir: sortDir === 'asc' || sortDir === 'desc' ? sortDir : undefined,
+      page: 1,
+      pageSize: 5000, // export caps at 5k rows; adjust if your branch ever exceeds
+    });
+
+    const buffer = await buildPayoutListWorkbook(result.rows);
+    const filename = `payouts-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(buffer);
+  } catch (err: any) {
+    console.error('Export payouts error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to export' });
+  }
+});
+
+// ============================================================================
+// Doctor dropdown endpoints (unchanged, but moved here so /:id matches last)
+// ============================================================================
 router.get('/doctors/referral', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
   try {
-    // Pass `?scope=branch` to limit to doctors with payout activity in this
-    // branch. Default keeps the global list so owners switching branches
-    // can still pick any doctor.
     const branchScope = req.query.scope === 'branch' ? req.branchId : undefined;
     const doctors = await payoutService.getReferralDoctors(true, branchScope);
     return res.json({ data: doctors });
   } catch (err: any) {
     console.error('Get referral doctors error:', err);
-    return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to get referral doctors',
-    });
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to get referral doctors' });
   }
 });
 
-// ===========================================================================
-// GET /api/payouts/doctors/clinic - Get all clinic doctors for dropdown
-// Access: owner, staff
-// ===========================================================================
 router.get('/doctors/clinic', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
   try {
     const branchScope = req.query.scope === 'branch' ? req.branchId : undefined;
@@ -221,17 +499,10 @@ router.get('/doctors/clinic', requireRole('owner', 'staff'), async (req: AuthReq
     return res.json({ data: doctors });
   } catch (err: any) {
     console.error('Get clinic doctors error:', err);
-    return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to get clinic doctors',
-    });
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to get clinic doctors' });
   }
 });
 
-// ===========================================================================
-// GET /api/payouts/doctors/diagnostic-centers - Get all diagnostic centers for dropdown
-// Access: owner, staff
-// ===========================================================================
 router.get('/doctors/diagnostic-centers', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
   try {
     const branchScope = req.query.scope === 'branch' ? req.branchId : undefined;
@@ -239,91 +510,89 @@ router.get('/doctors/diagnostic-centers', requireRole('owner', 'staff'), async (
     return res.json({ data: centers });
   } catch (err: any) {
     console.error('Get diagnostic centers error:', err);
-    return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to get diagnostic centers',
-    });
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to get diagnostic centers' });
   }
 });
 
-// ===========================================================================
-// GET /api/payouts/:id - Get payout detail with line items
-// Access: owner, staff
-// ===========================================================================
+// ============================================================================
+// GET /api/payouts/:id — detail (owner + staff)
+// ============================================================================
 router.get('/:id', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const branchId = req.branchId!;
-
     const payout = await payoutService.getPayoutDetail(id);
 
     if (!payout) {
-      return res.status(404).json({
-        error: 'NOT_FOUND',
-        message: 'Payout not found',
-      });
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Payout not found' });
     }
-
-    // Verify payout belongs to current branch
     if (payout.branchId !== branchId) {
       return res.status(403).json({
         error: 'FORBIDDEN',
         message: 'Payout belongs to a different branch',
       });
     }
-
     return res.json({ data: payout });
   } catch (err: any) {
     console.error('Get payout detail error:', err);
-    return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to get payout detail',
-    });
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to get payout detail' });
   }
 });
 
-// ===========================================================================
-// POST /api/payouts/:id/mark-paid - Mark payout as paid
-// Body: { paymentMethod, paymentReferenceId?, notes? }
-// Access: owner, staff
-// IMMUTABILITY: Once paid, cannot be modified
-// ===========================================================================
+// ============================================================================
+// GET /api/payouts/:id/export — single payout xlsx
+// Access: owner + staff
+// ============================================================================
+router.get('/:id/export', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const branchId = req.branchId!;
+    const payout = await payoutService.getPayoutDetail(id);
+    if (!payout) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Payout not found' });
+    }
+    if (payout.branchId !== branchId) {
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'Wrong branch' });
+    }
+
+    const buffer = await buildSinglePayoutWorkbook(payout);
+    const filename = `payout-${payout.doctorName.replace(/\s+/g, '_')}-${new Date(payout.periodStartDate)
+      .toISOString()
+      .slice(0, 10)}.xlsx`;
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(buffer);
+  } catch (err: any) {
+    console.error('Export payout detail error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to export payout' });
+  }
+});
+
+// ============================================================================
+// POST /api/payouts/:id/mark-paid — single mark-paid (owner + staff)
+// ============================================================================
 router.post('/:id/mark-paid', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const branchId = req.branchId!;
     const { paymentMethod, paymentReferenceId, notes } = req.body;
 
-    // Validate paymentMethod
-    if (!paymentMethod) {
+    if (!paymentMethod || !VALID_PAYMENT_METHODS.includes(paymentMethod)) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'paymentMethod is required',
+        message: `paymentMethod must be one of: ${VALID_PAYMENT_METHODS.join(', ')}`,
       });
     }
 
-    const validPaymentMethods: PaymentType[] = ['CASH', 'ONLINE'];
-    if (!validPaymentMethods.includes(paymentMethod)) {
-      return res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        message: `paymentMethod must be one of: ${validPaymentMethods.join(', ')}`,
-      });
-    }
-
-    // Get existing payout to verify branch
     const existing = await payoutService.getPayoutDetail(id);
     if (!existing) {
-      return res.status(404).json({
-        error: 'NOT_FOUND',
-        message: 'Payout not found',
-      });
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Payout not found' });
     }
-
     if (existing.branchId !== branchId) {
-      return res.status(403).json({
-        error: 'FORBIDDEN',
-        message: 'Payout belongs to a different branch',
-      });
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'Wrong branch' });
     }
 
     const payout = await payoutService.markPayoutPaid(
@@ -333,16 +602,13 @@ router.post('/:id/mark-paid', requireRole('owner', 'staff'), async (req: AuthReq
       notes
     );
 
-    // Audit log: Payout marked as paid
     await logAction({
-      branchId: req.branchId!,
+      branchId,
       actionType: 'PAYOUT_PAID',
       entityType: 'Payout',
       entityId: id,
       userId: req.user?.id!,
-      oldValues: {
-        isPaid: false,
-      },
+      oldValues: { isPaid: false },
       newValues: {
         isPaid: true,
         paymentMethod,
@@ -355,10 +621,7 @@ router.post('/:id/mark-paid', requireRole('owner', 'staff'), async (req: AuthReq
       userAgent: req.get('user-agent'),
     });
 
-    return res.json({
-      data: payout,
-      message: 'Payout marked as paid successfully',
-    });
+    return res.json({ data: payout, message: 'Payout marked as paid successfully' });
   } catch (err: any) {
     console.error('Mark payout paid error:', err);
     if (err.message?.includes('already marked as paid')) {
@@ -368,15 +631,40 @@ router.post('/:id/mark-paid', requireRole('owner', 'staff'), async (req: AuthReq
       });
     }
     if (err.message?.includes('not found')) {
-      return res.status(404).json({
-        error: 'NOT_FOUND',
-        message: err.message,
-      });
+      return res.status(404).json({ error: 'NOT_FOUND', message: err.message });
     }
-    return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to mark payout as paid',
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to mark paid' });
+  }
+});
+
+// ============================================================================
+// DELETE /api/payouts/:id — soft-delete single (OWNER ONLY)
+// ============================================================================
+router.delete('/:id', requireRole('owner'), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const branchId = req.branchId!;
+    const result = await payoutService.softDeletePayout(id, branchId);
+    if (!result) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Payout not found or already deleted' });
+    }
+
+    await logAction({
+      branchId,
+      actionType: 'PAYOUT_DELETE',
+      entityType: 'Payout',
+      entityId: id,
+      userId: req.user?.id!,
+      oldValues: { id },
+      newValues: { deleted: true },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
     });
+
+    return res.json({ data: result });
+  } catch (err: any) {
+    console.error('Delete payout error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to delete payout' });
   }
 });
 
