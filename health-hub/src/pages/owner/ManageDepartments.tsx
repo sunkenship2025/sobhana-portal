@@ -32,6 +32,7 @@ interface Department {
   reportHeaderText: string | null;
   displayOrder: number;
   isActive: boolean;
+  showLabIncharge: boolean;
   _count: {
     labTests: number;
     panels: number;
@@ -85,6 +86,7 @@ export default function ManageDepartments() {
     name: '',
     reportHeaderText: '',
     displayOrder: '0',
+    showLabIncharge: true,
   });
 
   const getHeaders = () => {
@@ -122,13 +124,13 @@ export default function ManageDepartments() {
   useEffect(() => { fetchDepartments(); }, [token]);
 
   const resetForm = () => {
-    setFormData({ name: '', reportHeaderText: '', displayOrder: '0' });
+    setFormData({ name: '', reportHeaderText: '', displayOrder: '0', showLabIncharge: true });
     setDialogOpen(false);
     setEditingId(null);
   };
 
   const handleAdd = () => {
-    setFormData({ name: '', reportHeaderText: '', displayOrder: '0' });
+    setFormData({ name: '', reportHeaderText: '', displayOrder: '0', showLabIncharge: true });
     setEditingId(null);
     setDialogOpen(true);
   };
@@ -138,6 +140,7 @@ export default function ManageDepartments() {
       name: dept.name,
       reportHeaderText: dept.reportHeaderText || '',
       displayOrder: dept.displayOrder.toString(),
+      showLabIncharge: dept.showLabIncharge ?? true,
     });
     setEditingId(dept.id);
     setDialogOpen(true);
@@ -160,6 +163,7 @@ export default function ManageDepartments() {
             name: formData.name.trim(),
             reportHeaderText: formData.reportHeaderText.trim() || null,
             displayOrder: order,
+            showLabIncharge: formData.showLabIncharge,
           }),
         });
         if (!res.ok) {
@@ -176,6 +180,7 @@ export default function ManageDepartments() {
             name: formData.name.trim(),
             reportHeaderText: formData.reportHeaderText.trim() || null,
             displayOrder: order,
+            showLabIncharge: formData.showLabIncharge,
           }),
         });
         if (!res.ok) {
@@ -415,6 +420,22 @@ export default function ManageDepartments() {
                 min={0}
                 className="max-w-[120px]"
               />
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="dept-show-lab-incharge">Show Lab Incharge on report</Label>
+                <Switch
+                  id="dept-show-lab-incharge"
+                  checked={formData.showLabIncharge}
+                  onCheckedChange={(checked) =>
+                    setFormData({ ...formData, showLabIncharge: checked })
+                  }
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Turn off for departments that sign out alone (e.g. Radiology)
+              </p>
             </div>
           </div>
 
