@@ -820,6 +820,14 @@ function renderPatientInfoHtml(snapshot: ReportSnapshot, sampleTypes: string[]):
 
 function renderSignatureBlocks(signatures: SignatureSnapshot[], baseUrl: string): string {
   return signatures.map(sig => {
+    // Department-only placeholder — no signing rule configured for the department.
+    if (!sig.doctorId) {
+      return `
+    <div class="signature-block signature-placeholder">
+      <div class="doctor-designation">${escapeHtml(sig.designation)}</div>
+    </div>`;
+    }
+
     // Priority: base64 from DB (render-safe) → inline from disk (local dev) → absolute URL fallback
     const sigImgSrc = sig.signatureImageBase64
       || inlineSignatureImage(sig.signatureImagePath)
@@ -840,8 +848,10 @@ function dedupeReportSignatures(signatures: SignatureSnapshot[]): SignatureSnaps
   const seen = new Set<string>();
 
   return signatures.filter((signature) => {
+    // Real doctors collapse across departments by doctorId. Placeholders key on
+    // departmentId + designation so two unmatched departments don't merge.
     const key = signature.doctorId
-      || `${signature.doctorName}|${signature.registrationNumber || ''}|${signature.signatureImagePath || ''}`;
+      || `__placeholder__|${signature.departmentId || ''}|${signature.designation}`;
 
     if (seen.has(key)) {
       return false;

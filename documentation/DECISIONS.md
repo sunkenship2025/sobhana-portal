@@ -361,9 +361,64 @@ Each of these has a specific exit plan tracked in the [README's docs structure](
 
 ---
 
+## ADR-016 — Scoped partial release with carry-forward + preview-mandatory finalize gate
+
+**Date:** 2026-05-09 · **Status:** Accepted
+
+### Context
+The original partial-release flow (`POST /api/visits/diagnostic/:id/release-partial`) finalized every test order that had a draft result. In practice the lab needs finer control:
+
+- A radiologist may have uploaded an MRI PDF earlier in the day for a panel, but the consultant wants only the CBP results released today and the MRI held back for a follow-up version.
+- A tech might enter ~5 of 7 ordered tests, intend to release just 3, and have the remaining 4 ride to the next batch — without losing the 2 already-typed-but-unreleased values.
+
+The all-or-nothing "release everything in draft" behaviour also made the preview screen lie: the preview rendered every draft result, but the released version might in practice match what was previewed only if the tech happened to want to release everything.
+
+A second, separate problem: the preview screen used to show **Finalize** and **Release Partial** buttons directly on the page beside a JSON-shaped on-screen card. Staff occasionally clicked Finalize without ever opening the rendered-PDF preview modal.
+
+### Options
+
+#### For scoping
+| | Pros | Cons |
+|---|---|---|
+| Always release every draft result (status quo) | Simple — one path | No fine-grained control; surprise for radiology workflow |
+| Add a `selected` flag to `TestResult` rows | Persisted intent | Schema change; intent is per-release-event, not per-row |
+| Per-call `testOrderIds` body on release-partial (chosen) | No schema change; explicit per-event | Caller must remember to pass it; legacy callers shouldn't break |
+
+#### For the preview gate
+| | Pros | Cons |
+|---|---|---|
+| sessionStorage flag toggled by opening the preview (prior attempt) | Buttons visible after first preview | Cross-tab confusion; flag lifetime quirks; staff still clicked without opening once |
+| Move Finalize / Release into the preview modal only (chosen) | Single source of truth: if you saw it, you reviewed it | Modal is now load-bearing; can't bypass |
+
+### Decision
+
+**Scoping.** `POST /api/visits/diagnostic/:id/release-partial` accepts an optional `{ testOrderIds: string[] }` body. With an explicit selection:
+
+1. The matching subset of draft `TestResult` rows is finalized inside the current DRAFT version.
+2. The unselected draft rows are deleted from the current DRAFT *before* its `updateMany` flip to FINALIZED, but their values are captured in `carryForwardData` first.
+3. Every original draft row (selected + unselected) is re-inserted on the next DRAFT version (`versionNum+1`), so unselected work stays editable and no data is lost.
+4. `createReportSnapshot(versionId, { selectedTestOrderIds })` filters both the test results and the external uploads on the snapshot path, so unselected uploads (e.g. the held-back MRI) don't get baked into the finalized merged PDF.
+
+`GET /api/visits/diagnostic/:id/preview-report` accepts the same scoping via `?testOrderIds=a,b,c` so the preview matches what release will ship byte-for-byte. `buildEphemeralSnapshot(visitId, { selectedTestOrderIds })` carries the same filter into the ephemeral path.
+
+Without a body, behaviour is unchanged — release every draft result. Preserved for backwards compatibility with any caller that hasn't migrated.
+
+**Preview gate.** The Finalize and Release-Partial buttons are removed from the preview page itself; both live exclusively inside the `<PdfPreview>` modal alongside the rendered PDF. Staff cannot trigger a release without first viewing the rendered output. The previous `hasReviewedPreview` sessionStorage flag is removed.
+
+### Consequences
+
+- **Carry-forward is the invariant.** The transaction always re-creates every draft result on the next DRAFT version, even though some were just "released" — because the next finalize() snapshot must be cumulative (the final report has to contain results from every batch, not just the last one).
+- **`reportableOrders` filter is applied to the selection too.** The route uses `effectiveReadyReportableCount` and `effectivePendingReportableCount` (computed against the selection set) for gating decisions, so an explicit selection bypasses the legacy "must have at least one ready test" guard — pure external-upload-only releases are valid.
+- **`USE_FINALIZE_INSTEAD` is suppressed for explicit selections.** When the dialog ticks every order, the caller has explicitly chosen the partial path; we respect that rather than forcing them through `/finalize`.
+- **The dialog is the only entry point for the body.** No public docs encourage passing `testOrderIds` directly — the FE construction lives in [`PartialReleaseSelectorDialog`](../health-hub/src/components/diagnostics/PartialReleaseSelectorDialog.tsx) and `DiagnosticsResultEntry`.
+- **Preview modal is now a finalize gate.** If we ever ship a "release without preview" mode (e.g. for an automation), it has to live on a separate route — the page UI deliberately forbids it.
+- **Audit log captures the explicit selection.** `auditLog.metadata.explicitSelection` is the array (or `null` for legacy callers) so we can reconstruct exactly what was released after the fact.
+
+---
+
 ## Adding a new ADR
 
-1. Take the next number (ADR-016, etc.).
+1. Take the next number (ADR-017, etc.).
 2. Heading and four sections: **Context** / **Options** / **Decision** / **Consequences**.
 3. Don't edit prior ADRs after merge — append a follow-up that supersedes if the decision changes. Mark superseded ADRs with `Status: Superseded by ADR-NNN`.
 4. Reference the ADR from the code where it matters (`// rationale: see DECISIONS.md ADR-013`).
