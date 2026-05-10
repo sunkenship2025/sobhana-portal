@@ -91,7 +91,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
 // POST /api/departments - Create department
 router.post('/', async (req: AuthRequest, res) => {
   try {
-    const { name, reportHeaderText, displayOrder } = req.body;
+    const { name, reportHeaderText, displayOrder, showLabIncharge } = req.body;
 
     if (!name || !name.trim()) {
       return res.status(400).json({
@@ -116,6 +116,7 @@ router.post('/', async (req: AuthRequest, res) => {
         name: name.trim().toUpperCase(),
         reportHeaderText: reportHeaderText?.trim() || null,
         displayOrder: displayOrder ?? 0,
+        ...(typeof showLabIncharge === 'boolean' ? { showLabIncharge } : {}),
       }
     });
 
@@ -142,7 +143,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       });
     }
 
-    const { name, reportHeaderText, displayOrder, isActive } = req.body;
+    const { name, reportHeaderText, displayOrder, isActive, showLabIncharge } = req.body;
     const updateData: any = {};
 
     if (name !== undefined) {
@@ -168,6 +169,9 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     }
     if (isActive !== undefined) {
       updateData.isActive = isActive;
+    }
+    if (typeof showLabIncharge === 'boolean') {
+      updateData.showLabIncharge = showLabIncharge;
     }
 
     const updated = await prisma.department.update({
