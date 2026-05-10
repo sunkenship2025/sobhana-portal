@@ -865,7 +865,14 @@ function dedupeReportSignatures(signatures: SignatureSnapshot[]): SignatureSnaps
 function renderReportBottomHtml(
   signatureBlocks: string,
   qrImgSrc: string,
+  showLabIncharge: boolean,
 ): string {
+  const labInchargeBlock = showLabIncharge ? `
+            <div class="signature-block lab-incharge-block">
+              <div class="lab-incharge-line"></div>
+              <div class="lab-incharge-label">Lab Incharge</div>
+            </div>` : '';
+
   return `
       <div class="report-note">
         Note: Please correlate clinically if necessary.
@@ -873,11 +880,7 @@ function renderReportBottomHtml(
 
       <div class="report-bottom-section">
         <section class="signatures-section">
-          <div class="signatures-left">
-            <div class="signature-block lab-incharge-block">
-              <div class="lab-incharge-line"></div>
-              <div class="lab-incharge-label">Lab Incharge</div>
-            </div>
+          <div class="signatures-left">${labInchargeBlock}
           </div>
           <div class="signatures-right">
             ${signatureBlocks}
@@ -1005,10 +1008,14 @@ function renderReportPage(
 ): string {
   const reportSignatures = dedupeReportSignatures(snapshot.signatures);
   const signatureBlocks = renderSignatureBlocks(reportSignatures, baseUrl);
+  // Show Lab Incharge if at least one department on the report opts in.
+  // Pure-radiology reports (where every dept has the toggle off) hide the block.
+  const showLabIncharge = snapshot.departments.some(d => d.showLabIncharge !== false);
   const reportBottomHtml = page.includeReportBottom
     ? renderReportBottomHtml(
         signatureBlocks,
         page.includeQr ? fragments.qrImgSrc : '',
+        showLabIncharge,
       )
     : '';
 

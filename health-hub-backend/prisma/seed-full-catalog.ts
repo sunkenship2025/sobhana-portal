@@ -140,8 +140,8 @@ async function main() {
 
   const deptRadio = await prisma.department.upsert({
     where: { name: 'RADIOLOGY' },
-    create: { name: 'RADIOLOGY', reportHeaderText: 'DEPARTMENT OF RADIOLOGY', displayOrder: 6, isActive: true },
-    update: { reportHeaderText: 'DEPARTMENT OF RADIOLOGY', displayOrder: 6, isActive: true },
+    create: { name: 'RADIOLOGY', reportHeaderText: 'DEPARTMENT OF RADIOLOGY', displayOrder: 6, isActive: true, showLabIncharge: false },
+    update: { reportHeaderText: 'DEPARTMENT OF RADIOLOGY', displayOrder: 6, isActive: true, showLabIncharge: false },
   });
 
   console.log(`  Created/updated: ${deptHaem.name}, ${deptBiochem.name}, ${deptSerology.name}, ${deptMicro.name}, ${deptPath.name}, ${deptRadio.name}`);
