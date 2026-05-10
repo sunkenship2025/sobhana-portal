@@ -23,11 +23,18 @@
 }
 
 /* ============================================================================
+   FONTS — Arimo (metrics-compatible Arial substitute, free via Google Fonts)
+   Standard typeface used by hospital RIS/PACS radiology printouts.
+   ============================================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Arimo:wght@400;500;600;700&display=swap');
+
+/* ============================================================================
    CSS VARIABLES
    ============================================================================ */
 
 :root {
-  --font-primary: 'Times New Roman', Times, serif;
+  --font-primary: 'Arimo', Arial, Helvetica, sans-serif;
   --color-text: #000000;
   --color-text-light: #000000;
   --color-border: #000000;
@@ -378,8 +385,8 @@ body.report-body {
 }
 
 .imaging-section {
-  border: 0.5pt solid var(--color-border);
-  padding: var(--spacing-sm);
+  border: none;
+  padding: 0;
 }
 
 .imaging-narrative {

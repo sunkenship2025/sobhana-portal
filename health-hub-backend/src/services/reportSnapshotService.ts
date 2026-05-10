@@ -85,6 +85,7 @@ export interface DepartmentSnapshot {
   departmentName: string;
   departmentHeaderText: string;
   displayOrder: number;
+  showLabIncharge: boolean;
   panels: PanelSnapshot[];
 }
 
@@ -1012,7 +1013,7 @@ function buildPanelsAndDepartments(
             panelMethodText: null,
             panelMethodItalic: false,
             displayOrder: 9999,
-            department: dept || { id: '__general__', name: 'General', reportHeaderText: '', displayOrder: 9999 },
+            department: dept || { id: '__general__', name: 'General', reportHeaderText: '', displayOrder: 9999, showLabIncharge: true },
           },
           results: [],
         });
@@ -1059,6 +1060,7 @@ function buildPanelsAndDepartments(
         departmentName: dept.name,
         departmentHeaderText: dept.reportHeaderText,
         displayOrder: dept.displayOrder,
+        showLabIncharge: (dept as { showLabIncharge?: boolean }).showLabIncharge ?? true,
         panels: [],
       });
     }
