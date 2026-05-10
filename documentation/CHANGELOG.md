@@ -10,6 +10,23 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 
 _Tracked here as commits land on `main`. Entries are promoted to a versioned section at release time — see [`RELEASE.md`](RELEASE.md)._
 
+### Added
+- **Auto-save on result entry.** [`DiagnosticsResultEntry`](../health-hub/src/pages/diagnostics/DiagnosticsResultEntry.tsx) now persists the in-progress draft 1.5 s after the last keystroke and immediately on field blur. An inline status indicator above the action button shows `Saving…` / `Saved · just now` / `Unsaved changes` / `Save failed — will retry`. In-flight saves are coordinated via a ref so the explicit click and the debounced timer never race. The first results-changed render after `fetchVisit` is suppressed via `autoSavePrimedRef` so the initial state load doesn't trigger a no-op POST.
+- **Per-test scoped partial release.** New [`PartialReleaseSelectorDialog`](../health-hub/src/components/diagnostics/PartialReleaseSelectorDialog.tsx) lets staff pick exactly which test orders go into the partial-release version. The dialog groups orders by department, hints which rows have been edited vs unedited, and seeds defaults from the current draft.
+  - `POST /api/visits/diagnostic/:id/release-partial` now accepts an optional body `{ testOrderIds: string[] }`. With an explicit selection: only those orders are finalized in the current draft; the rest are carried forward into the next DRAFT version untouched. Without a body: legacy behaviour (release every draft result that exists) — preserved for backwards compatibility.
+  - `GET /api/visits/diagnostic/:id/preview-report` accepts the same scoping via `?testOrderIds=a,b,c` (or repeated query params), so the preview shown to staff matches byte-for-byte what `release-partial` will ship.
+  - `createReportSnapshot(versionId, { selectedTestOrderIds })` and `buildEphemeralSnapshot(visitId, { selectedTestOrderIds })` filter both the test results AND the external uploads down to the selection, so an unselected MRI/X-ray PDF stays attached to its order for a future version instead of being baked into today's merged PDF.
+- **Result-entry button label flips with completeness.** "Save Draft & Preview Report" → `Review & Finalize` when every reportable test has a value AND every required external upload is attached, or `Continue with Partial Report` otherwise. The click target itself is the same — only the label changes — so staff get a one-glance read of what's about to happen.
+
+### Changed
+- **Finalize / release lives only inside the preview modal now.** [`DiagnosticsReportPreview`](../health-hub/src/pages/diagnostics/DiagnosticsReportPreview.tsx) no longer surfaces "Finalize" / "Release Partial" buttons on the page itself; staff must open the rendered-PDF preview before those actions appear (inside the modal). The previous `hasReviewedPreview` sessionStorage gate is removed — the modal is now the only path. Eliminates the "looked at the JSON-shaped on-screen card and shipped" failure mode.
+
+### Fixed
+- **External-upload-only visits couldn't be finalized.** `canFinalizeAll` required `totalReportableCount > 0`, but pure EXTERNAL_UPLOAD visits have no reportable orders — the uploaded PDF *is* the report. Added `isExternalUploadOnly` branch in [`DiagnosticsReportPreview.tsx`](../health-hub/src/pages/diagnostics/DiagnosticsReportPreview.tsx) so single-upload visits can finalize once the PDF is attached.
+
+### Migration notes
+- No schema migration. Pure code change; route signature is backwards-compatible (legacy callers without a body still work).
+
 ---
 
 ## [1.9.0] — 2026-05-03 — Default values for panels + cross-browser PDF preview

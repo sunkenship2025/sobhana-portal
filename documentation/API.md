@@ -54,7 +54,7 @@ Source: [`patients.ts`](../health-hub-backend/src/routes/patients.ts) → servic
 
 ### Diagnostic visits — `/api/visits/diagnostic`
 
-The hot file — 16 endpoints, ~3,800 LOC (see [DECISIONS ADR-015](DECISIONS.md)).
+The hot file — 17 endpoints, ~3,900 LOC (see [DECISIONS ADR-015](DECISIONS.md)).
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -64,12 +64,13 @@ The hot file — 16 endpoints, ~3,800 LOC (see [DECISIONS ADR-015](DECISIONS.md)
 | PATCH | `/:id` | Update demographics linked to visit |
 | POST | `/:id/tests` | Add tests to an existing draft visit |
 | DELETE | `/:id/tests/:testOrderId` | Remove a test (rejected if it would create overpayment) |
-| POST | `/:id/results` | Save test results. Recomputes flags. Marks `manualOverride` if a derived value is hand-entered. |
+| POST | `/:id/results` | Save test results. Recomputes flags. Marks `manualOverride` if a derived value is hand-entered. Also called by the result-entry page's auto-save (1.5 s debounce + on-blur). |
 | POST | `/:id/collect-sample` | Mark sample as collected |
 | POST | `/:id/collect-due` | Additive payment collection on outstanding due |
 | POST | `/:id/confirm-ready` | Mark report as ready for staff review |
 | POST | `/:id/finalize` | Finalize: snapshot + token + WhatsApp fanout. Blocked if `due > 0`. |
-| GET | `/:id/preview-report` | Returns the merged PDF as a blob (matches what the patient gets) |
+| POST | `/:id/release-partial` | Finalize the current DRAFT as a partial release and open a fresh DRAFT for remaining work. Optional body `{ testOrderIds: string[] }` scopes the release to a subset; unselected draft results are carried forward into the next DRAFT. Snapshots are scoped to the selection (results + external uploads). Without a body, falls back to legacy "release every draft result" behaviour. |
+| GET | `/:id/preview-report` | Returns the merged PDF as a blob (matches what the patient gets). Optional `?testOrderIds=a,b,c` (or repeated query params) scopes the preview to a subset, used by the partial-release selector so the preview matches what `release-partial` will ship byte-for-byte. |
 | GET | `/:id/report-snapshot` | JSON snapshot for the in-app preview screen |
 | GET | `/:id/finalized-report` | Staff-only HTML view of the latest finalized version |
 | GET | `/:id/finalized-report/pdf` | Staff-only PDF of the latest finalized version (digital or physical mode) |
