@@ -252,10 +252,17 @@ export default function PayoutsList() {
         if (!res.ok) {
           toast.error(body.message ?? "Failed to mark paid");
         } else {
-          const r = body.data as { paidIds: string[]; conflictIds: string[] };
-          toast.success(
-            `Marked ${r.paidIds.length} paid${r.conflictIds.length ? `; ${r.conflictIds.length} were already paid` : ""}`
-          );
+          const r = body.data as {
+            paidIds: string[];
+            conflictIds: string[];
+            notFoundIds: string[];
+          };
+          // notFoundIds = rows deleted by another session between selection and request.
+          const parts: string[] = [`Marked ${r.paidIds.length} paid`];
+          if (r.conflictIds.length) parts.push(`${r.conflictIds.length} already paid`);
+          if (r.notFoundIds?.length)
+            parts.push(`${r.notFoundIds.length} no longer exist`);
+          toast.success(parts.join(" · "));
           setMarkPaidOpen(false);
           selection.clear();
           await fetchList();
@@ -305,7 +312,14 @@ export default function PayoutsList() {
         toast.error(body.message ?? "Failed to delete");
       } else {
         const r = body.data as { deletedCount: number };
-        toast.success(`Deleted ${r.deletedCount} payouts`);
+        // If deletedCount < what we selected, the remainder were already deleted
+        // by another session (or out-of-branch — silently filtered server-side).
+        const stale = selectedRows.length - r.deletedCount;
+        toast.success(
+          stale > 0
+            ? `Deleted ${r.deletedCount} · ${stale} were already gone`
+            : `Deleted ${r.deletedCount} ${r.deletedCount === 1 ? "payout" : "payouts"}`
+        );
         setDeleteOpen(false);
         selection.clear();
         await fetchList();
@@ -371,6 +385,18 @@ export default function PayoutsList() {
 
   // ---------------- Pagination ----------------
   const totalPages = Math.max(1, Math.ceil(list.total / effectivePageSize));
+
+  // If a refetch returned fewer pages than the URL says we're on (e.g. after a
+  // bulk delete shrunk the result set), snap to the last valid page so the
+  // user doesn't stare at "Page 5 of 4" + an empty table until they reload.
+  useEffect(() => {
+    if (loading) return;
+    if (list.total === 0) return;
+    if (state.page > totalPages) {
+      update({ page: totalPages });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, list.total, totalPages, state.page]);
 
   // ---------------- Render ----------------
   return (

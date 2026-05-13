@@ -616,8 +616,13 @@ function renderPanel(panel: PanelSnapshot): string {
       content = renderStandardTable(panel);
   }
 
+  const layoutClass =
+    panel.layoutType === 'IMAGING_NARRATIVE' || panel.layoutType === 'TEXT_ONLY'
+      ? ' panel-narrative'
+      : '';
+
   return `
-    <div class="panel" data-panel="${escapeHtml(panel.panelName)}">
+    <div class="panel${layoutClass}" data-panel="${escapeHtml(panel.panelName)}">
       <div class="panel-title">${escapeHtml(panel.displayName)}</div>
       ${panelMethodHtml}
       ${content}
@@ -727,6 +732,28 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
           .report-note { margin-top: 6px; }
           .report-content { padding: 4px 24px 4px 24px; }
           .signatures-section { gap: 16px; }
+          /* Narrative panels (IMAGING_NARRATIVE / TEXT_ONLY): allow Chromium
+             to fit them on one page when possible, and split cleanly when
+             not. Tabular panels keep break-inside: avoid from
+             report-screen.css. */
+          .panel.panel-narrative {
+            page-break-inside: auto;
+            break-inside: auto;
+          }
+          .panel.panel-narrative .panel-title {
+            page-break-after: avoid;
+            break-after: avoid;
+          }
+          .panel.panel-narrative .imaging-narrative p,
+          .panel.panel-narrative .imaging-narrative div,
+          .panel.panel-narrative .imaging-narrative li,
+          .panel.panel-narrative .result-text p,
+          .panel.panel-narrative .result-text div,
+          .panel.panel-narrative .result-text li {
+            margin-bottom: 5px;
+            orphans: 3;
+            widows: 3;
+          }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }`,
         bodyClass: 'screen-mode',
       };
