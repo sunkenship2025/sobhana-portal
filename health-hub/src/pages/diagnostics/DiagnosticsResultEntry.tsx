@@ -1548,8 +1548,12 @@ const DiagnosticsResultEntry = () => {
         const template = narrativeTemplateByTestId.get(id);
         const templatePlain = template ? richTextToPlainText(template).trim() : '';
         const valuePlain = richTextToPlainText(value).trim();
+        // Narrative counts as complete when:
+        //   • there's no template to compare against (panel has no
+        //     authored boilerplate — any saved content is a real edit), or
+        //   • the saved text differs from the template's plain text.
         const htmlDiffersFromTemplate =
-          templatePlain.length > 0 && valuePlain !== templatePlain;
+          templatePlain.length === 0 || valuePlain !== templatePlain;
         if (htmlDiffersFromTemplate) {
           allTemplateOnly = false;
         }
@@ -2033,22 +2037,30 @@ const DiagnosticsResultEntry = () => {
                 : 'Continue with Partial Report';
 
               const handleClick = () => {
-                if (fullyDone) {
-                  // Reuse the existing extreme-value validation flow so we
-                  // don't bypass the warning dialog for fully-done visits.
+                // Narrative tests can look "complete" the moment the doctor
+                // types anything, even when they're still drafting. Always
+                // route via the partial-release dialog when narratives are
+                // present so the doctor explicitly confirms what ships —
+                // Cancel safely backs out (auto-save already preserved the
+                // in-progress content).
+                if (fullyDone && !hasNarrativeTests) {
+                  // Pure numeric / upload visit — reuse the extreme-value
+                  // validation flow so we don't bypass the warning dialog
+                  // for fully-done visits.
                   handleSaveDraft();
                   return;
                 }
-                if (partialEligibleOrderIds.length <= 1) {
-                  // Zero or one eligible order — no choice to make in a
-                  // dialog. Route through the standard save path with NO
-                  // partialSelection; the preview page then decides between
-                  // /finalize and /release-partial based on whether other
-                  // reportable orders in the visit are still pending.
+                if (partialEligibleOrderIds.length <= 1 && !hasNarrativeTests) {
+                  // Zero or one eligible non-narrative order — no choice to
+                  // make in a dialog. Route through the standard save path
+                  // with NO partialSelection; the preview page then decides
+                  // between /finalize and /release-partial based on whether
+                  // other reportable orders in the visit are still pending.
                   void saveResults(undefined);
                   return;
                 }
-                // Multiple orders eligible — open the selector dialog.
+                // Multiple orders eligible, or any narrative present — open
+                // the selector dialog so the doctor confirms.
                 setPartialDialogOpen(true);
               };
 
