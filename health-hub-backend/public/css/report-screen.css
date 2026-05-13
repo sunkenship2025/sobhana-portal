@@ -79,7 +79,7 @@ body.report-body {
 }
 
 .report-bottom-section {
-  margin-top: auto;
+  margin-top: 24px;
   break-inside: avoid;
   page-break-inside: avoid;
 }

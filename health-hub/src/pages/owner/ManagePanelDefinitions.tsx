@@ -109,7 +109,7 @@ function layoutBadge(layoutType: string) {
 
 const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
 
-const SAMPLE_TYPES = ['WB-EDTA', 'NaF WB', 'Serum', 'Plasma', 'Urine', 'CSF', 'Synovial Fluid', 'Semen', 'Other'];
+const SAMPLE_TYPES = ['WB-EDTA', 'NaF WB', 'Serum', 'Plasma', 'Urine', 'CSF', 'Synovial Fluid', 'Semen', 'N/A', 'Other'];
 
 function supportsRichTextTemplate(layoutType: string): boolean {
   return layoutType === 'TEXT_ONLY' || layoutType === 'IMAGING_NARRATIVE';
