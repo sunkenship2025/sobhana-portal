@@ -701,6 +701,21 @@ async function syncReferralPayoutsForBranch(
   }
 
   for (const period of periods.values()) {
+    // Auto-sync must respect deletions: if the owner soft-deleted a payout
+    // for this (doctor, period), don't recreate it on every list refresh.
+    // Manual derive (Single Payout / Run Cycle) still creates a fresh row.
+    const anyExisting = await prisma.doctorPayoutLedger.findFirst({
+      where: {
+        doctorType: 'REFERRAL',
+        referralDoctorId: period.doctorId,
+        branchId,
+        periodStartDate: period.periodStartDate,
+        periodEndDate: period.periodEndDate,
+      },
+      select: { id: true },
+    });
+    if (anyExisting) continue;
+
     await derivePayout(
       'REFERRAL',
       period.doctorId,
@@ -782,6 +797,19 @@ async function syncDiagnosticCenterPayoutsForBranch(
   }
 
   for (const period of periods.values()) {
+    // Auto-sync respects deletions — see comment in syncReferralPayoutsForBranch.
+    const anyExisting = await prisma.doctorPayoutLedger.findFirst({
+      where: {
+        doctorType: 'DIAGNOSTIC_CENTER',
+        diagnosticCenterId: period.doctorId,
+        branchId,
+        periodStartDate: period.periodStartDate,
+        periodEndDate: period.periodEndDate,
+      },
+      select: { id: true },
+    });
+    if (anyExisting) continue;
+
     await derivePayout(
       'DIAGNOSTIC_CENTER',
       period.doctorId,
@@ -1442,9 +1470,20 @@ export interface DerivePreviewBucket {
   doctorName: string;
 }
 
+export interface DerivePreviewWillBucket extends DerivePreviewBucket {
+  // Estimated commission if we derive now (computed by deriveByType, no write).
+  amountInPaise: number;
+}
+
+export interface DerivePreviewAlreadyBucket extends DerivePreviewBucket {
+  payoutId: string;
+  amountInPaise: number;
+  isPaid: boolean;
+}
+
 export interface DerivePreviewResult {
-  willDerive: DerivePreviewBucket[];
-  alreadyDerived: (DerivePreviewBucket & { payoutId: string })[];
+  willDerive: DerivePreviewWillBucket[];
+  alreadyDerived: DerivePreviewAlreadyBucket[];
   noEligibleVisits: DerivePreviewBucket[];
 }
 
@@ -1509,8 +1548,8 @@ export async function previewDerivePayouts(args: {
 }): Promise<DerivePreviewResult> {
   const doctors = await resolveDoctorIds(args.doctorType, args.doctorIds, args.branchId);
 
-  const willDerive: DerivePreviewBucket[] = [];
-  const alreadyDerived: (DerivePreviewBucket & { payoutId: string })[] = [];
+  const willDerive: DerivePreviewWillBucket[] = [];
+  const alreadyDerived: DerivePreviewAlreadyBucket[] = [];
   const noEligibleVisits: DerivePreviewBucket[] = [];
 
   for (const d of doctors) {
@@ -1523,10 +1562,16 @@ export async function previewDerivePayouts(args: {
         periodEndDate: args.periodEndDate,
         deletedAt: null,
       },
-      select: { id: true },
+      select: { id: true, derivedAmountInPaise: true, paidAt: true },
     });
     if (existing) {
-      alreadyDerived.push({ doctorId: d.id, doctorName: d.name, payoutId: existing.id });
+      alreadyDerived.push({
+        doctorId: d.id,
+        doctorName: d.name,
+        payoutId: existing.id,
+        amountInPaise: existing.derivedAmountInPaise,
+        isPaid: existing.paidAt !== null,
+      });
       continue;
     }
 
@@ -1544,7 +1589,11 @@ export async function previewDerivePayouts(args: {
     if (probe.lineItems.length === 0 && probe.derivedAmountInPaise === 0) {
       noEligibleVisits.push({ doctorId: d.id, doctorName: d.name });
     } else {
-      willDerive.push({ doctorId: d.id, doctorName: d.name });
+      willDerive.push({
+        doctorId: d.id,
+        doctorName: d.name,
+        amountInPaise: probe.derivedAmountInPaise,
+      });
     }
   }
 

@@ -13,11 +13,14 @@
  * dialog for a monthly run.
  */
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Loader2,
   PauseCircle,
 } from "lucide-react";
@@ -91,6 +94,7 @@ export function PayoutRunCycle({
 }: PayoutRunCycleProps) {
   const { token } = useAuthStore();
   const { activeBranchId } = useBranchStore();
+  const navigate = useNavigate();
 
   const [period, setPeriod] = useState<CyclePeriod>(lastCompletedMonth());
   const [selectedTypes, setSelectedTypes] = useState<Set<PayoutDoctorType>>(
@@ -99,6 +103,7 @@ export function PayoutRunCycle({
   const [phase, setPhase] = useState<Phase>("config");
   const [preview, setPreview] = useState<Record<PayoutDoctorType, PayoutDerivePreviewResult> | null>(null);
   const [results, setResults] = useState<Record<PayoutDoctorType, PayoutBulkDeriveResult> | null>(null);
+  const [expandedBucket, setExpandedBucket] = useState<"will" | "already" | "none" | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -107,6 +112,7 @@ export function PayoutRunCycle({
       setPhase("config");
       setPreview(null);
       setResults(null);
+      setExpandedBucket(null);
     }
   }, [open]);
 
@@ -198,20 +204,75 @@ export function PayoutRunCycle({
     }
   };
 
-  const totalCounts = useMemo(() => {
-    if (!preview) return { will: 0, already: 0, none: 0 };
-    let will = 0;
-    let already = 0;
-    let none = 0;
+  const previewLists = useMemo(() => {
+    const will: {
+      doctorId: string;
+      doctorName: string;
+      doctorType: PayoutDoctorType;
+      amountInPaise: number;
+    }[] = [];
+    const already: {
+      doctorId: string;
+      doctorName: string;
+      doctorType: PayoutDoctorType;
+      payoutId: string;
+      amountInPaise: number;
+      isPaid: boolean;
+    }[] = [];
+    const none: { doctorId: string; doctorName: string; doctorType: PayoutDoctorType }[] = [];
+    if (!preview) return { will, already, none };
     for (const t of selectedTypes) {
       const p = preview[t];
       if (!p) continue;
-      will += p.willDerive.length;
-      already += p.alreadyDerived.length;
-      none += p.noEligibleVisits.length;
+      for (const d of p.willDerive) will.push({ ...d, doctorType: t });
+      for (const d of p.alreadyDerived) already.push({ ...d, doctorType: t });
+      for (const d of p.noEligibleVisits) none.push({ ...d, doctorType: t });
     }
     return { will, already, none };
   }, [preview, selectedTypes]);
+
+  const totals = useMemo(() => {
+    const willAmt = previewLists.will.reduce((s, d) => s + d.amountInPaise, 0);
+    const alreadyPending = previewLists.already.filter((d) => !d.isPaid);
+    const alreadyPaid = previewLists.already.filter((d) => d.isPaid);
+    const pendingAmt = alreadyPending.reduce((s, d) => s + d.amountInPaise, 0);
+    const paidAmt = alreadyPaid.reduce((s, d) => s + d.amountInPaise, 0);
+    return {
+      willCount: previewLists.will.length,
+      willAmt,
+      alreadyCount: previewLists.already.length,
+      pendingCount: alreadyPending.length,
+      pendingAmt,
+      paidCount: alreadyPaid.length,
+      paidAmt,
+      noneCount: previewLists.none.length,
+    };
+  }, [previewLists]);
+
+  const totalCounts = {
+    will: totals.willCount,
+    already: totals.alreadyCount,
+    none: totals.noneCount,
+  };
+
+  // "View these N in list" — close sheet, navigate to the list filtered to
+  // this period (custom preset) so the owner can act on the rows directly.
+  const viewAlreadyDerivedInList = () => {
+    const start = new Date(period.year, period.month, 1);
+    const end = new Date(period.year, period.month + 1, 0);
+    const ymd = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    // No status filter — show pending AND paid for the period so the user
+    // sees the full picture and can choose what to do next.
+    const params = new URLSearchParams({
+      tab: "by-period",
+      preset: "custom",
+      startDate: ymd(start),
+      endDate: ymd(end),
+    });
+    onOpenChange(false);
+    navigate(`/owner/payouts?${params.toString()}`);
+  };
 
   const totalDerived = useMemo(() => {
     if (!results) return { count: 0, amountInPaise: 0 };
@@ -321,30 +382,79 @@ export function PayoutRunCycle({
                   icon={<CheckCircle2 className="h-4 w-4 text-green-600" />}
                   label="Will derive"
                   count={totalCounts.will}
+                  amountInPaise={totals.willAmt}
                   description="No existing payout for this period"
+                  doctors={previewLists.will}
+                  expanded={expandedBucket === "will"}
+                  onToggleExpand={() =>
+                    setExpandedBucket(expandedBucket === "will" ? null : "will")
+                  }
                 />
                 <PreviewBucket
                   icon={<PauseCircle className="h-4 w-4 text-yellow-600" />}
                   label="Already derived"
                   count={totalCounts.already}
-                  description="Existing row will be returned, not re-derived"
+                  amountInPaise={totals.pendingAmt + totals.paidAmt}
+                  description={
+                    totals.alreadyCount === 0
+                      ? "Existing rows — derive won't re-create them"
+                      : `${totals.pendingCount} pending · ${totals.paidCount} paid`
+                  }
+                  doctors={previewLists.already}
+                  expanded={expandedBucket === "already"}
+                  onToggleExpand={() =>
+                    setExpandedBucket(
+                      expandedBucket === "already" ? null : "already"
+                    )
+                  }
                 />
                 <PreviewBucket
                   icon={<AlertCircle className="h-4 w-4 text-muted-foreground" />}
                   label="No eligible visits"
                   count={totalCounts.none}
                   description="No finalized work in this period — skipped"
+                  doctors={previewLists.none}
+                  expanded={expandedBucket === "none"}
+                  onToggleExpand={() =>
+                    setExpandedBucket(expandedBucket === "none" ? null : "none")
+                  }
                 />
               </div>
 
-              <div className="flex items-center gap-2">
-                <Button onClick={runDerive} disabled={totalCounts.will === 0}>
-                  Derive {totalCounts.will} {totalCounts.will === 1 ? "payout" : "payouts"}
-                </Button>
+              <div className="flex items-center gap-2 flex-wrap">
+                {totalCounts.will > 0 && (
+                  <Button onClick={runDerive}>
+                    Derive {totalCounts.will}{" "}
+                    {totalCounts.will === 1 ? "payout" : "payouts"} ·{" "}
+                    {formatRupees(totals.willAmt)}
+                  </Button>
+                )}
+                {/* Most useful next step when you've already derived but not paid */}
+                {totals.pendingCount > 0 && (
+                  <Button
+                    variant={totalCounts.will === 0 ? "default" : "outline"}
+                    onClick={viewAlreadyDerivedInList}
+                  >
+                    Pay {totals.pendingCount} pending ·{" "}
+                    {formatRupees(totals.pendingAmt)}
+                  </Button>
+                )}
+                {totalCounts.already > 0 && totals.pendingCount === 0 && (
+                  <Button variant="outline" onClick={viewAlreadyDerivedInList}>
+                    View {totalCounts.already} in list
+                  </Button>
+                )}
                 <Button variant="outline" onClick={() => setPhase("config")}>
                   Back
                 </Button>
               </div>
+
+              {totalCounts.will === 0 && totalCounts.already === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Nothing to do for this period — no doctors had eligible
+                  finalized visits.
+                </p>
+              )}
             </section>
           )}
 
@@ -417,20 +527,92 @@ export function PayoutRunCycle({
   );
 }
 
+type BucketDoctor = {
+  doctorId: string;
+  doctorName: string;
+  doctorType: PayoutDoctorType;
+  amountInPaise?: number;
+  isPaid?: boolean;
+};
+
 function PreviewBucket(props: {
   icon: React.ReactNode;
   label: string;
   count: number;
+  amountInPaise?: number;
   description: string;
+  doctors: BucketDoctor[];
+  expanded: boolean;
+  onToggleExpand: () => void;
 }) {
+  const canExpand = props.count > 0;
   return (
-    <div className="flex items-center gap-3 p-3">
-      {props.icon}
-      <div className="flex-1">
-        <div className="text-sm font-medium">{props.label}</div>
-        <div className="text-xs text-muted-foreground">{props.description}</div>
-      </div>
-      <div className="text-2xl font-semibold tabular-nums">{props.count}</div>
+    <div>
+      <button
+        type="button"
+        onClick={canExpand ? props.onToggleExpand : undefined}
+        className={`w-full flex items-center gap-3 p-3 text-left ${
+          canExpand ? "hover:bg-muted/40 cursor-pointer" : "cursor-default"
+        }`}
+        disabled={!canExpand}
+      >
+        {props.icon}
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium">{props.label}</div>
+          <div className="text-xs text-muted-foreground truncate">{props.description}</div>
+        </div>
+        <div className="flex flex-col items-end shrink-0">
+          <div className="text-2xl font-semibold tabular-nums leading-none">
+            {props.count}
+          </div>
+          {props.amountInPaise !== undefined && props.amountInPaise > 0 && (
+            <div className="text-xs text-muted-foreground tabular-nums mt-0.5">
+              {formatRupees(props.amountInPaise)}
+            </div>
+          )}
+        </div>
+        {canExpand &&
+          (props.expanded ? (
+            <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+          ))}
+      </button>
+      {props.expanded && props.doctors.length > 0 && (
+        <ul className="px-3 pb-3 space-y-1 text-sm bg-muted/30">
+          {props.doctors.map((d) => (
+            <li
+              key={`${d.doctorType}:${d.doctorId}`}
+              className="flex items-center gap-2 py-1"
+            >
+              <span className="text-xs font-mono text-muted-foreground w-14 shrink-0">
+                {d.doctorType === "REFERRAL"
+                  ? "REF"
+                  : d.doctorType === "CLINIC"
+                    ? "CLINIC"
+                    : "DC"}
+              </span>
+              <span className="truncate flex-1">{d.doctorName}</span>
+              {d.amountInPaise !== undefined && (
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {formatRupees(d.amountInPaise)}
+                </span>
+              )}
+              {d.isPaid !== undefined && (
+                <span
+                  className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                    d.isPaid
+                      ? "bg-green-100 text-green-700"
+                      : "bg-yellow-100 text-yellow-700"
+                  }`}
+                >
+                  {d.isPaid ? "Paid" : "Pending"}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
