@@ -663,9 +663,19 @@ export interface PayoutDerivePreviewBucket {
   doctorName: string;
 }
 
+export interface PayoutDerivePreviewWillBucket extends PayoutDerivePreviewBucket {
+  amountInPaise: number;
+}
+
+export interface PayoutDerivePreviewAlreadyBucket extends PayoutDerivePreviewBucket {
+  payoutId: string;
+  amountInPaise: number;
+  isPaid: boolean;
+}
+
 export interface PayoutDerivePreviewResult {
-  willDerive: PayoutDerivePreviewBucket[];
-  alreadyDerived: (PayoutDerivePreviewBucket & { payoutId: string })[];
+  willDerive: PayoutDerivePreviewWillBucket[];
+  alreadyDerived: PayoutDerivePreviewAlreadyBucket[];
   noEligibleVisits: PayoutDerivePreviewBucket[];
 }
 
