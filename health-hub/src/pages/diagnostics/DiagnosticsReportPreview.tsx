@@ -10,6 +10,7 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { FlagBadge } from '@/components/ui/flag-badge';
 import { toast } from 'sonner';
 import { downloadFinalizedReportPdf, openFinalizedReportWindow } from '@/lib/reportAccess';
+import { sanitizeRichTextHtml } from '@/lib/richText';
 // Lazy-load the PDF preview so pdf.js (~470kB) only ships to users who
 // actually open the preview pane, not on every page load.
 const PdfPreview = lazy(() =>
@@ -121,6 +122,7 @@ interface ReportSnapshotPanel {
   panelId: string;
   panelName: string;
   displayName: string;
+  layoutType?: string;
   panelMethodText?: string | null;
   panelMethodItalic?: boolean;
   showSubgroups?: boolean;
@@ -707,6 +709,44 @@ const DiagnosticsReportPreview = () => {
 
                     {department.panels.map((panel) => {
                       let previousGroup: string | null = null;
+                      const isNarrative =
+                        panel.layoutType === 'IMAGING_NARRATIVE' ||
+                        panel.layoutType === 'TEXT_ONLY';
+
+                      if (isNarrative) {
+                        return (
+                          <div key={panel.panelId} className="space-y-2">
+                            <div>
+                              <h4 className="font-semibold">
+                                {panel.displayName || panel.panelName}
+                              </h4>
+                              {panel.panelMethodText && (
+                                <p className={`text-xs text-muted-foreground${panel.panelMethodItalic ? ' italic' : ''}`}>
+                                  (Method : {panel.panelMethodText})
+                                </p>
+                              )}
+                            </div>
+                            {panel.tests.map((t) => {
+                              const html = t.textValue?.trim();
+                              return (
+                                <div key={t.testId} className="space-y-1">
+                                  {panel.tests.length > 1 && (
+                                    <div className="text-sm font-medium">{t.testName}</div>
+                                  )}
+                                  {html ? (
+                                    <div
+                                      className="prose prose-sm max-w-none text-sm leading-relaxed"
+                                      dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml(html) }}
+                                    />
+                                  ) : (
+                                    <div className="text-sm text-muted-foreground">—</div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      }
 
                       return (
                         <div key={panel.panelId} className="space-y-2">
