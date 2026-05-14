@@ -33,6 +33,33 @@ const toSupportedPaymentType = (value: unknown): PaymentType => {
   return "CASH";
 };
 
+// Collapse a list of test orders into a readable summary for the visit row.
+// Bill-only orders are hidden (they don't ship in a report). Orders that
+// belong to a panel collapse to a single entry per panel — so a Hemogram
+// ordered with 10 sub-tests shows as "HEMOGRAM" once, not 10 codes.
+const formatTestList = (
+  testOrders: Array<{
+    workflowMode?: string;
+    testName?: string;
+    testCode?: string;
+    panel?: { id: string; name: string; displayName?: string } | null;
+  }>,
+): string => {
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  for (const order of testOrders) {
+    if (order.workflowMode === "BILL_ONLY") continue;
+    const panel = order.panel;
+    const key = panel?.id ? `panel:${panel.id}` : `test:${order.testCode || order.testName || ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const label =
+      panel?.displayName || panel?.name || order.testName || order.testCode || "";
+    if (label) labels.push(label);
+  }
+  return labels.join(", ");
+};
+
 const matchesDateFilter = (filter: string, value: string) => {
   if (filter === "all") return true;
 
@@ -326,14 +353,7 @@ const DiagnosticsPendingResults = () => {
                           <span className="font-mono">{visit.billNumber}</span>
                         </span>
                         <span className="text-muted-foreground">
-                          Tests:{" "}
-                          {testOrders
-                            .filter(
-                              (testOrder) =>
-                                testOrder.workflowMode !== "BILL_ONLY",
-                            )
-                            .map((testOrder) => testOrder.testCode)
-                            .join(", ")}
+                          Tests: {formatTestList(testOrders)}
                         </span>
                         {visit.hasBillOnlyOrders &&
                           (visit.hasReportInclusionOrders ??
