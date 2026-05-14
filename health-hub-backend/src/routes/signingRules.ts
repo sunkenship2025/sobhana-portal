@@ -35,7 +35,17 @@ router.get('/', async (req: AuthRequest, res) => {
       include: {
         department: { select: { id: true, name: true } },
         signingDoctor: {
-          select: { id: true, name: true, degrees: true, designation: true },
+          // signatureImageBase64 + signatureImagePath let the entry-page
+          // preview show the same sign-off the final PDF will carry.
+          select: {
+            id: true,
+            name: true,
+            degrees: true,
+            designation: true,
+            registrationNumber: true,
+            signatureImageBase64: true,
+            signatureImagePath: true,
+          },
         },
       },
       orderBy: [

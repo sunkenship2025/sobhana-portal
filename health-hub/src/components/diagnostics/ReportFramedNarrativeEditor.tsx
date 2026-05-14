@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { API_BASE } from '@/lib/api';
 import {
   RichTextSurface,
   type RichTextSurfaceHandle,
@@ -24,6 +25,15 @@ export interface FramedVisit {
   sampleType?: string | null;
 }
 
+export interface FramedSignature {
+  name: string;
+  degrees: string;
+  designation: string;
+  registrationNumber?: string | null;
+  signatureImageBase64?: string | null;
+  signatureImagePath?: string | null;
+}
+
 interface ReportFramedNarrativeEditorProps {
   value: string;
   onChange: (value: string) => void;
@@ -33,6 +43,10 @@ interface ReportFramedNarrativeEditorProps {
   panelDisplayName: string;
   testCode?: string;
   placeholder?: string;
+  /** Signing rule for this department — drives the sign-off block at the
+   *  bottom of the framed page. When omitted, a generic placeholder is shown
+   *  so the layout still matches the printed report. */
+  signature?: FramedSignature | null;
   /** Fires the first time the editor gains focus. The parent uses this as a
    *  proxy for "the radiologist actually touched this report" so the partial-
    *  release dialog can default-uncheck untouched template-only narratives. */
@@ -71,6 +85,7 @@ export function ReportFramedNarrativeEditor({
   panelDisplayName,
   testCode,
   placeholder = 'Start writing the narrative report...',
+  signature,
   onFirstTouch,
 }: ReportFramedNarrativeEditorProps) {
   const surfaceRef = useRef<RichTextSurfaceHandle>(null);
@@ -192,6 +207,50 @@ export function ReportFramedNarrativeEditor({
             <div className="report-note">
               Note: Please correlate clinically if necessary.
             </div>
+
+            {(() => {
+              // Sign-off block: image when we have one, doctor details when we
+              // have a configured signing rule, or a generic placeholder so the
+              // layout still matches the printed report's footer reservation.
+              const sigImg =
+                signature?.signatureImageBase64
+                  ? signature.signatureImageBase64
+                  : signature?.signatureImagePath
+                  ? `${API_BASE.replace(/\/api$/, '')}${signature.signatureImagePath}`
+                  : null;
+              const designation = signature?.designation || 'Consultant';
+              return (
+                <div className="report-signature">
+                  <div className="report-signature-block">
+                    {sigImg ? (
+                      <img
+                        src={sigImg}
+                        alt="Signature"
+                        className="report-signature-image"
+                      />
+                    ) : (
+                      <div className="report-signature-line" />
+                    )}
+                    {signature?.name && (
+                      <div className="report-signature-name">{signature.name}</div>
+                    )}
+                    {signature?.degrees && (
+                      <div className="report-signature-degrees">
+                        {signature.degrees}
+                      </div>
+                    )}
+                    <div className="report-signature-designation">
+                      {designation}
+                    </div>
+                    {signature?.registrationNumber && (
+                      <div className="report-signature-reg">
+                        Reg. No: {signature.registrationNumber}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>
