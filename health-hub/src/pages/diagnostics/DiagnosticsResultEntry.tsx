@@ -2189,120 +2189,185 @@ const DiagnosticsResultEntry = () => {
       {/* Partial-release selector — opens when staff hits "Continue with
           Partial Report" and there's a real choice to make. Smart-defaulted
           so most clicks are pass-through; the explicit step prevents shipping
-          template-only narratives that look "ready" by row presence alone. */}
-      <PartialReleaseSelectorDialog
-        open={partialDialogOpen}
-        onOpenChange={setPartialDialogOpen}
-        groups={(() => {
-          const groupMap = new Map<string, PartialReleaseGroup>();
-          testOrders.forEach((order) => {
-            const status = orderStatuses.get(order.id);
-            // Missing-PDF external-upload orders are still surfaced in the
-            // dialog (as a disabled row) so the doctor can see what is NOT
-            // shipping in this batch. Other 'empty' orders stay hidden.
-            const isMissingUpload =
-              order.workflowMode === 'EXTERNAL_UPLOAD' &&
-              (uploadsByOrder[order.id]?.length ?? 0) === 0;
-            if (status === 'empty' && !isMissingUpload) return;
+          template-only narratives that look "ready" by row presence alone.
+          Rows are collapsed by panel so a panel with N constituent test
+          orders shows as a single line, not N near-identical duplicates. */}
+      {(() => {
+        // Aggregate test orders into panel-level rows. Each row represents
+        // one panel (or one standalone test if not part of a panel); when
+        // a panel was ordered as multiple sub-orders they collapse here.
+        type PanelAgg = {
+          rowId: string;
+          departmentName: string;
+          label: string;
+          orderIds: string[];
+          statuses: TestOrderStatus[];
+          disabledFlags: boolean[];
+          uploadCounts: number[];
+          paramFilled: number;
+          paramTotal: number;
+          isNarrative: boolean;
+          narrativeTouched: boolean;
+          workflowMode?: TestOrder['workflowMode'];
+        };
+        const panelMap = new Map<string, PanelAgg>();
 
-            const deptName = order.department?.name || 'Tests';
-            if (!groupMap.has(deptName)) {
-              groupMap.set(deptName, { departmentName: deptName, orders: [] });
-            }
+        testOrders.forEach((order) => {
+          const status = orderStatuses.get(order.id);
+          const isMissingUpload =
+            order.workflowMode === 'EXTERNAL_UPLOAD' &&
+            (uploadsByOrder[order.id]?.length ?? 0) === 0;
+          if (status === 'empty' && !isMissingUpload) return;
 
-            // Build a status hint per order. The hint is the only place where
-            // staff sees *why* a test is/isn't pre-checked.
-            let hint: string | undefined;
-            let hintVariant: 'normal' | 'warning' | undefined;
-            let sublabel: string | undefined;
-            let rowDisabled = false;
+          const deptName = order.department?.name || 'Tests';
+          const panelKey = order.panel?.id
+            ? `panel:${order.panel.id}`
+            : `order:${order.id}`;
+          const rowId = `${deptName}::${panelKey}`;
 
-            if (order.workflowMode === 'EXTERNAL_UPLOAD') {
-              const count = uploadsByOrder[order.id]?.length ?? 0;
-              if (count === 0) {
-                hint = 'No PDF uploaded — cannot ship';
-                hintVariant = 'warning';
-                rowDisabled = true;
-              } else {
-                hint = `${count} file${count === 1 ? '' : 's'} uploaded`;
-              }
-            } else if (status === 'template-only') {
-              hint = 'Template only — not edited yet';
+          if (!panelMap.has(rowId)) {
+            panelMap.set(rowId, {
+              rowId,
+              departmentName: deptName,
+              label:
+                order.panel?.displayName ||
+                order.panel?.name ||
+                order.testName,
+              orderIds: [],
+              statuses: [],
+              disabledFlags: [],
+              uploadCounts: [],
+              paramFilled: 0,
+              paramTotal: 0,
+              isNarrative: false,
+              narrativeTouched: false,
+              workflowMode: order.workflowMode,
+            });
+          }
+          const agg = panelMap.get(rowId)!;
+          agg.orderIds.push(order.id);
+          if (status) agg.statuses.push(status);
+
+          let rowDisabled = false;
+          if (order.workflowMode === 'EXTERNAL_UPLOAD') {
+            const count = uploadsByOrder[order.id]?.length ?? 0;
+            agg.uploadCounts.push(count);
+            if (count === 0) rowDisabled = true;
+          }
+          agg.disabledFlags.push(rowDisabled);
+
+          const ids =
+            order.isPanel && order.childTests && order.childTests.length > 0
+              ? order.childTests.map((c) => c.id)
+              : [order.testId];
+          agg.paramTotal += ids.length;
+          agg.paramFilled += ids.filter((id) =>
+            hasResultValue(results[id], textLayoutByTestId.get(id)),
+          ).length;
+
+          const narrativeIds = ids.filter((id) =>
+            isRichTextPanelLayout(textLayoutByTestId.get(id)),
+          );
+          if (narrativeIds.length > 0) agg.isNarrative = true;
+          if (narrativeIds.some((id) => touchedNarrativeTestIds.has(id))) {
+            agg.narrativeTouched = true;
+          }
+        });
+
+        const groupMap = new Map<string, PartialReleaseGroup>();
+        const rowToOrderIds = new Map<string, string[]>();
+
+        panelMap.forEach((agg) => {
+          if (!groupMap.has(agg.departmentName)) {
+            groupMap.set(agg.departmentName, {
+              departmentName: agg.departmentName,
+              orders: [],
+            });
+          }
+
+          const allDisabled =
+            agg.disabledFlags.length > 0 &&
+            agg.disabledFlags.every(Boolean);
+          const allComplete =
+            agg.statuses.length > 0 &&
+            agg.statuses.every((s) => s === 'complete');
+          const anyTemplateOnly = agg.statuses.some(
+            (s) => s === 'template-only',
+          );
+
+          let hint: string | undefined;
+          let hintVariant: 'normal' | 'warning' | undefined;
+          let sublabel: string | undefined;
+
+          if (agg.workflowMode === 'EXTERNAL_UPLOAD') {
+            const totalUploads = agg.uploadCounts.reduce((a, b) => a + b, 0);
+            const missingCount = agg.uploadCounts.filter((c) => c === 0).length;
+            if (allDisabled) {
+              hint = 'No PDF uploaded — cannot ship';
+              hintVariant = 'warning';
+            } else if (missingCount > 0) {
+              hint = `${missingCount} of ${agg.uploadCounts.length} missing PDF`;
               hintVariant = 'warning';
             } else {
-              // Summarise content for non-narrative tests so staff sees the
-              // actual value before deciding to release.
-              const ids =
-                order.isPanel && order.childTests && order.childTests.length > 0
-                  ? order.childTests.map((c) => c.id)
-                  : [order.testId];
-              const filledIds = ids.filter((id) =>
-                hasResultValue(results[id], textLayoutByTestId.get(id)),
-              );
-              if (
-                ids.length === 1 &&
-                !isRichTextPanelLayout(textLayoutByTestId.get(ids[0]))
-              ) {
-                const v = results[ids[0]];
-                if (v) sublabel = `value: ${v}`;
-              } else if (filledIds.length > 0) {
-                hint = `${filledIds.length} of ${ids.length} parameters entered`;
-              }
+              hint = `${totalUploads} file${totalUploads === 1 ? '' : 's'} uploaded`;
             }
+          } else if (anyTemplateOnly && !allComplete) {
+            hint = 'Template only — not edited yet';
+            hintVariant = 'warning';
+          } else if (agg.paramTotal === 1 && !agg.isNarrative) {
+            // Single-parameter standalone test — surface the value inline.
+            const onlyOrderId = agg.orderIds[0];
+            const order = testOrders.find((o) => o.id === onlyOrderId);
+            const onlyTestId = order?.testId;
+            const v = onlyTestId ? results[onlyTestId] : undefined;
+            if (v) sublabel = `value: ${v}`;
+          } else if (agg.paramTotal > 0) {
+            hint = `${agg.paramFilled} of ${agg.paramTotal} parameter${agg.paramTotal === 1 ? '' : 's'} entered`;
+          }
 
-            // Pre-tick rule:
-            //   • Non-narrative (numeric / external upload): tick if `complete`.
-            //   • Narrative: tick if the radiologist either touched the editor
-            //     this session OR the saved content differs from the template
-            //     (i.e. status === 'complete'). Touched-but-unedited narratives
-            //     show up pre-ticked so the radiologist can confirm or untick
-            //     — clicks can be accidental, so a touched narrative still
-            //     forces the dialog to open instead of going straight to
-            //     finalize.
-            const narrativeIds = (
-              order.isPanel && order.childTests && order.childTests.length > 0
-                ? order.childTests.map((c) => c.id)
-                : [order.testId]
-            ).filter((id) => isRichTextPanelLayout(textLayoutByTestId.get(id)));
-            const isNarrativeOrder = narrativeIds.length > 0;
-            const narrativeTouched = narrativeIds.some((id) =>
-              touchedNarrativeTestIds.has(id),
-            );
-            const defaultChecked = rowDisabled
-              ? false
-              : isNarrativeOrder
-              ? narrativeTouched || status === 'complete'
-              : status === 'complete';
+          const defaultChecked = allDisabled
+            ? false
+            : agg.isNarrative
+            ? agg.narrativeTouched || allComplete
+            : allComplete;
 
-            const label = order.panel?.displayName || order.panel?.name || order.testName;
-            groupMap.get(deptName)!.orders.push({
-              id: order.id,
-              label,
-              sublabel,
-              hint,
-              hintVariant,
-              defaultChecked,
-              disabled: rowDisabled,
-            });
+          groupMap.get(agg.departmentName)!.orders.push({
+            id: agg.rowId,
+            label: agg.label,
+            sublabel,
+            hint,
+            hintVariant,
+            defaultChecked,
+            disabled: allDisabled,
           });
-          return Array.from(groupMap.values());
-        })()}
-        busy={saving}
-        onConfirm={(selectedOrderIds) => {
-          setPartialDialogOpen(false);
-          // If the radiologist ticked every eligible order, the release is
-          // effectively a full finalize. Skip passing `partialSelection` so
-          // the preview page treats this exactly like the fullyDone path:
-          // user sees "Looks Good — Finalize" in the preview modal and the
-          // backend hits /finalize (closes visit, refreshes payouts, sends
-          // the "final" WhatsApp template). Otherwise it's a real partial.
-          const selectedSet = new Set(selectedOrderIds);
-          const isFullSelection =
-            selectedOrderIds.length === partialEligibleOrderIds.length &&
-            partialEligibleOrderIds.every((id) => selectedSet.has(id));
-          void saveResults(isFullSelection ? undefined : selectedOrderIds);
-        }}
-      />
+          rowToOrderIds.set(agg.rowId, agg.orderIds);
+        });
+
+        return (
+          <PartialReleaseSelectorDialog
+            open={partialDialogOpen}
+            onOpenChange={setPartialDialogOpen}
+            groups={Array.from(groupMap.values())}
+            busy={saving}
+            onConfirm={(selectedRowIds) => {
+              setPartialDialogOpen(false);
+              // Expand selected panel-row IDs back to the underlying test
+              // order IDs the backend expects.
+              const expanded = selectedRowIds.flatMap(
+                (rowId) => rowToOrderIds.get(rowId) ?? [],
+              );
+              // If every eligible order is selected, treat as a full
+              // finalize (skip partialSelection so the preview/finalize
+              // path takes over — see comment on saveResults).
+              const selectedSet = new Set(expanded);
+              const isFullSelection =
+                expanded.length === partialEligibleOrderIds.length &&
+                partialEligibleOrderIds.every((id) => selectedSet.has(id));
+              void saveResults(isFullSelection ? undefined : expanded);
+            }}
+          />
+        );
+      })()}
 
       {/* Extreme Value Warning */}
       <AlertDialog open={showWarning} onOpenChange={setShowWarning}>
