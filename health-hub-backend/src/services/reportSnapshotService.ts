@@ -78,6 +78,11 @@ export interface PanelSnapshot {
   valueDisplayPrefix?: string | null;
   tests: TestResultSnapshot[];
   interpretationHtml?: string;
+  /** Per-narrative signer override the radiologist typed below the framed
+   *  editor. When non-empty the renderer prints just this name above the
+   *  department designation for this panel's page, regardless of any
+   *  configured SigningRule. */
+  signerNameOverride?: string | null;
 }
 
 export interface DepartmentSnapshot {
@@ -200,7 +205,7 @@ type LatestDefinitionFormula = {
  *   - "-ISTRY"  → "-ist"       (BIOCHEMISTRY → Biochemist, DENTISTRY → Dentist)
  *   - otherwise → "Consultant <Title-cased name>"
  */
-function deriveConsultantTitle(departmentName: string): string {
+export function deriveConsultantTitle(departmentName: string): string {
   const lower = departmentName.toLowerCase().trim();
   if (!lower) return 'Consultant';
 
@@ -836,7 +841,14 @@ function buildPanelsAndDepartments(
   resolvedRanges: Map<string, { referenceMin: number | null; referenceMax: number | null; referenceUnit: string | null; referenceText: string | null; criticalMin: number | null; criticalMax: number | null }>,
   orderedPanelIds?: Set<string>
 ): DepartmentSnapshot[] {
-  const panelMap = new Map<string, { panel: any; results: any[] }>();
+  // `signerNameOverride` is the doctor name a radiologist typed into the
+  // per-narrative override input. First non-empty value wins at the panel
+  // level — in practice narrative panels have one test result, so there's
+  // only one signer per panel.
+  const panelMap = new Map<
+    string,
+    { panel: any; results: any[]; signerNameOverride: string | null }
+  >();
 
   // _AUTO_<CODE> panels are auto-generated single-test wrappers created so that
   // standalone tests can be billed and ordered. They are not real clinical groupings.
@@ -902,6 +914,12 @@ function buildPanelsAndDepartments(
     // Determine which architecture to use
     const useNewChain = testDef && testDef.panelItems && testDef.panelItems.length > 0;
 
+    const resultSignerOverride =
+      typeof (result as any).signerNameOverride === 'string' &&
+      (result as any).signerNameOverride.trim()
+        ? ((result as any).signerNameOverride as string).trim()
+        : null;
+
     if (useNewChain) {
       // ━━ NEW ARCHITECTURE: ClinicalPanelItem → ClinicalPanel ━━
       const chosenItems = pickRenderPanelItems(testDef.panelItems);
@@ -910,7 +928,10 @@ function buildPanelsAndDepartments(
         const key = panel.id;
 
         if (!panelMap.has(key)) {
-          panelMap.set(key, { panel, results: [] });
+          panelMap.set(key, { panel, results: [], signerNameOverride: null });
+        }
+        if (resultSignerOverride && !panelMap.get(key)!.signerNameOverride) {
+          panelMap.get(key)!.signerNameOverride = resultSignerOverride;
         }
 
         // Match interpretation using InterpretationRule (operator-based)
@@ -957,7 +978,10 @@ function buildPanelsAndDepartments(
         const key = panel.id;
 
         if (!panelMap.has(key)) {
-          panelMap.set(key, { panel, results: [] });
+          panelMap.set(key, { panel, results: [], signerNameOverride: null });
+        }
+        if (resultSignerOverride && !panelMap.get(key)!.signerNameOverride) {
+          panelMap.get(key)!.signerNameOverride = resultSignerOverride;
         }
 
         const interpretationText = matchLegacyInterpretation(
@@ -1016,7 +1040,11 @@ function buildPanelsAndDepartments(
             department: dept || { id: '__general__', name: 'General', reportHeaderText: '', displayOrder: 9999, showLabIncharge: true },
           },
           results: [],
+          signerNameOverride: null,
         });
+      }
+      if (resultSignerOverride && !panelMap.get(orphanPanelKey)!.signerNameOverride) {
+        panelMap.get(orphanPanelKey)!.signerNameOverride = resultSignerOverride;
       }
 
       panelMap.get(orphanPanelKey)!.results.push({
@@ -1050,7 +1078,7 @@ function buildPanelsAndDepartments(
   // Group panels by department
   const departmentMap = new Map<string, DepartmentSnapshot>();
 
-  for (const [_panelId, { panel, results }] of panelMap) {
+  for (const [_panelId, { panel, results, signerNameOverride }] of panelMap) {
     const dept = panel.department;
     const deptId = dept.id;
 
@@ -1105,6 +1133,7 @@ function buildPanelsAndDepartments(
       valueDisplayPrefix: panel.valueDisplayPrefix ?? null,
       tests: results,
       interpretationHtml,
+      signerNameOverride,
     });
   }
 
