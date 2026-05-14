@@ -650,6 +650,7 @@ router.get("/:id", async (req: AuthRequest, res) => {
             textValue: true,
             flag: true,
             notes: true,
+            signerNameOverride: true,
             createdAt: true,
             testDefinitionId: true,
             test: {
@@ -749,6 +750,7 @@ router.get("/:id", async (req: AuthRequest, res) => {
             textValue: true,
             flag: true,
             notes: true,
+            signerNameOverride: true,
             createdAt: true,
             testDefinitionId: true,
             test: {
@@ -2805,11 +2807,19 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
           },
         });
 
-        // Create new result (either numeric value, textValue, or text notes)
+        // Create new result (numeric value, textValue, notes, OR a typed
+        // doctor-name override — the override alone is enough to materialize
+        // a TestResult row so it round-trips on reload).
+        const signerOverride =
+          typeof result.signerNameOverride === "string" &&
+          result.signerNameOverride.trim()
+            ? result.signerNameOverride.trim()
+            : null;
         if (
           (result.value !== null && result.value !== undefined) ||
           result.textValue ||
-          (result.notes && result.notes.trim())
+          (result.notes && result.notes.trim()) ||
+          signerOverride
         ) {
           const numericValue =
             result.value != null ? parseFloat(result.value) : NaN;
@@ -2835,6 +2845,7 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
               notes: normalizedNotes,
               testDefinitionId: defId,
               enteredByUserId: req.user!.id,
+              signerNameOverride: signerOverride,
             },
           });
         }
@@ -4125,6 +4136,7 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
             notes: r.notes,
             testDefinitionId: r.testDefinitionId,
             enteredByUserId: r.enteredByUserId,
+            signerNameOverride: r.signerNameOverride,
           })),
         });
       }

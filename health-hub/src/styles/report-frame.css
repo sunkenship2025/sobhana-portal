@@ -227,3 +227,80 @@
   margin-top: 22px;
   font-weight: 600;
 }
+
+/* Sign-off block — mirrors the PDF's right-aligned "Dr. Name / Consultant
+   Radiologist" footer so radiologists can see what will print. Lives inside
+   the framed page so the typography matches the rest of the report. */
+.report-frame-scope .report-sign-block {
+  margin-top: 28px;
+  text-align: right;
+  font-family: var(--rfs-font-primary);
+}
+
+.report-frame-scope .report-sign-name {
+  font-size: 12pt;
+  font-weight: 700;
+  color: var(--rfs-color-text);
+  line-height: 1.3;
+}
+
+.report-frame-scope .report-sign-designation {
+  font-size: 11pt;
+  color: var(--rfs-color-text);
+  line-height: 1.3;
+}
+
+/* "Doctor's Name" input row that lives BELOW the framed page (not inside it,
+   so it never gets baked into the narrative HTML). Tight, blends with the
+   rest of the entry form. */
+.report-sign-input-wrapper {
+  margin-top: 14px;
+  max-width: min(960px, 100%);
+  margin-left: auto;
+  margin-right: auto;
+  padding: 0 4px;
+}
+
+.report-sign-input-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.report-sign-input-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.report-sign-input-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+}
+
+.report-sign-input {
+  flex: 1;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 14px;
+  background: white;
+  color: #0f172a;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.report-sign-input:focus {
+  outline: none;
+  border-color: var(--rfs-color-primary, #1f3e6e);
+  box-shadow: 0 0 0 3px rgba(31, 62, 110, 0.15);
+}
+
+.report-sign-input:disabled {
+  background: #f1f5f9;
+  color: #64748b;
+  cursor: not-allowed;
+  border-color: #e2e8f0;
+}
