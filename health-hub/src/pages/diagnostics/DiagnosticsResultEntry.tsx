@@ -2036,31 +2036,42 @@ const DiagnosticsResultEntry = () => {
                 ? 'Review & Finalize'
                 : 'Continue with Partial Report';
 
+              // Narrative AND external-upload tests both look "complete" the
+              // moment the doctor adds content / a file, even when they're
+              // still drafting (typed a paragraph, uploaded one of three
+              // expected PDFs, etc.). Always route via the partial-release
+              // dialog when either is present so the doctor explicitly
+              // confirms what ships — Cancel safely backs out (auto-save
+              // and uploaded files are preserved).
+              const hasExternalUploadTests = testOrders.some(
+                (o) => o.workflowMode === 'EXTERNAL_UPLOAD',
+              );
+              const requiresExplicitConfirmation =
+                hasNarrativeTests || hasExternalUploadTests;
+
               const handleClick = () => {
-                // Narrative tests can look "complete" the moment the doctor
-                // types anything, even when they're still drafting. Always
-                // route via the partial-release dialog when narratives are
-                // present so the doctor explicitly confirms what ships —
-                // Cancel safely backs out (auto-save already preserved the
-                // in-progress content).
-                if (fullyDone && !hasNarrativeTests) {
-                  // Pure numeric / upload visit — reuse the extreme-value
-                  // validation flow so we don't bypass the warning dialog
-                  // for fully-done visits.
+                if (fullyDone && !requiresExplicitConfirmation) {
+                  // Pure numeric visit — reuse the extreme-value validation
+                  // flow so we don't bypass the warning dialog for fully-
+                  // done visits.
                   handleSaveDraft();
                   return;
                 }
-                if (partialEligibleOrderIds.length <= 1 && !hasNarrativeTests) {
-                  // Zero or one eligible non-narrative order — no choice to
-                  // make in a dialog. Route through the standard save path
-                  // with NO partialSelection; the preview page then decides
-                  // between /finalize and /release-partial based on whether
-                  // other reportable orders in the visit are still pending.
+                if (
+                  partialEligibleOrderIds.length <= 1 &&
+                  !requiresExplicitConfirmation
+                ) {
+                  // Zero or one eligible non-narrative / non-upload order
+                  // — no choice to make in a dialog. Route through the
+                  // standard save path with NO partialSelection; the
+                  // preview page then decides between /finalize and
+                  // /release-partial based on whether other reportable
+                  // orders in the visit are still pending.
                   void saveResults(undefined);
                   return;
                 }
-                // Multiple orders eligible, or any narrative present — open
-                // the selector dialog so the doctor confirms.
+                // Multiple orders eligible, or any narrative / upload
+                // present — open the selector dialog so the doctor confirms.
                 setPartialDialogOpen(true);
               };
 
@@ -2071,7 +2082,7 @@ const DiagnosticsResultEntry = () => {
                     className="w-full mt-2"
                     size="lg"
                     onClick={handleClick}
-                    disabled={saving || !hasReportableInputs || hasMissingExternalUploads}
+                    disabled={saving || !hasReportableInputs}
                   >
                     {saving ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
