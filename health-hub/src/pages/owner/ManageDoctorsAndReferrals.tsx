@@ -126,6 +126,14 @@ export default function ManageDoctorsAndReferrals() {
   const [centerDeleteId, setCenterDeleteId] = useState<string | null>(null);
   const [centerForm, setCenterForm] = useState({ ...EMPTY_CENTER_FORM });
 
+  // In-flight guards to prevent double-submit on each form/dialog.
+  const [refSubmitting, setRefSubmitting] = useState(false);
+  const [refDeleting, setRefDeleting] = useState(false);
+  const [clinicSubmitting, setClinicSubmitting] = useState(false);
+  const [clinicDeleting, setClinicDeleting] = useState(false);
+  const [centerSubmitting, setCenterSubmitting] = useState(false);
+  const [centerDeleting, setCenterDeleting] = useState(false);
+
   // ═══════════════════════════════════════════════════════════════════════════
   // REFERRAL DOCTORS
   // ═══════════════════════════════════════════════════════════════════════════
@@ -303,6 +311,8 @@ export default function ManageDoctorsAndReferrals() {
       })),
     };
 
+    if (refSubmitting) return;
+    setRefSubmitting(true);
     try {
       if (refEditingId) {
         const res = await fetch(`${API_BASE}/referral-doctors/${refEditingId}`, {
@@ -324,6 +334,7 @@ export default function ManageDoctorsAndReferrals() {
       await fetchReferralDoctors();
       refResetForm();
     } catch { toast.error('Failed to save doctor'); }
+    finally { setRefSubmitting(false); }
   };
 
   const handleRefEdit = (doc: any) => {
@@ -342,6 +353,8 @@ export default function ManageDoctorsAndReferrals() {
 
   const handleRefDelete = async () => {
     if (!refDeleteId) return;
+    if (refDeleting) return;
+    setRefDeleting(true);
     try {
       const res = await fetch(`${API_BASE}/referral-doctors/${refDeleteId}`, {
         method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
@@ -350,6 +363,7 @@ export default function ManageDoctorsAndReferrals() {
       toast.success('Doctor deleted');
       await fetchReferralDoctors();
     } catch { toast.error('Failed to delete'); }
+    finally { setRefDeleting(false); }
     setRefDeleteId(null);
   };
 
@@ -441,6 +455,8 @@ export default function ManageDoctorsAndReferrals() {
       commissionPercent: clinicForm.commissionType === 'PERCENTAGE' ? Number(clinicForm.commissionPercent || 100) : undefined,
       commissionAmount: clinicForm.commissionType === 'FIXED_AMOUNT' ? Number(clinicForm.commissionAmount || 0) : undefined,
     };
+    if (clinicSubmitting) return;
+    setClinicSubmitting(true);
     try {
       if (clinicEditingId) {
         const res = await fetch(`${API_BASE}/clinic-doctors/${clinicEditingId}`, {
@@ -462,6 +478,7 @@ export default function ManageDoctorsAndReferrals() {
       await fetchClinicDoctors();
       clinicResetForm();
     } catch { toast.error('Failed to save doctor'); }
+    finally { setClinicSubmitting(false); }
   };
 
   const handleClinicEdit = (doc: any) => {
@@ -478,6 +495,8 @@ export default function ManageDoctorsAndReferrals() {
 
   const handleClinicDelete = async () => {
     if (!clinicDeleteId) return;
+    if (clinicDeleting) return;
+    setClinicDeleting(true);
     try {
       const res = await fetch(`${API_BASE}/clinic-doctors/${clinicDeleteId}`, {
         method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
@@ -486,6 +505,7 @@ export default function ManageDoctorsAndReferrals() {
       toast.success('Doctor deleted');
       await fetchClinicDoctors();
     } catch { toast.error('Failed to delete'); }
+    finally { setClinicDeleting(false); }
     setClinicDeleteId(null);
   };
 
@@ -597,6 +617,8 @@ export default function ManageDoctorsAndReferrals() {
         ...toReferralPayoutPayload(rule),
       })),
     };
+    if (centerSubmitting) return;
+    setCenterSubmitting(true);
     try {
       if (centerEditingId) {
         const res = await fetch(`${API_BASE}/diagnostic-centers/${centerEditingId}`, {
@@ -614,6 +636,7 @@ export default function ManageDoctorsAndReferrals() {
       await fetchCenters();
       centerResetForm();
     } catch { toast.error('Failed to save center'); }
+    finally { setCenterSubmitting(false); }
   };
 
   const handleCenterEdit = (center: DiagnosticCenter) => {
@@ -647,6 +670,8 @@ export default function ManageDoctorsAndReferrals() {
 
   const handleCenterDelete = async () => {
     if (!centerDeleteId) return;
+    if (centerDeleting) return;
+    setCenterDeleting(true);
     try {
       const res = await fetch(`${API_BASE}/diagnostic-centers/${centerDeleteId}`, {
         method: 'DELETE', headers: branchHeaders(token),
@@ -655,6 +680,7 @@ export default function ManageDoctorsAndReferrals() {
       toast.success('Center deactivated');
       await fetchCenters();
     } catch { toast.error('Failed to delete'); }
+    finally { setCenterDeleting(false); }
     setCenterDeleteId(null);
   };
 
@@ -895,7 +921,7 @@ export default function ManageDoctorsAndReferrals() {
 
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={refResetForm}><X className="h-4 w-4 mr-2" />Cancel</Button>
-                <Button onClick={handleRefSubmit}><Check className="h-4 w-4 mr-2" />{refEditingId ? 'Update' : 'Add'}</Button>
+                <Button onClick={handleRefSubmit} disabled={refSubmitting}><Check className="h-4 w-4 mr-2" />{refSubmitting ? 'Saving...' : (refEditingId ? 'Update' : 'Add')}</Button>
               </div>
             </CardContent>
           </Card>
@@ -969,7 +995,7 @@ export default function ManageDoctorsAndReferrals() {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleRefDelete} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
+              <AlertDialogAction onClick={handleRefDelete} disabled={refDeleting} className="bg-destructive text-destructive-foreground">{refDeleting ? 'Deleting...' : 'Delete'}</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
@@ -1093,7 +1119,7 @@ export default function ManageDoctorsAndReferrals() {
 
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={clinicResetForm}><X className="h-4 w-4 mr-2" />Cancel</Button>
-                <Button onClick={handleClinicSubmit}><Check className="h-4 w-4 mr-2" />{clinicEditingId ? 'Update' : 'Add'}</Button>
+                <Button onClick={handleClinicSubmit} disabled={clinicSubmitting}><Check className="h-4 w-4 mr-2" />{clinicSubmitting ? 'Saving...' : (clinicEditingId ? 'Update' : 'Add')}</Button>
               </div>
             </CardContent>
           </Card>
@@ -1155,7 +1181,7 @@ export default function ManageDoctorsAndReferrals() {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleClinicDelete} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
+              <AlertDialogAction onClick={handleClinicDelete} disabled={clinicDeleting} className="bg-destructive text-destructive-foreground">{clinicDeleting ? 'Deleting...' : 'Delete'}</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
@@ -1394,7 +1420,7 @@ export default function ManageDoctorsAndReferrals() {
 
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={centerResetForm}><X className="h-4 w-4 mr-2" />Cancel</Button>
-                <Button onClick={handleCenterSubmit}><Check className="h-4 w-4 mr-2" />{centerEditingId ? 'Update' : 'Add'}</Button>
+                <Button onClick={handleCenterSubmit} disabled={centerSubmitting}><Check className="h-4 w-4 mr-2" />{centerSubmitting ? 'Saving...' : (centerEditingId ? 'Update' : 'Add')}</Button>
               </div>
             </CardContent>
           </Card>
@@ -1478,7 +1504,7 @@ export default function ManageDoctorsAndReferrals() {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleCenterDelete} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
+              <AlertDialogAction onClick={handleCenterDelete} disabled={centerDeleting} className="bg-destructive text-destructive-foreground">{centerDeleting ? 'Deleting...' : 'Delete'}</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

@@ -239,6 +239,7 @@ export default function ManageClinicalDefinitions() {
   // Delete dialog
   const [deleteConfirm, setDeleteConfirm] = useState<TestDefinition | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [transitioningDefIds, setTransitioningDefIds] = useState<Set<string>>(() => new Set());
 
   // Form fields
   const [formName, setFormName] = useState('');
@@ -530,6 +531,12 @@ export default function ManageClinicalDefinitions() {
   };
 
   const handleStatusTransition = async (def: TestDefinition, newStatus: string) => {
+    if (transitioningDefIds.has(def.id)) return;
+    setTransitioningDefIds((prev) => {
+      const next = new Set(prev);
+      next.add(def.id);
+      return next;
+    });
     try {
       const res = await fetch(`${API_BASE}/clinical-definitions/${def.id}/status`, {
         method: 'PATCH', headers,
@@ -543,6 +550,12 @@ export default function ManageClinicalDefinitions() {
       fetchDefinitions();
     } catch (err: any) {
       toast.error(err.message);
+    } finally {
+      setTransitioningDefIds((prev) => {
+        const next = new Set(prev);
+        next.delete(def.id);
+        return next;
+      });
     }
   };
 
@@ -843,6 +856,7 @@ export default function ManageClinicalDefinitions() {
                           <Button
                             key={a.status} size="sm" variant={a.variant}
                             onClick={() => handleStatusTransition(def, a.status)}
+                            disabled={transitioningDefIds.has(def.id)}
                             className="h-7 text-xs px-2"
                           >
                             {a.status === 'LOCKED' && <Lock className="h-3 w-3 mr-1" />}

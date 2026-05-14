@@ -39,6 +39,8 @@ const ManageClinicDoctors = () => {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [existingDoctor, setExistingDoctor] = useState<any>(null);
   const [linkedDoctorId, setLinkedDoctorId] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Fetch clinic doctors from API
   const fetchClinicDoctors = async () => {
@@ -179,6 +181,8 @@ const ManageClinicDoctors = () => {
       referralDoctorId: linkedDoctorId,
     };
 
+    if (submitting) return;
+    setSubmitting(true);
     try {
       if (editingId) {
         // Update existing doctor via API
@@ -224,6 +228,8 @@ const ManageClinicDoctors = () => {
     } catch (err) {
       console.error('Error saving doctor:', err);
       toast.error('Failed to save doctor');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -242,25 +248,29 @@ const ManageClinicDoctors = () => {
 
   const handleDelete = async () => {
     if (deleteId) {
+      if (deleting) return;
+      setDeleting(true);
       try {
         const res = await fetch(`${API_BASE}/clinic-doctors/${deleteId}`, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${token}` }
         });
-        
+
         if (!res.ok) {
           const err = await res.json();
           toast.error(err.message || 'Failed to delete doctor');
           return;
         }
-        
+
         toast.success('Doctor deleted');
         await fetchClinicDoctors();
       } catch (err) {
         console.error('Error deleting doctor:', err);
         toast.error('Failed to delete doctor');
+      } finally {
+        setDeleting(false);
+        setDeleteId(null);
       }
-      setDeleteId(null);
     }
   };
 
@@ -389,9 +399,9 @@ const ManageClinicDoctors = () => {
                   <X className="h-4 w-4 mr-2" />
                   Cancel
                 </Button>
-                <Button onClick={handleSubmit}>
+                <Button onClick={handleSubmit} disabled={submitting}>
                   <Check className="h-4 w-4 mr-2" />
-                  {editingId ? 'Update' : 'Add'} Doctor
+                  {submitting ? 'Saving...' : `${editingId ? 'Update' : 'Add'} Doctor`}
                 </Button>
               </div>
             </CardContent>
@@ -451,9 +461,9 @@ const ManageClinicDoctors = () => {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
-              Delete
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} disabled={deleting} className="bg-destructive text-destructive-foreground">
+              {deleting ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -19,6 +19,12 @@ export interface PartialReleaseOrder {
   hint?: string;
   hintVariant?: 'normal' | 'warning';
   defaultChecked: boolean;
+  /**
+   * When true, the row is rendered un-toggleable (greyed out, checkbox locked
+   * to unchecked). Used to surface orders that exist on the visit but cannot
+   * ship in this batch (e.g. an EXTERNAL_UPLOAD test with no PDF uploaded).
+   */
+  disabled?: boolean;
 }
 
 export interface PartialReleaseGroup {
@@ -58,12 +64,15 @@ export function PartialReleaseSelectorDialog({
     if (!open) return;
     const fresh = new Set<string>();
     allOrders.forEach((o) => {
+      if (o.disabled) return;
       if (o.defaultChecked) fresh.add(o.id);
     });
     setSelected(fresh);
   }, [open, allOrders]);
 
   const toggle = (id: string) => {
+    const order = allOrders.find((o) => o.id === id);
+    if (order?.disabled) return;
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -72,7 +81,9 @@ export function PartialReleaseSelectorDialog({
     });
   };
 
-  const total = allOrders.length;
+  const selectable = allOrders.filter((o) => !o.disabled);
+  const blocked = allOrders.length - selectable.length;
+  const total = selectable.length;
   const releasing = selected.size;
   const staying = Math.max(total - releasing, 0);
 
@@ -94,20 +105,24 @@ export function PartialReleaseSelectorDialog({
               </div>
               <div className="space-y-2">
                 {group.orders.map((order) => {
-                  const isChecked = selected.has(order.id);
+                  const isChecked = !order.disabled && selected.has(order.id);
                   return (
                     <label
                       key={order.id}
                       className={cn(
-                        'flex items-start gap-3 rounded-md border px-3 py-2.5 cursor-pointer transition-colors',
-                        isChecked
+                        'flex items-start gap-3 rounded-md border px-3 py-2.5 transition-colors',
+                        order.disabled
+                          ? 'border-slate-200 bg-slate-50 cursor-not-allowed opacity-70'
+                          : 'cursor-pointer',
+                        !order.disabled && isChecked
                           ? 'border-primary/40 bg-primary/5'
-                          : 'border-slate-200 bg-white hover:bg-slate-50',
+                          : !order.disabled && 'border-slate-200 bg-white hover:bg-slate-50',
                       )}
                     >
                       <Checkbox
                         checked={isChecked}
                         onCheckedChange={() => toggle(order.id)}
+                        disabled={order.disabled}
                         className="mt-0.5"
                       />
                       <div className="flex-1 min-w-0">
@@ -141,12 +156,20 @@ export function PartialReleaseSelectorDialog({
           ))}
         </div>
 
-        <div className="border-t pt-3 text-sm text-muted-foreground">
-          Releasing <span className="font-medium text-foreground">{releasing}</span> of {total} tests
-          {staying > 0 && (
-            <>
-              . <span>{staying}</span> stays in draft.
-            </>
+        <div className="border-t pt-3 text-sm text-muted-foreground space-y-0.5">
+          <div>
+            Releasing <span className="font-medium text-foreground">{releasing}</span> of {total} test{total === 1 ? '' : 's'}
+            {staying > 0 && (
+              <>
+                . <span>{staying}</span> stays in draft.
+              </>
+            )}
+          </div>
+          {blocked > 0 && (
+            <div className="flex items-center gap-1 text-amber-700">
+              <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+              {blocked} test{blocked === 1 ? '' : 's'} cannot ship yet — upload pending.
+            </div>
           )}
         </div>
 

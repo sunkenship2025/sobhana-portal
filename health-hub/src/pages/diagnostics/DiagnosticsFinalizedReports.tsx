@@ -52,6 +52,7 @@ const DiagnosticsFinalizedReports = () => {
   const [search, setSearch] = useState('');
   const [finalizedVisits, setFinalizedVisits] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sendingVisitIds, setSendingVisitIds] = useState<Set<string>>(() => new Set());
 
   // Fetch finalized visits from API
   useEffect(() => {
@@ -117,6 +118,12 @@ const DiagnosticsFinalizedReports = () => {
   }, [visitsWithDetails, dateFilter, search]);
 
   const handleWhatsApp = async (visitId: string) => {
+    if (sendingVisitIds.has(visitId)) return;
+    setSendingVisitIds((prev) => {
+      const next = new Set(prev);
+      next.add(visitId);
+      return next;
+    });
     try {
       const response = await fetch(`${API_BASE}/messages/${visitId}/send-report`, {
         method: 'POST',
@@ -134,6 +141,12 @@ const DiagnosticsFinalizedReports = () => {
       }
     } catch (error) {
       toast.error('Failed to send WhatsApp notification');
+    } finally {
+      setSendingVisitIds((prev) => {
+        const next = new Set(prev);
+        next.delete(visitId);
+        return next;
+      });
     }
   };
 
@@ -258,11 +271,12 @@ const DiagnosticsFinalizedReports = () => {
                       >
                         <Printer className="h-4 w-4" />
                       </Button>
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         size="icon"
                         className="w-full sm:w-10"
                         onClick={() => handleWhatsApp(visit.id)}
+                        disabled={sendingVisitIds.has(visit.id)}
                         title="Send via WhatsApp"
                       >
                         <MessageCircle className="h-4 w-4" />
