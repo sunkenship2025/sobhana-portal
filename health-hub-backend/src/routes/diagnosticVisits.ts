@@ -2767,6 +2767,7 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
               flag: result.flag || null,
               notes: normalizedNotes,
               testDefinitionId: defId,
+              enteredByUserId: req.user!.id,
             },
           });
         }
@@ -3025,6 +3026,7 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
                 notes: `${DERIVED_AUTO_NOTE_PREFIX}${dr.parameterName}`,
                 testDefinitionId:
                   dr.testDefinitionId ?? testToDefIdMap.get(dr.testId) ?? null,
+                enteredByUserId: req.user!.id,
               },
             });
           }
@@ -3070,6 +3072,7 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
                 flag: manualFlag,
                 notes: DERIVED_MANUAL_OVERRIDE_NOTE,
                 testDefinitionId: testToDefIdMap.get(manualTestId) ?? null,
+                enteredByUserId: req.user!.id,
               },
             });
           }
@@ -4043,6 +4046,8 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
       //    template-only narratives stay editable in the new draft.
       if (carryForwardData.length > 0) {
         await tx.testResult.createMany({
+          // Preserve the *original* entrant — these results were typed by the
+          // earlier technician; the current user only triggered the re-version.
           data: carryForwardData.map((r) => ({
             testOrderId: r.testOrderId,
             testId: r.testId,
@@ -4052,6 +4057,7 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
             flag: r.flag,
             notes: r.notes,
             testDefinitionId: r.testDefinitionId,
+            enteredByUserId: r.enteredByUserId,
           })),
         });
       }
