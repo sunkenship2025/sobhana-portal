@@ -81,6 +81,8 @@ export default function ManageDepartments() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -154,6 +156,8 @@ export default function ManageDepartments() {
 
     const order = parseInt(formData.displayOrder) || 0;
 
+    if (submitting) return;
+    setSubmitting(true);
     try {
       if (editingId) {
         const res = await fetch(`${API_BASE}/departments/${editingId}`, {
@@ -195,6 +199,8 @@ export default function ManageDepartments() {
     } catch (err) {
       console.error('Error saving department:', err);
       toast.error('Failed to save department');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -220,6 +226,8 @@ export default function ManageDepartments() {
 
   const handleDelete = async () => {
     if (!deleteId) return;
+    if (deleting) return;
+    setDeleting(true);
     try {
       const res = await fetch(`${API_BASE}/departments/${deleteId}`, {
         method: 'DELETE',
@@ -235,8 +243,10 @@ export default function ManageDepartments() {
     } catch (err) {
       console.error('Error deleting department:', err);
       toast.error('Failed to delete department');
+    } finally {
+      setDeleting(false);
+      setDeleteId(null);
     }
-    setDeleteId(null);
   };
 
   // ─── Filter ─────────────────────────────────────────────────────────────
@@ -440,8 +450,10 @@ export default function ManageDepartments() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={resetForm}>Cancel</Button>
-            <Button onClick={handleSubmit}>{editingId ? 'Update' : 'Create'}</Button>
+            <Button variant="outline" onClick={resetForm} disabled={submitting}>Cancel</Button>
+            <Button onClick={handleSubmit} disabled={submitting}>
+              {submitting ? 'Saving...' : (editingId ? 'Update' : 'Create')}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -457,9 +469,9 @@ export default function ManageDepartments() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
-              Delete
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} disabled={deleting} className="bg-destructive text-destructive-foreground">
+              {deleting ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

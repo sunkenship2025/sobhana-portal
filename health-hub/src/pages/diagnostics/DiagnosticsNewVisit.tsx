@@ -2059,8 +2059,13 @@ const DiagnosticsNewVisit = () => {
                 </div>
               )}
 
-              <Button className="w-full" size="lg" onClick={handleSubmit}>
-                Generate Bill & Create Visit
+              <Button
+                className="w-full"
+                size="lg"
+                onClick={handleSubmit}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? 'Creating...' : 'Generate Bill & Create Visit'}
               </Button>
             </CardContent>
           </Card>

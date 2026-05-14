@@ -103,7 +103,8 @@ interface VisitDetailDrawerProps {
 
 function VisitDetailDrawer({ visit, open, onClose, patientPhone, onPreviewReport }: VisitDetailDrawerProps) {
   const { token } = useAuthStore();
-  
+  const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
+
   if (!visit) return null;
 
   const isDiagnostic = visit.domain === 'DIAGNOSTICS';
@@ -138,6 +139,8 @@ function VisitDetailDrawer({ visit, open, onClose, patientPhone, onPreviewReport
       toast.error('Report link not available.');
       return;
     }
+    if (sendingWhatsApp) return;
+    setSendingWhatsApp(true);
     try {
       const branchId = useBranchStore.getState().activeBranchId;
       const response = await fetch(`${API_BASE}/messages/${visit.visitId}/send-report`, {
@@ -156,6 +159,8 @@ function VisitDetailDrawer({ visit, open, onClose, patientPhone, onPreviewReport
       }
     } catch (error) {
       toast.error('Failed to send WhatsApp notification');
+    } finally {
+      setSendingWhatsApp(false);
     }
   };
 
@@ -280,10 +285,11 @@ function VisitDetailDrawer({ visit, open, onClose, patientPhone, onPreviewReport
                         variant="outline"
                         size="sm"
                         onClick={handleWhatsAppReport}
+                        disabled={sendingWhatsApp}
                         className="w-full text-green-600 hover:text-green-700 hover:bg-green-50"
                       >
                         <MessageCircle className="h-4 w-4 mr-2" />
-                        Send on WhatsApp
+                        {sendingWhatsApp ? 'Sending...' : 'Send on WhatsApp'}
                       </Button>
                     )}
                   </div>
@@ -338,6 +344,7 @@ export default function Patient360() {
   const [showPreview, setShowPreview] = useState(false);
   const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewSendingWhatsApp, setPreviewSendingWhatsApp] = useState(false);
 
   useEffect(() => {
     if (patientId) {
@@ -729,7 +736,10 @@ export default function Patient360() {
                 <Button
                   variant="outline"
                   size="sm"
+                  disabled={previewSendingWhatsApp}
                   onClick={async () => {
+                    if (previewSendingWhatsApp) return;
+                    setPreviewSendingWhatsApp(true);
                     try {
                       const response = await fetch(`${API_BASE}/messages/${selectedVisit.visitId}/send-report`, {
                         method: 'POST',
@@ -747,12 +757,14 @@ export default function Patient360() {
                       }
                     } catch (error) {
                       toast.error('Failed to send WhatsApp notification');
+                    } finally {
+                      setPreviewSendingWhatsApp(false);
                     }
                   }}
                   className="text-green-600 hover:text-green-700"
                 >
                   <MessageCircle className="h-4 w-4 mr-2" />
-                  WhatsApp
+                  {previewSendingWhatsApp ? 'Sending...' : 'WhatsApp'}
                 </Button>
               )}
               <Button

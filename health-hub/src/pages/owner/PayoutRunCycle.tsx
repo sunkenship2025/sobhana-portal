@@ -423,10 +423,13 @@ export function PayoutRunCycle({
 
               <div className="flex items-center gap-2 flex-wrap">
                 {totalCounts.will > 0 && (
-                  <Button onClick={runDerive}>
-                    Derive {totalCounts.will}{" "}
-                    {totalCounts.will === 1 ? "payout" : "payouts"} ·{" "}
-                    {formatRupees(totals.willAmt)}
+                  <Button
+                    onClick={runDerive}
+                    disabled={phase === "running"}
+                  >
+                    {phase === "running"
+                      ? `Deriving ${totalCounts.will}...`
+                      : `Derive ${totalCounts.will} ${totalCounts.will === 1 ? "payout" : "payouts"} · ${formatRupees(totals.willAmt)}`}
                   </Button>
                 )}
                 {/* Most useful next step when you've already derived but not paid */}

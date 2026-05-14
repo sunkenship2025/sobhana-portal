@@ -447,6 +447,8 @@ export default function ManageBillableProducts() {
 
   const savePricing = async () => {
     if (!pricingProduct) return;
+    if (saving) return;
+    setSaving(true);
     try {
       const res = await fetch(`${API_BASE}/billable-products/${pricingProduct.id}/pricing`, {
         method: 'PUT', headers,
@@ -460,6 +462,8 @@ export default function ManageBillableProducts() {
       fetchProducts();
     } catch (err: any) {
       toast.error(err.message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -789,7 +793,9 @@ export default function ManageBillableProducts() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setPricingOpen(false)}>Cancel</Button>
-            <Button onClick={savePricing}>Save Pricing</Button>
+            <Button onClick={savePricing} disabled={saving}>
+              {saving ? 'Saving...' : 'Save Pricing'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

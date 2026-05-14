@@ -63,6 +63,8 @@ export default function ManageDiagnosticCenters() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const [formData, setFormData] = useState({ ...EMPTY_FORM });
 
@@ -149,6 +151,8 @@ export default function ManageDiagnosticCenters() {
       commissionPercent: commission,
     };
 
+    if (submitting) return;
+    setSubmitting(true);
     try {
       if (editingId) {
         const res = await fetch(`${API_BASE}/diagnostic-centers/${editingId}`, {
@@ -185,6 +189,8 @@ export default function ManageDiagnosticCenters() {
     } catch (err) {
       console.error('Error saving diagnostic center:', err);
       toast.error('Failed to save diagnostic center');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -212,6 +218,8 @@ export default function ManageDiagnosticCenters() {
 
   const handleDelete = async () => {
     if (!deleteId) return;
+    if (deleting) return;
+    setDeleting(true);
     try {
       const res = await fetch(`${API_BASE}/diagnostic-centers/${deleteId}`, {
         method: 'DELETE',
@@ -229,8 +237,10 @@ export default function ManageDiagnosticCenters() {
     } catch (err) {
       console.error('Error deleting diagnostic center:', err);
       toast.error('Failed to delete center');
+    } finally {
+      setDeleting(false);
+      setDeleteId(null);
     }
-    setDeleteId(null);
   };
 
   if (loading) {
@@ -366,9 +376,9 @@ export default function ManageDiagnosticCenters() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={resetForm}>Cancel</Button>
-            <Button onClick={handleSubmit}>
-              {editingId ? 'Update' : 'Create'}
+            <Button variant="outline" onClick={resetForm} disabled={submitting}>Cancel</Button>
+            <Button onClick={handleSubmit} disabled={submitting}>
+              {submitting ? 'Saving...' : (editingId ? 'Update' : 'Create')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -384,9 +394,9 @@ export default function ManageDiagnosticCenters() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
-              Delete
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} disabled={deleting} className="bg-destructive text-destructive-foreground">
+              {deleting ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
