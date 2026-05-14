@@ -245,6 +245,12 @@ const DiagnosticsResultEntry = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [results, setResults] = useState<Record<string, string>>({});
+  // Per-test signer name override — what the radiologist types in the
+  // "Doctor's Name" input below each narrative editor. Empty string = unset.
+  // Round-trips through POST/GET so the value survives reloads, and flows
+  // into the report snapshot at finalize so the PDF prints "{name} /
+  // {Consultant Radiologist}" above the designation.
+  const [signerNameByTestId, setSignerNameByTestId] = useState<Record<string, string>>({});
   const [derivedManualOverrides, setDerivedManualOverrides] = useState<Record<string, boolean>>({});
   const [showWarning, setShowWarning] = useState(false);
   const [extremeValues, setExtremeValues] = useState<string[]>([]);
@@ -286,6 +292,14 @@ const DiagnosticsResultEntry = () => {
   // *clicked into* this session. Used as the "did they touch it?" signal
   // for partial-release pre-selection: untouched narratives stay unchecked
   // by default so the unedited template can never silently ship.
+  // Set of departmentIds that have an active SigningRule. When a department
+  // has one configured, the per-narrative "Doctor's Name" input locks — the
+  // rule is the source of truth for that department. The input re-enables
+  // automatically once the rule is removed.
+  const [departmentsWithSigningRule, setDepartmentsWithSigningRule] = useState<Set<string>>(
+    () => new Set(),
+  );
+
   const [touchedNarrativeTestIds, setTouchedNarrativeTestIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -548,6 +562,7 @@ const DiagnosticsResultEntry = () => {
           // Initialize results from existing test results if any
           const initialResults: Record<string, string> = {};
           const initialManualOverrides: Record<string, boolean> = {};
+          const initialSignerNames: Record<string, string> = {};
 
           if (data.report?.versions?.[0]?.testResults) {
             const latestVersion = data.report.versions[0];
@@ -564,6 +579,10 @@ const DiagnosticsResultEntry = () => {
 
               if (isManualDerivedOverride(r)) {
                 initialManualOverrides[r.testId] = true;
+              }
+
+              if (typeof r.signerNameOverride === 'string' && r.signerNameOverride) {
+                initialSignerNames[r.testId] = r.signerNameOverride;
               }
             });
           }
@@ -599,6 +618,7 @@ const DiagnosticsResultEntry = () => {
 
           setResults(recalculateDerivedResults(initialResults, undefined, initialManualOverrides));
           setDerivedManualOverrides(initialManualOverrides);
+          setSignerNameByTestId(initialSignerNames);
 
           setExpandedPanels(panelExpansion);
           setVisit(data);
@@ -615,6 +635,35 @@ const DiagnosticsResultEntry = () => {
 
     fetchVisit();
   }, [visitId, token, activeBranchId]);
+
+  // Fetch active signing rules so the per-narrative "Doctor's Name" input
+  // can lock for departments where a rule is the source of truth. One light
+  // query — rules are small and rarely change.
+  useEffect(() => {
+    if (!token || !activeBranchId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`${API_BASE}/signing-rules`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-Branch-Id': activeBranchId,
+          },
+        });
+        if (!response.ok) return;
+        const rules: Array<{ departmentId: string }> = await response.json();
+        if (cancelled) return;
+        setDepartmentsWithSigningRule(
+          new Set(rules.map((r) => r.departmentId).filter(Boolean)),
+        );
+      } catch (error) {
+        console.error('Failed to fetch signing rules:', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, activeBranchId]);
 
   // Fetch external uploads for the visit (renders the per-order upload zones).
   useEffect(() => {
@@ -741,35 +790,47 @@ const DiagnosticsResultEntry = () => {
     };
 
     const resultsArray = allTests
-      .filter((test) => hasResultValue(results[test.testId], textLayoutByTestId.get(test.testId)))
-      // Skip values that are still prefills (narrative templates / numeric
-      // defaults) the user hasn't touched. Sending them would silently
-      // overwrite edits another staff member made on this visit since this
-      // page loaded.
-      .filter((test) => !prefilledTestIdsRef.current.has(test.testId))
+      .filter((test) => {
+        const signerSet = Boolean(signerNameByTestId[test.testId]?.trim());
+        const valueReady =
+          hasResultValue(results[test.testId], textLayoutByTestId.get(test.testId)) &&
+          !prefilledTestIdsRef.current.has(test.testId);
+        // Include if either: the value is real (not just a prefill) OR the
+        // radiologist typed a doctor name override. Signer-only rows materialize
+        // a TestResult with no value so the name round-trips on reload.
+        return valueReady || signerSet;
+      })
       .map((test) => {
         const layoutType = textLayoutByTestId.get(test.testId);
+        const isPrefilled = prefilledTestIdsRef.current.has(test.testId);
         const rawValue = results[test.testId];
         const valueStr = isRichTextPanelLayout(layoutType)
           ? normalizeNarrativeContent(rawValue)
           : rawValue;
         const forceTextValue = textLayoutByTestId.has(test.testId);
         const parsedValue = parseFloat(valueStr);
-        const isNumeric = !forceTextValue && !isNaN(parsedValue) && valueStr.trim() !== '';
+        const isNumeric =
+          !forceTextValue && !isNaN(parsedValue) && valueStr.trim() !== '' && !isPrefilled;
         const flag = isNumeric ? flagFor(parsedValue, test.min, test.max) : null;
+        // Don't ship a prefill value back to the server — it would silently
+        // overwrite edits made elsewhere. Signer-only rows go through with
+        // value/textValue cleared.
+        const safeValue = isPrefilled ? null : (isNumeric ? parsedValue : null);
+        const safeTextValue = isPrefilled ? '' : valueStr;
         return {
           testId: test.testId,
-          value: isNumeric ? parsedValue : null,
-          textValue: valueStr,
+          value: safeValue,
+          textValue: safeTextValue,
           flag: isNumeric ? (flag || 'NORMAL') : null,
           notes: null,
           manualOverride: test.isDerived ? !!derivedManualOverrides[test.testId] : false,
+          signerNameOverride: signerNameByTestId[test.testId]?.trim() || null,
         };
       });
 
     if (resultsArray.length === 0) return null;
     return { results: resultsArray };
-  }, [visit, visitId, results, derivedManualOverrides, textLayoutByTestId]);
+  }, [visit, visitId, results, derivedManualOverrides, textLayoutByTestId, signerNameByTestId]);
 
   const persistDraft = useCallback(async (): Promise<'saved' | 'empty' | 'failed'> => {
     if (!visitId) return 'empty';
@@ -861,7 +922,7 @@ const DiagnosticsResultEntry = () => {
       autoSaveTimerRef.current = null;
       void runAutoSave();
     }, 1500);
-  }, [results, derivedManualOverrides, loading, visit, uploadsByOrder, runAutoSave]);
+  }, [results, derivedManualOverrides, signerNameByTestId, loading, visit, uploadsByOrder, runAutoSave]);
 
   // Refs to grab the latest closures from event handlers that bind once
   // (unmount cleanup, beforeunload listener). Without refs we'd read stale
@@ -1012,6 +1073,10 @@ const DiagnosticsResultEntry = () => {
         ? recalculateDerivedResults(updated, changedCode)
         : updated;
     });
+  };
+
+  const handleSignerNameChange = (testId: string, value: string) => {
+    setSignerNameByTestId((prev) => ({ ...prev, [testId]: value }));
   };
 
   const togglePanel = (orderId: string) => {
@@ -1431,9 +1496,16 @@ const DiagnosticsResultEntry = () => {
     placeholder: string,
     _isSubTest: boolean = false,
     panelDisplayName?: string,
-    departmentName?: string
+    departmentName?: string,
+    departmentId?: string,
   ) => {
     const valueStr = results[testId] || '';
+    const locked = departmentId
+      ? departmentsWithSigningRule.has(departmentId)
+      : false;
+    const lockedReason = locked
+      ? `A signing rule is configured for ${departmentName || 'this department'}. Remove the rule in Settings → Signing Doctors to enter a name here.`
+      : undefined;
 
     return (
       <div key={testId} className="py-3">
@@ -1459,6 +1531,10 @@ const DiagnosticsResultEntry = () => {
           panelDisplayName={panelDisplayName || testName}
           testCode={testCode}
           placeholder={placeholder}
+          signerName={signerNameByTestId[testId] || ''}
+          onSignerNameChange={(next) => handleSignerNameChange(testId, next)}
+          signerLocked={locked}
+          signerLockedReason={lockedReason}
           onFirstTouch={() => markNarrativeTouched(testId)}
         />
       </div>
@@ -1825,7 +1901,8 @@ const DiagnosticsResultEntry = () => {
                                   : 'Enter text result...',
                                 false,
                                 group.panelDisplayName || group.panelName,
-                                department.name
+                                department.name,
+                                department.id,
                               );
                             })}
                           </div>
@@ -1849,7 +1926,8 @@ const DiagnosticsResultEntry = () => {
                                   : 'Enter text result...',
                                 false,
                                 order.panel?.displayName || order.panel?.name || order.testName,
-                                department.name
+                                department.name,
+                                department.id,
                               );
                             })}
                           </div>
@@ -1868,7 +1946,8 @@ const DiagnosticsResultEntry = () => {
                               : 'Enter text result...',
                             false,
                             order.panel?.displayName || order.panel?.name || order.testName,
-                            department.name
+                            department.name,
+                            department.id,
                           )}
                         </div>
                       );
@@ -1942,7 +2021,10 @@ const DiagnosticsResultEntry = () => {
                                     textLayout === 'IMAGING_NARRATIVE'
                                       ? 'Enter narrative report...'
                                       : 'Enter text result...',
-                                    true
+                                    true,
+                                    undefined,
+                                    department.name,
+                                    department.id,
                                   );
                                 }
 
@@ -2036,7 +2118,10 @@ const DiagnosticsResultEntry = () => {
                                       textLayout === 'IMAGING_NARRATIVE'
                                         ? 'Enter narrative report...'
                                         : 'Enter text result...',
-                                      true
+                                      true,
+                                      undefined,
+                                      department.name,
+                                      department.id,
                                     );
                                   }
 
@@ -2086,7 +2171,11 @@ const DiagnosticsResultEntry = () => {
                                     order.testCode,
                                     textLayout === 'IMAGING_NARRATIVE'
                                       ? 'Enter narrative report...'
-                                      : 'Enter text result...'
+                                      : 'Enter text result...',
+                                    false,
+                                    undefined,
+                                    department.name,
+                                    department.id,
                                   );
                                 }
 

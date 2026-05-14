@@ -33,10 +33,43 @@ interface ReportFramedNarrativeEditorProps {
   panelDisplayName: string;
   testCode?: string;
   placeholder?: string;
+  /** Per-report signer name override the radiologist types into the "Doctor's
+   *  Name" input below the framed editor. When non-empty, the editor renders
+   *  the name above the department designation inside the framed preview,
+   *  matching how the final PDF prints it. */
+  signerName?: string;
+  onSignerNameChange?: (value: string) => void;
+  /** When true, the input is disabled — used when a SigningRule is configured
+   *  for the department (the rule is the source of truth, the per-report
+   *  override is suppressed). */
+  signerLocked?: boolean;
+  /** Helper text shown beneath the locked input explaining why it's disabled
+   *  and what to do to re-enable it. */
+  signerLockedReason?: string;
   /** Fires the first time the editor gains focus. The parent uses this as a
    *  proxy for "the radiologist actually touched this report" so the partial-
    *  release dialog can default-uncheck untouched template-only narratives. */
   onFirstTouch?: () => void;
+}
+
+/**
+ * Derives the placeholder designation for a department (mirrors the backend's
+ * deriveConsultantTitle in reportSnapshotService.ts so the on-screen preview
+ * matches what the final PDF will print).
+ */
+function deriveConsultantTitle(departmentName: string): string {
+  const lower = (departmentName || '').toLowerCase().trim();
+  if (!lower) return 'Consultant';
+  if (lower.endsWith('ology')) {
+    const stem = lower.slice(0, -5);
+    return `Consultant ${stem.charAt(0).toUpperCase()}${stem.slice(1)}ologist`;
+  }
+  if (lower.endsWith('istry')) {
+    const stem = lower.slice(0, -3);
+    return `Consultant ${stem.charAt(0).toUpperCase()}${stem.slice(1)}ist`;
+  }
+  const titled = lower.replace(/\b\w/g, (c) => c.toUpperCase());
+  return `Consultant ${titled}`;
 }
 
 const DASH = '—';
@@ -71,8 +104,14 @@ export function ReportFramedNarrativeEditor({
   panelDisplayName,
   testCode,
   placeholder = 'Start writing the narrative report...',
+  signerName,
+  onSignerNameChange,
+  signerLocked = false,
+  signerLockedReason,
   onFirstTouch,
 }: ReportFramedNarrativeEditorProps) {
+  const designation = deriveConsultantTitle(departmentName);
+  const trimmedSigner = (signerName ?? '').trim();
   const surfaceRef = useRef<RichTextSurfaceHandle>(null);
   const [toolbarState, setToolbarState] = useState<ToolbarState>(DEFAULT_TOOLBAR_STATE);
   // Toolbar is muted (semi-transparent) until the editor underneath it has
@@ -192,9 +231,39 @@ export function ReportFramedNarrativeEditor({
             <div className="report-note">
               Note: Please correlate clinically if necessary.
             </div>
+
+            <div className="report-sign-block">
+              {trimmedSigner && (
+                <div className="report-sign-name">{trimmedSigner}</div>
+              )}
+              <div className="report-sign-designation">{designation}</div>
+            </div>
           </div>
         </div>
       </div>
+
+      {onSignerNameChange && (
+        <div className="report-sign-input-wrapper">
+          <label className="report-sign-input-row">
+            <span className="report-sign-input-label">Doctor&apos;s Name</span>
+            <input
+              type="text"
+              value={signerLocked ? '' : (signerName ?? '')}
+              onChange={(e) => onSignerNameChange(e.target.value)}
+              placeholder={
+                signerLocked
+                  ? 'Locked — signing rule active for this department'
+                  : `e.g. Dr. ABC ${designation.replace(/^Consultant\s+/i, '')}`
+              }
+              className="report-sign-input"
+              disabled={signerLocked}
+            />
+          </label>
+          {signerLocked && signerLockedReason && (
+            <p className="report-sign-input-hint">{signerLockedReason}</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

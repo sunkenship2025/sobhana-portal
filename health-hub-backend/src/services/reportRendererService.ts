@@ -9,7 +9,13 @@
  * Abnormal values (H/L) shown in bold. Normal: regular weight.
  */
 
-import { ReportSnapshot, PanelSnapshot, TestResultSnapshot, SignatureSnapshot } from './reportSnapshotService';
+import {
+  ReportSnapshot,
+  PanelSnapshot,
+  TestResultSnapshot,
+  SignatureSnapshot,
+  deriveConsultantTitle,
+} from './reportSnapshotService';
 import fs from 'fs';
 import path from 'path';
 import sanitizeHtml from 'sanitize-html';
@@ -663,6 +669,11 @@ interface ReportPageModel {
   includePatientInfo: boolean;
   includeReportBottom: boolean;
   includeQr: boolean;
+  // First non-empty signerNameOverride across this page's panels (the
+  // radiologist's typed name from the entry screen). Drives the per-page
+  // signature block — when set, the renderer prints just this name above
+  // the department designation regardless of any configured SigningRule.
+  signerNameOverride?: string | null;
 }
 
 function resolveProfile(profile: RenderProfile): ResolvedProfile {
@@ -871,6 +882,35 @@ function renderSignatureBlocks(signatures: SignatureSnapshot[], baseUrl: string)
   }).join('');
 }
 
+/**
+ * Renders the per-page sign-off block when the radiologist typed a name into
+ * the override input below the framed editor. Authoritative: just `name` over
+ * `designation`, no degrees / reg-no / image.
+ *
+ * Designation source priority:
+ *   1. The page's configured signing-rule designation (e.g. an existing
+ *      SigningRule's "Consultant Pathologist").
+ *   2. The placeholder designation derived from the department name
+ *      ("Consultant Radiologist", etc.) for departments without a rule.
+ *   3. Generic "Consultant" as a last resort.
+ */
+function renderOverrideSignatureBlock(
+  overrideName: string,
+  pageSignatures: SignatureSnapshot[],
+  pageDepartment: ReportSnapshot['departments'][number] | null,
+): string {
+  const firstSig = pageSignatures[0];
+  const designation =
+    firstSig?.designation ||
+    (pageDepartment ? deriveConsultantTitle(pageDepartment.departmentName) : 'Consultant');
+
+  return `
+    <div class="signature-block">
+      <div class="doctor-name">${escapeHtml(overrideName)}</div>
+      <div class="doctor-designation">${escapeHtml(designation)}</div>
+    </div>`;
+}
+
 function dedupeReportSignatures(signatures: SignatureSnapshot[]): SignatureSnapshot[] {
   const seen = new Set<string>();
 
@@ -1019,6 +1059,11 @@ function buildReportPages(
     const panelGroups = splitDepartmentIntoPanelGroups(department);
 
     panelGroups.forEach((panels) => {
+      const pageSignerOverride =
+        panels
+          .map((p) => p.signerNameOverride)
+          .find((name) => typeof name === 'string' && name.trim().length > 0) ??
+        null;
       pages.push({
         departmentId: department.departmentId,
         departmentHtml: renderDepartmentSection(department, panels),
@@ -1026,6 +1071,7 @@ function buildReportPages(
         includePatientInfo: true,
         includeReportBottom: true,
         includeQr: profile !== 'screen',
+        signerNameOverride: pageSignerOverride,
       });
     });
   });
@@ -1051,7 +1097,23 @@ function renderReportPage(
     ? snapshot.signatures.filter((s) => s.departmentId === page.departmentId)
     : snapshot.signatures;
   const reportSignatures = dedupeReportSignatures(pageSignatureSource);
-  const signatureBlocks = renderSignatureBlocks(reportSignatures, baseUrl);
+  // Per-page signer override (typed by the radiologist in the entry screen)
+  // replaces the configured signature block for THIS page — just name +
+  // designation, no degrees / reg-no / image. BUT: a configured SigningRule
+  // for this department wins over any saved override (the rule is the
+  // department-level source of truth; the entry UI already disables the
+  // override input when a rule exists, so any persisted override is stale).
+  const hasConfiguredRule = reportSignatures.some(
+    (sig) => Boolean(sig.doctorId),
+  );
+  const trimmedOverride =
+    typeof page.signerNameOverride === 'string'
+      ? page.signerNameOverride.trim()
+      : '';
+  const useOverride = trimmedOverride && !hasConfiguredRule;
+  const signatureBlocks = useOverride
+    ? renderOverrideSignatureBlock(trimmedOverride, reportSignatures, pageDepartment ?? null)
+    : renderSignatureBlocks(reportSignatures, baseUrl);
   // Honor the page's own department for Lab Incharge. Pure-radiology pages
   // (showLabIncharge=false on the department) hide the block. For the
   // no-department fallback page, fall back to the cross-visit rule.

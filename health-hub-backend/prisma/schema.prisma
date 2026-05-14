@@ -697,6 +697,14 @@ model TestResult {
   // user, and carry-forward rows preserve the *original* entrant on re-issue.
   enteredByUserId String?
 
+  // Per-narrative-report signer override. Free-text doctor name the radiologist
+  // (or whoever enters the report) types in the dedicated "Doctor's Name" field
+  // below the framed editor. When set, the PDF signature block prints just this
+  // name above the department designation — no degrees / reg-no — overriding
+  // any configured SigningRule for that page. Nullable: only narrative reports
+  // surface the input today.
+  signerNameOverride String?
+
   testOrder      TestOrder       @relation(fields: [testOrderId], references: [id], onDelete: Cascade)
   test           LabTest         @relation(fields: [testId], references: [id], onDelete: Restrict)
   testDefinition TestDefinition? @relation(fields: [testDefinitionId], references: [id], onDelete: Restrict)
