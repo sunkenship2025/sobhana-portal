@@ -429,6 +429,66 @@ router.get("/", async (req: AuthRequest, res) => {
       orderBy: { createdAt: "desc" },
     });
 
+    // Resolve panel membership for every test order so list views can show
+    // panel names ("HEMOGRAM") instead of long lists of constituent test
+    // codes ("HB, PCV, RBC, ..."). Two arches coexist: lab tests resolve via
+    // PanelTestItem (by testId), new-arch resolves via ClinicalPanelItem
+    // (by testDefinitionId). Bulk-fetch both keyed maps before transform.
+    const allTestIds = new Set<string>();
+    const allTestDefinitionIds = new Set<string>();
+    for (const v of visits) {
+      for (const to of v.testOrders) {
+        if (to.testId) allTestIds.add(to.testId);
+        if (to.testDefinitionId) allTestDefinitionIds.add(to.testDefinitionId);
+      }
+    }
+
+    const labPanelItems = allTestIds.size
+      ? await prisma.panelTestItem.findMany({
+          where: { testId: { in: Array.from(allTestIds) } },
+          orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
+          select: {
+            testId: true,
+            panel: {
+              select: { id: true, name: true, displayName: true },
+            },
+          },
+        })
+      : [];
+    const labPanelByTestId = new Map<
+      string,
+      { id: string; name: string; displayName: string }
+    >();
+    for (const item of labPanelItems) {
+      if (!labPanelByTestId.has(item.testId)) {
+        labPanelByTestId.set(item.testId, item.panel);
+      }
+    }
+
+    const clinicalPanelItems = allTestDefinitionIds.size
+      ? await prisma.clinicalPanelItem.findMany({
+          where: {
+            testDefinitionId: { in: Array.from(allTestDefinitionIds) },
+          },
+          orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
+          select: {
+            testDefinitionId: true,
+            panel: {
+              select: { id: true, name: true, displayName: true },
+            },
+          },
+        })
+      : [];
+    const clinicalPanelByDefinitionId = new Map<
+      string,
+      { id: string; name: string; displayName: string }
+    >();
+    for (const item of clinicalPanelItems) {
+      if (!clinicalPanelByDefinitionId.has(item.testDefinitionId)) {
+        clinicalPanelByDefinitionId.set(item.testDefinitionId, item.panel);
+      }
+    }
+
     // Transform to frontend format
     const transformed = visits.map((v) => {
       const currentVersion = v.report?.versions[0] || null;
@@ -473,27 +533,34 @@ router.get("/", async (req: AuthRequest, res) => {
         nextAction: composition.nextAction,
         referralDoctorId: v.referrals[0]?.referralDoctorId || null,
         referralDoctor: v.referrals[0]?.referralDoctor || null,
-        testOrders: v.testOrders.map((to) => ({
-          id: to.id,
-          visitId: to.visitId,
-          testId: to.testId,
-          productId: to.productId,
-          testDefinitionId: to.testDefinitionId,
-          workflowMode: to.workflowMode,
-          // E3-03: Use snapshotted metadata (fallback to live data for backward compatibility)
-          testName: to.testNameSnapshot || to.test.name,
-          testCode: to.testCodeSnapshot || to.test.code,
-          price: to.priceInPaise / 100,
-          priceInPaise: to.priceInPaise,
-          referralCommissionType: to.referralCommissionType,
-          referralCommissionPercent: to.referralCommissionPercentage,
-          referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
-          referenceRange: {
-            min: to.referenceMinSnapshot ?? to.test.referenceMin ?? 0,
-            max: to.referenceMaxSnapshot ?? to.test.referenceMax ?? 0,
-            unit: to.referenceUnitSnapshot || to.test.referenceUnit || "",
-          },
-        })),
+        testOrders: v.testOrders.map((to) => {
+          const panel =
+            (to.testDefinitionId
+              ? clinicalPanelByDefinitionId.get(to.testDefinitionId)
+              : undefined) ?? labPanelByTestId.get(to.testId) ?? null;
+          return {
+            id: to.id,
+            visitId: to.visitId,
+            testId: to.testId,
+            productId: to.productId,
+            testDefinitionId: to.testDefinitionId,
+            workflowMode: to.workflowMode,
+            // E3-03: Use snapshotted metadata (fallback to live data for backward compatibility)
+            testName: to.testNameSnapshot || to.test.name,
+            testCode: to.testCodeSnapshot || to.test.code,
+            price: to.priceInPaise / 100,
+            priceInPaise: to.priceInPaise,
+            referralCommissionType: to.referralCommissionType,
+            referralCommissionPercent: to.referralCommissionPercentage,
+            referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
+            referenceRange: {
+              min: to.referenceMinSnapshot ?? to.test.referenceMin ?? 0,
+              max: to.referenceMaxSnapshot ?? to.test.referenceMax ?? 0,
+              unit: to.referenceUnitSnapshot || to.test.referenceUnit || "",
+            },
+            panel,
+          };
+        }),
         report: v.report
           ? {
               id: v.report.id,
