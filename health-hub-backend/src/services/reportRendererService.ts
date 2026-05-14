@@ -893,6 +893,7 @@ function renderReportBottomHtml(
   signatureBlocks: string,
   qrImgSrc: string,
   showLabIncharge: boolean,
+  isRadiology: boolean,
 ): string {
   const labInchargeBlock = showLabIncharge ? `
             <div class="signature-block lab-incharge-block">
@@ -905,7 +906,7 @@ function renderReportBottomHtml(
         Note: Please correlate clinically if necessary.
       </div>
 
-      <div class="report-bottom-section">
+      <div class="report-bottom-section${isRadiology ? ' radiology-page' : ''}">
         <section class="signatures-section">
           <div class="signatures-left">${labInchargeBlock}
           </div>
@@ -961,7 +962,12 @@ function uniqueSampleTypesFromPanels(panels: PanelSnapshot[]): string[] {
 }
 
 function shouldIsolatePanel(panel: PanelSnapshot): boolean {
-  return panel.tests.length >= 2;
+  // Multi-test panels get their own page so the table doesn't get split.
+  // IMAGING_NARRATIVE panels (radiology studies) also get their own page:
+  // each X-ray / USG / CT is a self-contained study with its own signature,
+  // so two studies on one bill must produce two separate pages — each with
+  // the Consultant Radiologist sign-off below its own findings.
+  return panel.tests.length >= 2 || panel.layoutType === 'IMAGING_NARRATIVE';
 }
 
 function splitDepartmentIntoPanelGroups(department: ReportSnapshot['departments'][number]): PanelSnapshot[][] {
@@ -1033,21 +1039,37 @@ function renderReportPage(
   snapshot: ReportSnapshot,
   baseUrl: string,
 ): string {
-  const reportSignatures = dedupeReportSignatures(snapshot.signatures);
+  // Each page belongs to exactly one department (or null for the empty-results
+  // fallback). The bottom block must reflect only THAT department's signers
+  // and lab-incharge rule — otherwise a multi-department visit (e.g. CBP +
+  // USG on the same bill) ends up with the pathologist signing the radiology
+  // page and the radiologist placeholder showing up on the haematology page.
+  const pageDepartment = page.departmentId
+    ? snapshot.departments.find((d) => d.departmentId === page.departmentId)
+    : null;
+  const pageSignatureSource = page.departmentId
+    ? snapshot.signatures.filter((s) => s.departmentId === page.departmentId)
+    : snapshot.signatures;
+  const reportSignatures = dedupeReportSignatures(pageSignatureSource);
   const signatureBlocks = renderSignatureBlocks(reportSignatures, baseUrl);
-  // Show Lab Incharge if at least one department on the report opts in.
-  // Pure-radiology reports (where every dept has the toggle off) hide the block.
-  const showLabIncharge = snapshot.departments.some(d => d.showLabIncharge !== false);
+  // Honor the page's own department for Lab Incharge. Pure-radiology pages
+  // (showLabIncharge=false on the department) hide the block. For the
+  // no-department fallback page, fall back to the cross-visit rule.
+  const showLabIncharge = pageDepartment
+    ? pageDepartment.showLabIncharge !== false
+    : snapshot.departments.some((d) => d.showLabIncharge !== false);
+  const isRadiology = pageDepartment?.departmentName === 'RADIOLOGY';
   const reportBottomHtml = page.includeReportBottom
     ? renderReportBottomHtml(
         signatureBlocks,
         page.includeQr ? fragments.qrImgSrc : '',
         showLabIncharge,
+        isRadiology,
       )
     : '';
 
   return `
-  <div class="report-page">
+  <div class="report-page${isRadiology ? ' radiology-page' : ''}">
     ${fragments.headerHtml}
     <main class="report-content">
       ${page.includePatientInfo ? renderPatientInfoHtml(snapshot, page.sampleTypes) : ''}

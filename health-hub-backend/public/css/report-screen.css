@@ -79,9 +79,44 @@ body.report-body {
 }
 
 .report-bottom-section {
-  margin-top: 24px;
+  margin-top: auto;
   break-inside: avoid;
   page-break-inside: avoid;
+}
+
+/* Radiology pages: keep the signature pinned to the bottom (via the default
+   margin-top: auto on .report-bottom-section), but lift it 2 inches above
+   the page edge. margin-top: auto still absorbs any leftover space, so long
+   reports never get the signature on top of the impression text. */
+.report-bottom-section.radiology-page {
+  margin-bottom: 2in;
+}
+
+/* When the screen HTML is paginated to PDF (Puppeteer / browser print),
+   long radiology narratives can overflow to a second physical page. In
+   that case the flex-anchored signature only renders on the LAST page.
+   Switch to position: fixed so the consultant's sign-off block repeats on
+   every paginated page, and enlarge the page bottom margin so content
+   never flows under it. Screen view is unaffected — the rule only applies
+   in print media. */
+@media print {
+  .report-page.radiology-page {
+    page: rad-page;
+  }
+  @page rad-page {
+    size: A4;
+    margin-top: 32mm;
+    margin-bottom: 75mm;
+    margin-left: 15mm;
+    margin-right: 15mm;
+  }
+  .report-bottom-section.radiology-page {
+    position: fixed;
+    bottom: 2in;
+    left: 15mm;
+    right: 15mm;
+    margin: 0;
+  }
 }
 
 /* ============================================================================
