@@ -166,7 +166,21 @@ function VisitDetailDrawer({ visit, open, onClose, patientPhone, onPreviewReport
 
   const handlePrintBill = () => {
     // Opens either a bill reprint or a revisit slip depending on the visit.
-    window.open(`/bill/print/${visit.domain}/${visit.visitId}`, '_blank');
+    // The print route expects an upper-case domain enum; normalize defensively
+    // in case the timeline payload ever drifts.
+    if (!visit.domain || !visit.visitId) {
+      toast.error('Visit data is incomplete — cannot open print view.');
+      return;
+    }
+    const domain = String(visit.domain).toUpperCase();
+    const opened = window.open(
+      `/bill/print/${domain}/${visit.visitId}`,
+      '_blank',
+      'noopener,noreferrer',
+    );
+    if (!opened) {
+      toast.error('Pop-up was blocked — allow pop-ups for this site and try again.');
+    }
   };
 
   return (

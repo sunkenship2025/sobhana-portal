@@ -1,3 +1,4 @@
+import type React from "react";
 import { useEffect, useState } from "react";
 import type { BillReceiptData } from "@/types";
 import { API_BASE_URL } from "@/lib/api";
@@ -269,59 +270,97 @@ export const BillReceipt = ({
                 </td>
               </tr>
             ))}
-            {showSubtotal && (
-              <tr>
-                <td className="border-r border-black px-3 py-2"></td>
-                <td className="border-r border-black px-3 py-2 text-right text-gray-700">
-                  SUBTOTAL
+            {(() => {
+              // "Authorized Signatory" caption sits in the empty leftmost
+              // cell, vertically spanning every totals row so it stays
+              // centered next to the totals block regardless of which
+              // optional rows (subtotal/discount/paid/due) are present.
+              const totalsRowCount =
+                (showSubtotal ? 1 : 0) +
+                (showDiscount ? 1 : 0) +
+                1 +
+                (showPaid ? 1 : 0) +
+                (showDue ? 1 : 0);
+              const authorizedCell = (
+                <td
+                  rowSpan={totalsRowCount}
+                  className="border-r border-black px-3 py-2 text-center align-middle text-sm font-semibold uppercase tracking-wide"
+                >
+                  Authorized Signatory
                 </td>
-                <td className="px-3 py-2 text-right text-gray-700">
-                  ₹{subtotalAmount.toFixed(2)}
-                </td>
-              </tr>
-            )}
-            {showDiscount && (
-              <tr>
-                <td className="border-r border-black px-3 py-2"></td>
-                <td className="border-r border-black px-3 py-2 text-right text-gray-700">
-                  {discountLabel}
-                </td>
-                <td className="px-3 py-2 text-right text-gray-700">
-                  -₹{discountAmount.toFixed(2)}
-                </td>
-              </tr>
-            )}
-            <tr>
-              <td className="border-r border-black px-3 py-2"></td>
-              <td className="border-r border-black px-3 py-2 text-right font-bold">
-                {finalTotalLabel}
-              </td>
-              <td className="px-3 py-2 text-right font-bold">
-                ₹{netAmount.toFixed(2)}
-              </td>
-            </tr>
-            {showPaid && (
-              <tr>
-                <td className="border-r border-black px-3 py-2"></td>
-                <td className="border-r border-black px-3 py-2 text-right text-gray-700">
-                  PAID
-                </td>
-                <td className="px-3 py-2 text-right text-gray-700">
-                  ₹{paidAmount.toFixed(2)}
-                </td>
-              </tr>
-            )}
-            {showDue && (
-              <tr>
-                <td className="border-r border-black px-3 py-2"></td>
-                <td className="border-r border-black px-3 py-2 text-right font-bold">
-                  DUE
-                </td>
-                <td className="px-3 py-2 text-right font-bold">
-                  ₹{dueAmount.toFixed(2)}
-                </td>
-              </tr>
-            )}
+              );
+              const rows: React.ReactNode[] = [];
+              let firstRendered = false;
+              const leadingCell = () => {
+                if (firstRendered) return null;
+                firstRendered = true;
+                return authorizedCell;
+              };
+              if (showSubtotal) {
+                rows.push(
+                  <tr key="subtotal">
+                    {leadingCell()}
+                    <td className="border-r border-black px-3 py-2 text-right text-gray-700">
+                      SUBTOTAL
+                    </td>
+                    <td className="px-3 py-2 text-right text-gray-700">
+                      ₹{subtotalAmount.toFixed(2)}
+                    </td>
+                  </tr>,
+                );
+              }
+              if (showDiscount) {
+                rows.push(
+                  <tr key="discount">
+                    {leadingCell()}
+                    <td className="border-r border-black px-3 py-2 text-right text-gray-700">
+                      {discountLabel}
+                    </td>
+                    <td className="px-3 py-2 text-right text-gray-700">
+                      -₹{discountAmount.toFixed(2)}
+                    </td>
+                  </tr>,
+                );
+              }
+              rows.push(
+                <tr key="total">
+                  {leadingCell()}
+                  <td className="border-r border-black px-3 py-2 text-right font-bold">
+                    {finalTotalLabel}
+                  </td>
+                  <td className="px-3 py-2 text-right font-bold">
+                    ₹{netAmount.toFixed(2)}
+                  </td>
+                </tr>,
+              );
+              if (showPaid) {
+                rows.push(
+                  <tr key="paid">
+                    {leadingCell()}
+                    <td className="border-r border-black px-3 py-2 text-right text-gray-700">
+                      PAID
+                    </td>
+                    <td className="px-3 py-2 text-right text-gray-700">
+                      ₹{paidAmount.toFixed(2)}
+                    </td>
+                  </tr>,
+                );
+              }
+              if (showDue) {
+                rows.push(
+                  <tr key="due">
+                    {leadingCell()}
+                    <td className="border-r border-black px-3 py-2 text-right font-bold">
+                      DUE
+                    </td>
+                    <td className="px-3 py-2 text-right font-bold">
+                      ₹{dueAmount.toFixed(2)}
+                    </td>
+                  </tr>,
+                );
+              }
+              return <>{rows}</>;
+            })()}
           </tbody>
         </table>
 
