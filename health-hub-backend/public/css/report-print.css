@@ -71,6 +71,29 @@ body.report-body {
 }
 .report-bottom-section { margin-top: 9pt; }
 
+/* Radiology pages need the Consultant Radiologist sign-off on EVERY printed
+   page, including when a long narrative paginates across multiple sheets.
+   `position: fixed` makes Chromium's print engine repeat the block on each
+   page; the named @page rule reserves enough bottom margin so content can
+   never flow under the signature. */
+.report-page.radiology-page {
+  page: rad-page;
+}
+@page rad-page {
+  size: A4;
+  margin-top: 32mm;
+  margin-bottom: 75mm;
+  margin-left: 15mm;
+  margin-right: 15mm;
+}
+.report-bottom-section.radiology-page {
+  position: fixed;
+  bottom: 2in;
+  left: 15mm;
+  right: 15mm;
+  margin: 0;
+}
+
 /* ============================================================================
    HIDDEN ELEMENTS (Pre-printed on letterhead)
    ============================================================================ */
