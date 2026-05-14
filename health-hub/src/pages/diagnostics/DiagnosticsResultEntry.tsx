@@ -262,6 +262,17 @@ const DiagnosticsResultEntry = () => {
   const dirtyRef = useRef(false);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlightSaveRef = useRef<Promise<'saved' | 'empty' | 'failed'> | null>(null);
+  // Set when an auto-save fires while another save is in flight. The current
+  // save can't include those newer edits, so we re-fire once it completes.
+  const pendingResaveRef = useRef(false);
+  // testIds whose current `results[id]` value came from a prefill (narrative
+  // template or numeric default), NOT from saved data or user input. These
+  // must be excluded from auto-save POSTs — otherwise opening a visit and
+  // editing one unrelated field would re-push every prefilled value back to
+  // the server, silently overwriting whatever another staff member may have
+  // typed in the meantime. Cleared per-testId in handleValueChange when the
+  // user actually edits.
+  const prefilledTestIdsRef = useRef<Set<string>>(new Set());
   // Skips the very first results-changed render after fetchVisit populates state.
   const autoSavePrimedRef = useRef(false);
 
@@ -557,9 +568,15 @@ const DiagnosticsResultEntry = () => {
             });
           }
 
+          // Track which testIds receive a prefill (template or default) so
+          // auto-save can skip them until the user actually edits. Reset on
+          // each fetch — the previous visit's prefills no longer apply.
+          const prefilled = new Set<string>();
+
           fetchedNarrativeTemplateByTestId.forEach((templateHtml, testId) => {
             if (!initialResults[testId] && hasMeaningfulRichText(templateHtml)) {
               initialResults[testId] = templateHtml;
+              prefilled.add(testId);
             }
           });
 
@@ -570,12 +587,15 @@ const DiagnosticsResultEntry = () => {
               if (!cfg?.defaultValue) return;
               if (initialResults[testId]) return;
               initialResults[testId] = cfg.defaultValue;
+              prefilled.add(testId);
             };
             apply(order.testId, order.inputConfig);
             if (order.isPanel && order.childTests) {
               order.childTests.forEach((child) => apply(child.id, child.inputConfig));
             }
           });
+
+          prefilledTestIdsRef.current = prefilled;
 
           setResults(recalculateDerivedResults(initialResults, undefined, initialManualOverrides));
           setDerivedManualOverrides(initialManualOverrides);
@@ -684,13 +704,11 @@ const DiagnosticsResultEntry = () => {
     }
   }, [token, activeBranchId]);
 
-  // Build the same {testId, value, textValue, flag, ...} payload that the
-  // explicit save uses, but as a pure function so both the auto-save effect
-  // and saveResults() share one source of truth. Returns 'empty' when there
-  // is nothing meaningful to send (e.g. external-upload-only visit before the
-  // PDF is attached) so callers can decide whether that's a valid state.
-  const persistDraft = useCallback(async (): Promise<'saved' | 'empty' | 'failed'> => {
-    if (!visit || !visitId) return 'empty';
+  // Build the {testId, value, textValue, flag, ...} payload that the auto-save
+  // and explicit save share. Returns null when there is nothing meaningful to
+  // send (e.g. external-upload-only visit before the PDF is attached).
+  const buildResultsPayload = useCallback((): { results: unknown[] } | null => {
+    if (!visit || !visitId) return null;
 
     type TestForSave = { testId: string; min: number; max: number; isDerived: boolean };
     const allTests: TestForSave[] = [];
@@ -724,6 +742,11 @@ const DiagnosticsResultEntry = () => {
 
     const resultsArray = allTests
       .filter((test) => hasResultValue(results[test.testId], textLayoutByTestId.get(test.testId)))
+      // Skip values that are still prefills (narrative templates / numeric
+      // defaults) the user hasn't touched. Sending them would silently
+      // overwrite edits another staff member made on this visit since this
+      // page loaded.
+      .filter((test) => !prefilledTestIdsRef.current.has(test.testId))
       .map((test) => {
         const layoutType = textLayoutByTestId.get(test.testId);
         const rawValue = results[test.testId];
@@ -744,9 +767,14 @@ const DiagnosticsResultEntry = () => {
         };
       });
 
-    if (resultsArray.length === 0) {
-      return 'empty';
-    }
+    if (resultsArray.length === 0) return null;
+    return { results: resultsArray };
+  }, [visit, visitId, results, derivedManualOverrides, textLayoutByTestId]);
+
+  const persistDraft = useCallback(async (): Promise<'saved' | 'empty' | 'failed'> => {
+    if (!visitId) return 'empty';
+    const payload = buildResultsPayload();
+    if (!payload) return 'empty';
 
     try {
       const response = await fetch(`${API_BASE}/visits/diagnostic/${visitId}/results`, {
@@ -756,19 +784,25 @@ const DiagnosticsResultEntry = () => {
           'X-Branch-Id': activeBranchId,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ results: resultsArray }),
+        body: JSON.stringify(payload),
       });
       return response.ok ? 'saved' : 'failed';
     } catch (error) {
       console.error('persistDraft failed:', error);
       return 'failed';
     }
-  }, [visit, visitId, results, derivedManualOverrides, textLayoutByTestId, token, activeBranchId]);
+  }, [visitId, buildResultsPayload, token, activeBranchId]);
 
   // Drive the inline status indicator. Coordinates in-flight saves so we don't
-  // race two POSTs.
+  // race two POSTs. When a save is requested while another is already running,
+  // we flip pendingResaveRef and re-fire once the current one resolves — that
+  // way edits made *during* a slow save are never silently dropped and the
+  // status indicator never lies "Saved" when newer edits are still local-only.
   const runAutoSave = useCallback(async () => {
-    if (inFlightSaveRef.current) return;
+    if (inFlightSaveRef.current) {
+      pendingResaveRef.current = true;
+      return;
+    }
     setAutoSaveStatus('saving');
     const promise = persistDraft();
     inFlightSaveRef.current = promise;
@@ -786,6 +820,12 @@ const DiagnosticsResultEntry = () => {
       }
     } finally {
       inFlightSaveRef.current = null;
+      if (pendingResaveRef.current) {
+        pendingResaveRef.current = false;
+        // Newer edits arrived during the save we just finished. Fire one
+        // follow-up POST so the server catches up to local state.
+        void runAutoSave();
+      }
     }
   }, [persistDraft]);
 
@@ -799,19 +839,17 @@ const DiagnosticsResultEntry = () => {
       return;
     }
 
-    // Mirror the disabled-button conditions: nothing to save yet, or the form
-    // is in an invalid state pending external uploads.
+    // Auto-save only persists non-EXTERNAL_UPLOAD result rows (persistDraft
+    // filters those out before POSTing). So a missing PDF on an external-upload
+    // order MUST NOT block auto-save of the rest of the visit — that would
+    // silently drop the staff's lab values in mixed visits. The save button's
+    // disabled state still handles the finalize-gating separately.
     const hasAnyManualValueShape = visit.testOrders.some((order) => {
       if (order.workflowMode === 'EXTERNAL_UPLOAD') return false;
       if (!order.isPanel) return true;
       return order.childTests.length > 0;
     });
-    const missingExternalUpload = visit.testOrders.some(
-      (order) =>
-        order.workflowMode === 'EXTERNAL_UPLOAD' &&
-        (!uploadsByOrder[order.id] || uploadsByOrder[order.id].length === 0),
-    );
-    if (!hasAnyManualValueShape || missingExternalUpload) return;
+    if (!hasAnyManualValueShape) return;
 
     dirtyRef.current = true;
     setAutoSaveStatus('unsaved');
@@ -825,15 +863,58 @@ const DiagnosticsResultEntry = () => {
     }, 1500);
   }, [results, derivedManualOverrides, loading, visit, uploadsByOrder, runAutoSave]);
 
-  // Clear any pending debounce on unmount.
+  // Refs to grab the latest closures from event handlers that bind once
+  // (unmount cleanup, beforeunload listener). Without refs we'd read stale
+  // results state on tab close and lose the most recent edits.
+  const runAutoSaveRef = useRef(runAutoSave);
+  useEffect(() => { runAutoSaveRef.current = runAutoSave; }, [runAutoSave]);
+  const buildResultsPayloadRef = useRef(buildResultsPayload);
+  useEffect(() => { buildResultsPayloadRef.current = buildResultsPayload; }, [buildResultsPayload]);
+
+  // On unmount (route change inside the SPA), flush the pending debounced
+  // save. The fetch fires and completes in the background even after the
+  // component unmounts.
   useEffect(() => {
     return () => {
       if (autoSaveTimerRef.current) {
         clearTimeout(autoSaveTimerRef.current);
         autoSaveTimerRef.current = null;
+        if (dirtyRef.current) {
+          void runAutoSaveRef.current();
+        }
       }
     };
   }, []);
+
+  // On full page unload (tab close, refresh, navigate away), flush via
+  // `fetch({ keepalive: true })`. Browsers guarantee keepalive requests
+  // survive the navigation up to a small body-size limit (~64 KB, plenty
+  // for a results POST). sendBeacon isn't usable here because it can't
+  // carry the Authorization header.
+  useEffect(() => {
+    if (!visitId) return;
+    const handler = () => {
+      if (!dirtyRef.current) return;
+      const payload = buildResultsPayloadRef.current();
+      if (!payload) return;
+      try {
+        fetch(`${API_BASE}/visits/diagnostic/${visitId}/results`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'X-Branch-Id': activeBranchId || '',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+          keepalive: true,
+        });
+      } catch (err) {
+        // best-effort — don't block navigation
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [visitId, token, activeBranchId]);
 
   // Field-level blur: if the user tabs/clicks out of a dirty field, save now
   // rather than waiting out the 1.5s debounce. React's onBlur bubbles, so a
@@ -918,6 +999,12 @@ const DiagnosticsResultEntry = () => {
   };
 
   const handleValueChange = (testId: string, value: string) => {
+    // Any user-initiated change promotes the value from "prefill" to a real
+    // edit. Once cleared, auto-save will start including this testId in its
+    // POST. Until cleared, the prefilled value stays local-only.
+    if (prefilledTestIdsRef.current.has(testId)) {
+      prefilledTestIdsRef.current.delete(testId);
+    }
     setResults((prev) => {
       const updated = { ...prev, [testId]: value };
       const changedCode = testIdToCodeMap.get(testId);
@@ -2109,7 +2196,13 @@ const DiagnosticsResultEntry = () => {
           const groupMap = new Map<string, PartialReleaseGroup>();
           testOrders.forEach((order) => {
             const status = orderStatuses.get(order.id);
-            if (status === 'empty') return;
+            // Missing-PDF external-upload orders are still surfaced in the
+            // dialog (as a disabled row) so the doctor can see what is NOT
+            // shipping in this batch. Other 'empty' orders stay hidden.
+            const isMissingUpload =
+              order.workflowMode === 'EXTERNAL_UPLOAD' &&
+              (uploadsByOrder[order.id]?.length ?? 0) === 0;
+            if (status === 'empty' && !isMissingUpload) return;
 
             const deptName = order.department?.name || 'Tests';
             if (!groupMap.has(deptName)) {
@@ -2121,10 +2214,17 @@ const DiagnosticsResultEntry = () => {
             let hint: string | undefined;
             let hintVariant: 'normal' | 'warning' | undefined;
             let sublabel: string | undefined;
+            let rowDisabled = false;
 
             if (order.workflowMode === 'EXTERNAL_UPLOAD') {
               const count = uploadsByOrder[order.id]?.length ?? 0;
-              hint = `${count} file${count === 1 ? '' : 's'} uploaded`;
+              if (count === 0) {
+                hint = 'No PDF uploaded — cannot ship';
+                hintVariant = 'warning';
+                rowDisabled = true;
+              } else {
+                hint = `${count} file${count === 1 ? '' : 's'} uploaded`;
+              }
             } else if (status === 'template-only') {
               hint = 'Template only — not edited yet';
               hintVariant = 'warning';
@@ -2167,7 +2267,9 @@ const DiagnosticsResultEntry = () => {
             const narrativeTouched = narrativeIds.some((id) =>
               touchedNarrativeTestIds.has(id),
             );
-            const defaultChecked = isNarrativeOrder
+            const defaultChecked = rowDisabled
+              ? false
+              : isNarrativeOrder
               ? narrativeTouched || status === 'complete'
               : status === 'complete';
 
@@ -2179,6 +2281,7 @@ const DiagnosticsResultEntry = () => {
               hint,
               hintVariant,
               defaultChecked,
+              disabled: rowDisabled,
             });
           });
           return Array.from(groupMap.values());
@@ -2219,9 +2322,9 @@ const DiagnosticsResultEntry = () => {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Go Back & Edit</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmSave}>
-              Acknowledge & Save
+            <AlertDialogCancel disabled={saving}>Go Back & Edit</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmSave} disabled={saving}>
+              {saving ? 'Saving...' : 'Acknowledge & Save'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
