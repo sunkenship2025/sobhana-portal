@@ -84,6 +84,10 @@ export default function ManageSigningDoctors() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [submittingDoctor, setSubmittingDoctor] = useState(false);
+  const [deletingDoctor, setDeletingDoctor] = useState(false);
+  const [submittingRule, setSubmittingRule] = useState(false);
+  const [deletingRuleIds, setDeletingRuleIds] = useState<Set<string>>(() => new Set());
   const [pendingSignatureFile, setPendingSignatureFile] = useState<File | null>(null);
   const [pendingSignaturePreview, setPendingSignaturePreview] = useState<string | null>(null);
 
@@ -172,6 +176,8 @@ export default function ManageSigningDoctors() {
       return;
     }
 
+    if (submittingDoctor) return;
+    setSubmittingDoctor(true);
     try {
       const body = {
         name: doctorForm.name.trim(),
@@ -227,6 +233,8 @@ export default function ManageSigningDoctors() {
     } catch (err) {
       console.error('Error saving signing doctor:', err);
       toast.error('Failed to save signing doctor');
+    } finally {
+      setSubmittingDoctor(false);
     }
   };
 
@@ -244,6 +252,8 @@ export default function ManageSigningDoctors() {
 
   const handleDeleteDoctor = async () => {
     if (!deleteId) return;
+    if (deletingDoctor) return;
+    setDeletingDoctor(true);
     try {
       const res = await fetch(`${API_BASE}/signing-doctors/${deleteId}`, {
         method: 'DELETE', headers: getHeaders(),
@@ -253,6 +263,7 @@ export default function ManageSigningDoctors() {
       toast.success(result.message || 'Signing doctor deleted');
       await fetchAll();
     } catch { toast.error('Failed to delete'); }
+    finally { setDeletingDoctor(false); }
     setDeleteId(null);
   };
 
@@ -329,6 +340,8 @@ export default function ManageSigningDoctors() {
       toast.error('Department and doctor are required');
       return;
     }
+    if (submittingRule) return;
+    setSubmittingRule(true);
     try {
       const res = await fetch(`${API_BASE}/signing-rules`, {
         method: 'POST',
@@ -345,6 +358,7 @@ export default function ManageSigningDoctors() {
       await fetchAll();
       setRuleDialogOpen(false);
     } catch { toast.error('Failed to create rule'); }
+    finally { setSubmittingRule(false); }
   };
 
   const handleToggleRule = async (rule: SigningRule) => {
@@ -359,6 +373,12 @@ export default function ManageSigningDoctors() {
   };
 
   const handleDeleteRule = async (ruleId: string) => {
+    if (deletingRuleIds.has(ruleId)) return;
+    setDeletingRuleIds((prev) => {
+      const next = new Set(prev);
+      next.add(ruleId);
+      return next;
+    });
     try {
       const res = await fetch(`${API_BASE}/signing-rules/${ruleId}`, {
         method: 'DELETE', headers: getHeaders(),
@@ -367,6 +387,13 @@ export default function ManageSigningDoctors() {
       toast.success('Rule deleted');
       await fetchAll();
     } catch { toast.error('Failed to delete rule'); }
+    finally {
+      setDeletingRuleIds((prev) => {
+        const next = new Set(prev);
+        next.delete(ruleId);
+        return next;
+      });
+    }
   };
 
   // ─── Filter ──────────────────────────────────────────────────────
@@ -545,7 +572,13 @@ export default function ManageSigningDoctors() {
                       <Switch checked={rule.isActive} onCheckedChange={() => handleToggleRule(rule)} />
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => handleDeleteRule(rule.id)} className="h-8 w-8">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleDeleteRule(rule.id)}
+                        disabled={deletingRuleIds.has(rule.id)}
+                        className="h-8 w-8"
+                      >
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>
                     </TableCell>
@@ -706,9 +739,9 @@ export default function ManageSigningDoctors() {
           </div>
 
           <SheetFooter className="mt-4">
-            <Button variant="outline" onClick={resetDoctorForm}>Cancel</Button>
-            <Button onClick={handleSubmitDoctor}>
-              {editingDoctorId ? 'Update Doctor' : 'Add Doctor'}
+            <Button variant="outline" onClick={resetDoctorForm} disabled={submittingDoctor}>Cancel</Button>
+            <Button onClick={handleSubmitDoctor} disabled={submittingDoctor}>
+              {submittingDoctor ? 'Saving...' : (editingDoctorId ? 'Update Doctor' : 'Add Doctor')}
             </Button>
           </SheetFooter>
         </SheetContent>
@@ -765,8 +798,10 @@ export default function ManageSigningDoctors() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRuleDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSubmitRule}>Create Rule</Button>
+            <Button variant="outline" onClick={() => setRuleDialogOpen(false)} disabled={submittingRule}>Cancel</Button>
+            <Button onClick={handleSubmitRule} disabled={submittingRule}>
+              {submittingRule ? 'Saving...' : 'Create Rule'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -785,9 +820,9 @@ export default function ManageSigningDoctors() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteDoctor} className="bg-destructive text-destructive-foreground">
-              Delete
+            <AlertDialogCancel disabled={deletingDoctor}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteDoctor} disabled={deletingDoctor} className="bg-destructive text-destructive-foreground">
+              {deletingDoctor ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

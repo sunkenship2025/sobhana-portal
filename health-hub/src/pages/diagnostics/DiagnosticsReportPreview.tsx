@@ -205,6 +205,7 @@ const DiagnosticsReportPreview = () => {
   const [showPreview, setShowPreview] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);  // blob URL for iframe
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
   const latestVersionId = (visit as any)?.report?.versions?.[0]?.id ?? visit?.report?.currentVersion?.id ?? null;
 
   // Fetch visit from API
@@ -520,6 +521,8 @@ const DiagnosticsReportPreview = () => {
   };
 
   const handleWhatsApp = async () => {
+    if (sendingWhatsApp) return;
+    setSendingWhatsApp(true);
     try {
       const response = await fetch(`${API_BASE}/messages/${visitId}/send-report`, {
         method: 'POST',
@@ -537,6 +540,8 @@ const DiagnosticsReportPreview = () => {
       }
     } catch (error) {
       toast.error('Failed to send WhatsApp notification');
+    } finally {
+      setSendingWhatsApp(false);
     }
   };
 
@@ -628,9 +633,13 @@ const DiagnosticsReportPreview = () => {
                 <Printer className="mr-2 h-4 w-4" />
                 Print
               </Button>
-              <Button variant="outline" onClick={handleWhatsApp}>
+              <Button
+                variant="outline"
+                onClick={handleWhatsApp}
+                disabled={sendingWhatsApp}
+              >
                 <MessageCircle className="mr-2 h-4 w-4" />
-                WhatsApp
+                {sendingWhatsApp ? 'Sending...' : 'WhatsApp'}
               </Button>
             </div>
           )}
