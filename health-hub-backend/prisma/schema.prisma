@@ -454,6 +454,7 @@ model User {
   activeBranch         Branch                 @relation(fields: [activeBranchId], references: [id], onDelete: Restrict)
   PaymentTransaction   PaymentTransaction[]
   ExternalReportUpload ExternalReportUpload[]
+  TestResultEntered    TestResult[]           @relation("TestResultEnteredBy")
 
   @@index([role])
   @@index([activeBranchId])
@@ -692,15 +693,21 @@ model TestResult {
   // New architecture: dual FK
   testDefinitionId String? // New-arch FK (nullable during migration)
 
+  // Staff member who entered this result. Nullable: legacy rows have no known
+  // user, and carry-forward rows preserve the *original* entrant on re-issue.
+  enteredByUserId String?
+
   testOrder      TestOrder       @relation(fields: [testOrderId], references: [id], onDelete: Cascade)
   test           LabTest         @relation(fields: [testId], references: [id], onDelete: Restrict)
   testDefinition TestDefinition? @relation(fields: [testDefinitionId], references: [id], onDelete: Restrict)
   reportVersion  ReportVersion   @relation(fields: [reportVersionId], references: [id], onDelete: Cascade)
+  enteredBy      User?           @relation("TestResultEnteredBy", fields: [enteredByUserId], references: [id], onDelete: SetNull)
 
   @@index([testOrderId])
   @@index([testId])
   @@index([testDefinitionId])
   @@index([reportVersionId])
+  @@index([enteredByUserId])
 }
 
 /// ClinicVisit: Clinic-specific data (references Visit)
