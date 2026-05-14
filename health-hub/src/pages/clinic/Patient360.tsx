@@ -173,11 +173,13 @@ function VisitDetailDrawer({ visit, open, onClose, patientPhone, onPreviewReport
       return;
     }
     const domain = String(visit.domain).toUpperCase();
-    const opened = window.open(
-      `/bill/print/${domain}/${visit.visitId}`,
-      '_blank',
-      'noopener,noreferrer',
-    );
+    // Don't pass `noopener,noreferrer` in the features string — when those
+    // flags are set, window.open returns null even when the popup opens
+    // successfully (the new window is decoupled from the opener), making
+    // the popup-blocker check below misfire and showing a false-positive
+    // "blocked" toast on every click. Same-origin route, so we don't need
+    // the cross-origin opener isolation those flags provide.
+    const opened = window.open(`/bill/print/${domain}/${visit.visitId}`, '_blank');
     if (!opened) {
       toast.error('Pop-up was blocked — allow pop-ups for this site and try again.');
     }
