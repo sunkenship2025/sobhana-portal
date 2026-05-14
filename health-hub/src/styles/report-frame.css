@@ -227,3 +227,51 @@
   margin-top: 22px;
   font-weight: 600;
 }
+
+/* Signature block — mirrors the sign-off rendered at the bottom of every
+   finalized PDF page so staff see the same layout while drafting. */
+.report-frame-scope .report-signature {
+  margin-top: 28px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.report-frame-scope .report-signature-block {
+  text-align: center;
+  min-width: 200px;
+}
+
+.report-frame-scope .report-signature-image {
+  height: 56px;
+  object-fit: contain;
+  display: block;
+  margin: 0 auto 4px;
+}
+
+.report-frame-scope .report-signature-line {
+  width: 200px;
+  border-top: 1px solid #888;
+  margin: 0 auto 4px;
+  height: 0;
+}
+
+.report-frame-scope .report-signature-name {
+  font-weight: 700;
+  font-size: 11pt;
+}
+
+.report-frame-scope .report-signature-degrees {
+  font-size: 10pt;
+  color: #4a5568;
+}
+
+.report-frame-scope .report-signature-designation {
+  font-size: 10pt;
+  font-weight: 600;
+  color: #1a202c;
+}
+
+.report-frame-scope .report-signature-reg {
+  font-size: 9pt;
+  color: #4a5568;
+}
