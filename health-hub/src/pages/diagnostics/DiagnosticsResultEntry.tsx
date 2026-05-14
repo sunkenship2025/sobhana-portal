@@ -276,21 +276,6 @@ const DiagnosticsResultEntry = () => {
   // Skips the very first results-changed render after fetchVisit populates state.
   const autoSavePrimedRef = useRef(false);
 
-  // Signing rules keyed by departmentId. Drives the sign-off block shown at
-  // the bottom of each framed narrative editor so the on-screen preview
-  // matches the printed report's footer.
-  type SigningRulePreview = {
-    name: string;
-    degrees: string;
-    designation: string;
-    registrationNumber?: string | null;
-    signatureImageBase64?: string | null;
-    signatureImagePath?: string | null;
-  };
-  const [signingRulesByDeptId, setSigningRulesByDeptId] = useState<
-    Map<string, SigningRulePreview>
-  >(() => new Map());
-
   // Partial-release selector dialog state. Opens when staff clicks
   // "Continue with Partial Report" and there's a real choice to make
   // (more than one ready test, or template-only narratives need to be
@@ -630,43 +615,6 @@ const DiagnosticsResultEntry = () => {
 
     fetchVisit();
   }, [visitId, token, activeBranchId]);
-
-  // Fetch active signing rules so the framed editor can show the same
-  // sign-off block the final PDF will carry. One light query — rules are
-  // small and rarely change. First active rule per department wins (matches
-  // PDF ordering by displayOrder asc).
-  useEffect(() => {
-    if (!token || !activeBranchId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const response = await fetch(`${API_BASE}/signing-rules`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'X-Branch-Id': activeBranchId,
-          },
-        });
-        if (!response.ok) return;
-        const rules: Array<{
-          departmentId: string;
-          signingDoctor: SigningRulePreview;
-        }> = await response.json();
-        if (cancelled) return;
-        const map = new Map<string, SigningRulePreview>();
-        for (const rule of rules) {
-          if (!map.has(rule.departmentId)) {
-            map.set(rule.departmentId, rule.signingDoctor);
-          }
-        }
-        setSigningRulesByDeptId(map);
-      } catch (error) {
-        console.error('Failed to fetch signing rules:', error);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [token, activeBranchId]);
 
   // Fetch external uploads for the visit (renders the per-order upload zones).
   useEffect(() => {
@@ -1483,13 +1431,9 @@ const DiagnosticsResultEntry = () => {
     placeholder: string,
     _isSubTest: boolean = false,
     panelDisplayName?: string,
-    departmentName?: string,
-    departmentId?: string,
+    departmentName?: string
   ) => {
     const valueStr = results[testId] || '';
-    const signature = departmentId
-      ? signingRulesByDeptId.get(departmentId) ?? null
-      : null;
 
     return (
       <div key={testId} className="py-3">
@@ -1515,7 +1459,6 @@ const DiagnosticsResultEntry = () => {
           panelDisplayName={panelDisplayName || testName}
           testCode={testCode}
           placeholder={placeholder}
-          signature={signature}
           onFirstTouch={() => markNarrativeTouched(testId)}
         />
       </div>
@@ -1882,8 +1825,7 @@ const DiagnosticsResultEntry = () => {
                                   : 'Enter text result...',
                                 false,
                                 group.panelDisplayName || group.panelName,
-                                department.name,
-                                department.id,
+                                department.name
                               );
                             })}
                           </div>
@@ -1907,8 +1849,7 @@ const DiagnosticsResultEntry = () => {
                                   : 'Enter text result...',
                                 false,
                                 order.panel?.displayName || order.panel?.name || order.testName,
-                                department.name,
-                                department.id,
+                                department.name
                               );
                             })}
                           </div>
@@ -1927,8 +1868,7 @@ const DiagnosticsResultEntry = () => {
                               : 'Enter text result...',
                             false,
                             order.panel?.displayName || order.panel?.name || order.testName,
-                            department.name,
-                            department.id,
+                            department.name
                           )}
                         </div>
                       );
@@ -2002,10 +1942,7 @@ const DiagnosticsResultEntry = () => {
                                     textLayout === 'IMAGING_NARRATIVE'
                                       ? 'Enter narrative report...'
                                       : 'Enter text result...',
-                                    true,
-                                    undefined,
-                                    department.name,
-                                    department.id,
+                                    true
                                   );
                                 }
 
@@ -2099,10 +2036,7 @@ const DiagnosticsResultEntry = () => {
                                       textLayout === 'IMAGING_NARRATIVE'
                                         ? 'Enter narrative report...'
                                         : 'Enter text result...',
-                                      true,
-                                      undefined,
-                                      department.name,
-                                      department.id,
+                                      true
                                     );
                                   }
 
@@ -2152,11 +2086,7 @@ const DiagnosticsResultEntry = () => {
                                     order.testCode,
                                     textLayout === 'IMAGING_NARRATIVE'
                                       ? 'Enter narrative report...'
-                                      : 'Enter text result...',
-                                    false,
-                                    undefined,
-                                    department.name,
-                                    department.id,
+                                      : 'Enter text result...'
                                   );
                                 }
 
