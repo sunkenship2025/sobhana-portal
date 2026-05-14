@@ -1275,7 +1275,14 @@ const DiagnosticsResultEntry = () => {
     const isAutoDerived = isDerived && !isManualDerived;
 
     const hasNumericRange = referenceRange.min > 0 || referenceRange.max > 0;
-    const inputConfig = testInputConfigByTestId.get(testId) ?? DEFAULT_INPUT_CONFIG;
+    // When no explicit config exists, infer the input type from the reference
+    // range: a text-only reference (e.g. "YELLOW/PALE YELLOW") means the
+    // value is text, not a number. Without this, mobile defaults to the
+    // numeric keyboard and the user can't type letters.
+    const storedInputConfig = testInputConfigByTestId.get(testId);
+    const inputConfig: TestInputConfig = storedInputConfig ?? (hasNumericRange
+      ? DEFAULT_INPUT_CONFIG
+      : { ...DEFAULT_INPUT_CONFIG, inputType: 'FREE_TEXT' });
     const usePresetCombobox =
       !isAutoDerived &&
       (inputConfig.inputType === 'TEXT_WITH_PRESETS' || inputConfig.inputType === 'SELECT_ONLY') &&
@@ -1356,13 +1363,7 @@ const DiagnosticsResultEntry = () => {
             ) : (
               <Input
                 type="text"
-                inputMode={
-                  inputConfig.inputType === 'FREE_TEXT'
-                    ? 'text'
-                    : hasNumericRange || inputConfig.inputType === 'NUMERIC'
-                      ? 'decimal'
-                      : 'text'
-                }
+                inputMode={inputConfig.inputType === 'NUMERIC' ? 'decimal' : 'text'}
                 placeholder={isAutoDerived ? 'Auto-calculated' : 'Value'}
                 value={valueStr}
                 onChange={(e) => handleValueChange(testId, e.target.value)}
