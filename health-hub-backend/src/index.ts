@@ -214,11 +214,26 @@ app.get('/', (_req, res) => {
   res.json({ status: 'ok', service: 'sobhana-health-hub', timestamp: new Date().toISOString() });
 });
 
-// Health check (no auth required) — actually probes Postgres/Redis/R2/Puppeteer.
+// Liveness check (no auth required) — process-only by design.
+// Render and uptime monitors can hit this frequently without waking Neon.
+function handleHealth(_req: express.Request, res: express.Response) {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({
+    status: 'ok',
+    service: 'sobhana-health-hub',
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.floor(process.uptime()),
+  });
+}
+app.get('/health', handleHealth);
+app.get('/healthz', handleHealth);
+
+// Readiness/dependency check (no auth required) — probes Postgres/Redis/R2/Puppeteer.
+// Use this for manual deploy verification, not high-frequency uptime polling.
 // Returns 503 only when Postgres is down (the one critical dep). Non-critical
 // deps mark the overall status as 'degraded' but still return 200, so a transient
 // R2 / Redis blip doesn't trigger Render restart loops.
-async function handleHealth(_req: express.Request, res: express.Response) {
+async function handleReady(_req: express.Request, res: express.Response) {
   try {
     const report = await runHealthChecks();
     res.setHeader('Cache-Control', 'no-store');
@@ -227,8 +242,8 @@ async function handleHealth(_req: express.Request, res: express.Response) {
     res.status(500).json({ status: 'unhealthy', error: err?.message || 'health-check failed' });
   }
 }
-app.get('/health', handleHealth);
-app.get('/healthz', handleHealth);
+app.get('/ready', handleReady);
+app.get('/readyz', handleReady);
 
 // Auth routes (no branch context required)
 app.use('/api/auth', authRoutes);
@@ -356,6 +371,7 @@ async function startServer(): Promise<void> {
   app.listen(Number(PORT), '0.0.0.0', async () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
     console.log(`Health check: http://0.0.0.0:${PORT}/health`);
+    console.log(`Readiness check: http://0.0.0.0:${PORT}/ready`);
     console.log(`Auth endpoint: http://0.0.0.0:${PORT}/api/auth/login`);
     console.log(`Report download: http://0.0.0.0:${PORT}/reports/:token`);
     console.log(`WhatsApp webhook: http://0.0.0.0:${PORT}/webhooks/whatsapp`);
