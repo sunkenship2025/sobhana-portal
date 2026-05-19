@@ -139,6 +139,7 @@ interface ReportSnapshotDepartment {
 
 interface ReportSnapshotData {
   departments: ReportSnapshotDepartment[];
+  externalUploads?: Array<{ testOrderId: string }>;
 }
 
 function normalizeFlagForBadge(flag: string | null): 'HIGH' | 'LOW' | 'NORMAL' | null {
@@ -333,13 +334,16 @@ const DiagnosticsReportPreview = () => {
   const dueAmountInPaise = visit.dueAmountInPaise ?? 0;
   const hasDue = dueAmountInPaise > 0;
 
-  // Partial-release support: count reportable test orders that have results
-  // entered into the current DRAFT vs those still pending. Used to decide
+  // Partial-release support: count report-inclusion orders that have results
+  // or uploaded PDFs in the current DRAFT vs those still pending. Used to decide
   // whether to show the "Release Partial" button or the "Finalize" button —
   // they're mutually exclusive (XOR), so staff can never accidentally finalize
   // an incomplete report as if it were the final one.
   const reportableOrders = (visit.testOrders ?? []).filter(
     (order) => order.workflowMode === 'REPORTABLE' || order.workflowMode === undefined,
+  );
+  const externalUploadOrders = (visit.testOrders ?? []).filter(
+    (order) => order.workflowMode === 'EXTERNAL_UPLOAD',
   );
   const versions = (visit.report as any)?.versions as ReportVersionSummary[] | undefined;
   const finalizedVersions = (versions ?? []).filter((v) => v.status === 'FINALIZED');
@@ -347,12 +351,19 @@ const DiagnosticsReportPreview = () => {
   const draftResultOrderIds = new Set(
     (draftVersion?.testResults ?? []).map((r) => r.testOrderId),
   );
+  const uploadedExternalOrderIds = new Set(
+    (reportSnapshot?.externalUploads ?? []).map((upload) => upload.testOrderId),
+  );
   const readyReportableCount = reportableOrders.filter((o) =>
     draftResultOrderIds.has(o.id),
   ).length;
-  const totalReportableCount = reportableOrders.length;
-  const pendingReportableCount = Math.max(
-    totalReportableCount - readyReportableCount,
+  const readyExternalUploadCount = externalUploadOrders.filter((o) =>
+    uploadedExternalOrderIds.has(o.id),
+  ).length;
+  const readyReportInclusionCount = readyReportableCount + readyExternalUploadCount;
+  const totalReportInclusionCount = reportableOrders.length + externalUploadOrders.length;
+  const pendingReportInclusionCount = Math.max(
+    totalReportInclusionCount - readyReportInclusionCount,
     0,
   );
   // When the user arrived here from the per-test selector with an explicit
@@ -362,17 +373,10 @@ const DiagnosticsReportPreview = () => {
   const userPickedSubset = partialSelection !== null;
   const canReleasePartial = userPickedSubset
     ? true
-    : pendingReportableCount > 0 && readyReportableCount > 0;
-  // External-upload-only visits have no reportable orders to "complete", but
-  // they're still finalizable — the uploaded PDF is the report. The entry page
-  // blocks save until uploads are attached, so by the time we reach the preview
-  // the upload is already there.
-  const isExternalUploadOnly =
-    totalReportableCount === 0 && Boolean(visit.hasExternalUploadOrders);
+    : pendingReportInclusionCount > 0 && readyReportInclusionCount > 0;
   const canFinalizeAll = userPickedSubset
     ? false
-    : (totalReportableCount > 0 && pendingReportableCount === 0) ||
-      isExternalUploadOnly;
+    : totalReportInclusionCount > 0 && pendingReportInclusionCount === 0;
   // Test orders already sent to the patient in a prior finalized version —
   // shown with a "Sent in v{N}" hint so staff understand edits only affect v{N+1}.
   const sentTestOrderVersions = new Map<string, number>();
@@ -469,7 +473,7 @@ const DiagnosticsReportPreview = () => {
       if (response.ok) {
         await response.json();
         toast.success(
-          `Partial report released — patient notified. ${pendingReportableCount} test${pendingReportableCount === 1 ? '' : 's'} still pending.`,
+          `Partial report released — patient notified. ${pendingReportInclusionCount} test${pendingReportInclusionCount === 1 ? '' : 's'} still pending.`,
         );
         setShowReleaseConfirm(false);
 
@@ -1021,7 +1025,7 @@ const DiagnosticsReportPreview = () => {
                   <CheckCircle2 className="mr-2 h-4 w-4" />
                   {hasDue
                     ? 'Collect Due Before Releasing'
-                    : `Looks Good — Release ${readyReportableCount} of ${totalReportableCount}`}
+                    : `Looks Good — Release ${readyReportInclusionCount} of ${totalReportInclusionCount}`}
                 </Button>
               ) : canFinalizeAll ? (
                 <Button
@@ -1071,7 +1075,7 @@ const DiagnosticsReportPreview = () => {
             <AlertDialogDescription asChild>
               <div className="space-y-2">
                 <p>
-                  Send the {readyReportableCount} test{readyReportableCount === 1 ? '' : 's'} that {readyReportableCount === 1 ? 'is' : 'are'} ready now. The patient will receive a partial report immediately and a separate WhatsApp message when the remaining {pendingReportableCount} test{pendingReportableCount === 1 ? '' : 's'} {pendingReportableCount === 1 ? 'is' : 'are'} completed.
+                  Send the {readyReportInclusionCount} test{readyReportInclusionCount === 1 ? '' : 's'} that {readyReportInclusionCount === 1 ? 'is' : 'are'} ready now. The patient will receive a partial report immediately and a separate WhatsApp message when the remaining {pendingReportInclusionCount} test{pendingReportInclusionCount === 1 ? '' : 's'} {pendingReportInclusionCount === 1 ? 'is' : 'are'} completed.
                 </p>
                 <p className="text-muted-foreground">
                   This finalizes version {(draftVersion?.versionNum ?? nextVersionNum)}. Edits to these tests after release will only appear in the next version.

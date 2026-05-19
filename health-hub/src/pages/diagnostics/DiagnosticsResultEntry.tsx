@@ -281,6 +281,9 @@ const DiagnosticsResultEntry = () => {
   const prefilledTestIdsRef = useRef<Set<string>>(new Set());
   // Skips the very first results-changed render after fetchVisit populates state.
   const autoSavePrimedRef = useRef(false);
+  // Fields the user changed in this session. Blank touched fields must still be
+  // POSTed so the backend can delete any previously saved draft result.
+  const touchedForSaveTestIdsRef = useRef<Set<string>>(new Set());
 
   // Partial-release selector dialog state. Opens when staff clicks
   // "Continue with Partial Report" and there's a real choice to make
@@ -792,18 +795,19 @@ const DiagnosticsResultEntry = () => {
     const resultsArray = allTests
       .filter((test) => {
         const signerSet = Boolean(signerNameByTestId[test.testId]?.trim());
+        const touchedForSave = touchedForSaveTestIdsRef.current.has(test.testId);
         const valueReady =
           hasResultValue(results[test.testId], textLayoutByTestId.get(test.testId)) &&
           !prefilledTestIdsRef.current.has(test.testId);
         // Include if either: the value is real (not just a prefill) OR the
-        // radiologist typed a doctor name override. Signer-only rows materialize
-        // a TestResult with no value so the name round-trips on reload.
-        return valueReady || signerSet;
+        // radiologist typed a doctor name override OR the user cleared a field.
+        // Touched blank rows intentionally delete stale draft values server-side.
+        return valueReady || signerSet || touchedForSave;
       })
       .map((test) => {
         const layoutType = textLayoutByTestId.get(test.testId);
         const isPrefilled = prefilledTestIdsRef.current.has(test.testId);
-        const rawValue = results[test.testId];
+        const rawValue = results[test.testId] ?? '';
         const valueStr = isRichTextPanelLayout(layoutType)
           ? normalizeNarrativeContent(rawValue)
           : rawValue;
@@ -1060,6 +1064,7 @@ const DiagnosticsResultEntry = () => {
   };
 
   const handleValueChange = (testId: string, value: string) => {
+    touchedForSaveTestIdsRef.current.add(testId);
     // Any user-initiated change promotes the value from "prefill" to a real
     // edit. Once cleared, auto-save will start including this testId in its
     // POST. Until cleared, the prefilled value stays local-only.
@@ -1076,6 +1081,7 @@ const DiagnosticsResultEntry = () => {
   };
 
   const handleSignerNameChange = (testId: string, value: string) => {
+    touchedForSaveTestIdsRef.current.add(testId);
     setSignerNameByTestId((prev) => ({ ...prev, [testId]: value }));
   };
 
