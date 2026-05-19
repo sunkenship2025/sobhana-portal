@@ -125,7 +125,12 @@ router.post('/', upload.single('pdf'), async (req: AuthRequest, res) => {
     // Verify the test order is EXTERNAL_UPLOAD and belongs to the active branch
     const testOrder = await prisma.testOrder.findFirst({
       where: { id: testOrderId, branchId: req.branchId },
-      select: { id: true, visitId: true, workflowMode: true },
+      select: {
+        id: true,
+        visitId: true,
+        workflowMode: true,
+        visit: { select: { status: true } },
+      },
     });
     if (!testOrder) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Test order not found' });
@@ -137,15 +142,10 @@ router.post('/', upload.single('pdf'), async (req: AuthRequest, res) => {
       });
     }
 
-    // Block uploads on a finalized report
-    const finalized = await prisma.reportVersion.findFirst({
-      where: {
-        report: { visitId: testOrder.visitId },
-        status: 'FINALIZED',
-      },
-      select: { id: true },
-    });
-    if (finalized) {
+    // Partial releases create finalized versions while the visit remains open.
+    // New uploads are still valid for pending external-upload orders until the
+    // final /finalize call marks the visit COMPLETED.
+    if (testOrder.visit.status === 'COMPLETED') {
       return res.status(400).json({
         error: 'REPORT_FINALIZED',
         message: 'Cannot attach uploads after the report has been finalized',
@@ -236,7 +236,7 @@ router.delete('/:id', async (req: AuthRequest, res) => {
   try {
     const upload = await prisma.externalReportUpload.findUnique({
       where: { id: req.params.id },
-      include: { visit: { select: { branchId: true } } },
+      include: { visit: { select: { branchId: true, status: true } } },
     });
     if (!upload || upload.deletedAt) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Upload not found' });
@@ -245,14 +245,21 @@ router.delete('/:id', async (req: AuthRequest, res) => {
       return res.status(403).json({ error: 'FORBIDDEN', message: 'Upload belongs to another branch' });
     }
 
-    const finalized = await prisma.reportVersion.findFirst({
+    const finalizedVersions = await prisma.reportVersion.findMany({
       where: { report: { visitId: upload.visitId }, status: 'FINALIZED' },
-      select: { id: true },
+      select: { externalUploadsSnapshot: true },
     });
-    if (finalized) {
+    const uploadAlreadyReleased = finalizedVersions.some((version) => {
+      const snapshot = version.externalUploadsSnapshot;
+      return (
+        Array.isArray(snapshot) &&
+        snapshot.some((item: any) => item?.uploadId === upload.id)
+      );
+    });
+    if (upload.visit.status === 'COMPLETED' || uploadAlreadyReleased) {
       return res.status(400).json({
         error: 'REPORT_FINALIZED',
-        message: 'Cannot remove uploads after the report has been finalized',
+        message: 'Cannot remove an upload after it has been finalized into a report',
       });
     }
 
