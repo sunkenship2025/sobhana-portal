@@ -160,6 +160,44 @@ function isManualDerivedOverrideNote(
   return notes?.trim() === DERIVED_MANUAL_OVERRIDE_NOTE;
 }
 
+function hasMeaningfulResultRow(result: {
+  value?: number | null;
+  textValue?: string | null;
+  notes?: string | null;
+}): boolean {
+  if (result.value !== null && result.value !== undefined) {
+    return true;
+  }
+
+  if (typeof result.textValue === "string" && result.textValue.trim()) {
+    return true;
+  }
+
+  const notes = result.notes?.trim();
+  if (!notes) {
+    return false;
+  }
+
+  return (
+    notes !== DERIVED_MANUAL_OVERRIDE_NOTE &&
+    !notes.startsWith(DERIVED_AUTO_NOTE_PREFIX)
+  );
+}
+
+function getExpectedResultTestIds(order: {
+  testId: string;
+  test?: {
+    isPanel?: boolean | null;
+    childTests?: Array<{ id: string }> | null;
+  } | null;
+}): string[] {
+  if (order.test?.isPanel && order.test.childTests?.length) {
+    return order.test.childTests.map((child) => child.id);
+  }
+
+  return [order.testId];
+}
+
 type TestInputConfigPayload = {
   inputType: 'NUMERIC' | 'FREE_TEXT' | 'TEXT_WITH_PRESETS' | 'SELECT_ONLY';
   defaultValue: string | null;
@@ -3291,7 +3329,8 @@ router.post("/:id/collect-sample", async (req: AuthRequest, res) => {
 });
 
 // GET /api/visits/diagnostic/:id/report-snapshot - JSON snapshot for grouped screen preview
-// Returns finalized frozen snapshot when available, otherwise a live ephemeral snapshot
+// Returns finalized frozen snapshot only for completed visits; partial releases
+// keep the visit open, so preview should use the live draft snapshot.
 router.get("/:id/report-snapshot", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
@@ -3320,9 +3359,11 @@ router.get("/:id/report-snapshot", async (req: AuthRequest, res) => {
       });
     }
 
-    const loaded = await loadFinalizedReportSnapshotForVisit(id);
-    if (loaded.ok) {
-      return res.json(loaded.snapshot);
+    if (visit.status === "COMPLETED") {
+      const loaded = await loadFinalizedReportSnapshotForVisit(id);
+      if (loaded.ok) {
+        return res.json(loaded.snapshot);
+      }
     }
 
     const snapshot = await buildEphemeralSnapshot(id);
@@ -3710,7 +3751,22 @@ router.post("/:id/finalize", async (req: AuthRequest, res) => {
         },
         testOrders: {
           select: {
+            id: true,
+            testId: true,
+            testNameSnapshot: true,
+            testCodeSnapshot: true,
             workflowMode: true,
+            test: {
+              select: {
+                isPanel: true,
+                childTests: { select: { id: true } },
+              },
+            },
+            externalUploads: {
+              where: { deletedAt: null },
+              select: { id: true },
+              take: 1,
+            },
           },
         },
         bill: { include: { transactions: true } },
@@ -3720,6 +3776,17 @@ router.post("/:id/finalize", async (req: AuthRequest, res) => {
               where: { status: "DRAFT" },
               orderBy: { versionNum: "desc" },
               take: 1,
+              include: {
+                testResults: {
+                  select: {
+                    testOrderId: true,
+                    testId: true,
+                    value: true,
+                    textValue: true,
+                    notes: true,
+                  },
+                },
+              },
             },
           },
         },
@@ -3756,6 +3823,39 @@ router.post("/:id/finalize", async (req: AuthRequest, res) => {
       return res.status(400).json({
         error: "VALIDATION_ERROR",
         message: "No draft report version found",
+      });
+    }
+
+    const meaningfulDraftResultKeys = new Set(
+      draftVersion.testResults
+        .filter(hasMeaningfulResultRow)
+        .map((result) => `${result.testOrderId}:${result.testId}`),
+    );
+    const incompleteOrders = visit.testOrders.filter((order) => {
+      const mode = order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE;
+
+      if (mode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD) {
+        return order.externalUploads.length === 0;
+      }
+
+      if (mode !== DiagnosticWorkflowMode.REPORTABLE) {
+        return false;
+      }
+
+      return getExpectedResultTestIds(order).some(
+        (testId) => !meaningfulDraftResultKeys.has(`${order.id}:${testId}`),
+      );
+    });
+
+    if (incompleteOrders.length > 0) {
+      return res.status(400).json({
+        error: "INCOMPLETE_REPORT",
+        message:
+          "Cannot finalize a complete report while some ordered tests are still pending. Release a partial report or enter the remaining results first.",
+        pendingTestOrderIds: incompleteOrders.map((order) => order.id),
+        pendingTests: incompleteOrders.map(
+          (order) => order.testNameSnapshot || order.testCodeSnapshot || order.id,
+        ),
       });
     }
 
@@ -3924,6 +4024,11 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
           select: {
             id: true,
             workflowMode: true,
+            externalUploads: {
+              where: { deletedAt: null },
+              select: { id: true },
+              take: 1,
+            },
             testResults: {
               select: { id: true, reportVersionId: true },
             },
@@ -3987,19 +4092,35 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
       });
     }
 
-    // Partial-release pre-conditions: at least one reportable order is ready
-    // AND at least one reportable order is still pending. Otherwise the
+    // Partial-release pre-conditions: at least one report-inclusion order is ready
+    // AND at least one report-inclusion order is still pending. Otherwise the
     // staff should be using /finalize (everything ready) or entering results
     // first (nothing ready yet).
     const reportableOrders = getReportableOrders(visit.testOrders);
+    const externalUploadOrders = visit.testOrders.filter(
+      (order) => order.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD,
+    );
+    const reportInclusionOrders = getReportInclusionOrders(visit.testOrders);
     const draftResultOrderIds = new Set(
-      draftVersion.testResults.map((r) => r.testOrderId),
+      draftVersion.testResults
+        .filter(hasMeaningfulResultRow)
+        .map((r) => r.testOrderId),
+    );
+    const readyExternalUploadOrderIds = new Set(
+      externalUploadOrders
+        .filter((order) => order.externalUploads.length > 0)
+        .map((order) => order.id),
     );
     const readyReportableCount = reportableOrders.filter((o) =>
       draftResultOrderIds.has(o.id),
     ).length;
-    const pendingReportableCount =
-      reportableOrders.length - readyReportableCount;
+    const readyExternalUploadCount = externalUploadOrders.filter((o) =>
+      readyExternalUploadOrderIds.has(o.id),
+    ).length;
+    const readyReportInclusionCount =
+      readyReportableCount + readyExternalUploadCount;
+    const pendingReportInclusionCount =
+      reportInclusionOrders.length - readyReportInclusionCount;
 
     // Optional explicit selection from the entry-page partial-release dialog.
     // When provided, only these test orders go into the released version; the
@@ -4034,8 +4155,12 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
     }
 
     // Effective set of order ids that will be shipped in the partial release.
+    const defaultReleaseOrderIds = [
+      ...Array.from(draftResultOrderIds),
+      ...Array.from(readyExternalUploadOrderIds),
+    ];
     const releaseOrderIds = new Set<string>(
-      explicitSelection ?? Array.from(draftResultOrderIds),
+      explicitSelection ?? defaultReleaseOrderIds,
     );
 
     // The "ready/pending" gating below uses the *effective* selection so
@@ -4043,13 +4168,18 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
     const effectiveReadyReportableCount = reportableOrders.filter((o) =>
       releaseOrderIds.has(o.id) && draftResultOrderIds.has(o.id),
     ).length;
-    const effectivePendingReportableCount =
-      reportableOrders.length - effectiveReadyReportableCount;
+    const effectiveReadyExternalUploadCount = externalUploadOrders.filter((o) =>
+      releaseOrderIds.has(o.id) && readyExternalUploadOrderIds.has(o.id),
+    ).length;
+    const effectiveReadyReportInclusionCount =
+      effectiveReadyReportableCount + effectiveReadyExternalUploadCount;
+    const effectivePendingReportInclusionCount =
+      reportInclusionOrders.length - effectiveReadyReportInclusionCount;
 
-    if (effectiveReadyReportableCount === 0 && !explicitSelection) {
-      // Legacy callers (no explicit selection) need at least one ready test;
-      // when explicit, external-upload-only releases are valid even with zero
-      // reportable rows.
+    if (effectiveReadyReportInclusionCount === 0) {
+      // Need at least one actual result row or uploaded external PDF to ship.
+      // External-upload-only releases are valid with zero reportable rows, but
+      // not with zero ready report-inclusion orders.
       return res.status(400).json({
         error: "NO_RESULTS_TO_RELEASE",
         message:
@@ -4057,7 +4187,7 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
       });
     }
 
-    if (!explicitSelection && effectivePendingReportableCount === 0) {
+    if (!explicitSelection && effectivePendingReportInclusionCount === 0) {
       // Legacy callers (no explicit body) reaching this with nothing pending
       // shouldn't be running partial — caller should use /finalize. Explicit-
       // selection callers can have pending===0 legitimately when the user
@@ -4144,6 +4274,10 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
       // NOTE: visit.status is intentionally NOT set to COMPLETED here.
       // The visit stays open so staff can keep entering results into
       // the new DRAFT version.
+      await tx.visit.update({
+        where: { id },
+        data: { status: "WAITING" },
+      });
     });
 
     // Snapshot + access token (outside the transaction, same pattern as
@@ -4184,7 +4318,10 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
         visitId: visit.id,
         finalizedAt: finalizedAt.toISOString(),
         readyReportableCount: effectiveReadyReportableCount,
-        pendingReportableCount: effectivePendingReportableCount,
+        pendingReportableCount:
+          reportableOrders.length - effectiveReadyReportableCount,
+        readyReportInclusionCount: effectiveReadyReportInclusionCount,
+        pendingReportInclusionCount: effectivePendingReportInclusionCount,
         explicitSelection: explicitSelection ?? null,
         reportAccessIssued: !!accessToken,
       },
@@ -4209,7 +4346,10 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
       finalizedVersionNum: draftVersion.versionNum,
       nextDraftVersionId: newDraftVersionId,
       readyReportableCount: effectiveReadyReportableCount,
-      pendingReportableCount: effectivePendingReportableCount,
+      pendingReportableCount:
+        reportableOrders.length - effectiveReadyReportableCount,
+      readyReportInclusionCount: effectiveReadyReportInclusionCount,
+      pendingReportInclusionCount: effectivePendingReportInclusionCount,
       reportFinalizedAt: finalizedAt,
     });
   } catch (err: any) {
