@@ -759,7 +759,24 @@ const DiagnosticsResultEntry = () => {
   // Build the {testId, value, textValue, flag, ...} payload that the auto-save
   // and explicit save share. Returns null when there is nothing meaningful to
   // send (e.g. external-upload-only visit before the PDF is attached).
-  const buildResultsPayload = useCallback((): { results: unknown[] } | null => {
+  type ResultSaveItem = {
+    testId: string;
+    value: number | null;
+    textValue: string;
+    flag: 'NORMAL' | 'HIGH' | 'LOW' | null;
+    notes: null;
+    manualOverride: boolean;
+    signerNameOverride: string | null;
+  };
+  type ResultsPayload = { results: ResultSaveItem[] };
+  const payloadHasMeaningfulResult = (payload: ResultsPayload): boolean =>
+    payload.results.some((result) => {
+      if (result.value !== null && result.value !== undefined) return true;
+      if (result.textValue.trim()) return true;
+      return Boolean(result.signerNameOverride?.trim());
+    });
+
+  const buildResultsPayload = useCallback((): ResultsPayload | null => {
     if (!visit || !visitId) return null;
 
     type TestForSave = { testId: string; min: number; max: number; isDerived: boolean };
@@ -792,7 +809,7 @@ const DiagnosticsResultEntry = () => {
       return 'NORMAL';
     };
 
-    const resultsArray = allTests
+    const resultsArray: ResultSaveItem[] = allTests
       .filter((test) => {
         const signerSet = Boolean(signerNameByTestId[test.testId]?.trim());
         const touchedForSave = touchedForSaveTestIdsRef.current.has(test.testId);
@@ -1164,6 +1181,8 @@ const DiagnosticsResultEntry = () => {
       }
 
       const hasAnyExternalUpload = Object.values(uploadsByOrder).some((arr) => arr && arr.length > 0);
+      const payload = buildResultsPayload();
+      const hasMeaningfulPayload = payload ? payloadHasMeaningfulResult(payload) : false;
       const result = await persistDraft();
       // Carry the per-test selection (if any) forward to the preview page so
       // the eventual /release-partial call only ships the chosen test orders.
@@ -1190,6 +1209,10 @@ const DiagnosticsResultEntry = () => {
         dirtyRef.current = false;
         setLastSavedAt(Date.now());
         setAutoSaveStatus('saved');
+        if (!hasMeaningfulPayload && !hasAnyExternalUpload) {
+          toast.error('Please enter at least one test result');
+          return;
+        }
         toast.success('Results saved as draft');
         navigate(`/diagnostics/preview/${visitId}`, navState);
         return;
