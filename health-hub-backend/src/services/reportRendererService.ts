@@ -801,6 +801,8 @@ function renderHeaderHtml(baseUrl: string, qrImgSrc: string): string {
 }
 
 function renderPatientInfoHtml(snapshot: ReportSnapshot, sampleTypes: string[]): string {
+  const referredBy = snapshot.visit.referralDoctorName?.trim() || 'SELF';
+
   return `
       <section class="patient-info">
         <div class="info-grid">
@@ -844,14 +846,13 @@ function renderPatientInfoHtml(snapshot: ReportSnapshot, sampleTypes: string[]):
               <span class="value">${formatDateTime(snapshot.visit.finalizedAt)}</span>
             </div>
           </div>
-          ${snapshot.visit.referralDoctorName ? `
           <div class="info-row">
             <div class="info-item">
-              <span class="label">Ref. Doctor</span>
-              <span class="value">${escapeHtml(snapshot.visit.referralDoctorName)}</span>
+              <span class="label">Referred by</span>
+              <span class="value">${escapeHtml(referredBy)}</span>
             </div>
             <div class="info-item"></div>
-          </div>` : ''}
+          </div>
         </div>
       </section>`;
 }
