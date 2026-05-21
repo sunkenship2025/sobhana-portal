@@ -231,12 +231,9 @@ export const BillReceipt = ({
           </p>
         )}
 
-        {/* Referral Doctor */}
-        {data.referralDoctor && (
-          <p className="text-sm mb-3">
-            <strong>Referred By:</strong>&ensp;{data.referralDoctor.name}
-          </p>
-        )}
+        <p className="text-sm mb-3">
+          <strong>Referred by:</strong>&ensp;{data.referralDoctor?.name?.trim() || "SELF"}
+        </p>
 
         {/* Service / Test Table */}
         <table className="w-full table-fixed border-collapse border border-black text-sm mb-4">
