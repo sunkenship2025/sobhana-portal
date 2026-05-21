@@ -716,6 +716,7 @@ model TestResult {
   @@index([testDefinitionId])
   @@index([reportVersionId])
   @@index([enteredByUserId])
+  @@unique([reportVersionId, testOrderId, testId])
 }
 
 /// ClinicVisit: Clinic-specific data (references Visit)

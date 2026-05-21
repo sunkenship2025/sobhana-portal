@@ -34,6 +34,7 @@ export interface DerivedFormulaTarget {
   dependsOnCodes: string[];
   displayOrder: number;
   testDefinitionId?: string | null;
+  testOrderId?: string | null;
 }
 
 export interface EvaluatedDerivedFormula extends DerivedFormulaTarget {

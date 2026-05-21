@@ -62,6 +62,28 @@ const DEFAULT_INPUT_CONFIG: TestInputConfig = {
   valueOptions: [],
 };
 
+type ResultKey = string;
+
+function makeResultKey(testOrderId: string, testId: string): ResultKey {
+  return `${testOrderId}:${testId}`;
+}
+
+function getEffectiveInputConfig(
+  config: TestInputConfig,
+  referenceRange: ReferenceRange
+): TestInputConfig {
+  if (
+    config.inputType === 'NUMERIC' &&
+    !config.defaultValue &&
+    config.valueOptions.length === 0 &&
+    referenceRange.text?.trim()
+  ) {
+    return { ...config, inputType: 'FREE_TEXT' };
+  }
+
+  return config;
+}
+
 interface ChildTest {
   id: string;
   name: string;
@@ -245,12 +267,12 @@ const DiagnosticsResultEntry = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [results, setResults] = useState<Record<string, string>>({});
-  // Per-test signer name override — what the radiologist types in the
+  // Per result-row signer name override — what the radiologist types in the
   // "Doctor's Name" input below each narrative editor. Empty string = unset.
   // Round-trips through POST/GET so the value survives reloads, and flows
   // into the report snapshot at finalize so the PDF prints "{name} /
   // {Consultant Radiologist}" above the designation.
-  const [signerNameByTestId, setSignerNameByTestId] = useState<Record<string, string>>({});
+  const [signerNameByResultKey, setSignerNameByResultKey] = useState<Record<string, string>>({});
   const [derivedManualOverrides, setDerivedManualOverrides] = useState<Record<string, boolean>>({});
   const [showWarning, setShowWarning] = useState(false);
   const [extremeValues, setExtremeValues] = useState<string[]>([]);
@@ -271,19 +293,19 @@ const DiagnosticsResultEntry = () => {
   // Set when an auto-save fires while another save is in flight. The current
   // save can't include those newer edits, so we re-fire once it completes.
   const pendingResaveRef = useRef(false);
-  // testIds whose current `results[id]` value came from a prefill (narrative
+  // Result keys whose current `results[key]` value came from a prefill (narrative
   // template or numeric default), NOT from saved data or user input. These
   // must be excluded from auto-save POSTs — otherwise opening a visit and
   // editing one unrelated field would re-push every prefilled value back to
   // the server, silently overwriting whatever another staff member may have
-  // typed in the meantime. Cleared per-testId in handleValueChange when the
+  // typed in the meantime. Cleared per result key in handleValueChange when the
   // user actually edits.
-  const prefilledTestIdsRef = useRef<Set<string>>(new Set());
+  const prefilledResultKeysRef = useRef<Set<string>>(new Set());
   // Skips the very first results-changed render after fetchVisit populates state.
   const autoSavePrimedRef = useRef(false);
   // Fields the user changed in this session. Blank touched fields must still be
   // POSTed so the backend can delete any previously saved draft result.
-  const touchedForSaveTestIdsRef = useRef<Set<string>>(new Set());
+  const touchedForSaveResultKeysRef = useRef<Set<string>>(new Set());
 
   // Partial-release selector dialog state. Opens when staff clicks
   // "Continue with Partial Report" and there's a real choice to make
@@ -291,7 +313,7 @@ const DiagnosticsResultEntry = () => {
   // explicitly opted into).
   const [partialDialogOpen, setPartialDialogOpen] = useState(false);
 
-  // Set of testIds whose narrative editor the radiologist has actually
+  // Set of result keys whose narrative editor the radiologist has actually
   // *clicked into* this session. Used as the "did they touch it?" signal
   // for partial-release pre-selection: untouched narratives stay unchecked
   // by default so the unedited template can never silently ship.
@@ -303,19 +325,19 @@ const DiagnosticsResultEntry = () => {
     () => new Set(),
   );
 
-  const [touchedNarrativeTestIds, setTouchedNarrativeTestIds] = useState<Set<string>>(
+  const [touchedNarrativeResultKeys, setTouchedNarrativeResultKeys] = useState<Set<string>>(
     () => new Set(),
   );
-  const markNarrativeTouched = useCallback((testId: string) => {
-    setTouchedNarrativeTestIds((prev) => {
-      if (prev.has(testId)) return prev;
+  const markNarrativeTouched = useCallback((resultKey: ResultKey) => {
+    setTouchedNarrativeResultKeys((prev) => {
+      if (prev.has(resultKey)) return prev;
       const next = new Set(prev);
-      next.add(testId);
+      next.add(resultKey);
       return next;
     });
   }, []);
 
-  const textLayoutByTestId = useMemo(() => {
+  const textLayoutByResultKey = useMemo(() => {
     const map = new Map<string, string>();
     if (!visit) return map;
 
@@ -323,9 +345,11 @@ const DiagnosticsResultEntry = () => {
       const layoutType = order.panel?.layoutType;
       if (layoutType === 'TEXT_ONLY' || layoutType === 'IMAGING_NARRATIVE') {
         if (order.isPanel && order.childTests.length > 0) {
-          order.childTests.forEach((child) => map.set(child.id, layoutType));
+          order.childTests.forEach((child) =>
+            map.set(makeResultKey(order.id, child.id), layoutType)
+          );
         } else {
-          map.set(order.testId, layoutType);
+          map.set(makeResultKey(order.id, order.testId), layoutType);
         }
       }
     });
@@ -333,11 +357,11 @@ const DiagnosticsResultEntry = () => {
     return map;
   }, [visit]);
 
-  // Map of testId → normalized narrativeTemplateHtml for narrative tests.
+  // Map of result key → normalized narrativeTemplateHtml for narrative tests.
   // Used to detect when a narrative test still has only the unedited template
   // (so partial release pre-unchecks it instead of silently shipping the
   // boilerplate as if it were the actual report).
-  const narrativeTemplateByTestId = useMemo(() => {
+  const narrativeTemplateByResultKey = useMemo(() => {
     const map = new Map<string, string>();
     if (!visit) return map;
 
@@ -348,9 +372,9 @@ const DiagnosticsResultEntry = () => {
       if (!hasMeaningfulRichText(tpl)) return;
       const targets =
         order.isPanel && order.childTests.length > 0
-          ? order.childTests.map((c) => c.id)
-          : [order.testId];
-      targets.forEach((id) => map.set(id, tpl));
+          ? order.childTests.map((c) => makeResultKey(order.id, c.id))
+          : [makeResultKey(order.id, order.testId)];
+      targets.forEach((key) => map.set(key, tpl));
     });
 
     return map;
@@ -365,7 +389,7 @@ const DiagnosticsResultEntry = () => {
     visit.testOrders.forEach((order) => {
       if (order.isDerived && order.formulaExpression && order.dependsOnCodes) {
         derived.push({
-          testId: order.testId,
+          testId: makeResultKey(order.id, order.testId),
           code: order.testCode,
           formulaExpression: order.formulaExpression,
           dependsOnCodes: order.dependsOnCodes,
@@ -376,7 +400,7 @@ const DiagnosticsResultEntry = () => {
         order.childTests.forEach((child) => {
           if (child.isDerived && child.formulaExpression && child.dependsOnCodes) {
             derived.push({
-              testId: child.id,
+              testId: makeResultKey(order.id, child.id),
               code: child.code,
               formulaExpression: child.formulaExpression,
               dependsOnCodes: child.dependsOnCodes,
@@ -389,16 +413,16 @@ const DiagnosticsResultEntry = () => {
     return derived;
   }, [visit]);
 
-  // Build testId-to-code map
-  const testIdToCodeMap = useMemo(() => {
+  // Build result-key-to-code map
+  const resultKeyToCodeMap = useMemo(() => {
     const map = new Map<string, string>();
     if (!visit) return map;
 
     visit.testOrders.forEach((order) => {
-      map.set(order.testId, order.testCode);
+      map.set(makeResultKey(order.id, order.testId), order.testCode);
       if (order.isPanel && order.childTests) {
         order.childTests.forEach((child) => {
-          map.set(child.id, child.code);
+          map.set(makeResultKey(order.id, child.id), child.code);
         });
       }
     });
@@ -406,15 +430,15 @@ const DiagnosticsResultEntry = () => {
     return map;
   }, [visit]);
 
-  // Map testId → entry-time input config (presets, default value, input type)
-  const testInputConfigByTestId = useMemo(() => {
+  // Map result key → entry-time input config (presets, default value, input type)
+  const testInputConfigByResultKey = useMemo(() => {
     const map = new Map<string, TestInputConfig>();
     if (!visit) return map;
     visit.testOrders.forEach((order) => {
-      if (order.inputConfig) map.set(order.testId, order.inputConfig);
+      if (order.inputConfig) map.set(makeResultKey(order.id, order.testId), order.inputConfig);
       if (order.isPanel && order.childTests) {
         order.childTests.forEach((child) => {
-          if (child.inputConfig) map.set(child.id, child.inputConfig);
+          if (child.inputConfig) map.set(makeResultKey(order.id, child.id), child.inputConfig);
         });
       }
     });
@@ -445,7 +469,7 @@ const DiagnosticsResultEntry = () => {
       const valuesByCode = new Map<string, number>();
 
       for (const [id, valueStr] of Object.entries(updated)) {
-        const code = testIdToCodeMap.get(id);
+        const code = resultKeyToCodeMap.get(id);
         const numericValue = parseFloat(valueStr);
         if (code && !isNaN(numericValue)) {
           valuesByCode.set(code, numericValue);
@@ -497,7 +521,7 @@ const DiagnosticsResultEntry = () => {
 
       return updated;
     },
-    [derivedManualOverrides, reverseDependencyMap, sortedDerivedTests, testIdToCodeMap]
+    [derivedManualOverrides, reverseDependencyMap, sortedDerivedTests, resultKeyToCodeMap]
   );
 
   // Fetch visit from API
@@ -530,8 +554,8 @@ const DiagnosticsResultEntry = () => {
 
           data.testOrders = data.testOrders.filter((order: TestOrder) => order.workflowMode !== 'BILL_ONLY');
           const panelExpansion: Record<string, boolean> = {};
-          const fetchedTextLayoutByTestId = new Map<string, string>();
-          const fetchedNarrativeTemplateByTestId = new Map<string, string>();
+          const fetchedTextLayoutByResultKey = new Map<string, string>();
+          const fetchedNarrativeTemplateByResultKey = new Map<string, string>();
 
           data.testOrders.forEach((order: TestOrder) => {
             // Expand legacy panels by order.id
@@ -545,16 +569,16 @@ const DiagnosticsResultEntry = () => {
 
             const layoutType = order.panel?.layoutType;
             if (layoutType === 'TEXT_ONLY' || layoutType === 'IMAGING_NARRATIVE') {
-              const targetIds =
+              const targetKeys =
                 order.isPanel && order.childTests.length > 0
-                  ? order.childTests.map((child) => child.id)
-                  : [order.testId];
+                  ? order.childTests.map((child) => makeResultKey(order.id, child.id))
+                  : [makeResultKey(order.id, order.testId)];
 
-              targetIds.forEach((targetId) => {
-                fetchedTextLayoutByTestId.set(targetId, layoutType);
+              targetKeys.forEach((targetKey) => {
+                fetchedTextLayoutByResultKey.set(targetKey, layoutType);
                 if (isRichTextPanelLayout(layoutType)) {
-                  fetchedNarrativeTemplateByTestId.set(
-                    targetId,
+                  fetchedNarrativeTemplateByResultKey.set(
+                    targetKey,
                     normalizeNarrativeContent(order.panel?.narrativeTemplateHtml)
                   );
                 }
@@ -570,58 +594,63 @@ const DiagnosticsResultEntry = () => {
           if (data.report?.versions?.[0]?.testResults) {
             const latestVersion = data.report.versions[0];
             latestVersion.testResults.forEach((r: any) => {
-              const layoutType = fetchedTextLayoutByTestId.get(r.testId);
+              const resultKey = r.testOrderId
+                ? makeResultKey(r.testOrderId, r.testId)
+                : r.testId;
+              const layoutType = fetchedTextLayoutByResultKey.get(resultKey);
               if (r.textValue) {
-                initialResults[r.testId] =
+                initialResults[resultKey] =
                   isRichTextPanelLayout(layoutType)
                     ? normalizeNarrativeContent(r.textValue)
                     : r.textValue;
               } else if (r.value !== null) {
-                initialResults[r.testId] = r.value.toString();
+                initialResults[resultKey] = r.value.toString();
               }
 
               if (isManualDerivedOverride(r)) {
-                initialManualOverrides[r.testId] = true;
+                initialManualOverrides[resultKey] = true;
               }
 
               if (typeof r.signerNameOverride === 'string' && r.signerNameOverride) {
-                initialSignerNames[r.testId] = r.signerNameOverride;
+                initialSignerNames[resultKey] = r.signerNameOverride;
               }
             });
           }
 
-          // Track which testIds receive a prefill (template or default) so
+          // Track which result keys receive a prefill (template or default) so
           // auto-save can skip them until the user actually edits. Reset on
           // each fetch — the previous visit's prefills no longer apply.
           const prefilled = new Set<string>();
 
-          fetchedNarrativeTemplateByTestId.forEach((templateHtml, testId) => {
-            if (!initialResults[testId] && hasMeaningfulRichText(templateHtml)) {
-              initialResults[testId] = templateHtml;
-              prefilled.add(testId);
+          fetchedNarrativeTemplateByResultKey.forEach((templateHtml, resultKey) => {
+            if (!initialResults[resultKey] && hasMeaningfulRichText(templateHtml)) {
+              initialResults[resultKey] = templateHtml;
+              prefilled.add(resultKey);
             }
           });
 
           // Pre-fill input default values for tests that have one configured AND
           // have no saved/in-progress value yet. Defaults never overwrite saved data.
           data.testOrders.forEach((order: TestOrder) => {
-            const apply = (testId: string, cfg?: TestInputConfig) => {
+            const apply = (resultKey: string, cfg?: TestInputConfig) => {
               if (!cfg?.defaultValue) return;
-              if (initialResults[testId]) return;
-              initialResults[testId] = cfg.defaultValue;
-              prefilled.add(testId);
+              if (initialResults[resultKey]) return;
+              initialResults[resultKey] = cfg.defaultValue;
+              prefilled.add(resultKey);
             };
-            apply(order.testId, order.inputConfig);
+            apply(makeResultKey(order.id, order.testId), order.inputConfig);
             if (order.isPanel && order.childTests) {
-              order.childTests.forEach((child) => apply(child.id, child.inputConfig));
+              order.childTests.forEach((child) =>
+                apply(makeResultKey(order.id, child.id), child.inputConfig)
+              );
             }
           });
 
-          prefilledTestIdsRef.current = prefilled;
+          prefilledResultKeysRef.current = prefilled;
 
           setResults(recalculateDerivedResults(initialResults, undefined, initialManualOverrides));
           setDerivedManualOverrides(initialManualOverrides);
-          setSignerNameByTestId(initialSignerNames);
+          setSignerNameByResultKey(initialSignerNames);
 
           setExpandedPanels(panelExpansion);
           setVisit(data);
@@ -760,6 +789,7 @@ const DiagnosticsResultEntry = () => {
   // and explicit save share. Returns null when there is nothing meaningful to
   // send (e.g. external-upload-only visit before the PDF is attached).
   type ResultSaveItem = {
+    testOrderId: string;
     testId: string;
     value: number | null;
     textValue: string;
@@ -779,13 +809,22 @@ const DiagnosticsResultEntry = () => {
   const buildResultsPayload = useCallback((): ResultsPayload | null => {
     if (!visit || !visitId) return null;
 
-    type TestForSave = { testId: string; min: number; max: number; isDerived: boolean };
+    type TestForSave = {
+      resultKey: ResultKey;
+      testOrderId: string;
+      testId: string;
+      min: number;
+      max: number;
+      isDerived: boolean;
+    };
     const allTests: TestForSave[] = [];
     visit.testOrders.forEach((order) => {
       if (order.workflowMode === 'EXTERNAL_UPLOAD') return;
       if (order.isPanel && order.childTests && order.childTests.length > 0) {
         order.childTests.forEach((child) => {
           allTests.push({
+            resultKey: makeResultKey(order.id, child.id),
+            testOrderId: order.id,
             testId: child.id,
             min: child.referenceRange.min,
             max: child.referenceRange.max,
@@ -794,6 +833,8 @@ const DiagnosticsResultEntry = () => {
         });
       } else {
         allTests.push({
+          resultKey: makeResultKey(order.id, order.testId),
+          testOrderId: order.id,
           testId: order.testId,
           min: order.referenceRange.min,
           max: order.referenceRange.max,
@@ -811,24 +852,24 @@ const DiagnosticsResultEntry = () => {
 
     const resultsArray: ResultSaveItem[] = allTests
       .filter((test) => {
-        const signerSet = Boolean(signerNameByTestId[test.testId]?.trim());
-        const touchedForSave = touchedForSaveTestIdsRef.current.has(test.testId);
+        const signerSet = Boolean(signerNameByResultKey[test.resultKey]?.trim());
+        const touchedForSave = touchedForSaveResultKeysRef.current.has(test.resultKey);
         const valueReady =
-          hasResultValue(results[test.testId], textLayoutByTestId.get(test.testId)) &&
-          !prefilledTestIdsRef.current.has(test.testId);
+          hasResultValue(results[test.resultKey], textLayoutByResultKey.get(test.resultKey)) &&
+          !prefilledResultKeysRef.current.has(test.resultKey);
         // Include if either: the value is real (not just a prefill) OR the
         // radiologist typed a doctor name override OR the user cleared a field.
         // Touched blank rows intentionally delete stale draft values server-side.
         return valueReady || signerSet || touchedForSave;
       })
       .map((test) => {
-        const layoutType = textLayoutByTestId.get(test.testId);
-        const isPrefilled = prefilledTestIdsRef.current.has(test.testId);
-        const rawValue = results[test.testId] ?? '';
+        const layoutType = textLayoutByResultKey.get(test.resultKey);
+        const isPrefilled = prefilledResultKeysRef.current.has(test.resultKey);
+        const rawValue = results[test.resultKey] ?? '';
         const valueStr = isRichTextPanelLayout(layoutType)
           ? normalizeNarrativeContent(rawValue)
           : rawValue;
-        const forceTextValue = textLayoutByTestId.has(test.testId);
+        const forceTextValue = textLayoutByResultKey.has(test.resultKey);
         const parsedValue = parseFloat(valueStr);
         const isNumeric =
           !forceTextValue && !isNaN(parsedValue) && valueStr.trim() !== '' && !isPrefilled;
@@ -839,19 +880,20 @@ const DiagnosticsResultEntry = () => {
         const safeValue = isPrefilled ? null : (isNumeric ? parsedValue : null);
         const safeTextValue = isPrefilled ? '' : valueStr;
         return {
+          testOrderId: test.testOrderId,
           testId: test.testId,
           value: safeValue,
           textValue: safeTextValue,
           flag: isNumeric ? (flag || 'NORMAL') : null,
           notes: null,
-          manualOverride: test.isDerived ? !!derivedManualOverrides[test.testId] : false,
-          signerNameOverride: signerNameByTestId[test.testId]?.trim() || null,
+          manualOverride: test.isDerived ? !!derivedManualOverrides[test.resultKey] : false,
+          signerNameOverride: signerNameByResultKey[test.resultKey]?.trim() || null,
         };
       });
 
     if (resultsArray.length === 0) return null;
     return { results: resultsArray };
-  }, [visit, visitId, results, derivedManualOverrides, textLayoutByTestId, signerNameByTestId]);
+  }, [visit, visitId, results, derivedManualOverrides, textLayoutByResultKey, signerNameByResultKey]);
 
   const persistDraft = useCallback(async (): Promise<'saved' | 'empty' | 'failed'> => {
     if (!visitId) return 'empty';
@@ -943,7 +985,7 @@ const DiagnosticsResultEntry = () => {
       autoSaveTimerRef.current = null;
       void runAutoSave();
     }, 1500);
-  }, [results, derivedManualOverrides, signerNameByTestId, loading, visit, uploadsByOrder, runAutoSave]);
+  }, [results, derivedManualOverrides, signerNameByResultKey, loading, visit, uploadsByOrder, runAutoSave]);
 
   // Refs to grab the latest closures from event handlers that bind once
   // (unmount cleanup, beforeunload listener). Without refs we'd read stale
@@ -1080,26 +1122,26 @@ const DiagnosticsResultEntry = () => {
     return 'NORMAL';
   };
 
-  const handleValueChange = (testId: string, value: string) => {
-    touchedForSaveTestIdsRef.current.add(testId);
+  const handleValueChange = (resultKey: ResultKey, value: string) => {
+    touchedForSaveResultKeysRef.current.add(resultKey);
     // Any user-initiated change promotes the value from "prefill" to a real
     // edit. Once cleared, auto-save will start including this testId in its
     // POST. Until cleared, the prefilled value stays local-only.
-    if (prefilledTestIdsRef.current.has(testId)) {
-      prefilledTestIdsRef.current.delete(testId);
+    if (prefilledResultKeysRef.current.has(resultKey)) {
+      prefilledResultKeysRef.current.delete(resultKey);
     }
     setResults((prev) => {
-      const updated = { ...prev, [testId]: value };
-      const changedCode = testIdToCodeMap.get(testId);
+      const updated = { ...prev, [resultKey]: value };
+      const changedCode = resultKeyToCodeMap.get(resultKey);
       return changedCode
         ? recalculateDerivedResults(updated, changedCode)
         : updated;
     });
   };
 
-  const handleSignerNameChange = (testId: string, value: string) => {
-    touchedForSaveTestIdsRef.current.add(testId);
-    setSignerNameByTestId((prev) => ({ ...prev, [testId]: value }));
+  const handleSignerNameChange = (resultKey: ResultKey, value: string) => {
+    touchedForSaveResultKeysRef.current.add(resultKey);
+    setSignerNameByResultKey((prev) => ({ ...prev, [resultKey]: value }));
   };
 
   const togglePanel = (orderId: string) => {
@@ -1109,8 +1151,8 @@ const DiagnosticsResultEntry = () => {
     }));
   };
 
-  const getAllTestsForValidation = (): Array<{ testId: string; code: string; min: number; max: number; isDerived: boolean }> => {
-    const allTests: Array<{ testId: string; code: string; min: number; max: number; isDerived: boolean }> = [];
+  const getAllTestsForValidation = (): Array<{ resultKey: ResultKey; code: string; min: number; max: number; isDerived: boolean }> => {
+    const allTests: Array<{ resultKey: ResultKey; code: string; min: number; max: number; isDerived: boolean }> = [];
 
     testOrders.forEach((order) => {
       // EXTERNAL_UPLOAD orders carry their result as a PDF — never as values.
@@ -1118,7 +1160,7 @@ const DiagnosticsResultEntry = () => {
       if (order.isPanel && order.childTests && order.childTests.length > 0) {
         order.childTests.forEach((child) => {
           allTests.push({
-            testId: child.id,
+            resultKey: makeResultKey(order.id, child.id),
             code: child.code,
             min: child.referenceRange.min,
             max: child.referenceRange.max,
@@ -1127,7 +1169,7 @@ const DiagnosticsResultEntry = () => {
         });
       } else {
         allTests.push({
-          testId: order.testId,
+          resultKey: makeResultKey(order.id, order.testId),
           code: order.testCode,
           min: order.referenceRange.min,
           max: order.referenceRange.max,
@@ -1144,11 +1186,11 @@ const DiagnosticsResultEntry = () => {
     const extreme: string[] = [];
 
     allTests.forEach((test) => {
-      if (textLayoutByTestId.has(test.testId)) {
+      if (textLayoutByResultKey.has(test.resultKey)) {
         return;
       }
 
-      const valueStr = results[test.testId];
+      const valueStr = results[test.resultKey];
       const value = valueStr ? parseFloat(valueStr) : null;
       if (value !== null && test.max > 0) {
         if (value > test.max * 2 || (test.min > 0 && value < test.min / 2)) {
@@ -1231,17 +1273,17 @@ const DiagnosticsResultEntry = () => {
     saveResults();
   };
 
-  const handleDerivedModeToggle = (testId: string, makeManual: boolean) => {
+  const handleDerivedModeToggle = (resultKey: ResultKey, makeManual: boolean) => {
     setDerivedManualOverrides((prev) => {
       if (makeManual) {
         return {
           ...prev,
-          [testId]: true,
+          [resultKey]: true,
         };
       }
 
       const next = { ...prev };
-      delete next[testId];
+      delete next[resultKey];
       return next;
     });
   };
@@ -1353,6 +1395,7 @@ const DiagnosticsResultEntry = () => {
   };
 
   const renderTestInput = (
+    testOrderId: string,
     testId: string,
     testName: string,
     testCode: string,
@@ -1360,12 +1403,13 @@ const DiagnosticsResultEntry = () => {
     isSubTest: boolean = false,
     isDerived: boolean = false
   ) => {
-    const valueStr = results[testId] || '';
+    const resultKey = makeResultKey(testOrderId, testId);
+    const valueStr = results[resultKey] || '';
     const value = valueStr ? parseFloat(valueStr) : null;
     const flag = value !== null
       ? computeFlag(value, referenceRange.min, referenceRange.max)
       : null;
-    const isManualDerived = isDerived && !!derivedManualOverrides[testId];
+    const isManualDerived = isDerived && !!derivedManualOverrides[resultKey];
     const isAutoDerived = isDerived && !isManualDerived;
 
     const hasNumericRange = referenceRange.min > 0 || referenceRange.max > 0;
@@ -1373,10 +1417,13 @@ const DiagnosticsResultEntry = () => {
     // range: a text-only reference (e.g. "YELLOW/PALE YELLOW") means the
     // value is text, not a number. Without this, mobile defaults to the
     // numeric keyboard and the user can't type letters.
-    const storedInputConfig = testInputConfigByTestId.get(testId);
-    const inputConfig: TestInputConfig = storedInputConfig ?? (hasNumericRange
-      ? DEFAULT_INPUT_CONFIG
-      : { ...DEFAULT_INPUT_CONFIG, inputType: 'FREE_TEXT' });
+    const storedInputConfig = testInputConfigByResultKey.get(resultKey);
+    const inputConfig = getEffectiveInputConfig(
+      storedInputConfig ?? (hasNumericRange
+        ? DEFAULT_INPUT_CONFIG
+        : { ...DEFAULT_INPUT_CONFIG, inputType: 'FREE_TEXT' }),
+      referenceRange
+    );
     const usePresetCombobox =
       !isAutoDerived &&
       (inputConfig.inputType === 'TEXT_WITH_PRESETS' || inputConfig.inputType === 'SELECT_ONLY') &&
@@ -1402,7 +1449,7 @@ const DiagnosticsResultEntry = () => {
 
     return (
       <div
-        key={testId}
+        key={resultKey}
         className={cn(
           'grid gap-3 border-b py-3 last:border-0 md:grid-cols-[1fr_120px_180px_80px] md:items-center md:gap-4',
           isSubTest ? 'md:pl-4' : ''
@@ -1448,7 +1495,7 @@ const DiagnosticsResultEntry = () => {
             {usePresetCombobox ? (
               <TestValueCombobox
                 value={valueStr}
-                onChange={(next) => handleValueChange(testId, next)}
+                onChange={(next) => handleValueChange(resultKey, next)}
                 options={inputConfig.valueOptions}
                 allowCustom={inputConfig.inputType === 'TEXT_WITH_PRESETS'}
                 placeholder="Select value…"
@@ -1460,7 +1507,7 @@ const DiagnosticsResultEntry = () => {
                 inputMode={inputConfig.inputType === 'NUMERIC' ? 'decimal' : 'text'}
                 placeholder={isAutoDerived ? 'Auto-calculated' : 'Value'}
                 value={valueStr}
-                onChange={(e) => handleValueChange(testId, e.target.value)}
+                onChange={(e) => handleValueChange(resultKey, e.target.value)}
                 readOnly={isAutoDerived}
                 disabled={isAutoDerived}
                 className={cn(
@@ -1475,7 +1522,7 @@ const DiagnosticsResultEntry = () => {
                 variant="outline"
                 size="sm"
                 className="h-9 shrink-0 px-2 text-[11px]"
-                onClick={() => handleDerivedModeToggle(testId, !isManualDerived)}
+                onClick={() => handleDerivedModeToggle(resultKey, !isManualDerived)}
               >
                 {isManualDerived ? 'Auto' : 'Edit'}
               </Button>
@@ -1519,6 +1566,7 @@ const DiagnosticsResultEntry = () => {
   };
 
   const renderNarrativeInput = (
+    testOrderId: string,
     testId: string,
     testName: string,
     testCode: string,
@@ -1528,7 +1576,8 @@ const DiagnosticsResultEntry = () => {
     departmentName?: string,
     departmentId?: string,
   ) => {
-    const valueStr = results[testId] || '';
+    const resultKey = makeResultKey(testOrderId, testId);
+    const valueStr = results[resultKey] || '';
     const locked = departmentId
       ? departmentsWithSigningRule.has(departmentId)
       : false;
@@ -1537,10 +1586,10 @@ const DiagnosticsResultEntry = () => {
       : undefined;
 
     return (
-      <div key={testId} className="py-3">
+      <div key={resultKey} className="py-3">
         <ReportFramedNarrativeEditor
           value={valueStr}
-          onChange={(nextValue) => handleValueChange(testId, nextValue)}
+          onChange={(nextValue) => handleValueChange(resultKey, nextValue)}
           patient={{
             name: visit?.patient.name || '',
             ageDisplay: visit?.patient.yearOfBirth
@@ -1560,11 +1609,11 @@ const DiagnosticsResultEntry = () => {
           panelDisplayName={panelDisplayName || testName}
           testCode={testCode}
           placeholder={placeholder}
-          signerName={signerNameByTestId[testId] || ''}
-          onSignerNameChange={(next) => handleSignerNameChange(testId, next)}
+          signerName={signerNameByResultKey[resultKey] || ''}
+          onSignerNameChange={(next) => handleSignerNameChange(resultKey, next)}
           signerLocked={locked}
           signerLockedReason={lockedReason}
-          onFirstTouch={() => markNarrativeTouched(testId)}
+          onFirstTouch={() => markNarrativeTouched(resultKey)}
         />
       </div>
     );
@@ -1573,10 +1622,14 @@ const DiagnosticsResultEntry = () => {
   const countFilledResults = (order: TestOrder): number => {
     if (order.isPanel && order.childTests && order.childTests.length > 0) {
       return order.childTests.filter((child) =>
-        hasResultValue(results[child.id], textLayoutByTestId.get(child.id))
+        hasResultValue(
+          results[makeResultKey(order.id, child.id)],
+          textLayoutByResultKey.get(makeResultKey(order.id, child.id))
+        )
       ).length;
     }
-    return hasResultValue(results[order.testId], textLayoutByTestId.get(order.testId)) ? 1 : 0;
+    const resultKey = makeResultKey(order.id, order.testId);
+    return hasResultValue(results[resultKey], textLayoutByResultKey.get(resultKey)) ? 1 : 0;
   };
 
   const getTotalTests = (order: TestOrder): number => {
@@ -1705,18 +1758,18 @@ const DiagnosticsResultEntry = () => {
       return uploads && uploads.length > 0 ? 'complete' : 'empty';
     }
 
-    const ids: string[] =
+    const resultKeys: string[] =
       order.isPanel && order.childTests && order.childTests.length > 0
-        ? order.childTests.map((c) => c.id)
-        : [order.testId];
+        ? order.childTests.map((c) => makeResultKey(order.id, c.id))
+        : [makeResultKey(order.id, order.testId)];
 
     let sawContent = false;
     let allTemplateOnly = true;
     let anyNarrative = false;
 
-    for (const id of ids) {
-      const layout = textLayoutByTestId.get(id);
-      const value = results[id];
+    for (const resultKey of resultKeys) {
+      const layout = textLayoutByResultKey.get(resultKey);
+      const value = results[resultKey];
       const filled = hasResultValue(value, layout);
       if (!filled) {
         // Empty narrative slot in a multi-test panel still contributes — the
@@ -1738,7 +1791,7 @@ const DiagnosticsResultEntry = () => {
         // partial-release dialog before a touched-but-unedited narrative
         // ships. The touch signal is used elsewhere to drive the dialog
         // pre-tick (so the user can confirm or untick), not status.
-        const template = narrativeTemplateByTestId.get(id);
+        const template = narrativeTemplateByResultKey.get(resultKey);
         const templatePlain = template ? richTextToPlainText(template).trim() : '';
         const valuePlain = richTextToPlainText(value).trim();
         // Narrative counts as complete when:
@@ -1783,10 +1836,10 @@ const DiagnosticsResultEntry = () => {
   // Used to decide whether to show the sticky shared rich-text toolbar at the
   // top of the page.
   const hasNarrativeTests = testOrders.some((order) => {
-    if (isRichTextPanelLayout(textLayoutByTestId.get(order.testId))) return true;
+    if (isRichTextPanelLayout(textLayoutByResultKey.get(makeResultKey(order.id, order.testId)))) return true;
     if (order.isPanel && order.childTests) {
       return order.childTests.some((child) =>
-        isRichTextPanelLayout(textLayoutByTestId.get(child.id))
+        isRichTextPanelLayout(textLayoutByResultKey.get(makeResultKey(order.id, child.id)))
       );
     }
     return false;
@@ -1800,10 +1853,10 @@ const DiagnosticsResultEntry = () => {
     if (order.workflowMode === 'EXTERNAL_UPLOAD') return false;
     if (order.isPanel && order.childTests && order.childTests.length > 0) {
       return order.childTests.some(
-        (child) => !isRichTextPanelLayout(textLayoutByTestId.get(child.id))
+        (child) => !isRichTextPanelLayout(textLayoutByResultKey.get(makeResultKey(order.id, child.id)))
       );
     }
-    return !isRichTextPanelLayout(textLayoutByTestId.get(order.testId));
+    return !isRichTextPanelLayout(textLayoutByResultKey.get(makeResultKey(order.id, order.testId)));
   });
 
   return (
@@ -1900,18 +1953,18 @@ const DiagnosticsResultEntry = () => {
                     const isNarrativeOnlyGroup =
                       group.type === 'panel'
                         ? group.orders.every((o) =>
-                            isRichTextPanelLayout(textLayoutByTestId.get(o.testId))
+                            isRichTextPanelLayout(textLayoutByResultKey.get(makeResultKey(o.id, o.testId)))
                           )
                         : (() => {
                             const o = group.order;
                             if (o.workflowMode === 'EXTERNAL_UPLOAD') return false;
                             if (o.isPanel && o.childTests && o.childTests.length > 0) {
                               return o.childTests.every((c) =>
-                                isRichTextPanelLayout(textLayoutByTestId.get(c.id))
+                                isRichTextPanelLayout(textLayoutByResultKey.get(makeResultKey(o.id, c.id)))
                               );
                             }
                             return isRichTextPanelLayout(
-                              textLayoutByTestId.get(o.testId)
+                              textLayoutByResultKey.get(makeResultKey(o.id, o.testId))
                             );
                           })();
 
@@ -1920,8 +1973,9 @@ const DiagnosticsResultEntry = () => {
                         return (
                           <div key={group.panelId} className="space-y-4">
                             {group.orders.map((order) => {
-                              const textLayout = textLayoutByTestId.get(order.testId);
+                              const textLayout = textLayoutByResultKey.get(makeResultKey(order.id, order.testId));
                               return renderNarrativeInput(
+                                order.id,
                                 order.testId,
                                 order.testName,
                                 order.testCode,
@@ -1945,8 +1999,9 @@ const DiagnosticsResultEntry = () => {
                         return (
                           <div key={order.id} className="space-y-4">
                             {order.childTests.map((child) => {
-                              const textLayout = textLayoutByTestId.get(child.id);
+                              const textLayout = textLayoutByResultKey.get(makeResultKey(order.id, child.id));
                               return renderNarrativeInput(
+                                order.id,
                                 child.id,
                                 child.name,
                                 child.code,
@@ -1963,10 +2018,11 @@ const DiagnosticsResultEntry = () => {
                         );
                       }
 
-                      const textLayout = textLayoutByTestId.get(order.testId);
+                      const textLayout = textLayoutByResultKey.get(makeResultKey(order.id, order.testId));
                       return (
                         <div key={order.id}>
                           {renderNarrativeInput(
+                            order.id,
                             order.testId,
                             order.testName,
                             order.testCode,
@@ -1987,7 +2043,10 @@ const DiagnosticsResultEntry = () => {
                       const panelGroup = group;
                       const isExpanded = expandedPanels[panelGroup.panelId] ?? true;
                       const filled = panelGroup.orders.filter((o) =>
-                        hasResultValue(results[o.testId], textLayoutByTestId.get(o.testId))
+                        hasResultValue(
+                          results[makeResultKey(o.id, o.testId)],
+                          textLayoutByResultKey.get(makeResultKey(o.id, o.testId))
+                        )
                       ).length;
                       const total = panelGroup.orders.length;
 
@@ -2041,9 +2100,10 @@ const DiagnosticsResultEntry = () => {
                           {isExpanded && (
                             <div className="bg-card p-4">
                               {panelGroup.orders.map((order) => {
-                                const textLayout = textLayoutByTestId.get(order.testId);
+                                const textLayout = textLayoutByResultKey.get(makeResultKey(order.id, order.testId));
                                 if (isRichTextPanelLayout(textLayout)) {
                                   return renderNarrativeInput(
+                                    order.id,
                                     order.testId,
                                     order.testName,
                                     order.testCode,
@@ -2058,6 +2118,7 @@ const DiagnosticsResultEntry = () => {
                                 }
 
                                 return renderTestInput(
+                                  order.id,
                                   order.testId,
                                   order.testName,
                                   order.testCode,
@@ -2138,9 +2199,10 @@ const DiagnosticsResultEntry = () => {
                             {isExpanded && (
                               <div className="bg-card p-4">
                                 {order.childTests.map((child) => {
-                                  const textLayout = textLayoutByTestId.get(child.id);
+                                  const textLayout = textLayoutByResultKey.get(makeResultKey(order.id, child.id));
                                   if (isRichTextPanelLayout(textLayout)) {
                                     return renderNarrativeInput(
+                                      order.id,
                                       child.id,
                                       child.name,
                                       child.code,
@@ -2155,6 +2217,7 @@ const DiagnosticsResultEntry = () => {
                                   }
 
                                   return renderTestInput(
+                                    order.id,
                                     child.id,
                                     child.name,
                                     child.code,
@@ -2192,9 +2255,10 @@ const DiagnosticsResultEntry = () => {
                             </div>
                             <div className="p-4">
                               {(() => {
-                                const textLayout = textLayoutByTestId.get(order.testId);
+                                const textLayout = textLayoutByResultKey.get(makeResultKey(order.id, order.testId));
                                 if (isRichTextPanelLayout(textLayout)) {
                                   return renderNarrativeInput(
+                                    order.id,
                                     order.testId,
                                     order.testName,
                                     order.testCode,
@@ -2209,6 +2273,7 @@ const DiagnosticsResultEntry = () => {
                                 }
 
                                 return renderTestInput(
+                                  order.id,
                                   order.testId,
                                   order.testName,
                                   order.testCode,
@@ -2374,20 +2439,20 @@ const DiagnosticsResultEntry = () => {
           }
           agg.disabledFlags.push(rowDisabled);
 
-          const ids =
+          const resultKeys =
             order.isPanel && order.childTests && order.childTests.length > 0
-              ? order.childTests.map((c) => c.id)
-              : [order.testId];
-          agg.paramTotal += ids.length;
-          agg.paramFilled += ids.filter((id) =>
-            hasResultValue(results[id], textLayoutByTestId.get(id)),
+              ? order.childTests.map((c) => makeResultKey(order.id, c.id))
+              : [makeResultKey(order.id, order.testId)];
+          agg.paramTotal += resultKeys.length;
+          agg.paramFilled += resultKeys.filter((resultKey) =>
+            hasResultValue(results[resultKey], textLayoutByResultKey.get(resultKey)),
           ).length;
 
-          const narrativeIds = ids.filter((id) =>
-            isRichTextPanelLayout(textLayoutByTestId.get(id)),
+          const narrativeKeys = resultKeys.filter((resultKey) =>
+            isRichTextPanelLayout(textLayoutByResultKey.get(resultKey)),
           );
-          if (narrativeIds.length > 0) agg.isNarrative = true;
-          if (narrativeIds.some((id) => touchedNarrativeTestIds.has(id))) {
+          if (narrativeKeys.length > 0) agg.isNarrative = true;
+          if (narrativeKeys.some((resultKey) => touchedNarrativeResultKeys.has(resultKey))) {
             agg.narrativeTouched = true;
           }
         });
@@ -2437,7 +2502,9 @@ const DiagnosticsResultEntry = () => {
             const onlyOrderId = agg.orderIds[0];
             const order = testOrders.find((o) => o.id === onlyOrderId);
             const onlyTestId = order?.testId;
-            const v = onlyTestId ? results[onlyTestId] : undefined;
+            const v = onlyTestId && onlyOrderId
+              ? results[makeResultKey(onlyOrderId, onlyTestId)]
+              : undefined;
             if (v) sublabel = `value: ${v}`;
           } else if (agg.paramTotal > 0) {
             hint = `${agg.paramFilled} of ${agg.paramTotal} parameter${agg.paramTotal === 1 ? '' : 's'} entered`;
