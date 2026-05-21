@@ -33,6 +33,7 @@ import prisma from '../lib/prisma';
 // ============================================================================
 
 export interface TestResultSnapshot {
+  testOrderId?: string;
   testId: string;
   testDefinitionId?: string;
   testCode: string;
@@ -797,6 +798,68 @@ async function backfillDerivedResults(
   return [...testResults, ...syntheticResults];
 }
 
+function isSyntheticDerivedResult(result: any): boolean {
+  return typeof result?.id === 'string' && result.id.startsWith('derived-');
+}
+
+function dedupeResultsForSnapshot(testResults: any[]): any[] {
+  const byOrderAndTest = new Map<string, any>();
+
+  for (const result of testResults) {
+    const key = `${result.testOrderId}:${result.testId}`;
+    const existing = byOrderAndTest.get(key);
+    if (!existing) {
+      byOrderAndTest.set(key, result);
+      continue;
+    }
+
+    // Persisted rows should win over synthetic derived rows. Between two
+    // persisted duplicates, use the newest row to match the DB cleanup
+    // migration and preserve the latest technician edit.
+    if (isSyntheticDerivedResult(existing) && !isSyntheticDerivedResult(result)) {
+      byOrderAndTest.set(key, result);
+      continue;
+    }
+    if (!isSyntheticDerivedResult(existing) && isSyntheticDerivedResult(result)) {
+      continue;
+    }
+
+    const resultTime = result.createdAt ? new Date(result.createdAt).getTime() : 0;
+    const existingTime = existing.createdAt ? new Date(existing.createdAt).getTime() : 0;
+    if (
+      resultTime > existingTime ||
+      (resultTime === existingTime && String(result.id ?? '') > String(existing.id ?? ''))
+    ) {
+      byOrderAndTest.set(key, result);
+    }
+  }
+
+  return Array.from(byOrderAndTest.values());
+}
+
+function dedupeStoredDepartmentSnapshotTests(
+  departments: DepartmentSnapshot[]
+): DepartmentSnapshot[] {
+  return departments.map((department) => ({
+    ...department,
+    panels: department.panels.map((panel) => {
+      const seenTests = new Set<string>();
+      const tests = panel.tests.filter((test) => {
+        const key = test.testOrderId
+          ? `${test.testOrderId}:${test.testId}`
+          : `${test.testId}:${test.testDefinitionId ?? ''}:${test.testCode}`;
+        if (seenTests.has(key)) {
+          return false;
+        }
+        seenTests.add(key);
+        return true;
+      });
+
+      return { ...panel, tests };
+    }),
+  }));
+}
+
 function applyResolvedFlagsToResults(
   testResults: any[],
   resolvedRanges: Map<string, {
@@ -942,6 +1005,7 @@ function buildPanelsAndDepartments(
         );
 
         panelMap.get(key)!.results.push({
+          testOrderId: result.testOrderId,
           testId: test.id,
           testDefinitionId: testDef.id,
           testCode: testDef.code || test.code,
@@ -990,6 +1054,7 @@ function buildPanelsAndDepartments(
         );
 
         panelMap.get(key)!.results.push({
+          testOrderId: result.testOrderId,
           testId: test.id,
           testDefinitionId: testDef?.id ?? undefined,
           testCode: test.code,
@@ -1048,6 +1113,7 @@ function buildPanelsAndDepartments(
       }
 
       panelMap.get(orphanPanelKey)!.results.push({
+        testOrderId: result.testOrderId,
         testId: test.id,
         testDefinitionId: testDef?.id ?? undefined,
         testCode: testDef?.code || test.code,
@@ -1235,11 +1301,11 @@ export async function createReportSnapshot(
     : (reportVersion.testResults as any[]);
 
   const externalUploads = await buildExternalUploadSnapshots(filteredTestOrders);
-  const augmentedTestResults = await backfillDerivedResults(
+  const augmentedTestResults = dedupeResultsForSnapshot(await backfillDerivedResults(
     filteredTestResults as any[],
     reportableOrders as any[],
     reportVersion.id
-  );
+  ));
 
   // ============================================================================
   // RESOLVE AGE-AWARE REFERENCE RANGES (dual architecture)
@@ -1427,11 +1493,11 @@ export async function buildEphemeralSnapshot(
   if (filteredTestResults.length === 0 && externalUploads.length === 0) {
     throw new Error('No test results entered yet');
   }
-  const augmentedTestResults = await backfillDerivedResults(
+  const augmentedTestResults = dedupeResultsForSnapshot(await backfillDerivedResults(
     filteredTestResults as any[],
     reportableOrders as any[],
     reportVersion.id
-  );
+  ));
 
   // Resolve age-aware reference ranges (dual architecture)
   const allTestIds = augmentedTestResults.map((r: any) => r.test.id);
@@ -1587,7 +1653,9 @@ export async function getReportSnapshot(reportVersionId: string): Promise<Report
     return null;
   }
 
-  const departments = reportVersion.panelsSnapshot as unknown as DepartmentSnapshot[];
+  const departments = dedupeStoredDepartmentSnapshotTests(
+    reportVersion.panelsSnapshot as unknown as DepartmentSnapshot[]
+  );
   const storedSignatures = (reportVersion.signaturesSnapshot || []) as unknown as SignatureSnapshot[];
   const hasDepartmentScopedSignatures = storedSignatures.length > 0
     && storedSignatures.every((signature) => Boolean(signature.departmentId));

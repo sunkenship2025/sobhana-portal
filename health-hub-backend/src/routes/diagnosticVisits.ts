@@ -198,6 +198,32 @@ function getExpectedResultTestIds(order: {
   return [order.testId];
 }
 
+function dedupeResultRows<T extends { testOrderId: string; testId: string; createdAt?: Date | string | null; id?: string }>(
+  rows: T[],
+): T[] {
+  const byOrderAndTest = new Map<string, T>();
+
+  for (const row of rows) {
+    const key = `${row.testOrderId}:${row.testId}`;
+    const existing = byOrderAndTest.get(key);
+    if (!existing) {
+      byOrderAndTest.set(key, row);
+      continue;
+    }
+
+    const rowTime = row.createdAt ? new Date(row.createdAt).getTime() : 0;
+    const existingTime = existing.createdAt ? new Date(existing.createdAt).getTime() : 0;
+    if (
+      rowTime > existingTime ||
+      (rowTime === existingTime && String(row.id ?? "") > String(existing.id ?? ""))
+    ) {
+      byOrderAndTest.set(key, row);
+    }
+  }
+
+  return Array.from(byOrderAndTest.values());
+}
+
 type TestInputConfigPayload = {
   inputType: 'NUMERIC' | 'FREE_TEXT' | 'TEXT_WITH_PRESETS' | 'SELECT_ONLY';
   defaultValue: string | null;
@@ -2801,89 +2827,147 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
       });
     }
 
-    const manualDerivedOverrideTestIds = new Set<string>(
+    const payloadResultKey = (result: any): string =>
+      result?.testOrderId
+        ? `${result.testOrderId}:${result.testId}`
+        : String(result?.testId ?? "");
+
+    const manualDerivedOverrideResultKeys = new Set<string>(
       results
         .filter(
           (result: any) => result?.manualOverride === true && result?.testId,
         )
-        .map((result: any) => result.testId),
+        .map(payloadResultKey),
+    );
+    const uniqueResults = Array.from(
+      results.reduce((map: Map<string, any>, result: any) => {
+        if (result?.testId) {
+          map.set(payloadResultKey(result), result);
+        }
+        return map;
+      }, new Map<string, any>()).values(),
     );
 
-    // Build a map: testId -> testOrderId (includes sub-tests)
-    const testToOrderMap = new Map<string, string>();
-    // Build a map: testId -> testDefinitionId (from testOrder, for new-arch linking)
+    type ResultContext = {
+      testOrderId: string;
+      testId: string;
+      testDefinitionId: string | null;
+      code: string;
+    };
+    const contextByOrderAndTest = new Map<string, ResultContext>();
+    const unambiguousContextByTestId = new Map<string, ResultContext | null>();
     const testToDefIdMap = new Map<string, string>();
-    for (const testOrder of reportableOrders) {
-      // Map the ordered test itself
-      testToOrderMap.set(testOrder.testId, testOrder.id);
-      if (testOrder.testDefinitionId) {
-        testToDefIdMap.set(testOrder.testId, testOrder.testDefinitionId);
+    const addResultContext = (
+      testOrderId: string,
+      testId: string,
+      testDefinitionId: string | null,
+      code: string,
+    ) => {
+      const context = { testOrderId, testId, testDefinitionId, code };
+      contextByOrderAndTest.set(`${testOrderId}:${testId}`, context);
+      const existing = unambiguousContextByTestId.get(testId);
+      if (existing === undefined) {
+        unambiguousContextByTestId.set(testId, context);
+      } else if (existing && existing.testOrderId !== testOrderId) {
+        unambiguousContextByTestId.set(testId, null);
       }
-      // For panels, also map all child tests to the parent order
+      if (testDefinitionId) {
+        testToDefIdMap.set(testId, testDefinitionId);
+      }
+    };
+
+    for (const testOrder of reportableOrders) {
+      addResultContext(
+        testOrder.id,
+        testOrder.testId,
+        testOrder.testDefinitionId ?? null,
+        testOrder.testDefinition?.code ||
+          testOrder.testCodeSnapshot ||
+          testOrder.test.code,
+      );
+
       if (testOrder.test.isPanel && testOrder.test.childTests) {
         for (const childTest of testOrder.test.childTests) {
-          testToOrderMap.set(childTest.id, testOrder.id);
+          addResultContext(testOrder.id, childTest.id, null, childTest.code);
         }
       }
     }
+    const resolveResultContext = (result: any): ResultContext | null => {
+      if (result?.testOrderId) {
+        return contextByOrderAndTest.get(`${result.testOrderId}:${result.testId}`) ?? null;
+      }
+      return unambiguousContextByTestId.get(result.testId) ?? null;
+    };
 
     // Upsert test results
     await prisma.$transaction(async (tx) => {
-      for (const result of results) {
-        const testOrderId = testToOrderMap.get(result.testId);
-        if (!testOrderId) {
-          console.warn(`No test order found for testId: ${result.testId}`);
+      for (const result of uniqueResults) {
+        const context = resolveResultContext(result);
+        if (!context) {
+          console.warn(
+            `No unambiguous test order found for result testId=${result.testId} testOrderId=${result.testOrderId ?? "missing"}`,
+          );
           continue;
         }
+        const resultKey = `${context.testOrderId}:${context.testId}`;
 
-        // Delete existing result for this specific testId (not just testOrderId)
-        await tx.testResult.deleteMany({
-          where: {
-            testOrderId,
-            testId: result.testId,
-            reportVersionId: draftVersion.id,
-          },
-        });
-
-        // Create new result (numeric value, textValue, notes, OR a typed
-        // doctor-name override — the override alone is enough to materialize
-        // a TestResult row so it round-trips on reload).
+        // Upsert this specific test result. The compound unique constraint
+        // protects against two near-simultaneous auto/manual saves inserting
+        // the same reportVersion/order/test row twice.
         const signerOverride =
           typeof result.signerNameOverride === "string" &&
           result.signerNameOverride.trim()
             ? result.signerNameOverride.trim()
             : null;
+        const numericValue =
+          result.value != null ? parseFloat(result.value) : NaN;
+        const isText = isNaN(numericValue);
+        const normalizedNotes = manualDerivedOverrideResultKeys.has(resultKey)
+          ? DERIVED_MANUAL_OVERRIDE_NOTE
+          : result.notes || null;
+        // Prefer explicit textValue from frontend; fall back to notes for legacy clients.
+        const textVal =
+          result.textValue ||
+          (isText ? normalizedNotes || String(result.value ?? "") : null);
+
         if (
           (result.value !== null && result.value !== undefined) ||
-          result.textValue ||
-          (result.notes && result.notes.trim()) ||
+          textVal ||
+          (normalizedNotes && normalizedNotes.trim()) ||
           signerOverride
         ) {
-          const numericValue =
-            result.value != null ? parseFloat(result.value) : NaN;
-          const isText = isNaN(numericValue);
-          const defId = testToDefIdMap.get(result.testId) ?? null;
-          const normalizedNotes = manualDerivedOverrideTestIds.has(
-            result.testId,
-          )
-            ? DERIVED_MANUAL_OVERRIDE_NOTE
-            : result.notes || null;
-          // Prefer explicit textValue from frontend; fall back to notes for legacy clients
-          const textVal =
-            result.textValue ||
-            (isText ? normalizedNotes || String(result.value ?? "") : null);
-          await tx.testResult.create({
-            data: {
-              testOrderId,
-              testId: result.testId,
+          const resultData = {
+            value: isText ? null : numericValue,
+            textValue: textVal || null,
+            flag: result.flag || null,
+            notes: normalizedNotes,
+            testDefinitionId: context.testDefinitionId,
+            enteredByUserId: req.user!.id,
+            signerNameOverride: signerOverride,
+          };
+
+          await tx.testResult.upsert({
+            where: {
+              reportVersionId_testOrderId_testId: {
+                reportVersionId: draftVersion.id,
+                testOrderId: context.testOrderId,
+                testId: context.testId,
+              },
+            },
+            update: resultData,
+            create: {
+              testOrderId: context.testOrderId,
+              testId: context.testId,
               reportVersionId: draftVersion.id,
-              value: isText ? null : numericValue,
-              textValue: textVal || null,
-              flag: result.flag || null,
-              notes: normalizedNotes,
-              testDefinitionId: defId,
-              enteredByUserId: req.user!.id,
-              signerNameOverride: signerOverride,
+              ...resultData,
+            },
+          });
+        } else {
+          await tx.testResult.deleteMany({
+            where: {
+              testOrderId: context.testOrderId,
+              testId: context.testId,
+              reportVersionId: draftVersion.id,
             },
           });
         }
@@ -2907,7 +2991,7 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
 
       if (patient) {
         // Collect test IDs that had numeric values
-        const flaggableResults = results.filter(
+        const flaggableResults = uniqueResults.filter(
           (r: any) => r.value !== null && r.value !== undefined && r.testId,
         );
         const testIdsForFlags = flaggableResults.map((r: any) => r.testId);
@@ -2923,7 +3007,10 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
 
           // Batch-update flags based on resolved ranges
           for (const r of flaggableResults) {
-            const range = resolvedRanges.get(r.testId);
+            const context = resolveResultContext(r);
+            if (!context) continue;
+
+            const range = resolvedRanges.get(context.testId);
             if (!range) continue;
 
             const numValue = parseFloat(r.value);
@@ -2932,17 +3019,14 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
             const flag = determineResultFlag(numValue, range);
 
             if (flag) {
-              const testOrderId = testToOrderMap.get(r.testId);
-              if (testOrderId) {
-                await prisma.testResult.updateMany({
-                  where: {
-                    testOrderId,
-                    testId: r.testId,
-                    reportVersionId: draftVersion.id,
-                  },
-                  data: { flag },
-                });
-              }
+              await prisma.testResult.updateMany({
+                where: {
+                  testOrderId: context.testOrderId,
+                  testId: context.testId,
+                  reportVersionId: draftVersion.id,
+                },
+                data: { flag },
+              });
             }
           }
         }
@@ -2965,33 +3049,15 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
         );
 
       const resultsByTestCode = new Map<string, number>();
-      for (const r of results) {
+      for (const r of uniqueResults) {
         if (r.value === null || r.value === undefined) continue;
 
         const numericValue = parseFloat(r.value);
         if (isNaN(numericValue)) continue;
 
-        const testOrder = reportableOrders.find(
-          (order) => order.testId === r.testId,
-        );
-        if (testOrder) {
-          resultsByTestCode.set(
-            testOrder.testDefinition?.code ||
-              testOrder.testCodeSnapshot ||
-              testOrder.test.code,
-            numericValue,
-          );
-          continue;
-        }
-
-        for (const order of reportableOrders) {
-          const childTest = order.test.childTests.find(
-            (child) => child.id === r.testId,
-          );
-          if (childTest) {
-            resultsByTestCode.set(childTest.code, numericValue);
-            break;
-          }
+        const context = resolveResultContext(r);
+        if (context) {
+          resultsByTestCode.set(context.code, numericValue);
         }
       }
 
@@ -3024,6 +3090,7 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
           orderDerived.dependsOnCodes
         ) {
           derivedTargets.push({
+            testOrderId: testOrder.id,
             testId: testOrder.testId,
             testDefinitionId: testOrder.testDefinitionId ?? null,
             code: orderCode,
@@ -3060,6 +3127,7 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
             childDerived.dependsOnCodes
           ) {
             derivedTargets.push({
+              testOrderId: testOrder.id,
               testId: childTest.id,
               testDefinitionId: null,
               code: childTest.code,
@@ -3107,23 +3175,22 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
               : new Map();
 
           for (const dr of derivedResults) {
-            const orderIdForDerived = testToOrderMap.get(dr.testId);
+            const orderIdForDerived = dr.testOrderId ?? null;
             if (!orderIdForDerived) continue;
 
-            if (manualDerivedOverrideTestIds.has(dr.testId)) {
+            const derivedResultKey = `${orderIdForDerived}:${dr.testId}`;
+            if (manualDerivedOverrideResultKeys.has(derivedResultKey)) {
               continue;
             }
 
-            // Upsert derived result
-            await prisma.testResult.deleteMany({
-              where: {
-                testOrderId: orderIdForDerived,
-                testId: dr.testId,
-                reportVersionId: draftVer.id,
-              },
-            });
-
             if (dr.value === null) {
+              await prisma.testResult.deleteMany({
+                where: {
+                  testOrderId: orderIdForDerived,
+                  testId: dr.testId,
+                  reportVersionId: draftVer.id,
+                },
+              });
               continue;
             }
 
@@ -3131,29 +3198,42 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
             const derivedFlag = derivedRange
               ? determineResultFlag(dr.value, derivedRange)
               : null;
+            const derivedData = {
+              value: dr.value,
+              textValue: null,
+              flag: derivedFlag,
+              notes: `${DERIVED_AUTO_NOTE_PREFIX}${dr.parameterName}`,
+              testDefinitionId:
+                dr.testDefinitionId ?? testToDefIdMap.get(dr.testId) ?? null,
+              enteredByUserId: req.user!.id,
+              signerNameOverride: null,
+            };
 
-            await prisma.testResult.create({
-              data: {
+            await prisma.testResult.upsert({
+              where: {
+                reportVersionId_testOrderId_testId: {
+                  reportVersionId: draftVer.id,
+                  testOrderId: orderIdForDerived,
+                  testId: dr.testId,
+                },
+              },
+              update: derivedData,
+              create: {
                 testOrderId: orderIdForDerived,
                 testId: dr.testId,
                 reportVersionId: draftVer.id,
-                value: dr.value,
-                flag: derivedFlag,
-                notes: `${DERIVED_AUTO_NOTE_PREFIX}${dr.parameterName}`,
-                testDefinitionId:
-                  dr.testDefinitionId ?? testToDefIdMap.get(dr.testId) ?? null,
-                enteredByUserId: req.user!.id,
+                ...derivedData,
               },
             });
           }
 
-          for (const manualTestId of manualDerivedOverrideTestIds) {
-            const manualInput = results.find(
-              (result: any) => result.testId === manualTestId,
+          for (const manualResultKey of manualDerivedOverrideResultKeys) {
+            const manualInput = uniqueResults.find(
+              (result: any) => payloadResultKey(result) === manualResultKey,
             );
-            const manualOrderId = testToOrderMap.get(manualTestId);
+            const manualContext = manualInput ? resolveResultContext(manualInput) : null;
 
-            if (!manualInput || !manualOrderId) {
+            if (!manualInput || !manualContext) {
               continue;
             }
 
@@ -3162,33 +3242,45 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
                 ? parseFloat(manualInput.value)
                 : NaN;
 
-            await prisma.testResult.deleteMany({
-              where: {
-                testOrderId: manualOrderId,
-                testId: manualTestId,
-                reportVersionId: draftVer.id,
-              },
-            });
-
             if (isNaN(numericValue)) {
+              await prisma.testResult.deleteMany({
+                where: {
+                  testOrderId: manualContext.testOrderId,
+                  testId: manualContext.testId,
+                  reportVersionId: draftVer.id,
+                },
+              });
               continue;
             }
 
-            const manualRange = derivedRanges.get(manualTestId);
+            const manualRange = derivedRanges.get(manualContext.testId);
             const manualFlag = manualRange
               ? determineResultFlag(numericValue, manualRange)
               : null;
+            const manualData = {
+              value: numericValue,
+              textValue: null,
+              flag: manualFlag,
+              notes: DERIVED_MANUAL_OVERRIDE_NOTE,
+              testDefinitionId: manualContext.testDefinitionId,
+              enteredByUserId: req.user!.id,
+              signerNameOverride: null,
+            };
 
-            await prisma.testResult.create({
-              data: {
-                testOrderId: manualOrderId,
-                testId: manualTestId,
+            await prisma.testResult.upsert({
+              where: {
+                reportVersionId_testOrderId_testId: {
+                  reportVersionId: draftVer.id,
+                  testOrderId: manualContext.testOrderId,
+                  testId: manualContext.testId,
+                },
+              },
+              update: manualData,
+              create: {
+                testOrderId: manualContext.testOrderId,
+                testId: manualContext.testId,
                 reportVersionId: draftVer.id,
-                value: numericValue,
-                flag: manualFlag,
-                notes: DERIVED_MANUAL_OVERRIDE_NOTE,
-                testDefinitionId: testToDefIdMap.get(manualTestId) ?? null,
-                enteredByUserId: req.user!.id,
+                ...manualData,
               },
             });
           }
@@ -4211,7 +4303,7 @@ router.post("/:id/release-partial", async (req: AuthRequest, res) => {
       //    the current draft *before* finalizing it. They land in a temporary
       //    holding area (the new DRAFT we create in step 3); the current
       //    draft then contains only the selected rows and can be finalized.
-      const carryForwardData = draftVersion.testResults; // snapshot before mutation
+      const carryForwardData = dedupeResultRows(draftVersion.testResults); // snapshot before mutation
       if (explicitSelection) {
         const idsToRemoveFromDraft = draftVersion.testResults
           .filter((r) => !releaseOrderIds.has(r.testOrderId))

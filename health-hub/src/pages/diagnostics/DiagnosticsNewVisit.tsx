@@ -1270,11 +1270,13 @@ const DiagnosticsNewVisit = () => {
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Input
                       id="age"
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       placeholder="Age"
                       value={newPatient.age}
                       onChange={(e) => {
-                        setNewPatient({ ...newPatient, age: e.target.value });
+                        setNewPatient({ ...newPatient, age: e.target.value.replace(/\D/g, "") });
                         if (validationErrors.age) {
                           setValidationErrors({
                             ...validationErrors,
