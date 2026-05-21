@@ -682,11 +682,9 @@ const DiagnosticsReportPreview = () => {
                 <p className="text-muted-foreground">
                   {patientAge ? `${patientAge} yrs` : ''} | {patient.gender === 'M' ? 'Male' : patient.gender === 'F' ? 'Female' : 'Other'}
                 </p>
-                {referralDoctor && (
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Referred by: {referralDoctor.name}
-                  </p>
-                )}
+                <p className="text-sm text-muted-foreground mt-1">
+                  Referred by: {referralDoctor?.name?.trim() || 'SELF'}
+                </p>
               </div>
               <div className="text-right">
                 <p className="font-mono font-bold text-lg">{visit.billNumber}</p>

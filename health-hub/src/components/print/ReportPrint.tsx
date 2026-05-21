@@ -39,12 +39,9 @@ export const ReportPrint = ({ visitView }: ReportPrintProps) => {
         </div>
       </div>
 
-      {/* Referral Doctor */}
-      {referralDoctor && (
-        <div className="mb-4">
-          <p><strong>Referred By:</strong> {referralDoctor.name}</p>
-        </div>
-      )}
+      <div className="mb-4">
+        <p><strong>Referred by:</strong> {referralDoctor?.name?.trim() || 'SELF'}</p>
+      </div>
 
       {/* Results Table */}
       <table className="w-full border-collapse border border-black mb-6">

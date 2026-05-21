@@ -68,15 +68,44 @@ function makeResultKey(testOrderId: string, testId: string): ResultKey {
   return `${testOrderId}:${testId}`;
 }
 
+function shouldUseTextInput(
+  testName: string,
+  testCode: string,
+  referenceRange: ReferenceRange
+): boolean {
+  const hasNumericRange = referenceRange.min > 0 || referenceRange.max > 0;
+  if (hasNumericRange) return false;
+  if (referenceRange.text?.trim()) return true;
+
+  const normalizedCode = testCode.toUpperCase();
+  const normalizedName = testName.toUpperCase();
+  const normalizedUnit = referenceRange.unit.toUpperCase();
+
+  if (/\/?(H|L|O)PF\b/.test(normalizedUnit) || normalizedUnit.includes('FIELD')) {
+    return true;
+  }
+
+  if (
+    normalizedCode.startsWith('CUE_') &&
+    !['CUE_QTY', 'CUE_QUANTITY', 'CUE_SG'].includes(normalizedCode)
+  ) {
+    return true;
+  }
+
+  return ['CASTS', 'CRYSTALS', 'OTHERS'].some((name) => normalizedName.includes(name));
+}
+
 function getEffectiveInputConfig(
   config: TestInputConfig,
+  testName: string,
+  testCode: string,
   referenceRange: ReferenceRange
 ): TestInputConfig {
   if (
     config.inputType === 'NUMERIC' &&
     !config.defaultValue &&
     config.valueOptions.length === 0 &&
-    referenceRange.text?.trim()
+    shouldUseTextInput(testName, testCode, referenceRange)
   ) {
     return { ...config, inputType: 'FREE_TEXT' };
   }
@@ -813,6 +842,9 @@ const DiagnosticsResultEntry = () => {
       resultKey: ResultKey;
       testOrderId: string;
       testId: string;
+      testName: string;
+      testCode: string;
+      referenceRange: ReferenceRange;
       min: number;
       max: number;
       isDerived: boolean;
@@ -826,6 +858,9 @@ const DiagnosticsResultEntry = () => {
             resultKey: makeResultKey(order.id, child.id),
             testOrderId: order.id,
             testId: child.id,
+            testName: child.name,
+            testCode: child.code,
+            referenceRange: child.referenceRange,
             min: child.referenceRange.min,
             max: child.referenceRange.max,
             isDerived: !!child.isDerived,
@@ -836,6 +871,9 @@ const DiagnosticsResultEntry = () => {
           resultKey: makeResultKey(order.id, order.testId),
           testOrderId: order.id,
           testId: order.testId,
+          testName: order.testName,
+          testCode: order.testCode,
+          referenceRange: order.referenceRange,
           min: order.referenceRange.min,
           max: order.referenceRange.max,
           isDerived: !!order.isDerived,
@@ -869,7 +907,15 @@ const DiagnosticsResultEntry = () => {
         const valueStr = isRichTextPanelLayout(layoutType)
           ? normalizeNarrativeContent(rawValue)
           : rawValue;
-        const forceTextValue = textLayoutByResultKey.has(test.resultKey);
+        const effectiveInputConfig = getEffectiveInputConfig(
+          testInputConfigByResultKey.get(test.resultKey) ?? DEFAULT_INPUT_CONFIG,
+          test.testName,
+          test.testCode,
+          test.referenceRange
+        );
+        const forceTextValue =
+          textLayoutByResultKey.has(test.resultKey) ||
+          effectiveInputConfig.inputType !== 'NUMERIC';
         const parsedValue = parseFloat(valueStr);
         const isNumeric =
           !forceTextValue && !isNaN(parsedValue) && valueStr.trim() !== '' && !isPrefilled;
@@ -893,7 +939,7 @@ const DiagnosticsResultEntry = () => {
 
     if (resultsArray.length === 0) return null;
     return { results: resultsArray };
-  }, [visit, visitId, results, derivedManualOverrides, textLayoutByResultKey, signerNameByResultKey]);
+  }, [visit, visitId, results, derivedManualOverrides, textLayoutByResultKey, signerNameByResultKey, testInputConfigByResultKey]);
 
   const persistDraft = useCallback(async (): Promise<'saved' | 'empty' | 'failed'> => {
     if (!visitId) return 'empty';
@@ -1422,6 +1468,8 @@ const DiagnosticsResultEntry = () => {
       storedInputConfig ?? (hasNumericRange
         ? DEFAULT_INPUT_CONFIG
         : { ...DEFAULT_INPUT_CONFIG, inputType: 'FREE_TEXT' }),
+      testName,
+      testCode,
       referenceRange
     );
     const usePresetCombobox =
