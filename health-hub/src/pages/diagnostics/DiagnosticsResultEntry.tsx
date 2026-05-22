@@ -69,30 +69,13 @@ function makeResultKey(testOrderId: string, testId: string): ResultKey {
 }
 
 function shouldUseTextInput(
-  testName: string,
-  testCode: string,
+  _testName: string,
+  _testCode: string,
   referenceRange: ReferenceRange
 ): boolean {
   const hasNumericRange = referenceRange.min > 0 || referenceRange.max > 0;
   if (hasNumericRange) return false;
-  if (referenceRange.text?.trim()) return true;
-
-  const normalizedCode = testCode.toUpperCase();
-  const normalizedName = testName.toUpperCase();
-  const normalizedUnit = referenceRange.unit.toUpperCase();
-
-  if (/\/?(H|L|O)PF\b/.test(normalizedUnit) || normalizedUnit.includes('FIELD')) {
-    return true;
-  }
-
-  if (
-    normalizedCode.startsWith('CUE_') &&
-    !['CUE_QTY', 'CUE_QUANTITY', 'CUE_SG'].includes(normalizedCode)
-  ) {
-    return true;
-  }
-
-  return ['CASTS', 'CRYSTALS', 'OTHERS'].some((name) => normalizedName.includes(name));
+  return true;
 }
 
 function getEffectiveInputConfig(
