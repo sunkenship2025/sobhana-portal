@@ -1452,6 +1452,9 @@ const DiagnosticsResultEntry = () => {
     const isAutoDerived = isDerived && !isManualDerived;
 
     const hasNumericRange = referenceRange.min > 0 || referenceRange.max > 0;
+    const displayRefText = referenceRange.text || (hasNumericRange
+      ? `${referenceRange.min || ''} – ${referenceRange.max || ''} ${referenceRange.unit}`
+      : 'NIL');
     // When no explicit config exists, infer the input type from the reference
     // range: a text-only reference (e.g. "YELLOW/PALE YELLOW") means the
     // value is text, not a number. Without this, mobile defaults to the
@@ -1545,7 +1548,7 @@ const DiagnosticsResultEntry = () => {
             ) : (
               <Input
                 type="text"
-                inputMode="text"
+                inputMode={inputConfig.inputType === 'NUMERIC' && !displayRefText.includes('-') && !displayRefText.includes('–') ? 'decimal' : 'text'}
                 placeholder={isAutoDerived ? 'Auto-calculated' : 'Value'}
                 value={valueStr}
                 onChange={(e) => handleValueChange(resultKey, e.target.value)}
