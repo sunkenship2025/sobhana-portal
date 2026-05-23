@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bill Layout Preview — Authorized Signatory Fix</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: #f3f4f6;
+      margin: 0;
+      padding: 40px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+    }
+
+    .paper {
+      width: 210mm;
+      min-height: 297mm;
+      background: white;
+      padding: 24px 32px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+    }
+
+    /* Header */
+    .logo-row {
+      text-align: center;
+      margin-bottom: 8px;
+    }
+    .logo {
+      font-size: 32px;
+      font-weight: 800;
+      color: #dc2626;
+      letter-spacing: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .logo-icon {
+      width: 40px; height: 40px;
+      border: 3px solid #1e3a8a;
+      border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      position: relative;
+    }
+    .logo-icon::after {
+      content: '+';
+      color: #dc2626; font-size: 24px; font-weight: 700;
+      position: absolute; top: -6px; right: -6px;
+    }
+    .sub {
+      font-size: 11px;
+      color: #1e3a8a;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+    .branch {
+      text-align: center;
+      font-size: 11px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .hr-thick {
+      border: none;
+      border-top: 2px solid #000;
+      margin: 16px 0;
+    }
+    .hr-thin {
+      border: none;
+      border-top: 1px solid #000;
+      margin: 16px 0;
+    }
+
+    /* Info grid */
+    .info-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 32px;
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+    .info-right { text-align: right; }
+
+    /* Patient box */
+    .patient-box {
+      border: 1px solid #000;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+    }
+    .patient-box h2 {
+      font-size: 14px; font-weight: 700; margin: 0 0 12px 0;
+    }
+    .patient-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 32px;
+      font-size: 14px;
+    }
+    .patient-grid > div {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 8px;
+    }
+
+    /* Table */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+    th, td {
+      border: 1px solid #000;
+      padding: 12px;
+    }
+    th {
+      font-weight: 700;
+      text-align: left;
+    }
+    .text-right { text-align: right; }
+    .w-sno { width: 110px; }
+    .w-amt  { width: 148px; }
+
+    /* Totals rows */
+    .totals-cell {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+      text-align: center;
+      vertical-align: bottom;
+      padding: 8px;
+      padding-bottom: 12px;
+    }
+    .gray { color: #374151; }
+    .bold { font-weight: 700; color: #000; }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      font-size: 12px;
+      padding-top: 12px;
+    }
+    .footer-note {
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #374151;
+    }
+
+    /* Annotation badge */
+    .badge {
+      display: inline-block;
+      background: #dc2626;
+      color: white;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+    .annotation {
+      max-width: 210mm;
+      background: #fff;
+      border-left: 4px solid #dc2626;
+      padding: 16px 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .annotation ul { margin: 8px 0; padding-left: 20px; }
+    .annotation li { margin-bottom: 4px; }
+    .annotation code {
+      background: #f3f4f6;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="annotation">
+    <span class="badge">UPDATED</span>
+    <h3 style="margin:0 0 8px 0;">What changed in BillReceipt.tsx</h3>
+    <ul>
+      <li><strong>Column width:</strong> <code>w-[74px]</code> → <code>w-[110px]</code> so text fits on one line.</li>
+      <li><strong>Text size:</strong> <code>text-sm</code> → <code>text-[10px]</code> with <code>whitespace-nowrap</code> for a single compact line.</li>
+      <li><strong>Vertical alignment:</strong> <code>align-middle</code> → <code>align-bottom</code> with <code>pb-3</code>. The label now sits at the <em>bottom</em> of the totals block, leaving the space above clean for signature + stamp.</li>
+    </ul>
+  </div>
+
+  <div class="paper">
+    <!-- Logo -->
+    <div class="logo-row">
+      <div class="logo">
+        <span class="logo-icon"></span>
+        SOBHANA
+      </div>
+      <div class="sub">DIAGNOSTIC CENTRE</div>
+      <div class="branch">SOBHANA - CHINTAL</div>
+    </div>
+
+    <div class="hr-thick"></div>
+
+    <!-- Bill Info -->
+    <div class="info-row">
+      <div>
+        <p><strong>Bill No:</strong> D-CNT-000076</p>
+        <p><strong>Date:</strong> 23 May 2026</p>
+      </div>
+      <div class="info-right">
+        <p><strong>Payment:</strong> PAID</p>
+      </div>
+    </div>
+
+    <!-- Patient Details -->
+    <div class="patient-box">
+      <h2>Patient Details</h2>
+      <div class="patient-grid">
+        <div><strong>Name:</strong> SAIPRANAV REDDY CHINTAKUNTA</div>
+        <div><strong>Phone:</strong> 6309414582</div>
+        <div><strong>Age:</strong> 20 Years</div>
+        <div><strong>Gender:</strong> Male</div>
+      </div>
+    </div>
+
+    <p style="font-size:14px; margin-bottom:16px;"><strong>Referred by:</strong> SELF</p>
+
+    <!-- Table -->
+    <table>
+      <colgroup>
+        <col class="w-sno">
+        <col>
+        <col class="w-amt">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>S.NO</th>
+          <th>PRODUCT NAME</th>
+          <th class="text-right">AMOUNT (₹)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td>LIVER FUNCTION TEST (LFT)</td>
+          <td class="text-right">500.00</td>
+        </tr>
+
+        <!-- Totals rows — Authorized Signatory now at bottom -->
+        <tr>
+          <td rowspan="3" class="totals-cell">
+            Authorized Signatory
+          </td>
+          <td class="text-right gray">SUBTOTAL</td>
+          <td class="text-right gray">₹500.00</td>
+        </tr>
+        <tr>
+          <td class="text-right bold">TOTAL</td>
+          <td class="text-right bold">₹500.00</td>
+        </tr>
+        <tr>
+          <td class="text-right gray">PAID</td>
+          <td class="text-right gray">₹500.00</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="hr-thin"></div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p style="margin-bottom:6px;">We appreciate your trust in Sobhana.</p>
+      <p class="footer-note">* This is a computer generated invoice and does not require a physical signature *</p>
+    </div>
+  </div>
+
+</body>
+</html>
