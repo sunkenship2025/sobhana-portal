@@ -1,4 +1,5 @@
 import { formatAgeDisplay } from '@/lib/validation';
+import { formatPatientName } from '@/lib/patientDisplay';
 import type { ClinicVisitView } from '@/types';
 import { BillReceipt } from './BillReceipt';
 import { mapClinicVisitViewToReceiptData } from '@/lib/billReceiptMappers';
@@ -76,7 +77,7 @@ export const ClinicPrescriptionPrint = ({
                 </div>
                 <div className="clinic-rx-patient-row">
                   <span className="clinic-rx-patient-label">Patient Name</span>
-                  <span className="clinic-rx-patient-value clinic-rx-patient-name">{patient.name.toUpperCase()}</span>
+                  <span className="clinic-rx-patient-value clinic-rx-patient-name">{formatPatientName(patient.name, (patient as any).title, true)}</span>
                 </div>
                 <div className="clinic-rx-patient-row">
                   <span className="clinic-rx-patient-label">Age/Sex</span>

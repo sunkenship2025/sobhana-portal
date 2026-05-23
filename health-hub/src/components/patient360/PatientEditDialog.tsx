@@ -22,15 +22,17 @@ import { toast } from 'sonner';
 import { Pencil, MessageCircle } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { validatePatientForm, type ValidationErrors } from '@/lib/validation';
+import { TITLE_TO_GENDER, titleOptions } from '@/lib/patientDisplay';
 import { API_BASE } from '@/lib/api';
 
 // Identity fields that require a reason
-const IDENTITY_FIELDS = ['name', 'age', 'gender', 'phone', 'email'];
+const IDENTITY_FIELDS = ['name', 'title', 'age', 'gender', 'phone', 'email'];
 
 interface PatientEditDialogProps {
   patient: {
     id: string;
     name: string;
+    title?: string | null;
     age: number;
     gender: string;
     address?: string | null;
@@ -51,6 +53,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
 
   const [formData, setFormData] = useState({
     name: patient.name,
+    title: patient.title || '',
     age: patient.age.toString(),
     ageUnit: (patient.ageUnit || 'YEARS') as 'DAYS' | 'MONTHS' | 'YEARS',
     gender: patient.gender,
@@ -63,6 +66,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
 
   const [initialData] = useState({
     name: patient.name,
+    title: patient.title || '',
     age: patient.age.toString(),
     ageUnit: (patient.ageUnit || 'YEARS') as string,
     gender: patient.gender,
@@ -78,6 +82,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
   const identityFieldsChanged = () => {
     return (
       formData.name !== initialData.name ||
+      formData.title !== initialData.title ||
       formData.age !== initialData.age ||
       formData.gender !== initialData.gender ||
       formData.phone !== initialData.phone ||
@@ -91,6 +96,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
     // E2-10: Validate form data
     const errors = validatePatientForm({
       name: formData.name,
+      title: formData.title,
       age: formData.age,
       gender: formData.gender,
       phone: formData.phone,
@@ -121,6 +127,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
       const updatePayload: any = {};
       
       if (formData.name !== initialData.name) updatePayload.name = formData.name;
+      if (formData.title !== initialData.title) updatePayload.title = formData.title || null;
       if (formData.age !== initialData.age) updatePayload.age = parseInt(formData.age);
       if (formData.ageUnit !== initialData.ageUnit) updatePayload.ageUnit = formData.ageUnit;
       if (formData.gender !== initialData.gender) updatePayload.gender = formData.gender;
@@ -180,6 +187,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
       // Reset form when opening
       setFormData({
         name: patient.name,
+        title: patient.title || '',
         age: patient.age.toString(),
         ageUnit: (patient.ageUnit || 'YEARS') as 'DAYS' | 'MONTHS' | 'YEARS',
         gender: patient.gender,
@@ -205,11 +213,41 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
           <DialogHeader>
             <DialogTitle>Edit Patient Details</DialogTitle>
             <DialogDescription>
-              Update patient information. Changes to identity fields (name, age, gender, phone, email) require a reason.
+              Update patient information. Changes to identity fields (name, title, age, gender, phone, email) require a reason.
             </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Title */}
+            <div className="space-y-2">
+              <Label>Title</Label>
+              <Select
+                value={formData.title}
+                onValueChange={(v) => {
+                  const autoGender = TITLE_TO_GENDER[v];
+                  setFormData({
+                    ...formData,
+                    title: v,
+                    ...(autoGender ? { gender: autoGender } : {}),
+                  });
+                  if (validationErrors.gender) {
+                    setValidationErrors({ ...validationErrors, gender: undefined });
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select title" />
+                </SelectTrigger>
+                <SelectContent>
+                  {titleOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* Name */}
             <div className="space-y-2">
               <Label htmlFor="name">

@@ -5,6 +5,7 @@
 
 export interface ValidationErrors {
   name?: string;
+  title?: string;
   age?: string;
   gender?: string;
   phone?: string;
@@ -14,6 +15,7 @@ export interface ValidationErrors {
 
 export interface PatientFormData {
   name: string;
+  title?: string;
   age: string | number;
   gender: string;
   phone?: string;
@@ -42,6 +44,11 @@ export function validatePatientForm(data: PatientFormData): ValidationErrors {
     // Arabic names all pass. The previous [a-zA-Z]-only regex rejected every
     // non-Latin script, blocking registration for a big fraction of patients.
     errors.name = 'Name can only contain letters, spaces, dots, hyphens, and apostrophes';
+  }
+
+  // Title validation (optional)
+  if (data.title && !["MR", "MRS", "MS", "MASTER", "BABY"].includes(data.title)) {
+    errors.title = "Invalid title";
   }
 
   // Age validation — unit-aware
@@ -163,6 +170,10 @@ export function validateField(
       if (trimmed.length < 2) return 'Name must be at least 2 characters';
       if (trimmed.length > 100) return 'Too long';
       if (!/^[\p{L}\s.'-]+$/u.test(trimmed)) return 'Only letters, spaces, dots, hyphens allowed';
+      return null;
+
+    case 'title':
+      if (value && !['MR', 'MRS', 'MS', 'MASTER', 'BABY'].includes(value)) return 'Invalid title';
       return null;
 
     case 'age': {

@@ -3,7 +3,8 @@
   "provider": {
     "opencode-go": {
       "options": {
-        "apiKey": "sk-v8m1kedtasFe0kB0RgpteHN6UlWCoVd58NlmVpD9Wh1UaOeYAcgwCcWn1MwbY4dX"
+        "apiKey": "sk-v8m1kedtasFe0kB0RgpteHN6UlWCoVd58NlmVpD9Wh1UaOeYAcgwCcWn1MwbY4dX",
+        "baseURL": "https://opencode.ai/zen/go/v1"
       }
     }
   }

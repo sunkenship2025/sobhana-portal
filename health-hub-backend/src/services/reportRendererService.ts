@@ -809,7 +809,7 @@ function renderPatientInfoHtml(snapshot: ReportSnapshot, sampleTypes: string[]):
           <div class="info-row">
             <div class="info-item">
               <span class="label">Patient Name</span>
-              <span class="value">${escapeHtml(snapshot.patient.name)}</span>
+              <span class="value">${snapshot.patient.title ? escapeHtml(snapshot.patient.title) + '. ' : ''}${escapeHtml(snapshot.patient.name)}</span>
             </div>
             <div class="info-item">
               <span class="label">Bill No</span>

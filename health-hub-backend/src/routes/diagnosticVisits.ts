@@ -1083,7 +1083,7 @@ router.get("/:id", async (req: AuthRequest, res) => {
         min: resolved?.referenceMin ?? defaultMin ?? 0,
         max: resolved?.referenceMax ?? defaultMax ?? 0,
         unit: resolved?.referenceUnit || defaultUnit || "",
-        text: resolved?.referenceText ?? (defaultText || ""),
+        text: resolved?.referenceText || defaultText || "",
       };
     };
     // Transform to frontend format

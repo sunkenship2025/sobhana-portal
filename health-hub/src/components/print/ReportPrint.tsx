@@ -1,4 +1,5 @@
 import type { DiagnosticVisitView } from '@/types';
+import { formatPatientName } from '@/lib/patientDisplay';
 
 interface ReportPrintProps {
   visitView: DiagnosticVisitView;
@@ -32,7 +33,7 @@ export const ReportPrint = ({ visitView }: ReportPrintProps) => {
       {/* Patient Info */}
       <div className="border border-black p-3 mb-6">
         <div className="grid grid-cols-2 gap-2 text-sm">
-          <p><strong>Name:</strong> {patient.name}</p>
+          <p><strong>Name:</strong> {formatPatientName(patient.name, (patient as any).title)}</p>
           <p><strong>Phone:</strong> {patient.identifiers.find(i => i.type === 'PHONE')?.value || 'N/A'}</p>
           <p><strong>Age:</strong> {(patient as any).ageDisplay || `${patient.age} years`}</p>
           <p><strong>Gender:</strong> {patient.gender === 'M' ? 'Male' : patient.gender === 'F' ? 'Female' : 'Other'}</p>
