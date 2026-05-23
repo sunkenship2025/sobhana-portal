@@ -126,6 +126,7 @@ router.get("/:domain/:visitId", async (req: AuthRequest, res) => {
       },
       patient: {
         name: visit.patient.name,
+        title: visit.patient.title,
         age: getPatientAge(
           visit.patient.dateOfBirth,
           visit.patient.yearOfBirth,

@@ -19,6 +19,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { toast } from "sonner";
 import { Clock, Search, Loader2 } from "lucide-react";
 import {
+import { formatPatientName } from '@/lib/patientDisplay';
   Dialog,
   DialogContent,
   DialogHeader,
@@ -341,7 +342,7 @@ const DiagnosticsPendingResults = () => {
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-semibold">
-                          {patient?.name || "Unknown"}
+                          {formatPatientName(patient?.name || "Unknown", (patient as any).title)}
                         </span>
                         <span className="text-muted-foreground">
                           | {patient?.age} | {patient?.gender}

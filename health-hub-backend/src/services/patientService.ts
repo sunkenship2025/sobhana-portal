@@ -20,6 +20,7 @@ function stringToLockId(input: string): number {
 
 export interface CreatePatientInput {
   name: string;
+  title?: 'MR' | 'MRS' | 'MS' | 'MASTER' | 'BABY';
   age?: number; // E2-09: Optional - used to calculate YOB if DOB not provided
   ageUnit?: string; // DAYS, MONTHS, YEARS — defaults to YEARS
   dateOfBirth?: Date; // E2-09: Optional - exact DOB if known
@@ -65,6 +66,7 @@ export async function createPatient(input: CreatePatientInput) {
   // E2-10: Validate demographic fields
   const validationResult = validatePatientDemographics({
     name: input.name,
+    title: input.title,
     age: input.age,
     dateOfBirth: input.dateOfBirth,
     gender: input.gender,
@@ -163,6 +165,7 @@ export async function createPatient(input: CreatePatientInput) {
       data: {
         patientNumber,
         name: input.name.toUpperCase(), // Medical standard: names in all caps
+        title: input.title,
         yearOfBirth, // E2-09: Required - derived from age or DOB
         dateOfBirth, // E2-09: Optional - exact DOB if provided
         ageUnit: input.dateOfBirth ? 'YEARS' : ageUnit, // Store unit hint for smart display
@@ -454,12 +457,13 @@ export async function getPatient360View(patientId: string) {
 // ============================================================================
 
 // Identity fields that require change reason for staff
-const IDENTITY_FIELDS = ['name', 'age', 'gender', 'phone', 'email'];
+const IDENTITY_FIELDS = ['name', 'title', 'age', 'gender', 'phone', 'email'];
 
 export interface UpdatePatientInput {
   patientId: string;
   updates: {
     name?: string;
+    title?: 'MR' | 'MRS' | 'MS' | 'MASTER' | 'BABY';
     age?: number; // E2-09: Optional - will be converted to YOB
     ageUnit?: string; // DAYS, MONTHS, YEARS
     dateOfBirth?: Date; // E2-09: Optional - exact DOB if provided
@@ -654,6 +658,7 @@ export async function updatePatient(input: UpdatePatientInput) {
       }
     }
     
+    if (updates.title !== undefined) patientUpdates.title = updates.title;
     if (updates.gender !== undefined) patientUpdates.gender = updates.gender;
     if (updates.address !== undefined) patientUpdates.address = updates.address;
     if (updates.whatsappOptIn !== undefined) {

@@ -35,6 +35,7 @@ import {
   DerivedTestInfo,
 } from '@/lib/formulaUtils';
 import {
+import { formatPatientName } from '@/lib/patientDisplay';
   hasMeaningfulRichText,
   normalizeRichTextForStorage,
   plainTextToRichText,
@@ -525,6 +526,7 @@ const DiagnosticsResultEntry = () => {
         if (calculatedValue !== null) {
           updated[derivedTest.testId] = calculatedValue.toString();
           valuesByCode.set(derivedTest.code, calculatedValue);
+          prefilledResultKeysRef.current.delete(derivedTest.testId);
         } else {
           delete updated[derivedTest.testId];
           valuesByCode.delete(derivedTest.code);
@@ -679,6 +681,14 @@ const DiagnosticsResultEntry = () => {
 
     fetchVisit();
   }, [visitId, token, activeBranchId]);
+
+  // Recalculate derived results after visit data populates sortedDerivedTests
+  useEffect(() => {
+    if (!visit || sortedDerivedTests.length === 0) return;
+    setResults((prev) =>
+      recalculateDerivedResults(prev, undefined, derivedManualOverrides)
+    );
+  }, [visit, sortedDerivedTests.length]);
 
   // Fetch active signing rules so the per-narrative "Doctor's Name" input
   // can lock for departments where a rule is the source of truth. One light
@@ -1535,7 +1545,7 @@ const DiagnosticsResultEntry = () => {
             ) : (
               <Input
                 type="text"
-                inputMode={inputConfig.inputType === 'NUMERIC' ? 'decimal' : 'text'}
+                inputMode="text"
                 placeholder={isAutoDerived ? 'Auto-calculated' : 'Value'}
                 value={valueStr}
                 onChange={(e) => handleValueChange(resultKey, e.target.value)}
@@ -1935,7 +1945,7 @@ const DiagnosticsResultEntry = () => {
           <CardContent className="pt-6">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-xl font-bold">{patient.name}</h2>
+                <h2 className="text-xl font-bold">{formatPatientName(patient.name, (patient as any).title)}</h2>
                 <p className="text-muted-foreground">
                   {age ? `${age} yrs` : ''} | {patient.gender}
                 </p>

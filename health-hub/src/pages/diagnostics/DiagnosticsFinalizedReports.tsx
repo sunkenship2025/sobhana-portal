@@ -13,6 +13,7 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { toast } from 'sonner';
 import { CheckCircle2, Search, Eye, Printer, MessageCircle, Loader2 } from 'lucide-react';
 import { openFinalizedReportWindow } from '@/lib/reportAccess';
+import { formatPatientName } from '@/lib/patientDisplay';
 
 // Collapse a list of test orders into a readable summary for the visit row.
 // Bill-only orders are hidden (they don't ship in a report). Orders that
@@ -251,7 +252,7 @@ const DiagnosticsFinalizedReports = () => {
                   >
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold">{patient?.name || 'Unknown'}</span>
+                        <span className="font-semibold">{formatPatientName(patient?.name || .Unknown., (patient as any).title)}</span>
                         <span className="text-muted-foreground">
                           | {patient?.age} | {patient?.gender}
                         </span>

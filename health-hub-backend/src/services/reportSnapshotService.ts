@@ -113,6 +113,7 @@ export interface PatientSnapshot {
   patientId: string;
   patientNumber: string;
   name: string;
+  title?: string | null;
   gender: string;
   yearOfBirth: number;
   dateOfBirth: string | null;
@@ -1370,6 +1371,7 @@ export async function createReportSnapshot(
     patientId: patient.id,
     patientNumber: patient.patientNumber,
     name: patient.name,
+    title: (patient as any).title || null,
     gender: patient.gender,
     yearOfBirth: patient.yearOfBirth,
     dateOfBirth: patient.dateOfBirth?.toISOString() || null,
@@ -1551,6 +1553,7 @@ export async function buildEphemeralSnapshot(
     patientId: patient.id,
     patientNumber: patient.patientNumber,
     name: patient.name,
+    title: (patient as any).title || null,
     gender: patient.gender,
     yearOfBirth: patient.yearOfBirth,
     dateOfBirth: patient.dateOfBirth?.toISOString() || null,

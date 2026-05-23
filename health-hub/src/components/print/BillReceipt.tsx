@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { BillReceiptData } from "@/types";
 import { API_BASE_URL } from "@/lib/api";
 import { formatAgeDisplay } from "@/lib/validation";
+import { formatPatientName } from "@/lib/patientDisplay";
 
 interface BillReceiptProps {
   data: BillReceiptData;
@@ -204,7 +205,7 @@ export const BillReceipt = ({
             <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2 min-w-0">
               <strong>Name:</strong>
               <span className="min-w-0 truncate">
-                {data.patient.name.toUpperCase()}
+                {formatPatientName(data.patient.name, (data.patient as any).title, true)}
               </span>
             </div>
             <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2 min-w-0 justify-self-start">
