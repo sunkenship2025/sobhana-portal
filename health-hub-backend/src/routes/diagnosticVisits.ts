@@ -132,6 +132,54 @@ function buildDerivedMetadata(
   };
 }
 
+/**
+ * When multiple TestOrders share the same productId but only some of them
+ * resolved to a panel, propagate that panel to the orders without one.
+ * This handles mis-configured ClinicalPanelItem / PanelTestItem mappings
+ * while staying safe for bundle products that legitimately contain tests
+ * from different panels.
+ */
+function propagatePanelByProductId<
+  T extends {
+    productId: string | null;
+    panel: { id: string } | null;
+  }
+>(orders: T[]): T[] {
+  // Collect distinct panel ids per productId
+  const panelIdsByProduct = new Map<string, Set<string>>();
+  for (const order of orders) {
+    if (!order.productId || !order.panel?.id) continue;
+    const set = panelIdsByProduct.get(order.productId) ?? new Set<string>();
+    set.add(order.panel.id);
+    panelIdsByProduct.set(order.productId, set);
+  }
+
+  // Only propagate when every resolved panel for a productId is the SAME panel.
+  const panelByProductId = new Map<string, T["panel"]>();
+  for (const [productId, panelIds] of panelIdsByProduct) {
+    if (panelIds.size !== 1) continue;
+    const targetId = Array.from(panelIds)[0];
+    const representative = orders.find(
+      (o) => o.productId === productId && o.panel?.id === targetId
+    );
+    if (representative?.panel) {
+      panelByProductId.set(productId, representative.panel);
+    }
+  }
+
+  // Apply propagation (shallow copy so mutations on one order don't leak)
+  for (const order of orders) {
+    if (order.productId && !order.panel) {
+      const propagated = panelByProductId.get(order.productId);
+      if (propagated) {
+        order.panel = { ...propagated };
+      }
+    }
+  }
+
+  return orders;
+}
+
 function determineResultFlag(
   numValue: number,
   range: ResolvedNumericRange,
@@ -597,34 +645,37 @@ router.get("/", async (req: AuthRequest, res) => {
         nextAction: composition.nextAction,
         referralDoctorId: v.referrals[0]?.referralDoctorId || null,
         referralDoctor: v.referrals[0]?.referralDoctor || null,
-        testOrders: v.testOrders.map((to) => {
-          const panel =
-            (to.testDefinitionId
-              ? clinicalPanelByDefinitionId.get(to.testDefinitionId)
-              : undefined) ?? labPanelByTestId.get(to.testId) ?? null;
-          return {
-            id: to.id,
-            visitId: to.visitId,
-            testId: to.testId,
-            productId: to.productId,
-            testDefinitionId: to.testDefinitionId,
-            workflowMode: to.workflowMode,
-            // E3-03: Use snapshotted metadata (fallback to live data for backward compatibility)
-            testName: to.testNameSnapshot || to.test.name,
-            testCode: to.testCodeSnapshot || to.test.code,
-            price: to.priceInPaise / 100,
-            priceInPaise: to.priceInPaise,
-            referralCommissionType: to.referralCommissionType,
-            referralCommissionPercent: to.referralCommissionPercentage,
-            referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
-            referenceRange: {
-              min: to.referenceMinSnapshot ?? to.test.referenceMin ?? 0,
-              max: to.referenceMaxSnapshot ?? to.test.referenceMax ?? 0,
-              unit: to.referenceUnitSnapshot || to.test.referenceUnit || "",
-            },
-            panel,
-          };
-        }),
+        testOrders: (() => {
+          const orders = v.testOrders.map((to) => {
+            const panel =
+              (to.testDefinitionId
+                ? clinicalPanelByDefinitionId.get(to.testDefinitionId)
+                : undefined) ?? labPanelByTestId.get(to.testId) ?? null;
+            return {
+              id: to.id,
+              visitId: to.visitId,
+              testId: to.testId,
+              productId: to.productId,
+              testDefinitionId: to.testDefinitionId,
+              workflowMode: to.workflowMode,
+              // E3-03: Use snapshotted metadata (fallback to live data for backward compatibility)
+              testName: to.testNameSnapshot || to.test.name,
+              testCode: to.testCodeSnapshot || to.test.code,
+              price: to.priceInPaise / 100,
+              priceInPaise: to.priceInPaise,
+              referralCommissionType: to.referralCommissionType,
+              referralCommissionPercent: to.referralCommissionPercentage,
+              referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
+              referenceRange: {
+                min: to.referenceMinSnapshot ?? to.test.referenceMin ?? 0,
+                max: to.referenceMaxSnapshot ?? to.test.referenceMax ?? 0,
+                unit: to.referenceUnitSnapshot || to.test.referenceUnit || "",
+              },
+              panel,
+            };
+          });
+          return propagatePanelByProductId(orders);
+        })(),
         report: v.report
           ? {
               id: v.report.id,
@@ -1129,149 +1180,152 @@ router.get("/:id", async (req: AuthRequest, res) => {
       nextAction: composition.nextAction,
       referralDoctorId: visit.referrals[0]?.referralDoctorId || null,
       referralDoctor: visit.referrals[0]?.referralDoctor || null,
-      testOrders: visit.testOrders.map((to) => {
-        const orderCode =
-          to.testCodeSnapshot || to.testDefinition?.code || to.test.code;
-        const latestOrderDefinition =
-          latestDefinitionFormulasByCode.get(orderCode);
-        const orderDerived = to.testDefinition?.formulaExpression
-          ? buildDerivedMetadata(
-              to.testDefinition.formulaExpression,
-              to.testDefinition.dependsOnCodes,
-            )
-          : to.test.derivedParameter?.formula
+      testOrders: (() => {
+        const orders = visit.testOrders.map((to) => {
+          const orderCode =
+            to.testCodeSnapshot || to.testDefinition?.code || to.test.code;
+          const latestOrderDefinition =
+            latestDefinitionFormulasByCode.get(orderCode);
+          const orderDerived = to.testDefinition?.formulaExpression
             ? buildDerivedMetadata(
-                to.test.derivedParameter.formula,
-                to.test.derivedParameter.dependsOnTestCodes,
+                to.testDefinition.formulaExpression,
+                to.testDefinition.dependsOnCodes,
               )
-            : buildDerivedMetadata(
-                latestOrderDefinition?.formulaExpression,
-                latestOrderDefinition?.dependsOnCodes,
-              );
-
-        const orderRootId =
-          to.testDefinition?.rootDefinitionId ?? latestOrderDefinition?.rootDefinitionId;
-        const orderInputConfig =
-          (orderRootId && inputConfigsByRootId.get(orderRootId)) || DEFAULT_INPUT_CONFIG;
-
-        return {
-          id: to.id,
-          visitId: to.visitId,
-          testId: to.testId,
-          productId: to.productId,
-          testDefinitionId: to.testDefinitionId,
-          workflowMode: to.workflowMode,
-          testName: to.testNameSnapshot || to.test.name,
-          testCode: to.testCodeSnapshot || to.test.code,
-          price: to.priceInPaise / 100,
-          priceInPaise: to.priceInPaise,
-          referralCommissionType: to.referralCommissionType,
-          referralCommissionPercent: to.referralCommissionPercentage,
-          referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
-          isPanel: to.test.isPanel,
-          isDerived: orderDerived.isDerived,
-          formulaExpression: orderDerived.formulaExpression,
-          dependsOnCodes: orderDerived.dependsOnCodes,
-          inputConfig: orderInputConfig,
-          department: (() => {
-            const dept =
-              to.testDefinition?.panelItems?.[0]?.panel?.department ||
-              to.test.panelItems?.[0]?.panel?.department ||
-              to.testDefinition?.department ||
-              to.test.department;
-            return dept ? { id: dept.id, name: dept.name } : null;
-          })(),
-          panel: (() => {
-            const panel =
-              to.testDefinition?.panelItems?.[0]?.panel ||
-              to.test.panelItems?.[0]?.panel ||
-              null;
-            const panelMethodText =
-              panel && "panelMethodText" in panel
-                ? (panel.panelMethodText ?? null)
-                : null;
-            const panelMethodItalic =
-              panel && "panelMethodItalic" in panel
-                ? (panel.panelMethodItalic ?? false)
-                : false;
-            const narrativeTemplateHtml =
-              panel && "narrativeTemplateHtml" in panel
-                ? (panel.narrativeTemplateHtml ?? null)
-                : null;
-            return panel
-              ? {
-                  id: panel.id,
-                  name: panel.name,
-                  displayName: panel.displayName,
-                  layoutType: panel.layoutType,
-                  panelMethodText,
-                  panelMethodItalic,
-                  narrativeTemplateHtml,
-                }
-              : null;
-          })(),
-          referenceRange: buildRange(
-            to.testId,
-            to.referenceMinSnapshot ??
-              to.testDefinition?.referenceMin ??
-              to.test.referenceMin,
-            to.referenceMaxSnapshot ??
-              to.testDefinition?.referenceMax ??
-              to.test.referenceMax,
-            to.referenceUnitSnapshot ||
-              to.testDefinition?.referenceUnit ||
-              to.test.referenceUnit,
-            to.testDefinition?.referenceText || to.test.referenceText,
-          ),
-          childTests: to.test.isPanel
-            ? to.test.childTests.map((ct: any) => {
-                const latestChildDefinition =
-                  latestDefinitionFormulasByCode.get(ct.code);
-                const childDerived = buildDerivedMetadata(
-                  ct.derivedParameter?.formula ||
-                    latestChildDefinition?.formulaExpression,
-                  ct.derivedParameter?.dependsOnTestCodes ||
-                    latestChildDefinition?.dependsOnCodes,
+            : to.test.derivedParameter?.formula
+              ? buildDerivedMetadata(
+                  to.test.derivedParameter.formula,
+                  to.test.derivedParameter.dependsOnTestCodes,
+                )
+              : buildDerivedMetadata(
+                  latestOrderDefinition?.formulaExpression,
+                  latestOrderDefinition?.dependsOnCodes,
                 );
-                const childRootId = latestChildDefinition?.rootDefinitionId;
-                const childInputConfig =
-                  (childRootId && inputConfigsByRootId.get(childRootId)) ||
-                  DEFAULT_INPUT_CONFIG;
 
-                return {
-                  id: ct.id,
-                  name: ct.name,
-                  code: ct.code,
-                  displayOrder: ct.displayOrder,
-                  isDerived: childDerived.isDerived,
-                  formulaExpression: childDerived.formulaExpression,
-                  dependsOnCodes: childDerived.dependsOnCodes,
-                  inputConfig: childInputConfig,
-                  referenceRange: buildRange(
-                    ct.id,
-                    ct.referenceMin,
-                    ct.referenceMax,
-                    ct.referenceUnit,
-                    ct.referenceText,
-                  ),
-                };
-              })
-            : [],
-          results: to.testResults.map((tr: any) => ({
-            ...tr,
-            manualOverride: isManualDerivedOverrideNote(tr.notes),
-            testName: tr.test?.name || "",
-            testCode: tr.test?.code || "",
+          const orderRootId =
+            to.testDefinition?.rootDefinitionId ?? latestOrderDefinition?.rootDefinitionId;
+          const orderInputConfig =
+            (orderRootId && inputConfigsByRootId.get(orderRootId)) || DEFAULT_INPUT_CONFIG;
+
+          return {
+            id: to.id,
+            visitId: to.visitId,
+            testId: to.testId,
+            productId: to.productId,
+            testDefinitionId: to.testDefinitionId,
+            workflowMode: to.workflowMode,
+            testName: to.testNameSnapshot || to.test.name,
+            testCode: to.testCodeSnapshot || to.test.code,
+            price: to.priceInPaise / 100,
+            priceInPaise: to.priceInPaise,
+            referralCommissionType: to.referralCommissionType,
+            referralCommissionPercent: to.referralCommissionPercentage,
+            referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
+            isPanel: to.test.isPanel,
+            isDerived: orderDerived.isDerived,
+            formulaExpression: orderDerived.formulaExpression,
+            dependsOnCodes: orderDerived.dependsOnCodes,
+            inputConfig: orderInputConfig,
+            department: (() => {
+              const dept =
+                to.testDefinition?.panelItems?.[0]?.panel?.department ||
+                to.test.panelItems?.[0]?.panel?.department ||
+                to.testDefinition?.department ||
+                to.test.department;
+              return dept ? { id: dept.id, name: dept.name } : null;
+            })(),
+            panel: (() => {
+              const panel =
+                to.testDefinition?.panelItems?.[0]?.panel ||
+                to.test.panelItems?.[0]?.panel ||
+                null;
+              const panelMethodText =
+                panel && "panelMethodText" in panel
+                  ? (panel.panelMethodText ?? null)
+                  : null;
+              const panelMethodItalic =
+                panel && "panelMethodItalic" in panel
+                  ? (panel.panelMethodItalic ?? false)
+                  : false;
+              const narrativeTemplateHtml =
+                panel && "narrativeTemplateHtml" in panel
+                  ? (panel.narrativeTemplateHtml ?? null)
+                  : null;
+              return panel
+                ? {
+                    id: panel.id,
+                    name: panel.name,
+                    displayName: panel.displayName,
+                    layoutType: panel.layoutType,
+                    panelMethodText,
+                    panelMethodItalic,
+                    narrativeTemplateHtml,
+                  }
+                : null;
+            })(),
             referenceRange: buildRange(
-              tr.testId,
-              tr.test?.referenceMin,
-              tr.test?.referenceMax,
-              tr.test?.referenceUnit,
-              tr.test?.referenceText,
+              to.testId,
+              to.referenceMinSnapshot ??
+                to.testDefinition?.referenceMin ??
+                to.test.referenceMin,
+              to.referenceMaxSnapshot ??
+                to.testDefinition?.referenceMax ??
+                to.test.referenceMax,
+              to.referenceUnitSnapshot ||
+                to.testDefinition?.referenceUnit ||
+                to.test.referenceUnit,
+              to.testDefinition?.referenceText || to.test.referenceText,
             ),
-          })),
-        };
-      }),
+            childTests: to.test.isPanel
+              ? to.test.childTests.map((ct: any) => {
+                  const latestChildDefinition =
+                    latestDefinitionFormulasByCode.get(ct.code);
+                  const childDerived = buildDerivedMetadata(
+                    ct.derivedParameter?.formula ||
+                      latestChildDefinition?.formulaExpression,
+                    ct.derivedParameter?.dependsOnTestCodes ||
+                      latestChildDefinition?.dependsOnCodes,
+                  );
+                  const childRootId = latestChildDefinition?.rootDefinitionId;
+                  const childInputConfig =
+                    (childRootId && inputConfigsByRootId.get(childRootId)) ||
+                    DEFAULT_INPUT_CONFIG;
+
+                  return {
+                    id: ct.id,
+                    name: ct.name,
+                    code: ct.code,
+                    displayOrder: ct.displayOrder,
+                    isDerived: childDerived.isDerived,
+                    formulaExpression: childDerived.formulaExpression,
+                    dependsOnCodes: childDerived.dependsOnCodes,
+                    inputConfig: childInputConfig,
+                    referenceRange: buildRange(
+                      ct.id,
+                      ct.referenceMin,
+                      ct.referenceMax,
+                      ct.referenceUnit,
+                      ct.referenceText,
+                    ),
+                  };
+                })
+              : [],
+            results: to.testResults.map((tr: any) => ({
+              ...tr,
+              manualOverride: isManualDerivedOverrideNote(tr.notes),
+              testName: tr.test?.name || "",
+              testCode: tr.test?.code || "",
+              referenceRange: buildRange(
+                tr.testId,
+                tr.test?.referenceMin,
+                tr.test?.referenceMax,
+                tr.test?.referenceUnit,
+                tr.test?.referenceText,
+              ),
+            })),
+          };
+        });
+        return propagatePanelByProductId(orders);
+      })(),
       billItems: buildDiagnosticBillItems(
         visit.testOrders.map((to) => ({
           id: to.id,

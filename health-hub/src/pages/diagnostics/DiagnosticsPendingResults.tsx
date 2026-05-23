@@ -19,13 +19,13 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { toast } from "sonner";
 import { Clock, Search, Loader2 } from "lucide-react";
 import {
-import { formatPatientName } from '@/lib/patientDisplay';
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { formatPatientName } from '@/lib/patientDisplay';
 
 type PaymentType = "CASH" | "ONLINE";
 
