@@ -1,0 +1,70 @@
+#!/bin/bash
+PROJECT_DIR="/Users/pranavreddy/Desktop/sobhana portal"
+PROXY_SCRIPT="$PROJECT_DIR/go-proxy.js"
+PROXY_LOG="/tmp/go-proxy.log"
+PROXY_PORT=8787
+SETTINGS="$HOME/.claude/settings.json"
+SENTINEL="/tmp/gocl-settings-original.json"
+
+# Start proxy if not running
+if ! lsof -i:$PROXY_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
+  nohup node --no-warnings "$PROXY_SCRIPT" > "$PROXY_LOG" 2>&1 &
+  sleep 2
+  if ! lsof -i:$PROXY_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
+    echo "Proxy failed to start. Check $PROXY_LOG"
+    exit 1
+  fi
+fi
+
+# If sentinel exists from a crashed session, restore first
+if [ -f "$SENTINEL" ] && [ -f "$SETTINGS" ]; then
+  python3 -c "
+import json
+with open('$SETTINGS') as f:
+    cur = json.load(f)
+with open('$SENTINEL') as f:
+    orig = json.load(f)
+# Restore env section from original
+cur['env'] = orig.get('env', {})
+with open('$SETTINGS', 'w') as f:
+    json.dump(cur, f, indent=2)
+" 2>/dev/null
+  rm -f "$SENTINEL"
+fi
+
+# Save original env section, then override
+if [ -f "$SETTINGS" ]; then
+  python3 -c "
+import json
+with open('$SETTINGS') as f:
+    cfg = json.load(f)
+with open('$SENTINEL', 'w') as f:
+    json.dump({'env': cfg.get('env', {})}, f)
+cfg['env'] = {
+    'ANTHROPIC_BASE_URL': 'http://localhost:$PROXY_PORT',
+    'ANTHROPIC_API_KEY': 'any'
+}
+with open('$SETTINGS', 'w') as f:
+    json.dump(cfg, f, indent=2)
+"
+fi
+
+restore() {
+  if [ -f "$SENTINEL" ] && [ -f "$SETTINGS" ]; then
+    python3 -c "
+import json
+with open('$SETTINGS') as f:
+    cur = json.load(f)
+with open('$SENTINEL') as f:
+    orig = json.load(f)
+cur['env'] = orig.get('env', {})
+with open('$SETTINGS', 'w') as f:
+    json.dump(cur, f, indent=2)
+" 2>/dev/null
+    rm -f "$SENTINEL"
+  fi
+}
+trap restore EXIT INT TERM HUP
+
+env ANTHROPIC_BASE_URL="http://localhost:$PROXY_PORT" ANTHROPIC_API_KEY=any \
+  claude "$@"

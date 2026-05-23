@@ -67,6 +67,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { mapDiagnosticsVisitViewToReceiptData } from "@/lib/billReceiptMappers";
+import { TITLE_TO_GENDER, titleOptions, formatPatientName } from "@/lib/patientDisplay";
 
 type DiscountMode = "NONE" | BillDiscountType;
 
@@ -119,6 +120,7 @@ const DiagnosticsNewVisit = () => {
   // New patient form
   const [newPatient, setNewPatient] = useState({
     name: "",
+    title: "" as string,
     age: "",
     ageUnit: "YEARS" as "DAYS" | "MONTHS" | "YEARS",
     dateOfBirth: "", // E2-09: Optional DOB field
@@ -541,6 +543,7 @@ const DiagnosticsNewVisit = () => {
           },
           body: JSON.stringify({
             name: newPatient.name,
+            title: newPatient.title || undefined,
             age: newPatient.age ? parseInt(newPatient.age) : undefined, // E2-09: Age optional if DOB provided
             ageUnit: newPatient.ageUnit, // Smart age unit
             dateOfBirth: newPatient.dateOfBirth
@@ -598,6 +601,7 @@ const DiagnosticsNewVisit = () => {
               },
               body: JSON.stringify({
                 name: newPatient.name,
+                title: newPatient.title || undefined,
                 age: newPatient.age ? parseInt(newPatient.age) : undefined, // E2-09: Age optional if DOB provided
                 ageUnit: newPatient.ageUnit, // Smart age unit
                 dateOfBirth: newPatient.dateOfBirth
@@ -1185,7 +1189,7 @@ const DiagnosticsNewVisit = () => {
                       htmlFor={result.patient.id}
                       className="flex-1 cursor-pointer"
                     >
-                      <span className="font-medium">{result.patient.name}</span>
+                      <span className="font-medium">{formatPatientName(result.patient.name, (result.patient as any).title)}</span>
                       <span className="text-muted-foreground ml-2">
                         |{" "}
                         {result.patient.ageDisplay ||
@@ -1217,28 +1221,61 @@ const DiagnosticsNewVisit = () => {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Name *</Label>
-                  <Input
-                    id="name"
-                    placeholder="Full name"
-                    value={newPatient.name}
-                    onChange={(e) => {
-                      setNewPatient({ ...newPatient, name: e.target.value });
-                      if (validationErrors.name) {
-                        setValidationErrors({
-                          ...validationErrors,
-                          name: undefined,
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>Title</Label>
+                    <Select
+                      value={newPatient.title}
+                      onValueChange={(v) => {
+                        const autoGender = TITLE_TO_GENDER[v];
+                        setNewPatient({
+                          ...newPatient,
+                          title: v,
+                          ...(autoGender ? { gender: autoGender } : {}),
                         });
-                      }
-                    }}
-                    className={validationErrors.name ? "border-red-500" : ""}
-                  />
-                  {validationErrors.name && (
-                    <p className="text-sm text-red-500">
-                      {validationErrors.name}
-                    </p>
-                  )}
+                        if (validationErrors.gender) {
+                          setValidationErrors({
+                            ...validationErrors,
+                            gender: undefined,
+                          });
+                        }
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select title" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {titleOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Name *</Label>
+                    <Input
+                      id="name"
+                      placeholder="Full name"
+                      value={newPatient.name}
+                      onChange={(e) => {
+                        setNewPatient({ ...newPatient, name: e.target.value });
+                        if (validationErrors.name) {
+                          setValidationErrors({
+                            ...validationErrors,
+                            name: undefined,
+                          });
+                        }
+                      }}
+                      className={validationErrors.name ? "border-red-500" : ""}
+                    />
+                    {validationErrors.name && (
+                      <p className="text-sm text-red-500">
+                        {validationErrors.name}
+                      </p>
+                    )}
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="dateOfBirth">Date of Birth (Optional)</Label>

@@ -30,6 +30,7 @@ import {
   type ValidationErrors,
   validatePatientForm,
 } from "@/lib/validation";
+import { TITLE_TO_GENDER, titleOptions, formatPatientName } from "@/lib/patientDisplay";
 import { useAuthStore } from "@/store/authStore";
 import { useBranchStore } from "@/store/branchStore";
 import { toast } from "sonner";
@@ -133,6 +134,7 @@ const ClinicNewVisit = () => {
 
   const [newPatient, setNewPatient] = useState({
     name: "",
+    title: "" as string,
     age: "",
     ageUnit: "YEARS" as "DAYS" | "MONTHS" | "YEARS",
     dateOfBirth: "",
@@ -300,6 +302,7 @@ const ClinicNewVisit = () => {
     if (showNewPatientForm && !selectedPatient) {
       const errors = validatePatientForm({
         name: newPatient.name,
+        title: newPatient.title,
         age: newPatient.age,
         gender: newPatient.gender,
         phone,
@@ -326,17 +329,17 @@ const ClinicNewVisit = () => {
             "X-Branch-Id": activeBranch.id,
           },
           body: JSON.stringify({
-            name: newPatient.name,
-            age: newPatient.age ? parseInt(newPatient.age, 10) : undefined,
-            ageUnit: newPatient.ageUnit,
-            dateOfBirth: newPatient.dateOfBirth
-              ? newPatient.dateOfBirth.split("T")[0]
-              : undefined,
-            gender: newPatient.gender,
-            identifiers: [{ type: "PHONE", value: phone, isPrimary: true }],
-            whatsappOptIn: newPatient.whatsappOptIn,
-          }),
-        });
+        name: newPatient.name,
+        title: newPatient.title || undefined,
+        age: newPatient.age ? parseInt(newPatient.age, 10) : undefined,
+        ageUnit: newPatient.ageUnit,
+        dateOfBirth: newPatient.dateOfBirth
+          ? newPatient.dateOfBirth.split("T")[0]
+          : undefined,
+        gender: newPatient.gender,
+        identifiers: [{ type: "PHONE", value: phone, isPrimary: true }],
+        whatsappOptIn: newPatient.whatsappOptIn,
+      }),
 
         if (res.status === 409) {
           const errorData = await res.json();
@@ -373,6 +376,7 @@ const ClinicNewVisit = () => {
               },
               body: JSON.stringify({
                 name: newPatient.name,
+                title: newPatient.title || undefined,
                 age: newPatient.age ? parseInt(newPatient.age, 10) : undefined,
                 ageUnit: newPatient.ageUnit,
                 dateOfBirth: newPatient.dateOfBirth || undefined,
@@ -687,7 +691,7 @@ const ClinicNewVisit = () => {
                       htmlFor={patient.id}
                       className="flex-1 cursor-pointer"
                     >
-                      <span className="font-medium">{patient.name}</span>
+                      <span className="font-medium">{formatPatientName(patient.name, (patient as any).title)}</span>
                       <span className="text-muted-foreground ml-2">
                         |{" "}
                         {(patient as any).ageDisplay || `${patient.age} Years`}{" "}
@@ -718,31 +722,64 @@ const ClinicNewVisit = () => {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Name *</Label>
-                  <Input
-                    id="name"
-                    placeholder="Full name"
-                    value={newPatient.name}
-                    onChange={(event) => {
-                      setNewPatient({
-                        ...newPatient,
-                        name: event.target.value,
-                      });
-                      if (validationErrors.name) {
-                        setValidationErrors({
-                          ...validationErrors,
-                          name: undefined,
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>Title</Label>
+                    <Select
+                      value={newPatient.title}
+                      onValueChange={(v) => {
+                        const autoGender = TITLE_TO_GENDER[v];
+                        setNewPatient({
+                          ...newPatient,
+                          title: v,
+                          ...(autoGender ? { gender: autoGender } : {}),
                         });
-                      }
-                    }}
-                    className={validationErrors.name ? "border-red-500" : ""}
-                  />
-                  {validationErrors.name && (
-                    <p className="text-sm text-red-500">
-                      {validationErrors.name}
-                    </p>
-                  )}
+                        if (validationErrors.gender) {
+                          setValidationErrors({
+                            ...validationErrors,
+                            gender: undefined,
+                          });
+                        }
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select title" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {titleOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Name *</Label>
+                    <Input
+                      id="name"
+                      placeholder="Full name"
+                      value={newPatient.name}
+                      onChange={(event) => {
+                        setNewPatient({
+                          ...newPatient,
+                          name: event.target.value,
+                        });
+                        if (validationErrors.name) {
+                          setValidationErrors({
+                            ...validationErrors,
+                            name: undefined,
+                          });
+                        }
+                      }}
+                      className={validationErrors.name ? "border-red-500" : ""}
+                    />
+                    {validationErrors.name && (
+                      <p className="text-sm text-red-500">
+                        {validationErrors.name}
+                      </p>
+                    )}
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="dateOfBirth">Date of Birth (Optional)</Label>

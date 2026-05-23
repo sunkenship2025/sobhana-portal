@@ -240,7 +240,7 @@ export function TestInputConfigEditor({ rootDefinitionId, config, onChange, test
               <Input
                 value={dv}
                 onChange={(e) => update({ defaultValue: e.target.value })}
-                inputMode="decimal"
+                inputMode="text"
                 pattern="[0-9.\-]*"
                 placeholder="e.g., 14"
               />

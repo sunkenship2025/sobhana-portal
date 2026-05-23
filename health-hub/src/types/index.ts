@@ -21,6 +21,7 @@ export interface Branch {
 // ENUMS
 // ============================================
 export type Gender = "M" | "F" | "O";
+export type Title = "MR" | "MRS" | "MS" | "MASTER" | "BABY";
 export type IdentifierType = "PHONE" | "EMAIL" | "AADHAR" | "OTHER";
 
 // ============================================
@@ -44,6 +45,7 @@ export interface Patient {
   id: string;
   patientNumber: string; // P-00001, P-00002, etc.
   name: string;
+  title?: Title | null;
   age: number; // E2-09: Calculated from YOB/DOB, not stored
   yearOfBirth: number; // E2-09: Required - YOB for age calculation
   dateOfBirth?: Date | string | null; // E2-09: Optional - exact DOB if known
@@ -721,6 +723,7 @@ export interface BillReceiptData {
   branchName?: string;
   patient: {
     name: string;
+    title?: string | null;
     phone: string;
     age: number;
     ageUnit?: AgeUnit;

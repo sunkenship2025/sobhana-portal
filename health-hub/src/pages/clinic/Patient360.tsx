@@ -18,6 +18,7 @@ import type { Patient360View, VisitTimelineItem, VisitDomain } from '@/types';
 import { toast } from 'sonner';
 import { PatientEditDialog } from '@/components/patient360/PatientEditDialog';
 import { fetchFinalizedReportPdfBlobUrl, openFinalizedReportWindow } from '@/lib/reportAccess';
+import { formatPatientName } from '@/lib/patientDisplay';
 
 /**
  * PATIENT 360 — CANONICAL PATIENT VIEW (Phase-1)
@@ -482,7 +483,7 @@ export default function Patient360() {
           <CardContent>
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <h3 className="text-2xl font-bold">{patient.name}</h3>
+                <h3 className="text-2xl font-bold">{formatPatientName(patient.name, (patient as any).title)}</h3>
                 <p className="text-muted-foreground">
                   {(patient as any).ageDisplay || `${patient.age} years`} | {patient.gender === 'M' ? 'Male' : patient.gender === 'F' ? 'Female' : 'Other'}
                 </p>

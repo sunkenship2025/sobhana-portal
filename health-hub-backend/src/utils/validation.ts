@@ -10,6 +10,7 @@ export interface ValidationResult {
 
 export interface PatientDemographicInput {
   name: string;
+  title?: string;
   age?: number; // E2-09: Optional - used to calculate yearOfBirth if DOB not provided
   dateOfBirth?: Date; // E2-09: Optional - exact DOB if known
   yearOfBirth?: number; // E2-09: Optional on input, will be calculated if not provided
@@ -74,6 +75,11 @@ export function validatePatientDemographics(input: PatientDemographicInput): Val
     } else if (input.age > 120) {
       errors.age = 'Age cannot exceed 120 years';
     }
+  }
+
+  // Title validation (optional)
+  if (input.title && !['MR', 'MRS', 'MS', 'MASTER', 'BABY'].includes(input.title)) {
+    errors.title = 'Title must be MR, MRS, MS, MASTER, or BABY';
   }
 
   // Gender validation
