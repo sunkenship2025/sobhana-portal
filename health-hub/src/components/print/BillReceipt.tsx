@@ -239,7 +239,7 @@ export const BillReceipt = ({
         {/* Service / Test Table */}
         <table className="w-full table-fixed border-collapse border border-black text-sm mb-4">
           <colgroup>
-            <col className="w-[74px]" />
+            <col className="w-[110px]" />
             <col />
             <col className="w-[148px]" />
           </colgroup>
@@ -282,7 +282,7 @@ export const BillReceipt = ({
               const authorizedCell = (
                 <td
                   rowSpan={totalsRowCount}
-                  className="border-r border-black px-3 py-2 text-center align-middle text-sm font-semibold uppercase tracking-wide"
+                  className="border-r border-black px-2 pb-3 text-center align-bottom text-[10px] font-semibold uppercase tracking-wide whitespace-nowrap"
                 >
                   Authorized Signatory
                 </td>
