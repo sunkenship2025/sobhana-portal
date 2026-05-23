@@ -12,6 +12,7 @@ import { Search, Users, RotateCcw, Loader2 } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
 import { toast } from 'sonner';
 import {
+import { formatPatientName } from '@/lib/patientDisplay';
   Dialog,
   DialogContent,
   DialogHeader,
@@ -294,7 +295,7 @@ const ClinicVisitQueue = () => {
                     >
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold">{visit.patient.name}</span>
+                          <span className="font-semibold">{formatPatientName(visit.patient.name, (visit.patient as any).title)}</span>
                           <span className="text-xs px-2 py-0.5 rounded bg-muted font-medium">
                             {visit.visitType}
                           </span>
@@ -402,7 +403,7 @@ const ClinicVisitQueue = () => {
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <p className="text-sm text-muted-foreground">Patient</p>
-                  <p className="font-medium">{selectedVisit.patient.name}</p>
+                  <p className="font-medium">{formatPatientName(selectedVisit.patient.name, (selectedVisit.patient as any).title)}</p>
                   <p className="text-sm text-muted-foreground">
                     {(selectedVisit.patient as any).ageDisplay || selectedVisit.patient.age} | {selectedVisit.patient.gender === 'M' ? 'Male' : selectedVisit.patient.gender === 'F' ? 'Female' : 'Other'}
                   </p>

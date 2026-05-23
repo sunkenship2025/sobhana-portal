@@ -11,6 +11,7 @@ import { FlagBadge } from '@/components/ui/flag-badge';
 import { toast } from 'sonner';
 import { downloadFinalizedReportPdf, openFinalizedReportWindow } from '@/lib/reportAccess';
 import { sanitizeRichTextHtml } from '@/lib/richText';
+import { formatPatientName } from '@/lib/patientDisplay';
 // Lazy-load the PDF preview so pdf.js (~470kB) only ships to users who
 // actually open the preview pane, not on every page load.
 const PdfPreview = lazy(() =>
@@ -678,7 +679,7 @@ const DiagnosticsReportPreview = () => {
           <CardHeader className="border-b">
             <div className="flex justify-between">
               <div>
-                <CardTitle>{patient.name}</CardTitle>
+                <CardTitle>{formatPatientName(patient.name, (patient as any).title)}</CardTitle>
                 <p className="text-muted-foreground">
                   {patientAge ? `${patientAge} yrs` : ''} | {patient.gender === 'M' ? 'Male' : patient.gender === 'F' ? 'Female' : 'Other'}
                 </p>

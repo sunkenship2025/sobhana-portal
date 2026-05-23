@@ -10,6 +10,7 @@ import { apiRequest } from '@/lib/utils';
 import { useBranchStore } from '@/store/branchStore';
 import type { PatientSearchResult, VisitDomain } from '@/types';
 import { API_BASE } from '@/lib/api';
+import { formatPatientName } from '@/lib/patientDisplay';
 
 // API call for patient search
 const searchPatients = async (
@@ -173,7 +174,7 @@ export default function GlobalPatientSearch() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
-                      {result.patient.name}
+                      {formatPatientName(result.patient.name, (result.patient as any).title)}
                       <span className="text-muted-foreground font-normal">|</span>
                       <span className="text-muted-foreground font-normal">
                         {(result.patient as any).ageDisplay || result.patient.age}

@@ -8,6 +8,7 @@ import {
 } from './RichTextSurface';
 import { RichTextToolbar } from './RichTextToolbar';
 import '@/styles/report-frame.css';
+import { formatPatientName } from '@/lib/patientDisplay';
 
 export interface FramedPatient {
   name: string;
@@ -157,7 +158,7 @@ export function ReportFramedNarrativeEditor({
                 <div className="info-row">
                   <div className="info-item">
                     <span className="label">Patient Name</span>
-                    <span className="value">{patient.name || DASH}</span>
+                    <span className="value">{formatPatientName(patient.name || DASH, patient.title)}</span>
                   </div>
                   <div className="info-item">
                     <span className="label">Bill No</span>

@@ -23,6 +23,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { DiagnosticVisitView } from '@/types';
+import { formatPatientName } from '@/lib/patientDisplay';
 
 const DoctorDashboard = () => {
   const { 
@@ -126,7 +127,7 @@ const DoctorDashboard = () => {
                     >
                       <div className="min-w-0 space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold">{visitView.patient.name}</span>
+                          <span className="font-semibold">{formatPatientName(visitView.patient.name, (visitView.patient as any).title)}</span>
                           <span className="text-muted-foreground">
                             | {(visitView.patient as any).ageDisplay || visitView.patient.age} | {visitView.patient.gender}
                           </span>
@@ -177,7 +178,7 @@ const DoctorDashboard = () => {
             <div className="space-y-4">
               <div className="flex flex-col gap-3 rounded-lg bg-muted p-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <p className="font-semibold text-lg">{selectedVisitView.patient.name}</p>
+                  <p className="font-semibold text-lg">{formatPatientName(selectedVisitView.patient.name, (selectedVisitView.patient as any).title)}</p>
                   <p className="text-muted-foreground">
                     {(selectedVisitView.patient as any).ageDisplay || `${selectedVisitView.patient.age} years`} | {selectedVisitView.patient.gender === 'M' ? 'Male' : selectedVisitView.patient.gender === 'F' ? 'Female' : 'Other'}
                   </p>
