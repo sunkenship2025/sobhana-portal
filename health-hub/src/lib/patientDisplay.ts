@@ -7,8 +7,7 @@ export const TITLE_TO_GENDER: Record<string, "M" | "F" | undefined> = {
   MS: "F",
 };
 
-export const titleOptions: { value: Title | ""; label: string }[] = [
-  { value: "", label: "None" },
+export const titleOptions: { value: Title; label: string }[] = [
   { value: "MR", label: "Mr" },
   { value: "MRS", label: "Mrs" },
   { value: "MS", label: "Ms" },
