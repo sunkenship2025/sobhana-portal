@@ -35,12 +35,12 @@ import {
   DerivedTestInfo,
 } from '@/lib/formulaUtils';
 import {
-import { formatPatientName } from '@/lib/patientDisplay';
   hasMeaningfulRichText,
   normalizeRichTextForStorage,
   plainTextToRichText,
   richTextToPlainText,
 } from '@/lib/richText';
+import { formatPatientName } from '@/lib/patientDisplay';
 
 interface ReferenceRange {
   min: number;

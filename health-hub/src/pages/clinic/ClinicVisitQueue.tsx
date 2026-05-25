@@ -12,12 +12,12 @@ import { Search, Users, RotateCcw, Loader2 } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
 import { toast } from 'sonner';
 import {
-import { formatPatientName } from '@/lib/patientDisplay';
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { formatPatientName } from '@/lib/patientDisplay';
 
 // Shape returned by GET /api/visits/clinic
 interface QueueVisit {
