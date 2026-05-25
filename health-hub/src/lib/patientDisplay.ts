@@ -38,7 +38,8 @@ export function formatPatientName(
   title?: string | null,
   uppercase?: boolean,
 ): string {
-  const displayName = uppercase ? name.toUpperCase() : name;
+  const safeName = name ?? "Unknown";
+  const displayName = uppercase ? safeName.toUpperCase() : safeName;
   const prefix = formatTitleLabel(title);
   return prefix ? `${prefix} ${displayName}` : displayName;
 }

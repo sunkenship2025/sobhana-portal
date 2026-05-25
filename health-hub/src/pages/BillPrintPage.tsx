@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
 import { Loader2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_BASE } from "@/lib/api";
 import { BillReceipt } from "@/components/print/BillReceipt";
+import type { BillReceiptData } from "@/types";
 import {
   mapApiBillToReceiptData,
   type ApiBillData,
@@ -52,6 +53,16 @@ export default function BillPrintPage() {
     }
   };
 
+  const receiptData: BillReceiptData | null = useMemo(() => {
+    if (!billData) return null;
+    try {
+      return mapApiBillToReceiptData(billData);
+    } catch (err: any) {
+      setError(`Rendering error: ${err.message || String(err)}`);
+      return null;
+    }
+  }, [billData]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -60,12 +71,12 @@ export default function BillPrintPage() {
     );
   }
 
-  if (error || !billData) {
+  if (error || !billData || !receiptData) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
         <AlertTriangle className="h-12 w-12 text-destructive" />
         <p className="text-lg font-medium">Failed to load print document</p>
-        <p className="text-sm text-muted-foreground">{error}</p>
+        <p className="text-sm text-muted-foreground">{error || "Could not prepare bill data"}</p>
         <Button variant="outline" onClick={() => window.close()}>
           Close Window
         </Button>
@@ -75,16 +86,14 @@ export default function BillPrintPage() {
 
   return (
     <>
-      {/* Print Button (hidden on print) */}
       <div className="no-print fixed top-4 right-4 z-50">
         <Button onClick={() => window.print()} disabled={!logoLoaded}>
           {logoLoaded ? printLabel : "Preparing Print..."}
         </Button>
       </div>
 
-      {/* Bill Content — shared component */}
       <BillReceipt
-        data={mapApiBillToReceiptData(billData)}
+        data={receiptData}
         onLogoLoadedChange={setLogoLoaded}
       />
     </>
