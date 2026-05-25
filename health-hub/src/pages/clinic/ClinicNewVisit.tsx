@@ -329,17 +329,18 @@ const ClinicNewVisit = () => {
             "X-Branch-Id": activeBranch.id,
           },
           body: JSON.stringify({
-        name: newPatient.name,
-        title: newPatient.title || undefined,
-        age: newPatient.age ? parseInt(newPatient.age, 10) : undefined,
-        ageUnit: newPatient.ageUnit,
-        dateOfBirth: newPatient.dateOfBirth
-          ? newPatient.dateOfBirth.split("T")[0]
-          : undefined,
-        gender: newPatient.gender,
-        identifiers: [{ type: "PHONE", value: phone, isPrimary: true }],
-        whatsappOptIn: newPatient.whatsappOptIn,
-      }),
+            name: newPatient.name,
+            title: newPatient.title || undefined,
+            age: newPatient.age ? parseInt(newPatient.age, 10) : undefined,
+            ageUnit: newPatient.ageUnit,
+            dateOfBirth: newPatient.dateOfBirth
+              ? newPatient.dateOfBirth.split("T")[0]
+              : undefined,
+            gender: newPatient.gender,
+            identifiers: [{ type: "PHONE", value: phone, isPrimary: true }],
+            whatsappOptIn: newPatient.whatsappOptIn,
+          }),
+        });
 
         if (res.status === 409) {
           const errorData = await res.json();
