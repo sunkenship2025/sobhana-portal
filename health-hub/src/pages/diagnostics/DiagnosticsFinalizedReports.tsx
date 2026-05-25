@@ -252,7 +252,7 @@ const DiagnosticsFinalizedReports = () => {
                   >
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold">{formatPatientName(patient?.name || .Unknown., (patient as any).title)}</span>
+                        <span className="font-semibold">{formatPatientName(patient?.name || 'Unknown', (patient as any).title)}</span>
                         <span className="text-muted-foreground">
                           | {patient?.age} | {patient?.gender}
                         </span>
