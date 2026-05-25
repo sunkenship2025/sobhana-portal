@@ -79,12 +79,17 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       isHydrating: false,
 
-      // Check if token is expired and logout if so
+      // Check if token is expired and logout if so.
+      // IMPORTANT: when token is null we may still be in the initial hydration
+      // window (persisted isAuthenticated=true but httpOnly cookie hasn't been
+      // re-fetched yet). Treating that as "expired" causes a false-positive
+      // logout on every new-tab / page-refresh flow. Only act when the token
+      // exists and is actually expired.
       checkTokenExpiration: () => {
-        const { token, isAuthenticated, logout } = get();
+        const { token, isAuthenticated, logout, isHydrating } = get();
+        if (!token || isHydrating) return isAuthenticated;
         if (isAuthenticated && isTokenExpired(token)) {
           console.log('Token expired, logging out...');
-          // Fire-and-forget — checkTokenExpiration is sync by contract.
           void logout();
           return false;
         }

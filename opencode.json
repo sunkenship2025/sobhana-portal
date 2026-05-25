@@ -7,5 +7,25 @@
         "baseURL": "https://opencode.ai/zen/go/v1"
       }
     }
+  },
+  "mcp": {
+    "neon": {
+      "type": "remote",
+      "url": "https://mcp.neon.tech/mcp",
+      "oauth": {}
+    },
+    "vercel": {
+      "type": "remote",
+      "url": "https://mcp.vercel.com",
+      "oauth": {}
+    },
+    "render": {
+      "type": "remote",
+      "url": "https://mcp.render.com/mcp",
+      "oauth": false,
+      "headers": {
+        "Authorization": "Bearer {env:RENDER_API_KEY}"
+      }
+    }
   }
 }
