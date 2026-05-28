@@ -3044,10 +3044,19 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
       });
 
       if (patient) {
-        // Collect test IDs that had numeric values
-        const flaggableResults = uniqueResults.filter(
-          (r: any) => r.value !== null && r.value !== undefined && r.testId,
-        );
+        // Collect test IDs that had numeric values (fall back to textValue)
+        const flaggableResults = uniqueResults.filter((r: any) => {
+          if (!r.testId) return false;
+          let rawValue: string | number | null = null;
+          if (r.value !== null && r.value !== undefined) {
+            rawValue = r.value;
+          } else if (r.textValue) {
+            rawValue = r.textValue;
+          }
+          if (rawValue === null) return false;
+          const numericValue = parseFloat(String(rawValue));
+          return !isNaN(numericValue);
+        });
         const testIdsForFlags = flaggableResults.map((r: any) => r.testId);
 
         if (testIdsForFlags.length > 0) {
@@ -3067,7 +3076,11 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
             const range = resolvedRanges.get(context.testId);
             if (!range) continue;
 
-            const numValue = parseFloat(r.value);
+            const numValue = (() => {
+              if (r.value !== null && r.value !== undefined) return parseFloat(r.value);
+              if (r.textValue) return parseFloat(r.textValue);
+              return NaN;
+            })();
             if (isNaN(numValue)) continue;
 
             const flag = determineResultFlag(numValue, range);
@@ -3104,9 +3117,17 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
 
       const resultsByTestCode = new Map<string, number>();
       for (const r of uniqueResults) {
-        if (r.value === null || r.value === undefined) continue;
+        let rawValue: string | number | null = null;
 
-        const numericValue = parseFloat(r.value);
+        if (r.value !== null && r.value !== undefined) {
+          rawValue = r.value;
+        } else if (r.textValue) {
+          rawValue = r.textValue;
+        }
+
+        if (rawValue === null) continue;
+
+        const numericValue = parseFloat(String(rawValue));
         if (isNaN(numericValue)) continue;
 
         const context = resolveResultContext(r);

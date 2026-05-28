@@ -653,8 +653,16 @@ async function backfillDerivedResults(
   const resultsByCode = new Map<string, number>();
 
   for (const result of testResults) {
-    if (result.value === null || result.value === undefined) continue;
-    const numericValue = Number(result.value);
+    let rawValue: string | number | null = null;
+
+    if (result.value !== null && result.value !== undefined) {
+      rawValue = result.value;
+    } else if (result.textValue) {
+      rawValue = result.textValue;
+    }
+
+    if (rawValue === null) continue;
+    const numericValue = Number(rawValue);
     if (Number.isNaN(numericValue)) continue;
 
     const code = result.testDefinition?.code || result.test?.code;
@@ -873,7 +881,15 @@ function applyResolvedFlagsToResults(
   }>
 ): any[] {
   return testResults.map((result) => {
-    if (result.flag || result.value === null || result.value === undefined) {
+    let effectiveValue: number | null = null;
+
+    if (result.value !== null && result.value !== undefined) {
+      effectiveValue = Number(result.value);
+    } else if (result.textValue) {
+      effectiveValue = Number(result.textValue);
+    }
+
+    if (result.flag || effectiveValue === null || Number.isNaN(effectiveValue)) {
       return result;
     }
 
@@ -882,7 +898,7 @@ function applyResolvedFlagsToResults(
       return result;
     }
 
-    const computedFlag = determineResultFlag(Number(result.value), range);
+    const computedFlag = determineResultFlag(effectiveValue, range);
     if (!computedFlag) {
       return result;
     }
