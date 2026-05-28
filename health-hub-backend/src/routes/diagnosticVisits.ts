@@ -2974,7 +2974,11 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
             ? result.signerNameOverride.trim()
             : null;
         const numericValue =
-          result.value != null ? parseFloat(result.value) : NaN;
+          result.value != null
+            ? parseFloat(result.value)
+            : result.textValue
+              ? parseFloat(result.textValue)
+              : NaN;
         const isText = isNaN(numericValue);
         const normalizedNotes = manualDerivedOverrideResultKeys.has(resultKey)
           ? DERIVED_MANUAL_OVERRIDE_NOTE
@@ -3315,7 +3319,9 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
             const numericValue =
               manualInput.value !== null && manualInput.value !== undefined
                 ? parseFloat(manualInput.value)
-                : NaN;
+                : manualInput.textValue
+                  ? parseFloat(manualInput.textValue)
+                  : NaN;
 
             if (isNaN(numericValue)) {
               await prisma.testResult.deleteMany({
