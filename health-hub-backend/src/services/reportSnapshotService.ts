@@ -662,7 +662,7 @@ async function backfillDerivedResults(
     }
 
     if (rawValue === null) continue;
-    const numericValue = Number(rawValue);
+    const numericValue = parseFloat(String(rawValue));
     if (Number.isNaN(numericValue)) continue;
 
     const code = result.testDefinition?.code || result.test?.code;
@@ -884,9 +884,9 @@ function applyResolvedFlagsToResults(
     let effectiveValue: number | null = null;
 
     if (result.value !== null && result.value !== undefined) {
-      effectiveValue = Number(result.value);
+      effectiveValue = parseFloat(String(result.value));
     } else if (result.textValue) {
-      effectiveValue = Number(result.textValue);
+      effectiveValue = parseFloat(result.textValue);
     }
 
     if (result.flag || effectiveValue === null || Number.isNaN(effectiveValue)) {
