@@ -56,6 +56,7 @@ export interface OldestUnpaidRow {
   billNumber: string;
   patientId: string;
   patientName: string;
+  patientTitle: string | null;
   branchCode: string;
   daysOverdue: number;
   owedInPaise: number;
@@ -86,6 +87,7 @@ export interface DiscountRow {
   billId: string;
   billNumber: string;
   patientName: string;
+  patientTitle: string | null;
   branchCode: string;
   discountInPaise: number;
   discountPercent: number;
@@ -101,6 +103,7 @@ export interface RefundSummary {
     billId: string;
     billNumber: string;
     patientName: string;
+    patientTitle: string | null;
     refundedInPaise: number;
     reason: string | null;
     refundedAt: string;
@@ -258,7 +261,7 @@ export async function getOwnerMoney(
         discountReason: true,
         paidAmountInPaise: true,
         paymentStatus: true,
-        visit: { select: { patient: { select: { id: true, name: true } } } },
+        visit: { select: { patient: { select: { id: true, name: true, title: true } } } },
       },
     }),
     prisma.testOrder.findMany({
@@ -340,7 +343,7 @@ export async function getOwnerMoney(
         totalAmountInPaise: true,
         discountAmountInPaise: true,
         paidAmountInPaise: true,
-        visit: { select: { patient: { select: { id: true, name: true } } } },
+        visit: { select: { patient: { select: { id: true, name: true, title: true } } } },
       },
     }),
     prisma.bill.aggregate({
@@ -379,7 +382,7 @@ export async function getOwnerMoney(
         paidAmountInPaise: true,
         updatedAt: true,
         discountReason: true,
-        visit: { select: { patient: { select: { name: true } } } },
+        visit: { select: { patient: { select: { name: true, title: true } } } },
       },
     }),
   ]);
@@ -511,6 +514,7 @@ export async function getOwnerMoney(
         billNumber: b.billNumber,
         patientId: b.visit.patient.id,
         patientName: b.visit.patient.name,
+        patientTitle: b.visit.patient.title,
         branchCode: branchById.get(b.branchId)?.code ?? '?',
         daysOverdue: days,
         owedInPaise: owed,
@@ -594,6 +598,7 @@ export async function getOwnerMoney(
       billId: b.id,
       billNumber: b.billNumber,
       patientName: b.visit.patient.name,
+      patientTitle: b.visit.patient.title,
       branchCode: branchById.get(b.branchId)?.code ?? '?',
       discountInPaise: b.discountAmountInPaise,
       discountPercent: Math.round(b.discountPercentage ?? 0),
@@ -617,6 +622,7 @@ export async function getOwnerMoney(
       billId: b.id,
       billNumber: b.billNumber,
       patientName: b.visit.patient.name,
+      patientTitle: b.visit.patient.title,
       refundedInPaise:
         b.totalAmountInPaise - b.discountAmountInPaise - (b.paidAmountInPaise ?? 0),
       reason: b.discountReason ?? null,

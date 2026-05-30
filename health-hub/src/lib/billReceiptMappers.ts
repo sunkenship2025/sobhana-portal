@@ -27,6 +27,7 @@ export interface ApiBillData {
   };
   patient: {
     name: string;
+    title?: string | null;
     age: number;
     ageUnit?: "DAYS" | "MONTHS" | "YEARS";
     ageDisplay?: string;
@@ -74,6 +75,7 @@ export function mapApiBillToReceiptData(api: ApiBillData): BillReceiptData {
     branchName: api.branch.name,
     patient: {
       name: api.patient.name,
+      title: api.patient.title,
       phone: api.patient.phone,
       age: api.patient.age,
       ageUnit: api.patient.ageUnit,
@@ -132,6 +134,7 @@ export function mapClinicVisitViewToReceiptData(
     branchName,
     patient: {
       name: patient.name,
+      title: patient.title,
       phone: patientPhone,
       age: patient.age,
       ageUnit: patient.ageUnit,
@@ -177,6 +180,7 @@ export function mapDiagnosticsVisitViewToReceiptData(
     branchName,
     patient: {
       name: visitView.patient.name,
+      title: visitView.patient.title,
       phone:
         visitView.patient.identifiers?.find((id) => id.type === "PHONE")
           ?.value || "",

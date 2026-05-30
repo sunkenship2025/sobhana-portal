@@ -21,7 +21,7 @@ export interface Branch {
 // ENUMS
 // ============================================
 export type Gender = "M" | "F" | "O";
-export type Title = "MR" | "MRS" | "MS" | "MASTER" | "BABY";
+export type Title = "MR" | "MRS" | "MS" | "BABY";
 export type IdentifierType = "PHONE" | "EMAIL" | "AADHAR" | "OTHER";
 
 // ============================================
@@ -587,6 +587,7 @@ export interface PayoutLineItem {
   productId?: string | null;
   billNumber: string;
   patientName: string;
+  patientTitle?: string | null;
   date: string;
   testOrFee: string;
   amountInPaise: number;

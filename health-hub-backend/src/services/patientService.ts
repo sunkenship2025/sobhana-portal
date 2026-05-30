@@ -20,7 +20,7 @@ function stringToLockId(input: string): number {
 
 export interface CreatePatientInput {
   name: string;
-  title?: 'MR' | 'MRS' | 'MS' | 'MASTER' | 'BABY';
+  title?: 'MR' | 'MRS' | 'MS' | 'BABY';
   age?: number; // E2-09: Optional - used to calculate YOB if DOB not provided
   ageUnit?: string; // DAYS, MONTHS, YEARS — defaults to YEARS
   dateOfBirth?: Date; // E2-09: Optional - exact DOB if known
@@ -149,6 +149,7 @@ export async function createPatient(input: CreatePatientInput) {
                 id: existingPatient.id,
                 patientNumber: existingPatient.patientNumber,
                 name: existingPatient.name,
+                title: existingPatient.title,
                 age: existingAge, // E2-09: Use calculated age
                 gender: existingPatient.gender,
                 phone: primaryPhone.value
@@ -256,6 +257,7 @@ export async function searchPatients(query: {
       id: patient.id,
       patientNumber: patient.patientNumber,
       name: patient.name,
+      title: patient.title,
       age: getPatientAge(patient.dateOfBirth, patient.yearOfBirth), // E2-09: Calculate current age
       ageUnit: patient.ageUnit || 'YEARS',
       ageDisplay: getPatientAgeDisplay(patient.dateOfBirth, patient.yearOfBirth, patient.ageUnit),
@@ -434,6 +436,7 @@ export async function getPatient360View(patientId: string) {
       id: patient.id,
       patientNumber: patient.patientNumber,
       name: patient.name,
+      title: patient.title,
       age: getPatientAge(patient.dateOfBirth, patient.yearOfBirth), // E2-09: Calculate current age
       ageUnit: patient.ageUnit || 'YEARS',
       ageDisplay: getPatientAgeDisplay(patient.dateOfBirth, patient.yearOfBirth, patient.ageUnit),
@@ -463,7 +466,7 @@ export interface UpdatePatientInput {
   patientId: string;
   updates: {
     name?: string;
-    title?: 'MR' | 'MRS' | 'MS' | 'MASTER' | 'BABY';
+    title?: 'MR' | 'MRS' | 'MS' | 'BABY';
     age?: number; // E2-09: Optional - will be converted to YOB
     ageUnit?: string; // DAYS, MONTHS, YEARS
     dateOfBirth?: Date; // E2-09: Optional - exact DOB if provided

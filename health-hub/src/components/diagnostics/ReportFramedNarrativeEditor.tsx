@@ -12,6 +12,7 @@ import { formatPatientName } from '@/lib/patientDisplay';
 
 export interface FramedPatient {
   name: string;
+  title?: string | null;
   ageDisplay?: string;
   gender?: string;
   patientNumber?: string;

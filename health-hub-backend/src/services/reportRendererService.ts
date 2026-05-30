@@ -1155,7 +1155,7 @@ function renderDocumentHtml(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=800">
-  <title>Diagnostic Report - ${escapeHtml(snapshot.patient.name)} - ${escapeHtml(snapshot.visit.billNumber)}</title>
+  <title>Diagnostic Report - ${snapshot.patient.title ? escapeHtml(snapshot.patient.title) + '. ' : ''}${escapeHtml(snapshot.patient.name)} - ${escapeHtml(snapshot.visit.billNumber)}</title>
   ${resolved.cssBlock}
   ${resolved.extraStyles ? `<style>${resolved.extraStyles}</style>` : ''}
 </head>
