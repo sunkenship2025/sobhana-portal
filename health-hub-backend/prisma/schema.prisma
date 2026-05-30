@@ -124,7 +124,6 @@ enum Title {
   MR
   MRS
   MS
-  MASTER
   BABY
 }
 

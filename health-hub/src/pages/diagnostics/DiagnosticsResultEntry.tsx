@@ -1636,6 +1636,7 @@ const DiagnosticsResultEntry = () => {
           onChange={(nextValue) => handleValueChange(resultKey, nextValue)}
           patient={{
             name: visit?.patient.name || '',
+            title: visit?.patient.title || null,
             ageDisplay: visit?.patient.yearOfBirth
               ? `${new Date().getFullYear() - visit.patient.yearOfBirth} Years`
               : undefined,

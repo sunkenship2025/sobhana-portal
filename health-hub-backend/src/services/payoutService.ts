@@ -16,6 +16,7 @@ export interface PayoutLineItem {
   productId?: string | null;
   billNumber: string;
   patientName: string;
+  patientTitle?: string | null;
   date: Date;
   testOrFee: string; // Test name for referral, "Consultation Fee" for clinic
   amountInPaise: number;
@@ -219,7 +220,7 @@ async function deriveReferralPayout(
       ...buildDiagnosticPayoutVisitWindow(periodStartDate, periodEndDate),
     },
     include: {
-      patient: { select: { name: true } },
+      patient: { select: { name: true, title: true } },
       testOrders: {
         include: {
           test: { select: { name: true } },
@@ -281,6 +282,7 @@ async function deriveReferralPayout(
         productId: testOrder.productId,
         billNumber: visit.billNumber,
         patientName: visit.patient.name,
+        patientTitle: visit.patient.title,
         date: finalizedAt || visit.updatedAt || visit.createdAt,
         testOrFee:
           testOrder.product?.name ||
@@ -359,7 +361,7 @@ async function deriveClinicPayout(
     include: {
       visit: {
         include: {
-          patient: { select: { name: true } },
+          patient: { select: { name: true, title: true } },
         },
       },
     },
@@ -386,6 +388,7 @@ async function deriveClinicPayout(
       visitId: cv.visit.id,
       billNumber: cv.visit.billNumber,
       patientName: cv.visit.patient.name,
+      patientTitle: cv.visit.patient.title,
       date: cv.completedAt || cv.createdAt,
       testOrFee: 'Consultation Fee',
       amountInPaise: cv.consultationFeeInPaise,
@@ -448,7 +451,7 @@ async function deriveDiagnosticCenterPayout(
     include: {
       visit: {
         include: {
-          patient: { select: { name: true } },
+          patient: { select: { name: true, title: true } },
           testOrders: {
             include: {
               test: { select: { name: true } },
@@ -493,6 +496,7 @@ async function deriveDiagnosticCenterPayout(
         productId: testOrder.productId,
         billNumber: visit.billNumber,
         patientName: visit.patient.name,
+        patientTitle: visit.patient.title,
         date: finalizedAt || visit.updatedAt || visit.createdAt,
         testOrFee:
           testOrder.product?.name ||

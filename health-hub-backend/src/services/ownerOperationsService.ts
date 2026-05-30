@@ -53,6 +53,7 @@ export interface TatHistogram {
 export interface DiagnosticsQueueRow {
   visitId: string;
   patientName: string;
+  patientTitle: string | null;
   branchCode: string;
   productName: string | null;
   stage:
@@ -75,6 +76,7 @@ export interface ClinicQueueDoctor {
   patients: Array<{
     visitId: string;
     patientName: string;
+    patientTitle: string;
     visitType: 'OP' | 'IP';
     waitMinutes: number;
   }>;
@@ -92,6 +94,7 @@ export interface AuditRow {
 
 export interface CommsFailureRow {
   patientName: string;
+  patientTitle: string | null;
   channel: 'WHATSAPP' | 'SMS';
   context: string;
   failureReason: string;
@@ -247,7 +250,7 @@ export async function getOwnerOperations(
         createdAt: true,
         status: true,
         branchId: true,
-        patient: { select: { name: true } },
+        patient: { select: { name: true, title: true } },
         testOrders: {
           select: {
             workflowMode: true,
@@ -287,7 +290,7 @@ export async function getOwnerOperations(
         id: true,
         createdAt: true,
         branchId: true,
-        patient: { select: { name: true } },
+        patient: { select: { name: true, title: true } },
         testOrders: {
           select: { product: { select: { name: true } }, testNameSnapshot: true },
           take: 1,
@@ -319,7 +322,7 @@ export async function getOwnerOperations(
         clinicDoctor: { select: { name: true } },
         visit: {
           select: {
-            patient: { select: { name: true } },
+            patient: { select: { name: true, title: true } },
             branch: { select: { name: true } },
           },
         },
@@ -359,42 +362,7 @@ export async function getOwnerOperations(
         changeReason: true,
         changedRole: true,
         createdAt: true,
-        patient: { select: { name: true } },
-      },
-    }),
-
-    prisma.bill.findMany({
-      where: {
-        discountPercentage: { gt: 30 },
-        billedAt: { gte: yesterdayStart },
-        ...(branchId ? { branchId } : {}),
-      },
-      orderBy: { billedAt: 'desc' },
-      take: 10,
-      select: {
-        id: true,
-        billNumber: true,
-        discountPercentage: true,
-        discountAmountInPaise: true,
-        billedAt: true,
-        visit: { select: { patient: { select: { name: true } } } },
-      },
-    }),
-
-    prisma.auditLog.findMany({
-      where: {
-        createdAt: { gte: yesterdayStart },
-        ...(branchId ? { branchId } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 20,
-      select: {
-        id: true,
-        actionType: true,
-        entityType: true,
-        entityId: true,
-        userId: true,
-        createdAt: true,
+        patient: { select: { name: true, title: true } },
       },
     }),
 
@@ -487,6 +455,7 @@ export async function getOwnerOperations(
     diagnosticsQueue.push({
       visitId: v.id,
       patientName: v.patient.name,
+      patientTitle: v.patient.title,
       branchCode: branchById.get(v.branchId)?.code ?? '?',
       productName,
       stage,
@@ -503,6 +472,7 @@ export async function getOwnerOperations(
     diagnosticsQueue.push({
       visitId: v.id,
       patientName: v.patient.name,
+      patientTitle: v.patient.title,
       branchCode: branchById.get(v.branchId)?.code ?? '?',
       productName,
       stage: 'draft · awaiting sign-off',
@@ -547,6 +517,7 @@ export async function getOwnerOperations(
     cur.patients.push({
       visitId: cv.id,
       patientName: cv.visit.patient.name,
+      patientTitle: cv.visit.patient.title,
       visitType: cv.visitType as 'OP' | 'IP',
       waitMinutes: wait,
     });
@@ -610,6 +581,7 @@ export async function getOwnerOperations(
   // --- comms failures ------------------------------------------------------
   const commsFailureRows: CommsFailureRow[] = commsFailures.map((m) => ({
     patientName: m.patient?.name ?? '—',
+    patientTitle: m.patient?.title ?? null,
     channel: m.channel as 'WHATSAPP' | 'SMS',
     context: String(m.contextType).toLowerCase(),
     failureReason: m.failureReason || 'unknown',

@@ -16,6 +16,7 @@ import { Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { API_BASE } from '@/lib/api';
 import { apiRequest } from '@/lib/utils';
+import { formatPatientName } from '@/lib/patientDisplay';
 import {
   TOKENS,
   formatRupees,
@@ -57,12 +58,13 @@ interface MoneyResponse {
     amountInPaise: number;
     billCount: number;
   }>;
-  oldestUnpaid: Array<{
-    billId: string;
-    billNumber: string;
-    patientId: string;
-    patientName: string;
-    branchCode: string;
+   oldestUnpaid: Array<{
+     billId: string;
+     billNumber: string;
+     patientId: string;
+     patientName: string;
+     patientTitle?: string | null;
+     branchCode: string;
     daysOverdue: number;
     owedInPaise: number;
   }>;
@@ -85,11 +87,12 @@ interface MoneyResponse {
     transactionCount: number;
     flagSoloCash: boolean;
   }>;
-  discountLog: Array<{
-    billId: string;
-    billNumber: string;
-    patientName: string;
-    branchCode: string;
+   discountLog: Array<{
+     billId: string;
+     billNumber: string;
+     patientName: string;
+     patientTitle?: string | null;
+     branchCode: string;
     discountInPaise: number;
     discountPercent: number;
     reason: string | null;
@@ -99,11 +102,12 @@ interface MoneyResponse {
     totalInPaise: number;
     count: number;
     pctOfGross: number | null;
-    recent: Array<{
-      billId: string;
-      billNumber: string;
-      patientName: string;
-      refundedInPaise: number;
+     recent: Array<{
+       billId: string;
+       billNumber: string;
+       patientName: string;
+       patientTitle?: string | null;
+       refundedInPaise: number;
       reason: string | null;
       refundedAt: string;
     }>;
@@ -232,7 +236,7 @@ function OldestUnpaidCard({ rows }: { rows: MoneyResponse['oldestUnpaid'] }) {
                     to={`/clinic/patient-360/${r.patientId}`}
                     style={{ color: TOKENS.info, textDecoration: 'none' }}
                   >
-                    {r.patientName}
+                    {formatPatientName(r.patientName, r.patientTitle)}
                   </Link>
                   <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>{r.branchCode}</div>
                 </td>
@@ -419,7 +423,7 @@ function DiscountLogCard({ rows }: { rows: MoneyResponse['discountLog'] }) {
                     <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}>({d.branchCode})</span>
                   </td>
                   <td className="py-2" style={{ color: TOKENS.textPrimary }}>
-                    {d.patientName}
+                    {formatPatientName(d.patientName, d.patientTitle)}
                   </td>
                   <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
                     {formatRupees(d.discountInPaise)}
@@ -463,7 +467,7 @@ function RefundsCard({ refunds }: { refunds: MoneyResponse['refunds'] }) {
           {refunds.recent.map((r) => (
             <div key={r.billId} className="flex items-baseline justify-between">
               <span>
-                <span style={{ color: TOKENS.textPrimary }}>{r.patientName}</span>
+                <span style={{ color: TOKENS.textPrimary }}>                {formatPatientName(r.patientName, r.patientTitle)}</span>
                 <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
                   {' '}
                   · {r.billNumber}

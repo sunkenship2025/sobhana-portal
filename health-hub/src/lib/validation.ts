@@ -47,7 +47,7 @@ export function validatePatientForm(data: PatientFormData): ValidationErrors {
   }
 
   // Title validation (optional)
-  if (data.title && !["MR", "MRS", "MS", "MASTER", "BABY"].includes(data.title)) {
+  if (data.title && !["MR", "MRS", "MS", "BABY"].includes(data.title)) {
     errors.title = "Invalid title";
   }
 
@@ -173,7 +173,7 @@ export function validateField(
       return null;
 
     case 'title':
-      if (value && !['MR', 'MRS', 'MS', 'MASTER', 'BABY'].includes(value)) return 'Invalid title';
+      if (value && !['MR', 'MRS', 'MS', 'BABY'].includes(value)) return 'Invalid title';
       return null;
 
     case 'age': {

@@ -143,6 +143,7 @@ export async function buildSinglePayoutWorkbook(payout: PayoutDetail): Promise<B
     { header: 'Date', key: 'date', width: 14, style: { numFmt: DATE_FMT } },
     { header: 'Bill #', key: 'billNumber', width: 16 },
     { header: 'Patient', key: 'patientName', width: 28 },
+    { header: 'Title', key: 'patientTitle', width: 16 },
     { header: 'Service / Product', key: 'testOrFee', width: 32 },
     { header: 'Amount (₹)', key: 'amount', width: 14, style: { numFmt: RUPEE_FMT } },
     { header: 'Commission %/₹', key: 'commission', width: 16 },
@@ -155,6 +156,7 @@ export async function buildSinglePayoutWorkbook(payout: PayoutDetail): Promise<B
       date: new Date(li.date),
       billNumber: li.billNumber,
       patientName: li.patientName,
+      patientTitle: li.patientTitle || '',
       testOrFee: li.testOrFee,
       amount: paiseToRupees(li.amountInPaise),
       commission:
