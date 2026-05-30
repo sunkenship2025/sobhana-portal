@@ -828,7 +828,7 @@ const DiagnosticsResultEntry = () => {
       return Boolean(result.signerNameOverride?.trim());
     });
 
-  const buildResultsPayload = useCallback((): ResultsPayload | null => {
+  const buildResultsPayload = useCallback((isExplicit = false): ResultsPayload | null => {
     if (!visit || !visitId) return null;
 
     type TestForSave = {
@@ -885,9 +885,10 @@ const DiagnosticsResultEntry = () => {
       .filter((test) => {
         const signerSet = Boolean(signerNameByResultKey[test.resultKey]?.trim());
         const touchedForSave = touchedForSaveResultKeysRef.current.has(test.resultKey);
+        const isPrefilled = prefilledResultKeysRef.current.has(test.resultKey);
         const valueReady =
           hasResultValue(results[test.resultKey], textLayoutByResultKey.get(test.resultKey)) &&
-          !prefilledResultKeysRef.current.has(test.resultKey);
+          (isExplicit || !isPrefilled);
         // Include if either: the value is real (not just a prefill) OR the
         // radiologist typed a doctor name override OR the user cleared a field.
         // Touched blank rows intentionally delete stale draft values server-side.
@@ -895,7 +896,7 @@ const DiagnosticsResultEntry = () => {
       })
       .map((test) => {
         const layoutType = textLayoutByResultKey.get(test.resultKey);
-        const isPrefilled = prefilledResultKeysRef.current.has(test.resultKey);
+        const isPrefilled = !isExplicit && prefilledResultKeysRef.current.has(test.resultKey);
         const rawValue = results[test.resultKey] ?? '';
         const valueStr = isRichTextPanelLayout(layoutType)
           ? normalizeNarrativeContent(rawValue)
@@ -934,9 +935,9 @@ const DiagnosticsResultEntry = () => {
     return { results: resultsArray };
   }, [visit, visitId, results, derivedManualOverrides, textLayoutByResultKey, signerNameByResultKey, testInputConfigByResultKey]);
 
-  const persistDraft = useCallback(async (): Promise<'saved' | 'empty' | 'failed'> => {
+  const persistDraft = useCallback(async (isExplicit = false): Promise<'saved' | 'empty' | 'failed'> => {
     if (!visitId) return 'empty';
-    const payload = buildResultsPayload();
+    const payload = buildResultsPayload(isExplicit);
     if (!payload) return 'empty';
 
     try {
@@ -1262,9 +1263,9 @@ const DiagnosticsResultEntry = () => {
       }
 
       const hasAnyExternalUpload = Object.values(uploadsByOrder).some((arr) => arr && arr.length > 0);
-      const payload = buildResultsPayload();
+      const payload = buildResultsPayload(true);
       const hasMeaningfulPayload = payload ? payloadHasMeaningfulResult(payload) : false;
-      const result = await persistDraft();
+      const result = await persistDraft(true);
       // Carry the per-test selection (if any) forward to the preview page so
       // the eventual /release-partial call only ships the chosen test orders.
       // When omitted the preview falls back to "release everything in draft",

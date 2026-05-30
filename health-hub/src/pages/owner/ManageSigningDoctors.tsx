@@ -60,6 +60,30 @@ interface SigningRule {
   signingDoctor: { id: string; name: string; degrees: string; designation: string };
 }
 
+interface SigningLabIncharge {
+  id: string;
+  name: string;
+  designation: string;
+  signatureImagePath: string | null;
+  isActive: boolean;
+  _count: { labInchargeRules: number };
+}
+
+interface BranchOption {
+  id: string;
+  name: string;
+}
+
+interface LabInchargeRule {
+  id: string;
+  signingLabInchargeId: string;
+  branchId: string | null;
+  displayOrder: number;
+  isActive: boolean;
+  branch: { id: string; name: string } | null;
+  signingLabIncharge: { id: string; name: string; designation: string };
+}
+
 /* ───────── Helpers ───────── */
 
 function getInitials(name: string) {
@@ -81,13 +105,19 @@ export default function ManageSigningDoctors() {
   const [doctors, setDoctors] = useState<SigningDoctor[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [rules, setRules] = useState<SigningRule[]>([]);
+  const [labIncharges, setLabIncharges] = useState<SigningLabIncharge[]>([]);
+  const [branches, setBranches] = useState<BranchOption[]>([]);
+  const [labInchargeRules, setLabInchargeRules] = useState<LabInchargeRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [labInchargeSearch, setLabInchargeSearch] = useState('');
   const [uploading, setUploading] = useState(false);
   const [submittingDoctor, setSubmittingDoctor] = useState(false);
   const [deletingDoctor, setDeletingDoctor] = useState(false);
   const [submittingRule, setSubmittingRule] = useState(false);
   const [deletingRuleIds, setDeletingRuleIds] = useState<Set<string>>(() => new Set());
+  const [deletingLabInchargeIds, setDeletingLabInchargeIds] = useState<Set<string>>(() => new Set());
+  const [deletingLabInchargeRuleIds, setDeletingLabInchargeRuleIds] = useState<Set<string>>(() => new Set());
   const [pendingSignatureFile, setPendingSignatureFile] = useState<File | null>(null);
   const [pendingSignaturePreview, setPendingSignaturePreview] = useState<string | null>(null);
 
@@ -99,10 +129,27 @@ export default function ManageSigningDoctors() {
     name: '', degrees: '', designation: '', registrationNumber: '', isActive: true,
   });
 
+  // Lab incharge sheet
+  const [labInchargeSheetOpen, setLabInchargeSheetOpen] = useState(false);
+  const [editingLabInchargeId, setEditingLabInchargeId] = useState<string | null>(null);
+  const [deleteLabInchargeId, setDeleteLabInchargeId] = useState<string | null>(null);
+  const [labInchargeForm, setLabInchargeForm] = useState({
+    name: '', designation: 'Lab Incharge', isActive: true,
+  });
+  const [labInchargePendingSignatureFile, setLabInchargePendingSignatureFile] = useState<File | null>(null);
+  const [labInchargePendingSignaturePreview, setLabInchargePendingSignaturePreview] = useState<string | null>(null);
+  const labInchargeSignatureInputRef = useRef<HTMLInputElement>(null);
+
   // Rule dialog
   const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
   const [ruleForm, setRuleForm] = useState({
     departmentId: '', signingDoctorId: '', showLabInchargeNote: false, displayOrder: '1',
+  });
+
+  // Lab incharge rule dialog
+  const [labInchargeRuleDialogOpen, setLabInchargeRuleDialogOpen] = useState(false);
+  const [labInchargeRuleForm, setLabInchargeRuleForm] = useState({
+    signingLabInchargeId: '', branchId: '', displayOrder: '1',
   });
 
   const getHeaders = () => {
@@ -123,15 +170,21 @@ export default function ManageSigningDoctors() {
         'X-Branch-Id': activeBranchId || '',
       };
 
-      const [docRes, deptRes, rulesRes] = await Promise.all([
+      const [docRes, deptRes, rulesRes, liRes, branchRes, liRuleRes] = await Promise.all([
         fetch(`${API_BASE}/signing-doctors?active=all`, { headers }),
         fetch(`${API_BASE}/departments`, { headers }),
         fetch(`${API_BASE}/signing-rules?active=all`, { headers }),
+        fetch(`${API_BASE}/signing-lab-incharges?active=all`, { headers }),
+        fetch(`${API_BASE}/branches?active=true`, { headers }),
+        fetch(`${API_BASE}/lab-incharge-rules?active=all`, { headers }),
       ]);
 
       if (docRes.ok) setDoctors(await docRes.json());
       if (deptRes.ok) setDepartments(await deptRes.json());
       if (rulesRes.ok) setRules(await rulesRes.json());
+      if (liRes.ok) setLabIncharges(await liRes.json());
+      if (branchRes.ok) setBranches(await branchRes.json());
+      if (liRuleRes.ok) setLabInchargeRules(await liRuleRes.json());
     } catch (err) {
       console.error('Error fetching signing data:', err);
       toast.error('Failed to load signing data');
@@ -265,6 +318,232 @@ export default function ManageSigningDoctors() {
     } catch { toast.error('Failed to delete'); }
     finally { setDeletingDoctor(false); }
     setDeleteId(null);
+  };
+
+  // ── Lab Incharge CRUD ──────────────────────────────────────────
+  const resetLabInchargeForm = () => {
+    setLabInchargeForm({ name: '', designation: 'Lab Incharge', isActive: true });
+    setLabInchargePendingSignatureFile(null);
+    if (labInchargePendingSignaturePreview) URL.revokeObjectURL(labInchargePendingSignaturePreview);
+    setLabInchargePendingSignaturePreview(null);
+    setLabInchargeSheetOpen(false);
+    setEditingLabInchargeId(null);
+  };
+
+  const handleAddLabIncharge = () => {
+    resetLabInchargeForm();
+    setLabInchargeForm({ name: '', designation: 'Lab Incharge', isActive: true });
+    setLabInchargeSheetOpen(true);
+  };
+
+  const handleEditLabIncharge = (li: SigningLabIncharge) => {
+    setLabInchargeForm({
+      name: li.name,
+      designation: li.designation,
+      isActive: li.isActive,
+    });
+    setEditingLabInchargeId(li.id);
+    setLabInchargeSheetOpen(true);
+  };
+
+  const handleSubmitLabIncharge = async () => {
+    if (!labInchargeForm.name.trim()) {
+      toast.error('Name is required');
+      return;
+    }
+
+    setSubmittingDoctor(true); // reuse loading state
+    try {
+      const body = {
+        name: labInchargeForm.name.trim(),
+        designation: labInchargeForm.designation.trim(),
+        isActive: labInchargeForm.isActive,
+      };
+
+      if (editingLabInchargeId) {
+        const res = await fetch(`${API_BASE}/signing-lab-incharges/${editingLabInchargeId}`, {
+          method: 'PATCH', headers: getHeaders(), body: JSON.stringify(body),
+        });
+        if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed to update'); return; }
+        toast.success('Lab incharge updated');
+        await fetchAll();
+        resetLabInchargeForm();
+      } else {
+        const res = await fetch(`${API_BASE}/signing-lab-incharges`, {
+          method: 'POST', headers: getHeaders(), body: JSON.stringify(body),
+        });
+        if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed to create'); return; }
+        const created = await res.json();
+        toast.success('Lab incharge created');
+
+        if (labInchargePendingSignatureFile && created.id) {
+          try {
+            const { activeBranchId } = useBranchStore.getState();
+            const formData = new FormData();
+            formData.append('signature', labInchargePendingSignatureFile);
+            const uploadRes = await fetch(`${API_BASE}/signing-lab-incharges/${created.id}/upload-signature`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'X-Branch-Id': activeBranchId || '',
+              },
+              body: formData,
+            });
+            if (uploadRes.ok) {
+              toast.success('Signature uploaded successfully');
+            } else {
+              toast.error('Lab incharge created but signature upload failed — edit to retry');
+            }
+          } catch {
+            toast.error('Lab incharge created but signature upload failed — edit to retry');
+          }
+        }
+
+        await fetchAll();
+        resetLabInchargeForm();
+      }
+    } catch (err) {
+      console.error('Error saving lab incharge:', err);
+      toast.error('Failed to save lab incharge');
+    } finally {
+      setSubmittingDoctor(false);
+    }
+  };
+
+  const handleToggleLabIncharge = async (li: SigningLabIncharge) => {
+    try {
+      const res = await fetch(`${API_BASE}/signing-lab-incharges/${li.id}`, {
+        method: 'PATCH', headers: getHeaders(),
+        body: JSON.stringify({ isActive: !li.isActive }),
+      });
+      if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed'); return; }
+      toast.success(`Lab incharge ${!li.isActive ? 'activated' : 'deactivated'}`);
+      await fetchAll();
+    } catch { toast.error('Failed to update status'); }
+  };
+
+  const handleDeleteLabIncharge = async () => {
+    if (!deleteLabInchargeId) return;
+    setDeletingLabInchargeIds((prev) => { const next = new Set(prev); next.add(deleteLabInchargeId); return next; });
+    try {
+      const res = await fetch(`${API_BASE}/signing-lab-incharges/${deleteLabInchargeId}`, {
+        method: 'DELETE', headers: getHeaders(),
+      });
+      if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed'); return; }
+      toast.success('Lab incharge deleted');
+      await fetchAll();
+    } catch { toast.error('Failed to delete'); }
+    finally {
+      setDeletingLabInchargeIds((prev) => { const next = new Set(prev); next.delete(deleteLabInchargeId!); return next; });
+    }
+    setDeleteLabInchargeId(null);
+  };
+
+  // ── Lab Incharge Signature Upload ────────────────────────────────
+  const handleLabInchargeSignatureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (!allowed.includes(file.type)) {
+      toast.error('Only PNG, JPG, or WebP images are allowed');
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('File size must be under 2MB');
+      return;
+    }
+
+    if (!editingLabInchargeId) {
+      setLabInchargePendingSignatureFile(file);
+      if (labInchargePendingSignaturePreview) URL.revokeObjectURL(labInchargePendingSignaturePreview);
+      setLabInchargePendingSignaturePreview(URL.createObjectURL(file));
+      toast.success('Signature selected — it will be uploaded when you save the lab incharge');
+      if (labInchargeSignatureInputRef.current) labInchargeSignatureInputRef.current.value = '';
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const { activeBranchId } = useBranchStore.getState();
+      const formData = new FormData();
+      formData.append('signature', file);
+      const res = await fetch(`${API_BASE}/signing-lab-incharges/${editingLabInchargeId}/upload-signature`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Branch-Id': activeBranchId || '',
+        },
+        body: formData,
+      });
+      if (!res.ok) { const err = await res.json(); toast.error(err.message || 'Upload failed'); return; }
+      toast.success('Signature uploaded successfully');
+      await fetchAll();
+    } catch (err) {
+      console.error('Signature upload error:', err);
+      toast.error('Failed to upload signature');
+    } finally {
+      setUploading(false);
+      if (labInchargeSignatureInputRef.current) labInchargeSignatureInputRef.current.value = '';
+    }
+  };
+
+  // ── Lab Incharge Rule CRUD ───────────────────────────────────────
+  const handleAddLabInchargeRule = () => {
+    setLabInchargeRuleForm({ signingLabInchargeId: '', branchId: '', displayOrder: '1' });
+    setLabInchargeRuleDialogOpen(true);
+  };
+
+  const handleSubmitLabInchargeRule = async () => {
+    if (!labInchargeRuleForm.signingLabInchargeId) {
+      toast.error('Lab incharge is required');
+      return;
+    }
+    setSubmittingRule(true);
+    try {
+      const res = await fetch(`${API_BASE}/lab-incharge-rules`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          signingLabInchargeId: labInchargeRuleForm.signingLabInchargeId,
+          branchId: labInchargeRuleForm.branchId || null,
+          displayOrder: parseInt(labInchargeRuleForm.displayOrder) || 1,
+        }),
+      });
+      if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed to create rule'); return; }
+      toast.success('Lab incharge rule created');
+      await fetchAll();
+      setLabInchargeRuleDialogOpen(false);
+    } catch { toast.error('Failed to create rule'); }
+    finally { setSubmittingRule(false); }
+  };
+
+  const handleToggleLabInchargeRule = async (rule: LabInchargeRule) => {
+    try {
+      const res = await fetch(`${API_BASE}/lab-incharge-rules/${rule.id}`, {
+        method: 'PATCH', headers: getHeaders(),
+        body: JSON.stringify({ isActive: !rule.isActive }),
+      });
+      if (!res.ok) { toast.error('Failed to update rule'); return; }
+      await fetchAll();
+    } catch { toast.error('Failed to update rule'); }
+  };
+
+  const handleDeleteLabInchargeRule = async (ruleId: string) => {
+    if (deletingLabInchargeRuleIds.has(ruleId)) return;
+    setDeletingLabInchargeRuleIds((prev) => { const next = new Set(prev); next.add(ruleId); return next; });
+    try {
+      const res = await fetch(`${API_BASE}/lab-incharge-rules/${ruleId}`, {
+        method: 'DELETE', headers: getHeaders(),
+      });
+      if (!res.ok) { toast.error('Failed to delete rule'); return; }
+      toast.success('Rule deleted');
+      await fetchAll();
+    } catch { toast.error('Failed to delete rule'); }
+    finally {
+      setDeletingLabInchargeRuleIds((prev) => { const next = new Set(prev); next.delete(ruleId); return next; });
+    }
   };
 
   // ── Signature Upload ─────────────────────────────────────────────
