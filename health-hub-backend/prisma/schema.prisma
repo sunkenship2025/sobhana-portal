@@ -124,6 +124,7 @@ enum Title {
   MR
   MRS
   MS
+  MASTER
   BABY
 }
 
@@ -440,6 +441,7 @@ model Branch {
   payoutLedger              DoctorPayoutLedger[]
   auditLogs                 AuditLog[]
   productBranchPricing      ProductBranchPricing[]
+  labInchargeRules          LabInchargeRule[]
 
   @@index([isActive])
   @@index([code])
@@ -665,6 +667,7 @@ model ReportVersion {
   // E3-10: Snapshot fields (frozen at finalization, NULL while DRAFT)
   panelsSnapshot          Json? // Panel layout + test groupings
   signaturesSnapshot      Json? // Signing doctor details + images
+  labInchargeSnapshot     Json? // Signing lab incharge details + image
   patientSnapshot         Json? // Patient demographics at finalization
   visitSnapshot           Json? // Visit metadata at finalization
   interpretationsSnapshot Json? // Resolved interpretation texts
@@ -1017,6 +1020,41 @@ model SigningRule {
   @@unique([departmentId, signingDoctorId])
   @@index([departmentId])
   @@index([signingDoctorId])
+}
+
+/// SigningLabIncharge: Lab staff who sign diagnostic reports
+/// Stores name, designation, and signature image reference
+model SigningLabIncharge {
+  id                   String   @id @default(cuid())
+  name                 String
+  designation          String   @default("Lab Incharge")
+  signatureImagePath   String?  // Path to signature PNG in storage (set after upload)
+  signatureImageBase64 String?  // Base64 data URI — persists across deploys (Render safe)
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  labInchargeRules LabInchargeRule[]
+
+  @@index([isActive])
+}
+
+/// LabInchargeRule: Which lab incharge signs for which branch
+/// At most one active rule per branch (null branchId = All Branches)
+model LabInchargeRule {
+  id                   String   @id @default(cuid())
+  signingLabInchargeId String
+  branchId             String?  // NULL = All Branches
+  displayOrder         Int      @default(0)
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+
+  signingLabIncharge SigningLabIncharge @relation(fields: [signingLabInchargeId], references: [id], onDelete: Restrict)
+  branch               Branch?            @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId])
+  @@index([signingLabInchargeId])
+  @@index([branchId])
 }
 
 /// InterpretationTemplate: Range-based interpretation text
