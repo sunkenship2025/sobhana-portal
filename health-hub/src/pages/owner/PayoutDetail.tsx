@@ -34,6 +34,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { PayoutDetail as PayoutDetailType, PaymentType } from '@/types';
 import { formatReferralPayout } from '@/lib/referralPayouts';
+import { formatPatientName } from '@/lib/patientDisplay';
 import { PayoutMarkPaidDialog } from '@/components/payouts/PayoutMarkPaidDialog';
 import { PayoutDeleteDialog } from '@/components/payouts/PayoutDeleteDialog';
 
@@ -475,7 +476,7 @@ const PayoutDetailPage = () => {
                     <TableRow key={idx}>
                       <TableCell>{formatDate(item.date)}</TableCell>
                       <TableCell className="font-mono text-sm">{item.billNumber}</TableCell>
-                      <TableCell>{item.patientName}</TableCell>
+                      <TableCell>{formatPatientName(item.patientName, item.patientTitle)}</TableCell>
                       <TableCell>{item.testOrFee}</TableCell>
                       <TableCell className="text-right">{formatRupees(item.amountInPaise)}</TableCell>
                       {showsCommission && (

@@ -297,7 +297,7 @@ async function dispatchDiagnosticCompletionNotification(input: {
         {
           type: 'body',
           parameters: [
-            { type: 'text', text: info.patient.name },
+            { type: 'text', text: info.patient.title ? info.patient.title + '. ' + info.patient.name : info.patient.name },
             { type: 'text', text: info.visit.billNumber },
           ],
         },
@@ -378,27 +378,27 @@ export async function sendBillConfirmation(visitId: string): Promise<void> {
     await createAndSendTemplateMessage({
       patientId: info.patient.id,
       phone: formattedPhone,
-      templateName: 'bill_receipt',
-      templateParams: {
-        patientName: info.patient.name,
-        billNumber: info.visit.billNumber,
-        amount: `₹${amountInRupees}`,
-      },
-      contextId: visitId,
-      contextType: MessageContextType.BILL,
-      components: [
-        {
-          type: 'body',
-          parameters: [
-            { type: 'text', text: info.patient.name },
-            { type: 'text', text: info.visit.billNumber },
-            { type: 'text', text: amountInRupees },
-          ],
+        templateName: 'bill_receipt',
+        templateParams: {
+          patientName: info.patient.name,
+          billNumber: info.visit.billNumber,
+          amount: `₹${amountInRupees}`,
         },
-      ],
-    });
+        contextId: visitId,
+        contextType: MessageContextType.BILL,
+        components: [
+          {
+            type: 'body',
+            parameters: [
+              { type: 'text', text: info.patient.title ? info.patient.title + '. ' + info.patient.name : info.patient.name },
+              { type: 'text', text: info.visit.billNumber },
+              { type: 'text', text: amountInRupees },
+            ],
+          },
+        ],
+      });
 
-    log.info({ phone: formattedPhone, visitId }, 'bill confirmation sent');
+      log.info({ phone: formattedPhone, visitId }, 'bill confirmation sent');
   } catch (error: any) {
     log.error({ err: error, visitId }, 'failed to send bill notification');
   }
@@ -467,7 +467,7 @@ export async function resendBillNotification(
         {
           type: 'body',
           parameters: [
-            { type: 'text', text: info.patient.name },
+            { type: 'text', text: info.patient.title ? info.patient.title + '. ' + info.patient.name : info.patient.name },
             { type: 'text', text: info.visit.billNumber },
             { type: 'text', text: amountInRupees },
           ],
