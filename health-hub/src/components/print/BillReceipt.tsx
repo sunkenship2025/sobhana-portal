@@ -282,7 +282,7 @@ export const BillReceipt = ({
               const authorizedCell = (
                 <td
                   rowSpan={totalsRowCount}
-                  className="border-r border-black px-2 pb-3 text-center align-bottom text-[10px] font-semibold uppercase tracking-wide whitespace-nowrap"
+                  className="border-r border-black px-2 pb-3 text-center align-bottom text-[10px] font-semibold uppercase tracking-wide overflow-hidden"
                 >
                   Authorized Signatory
                 </td>

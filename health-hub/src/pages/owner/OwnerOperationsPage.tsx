@@ -17,6 +17,7 @@ import { Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { API_BASE } from '@/lib/api';
 import { apiRequest } from '@/lib/utils';
+import { formatPatientName } from '@/lib/patientDisplay';
 import {
   TOKENS,
   formatIstDateTime,
@@ -51,10 +52,11 @@ interface OperationsResponse {
     breachCount: number;
     sampleCount: number;
   };
-  diagnosticsQueue: Array<{
-    visitId: string;
-    patientName: string;
-    branchCode: string;
+   diagnosticsQueue: Array<{
+     visitId: string;
+     patientName: string;
+     patientTitle?: string | null;
+     branchCode: string;
     productName: string | null;
     stage:
       | 'awaiting result entry'
@@ -72,10 +74,11 @@ interface OperationsResponse {
     waitingCount: number;
     inProgressCount: number;
     avgWaitMinutes: number | null;
-    patients: Array<{
-      visitId: string;
-      patientName: string;
-      visitType: 'OP' | 'IP';
+     patients: Array<{
+       visitId: string;
+       patientName: string;
+       patientTitle?: string | null;
+       visitType: 'OP' | 'IP';
       waitMinutes: number;
     }>;
   }>;
@@ -88,9 +91,10 @@ interface OperationsResponse {
     whenIso: string;
     drillTo: string | null;
   }>;
-  commsFailures: Array<{
-    patientName: string;
-    channel: 'WHATSAPP' | 'SMS';
+   commsFailures: Array<{
+     patientName: string;
+     patientTitle?: string | null;
+     channel: 'WHATSAPP' | 'SMS';
     context: string;
     failureReason: string;
     action: string;
@@ -274,7 +278,7 @@ function DiagnosticsQueueCard({ rows }: { rows: OperationsResponse['diagnosticsQ
                       to={`/diagnostics/results/${r.visitId}`}
                       style={{ color: TOKENS.info, textDecoration: 'none' }}
                     >
-                      {r.patientName}
+                      {formatPatientName(r.patientName, r.patientTitle)}
                     </Link>
                     <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
                       {r.branchCode} · {r.productName ?? '—'}
@@ -378,7 +382,7 @@ function ClinicQueueCard({ groups }: { groups: OperationsResponse['clinicQueue']
                     style={{ fontSize: 12 }}
                   >
                     <span>
-                      <span style={{ color: TOKENS.textPrimary }}>{p.patientName}</span>
+                      <span style={{ color: TOKENS.textPrimary }}>{formatPatientName(p.patientName, p.patientTitle)}</span>
                       <span
                         style={{
                           fontSize: 10,
@@ -506,7 +510,7 @@ function CommsFailuresCard({ rows }: { rows: OperationsResponse['commsFailures']
             {rows.map((r, i) => (
               <tr key={i} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
                 <td className="py-2" style={{ color: TOKENS.textPrimary }}>
-                  {r.patientName}
+                  {formatPatientName(r.patientName, r.patientTitle)}
                 </td>
                 <td className="py-2" style={{ color: TOKENS.textSecondary }}>
                   {r.channel.toLowerCase()}

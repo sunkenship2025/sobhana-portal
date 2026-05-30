@@ -74,6 +74,7 @@ interface Visit {
   createdAt: string;
   patient: {
     name: string;
+    title?: string | null;
     yearOfBirth?: number;
     dateOfBirth?: string;
     gender: string;

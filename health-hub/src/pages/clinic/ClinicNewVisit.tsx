@@ -350,7 +350,7 @@ const ClinicNewVisit = () => {
           const userConfirm = window.confirm(
             `⚠️ Potential Duplicate Detected\n\n` +
               `Existing Patient: ${existing.patientNumber}\n` +
-              `Name: ${existing.name}\n` +
+              `Name: ${formatPatientName(existing.name, existing.title)}\n` +
               `Age: ${existing.ageDisplay || existing.age}, Gender: ${existing.gender}\n` +
               `Phone: ${existing.phone}\n\n` +
               `This looks like the same person. Do you want to:\n` +
@@ -363,6 +363,7 @@ const ClinicNewVisit = () => {
               id: existing.id,
               patientNumber: existing.patientNumber,
               name: existing.name,
+              title: existing.title,
               age: existing.age,
               gender: existing.gender,
             } as Patient;
@@ -722,90 +723,101 @@ const ClinicNewVisit = () => {
               <CardTitle>New Patient</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Row 1: Title + Name */}
               <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-3">
-                  <div className="space-y-2">
-                    <Label>Title</Label>
-                    <Select
-                      value={newPatient.title}
-                      onValueChange={(v) => {
-                        const autoGender = TITLE_TO_GENDER[v];
-                        setNewPatient({
-                          ...newPatient,
-                          title: v,
-                          ...(autoGender ? { gender: autoGender } : {}),
-                        });
-                        if (validationErrors.gender) {
-                          setValidationErrors({
-                            ...validationErrors,
-                            gender: undefined,
-                          });
-                        }
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select title" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {titleOptions.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Name *</Label>
-                    <Input
-                      id="name"
-                      placeholder="Full name"
-                      value={newPatient.name}
-                      onChange={(event) => {
-                        setNewPatient({
-                          ...newPatient,
-                          name: event.target.value,
-                        });
-                        if (validationErrors.name) {
-                          setValidationErrors({
-                            ...validationErrors,
-                            name: undefined,
-                          });
-                        }
-                      }}
-                      className={validationErrors.name ? "border-red-500" : ""}
-                    />
-                    {validationErrors.name && (
-                      <p className="text-sm text-red-500">
-                        {validationErrors.name}
-                      </p>
-                    )}
-                  </div>
-                </div>
                 <div className="space-y-2">
-                  <Label htmlFor="dateOfBirth">Date of Birth (Optional)</Label>
-                  <Input
-                    id="dateOfBirth"
-                    type="date"
-                    value={newPatient.dateOfBirth}
-                    onChange={(event) => {
-                      const dob = event.target.value;
-                      if (dob) {
-                        const smart = computeSmartAge(dob);
-                        setNewPatient({
-                          ...newPatient,
-                          dateOfBirth: dob,
-                          age: smart.age.toString(),
-                          ageUnit: smart.unit,
+                  <Label>Title</Label>
+                  <Select
+                    value={newPatient.title}
+                    onValueChange={(v) => {
+                      const autoGender = TITLE_TO_GENDER[v];
+                      setNewPatient({
+                        ...newPatient,
+                        title: v,
+                        ...(autoGender ? { gender: autoGender } : {}),
+                      });
+                      if (validationErrors.gender) {
+                        setValidationErrors({
+                          ...validationErrors,
+                          gender: undefined,
                         });
-                      } else {
-                        setNewPatient({ ...newPatient, dateOfBirth: dob });
                       }
                     }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select title" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {titleOptions.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="name">Full Name *</Label>
+                  <Input
+                    id="name"
+                    placeholder="Full name"
+                    value={newPatient.name}
+                    onChange={(event) => {
+                      setNewPatient({
+                        ...newPatient,
+                        name: event.target.value,
+                      });
+                      if (validationErrors.name) {
+                        setValidationErrors({
+                          ...validationErrors,
+                          name: undefined,
+                        });
+                      }
+                    }}
+                    className={validationErrors.name ? "border-red-500" : ""}
                   />
-                  <p className="text-xs text-gray-500">
-                    If DOB is entered, age will be calculated automatically
-                  </p>
+                  {validationErrors.name && (
+                    <p className="text-sm text-red-500">
+                      {validationErrors.name}
+                    </p>
+                  )}
+                </div>
+              </div>
+              {/* Row 2: Gender + Age + DOB */}
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>Gender *</Label>
+                  <RadioGroup
+                    value={newPatient.gender}
+                    onValueChange={(value) => {
+                      setNewPatient({
+                        ...newPatient,
+                        gender: value as "M" | "F" | "O",
+                      });
+                      if (validationErrors.gender) {
+                        setValidationErrors({
+                          ...validationErrors,
+                          gender: undefined,
+                        });
+                      }
+                    }}
+                    className="flex flex-wrap gap-4"
+                  >
+                    {["M", "F", "O"].map((gender) => (
+                      <div key={gender} className="flex items-center space-x-2">
+                        <RadioGroupItem
+                          value={gender}
+                          id={`gender-${gender}`}
+                        />
+                        <Label htmlFor={`gender-${gender}`}>{gender}</Label>
+                      </div>
+                    ))}
+                  </RadioGroup>
+                  {validationErrors.gender && (
+                    <p className="text-sm text-red-500">
+                      {validationErrors.gender}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="age">Age *</Label>
@@ -855,38 +867,29 @@ const ClinicNewVisit = () => {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label>Gender *</Label>
-                  <RadioGroup
-                    value={newPatient.gender}
-                    onValueChange={(value) => {
-                      setNewPatient({
-                        ...newPatient,
-                        gender: value as "M" | "F" | "O",
-                      });
-                      if (validationErrors.gender) {
-                        setValidationErrors({
-                          ...validationErrors,
-                          gender: undefined,
+                  <Label htmlFor="dateOfBirth">Date of Birth (Optional)</Label>
+                  <Input
+                    id="dateOfBirth"
+                    type="date"
+                    value={newPatient.dateOfBirth}
+                    onChange={(event) => {
+                      const dob = event.target.value;
+                      if (dob) {
+                        const smart = computeSmartAge(dob);
+                        setNewPatient({
+                          ...newPatient,
+                          dateOfBirth: dob,
+                          age: smart.age.toString(),
+                          ageUnit: smart.unit,
                         });
+                      } else {
+                        setNewPatient({ ...newPatient, dateOfBirth: dob });
                       }
                     }}
-                    className="flex flex-wrap gap-4"
-                  >
-                    {["M", "F", "O"].map((gender) => (
-                      <div key={gender} className="flex items-center space-x-2">
-                        <RadioGroupItem
-                          value={gender}
-                          id={`gender-${gender}`}
-                        />
-                        <Label htmlFor={`gender-${gender}`}>{gender}</Label>
-                      </div>
-                    ))}
-                  </RadioGroup>
-                  {validationErrors.gender && (
-                    <p className="text-sm text-red-500">
-                      {validationErrors.gender}
-                    </p>
-                  )}
+                  />
+                  <p className="text-xs text-gray-500">
+                    If DOB is entered, age will be calculated automatically
+                  </p>
                 </div>
               </div>
 

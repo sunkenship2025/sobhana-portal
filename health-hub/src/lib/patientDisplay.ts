@@ -2,7 +2,6 @@ import type { Title } from "@/types";
 
 export const TITLE_TO_GENDER: Record<string, "M" | "F" | undefined> = {
   MR: "M",
-  MASTER: "M",
   MRS: "F",
   MS: "F",
 };
@@ -11,7 +10,6 @@ export const titleOptions: { value: Title; label: string }[] = [
   { value: "MR", label: "Mr" },
   { value: "MRS", label: "Mrs" },
   { value: "MS", label: "Ms" },
-  { value: "MASTER", label: "Master" },
   { value: "BABY", label: "Baby" },
 ];
 
@@ -23,8 +21,6 @@ export function formatTitleLabel(title?: string | null): string {
       return "Mrs.";
     case "MS":
       return "Ms.";
-    case "MASTER":
-      return "Master";
     case "BABY":
       return "Baby";
     default:
