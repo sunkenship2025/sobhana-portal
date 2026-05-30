@@ -1,4 +1,3 @@
-// @ts-nocheck — pre-existing TS errors, suppress for now
 /**
  * Owner Operations page aggregations.
  *
@@ -367,6 +366,44 @@ export async function getOwnerOperations(
       },
     }),
 
+    // Recent bills with significant discounts
+    prisma.bill.findMany({
+      where: {
+        discountAmountInPaise: { gt: 0 },
+        billedAt: { gte: yesterdayStart },
+        ...(branchId ? { branchId } : {}),
+      },
+      orderBy: { billedAt: 'desc' },
+      take: 10,
+      select: {
+        id: true,
+        discountPercentage: true,
+        discountAmountInPaise: true,
+        billNumber: true,
+        billedAt: true,
+        visit: { select: { patient: { select: { name: true } } } },
+      },
+    }),
+
+    // Recent audit log entries (for off-hours anomaly detection)
+    prisma.auditLog.findMany({
+      where: {
+        createdAt: { gte: yesterdayStart },
+        ...(branchId ? { branchId } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+      select: {
+        id: true,
+        actionType: true,
+        entityType: true,
+        entityId: true,
+        userId: true,
+        createdAt: true,
+      },
+    }),
+
+    // Failed message deliveries in last 24h
     prisma.messageLog.findMany({
       where: {
         status: 'FAILED',
@@ -380,14 +417,14 @@ export async function getOwnerOperations(
         contextType: true,
         failureReason: true,
         createdAt: true,
-        patient: { select: { name: true } },
+        patient: { select: { name: true, title: true } },
       },
     }),
 
     prisma.branch.findMany({ select: { id: true, code: true, name: true } }),
   ]);
 
-  const branchById = new Map(branches.map((b) => [b.id, b]));
+  const branchById = new Map((branches ?? []).map((b) => [b.id, b]));
 
   // --- TAT histogram + KPIs ----------------------------------------------
   const durations = last100Finalized
@@ -518,7 +555,7 @@ export async function getOwnerOperations(
     cur.patients.push({
       visitId: cv.id,
       patientName: cv.visit.patient.name,
-      patientTitle: cv.visit.patient.title,
+      patientTitle: cv.visit.patient.title ?? '',
       visitType: cv.visitType as 'OP' | 'IP',
       waitMinutes: wait,
     });
@@ -580,7 +617,7 @@ export async function getOwnerOperations(
   const auditTrimmed = audit.slice(0, 20);
 
   // --- comms failures ------------------------------------------------------
-  const commsFailureRows: CommsFailureRow[] = commsFailures.map((m) => ({
+  const commsFailureRows: CommsFailureRow[] = (commsFailures ?? []).map((m) => ({
     patientName: m.patient?.name ?? '—',
     patientTitle: m.patient?.title ?? null,
     channel: m.channel as 'WHATSAPP' | 'SMS',
