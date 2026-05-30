@@ -109,6 +109,14 @@ export interface SignatureSnapshot {
   displayOrder: number;
 }
 
+export interface LabInchargeSnapshot {
+  signerId: string;
+  signerName: string;
+  designation: string;
+  signatureImagePath: string | null;
+  signatureImageBase64: string | null;
+}
+
 export interface PatientSnapshot {
   patientId: string;
   patientNumber: string;
@@ -176,6 +184,7 @@ export interface ReportSnapshot {
   versionNum: number;
   departments: DepartmentSnapshot[];
   signatures: SignatureSnapshot[];
+  labIncharge: LabInchargeSnapshot | null;
   patient: PatientSnapshot;
   visit: VisitSnapshot;
   externalUploads: ExternalUploadSnapshot[];
@@ -322,6 +331,44 @@ async function getLiveSignatureSnapshotsForDepartments(departmentIds: string[]):
   );
 
   return [...ruleSignatures, ...placeholderSignatures];
+}
+
+async function getLabInchargeSnapshotForBranch(branchId: string): Promise<LabInchargeSnapshot | null> {
+  // Try branch-specific rule first
+  const branchRule = await prisma.labInchargeRule.findFirst({
+    where: {
+      branchId,
+      isActive: true,
+    },
+    include: {
+      signingLabIncharge: true,
+    },
+    orderBy: { displayOrder: 'asc' },
+  });
+
+  const rule = branchRule || await prisma.labInchargeRule.findFirst({
+    where: {
+      branchId: null,
+      isActive: true,
+    },
+    include: {
+      signingLabIncharge: true,
+    },
+    orderBy: { displayOrder: 'asc' },
+  });
+
+  if (!rule?.signingLabIncharge) {
+    return null;
+  }
+
+  const li = rule.signingLabIncharge;
+  return {
+    signerId: li.id,
+    signerName: li.name,
+    designation: li.designation,
+    signatureImagePath: li.signatureImagePath,
+    signatureImageBase64: li.signatureImageBase64 || null,
+  };
 }
 
 async function backfillStoredSignatureAssets(signatures: SignatureSnapshot[]): Promise<SignatureSnapshot[]> {
@@ -1375,11 +1422,12 @@ export async function createReportSnapshot(
   const signatures = await getLiveSignatureSnapshotsForDepartments(
     departments.map(department => department.departmentId),
   );
+  const labIncharge = await getLabInchargeSnapshotForBranch(visit.branchId);
 
   // ============================================================================
   // BUILD PATIENT SNAPSHOT
   // ============================================================================
-  
+
   const currentYear = new Date().getFullYear();
   const age = currentYear - patient.yearOfBirth;
   
@@ -1415,6 +1463,7 @@ export async function createReportSnapshot(
     versionNum: reportVersion.versionNum,
     departments,
     signatures,
+    labIncharge,
     patient: patientSnapshot,
     visit: visitSnapshot,
     externalUploads,
@@ -1560,6 +1609,7 @@ export async function buildEphemeralSnapshot(
   const signatures = await getLiveSignatureSnapshotsForDepartments(
     departments.map(department => department.departmentId),
   );
+  const labIncharge = await getLabInchargeSnapshotForBranch(visit.branchId);
 
   // Build patient snapshot
   const currentYear = new Date().getFullYear();
@@ -1598,6 +1648,7 @@ export async function buildEphemeralSnapshot(
     versionNum: reportVersion.versionNum,
     departments,
     signatures,
+    labIncharge,
     patient: patientSnapshot,
     visit: visitSnapshot,
     externalUploads,
@@ -1626,18 +1677,23 @@ export async function saveReportSnapshot(
   snapshot: ReportSnapshot
 ): Promise<void> {
   // Strip signature image bytes before persisting. They live on `SigningDoctor`
-  // and are hydrated at read time by `backfillStoredSignatureAssets`.
+  // and `SigningLabIncharge` and are hydrated at read time.
   const slimSignatures = snapshot.signatures.map((sig) => {
     const { signatureImageBase64: _omit, ...rest } = sig;
     void _omit;
     return rest;
   });
 
+  const slimLabIncharge = snapshot.labIncharge
+    ? { ...snapshot.labIncharge, signatureImageBase64: undefined }
+    : null;
+
   await prisma.reportVersion.update({
     where: { id: reportVersionId },
     data: {
       panelsSnapshot: snapshot.departments as any,
       signaturesSnapshot: slimSignatures as any,
+      labInchargeSnapshot: slimLabIncharge as any,
       patientSnapshot: snapshot.patient as any,
       visitSnapshot: snapshot.visit as any,
       externalUploadsSnapshot: snapshot.externalUploads as any,
@@ -1658,6 +1714,7 @@ export async function getReportSnapshot(reportVersionId: string): Promise<Report
       status: true,
       panelsSnapshot: true,
       signaturesSnapshot: true,
+      labInchargeSnapshot: true,
       patientSnapshot: true,
       visitSnapshot: true,
       externalUploadsSnapshot: true,
@@ -1682,6 +1739,30 @@ export async function getReportSnapshot(reportVersionId: string): Promise<Report
     ? await backfillStoredSignatureAssets(storedSignatures)
     : await getLiveSignatureSnapshotsForDepartments(departments.map(department => department.departmentId));
 
+  // Re-hydrate lab incharge signature if stored
+  let labIncharge: LabInchargeSnapshot | null = (reportVersion.labInchargeSnapshot as unknown as LabInchargeSnapshot | null) ?? null;
+  if (labIncharge?.signerId) {
+    const currentLabIncharge = await prisma.signingLabIncharge.findUnique({
+      where: { id: labIncharge.signerId },
+      select: {
+        id: true,
+        name: true,
+        designation: true,
+        signatureImagePath: true,
+        signatureImageBase64: true,
+      },
+    });
+    if (currentLabIncharge) {
+      labIncharge = {
+        signerId: currentLabIncharge.id,
+        signerName: currentLabIncharge.name,
+        designation: currentLabIncharge.designation,
+        signatureImagePath: currentLabIncharge.signatureImagePath,
+        signatureImageBase64: currentLabIncharge.signatureImageBase64 || null,
+      };
+    }
+  }
+
   const externalUploads =
     (reportVersion.externalUploadsSnapshot as unknown as ExternalUploadSnapshot[] | null) ?? [];
 
@@ -1691,6 +1772,7 @@ export async function getReportSnapshot(reportVersionId: string): Promise<Report
     versionNum: reportVersion.versionNum,
     departments,
     signatures,
+    labIncharge,
     patient: reportVersion.patientSnapshot as unknown as PatientSnapshot,
     visit: reportVersion.visitSnapshot as unknown as VisitSnapshot,
     externalUploads,
