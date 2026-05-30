@@ -12,7 +12,7 @@ router.use(branchContextMiddleware);
 // POST /api/patients - Create new patient
 router.post('/', async (req: AuthRequest, res) => {
   try {
-    const { name, age, ageUnit, dateOfBirth, gender, address, identifiers, whatsappOptIn } = req.body;
+    const { name, title, age, ageUnit, dateOfBirth, gender, address, identifiers, whatsappOptIn } = req.body;
 
     // E2-09: Validation - require either age or dateOfBirth
     if (!name || (!age && !dateOfBirth) || !gender || !identifiers) {
@@ -24,6 +24,7 @@ router.post('/', async (req: AuthRequest, res) => {
 
     const patient = await patientService.createPatient({
       name,
+      title,
       age,
       ageUnit: ageUnit || 'YEARS',
       dateOfBirth: dateOfBirth ? new Date(dateOfBirth + 'T00:00:00.000Z') : undefined, // E2-09: Parse as UTC midnight to avoid timezone issues
@@ -132,12 +133,13 @@ router.get('/:id/360', async (req: AuthRequest, res) => {
 router.patch('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { name, age, ageUnit, gender, address, phone, email, whatsappOptIn, changeReason } = req.body;
+    const { name, title, age, ageUnit, gender, address, phone, email, whatsappOptIn, changeReason } = req.body;
 
     const updatedPatient = await patientService.updatePatient({
       patientId: id,
       updates: {
         name,
+        title,
         age,
         ageUnit: ageUnit || undefined,
         gender,
