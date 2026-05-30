@@ -14,6 +14,7 @@ import {
   PanelSnapshot,
   TestResultSnapshot,
   SignatureSnapshot,
+  LabInchargeSnapshot,
   deriveConsultantTitle,
 } from './reportSnapshotService';
 import fs from 'fs';
@@ -932,15 +933,24 @@ function dedupeReportSignatures(signatures: SignatureSnapshot[]): SignatureSnaps
 
 function renderReportBottomHtml(
   signatureBlocks: string,
+  labInchargeSignatureImg: string,
   qrImgSrc: string,
   showLabIncharge: boolean,
   isRadiology: boolean,
 ): string {
-  const labInchargeBlock = showLabIncharge ? `
+  const labInchargeBlock = showLabIncharge
+    ? (labInchargeSignatureImg
+      ? `
+            <div class="signature-block lab-incharge-block">
+              <img src="${labInchargeSignatureImg}" alt="Signature" class="signature-image" onerror="this.style.display='none'" />
+              <div class="lab-incharge-label">Lab Incharge</div>
+            </div>`
+      : `
             <div class="signature-block lab-incharge-block">
               <div class="lab-incharge-line"></div>
               <div class="lab-incharge-label">Lab Incharge</div>
-            </div>` : '';
+            </div>`)
+    : '';
 
   return `
       <div class="report-note">
@@ -1080,6 +1090,14 @@ function buildReportPages(
   return pages;
 }
 
+function renderLabInchargeSignatureImg(labIncharge: LabInchargeSnapshot | null, baseUrl: string): string {
+  if (!labIncharge) return '';
+  const sigImgSrc = labIncharge.signatureImageBase64
+    || inlineSignatureImage(labIncharge.signatureImagePath)
+    || (labIncharge.signatureImagePath ? `${baseUrl}${escapeHtml(labIncharge.signatureImagePath)}` : '');
+  return sigImgSrc;
+}
+
 function renderReportPage(
   page: ReportPageModel,
   fragments: ReportFragments,
@@ -1122,9 +1140,13 @@ function renderReportPage(
     ? pageDepartment.showLabIncharge !== false
     : snapshot.departments.some((d) => d.showLabIncharge !== false);
   const isRadiology = pageDepartment?.departmentName === 'RADIOLOGY';
+  const labInchargeSignatureImg = showLabIncharge
+    ? renderLabInchargeSignatureImg(snapshot.labIncharge, baseUrl)
+    : '';
   const reportBottomHtml = page.includeReportBottom
     ? renderReportBottomHtml(
         signatureBlocks,
+        labInchargeSignatureImg,
         page.includeQr ? fragments.qrImgSrc : '',
         showLabIncharge,
         isRadiology,
