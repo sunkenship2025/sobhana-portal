@@ -57,6 +57,8 @@ import departmentRoutes from './routes/departments';
 import diagnosticCenterRoutes from './routes/diagnosticCenters';
 import signingDoctorRoutes from './routes/signingDoctors';
 import signingRuleRoutes from './routes/signingRules';
+import signingLabInchargeRoutes from './routes/signingLabIncharges';
+import labInchargeRuleRoutes from './routes/labInchargeRules';
 import ownerDashboardRoutes from './routes/ownerDashboard';
 // LEGACY — superseded by /api/clinical-panels pipeline
 // import panelRoutes from './routes/panels';
@@ -302,6 +304,8 @@ app.use('/api/departments', departmentRoutes);
 app.use('/api/diagnostic-centers', diagnosticCenterRoutes);
 app.use('/api/signing-doctors', signingDoctorRoutes);
 app.use('/api/signing-rules', signingRuleRoutes);
+app.use('/api/signing-lab-incharges', signingLabInchargeRoutes);
+app.use('/api/lab-incharge-rules', labInchargeRuleRoutes);
 app.use('/api/owner', ownerDashboardRoutes);
 // LEGACY — superseded by /api/clinical-panels
 // app.use('/api/panels', panelRoutes);

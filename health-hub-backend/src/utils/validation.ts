@@ -78,8 +78,8 @@ export function validatePatientDemographics(input: PatientDemographicInput): Val
   }
 
   // Title validation (optional)
-  if (input.title && !['MR', 'MRS', 'MS', 'BABY'].includes(input.title)) {
-    errors.title = 'Title must be MR, MRS, MS, or BABY';
+  if (input.title && !['MR', 'MRS', 'MS', 'MASTER', 'BABY'].includes(input.title)) {
+    errors.title = 'Title must be MR, MRS, MS, MASTER, or BABY';
   }
 
   // Gender validation

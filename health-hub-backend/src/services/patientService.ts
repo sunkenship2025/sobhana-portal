@@ -466,7 +466,7 @@ export interface UpdatePatientInput {
   patientId: string;
   updates: {
     name?: string;
-    title?: 'MR' | 'MRS' | 'MS' | 'BABY';
+  title?: 'MR' | 'MRS' | 'MS' | 'MASTER' | 'BABY';
     age?: number; // E2-09: Optional - will be converted to YOB
     ageUnit?: string; // DAYS, MONTHS, YEARS
     dateOfBirth?: Date; // E2-09: Optional - exact DOB if provided
