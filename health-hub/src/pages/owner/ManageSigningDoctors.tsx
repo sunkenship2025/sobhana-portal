@@ -149,7 +149,7 @@ export default function ManageSigningDoctors() {
   // Lab incharge rule dialog
   const [labInchargeRuleDialogOpen, setLabInchargeRuleDialogOpen] = useState(false);
   const [labInchargeRuleForm, setLabInchargeRuleForm] = useState({
-    signingLabInchargeId: '', branchId: '', displayOrder: '1',
+    signingLabInchargeId: '', branchId: '__all__', displayOrder: '1',
   });
 
   const getHeaders = () => {
@@ -491,7 +491,7 @@ export default function ManageSigningDoctors() {
 
   // ── Lab Incharge Rule CRUD ───────────────────────────────────────
   const handleAddLabInchargeRule = () => {
-    setLabInchargeRuleForm({ signingLabInchargeId: '', branchId: '', displayOrder: '1' });
+    setLabInchargeRuleForm({ signingLabInchargeId: '', branchId: '__all__', displayOrder: '1' });
     setLabInchargeRuleDialogOpen(true);
   };
 
@@ -507,7 +507,7 @@ export default function ManageSigningDoctors() {
         headers: getHeaders(),
         body: JSON.stringify({
           signingLabInchargeId: labInchargeRuleForm.signingLabInchargeId,
-          branchId: labInchargeRuleForm.branchId || null,
+          branchId: labInchargeRuleForm.branchId === '__all__' ? null : labInchargeRuleForm.branchId,
           displayOrder: parseInt(labInchargeRuleForm.displayOrder) || 1,
         }),
       });
@@ -796,19 +796,19 @@ export default function ManageSigningDoctors() {
 
       <Separator />
 
-      {/* ── Signing Rules ───────────────────────────────────────── */}
+      {/* ── Doctor Signing Rules ──────────────────────────────────── */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold flex items-center gap-2">
-              <Link2 className="h-5 w-5" /> Signing Rules
+              <Link2 className="h-5 w-5" /> Doctor Signing Rules
             </h2>
             <p className="text-sm text-muted-foreground">
               Assign doctors to departments for report signing
             </p>
           </div>
           <Button onClick={handleAddRule} size="sm" variant="outline">
-            <Plus className="h-4 w-4 mr-1" /> Add Rule
+            <Plus className="h-4 w-4 mr-1" /> Add Doctor Rule
           </Button>
         </div>
 
@@ -856,6 +856,177 @@ export default function ManageSigningDoctors() {
                         size="icon"
                         onClick={() => handleDeleteRule(rule.id)}
                         disabled={deletingRuleIds.has(rule.id)}
+                        className="h-8 w-8"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </section>
+
+      <Separator />
+
+      {/* ── Lab Incharges ───────────────────────────────────────── */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <UserCheck className="h-5 w-5" /> Lab Incharges
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Lab staff whose signatures appear on reports
+            </p>
+          </div>
+          <Button onClick={handleAddLabIncharge} size="sm">
+            <Plus className="h-4 w-4 mr-1" /> Add Lab Incharge
+          </Button>
+        </div>
+
+        {/* Search */}
+        <div className="relative max-w-sm">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search lab incharges..."
+            value={labInchargeSearch}
+            onChange={e => setLabInchargeSearch(e.target.value)}
+            className="pl-8"
+          />
+        </div>
+
+        {labIncharges.filter(li => {
+          if (!labInchargeSearch) return true;
+          const q = labInchargeSearch.toLowerCase();
+          return li.name.toLowerCase().includes(q) || li.designation.toLowerCase().includes(q);
+        }).length === 0 ? (
+          <p className="text-center text-muted-foreground py-8">No lab incharges found.</p>
+        ) : (
+          <div className="border rounded-lg overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40">
+                  <TableHead>Name</TableHead>
+                  <TableHead>Designation</TableHead>
+                  <TableHead className="text-center">Signature</TableHead>
+                  <TableHead className="text-center">Rules</TableHead>
+                  <TableHead className="text-center">Active</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {labIncharges.filter(li => {
+                  if (!labInchargeSearch) return true;
+                  const q = labInchargeSearch.toLowerCase();
+                  return li.name.toLowerCase().includes(q) || li.designation.toLowerCase().includes(q);
+                }).map(li => (
+                  <TableRow key={li.id} className={!li.isActive ? 'opacity-50' : ''}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-9 w-9 bg-primary/10 text-primary">
+                          <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                            {getInitials(li.name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="font-medium">{li.name}</div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm">{li.designation}</TableCell>
+                    <TableCell className="text-center">
+                      {li.signatureImagePath ? (
+                        <img
+                          src={`${API_BASE_URL}${li.signatureImagePath}`}
+                          alt="Sig"
+                          className="h-8 mx-auto"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      ) : (
+                        <span className="text-muted-foreground text-xs">No signature</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Badge variant="secondary">{li._count.labInchargeRules}</Badge>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Switch checked={li.isActive} onCheckedChange={() => handleToggleLabIncharge(li)} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex gap-1 justify-end">
+                        <Button variant="ghost" size="icon" onClick={() => handleEditLabIncharge(li)} className="h-8 w-8">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => setDeleteLabInchargeId(li.id)} className="h-8 w-8">
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </section>
+
+      <Separator />
+
+      {/* ── Lab Incharge Signing Rules ───────────────────────────── */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Link2 className="h-5 w-5" /> Lab Incharge Signing Rules
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Assign lab incharges to branches for report signing
+            </p>
+          </div>
+          <Button onClick={handleAddLabInchargeRule} size="sm" variant="outline">
+            <Plus className="h-4 w-4 mr-1" /> Add Lab Incharge Rule
+          </Button>
+        </div>
+
+        {labInchargeRules.length === 0 ? (
+          <p className="text-center text-muted-foreground py-8">No lab incharge rules yet.</p>
+        ) : (
+          <div className="border rounded-lg overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40">
+                  <TableHead>Branch</TableHead>
+                  <TableHead>Lab Incharge</TableHead>
+                  <TableHead className="text-center">Order</TableHead>
+                  <TableHead className="text-center">Active</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {labInchargeRules.map(rule => (
+                  <TableRow key={rule.id} className={!rule.isActive ? 'opacity-50' : ''}>
+                    <TableCell>
+                      <Badge variant="secondary">
+                        {rule.branch ? rule.branch.name : 'All Branches'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div>
+                        <span className="font-medium">{rule.signingLabIncharge.name}</span>
+                        <span className="text-muted-foreground text-sm"> — {rule.signingLabIncharge.designation}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-center font-mono text-sm">{rule.displayOrder}</TableCell>
+                    <TableCell className="text-center">
+                      <Switch checked={rule.isActive} onCheckedChange={() => handleToggleLabInchargeRule(rule)} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleDeleteLabInchargeRule(rule.id)}
+                        disabled={deletingLabInchargeRuleIds.has(rule.id)}
                         className="h-8 w-8"
                       >
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
@@ -1085,7 +1256,192 @@ export default function ManageSigningDoctors() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Delete Confirmation ─────────────────────────────────── */}
+      {/* ── Lab Incharge Sheet (Side Panel) ───────────────────── */}
+      <Sheet open={labInchargeSheetOpen} onOpenChange={(open) => { if (!open) resetLabInchargeForm(); }}>
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto overflow-x-hidden">
+          <SheetHeader>
+            <SheetTitle>{editingLabInchargeId ? 'Edit Lab Incharge' : 'Add Lab Incharge'}</SheetTitle>
+            <SheetDescription>
+              {editingLabInchargeId
+                ? 'Update lab incharge details and signature information.'
+                : 'Add a new lab incharge who can sign lab reports.'}
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="space-y-5 py-6">
+            {/* Avatar preview */}
+            {labInchargeForm.name && (
+              <div className="flex items-center gap-3">
+                <Avatar className="h-12 w-12 bg-primary/10 text-primary">
+                  <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
+                    {getInitials(labInchargeForm.name)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="text-sm">
+                  <div className="font-medium">{labInchargeForm.name}</div>
+                  {labInchargeForm.designation && (
+                    <div className="text-muted-foreground">{labInchargeForm.designation}</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <Separator />
+
+            {/* Name */}
+            <div className="space-y-1.5">
+              <Label htmlFor="li-name">Name *</Label>
+              <Input
+                id="li-name"
+                placeholder="Rajesh Kumar"
+                value={labInchargeForm.name}
+                onChange={e => setLabInchargeForm({ ...labInchargeForm, name: e.target.value })}
+              />
+            </div>
+
+            {/* Designation */}
+            <div className="space-y-1.5">
+              <Label htmlFor="li-designation">Designation *</Label>
+              <Input
+                id="li-designation"
+                placeholder="Lab Incharge"
+                value={labInchargeForm.designation}
+                onChange={e => setLabInchargeForm({ ...labInchargeForm, designation: e.target.value })}
+              />
+            </div>
+
+            <Separator />
+
+            {/* Digital Signature Upload */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1.5">
+                <FileSignature className="h-4 w-4" /> Digital Signature
+              </Label>
+
+              <input
+                ref={labInchargeSignatureInputRef}
+                type="file"
+                accept=".png,.jpg,.jpeg,.webp"
+                className="hidden"
+                onChange={handleLabInchargeSignatureUpload}
+              />
+
+              {(editingLabInchargeId && labIncharges.find(li => li.id === editingLabInchargeId)?.signatureImagePath) || labInchargePendingSignaturePreview ? (
+                <div className="space-y-2">
+                  <div className="border rounded-lg p-3 bg-muted/30">
+                    <img
+                      src={labInchargePendingSignaturePreview || `${API_BASE_URL}${labIncharges.find(li => li.id === editingLabInchargeId)!.signatureImagePath}`}
+                      alt={labInchargePendingSignaturePreview ? 'Selected signature' : 'Current signature'}
+                      className="h-16 mx-auto"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                    <p className="text-xs text-center text-muted-foreground mt-1">
+                      {labInchargePendingSignaturePreview ? 'Selected signature (will upload on save)' : 'Current signature'}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    disabled={uploading}
+                    onClick={() => labInchargeSignatureInputRef.current?.click()}
+                  >
+                    <Upload className="h-4 w-4 mr-1" />
+                    {uploading ? 'Uploading...' : 'Replace Signature'}
+                  </Button>
+                </div>
+              ) : (
+                <div
+                  className="border-2 border-dashed rounded-lg p-6 text-center hover:bg-muted/50 transition-colors cursor-pointer"
+                  onClick={() => labInchargeSignatureInputRef.current?.click()}
+                >
+                  <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                  <p className="text-sm text-muted-foreground">
+                    {uploading ? 'Uploading...' : 'Click to upload signature image'}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    PNG or JPG, transparent background preferred
+                  </p>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Signature will appear on printed reports for this lab incharge
+              </p>
+            </div>
+
+            {/* Active toggle */}
+            <div className="flex items-center gap-3">
+              <Switch
+                checked={labInchargeForm.isActive}
+                onCheckedChange={v => setLabInchargeForm({ ...labInchargeForm, isActive: v })}
+              />
+              <Label>Active</Label>
+            </div>
+          </div>
+
+          <SheetFooter className="mt-4">
+            <Button variant="outline" onClick={resetLabInchargeForm} disabled={submittingDoctor}>Cancel</Button>
+            <Button onClick={handleSubmitLabIncharge} disabled={submittingDoctor}>
+              {submittingDoctor ? 'Saving...' : (editingLabInchargeId ? 'Update Lab Incharge' : 'Add Lab Incharge')}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Lab Incharge Rule Dialog ────────────────────────────── */}
+      <Dialog open={labInchargeRuleDialogOpen} onOpenChange={(open) => { if (!open) setLabInchargeRuleDialogOpen(false); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Lab Incharge Rule</DialogTitle>
+            <DialogDescription>
+              Assign a lab incharge to sign reports for a specific branch.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Branch *</Label>
+              <Select value={labInchargeRuleForm.branchId} onValueChange={v => setLabInchargeRuleForm({ ...labInchargeRuleForm, branchId: v })}>
+                <SelectTrigger><SelectValue placeholder="Select branch" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All Branches</SelectItem>
+                  {branches.map(b => (
+                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Lab Incharge *</Label>
+              <Select value={labInchargeRuleForm.signingLabInchargeId} onValueChange={v => setLabInchargeRuleForm({ ...labInchargeRuleForm, signingLabInchargeId: v })}>
+                <SelectTrigger><SelectValue placeholder="Select lab incharge" /></SelectTrigger>
+                <SelectContent>
+                  {labIncharges.filter(li => li.isActive).map(li => (
+                    <SelectItem key={li.id} value={li.id}>{li.name} — {li.designation}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="li-rule-order">Display Order</Label>
+              <Input
+                id="li-rule-order" type="number" min={0}
+                value={labInchargeRuleForm.displayOrder}
+                onChange={e => setLabInchargeRuleForm({ ...labInchargeRuleForm, displayOrder: e.target.value })}
+                className="max-w-[120px]"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLabInchargeRuleDialogOpen(false)} disabled={submittingRule}>Cancel</Button>
+            <Button onClick={handleSubmitLabInchargeRule} disabled={submittingRule}>
+              {submittingRule ? 'Saving...' : 'Create Rule'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete Doctor Confirmation ──────────────────────────── */}
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1102,6 +1458,28 @@ export default function ManageSigningDoctors() {
             <AlertDialogCancel disabled={deletingDoctor}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteDoctor} disabled={deletingDoctor} className="bg-destructive text-destructive-foreground">
               {deletingDoctor ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Delete Lab Incharge Confirmation ────────────────────── */}
+      <AlertDialog open={!!deleteLabInchargeId} onOpenChange={() => setDeleteLabInchargeId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Lab Incharge?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteLabInchargeId && labIncharges.find(li => li.id === deleteLabInchargeId)?._count.labInchargeRules === 0 ? (
+                <>This will permanently delete the lab incharge. This action cannot be undone.</>
+              ) : (
+                <>This will deactivate the lab incharge and remove all their signing rules. Reports already signed will remain unchanged.</>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingLabInchargeIds.has(deleteLabInchargeId || '')}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteLabIncharge} disabled={deletingLabInchargeIds.has(deleteLabInchargeId || '')} className="bg-destructive text-destructive-foreground">
+              {deletingLabInchargeIds.has(deleteLabInchargeId || '') ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
