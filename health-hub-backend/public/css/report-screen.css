@@ -666,7 +666,7 @@ body.report-body {
 }
 
 .signature-image {
-  height: 45px;
+  height: 55px;
   width: auto;
   margin-bottom: 2px;
 }
@@ -677,6 +677,13 @@ body.report-body {
 .doctor-reg { font-size: 7pt; color: var(--color-text-light); }
 
 .lab-incharge-block { min-width: 140px; }
+.lab-incharge-block .signature-image {
+  height: auto;
+  max-height: 35px;
+  width: 60px;
+  object-fit: contain;
+  margin-bottom: 4px;
+}
 .lab-incharge-line {
   width: 100%;
   height: 45px;

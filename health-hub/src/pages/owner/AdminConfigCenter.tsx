@@ -18,7 +18,7 @@ const TABS = [
   { value: 'panels', label: 'Panel Definitions', icon: LayoutGrid },
   { value: 'products', label: 'Billable Products', icon: Package },
   { value: 'departments', label: 'Departments', icon: Building2 },
-  { value: 'signing', label: 'Signing Doctors', icon: UserCheck },
+  { value: 'signing', label: 'Signers & Rules', icon: UserCheck },
   { value: 'referrals', label: 'Referrals', icon: Users },
 ] as const;
 
