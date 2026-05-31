@@ -56,8 +56,12 @@ body.report-body {
   font-family: var(--font-primary);
   font-size: 9.35pt;
   line-height: 1.18;
-  color: var(--color-text);
+  color: #000000;
   background: white;
+  -webkit-font-smoothing: none;
+  text-rendering: geometricPrecision;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 
 .report-page { width: 100%; }
@@ -530,6 +534,13 @@ body.report-body {
 }
 
 .lab-incharge-block { min-width: 76pt; }
+.lab-incharge-block .signature-image {
+  height: auto;
+  max-height: 25pt;
+  width: 40pt;
+  object-fit: contain;
+  margin-bottom: 2pt;
+}
 .lab-incharge-line {
   width: 100%;
   height: 24pt;
@@ -540,7 +551,7 @@ body.report-body {
   font-weight: bold;
 }
 
-.signature-image { height: 32pt; width: auto; margin-bottom: 1pt; }
+.signature-image { height: 38pt; width: auto; margin-bottom: 1pt; }
 .doctor-name { font-weight: bold; font-size: 9.2pt; }
 .doctor-degrees { font-size: 7.8pt; }
 .doctor-designation { font-size: 7.8pt; }
@@ -586,4 +597,14 @@ body.report-body {
 .signatures-section {
   page-break-inside: avoid;
   break-inside: avoid;
+}
+
+/* Force exact color reproduction — prevents printer drivers from
+   applying color management that turns pure black into grey */
+@media print {
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
 }

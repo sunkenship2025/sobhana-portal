@@ -937,19 +937,14 @@ function renderReportBottomHtml(
   qrImgSrc: string,
   showLabIncharge: boolean,
   isRadiology: boolean,
+  isPhysicalPrint: boolean,
 ): string {
   const labInchargeBlock = showLabIncharge
-    ? (labInchargeSignatureImg
-      ? `
+    ? `
             <div class="signature-block lab-incharge-block">
-              <img src="${labInchargeSignatureImg}" alt="Signature" class="signature-image" onerror="this.style.display='none'" />
+              ${!isPhysicalPrint && labInchargeSignatureImg ? `<img src="${labInchargeSignatureImg}" alt="Signature" class="signature-image" onerror="this.style.display='none'" />` : '<div class="lab-incharge-line"></div>'}
               <div class="lab-incharge-label">Lab Incharge</div>
             </div>`
-      : `
-            <div class="signature-block lab-incharge-block">
-              <div class="lab-incharge-line"></div>
-              <div class="lab-incharge-label">Lab Incharge</div>
-            </div>`)
     : '';
 
   return `
@@ -1095,7 +1090,14 @@ function renderLabInchargeSignatureImg(labIncharge: LabInchargeSnapshot | null, 
   const sigImgSrc = labIncharge.signatureImageBase64
     || inlineSignatureImage(labIncharge.signatureImagePath)
     || (labIncharge.signatureImagePath ? `${baseUrl}${escapeHtml(labIncharge.signatureImagePath)}` : '');
-  return sigImgSrc;
+  // Defensive: only return a truthy value that looks like a real image source.
+  // Empty string or whitespace would render as a broken image icon.
+  if (!sigImgSrc || !sigImgSrc.trim().length) return '';
+  const trimmed = sigImgSrc.trim();
+  if (trimmed.startsWith('data:') || trimmed.startsWith('http') || trimmed.startsWith('/')) {
+    return trimmed;
+  }
+  return '';
 }
 
 function renderReportPage(
@@ -1103,6 +1105,7 @@ function renderReportPage(
   fragments: ReportFragments,
   snapshot: ReportSnapshot,
   baseUrl: string,
+  isPhysicalPrint: boolean,
 ): string {
   // Each page belongs to exactly one department (or null for the empty-results
   // fallback). The bottom block must reflect only THAT department's signers
@@ -1140,7 +1143,7 @@ function renderReportPage(
     ? pageDepartment.showLabIncharge !== false
     : snapshot.departments.some((d) => d.showLabIncharge !== false);
   const isRadiology = pageDepartment?.departmentName === 'RADIOLOGY';
-  const labInchargeSignatureImg = showLabIncharge
+  const labInchargeSignatureImg = showLabIncharge && !isPhysicalPrint
     ? renderLabInchargeSignatureImg(snapshot.labIncharge, baseUrl)
     : '';
   const reportBottomHtml = page.includeReportBottom
@@ -1150,6 +1153,7 @@ function renderReportPage(
         page.includeQr ? fragments.qrImgSrc : '',
         showLabIncharge,
         isRadiology,
+        isPhysicalPrint,
       )
     : '';
 
@@ -1211,8 +1215,9 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
     // page bottom and can't be orphaned to its own page when content is dense.
     fragments.footerHtml = '';
   }
+  const isPhysicalPrint = profile === 'pdf-physical';
   const pages = buildReportPages(snapshot, profile, renderDepartmentSection)
-    .map(page => renderReportPage(page, fragments, snapshot, baseUrl))
+    .map(page => renderReportPage(page, fragments, snapshot, baseUrl, isPhysicalPrint))
     .join('');
 
   return renderDocumentHtml(snapshot, resolved, pages);

@@ -158,7 +158,7 @@ async function getBrowser(): Promise<Browser> {
  */
 const PHYSICAL_PDF_OPTIONS: PDFOptions = {
   format: 'A4',
-  printBackground: true,
+  printBackground: false, // No background tint on physical paper — keeps prints crisp white
   preferCSSPageSize: false,
   margin: {
     top: '32mm',    // Header space on pre-printed letterhead
