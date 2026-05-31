@@ -59,6 +59,23 @@ export async function ensureRedisReady(): Promise<void> {
     return;
   }
 
+  // Wait up to 10 seconds for ioredis to reach 'ready' state before pinging.
+  // With enableOfflineQueue: false, calling ping() before 'ready' throws
+  // "Stream isn't writeable".
+  if (client.status !== 'ready') {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Redis connection timeout')), 10000);
+      client.once('ready', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+      client.once('error', (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
+  }
+
   try {
     await client.ping();
   } catch (error: any) {
