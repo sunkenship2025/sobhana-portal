@@ -177,7 +177,7 @@ export const BillReceipt = ({
       <div
         className="mx-auto w-full border border-black bg-white text-black mt-2"
         style={{
-          maxWidth: "710px",
+          maxWidth: "100%",
           fontFamily:
             "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
           fontSize: "12px",
@@ -396,18 +396,22 @@ export const BillReceipt = ({
                   : {fmt(paidAmount)}
                 </span>
               </div>
-              <div className="flex justify-between py-0">
-                <span>{discountLabel}</span>
-                <span style={{ fontVariantNumeric: "tabular-nums" }}>
-                  : {fmt(discountAmount)}
-                </span>
-              </div>
-              <div className="flex justify-between py-0 font-bold">
-                <span>Due Amount</span>
-                <span style={{ fontVariantNumeric: "tabular-nums" }}>
-                  : {fmt(dueAmount)}
-                </span>
-              </div>
+              {discountAmount > 0 && (
+                <div className="flex justify-between py-0">
+                  <span>{discountLabel}</span>
+                  <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                    : {fmt(discountAmount)}
+                  </span>
+                </div>
+              )}
+              {dueAmount > 0 && (
+                <div className="flex justify-between py-0 font-bold">
+                  <span>Due Amount</span>
+                  <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                    : {fmt(dueAmount)}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -427,13 +431,10 @@ export const BillReceipt = ({
         )}
 
         {/* ─── 6. TRUST FOOTER ─── */}
-        <div className="border-t border-black px-4 py-1 text-center">
-          <p style={{ fontSize: "10px" }} className="mb-0">
-            We appreciate your trust in Sobhana.
-          </p>
+        <div className="border-t border-black px-4 py-0.5 text-center">
           <p
             style={{ fontSize: "9px", letterSpacing: "0.05em" }}
-            className="uppercase"
+            className="uppercase mb-0"
           >
             * This is a computer generated invoice *
           </p>
