@@ -177,7 +177,7 @@ export const BillReceipt = ({
       <div
         className="mx-auto w-full border border-black bg-white text-black mt-2"
         style={{
-          maxWidth: "100%",
+          maxWidth: "90%",
           fontFamily:
             "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
           fontSize: "12px",
@@ -375,12 +375,13 @@ export const BillReceipt = ({
             className="border-r border-black flex flex-col justify-end px-4 py-1.5"
             style={{ width: "50%" }}
           >
-            <div className="text-center mt-6">Authorized Signatory</div>
+            {/* Added mt-16 for stamp/signature space */}
+            <div className="text-center mt-16">Authorized Signatory</div>
           </div>
 
           {/* Right: Totals */}
           <div
-            className="px-4 py-1.5 flex flex-col justify-between"
+            className="px-4 py-1.5 flex flex-col justify-end"
             style={{ width: "50%" }}
           >
             <div>
