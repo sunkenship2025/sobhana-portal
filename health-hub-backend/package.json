@@ -43,6 +43,7 @@
     "helmet": "^7.1.0",
     "ioredis": "^5.10.0",
     "jsonwebtoken": "^9.0.2",
+    "lru-cache": "^11.5.1",
     "multer": "^2.0.2",
     "nanoid": "^5.1.6",
     "pdf-lib": "^1.17.1",

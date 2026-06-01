@@ -25,6 +25,8 @@ export interface AuthUser {
   email: string;
   /** One of: 'staff' | 'doctor' | 'owner' */
   role: string;
+  tenantId?: string;
+  tenantSlug?: string;
 }
 
 /**

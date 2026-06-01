@@ -1,3 +1,4 @@
+import { requireModule } from '../../middleware/moduleGuard';
 import { Router } from "express";
 
 import QRCode from "qrcode";
@@ -73,6 +74,8 @@ import {
 import { PayoutSnapshot, OptionalPayoutSnapshot, ResolvedNumericRange, LatestDefinitionFormula, DERIVED_MANUAL_OVERRIDE_NOTE, DERIVED_AUTO_NOTE_PREFIX, zeroPayoutSnapshot, emptyOptionalPayoutSnapshot, buildDerivedMetadata, propagatePanelByProductId, determineResultFlag, isManualDerivedOverrideNote, hasMeaningfulResultRow, getExpectedResultTestIds, dedupeResultRows, TestInputConfigPayload, DEFAULT_INPUT_CONFIG, normalizeInputConfig, loadInputConfigsByRootId, loadLatestDefinitionFormulasByCode, applyReferralRuleToPrices, applyOptionalReferralRuleToPrices, loadFinalizedReportSnapshotForVisit, getVisitComposition, getReportableOrders, getReportInclusionOrders } from "./shared";
 
 const router = Router();
+
+router.use(requireModule('DIAGNOSTICS'));
 
 
 

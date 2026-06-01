@@ -1,3 +1,4 @@
+import { tenantContextMiddleware } from './middleware/tenant';
 /**
  * Sobhana Health Hub — Express API Server Entry Point
  *
@@ -286,6 +287,9 @@ app.use('/api/reports', reportRoutes);
 
 // Branches route (auth required)
 app.use('/api/branches', branchRoutes);
+
+// Mount tenant context middleware after auth but before branch
+app.use(tenantContextMiddleware);
 
 // Protected routes (auth + branch context required)
 app.use('/api/patients', patientRoutes);
