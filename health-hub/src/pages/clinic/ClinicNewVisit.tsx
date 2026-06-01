@@ -525,15 +525,22 @@ const ClinicNewVisit = () => {
     }
   };
 
-  const handlePrint = () => {
-    window.print();
+  const [printMode, setPrintMode] = useState<"rx" | "bill" | "both">("both");
+  const [isPrinting, setIsPrinting] = useState(false);
+
+  const handlePrint = (mode: "rx" | "bill" | "both") => {
+    setPrintMode(mode);
+    setIsPrinting(true);
+    // Give React time to re-render the hidden print block with the new mode
+    setTimeout(() => {
+      window.print();
+      setIsPrinting(false);
+    }, 100);
   };
 
   if (successData) {
     const { visitView } = successData;
-    const printLabel = visitView.visit.hasBill
-      ? "Print Prescription & Bill"
-      : "Print Prescription & Visit Slip";
+    const hasBill = visitView.visit.hasBill;
 
     return (
       <AppLayout context="clinic" subContext="Reception">
@@ -587,11 +594,21 @@ const ClinicNewVisit = () => {
                   <Button
                     className="w-full sm:w-auto"
                     variant="outline"
-                    onClick={handlePrint}
-                    disabled={!billLogoLoaded}
+                    onClick={() => handlePrint("rx")}
+                    disabled={isPrinting}
                   >
                     <Printer className="mr-2 h-4 w-4" />
-                    {billLogoLoaded ? printLabel : "Preparing Print..."}
+                    Print Prescription
+                  </Button>
+                  
+                  <Button
+                    className="w-full sm:w-auto"
+                    variant="outline"
+                    onClick={() => handlePrint("bill")}
+                    disabled={!billLogoLoaded || isPrinting}
+                  >
+                    <Printer className="mr-2 h-4 w-4" />
+                    {billLogoLoaded ? (hasBill ? "Print Bill" : "Print Visit Slip") : (hasBill ? "Preparing Bill..." : "Preparing Slip...")}
                   </Button>
 
                   <Button className="w-full sm:w-auto" onClick={resetForm}>
@@ -615,6 +632,7 @@ const ClinicNewVisit = () => {
             visitView={visitView}
             branchName={activeBranch?.name}
             onBillLogoLoadedChange={setBillLogoLoaded}
+            printMode={printMode}
           />
         </div>
       </AppLayout>
