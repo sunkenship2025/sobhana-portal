@@ -175,22 +175,22 @@ export const BillReceipt = ({
     <div className={containerClass}>
       {/* Master container: solid black border, dynamic height */}
       <div
-        className="mx-auto w-full border border-black bg-white text-black"
+        className="mx-auto w-full border border-black bg-white text-black mt-2"
         style={{
-          maxWidth: "710px",
+          maxWidth: "540px",
           fontFamily:
             "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-          fontSize: "13px",
+          fontSize: "10px",
         }}
       >
         {/* ─── 1. HEADER ─── */}
-        <div className="border-b border-black px-4 py-3 text-center">
+        <div className="border-b border-black px-3 py-2 text-center">
           <div className="flex justify-center mb-1">
             <img
               src={BILL_LOGO_URL}
               alt="Sobhana"
               style={{
-                height: "48px",
+                height: "36px",
                 objectFit: "contain",
                 visibility: logoLoaded ? "visible" : "hidden",
               }}
@@ -200,46 +200,46 @@ export const BillReceipt = ({
           </div>
           {data.branchName && (
             <div
-              className="uppercase tracking-widest mb-1"
-              style={{ fontSize: "11px" }}
+              className="uppercase tracking-widest mb-0.5"
+              style={{ fontSize: "9px" }}
             >
               {data.branchName}
             </div>
           )}
-          <div style={{ fontSize: "11px", lineHeight: "1.5" }}>
+          <div style={{ fontSize: "9px", lineHeight: "1.4" }}>
             #4-8-261/3 &amp; 14/NR, Beside Ridge Towers, IDPL, Surya Nagar,
             Chintal, Hyd - 500037.
           </div>
-          <div style={{ fontSize: "11px" }}>
+          <div style={{ fontSize: "9px" }}>
             Phone : 040-23089999, 9490539006.
           </div>
-          <div className="mt-1 font-semibold" style={{ fontSize: "12px" }}>
+          <div className="mt-1 font-semibold" style={{ fontSize: "10px" }}>
             Requisition cum Receipt
           </div>
         </div>
 
         {/* ─── 2. PATIENT DETAILS (3-column grid) ─── */}
-        <div className="border-b border-black px-4 py-2">
+        <div className="border-b border-black px-3 py-1.5">
           <table
             className="w-full"
-            style={{ fontSize: "12px", borderCollapse: "collapse" }}
+            style={{ fontSize: "10px", borderCollapse: "collapse" }}
           >
             <tbody>
               <tr>
                 <td
                   className="py-0.5 whitespace-nowrap"
-                  style={{ width: "40%" }}
+                  style={{ width: "45%" }}
                 >
-                  <span className="inline-block" style={{ width: "100px" }}>
+                  <span className="inline-block" style={{ width: "75px" }}>
                     {documentNumberLabel}
                   </span>
                   <span>: {documentNumberValue}</span>
                 </td>
                 <td
                   className="py-0.5 whitespace-nowrap"
-                  style={{ width: "30%" }}
+                  style={{ width: "25%" }}
                 >
-                  <span className="inline-block" style={{ width: "50px" }}>
+                  <span className="inline-block" style={{ width: "35px" }}>
                     Age
                   </span>
                   <span>: {patientAgeDisplay}</span>
@@ -253,13 +253,13 @@ export const BillReceipt = ({
               </tr>
               <tr>
                 <td className="py-0.5">
-                  <span className="inline-block" style={{ width: "100px" }}>
+                  <span className="inline-block" style={{ width: "75px" }}>
                     Patient Name
                   </span>
                   <span>: {patientNameFormatted}</span>
                 </td>
                 <td className="py-0.5 whitespace-nowrap">
-                  <span className="inline-block" style={{ width: "50px" }}>
+                  <span className="inline-block" style={{ width: "35px" }}>
                     Phone
                   </span>
                   <span>: {data.patient.phone || "N/A"}</span>
@@ -270,7 +270,7 @@ export const BillReceipt = ({
               </tr>
               <tr>
                 <td className="py-0.5">
-                  <span className="inline-block" style={{ width: "100px" }}>
+                  <span className="inline-block" style={{ width: "75px" }}>
                     Referred by
                   </span>
                   <span>: {referredBy}</span>
@@ -289,7 +289,7 @@ export const BillReceipt = ({
               {data.doctor && (
                 <tr>
                   <td className="py-0.5" colSpan={2}>
-                    <span className="inline-block" style={{ width: "100px" }}>
+                    <span className="inline-block" style={{ width: "75px" }}>
                       Doctor
                     </span>
                     <span>
@@ -309,14 +309,14 @@ export const BillReceipt = ({
               {visitTypeLabel && (
                 <tr>
                   <td className="py-0.5" colSpan={2}>
-                    <span className="inline-block" style={{ width: "100px" }}>
+                    <span className="inline-block" style={{ width: "75px" }}>
                       Visit Type
                     </span>
                     <span>: {visitTypeLabel}</span>
                   </td>
                   {data.isRevisit && revisitSummary ? (
                     <td className="py-0.5 whitespace-nowrap text-right">
-                      <span style={{ fontSize: "11px" }}>
+                      <span style={{ fontSize: "9px" }}>
                         ({revisitSummary})
                       </span>
                     </td>
@@ -330,37 +330,37 @@ export const BillReceipt = ({
         </div>
 
         {/* ─── 3. INVESTIGATION TABLE ─── */}
-        <div>
+        <div className="border-b border-black">
           {/* Table Header */}
           <div
-            className="border-b border-black px-4 py-1.5 font-bold"
-            style={{ fontSize: "12px" }}
+            className="border-b border-black px-3 py-1 font-bold bg-gray-50 print:bg-transparent"
+            style={{ fontSize: "10px" }}
           >
             <div className="flex">
-              <div style={{ width: "50px" }}>S.No</div>
+              <div style={{ width: "35px" }}>S.No</div>
               <div className="flex-1">
                 {isDiagnostic ? "Investigation" : "Service Description"}
               </div>
-              <div style={{ width: "100px" }} className="text-right">
+              <div style={{ width: "80px" }} className="text-right">
                 Price
               </div>
             </div>
           </div>
 
           {/* Table Body */}
-          <div className="border-b border-black">
+          <div className="min-h-[40px]">
             {data.items.map((item, index) => (
               <div
                 key={item.id}
-                className="px-4 py-2"
-                style={{ fontSize: "12px" }}
+                className="px-3 py-1.5"
+                style={{ fontSize: "10px" }}
               >
                 <div className="flex">
-                  <div style={{ width: "50px" }}>{index + 1}</div>
+                  <div style={{ width: "35px" }}>{index + 1}</div>
                   <div className="flex-1">{item.name}</div>
                   <div
                     style={{
-                      width: "100px",
+                      width: "80px",
                       fontVariantNumeric: "tabular-nums",
                     }}
                     className="text-right"
@@ -374,19 +374,18 @@ export const BillReceipt = ({
         </div>
 
         {/* ─── 4. SPLIT FOOTER ─── */}
-        <div className="flex" style={{ fontSize: "12px" }}>
+        <div className="flex" style={{ fontSize: "10px" }}>
           {/* Left: Signatory */}
           <div
-            className="border-r border-black flex flex-col justify-between px-4 py-3"
+            className="border-r border-black flex flex-col justify-end px-3 py-2"
             style={{ width: "50%" }}
           >
-            <div className="text-center">For {clinicLabel}</div>
-            <div className="text-center mt-10">Authorized Signatory</div>
+            <div className="text-center mt-8">Authorized Signatory</div>
           </div>
 
           {/* Right: Totals */}
           <div
-            className="px-4 py-3 flex flex-col justify-between"
+            className="px-3 py-2 flex flex-col justify-between"
             style={{ width: "50%" }}
           >
             <div>
@@ -420,8 +419,8 @@ export const BillReceipt = ({
 
         {/* ─── 5. REVISIT NOTE (clinic only) ─── */}
         {!isDiagnostic && hasBill && (
-          <div className="border-t border-black px-4 py-2">
-            <p style={{ fontSize: "11px" }}>
+          <div className="border-t border-black px-3 py-1.5">
+            <p style={{ fontSize: "9px" }}>
               <strong>Note:</strong>{" "}
               <em>
                 This receipt is valid for a free revisit within 7 days from the
@@ -433,12 +432,12 @@ export const BillReceipt = ({
         )}
 
         {/* ─── 6. TRUST FOOTER ─── */}
-        <div className="border-t border-black px-4 py-2 text-center">
-          <p style={{ fontSize: "11px" }} className="mb-0.5">
+        <div className="border-t border-black px-3 py-1.5 text-center">
+          <p style={{ fontSize: "9px" }} className="mb-0.5">
             We appreciate your trust in Sobhana.
           </p>
           <p
-            style={{ fontSize: "10px", letterSpacing: "0.05em" }}
+            style={{ fontSize: "8px", letterSpacing: "0.05em" }}
             className="uppercase"
           >
             * This is a computer generated invoice *
