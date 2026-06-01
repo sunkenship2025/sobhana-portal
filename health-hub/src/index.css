@@ -344,6 +344,9 @@
   }
   .bill-receipt-page {
     padding-top: 16mm;
+    min-height: auto;
+    height: auto;
+    page-break-after: auto;
   }
   .print-page:last-child {
     page-break-after: auto;
