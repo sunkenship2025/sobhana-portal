@@ -78,10 +78,18 @@ export const branchContextMiddleware = async (
     
     if (requestedBranchId) {
       // Verify the requested branch exists
-      const branch = await prisma.branch.findUnique({
+      const branch = await (prisma as any).branch.findUnique({
         where: { id: requestedBranchId },
-        select: { id: true, isActive: true }
+        select: { id: true, isActive: true, tenantId: true }
       });
+
+      if ((branch as any)?.tenantId !== req.user?.tenantId && req.user?.tenantId) {
+        res.status(403).json({
+          error: 'BRANCH_NOT_IN_TENANT',
+          message: 'Requested branch does not belong to your organization'
+        });
+        return;
+      }
 
       if (!branch || !branch.isActive) {
         res.status(400).json({

@@ -722,12 +722,12 @@ model TestResult {
   reportVersion  ReportVersion   @relation(fields: [reportVersionId], references: [id], onDelete: Cascade)
   enteredBy      User?           @relation("TestResultEnteredBy", fields: [enteredByUserId], references: [id], onDelete: SetNull)
 
+  @@unique([reportVersionId, testOrderId, testId])
   @@index([testOrderId])
   @@index([testId])
   @@index([testDefinitionId])
   @@index([reportVersionId])
   @@index([enteredByUserId])
-  @@unique([reportVersionId, testOrderId, testId])
 }
 
 /// ClinicVisit: Clinic-specific data (references Visit)
@@ -1028,8 +1028,8 @@ model SigningLabIncharge {
   id                   String   @id @default(cuid())
   name                 String
   designation          String   @default("Lab Incharge")
-  signatureImagePath   String?  // Path to signature PNG in storage (set after upload)
-  signatureImageBase64 String?  // Base64 data URI — persists across deploys (Render safe)
+  signatureImagePath   String? // Path to signature PNG in storage (set after upload)
+  signatureImageBase64 String? // Base64 data URI — persists across deploys (Render safe)
   isActive             Boolean  @default(true)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
@@ -1044,13 +1044,13 @@ model SigningLabIncharge {
 model LabInchargeRule {
   id                   String   @id @default(cuid())
   signingLabInchargeId String
-  branchId             String?  // NULL = All Branches
+  branchId             String? // NULL = All Branches
   displayOrder         Int      @default(0)
   isActive             Boolean  @default(true)
   createdAt            DateTime @default(now())
 
   signingLabIncharge SigningLabIncharge @relation(fields: [signingLabInchargeId], references: [id], onDelete: Restrict)
-  branch               Branch?            @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch             Branch?            @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   @@unique([branchId])
   @@index([signingLabInchargeId])

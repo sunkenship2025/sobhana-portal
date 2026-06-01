@@ -179,12 +179,14 @@ export async function login(email: string, password: string, ipAddress?: string,
 
   // Generate JWT
   const token = jwt.sign(
-    {
-      id: user.id,
-      email: user.email,
-      role: user.role
-    },
-    process.env.JWT_SECRET!,
+      {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        tenantId: (user as any).tenantId,
+        tenantSlug: (user as any).tenant?.slug || ''
+      },
+      process.env.JWT_SECRET!,
     { expiresIn: '1d' }
   );
 

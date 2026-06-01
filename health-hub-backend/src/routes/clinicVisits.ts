@@ -1,3 +1,4 @@
+import { requireModule } from '../middleware/moduleGuard';
 import { Prisma, VisitStatus } from "@prisma/client";
 import { Router } from "express";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
@@ -8,6 +9,8 @@ import { generateClinicBillNumber } from "../services/numberService";
 import { getPatientAge, getPatientAgeDisplay } from "../utils/validation";
 
 const router = Router();
+
+router.use(requireModule('CLINIC'));
 
 const REVISIT_WINDOW_DAYS = 7;
 
