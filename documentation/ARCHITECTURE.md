@@ -310,6 +310,7 @@ Repeated ~150 times across pages. Centralizing it in a `lib/apiClient.ts` + reac
 | `ReferralDoctor` + `ReferralDoctor_Visit` | External referrer. Visit access is **explicit** via the join table (no implicit `referralDoctorId` FK on Visit). |
 | `ClinicDoctor` | In-house consulting doctor |
 | `SigningDoctor` + `SigningRule` | Doctor whose signature appears on reports + assignment rules per department |
+| `SigningLabIncharge` + `LabInchargeRule` | Lab Incharge whose signature optionally appears on reports based on branch rules |
 | `DiagnosticReferralCenter` + `DiagnosticCenter_Visit` | External diagnostic centers (referred-to / referred-from) |
 
 ### Operational
@@ -320,6 +321,7 @@ Repeated ~150 times across pages. Centralizing it in a `lib/apiClient.ts` + reac
 | `MessageLog` | WhatsApp / SMS delivery log |
 | `DoctorPayoutLedger` | Payout snapshots per period |
 | `ExternalReportUpload` | PDFs uploaded for `EXTERNAL_UPLOAD` workflow, stored in R2, soft-deleted via `deletedAt` |
+| `PaymentTransaction` | Ledger of payments towards a bill (CASH/ONLINE/CHEQUE) |
 
 ### Key constraints
 
