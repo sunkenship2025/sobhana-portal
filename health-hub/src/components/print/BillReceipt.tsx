@@ -12,17 +12,9 @@ interface BillReceiptProps {
   onLogoLoadedChange?: (loaded: boolean) => void;
 }
 
-/**
- * Shared bill receipt component used by:
- * - ClinicPrescriptionPrint (Page 2)
- * - DiagnosticsNewVisit (inline print)
- * - BillPrintPage (Patient360 reprint)
- */
-// Use the color logo (red + navy) — same one the patient report uses, so the
-// bill and the report keep a consistent brand. The previous black-and-white
-// `sobhana-clinic-logo.png` reads as a fax-era artifact next to the rest of
-// the print stack.
-const BILL_LOGO_URL = `${API_BASE_URL}/images/sobhana-logo-cropped.png`;
+// B&W Logo fallback if SVG is not sufficient, but per requirements we use an SVG placeholder
+// and keep it clean.
+const BILL_LOGO_URL = `${API_BASE_URL}/images/sobhana-clinic-logo.png`;
 
 export const BillReceipt = ({
   data,
@@ -32,29 +24,27 @@ export const BillReceipt = ({
   const isDiagnostic = data.domain === "DIAGNOSTICS";
   const [logoLoaded, setLogoLoaded] = useState(false);
 
-  const dateStr = new Date(data.date).toLocaleDateString("en-IN", {
+  const dateObj = new Date(data.date);
+  const dateStr = dateObj.toLocaleDateString("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   });
+  
+  const timeStr = dateObj.toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
 
   const genderFull =
     data.patient.gender === "M"
-      ? "Male"
+      ? "M"
       : data.patient.gender === "F"
-        ? "Female"
-        : "Other";
+        ? "F"
+        : "O";
 
-  const visitTypeService = isDiagnostic
-    ? undefined
-    : data.visitType === "IP"
-      ? "IP Consultation"
-      : "OP Consultation";
-  const visitTypeLabel = visitTypeService
-    ? data.isRevisit
-      ? `${visitTypeService} (Revisit)`
-      : visitTypeService
-    : undefined;
   const hasBill = data.hasBill !== false;
   const subtotalAmount = data.totalAmount ?? 0;
   const discountAmount = (data.discountAmountInPaise ?? 0) / 100;
@@ -72,33 +62,12 @@ export const BillReceipt = ({
     data.dueAmountInPaise !== undefined
       ? data.dueAmountInPaise / 100
       : Math.max(0, netAmount - paidAmount);
-  const discountLabel =
-    data.discountType === "PERCENTAGE" && data.discountPercentage != null
-      ? `DISCOUNT (${data.discountPercentage}%)`
-      : "DISCOUNT";
-  const documentNumberLabel = hasBill ? "Bill No" : "Visit Ref";
+
+  const documentNumberLabel = hasBill ? "Rct No" : "Ref No";
   const documentNumberValue = hasBill
     ? data.billNumber || data.visitRef || "—"
     : data.visitRef || data.billNumber || "—";
-  const normalizedPaymentStatus = (() => {
-    const rawStatus = (data.paymentStatus || "").toString().toUpperCase();
-    if (rawStatus.includes("PAID")) return "PAID";
-    if (rawStatus.includes("PENDING")) return "PENDING";
-    return data.paymentStatus || "—";
-  })();
-  const paymentSummary =
-    data.hasBill !== false ? normalizedPaymentStatus : "Not billed";
-  const revisitSummaryParts = [
-    data.originalBillNumber ? `Bill ${data.originalBillNumber}` : null,
-    data.originalVisitDate
-      ? new Date(data.originalVisitDate).toLocaleDateString("en-IN", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-        })
-      : null,
-  ].filter(Boolean);
-  const revisitSummary = revisitSummaryParts.join(" • ");
+
   const patientAgeDisplay = data.patient.ageDisplay?.trim()
     ? data.patient.ageDisplay
     : typeof data.patient.age === "number" && Number.isFinite(data.patient.age)
@@ -108,17 +77,14 @@ export const BillReceipt = ({
         })
       : "N/A";
 
-  const showDiscount = discountAmount > 0;
-  const hasCalculations = showDiscount || netAmount !== subtotalAmount;
-  const showSubtotal = data.items.length > 1 || showDiscount || paidAmount > 0;
-  const showPaid = paidAmount > 0;
-  const showDue = dueAmount > 0;
-  const finalTotalLabel = hasCalculations ? "FINAL TOTAL" : "TOTAL";
+  const patientNameFormatted = formatPatientName(data.patient.name, (data.patient as any).title, true);
+  // Flattened demographic string as requested: "Mr. KARUNAKAR (50Y/M)"
+  const patientDemographicString = `${patientNameFormatted} (${patientAgeDisplay}/${genderFull})`;
 
-  // Container classes: if asPage, use print-page styling; otherwise standalone print-content
+  // Container classes
   const containerClass = asPage
-    ? "print-page bill-receipt-page"
-    : "print-content pt-6 pb-8 px-6 bg-white text-black";
+    ? "print-page bill-receipt-page font-sans"
+    : "print-content pt-8 pb-8 px-8 bg-white font-sans";
 
   useEffect(() => {
     setLogoLoaded(false);
@@ -146,245 +112,150 @@ export const BillReceipt = ({
     };
   }, [onLogoLoadedChange]);
 
+  const clinicName = isDiagnostic ? "SOBHANA DIAGNOSTIC CENTRE" : "SOBHANA CLINIC";
+
   return (
     <div className={containerClass}>
-      <div className="mx-auto w-full max-w-[710px]">
-        {/* Logo Header - Centered */}
-        <div className="flex justify-center mb-0">
-          <img
-            src={BILL_LOGO_URL}
-            alt="Sobhana"
-            style={{
-              height: "60px",
-              objectFit: "contain",
-              visibility: logoLoaded ? "visible" : "hidden",
-            }}
-            loading="eager"
-            decoding="sync"
-          />
-        </div>
-        {data.branchName && (
-          <p className="text-center text-xs tracking-widest uppercase mb-2">
-            {data.branchName}
-          </p>
-        )}
-        <div className="border-t-2 border-black mb-4"></div>
-
-        {/* Bill Info Row */}
-        <div className="grid grid-cols-2 gap-8 text-sm mb-4">
-          <div className="space-y-1">
-            <p>
-              <strong>{documentNumberLabel}:</strong>&ensp;{documentNumberValue}
-            </p>
-            <p>
-              <strong>Date:</strong>&ensp;{dateStr}
-            </p>
-            {visitTypeLabel && (
-              <p>
-                <strong>Visit Type:</strong>&ensp;{visitTypeLabel}
-              </p>
-            )}
+      <div className="mx-auto w-full max-w-[800px]">
+        {/* SECTION A: The Header */}
+        <div className="flex items-start justify-between mb-6">
+          <div className="flex items-center gap-4">
+            {/* Geometric Logo Placeholder / B&W Logo */}
+            <div className="w-12 h-12 flex items-center justify-center shrink-0">
+              <svg className="w-full h-full text-indigo-900" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 2L2 22h20L12 2zm0 4.5l6.5 13h-13L12 6.5z" />
+              </svg>
+            </div>
+            <div className="flex flex-col justify-center h-12">
+              <h1 className="text-xl font-bold text-indigo-900 tracking-tight leading-none m-0">
+                {clinicName}
+              </h1>
+            </div>
           </div>
-          <div className="space-y-1 text-right">
-            <p>
-              <strong>Payment:</strong>&ensp;{paymentSummary}
-            </p>
-            {data.isRevisit && (
-              <p>
-                <strong>Revisit:</strong>&ensp;
-                {revisitSummary || "Follow-up visit"}
-              </p>
-            )}
+          
+          <div className="text-right text-xs font-light text-neutral-800 leading-relaxed max-w-sm">
+            #4-8-261/3 & 14/NR, Beside Ridge Towers, IDPL, Surya Nagar, Chintal, Hyd - 500037 | Phone: 040-23089999, 9490539006
           </div>
         </div>
 
-        {/* Patient Details Box */}
-        <div className="border border-black px-4 py-3 mb-4">
-          <h2 className="font-bold text-sm mb-3">Patient Details</h2>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
-            <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2 min-w-0">
-              <strong>Name:</strong>
-              <span className="min-w-0 truncate">
-                {formatPatientName(data.patient.name, (data.patient as any).title, true)}
+        {/* Document Title */}
+        <div className="mb-4">
+          <h2 className="text-sm font-medium text-gray-500 uppercase tracking-widest">
+            REQUISITION CUM RECEIPT
+          </h2>
+        </div>
+
+        {/* SECTION B: Patient Details (The Bounding Box) */}
+        <div className="relative border border-gray-200 rounded-sm p-4 mb-8">
+          {/* Mock Barcode Element */}
+          <div className="absolute top-4 right-4 text-gray-300 opacity-50" aria-hidden="true">
+            <svg width="80" height="24" viewBox="0 0 80 24" fill="currentColor">
+              <rect x="0" y="0" width="2" height="24" />
+              <rect x="4" y="0" width="4" height="24" />
+              <rect x="10" y="0" width="2" height="24" />
+              <rect x="14" y="0" width="6" height="24" />
+              <rect x="22" y="0" width="2" height="24" />
+              <rect x="26" y="0" width="2" height="24" />
+              <rect x="30" y="0" width="8" height="24" />
+              <rect x="40" y="0" width="2" height="24" />
+              <rect x="44" y="0" width="4" height="24" />
+              <rect x="50" y="0" width="2" height="24" />
+              <rect x="54" y="0" width="6" height="24" />
+              <rect x="62" y="0" width="2" height="24" />
+              <rect x="66" y="0" width="4" height="24" />
+              <rect x="72" y="0" width="2" height="24" />
+              <rect x="76" y="0" width="4" height="24" />
+            </svg>
+          </div>
+
+          <div className="grid grid-cols-3 gap-y-4 gap-x-6 pr-24">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-neutral-400 uppercase tracking-wider">{documentNumberLabel}</span>
+              <span className="text-sm text-neutral-800 font-semibold">{documentNumberValue}</span>
+            </div>
+            
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-neutral-400 uppercase tracking-wider">Date</span>
+              <span className="text-sm text-neutral-800 font-semibold">{dateStr}</span>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-neutral-400 uppercase tracking-wider">Time</span>
+              <span className="text-sm text-neutral-800 font-semibold">{timeStr}</span>
+            </div>
+
+            <div className="flex flex-col gap-1 col-span-1">
+              <span className="text-xs text-neutral-400 uppercase tracking-wider">Patient</span>
+              <span className="text-sm text-neutral-800 font-semibold truncate">{patientDemographicString}</span>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-neutral-400 uppercase tracking-wider">Phone</span>
+              <span className="text-sm text-neutral-800 font-semibold">{data.patient.phone || "N/A"}</span>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-neutral-400 uppercase tracking-wider">Ref By</span>
+              <span className="text-sm text-neutral-800 font-semibold truncate">
+                {data.referralDoctor?.name?.trim() ? `Dr. ${data.referralDoctor.name.replace(/^Dr\.\s*/i, '')}` : "SELF"}
               </span>
             </div>
-            <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2 min-w-0 justify-self-start">
-              <strong>Phone:</strong>
-              <span>{data.patient.phone || "N/A"}</span>
+          </div>
+        </div>
+
+        {/* SECTION C: The Investigation Table (No Lines) */}
+        <div className="mb-6">
+          <div className="grid grid-cols-[60px_1fr_120px] bg-indigo-900 text-white py-2 px-4 rounded-sm print:bg-indigo-900 print:text-white [print-color-adjust:exact]">
+            <div className="text-xs font-semibold tracking-wider">S.NO</div>
+            <div className="text-xs font-semibold tracking-wider pl-2">{isDiagnostic ? "INVESTIGATION" : "SERVICE DESCRIPTION"}</div>
+            <div className="text-xs font-semibold tracking-wider text-right">AMOUNT (₹)</div>
+          </div>
+
+          <div className="flex flex-col pt-2">
+            {data.items.map((item, index) => (
+              <div key={item.id} className="grid grid-cols-[60px_1fr_120px] px-4 py-2.5 items-center">
+                <div className="text-sm text-neutral-800">{index + 1}</div>
+                <div className="text-sm text-neutral-800 pl-2">{item.name}</div>
+                <div className="text-sm text-neutral-800 text-right tabular-nums font-medium">
+                  {item.price.toFixed(2)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* SECTION D: The Footer & Totals (Zero Clutter) */}
+        <div className="flex justify-end mb-16">
+          <div className="w-72">
+            <div className="border-t border-gray-200 flex justify-between pt-3 pb-2">
+              <span className="text-sm text-neutral-400">Total & Paid Amount:</span>
+              <span className="text-sm text-neutral-800 tabular-nums font-medium">{netAmount.toFixed(2)}</span>
             </div>
-            <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2 min-w-0">
-              <strong>Age:</strong>
-              <span>{patientAgeDisplay}</span>
-            </div>
-            <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2 min-w-0 justify-self-start">
-              <strong>Gender:</strong>
-              <span>{genderFull}</span>
+            <div className="flex justify-between">
+              <span className="text-sm text-neutral-400">Due Amount:</span>
+              <span className="text-sm text-neutral-800 tabular-nums font-bold">{dueAmount.toFixed(2)}</span>
             </div>
           </div>
         </div>
 
-        {/* Consulting Doctor */}
-        {data.doctor && (
-          <p className="text-sm mb-3">
-            <strong>Consulting Doctor:</strong>&ensp;{data.doctor.name}
-            {data.doctor.qualification ? `, ${data.doctor.qualification}` : ""}
-            {data.doctor.specialty ? ` (${data.doctor.specialty})` : ""}
-          </p>
-        )}
-
-        <p className="text-sm mb-3">
-          <strong>Referred by:</strong>&ensp;{data.referralDoctor?.name?.trim() || "SELF"}
-        </p>
-
-        {/* Service / Test Table */}
-        <table className="w-full table-fixed border-collapse border border-black text-sm mb-4">
-          <colgroup>
-            <col className="w-[110px]" />
-            <col />
-            <col className="w-[148px]" />
-          </colgroup>
-          <thead>
-            <tr className="border-b border-black">
-              <th className="border-r border-black px-3 py-3 text-left font-bold">
-                S.NO
-              </th>
-              <th className="border-r border-black px-3 py-3 text-left font-bold">
-                {isDiagnostic ? "PRODUCT NAME" : "SERVICE DESCRIPTION"}
-              </th>
-              <th className="px-3 py-3 text-right font-bold">AMOUNT (₹)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.items.map((item, index) => (
-              <tr key={item.id} className="border-b border-black">
-                <td className="border-r border-black px-3 py-3 align-middle">
-                  {index + 1}
-                </td>
-                <td className="border-r border-black px-3 py-3 align-middle">
-                  {item.name}
-                </td>
-                <td className="px-3 py-3 text-right align-middle">
-                  {item.price.toFixed(2)}
-                </td>
-              </tr>
-            ))}
-            {(() => {
-              // "Authorized Signatory" caption sits in the empty leftmost
-              // cell, vertically spanning every totals row so it stays
-              // centered next to the totals block regardless of which
-              // optional rows (subtotal/discount/paid/due) are present.
-              const totalsRowCount =
-                (showSubtotal ? 1 : 0) +
-                (showDiscount ? 1 : 0) +
-                1 +
-                (showPaid ? 1 : 0) +
-                (showDue ? 1 : 0);
-              const authorizedCell = (
-                <td
-                  rowSpan={totalsRowCount}
-                  className="border-r border-black px-2 pb-3 text-center align-bottom text-[10px] font-semibold uppercase tracking-wide overflow-hidden"
-                >
-                  Authorized Signatory
-                </td>
-              );
-              const rows: React.ReactNode[] = [];
-              let firstRendered = false;
-              const leadingCell = () => {
-                if (firstRendered) return null;
-                firstRendered = true;
-                return authorizedCell;
-              };
-              if (showSubtotal) {
-                rows.push(
-                  <tr key="subtotal">
-                    {leadingCell()}
-                    <td className="border-r border-black px-3 py-2 text-right text-gray-700">
-                      SUBTOTAL
-                    </td>
-                    <td className="px-3 py-2 text-right text-gray-700">
-                      ₹{subtotalAmount.toFixed(2)}
-                    </td>
-                  </tr>,
-                );
-              }
-              if (showDiscount) {
-                rows.push(
-                  <tr key="discount">
-                    {leadingCell()}
-                    <td className="border-r border-black px-3 py-2 text-right text-gray-700">
-                      {discountLabel}
-                    </td>
-                    <td className="px-3 py-2 text-right text-gray-700">
-                      -₹{discountAmount.toFixed(2)}
-                    </td>
-                  </tr>,
-                );
-              }
-              rows.push(
-                <tr key="total">
-                  {leadingCell()}
-                  <td className="border-r border-black px-3 py-2 text-right font-bold">
-                    {finalTotalLabel}
-                  </td>
-                  <td className="px-3 py-2 text-right font-bold">
-                    ₹{netAmount.toFixed(2)}
-                  </td>
-                </tr>,
-              );
-              if (showPaid) {
-                rows.push(
-                  <tr key="paid">
-                    {leadingCell()}
-                    <td className="border-r border-black px-3 py-2 text-right text-gray-700">
-                      PAID
-                    </td>
-                    <td className="px-3 py-2 text-right text-gray-700">
-                      ₹{paidAmount.toFixed(2)}
-                    </td>
-                  </tr>,
-                );
-              }
-              if (showDue) {
-                rows.push(
-                  <tr key="due">
-                    {leadingCell()}
-                    <td className="border-r border-black px-3 py-2 text-right font-bold">
-                      DUE
-                    </td>
-                    <td className="px-3 py-2 text-right font-bold">
-                      ₹{dueAmount.toFixed(2)}
-                    </td>
-                  </tr>,
-                );
-              }
-              return <>{rows}</>;
-            })()}
-          </tbody>
-        </table>
-
-        {/* Revisit Note (clinic only, always shown for clinic) */}
-        {!isDiagnostic && hasBill && (
-          <div className="border border-black p-3 mb-4">
-            <p className="text-xs">
-              <strong>Note:</strong>{" "}
-              <em>
-                This receipt is valid for a free revisit within 7 days from the
-                date of issue for the same complaint with the same consultant.
-                Please carry this bill for the follow-up visit.
-              </em>
+        {/* Signatories & Trust Message */}
+        <div className="relative mt-8">
+          <div className="absolute bottom-0 left-0">
+            <div className="w-40 border-t border-gray-200 pt-2 text-left">
+              <p className="text-xs text-neutral-400 font-medium">Authorized Signatory</p>
+              <p className="text-[10px] text-neutral-400 mt-1 uppercase">User: ADMIN</p>
+            </div>
+          </div>
+          
+          <div className="text-center w-full pt-12 pb-4">
+            <p className="text-[10px] text-gray-400 tracking-[0.2em] uppercase font-light">
+              We appreciate your trust in Sobhana. * THIS IS A COMPUTER GENERATED INVOICE *
             </p>
           </div>
-        )}
-
-        {/* Footer */}
-        <div className="border-t border-black pt-3 text-center">
-          <p className="text-sm mb-1">We appreciate your trust in Sobhana.</p>
-          <p className="text-xs tracking-wider uppercase">
-            * This is a computer generated invoice and does not require a
-            physical signature *
-          </p>
         </div>
+
       </div>
     </div>
   );
 };
+
