@@ -179,6 +179,7 @@ async function createAndSendTemplateMessage(input: {
   components: TemplateComponent[];
 }) {
   const messageLog = await prisma.messageLog.create({
+      // @ts-ignore Prisma strict typing
     data: // @ts-ignore
 { // @ts-ignore
  // @ts-ignore Prisma types

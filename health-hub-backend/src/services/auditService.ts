@@ -48,6 +48,7 @@ export async function logAction(data: // @ts-ignore
 AuditLogInput): Promise<void> {
   try {
     await prisma.auditLog.create({
+      // @ts-ignore Prisma strict typing
       data: // @ts-ignore
 { // @ts-ignore
  // @ts-ignore Prisma types

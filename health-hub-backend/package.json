@@ -29,6 +29,7 @@
   "license": "MIT",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1040.0",
+    "@paralleldrive/cuid2": "^3.3.0",
     "@prisma/client": "^5.7.0",
     "@sentry/node": "^10.51.0",
     "@types/puppeteer": "^7.0.4",

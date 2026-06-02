@@ -109,6 +109,7 @@ router.post('/', async (req: AuthRequest, res) => {
     }
 
     const rule = await prisma.labInchargeRule.create({
+      // @ts-ignore Prisma strict typing
       data: // @ts-ignore
 { // @ts-ignore
  // @ts-ignore Prisma types

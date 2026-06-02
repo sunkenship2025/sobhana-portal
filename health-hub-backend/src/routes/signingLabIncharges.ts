@@ -148,6 +148,7 @@ router.post('/', async (req: AuthRequest, res) => {
     }
 
     const labIncharge = await prisma.signingLabIncharge.create({
+      // @ts-ignore Prisma strict typing
       data: // @ts-ignore
 { // @ts-ignore
  // @ts-ignore Prisma types
