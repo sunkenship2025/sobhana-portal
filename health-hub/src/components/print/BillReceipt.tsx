@@ -275,9 +275,9 @@ export const BillReceipt = ({
               <tr>
                 <td className="py-0">
                   <span className="inline-block" style={{ width: "100px" }}>
-                    Referred by
+                    {isDiagnostic ? "Referred by" : "Doctor"}
                   </span>
-                  <span>: {referredBy}</span>
+                  <span>: {isDiagnostic ? referredBy : (data.doctor?.name ? (data.doctor.name.toLowerCase().startsWith('dr') ? data.doctor.name : `Dr. ${data.doctor.name}`) : "—")}</span>
                 </td>
                 <td className="py-0 whitespace-nowrap">
                   <span className="inline-block" style={{ width: "50px" }}>
@@ -289,46 +289,6 @@ export const BillReceipt = ({
                   <span>Time : {timeStr}</span>
                 </td>
               </tr>
-              {/* Consulting Doctor (clinic only) */}
-              {data.doctor && (
-                <tr>
-                  <td className="py-0" colSpan={2}>
-                    <span className="inline-block" style={{ width: "100px" }}>
-                      Doctor
-                    </span>
-                    <span>
-                      : {data.doctor.name}
-                      {data.doctor.qualification
-                        ? `, ${data.doctor.qualification}`
-                        : ""}
-                      {data.doctor.specialty
-                        ? ` (${data.doctor.specialty})`
-                        : ""}
-                    </span>
-                  </td>
-                  <td className="py-0">&nbsp;</td>
-                </tr>
-              )}
-              {/* Visit type (clinic only) */}
-              {visitTypeLabel && (
-                <tr>
-                  <td className="py-0" colSpan={2}>
-                    <span className="inline-block" style={{ width: "100px" }}>
-                      Visit Type
-                    </span>
-                    <span>: {visitTypeLabel}</span>
-                  </td>
-                  {data.isRevisit && revisitSummary ? (
-                    <td className="py-0 whitespace-nowrap text-right">
-                      <span style={{ fontSize: "11px" }}>
-                        ({revisitSummary})
-                      </span>
-                    </td>
-                  ) : (
-                    <td className="py-0">&nbsp;</td>
-                  )}
-                </tr>
-              )}
             </tbody>
           </table>
         </div>

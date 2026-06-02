@@ -349,6 +349,7 @@ model ClinicDoctor {
   phone                   String?
   email                   String?
   letterheadNote          String?
+  consultationFeeInPaise  Int?
   commissionType          ReferralPayoutType @default(PERCENTAGE)
   commissionPercent       Float              @default(100.0) // 0-100, percentage of consultation fee
   commissionAmountInPaise Int? // Fixed amount per consultation (if commissionType = FIXED_AMOUNT)
