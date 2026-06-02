@@ -35,7 +35,8 @@ router.post('/', async (req: AuthRequest, res) => {
       phone,
       email,
       letterheadNote,
-      referralDoctorId
+      referralDoctorId,
+      consultationFeeInPaise
     } = req.body;
 
     if (!name || !qualification || !specialty || !registrationNumber) {
@@ -88,6 +89,7 @@ router.post('/', async (req: AuthRequest, res) => {
       email,
       letterheadNote,
       referralDoctorId,
+      consultationFeeInPaise,
       ...toClinicDoctorPayoutInput(normalizedPayout),
       branchId: req.branchId!,
       userId: req.user?.id
@@ -128,7 +130,7 @@ router.get('/', async (req: AuthRequest, res) => {
 router.patch('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { name, qualification, specialty, phone, email, letterheadNote } = req.body;
+    const { name, qualification, specialty, phone, email, letterheadNote, consultationFeeInPaise } = req.body;
 
     // Normalize commission fields if provided
     let normalizedPayout;
@@ -161,6 +163,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
         phone,
         email,
         letterheadNote,
+        consultationFeeInPaise,
         ...(normalizedPayout ? toClinicDoctorPayoutInput(normalizedPayout) : {}),
       },
       req.branchId!,

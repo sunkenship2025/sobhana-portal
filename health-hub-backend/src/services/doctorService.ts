@@ -412,6 +412,7 @@ export async function createClinicDoctor(input: CreateClinicDoctorInput) {
       phone: input.phone,
       email: input.email,
       letterheadNote: input.letterheadNote,
+      consultationFeeInPaise: input.consultationFeeInPaise,
       commissionType: input.commissionType ?? 'PERCENTAGE',
       commissionPercent: input.commissionPercent ?? 100,
       commissionAmountInPaise: input.commissionAmountInPaise,
@@ -449,6 +450,7 @@ export async function updateClinicDoctor(
     phone?: string;
     email?: string;
     letterheadNote?: string;
+    consultationFeeInPaise?: number;
     commissionType?: 'PERCENTAGE' | 'FIXED_AMOUNT';
     commissionPercent?: number;
     commissionAmountInPaise?: number;

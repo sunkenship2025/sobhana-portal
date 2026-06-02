@@ -112,7 +112,14 @@ export default function ManageDoctorsAndReferrals() {
   const [clinicExistingDoctor, setClinicExistingDoctor] = useState<any>(null);
   const [clinicLinkedDoctorId, setClinicLinkedDoctorId] = useState<string | null>(null);
   const [clinicForm, setClinicForm] = useState({
-    name: '', qualification: '', specialty: '', registrationNumber: '', phone: '', letterheadNote: '',
+    name: '',
+    qualification: '',
+    specialty: '',
+    registrationNumber: '',
+    phone: '',
+    email: '',
+    letterheadNote: '',
+    consultationFee: '',
     commissionType: 'PERCENTAGE' as 'PERCENTAGE' | 'FIXED_AMOUNT',
     commissionPercent: '50',
     commissionAmount: '',
@@ -432,7 +439,7 @@ export default function ManageDoctorsAndReferrals() {
   };
 
   const clinicResetForm = () => {
-    setClinicForm({ name: '', qualification: '', specialty: '', registrationNumber: '', phone: '', letterheadNote: '', commissionType: 'PERCENTAGE', commissionPercent: '50', commissionAmount: '' });
+    setClinicForm({ name: '', qualification: '', specialty: '', registrationNumber: '', phone: '', letterheadNote: '', consultationFee: '', commissionType: 'PERCENTAGE', commissionPercent: '50', commissionAmount: '' });
     setClinicShowForm(false);
     setClinicEditingId(null);
     setClinicExistingDoctor(null);
@@ -451,6 +458,7 @@ export default function ManageDoctorsAndReferrals() {
       specialty: clinicForm.specialty, registrationNumber: clinicForm.registrationNumber,
       phone: clinicForm.phone, letterheadNote: clinicForm.letterheadNote,
       referralDoctorId: clinicLinkedDoctorId,
+      consultationFeeInPaise: clinicForm.consultationFee ? Number(clinicForm.consultationFee) * 100 : undefined,
       commissionType: clinicForm.commissionType,
       commissionPercent: clinicForm.commissionType === 'PERCENTAGE' ? Number(clinicForm.commissionPercent || 100) : undefined,
       commissionAmount: clinicForm.commissionType === 'FIXED_AMOUNT' ? Number(clinicForm.commissionAmount || 0) : undefined,
@@ -485,6 +493,7 @@ export default function ManageDoctorsAndReferrals() {
     setClinicForm({
       name: doc.name, qualification: doc.qualification, specialty: doc.specialty,
       registrationNumber: doc.registrationNumber, phone: doc.phone || '', letterheadNote: doc.letterheadNote || '',
+      consultationFee: doc.consultationFeeInPaise ? String(doc.consultationFeeInPaise / 100) : '',
       commissionType: doc.commissionType || 'PERCENTAGE',
       commissionPercent: String(doc.commissionPercent ?? 100),
       commissionAmount: doc.commissionAmountInPaise ? String(doc.commissionAmountInPaise / 100) : '',
@@ -1056,6 +1065,13 @@ export default function ManageDoctorsAndReferrals() {
                     onChange={(e) => setClinicForm(f => ({ ...f, letterheadNote: e.target.value }))} />
                 </div>
               </div>
+              <div className="grid gap-4 md:grid-cols-2 mt-4">
+                <div className="space-y-2">
+                  <Label>Consultation Fee (₹)</Label>
+                  <Input type="number" min={0} step="1" placeholder="e.g., 500" value={clinicForm.consultationFee}
+                    onChange={(e) => setClinicForm(f => ({ ...f, consultationFee: e.target.value }))} />
+                </div>
+              </div>
 
               {/* Commission settings */}
               <div className="space-y-3 rounded-lg border p-4 bg-muted/30">
@@ -1136,6 +1152,7 @@ export default function ManageDoctorsAndReferrals() {
                 <TableHead>Name</TableHead>
                 <TableHead>Qualification</TableHead>
                 <TableHead>Specialty</TableHead>
+                <TableHead>Fee</TableHead>
                 <TableHead>Commission</TableHead>
                 <TableHead>Phone</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -1147,6 +1164,9 @@ export default function ManageDoctorsAndReferrals() {
                   <TableCell className="font-medium">{doc.name}</TableCell>
                   <TableCell>{doc.qualification}</TableCell>
                   <TableCell>{doc.specialty}</TableCell>
+                  <TableCell>
+                    {doc.consultationFeeInPaise != null ? `₹${(doc.consultationFeeInPaise / 100).toLocaleString('en-IN')}` : '-'}
+                  </TableCell>
                   <TableCell>
                     {doc.commissionType === 'FIXED_AMOUNT' && doc.commissionAmountInPaise != null
                       ? `₹${(doc.commissionAmountInPaise / 100).toLocaleString('en-IN')}`
