@@ -1553,10 +1553,23 @@ const DiagnosticsResultEntry = () => {
                 placeholder={isAutoDerived ? 'Auto-calculated' : 'Value'}
                 value={valueStr}
                 onChange={(e) => handleValueChange(resultKey, e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const form = e.currentTarget.closest('form') || document;
+                    const inputs = Array.from(
+                      form.querySelectorAll('.test-value-input:not([disabled]):not([readonly])')
+                    ) as HTMLElement[];
+                    const index = inputs.indexOf(e.currentTarget);
+                    if (index > -1 && index < inputs.length - 1) {
+                      inputs[index + 1].focus();
+                    }
+                  }
+                }}
                 readOnly={isAutoDerived}
                 disabled={isAutoDerived}
                 className={cn(
-                  'text-center',
+                  'text-center test-value-input',
                   isAutoDerived && 'bg-muted cursor-not-allowed text-muted-foreground'
                 )}
               />
