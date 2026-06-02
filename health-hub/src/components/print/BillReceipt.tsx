@@ -208,8 +208,17 @@ export const BillReceipt = ({
             </div>
           )}
           <div style={{ fontSize: "10px" }}>
-            #4-8-261/3 &amp; 14/NR, Beside Ridge Towers, IDPL, Surya Nagar,
-            Chintal, Hyd - 500037.
+            {(() => {
+              const lowerBranch = (data.branchName || "").toLowerCase();
+              if (lowerBranch.includes("kidcare") || lowerBranch.includes("gutta")) {
+                return "10-84, opp. I.D.P.L. Colony, Balanagar, Hyderabad, Telangana 500037";
+              }
+              if (lowerBranch.includes("balanagar")) {
+                return "Shop No.3-67, Shobhana Complex, opposite to Hal Gate-1, Balanagar, Hyderabad, Telangana 500042";
+              }
+              // Default (Chintal)
+              return "#4-8-261/3 & 14/NR, Beside Ridge Towers, IDPL, Surya Nagar, Chintal, Hyd - 500037.";
+            })()}
           </div>
           <div style={{ fontSize: "10px" }}>
             Phone : 040-23089999, 9490539006.
