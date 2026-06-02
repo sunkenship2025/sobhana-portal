@@ -18,6 +18,129 @@ datasource db {
   directUrl = env("DIRECT_DATABASE_URL")
 }
 
+
+model Tenant {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  config          TenantConfig?
+  branding        TenantBranding?
+  modules         TenantModule[]
+  reportTemplates TenantReportTemplate[]
+
+  @@index([slug])
+  @@index([isActive])
+}
+
+model TenantConfig {
+  id        String @id @default(cuid())
+  tenantId  String @unique
+
+  businessName      String
+  businessSubtitle  String?
+  businessTimezone  String    @default("Asia/Kolkata")
+  businessCurrency  String    @default("INR")
+  businessLocale    String    @default("en-IN")
+
+  contactPhone    String?
+  contactEmail    String?
+  contactAddress  String?
+  contactCity     String?
+  contactState    String?
+  contactPincode  String?
+  contactWebsite  String?
+
+  gstNumber       String?
+  labLicenseNo    String?
+  drugLicenseNo   String?
+
+  reportPageSize      String  @default("A4")
+  reportOrientation   String  @default("portrait")
+
+  maxBranches     Int     @default(5)
+  maxUsers        Int     @default(25)
+
+  enableWhatsapp  Boolean @default(false)
+  enableSms       Boolean @default(false)
+
+  numberPrefix    String  @default("P")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model TenantBranding {
+  id        String @id @default(cuid())
+  tenantId  String @unique
+
+  primaryColor      String @default("#1B2B58")
+  accentColor       String @default("#D91C2B")
+  sidebarBg         String @default("#1B2B58")
+  sidebarActiveBg   String @default("#25397a")
+  bannerBg          String @default("#1B2B58")
+
+  portalLogoBase64  String?   @db.Text
+  reportLogoBase64  String?   @db.Text
+  faviconBase64     String?   @db.Text
+
+  portalFontFamily  String @default("'Inter', sans-serif")
+  reportFontFamily  String @default("'Segoe UI', Tahoma, sans-serif")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model TenantModule {
+  id          String   @id @default(cuid())
+  tenantId    String
+  moduleCode  String
+  isEnabled   Boolean  @default(true)
+  config      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, moduleCode])
+  @@index([tenantId])
+}
+
+model TenantReportTemplate {
+  id          String @id @default(cuid())
+  tenantId    String
+  templateKey String @default("default")
+
+  customCss       String?   @db.Text
+  headerHtml      String?   @db.Text
+  footerHtml      String?   @db.Text
+
+  marginTopMm     Float     @default(10)
+  marginBottomMm  Float     @default(15)
+  marginLeftMm    Float     @default(10)
+  marginRightMm   Float     @default(10)
+
+  showLabIncharge   Boolean @default(true)
+  showQrCode        Boolean @default(false)
+  showBarcode       Boolean @default(false)
+  showWatermark     Boolean @default(false)
+  watermarkText     String?
+  signaturePosition String  @default("bottom")
+
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, templateKey])
+  @@index([tenantId])
+}
+
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -226,11 +349,14 @@ enum TestInputType {
 /// NumberSequence: Thread-safe counter for generating sequential numbers
 /// Must be updated within database transaction to prevent race conditions
 model NumberSequence {
-  id        String   @id // e.g., "patient", "referralDoctor", "clinicDoctor", "diagnostic-MPR", "clinic-KPY"
+  tenantId String
+
+  id        String // e.g., "patient", "referralDoctor", "clinicDoctor", "diagnostic-MPR", "clinic-KPY"
   prefix    String // e.g., "P", "RD", "CD", "D-MPR", "C-KPY"
   lastValue Int      @default(0)
   updatedAt DateTime @updatedAt
 
+  @@id([tenantId, id])
   @@index([prefix])
 }
 
@@ -241,8 +367,10 @@ model NumberSequence {
 /// Patient is globally searchable and immutable once created.
 /// All contact details go through PatientIdentifier for auditability.
 model Patient {
+  tenantId String
+
   id            String    @id @default(cuid())
-  patientNumber String    @unique // P-00001, P-00002, etc. (user-facing)
+  patientNumber String // P-00001, P-00002, etc. (user-facing)
   name          String
   title         Title?
   yearOfBirth   Int // E2-09: Required - calculated from age or DOB
@@ -269,6 +397,7 @@ model Patient {
   /// Message delivery history
   messages MessageLog[]
 
+  @@unique([tenantId, patientNumber])
   @@index([createdAt])
 }
 
@@ -277,6 +406,8 @@ model Patient {
 /// Multiple identifiers per patient, one primary per type.
 /// Note: Multiple patients can share the same identifier (e.g., family members with same phone)
 model PatientIdentifier {
+  tenantId String
+
   id        String         @id @default(cuid())
   patientId String
   type      IdentifierType
@@ -294,8 +425,10 @@ model PatientIdentifier {
 /// ReferralDoctor: Registered doctors who refer patients (typically external practitioners)
 /// Base commission % can be overridden per test.
 model ReferralDoctor {
+  tenantId String
+
   id                      String             @id @default(cuid())
-  doctorNumber            String             @unique // RD-00001, RD-00002, etc. (user-facing)
+  doctorNumber            String // RD-00001, RD-00002, etc. (user-facing)
   name                    String
   phone                   String?
   email                   String?
@@ -314,11 +447,14 @@ model ReferralDoctor {
   payoutLedger DoctorPayoutLedger[]
   productRules ReferralDoctorProductRule[]
 
+  @@unique([tenantId, doctorNumber])
   @@index([isActive])
   @@index([createdAt])
 }
 
 model ReferralDoctorProductRule {
+  tenantId String
+
   id                      String             @id @default(cuid())
   referralDoctorId        String
   productId               String
@@ -340,8 +476,10 @@ model ReferralDoctorProductRule {
 /// ClinicDoctor: In-house doctors (letterhead, registration, specialty)
 /// Consultation fee commission can be percentage or fixed amount.
 model ClinicDoctor {
+  tenantId String
+
   id                      String             @id @default(cuid())
-  doctorNumber            String             @unique // CD-00001, CD-00002, etc. (user-facing)
+  doctorNumber            String // CD-00001, CD-00002, etc. (user-facing)
   name                    String
   qualification           String // MBBS, MD (Gen Med), etc.
   specialty               String // General Medicine, Pediatrics, etc.
@@ -361,6 +499,8 @@ model ClinicDoctor {
   clinicVisits ClinicVisit[]
   payoutLedger DoctorPayoutLedger[]
 
+  @@unique([tenantId, doctorNumber])
+  @@unique([tenantId, registrationNumber])
   @@index([isActive])
   @@index([createdAt])
 }
@@ -368,9 +508,11 @@ model ClinicDoctor {
 /// LabTest: Diagnostic tests offered at the center
 /// Price fixed globally, can be overridden per visit if needed.
 model LabTest {
+  tenantId String
+
   id            String   @id @default(cuid())
   name          String
-  code          String   @unique
+  code          String
   priceInPaise  Int // Must be > 0, 0 for sub-tests
   referenceMin  Float?
   referenceMax  Float?
@@ -412,6 +554,7 @@ model LabTest {
   ageRanges        TestAgeRange[]
   derivedParameter DerivedParameter?
 
+  @@unique([tenantId, code])
   @@index([isActive])
   @@index([code])
   @@index([createdAt])
@@ -421,9 +564,11 @@ model LabTest {
 
 /// Branch: Physical location where visits occur
 model Branch {
+  tenantId String
+
   id        String   @id @default(cuid())
   name      String
-  code      String   @unique // MPR, KPY, etc.
+  code      String // MPR, KPY, etc.
   address   String?
   phone     String?
   isActive  Boolean  @default(true)
@@ -443,6 +588,7 @@ model Branch {
   productBranchPricing      ProductBranchPricing[]
   labInchargeRules          LabInchargeRule[]
 
+  @@unique([tenantId, code])
   @@index([isActive])
   @@index([code])
   @@index([createdAt])
@@ -450,8 +596,10 @@ model Branch {
 
 /// User: Staff, doctor, owner
 model User {
+  tenantId String
+
   id             String   @id @default(cuid())
-  email          String   @unique
+  email          String
   passwordHash   String // bcrypt hash
   name           String
   phone          String?
@@ -466,6 +614,7 @@ model User {
   ExternalReportUpload ExternalReportUpload[]
   TestResultEntered    TestResult[]           @relation("TestResultEnteredBy")
 
+  @@unique([tenantId, email])
   @@index([role])
   @@index([activeBranchId])
   @@index([isActive])
@@ -479,6 +628,8 @@ model User {
 /// All tests, results, bills, clinic data references this.
 /// branchId + billNumber is unique per branch (auto-generated sequence).
 model Visit {
+  tenantId String
+
   id                 String      @id @default(cuid())
   branchId           String
   patientId          String
@@ -524,6 +675,8 @@ model Visit {
 /// Links referral doctor to visit (many-to-one for future multi-referral support).
 /// MUST exist for doctor to see visit.
 model ReferralDoctor_Visit {
+  tenantId String
+
   id               String   @id @default(cuid())
   visitId          String
   referralDoctorId String
@@ -541,6 +694,8 @@ model ReferralDoctor_Visit {
 
 /// Bill: Single bill per visit (financial anchor)
 model Bill {
+  tenantId String
+
   id                    String            @id @default(cuid())
   visitId               String            @unique
   billNumber            String // Duplicated for direct queries; should match Visit.billNumber
@@ -569,6 +724,8 @@ model Bill {
 
 /// PaymentTransaction: Individual transaction ledger for a Bill
 model PaymentTransaction {
+  tenantId String
+
   id                String      @id @default(cuid())
   billId            String
   amountInPaise     Int
@@ -592,6 +749,8 @@ model PaymentTransaction {
 /// E3-03: Test metadata is snapshotted at order time for immutability.
 /// DUAL FK: testId (old LabTest) + testDefinitionId (new TestDefinition) during migration.
 model TestOrder {
+  tenantId String
+
   id                                      String                 @id @default(cuid())
   visitId                                 String
   testId                                  String
@@ -638,6 +797,8 @@ model TestOrder {
 
 /// DiagnosticReport: Container for report versions
 model DiagnosticReport {
+  tenantId String
+
   id        String   @id @default(cuid())
   visitId   String   @unique
   branchId  String
@@ -656,6 +817,8 @@ model DiagnosticReport {
 /// CONSTRAINT: Once status = FINALIZED, this row must not be updated.
 /// Enforce via code: check status before any update.
 model ReportVersion {
+  tenantId String
+
   id          String       @id @default(cuid())
   reportId    String
   versionNum  Int
@@ -691,6 +854,8 @@ model ReportVersion {
 /// IMMUTABLE once report is finalized.
 /// DUAL FK: testId (old LabTest) + testDefinitionId (new TestDefinition) during migration.
 model TestResult {
+  tenantId String
+
   id              String          @id @default(cuid())
   testOrderId     String
   testId          String // The actual test (can be sub-test of ordered panel)
@@ -734,6 +899,8 @@ model TestResult {
 /// NOTE: ClinicVisit.status = queue state (WAITING/IN_PROGRESS/COMPLETED)
 ///       Visit.status = overall lifecycle (DRAFT/WAITING/IN_PROGRESS/COMPLETED/CANCELLED)
 model ClinicVisit {
+  tenantId String
+
   id                     String          @id @default(cuid())
   visitId                String          @unique
   clinicDoctorId         String
@@ -764,6 +931,8 @@ model ClinicVisit {
 
 /// DoctorPayoutRule: Configuration for payout derivation (future use)
 model DoctorPayoutRule {
+  tenantId String
+
   id                    String   @id @default(cuid())
   referralDoctorId      String
   baseCommissionPercent Float    @default(10.0)
@@ -780,6 +949,8 @@ model DoctorPayoutRule {
 ///   - REFERRAL: Sum of (test price × commission %) for all finalized tests in period
 ///   - CLINIC: Sum of consultation fees for all completed visits in period
 model DoctorPayoutLedger {
+  tenantId String
+
   id                   String           @id @default(cuid())
   doctorType           PayoutDoctorType // REFERRAL | CLINIC | DIAGNOSTIC_CENTER
   referralDoctorId     String? // Set when doctorType = REFERRAL
@@ -825,6 +996,8 @@ model DoctorPayoutLedger {
 /// RULE: Insert only. No updates. No deletes.
 /// ENFORCEMENT: Declare as insert-only in code; never update/delete.
 model AuditLog {
+  tenantId String
+
   id         String          @id @default(cuid())
   branchId   String
   actionType AuditActionType
@@ -854,6 +1027,8 @@ model AuditLog {
 /// RULE: Insert only. No updates. No deletes.
 /// PURPOSE: Track identity field changes with mandatory reasons (staff)
 model PatientChangeLog {
+  tenantId String
+
   id           String            @id @default(cuid())
   patientId    String
   fieldName    String
@@ -887,6 +1062,8 @@ enum PatientChangeType {
 /// MessageLog: Track all outbound messages (WhatsApp, SMS)
 /// Generic enough for reports, bills, reminders, campaigns — contextType + contextId
 model MessageLog {
+  tenantId String
+
   id             String             @id @default(cuid())
   patientId      String
   phone          String
@@ -920,8 +1097,10 @@ model MessageLog {
 /// Department: Groups panels for section headers on reports
 /// e.g., "DEPARTMENT OF HAEMATOLOGY", "DEPARTMENT OF BIOCHEMISTRY"
 model Department {
+  tenantId String
+
   id               String   @id @default(cuid())
-  name             String   @unique // e.g., "HAEMATOLOGY", "BIOCHEMISTRY"
+  name             String // e.g., "HAEMATOLOGY", "BIOCHEMISTRY"
   reportHeaderText String // e.g., "DEPARTMENT OF HAEMATOLOGY"
   displayOrder     Int      @default(0)
   isActive         Boolean  @default(true)
@@ -935,6 +1114,7 @@ model Department {
   clinicalPanels  ClinicalPanel[]
   testDefinitions TestDefinition[]
 
+  @@unique([tenantId, name])
   @@index([displayOrder])
   @@index([isActive])
 }
@@ -942,8 +1122,10 @@ model Department {
 /// PanelDefinition: Configurable report sections
 /// Each panel has a layout type that determines how tests are rendered
 model PanelDefinition {
+  tenantId String
+
   id               String          @id @default(cuid())
-  name             String          @unique // e.g., "LFT", "CBP", "WIDAL"
+  name             String // e.g., "LFT", "CBP", "WIDAL"
   displayName      String // e.g., "LIVER FUNCTION TEST"
   departmentId     String
   layoutType       PanelLayoutType // Determines rendering strategy
@@ -956,6 +1138,7 @@ model PanelDefinition {
   department Department      @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   testItems  PanelTestItem[]
 
+  @@unique([tenantId, name])
   @@index([departmentId])
   @@index([displayOrder])
   @@index([isActive])
@@ -964,6 +1147,8 @@ model PanelDefinition {
 /// PanelTestItem: Tests within a panel, with display rules
 /// Controls order, formatting, and method display per test
 model PanelTestItem {
+  tenantId String
+
   id           String   @id @default(cuid())
   panelId      String
   testId       String
@@ -987,6 +1172,8 @@ model PanelTestItem {
 /// SigningDoctor: Doctors who sign diagnostic reports
 /// Stores credentials and signature image reference
 model SigningDoctor {
+  tenantId String
+
   id                   String   @id @default(cuid())
   name                 String
   degrees              String // e.g., "MBBS, MD (Pathology)"
@@ -1006,6 +1193,8 @@ model SigningDoctor {
 /// SigningRule: Which doctor signs which department
 /// Multiple signers allowed per department
 model SigningRule {
+  tenantId String
+
   id                  String   @id @default(cuid())
   departmentId        String
   signingDoctorId     String
@@ -1025,6 +1214,8 @@ model SigningRule {
 /// SigningLabIncharge: Lab staff who sign diagnostic reports
 /// Stores name, designation, and signature image reference
 model SigningLabIncharge {
+  tenantId String
+
   id                   String   @id @default(cuid())
   name                 String
   designation          String   @default("Lab Incharge")
@@ -1042,6 +1233,8 @@ model SigningLabIncharge {
 /// LabInchargeRule: Which lab incharge signs for which branch
 /// At most one active rule per branch (null branchId = All Branches)
 model LabInchargeRule {
+  tenantId String
+
   id                   String   @id @default(cuid())
   signingLabInchargeId String
   branchId             String? // NULL = All Branches
@@ -1060,6 +1253,8 @@ model LabInchargeRule {
 /// InterpretationTemplate: Range-based interpretation text
 /// Matched against test value to generate interpretation on report
 model InterpretationTemplate {
+  tenantId String
+
   id                 String   @id @default(cuid())
   testId             String
   minValue           Float? // NULL = no lower bound
@@ -1079,6 +1274,8 @@ model InterpretationTemplate {
 /// ReportAccessToken: Secure patient access links
 /// Token maps to specific finalized ReportVersion
 model ReportAccessToken {
+  tenantId String
+
   id              String    @id @default(cuid())
   token           String    @unique // SHA-256 hash of the bearer token
   reportVersionId String
@@ -1097,6 +1294,8 @@ model ReportAccessToken {
 /// ReportAccessLog: Audit trail for report views/downloads
 /// Append-only log of all access events
 model ReportAccessLog {
+  tenantId String
+
   id              String   @id @default(cuid())
   reportVersionId String
   accessType      String // 'VIEW', 'DOWNLOAD', 'PRINT'
@@ -1115,6 +1314,8 @@ model ReportAccessLog {
 
 // ─── Age-Based Reference Ranges ──────────────────────────────────
 model TestAgeRange {
+  tenantId String
+
   id            String   @id @default(cuid())
   testId        String
   minAgeDays    Int? // age stored in total days (0 = newborn). Helpers: 1y=365, 1m=30
@@ -1135,6 +1336,8 @@ model TestAgeRange {
 
 // ─── Derived Parameters (formula-based calculated values) ────────
 model DerivedParameter {
+  tenantId String
+
   id                 String   @id @default(cuid())
   testId             String   @unique
   parameterName      String
@@ -1149,9 +1352,11 @@ model DerivedParameter {
 
 // ─── Diagnostic Referral Centers ─────────────────────────────────
 model DiagnosticReferralCenter {
+  tenantId String
+
   id                      String             @id @default(cuid())
   name                    String
-  centerNumber            String             @unique
+  centerNumber            String
   contactPerson           String?
   phone                   String?
   email                   String?
@@ -1166,9 +1371,13 @@ model DiagnosticReferralCenter {
   payoutLedger   DoctorPayoutLedger[]
   visitReferrals DiagnosticCenter_Visit[]
   productRules   DiagnosticCenterProductRule[]
+
+  @@unique([tenantId, centerNumber])
 }
 
 model DiagnosticCenterProductRule {
+  tenantId String
+
   id                      String             @id @default(cuid())
   diagnosticCenterId      String
   productId               String
@@ -1189,6 +1398,8 @@ model DiagnosticCenterProductRule {
 
 // ─── Diagnostic Center ↔ Visit Join Table ────────────────────────
 model DiagnosticCenter_Visit {
+  tenantId String
+
   id                 String             @id @default(cuid())
   visitId            String
   diagnosticCenterId String
@@ -1213,6 +1424,8 @@ model DiagnosticCenter_Visit {
 /// Uses clone-on-edit semantics: active version is isLatest=true.
 /// Status lifecycle: ACTIVE → LOCKED → DEPRECATED → ARCHIVED
 model TestDefinition {
+  tenantId String
+
   id                String               @id @default(cuid())
   rootDefinitionId  String // Points to first version's ID (groups versions)
   version           Int                  @default(1)
@@ -1266,6 +1479,8 @@ model TestDefinition {
 
 /// TestDefinitionRange: Age/gender-specific reference ranges for a TestDefinition
 model TestDefinitionRange {
+  tenantId String
+
   id               String         @id @default(cuid())
   testDefinitionId String
   category         RangeCategory? // UI selector: MALE, FEMALE, INFANT, CHILD, OTHER
@@ -1291,6 +1506,8 @@ model TestDefinitionRange {
 /// InterpretationRule: Configurable interpretation rules for test results
 /// Supports numeric range matching, text matching, and category matching
 model InterpretationRule {
+  tenantId String
+
   id                 String                 @id @default(cuid())
   testDefinitionId   String
   ruleType           InterpretationRuleType
@@ -1314,8 +1531,10 @@ model InterpretationRule {
 /// ClinicalPanel: Report rendering groups (replaces PanelDefinition for new data)
 /// Each panel has a layout type and config flags that control rendering
 model ClinicalPanel {
+  tenantId String
+
   id                    String          @id @default(cuid())
-  name                  String          @unique
+  name                  String
   displayName           String // e.g., "LIVER FUNCTION TEST"
   departmentId          String
   layoutType            PanelLayoutType @default(STANDARD_TABLE)
@@ -1349,6 +1568,8 @@ model ClinicalPanel {
 
 /// ClinicalPanelItem: Tests within a ClinicalPanel, with display rules
 model ClinicalPanelItem {
+  tenantId String
+
   id               String   @id @default(cuid())
   panelId          String
   testDefinitionId String
@@ -1375,9 +1596,11 @@ model ClinicalPanelItem {
 /// Decoupled from clinical definitions — purely commercial layer.
 /// A product maps to one or more ClinicalPanels (not directly to TestDefinitions).
 model BillableProduct {
+  tenantId String
+
   id               String                 @id @default(cuid())
   name             String
-  code             String                 @unique
+  code             String
   description      String?
   basePriceInPaise Int // Default price (can be overridden per branch)
   isBundle         Boolean                @default(false) // true = package of multiple panels
@@ -1394,6 +1617,7 @@ model BillableProduct {
   referralDoctorRules   ReferralDoctorProductRule[]
   diagnosticCenterRules DiagnosticCenterProductRule[]
 
+  @@unique([tenantId, code])
   @@index([code])
   @@index([isActive])
   @@index([displayOrder])
@@ -1406,6 +1630,8 @@ model BillableProduct {
 /// bill-only items (e.g. sample collection charge) alongside panels, and
 /// transparently picks up the child's panels if the child becomes reportable.
 model BillableProductPanel {
+  tenantId String
+
   id               String   @id @default(cuid())
   productId        String
   panelId          String? // null when this line points at a child product instead
@@ -1430,6 +1656,8 @@ model BillableProductPanel {
 /// Stored in Cloudflare R2; only the metadata + r2Key live in the database.
 /// Soft-deleted via deletedAt so finalized snapshots can still resolve historical uploads.
 model ExternalReportUpload {
+  tenantId String
+
   id               String    @id @default(cuid())
   testOrderId      String
   visitId          String // denormalized for visit-scope queries & cleanup
@@ -1454,6 +1682,8 @@ model ExternalReportUpload {
 
 /// ProductBranchPricing: Per-branch price overrides for products
 model ProductBranchPricing {
+  tenantId String
+
   id           String   @id @default(cuid())
   productId    String
   branchId     String
@@ -1477,23 +1707,31 @@ model ProductBranchPricing {
 /// can edit them freely even on LOCKED test definitions. No row = use defaults
 /// (NUMERIC, no presets, no default value).
 model TestInputConfig {
-  rootDefinitionId String        @id // Matches TestDefinition.rootDefinitionId (not a Prisma FK because that field isn't unique on TestDefinition — every version row carries the same rootDefinitionId)
+  tenantId String
+
+  rootDefinitionId String // Matches TestDefinition.rootDefinitionId (not a Prisma FK because that field isn't unique on TestDefinition — every version row carries the same rootDefinitionId)
   inputType        TestInputType @default(NUMERIC)
   defaultValue     String? // Optional pre-fill for the input on first entry
   valueOptions     Json          @default("[]") // string[] of preset values, in display order
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
+
+  @@id([tenantId, rootDefinitionId])
 }
 
 /// DerivedParameterDef: Formula-based calculated parameters (new architecture)
 /// Separate from TestDefinition for clarity, but linked 1:1
 model DerivedParameterDef {
+  tenantId String
+
   id                 String   @id @default(cuid())
-  testDefinitionCode String   @unique // Code of the test definition this derives
+  testDefinitionCode String // Code of the test definition this derives
   parameterName      String
   formula            String // e.g., "ALB / GLOB"
   dependsOnTestCodes Json // String array: ["ALB", "GLOB"]
   displayOrder       Int      @default(0)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+
+  @@unique([tenantId, testDefinitionCode])
 }

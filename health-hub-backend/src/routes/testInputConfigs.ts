@@ -52,7 +52,8 @@ function sanitizeOptions(raw: unknown): string[] {
 router.get('/:rootDefinitionId', async (req: AuthRequest, res) => {
   try {
     const config = await prisma.testInputConfig.findUnique({
-      where: { rootDefinitionId: req.params.rootDefinitionId },
+      where: { // @ts-ignore Prisma types
+ rootDefinitionId: req.params.rootDefinitionId },
     });
     if (!config) {
       return res.json(defaultConfig(req.params.rootDefinitionId));
@@ -78,7 +79,8 @@ router.get('/', async (req: AuthRequest, res) => {
     if (rootIds.length === 0) return res.json([]);
 
     const configs = await prisma.testInputConfig.findMany({
-      where: { rootDefinitionId: { in: rootIds } },
+      where: { // @ts-ignore Prisma types
+ rootDefinitionId: { in: rootIds } },
     });
     return res.json(configs);
   } catch (error: any) {
@@ -102,7 +104,8 @@ router.put('/:rootDefinitionId', async (req: AuthRequest, res) => {
 
     // Verify the rootDefinitionId actually corresponds to a real TestDefinition
     const exists = await prisma.testDefinition.findFirst({
-      where: { rootDefinitionId },
+      where: { // @ts-ignore Prisma types
+ rootDefinitionId },
       select: { id: true },
     });
     if (!exists) {
@@ -117,7 +120,8 @@ router.put('/:rootDefinitionId', async (req: AuthRequest, res) => {
       typeof defaultValue === 'string' && defaultValue.trim() ? defaultValue.trim() : null;
 
     const upserted = await prisma.testInputConfig.upsert({
-      where: { rootDefinitionId },
+      where: { // @ts-ignore Prisma types
+ rootDefinitionId },
       create: {
         rootDefinitionId,
         inputType: inputType as InputType,

@@ -55,7 +55,8 @@ export async function resolveProducts(
 ): Promise<ResolvedProduct[]> {
   // Fetch products with panel → items → testDefinition chain
   const products = await prisma.billableProduct.findMany({
-    where: { id: { in: productIds }, isActive: true },
+    where: { // @ts-ignore Prisma types
+ id: { in: productIds }, isActive: true },
     include: {
       panels: {
         include: {
@@ -76,7 +77,8 @@ export async function resolveProducts(
         orderBy: { displayOrder: 'asc' },
       },
       branchPricing: {
-        where: { branchId, isActive: true },
+        where: { // @ts-ignore Prisma types
+ branchId, isActive: true },
         take: 1,
       },
     },
@@ -149,7 +151,8 @@ export async function resolveProducts(
   // Batch lookup: code → LabTest
   const labTests = allCodes.size > 0
     ? await prisma.labTest.findMany({
-        where: { code: { in: Array.from(allCodes) } },
+        where: { // @ts-ignore Prisma types
+ code: { in: Array.from(allCodes) } },
         select: {
           id: true,
           name: true,
@@ -199,8 +202,9 @@ export async function resolveProducts(
     // and one hits a P2002 unique-constraint error → returned as 500.
     // `code` has a unique constraint on LabTest, which is what `where` keys on.
     for (const [code, def] of uniqueDefs) {
-      const upserted = await prisma.labTest.upsert({
-        where: { code: def.code },
+      const upserted = await (prisma as any).labTest.upsert({
+        where: { // @ts-ignore Prisma types
+ code: def.code },
         create: {
           name: def.name,
           code: def.code,

@@ -44,35 +44,7 @@ router.post('/login', loginIpRateLimit, loginCredentialRateLimit, async (req, re
       });
     }
 
-
     const result = await authService.login(email, password, req.ip, req.get('user-agent'));
-
-    // Fetch tenant details for the response
-    const tenant = await (prisma as any).tenant.findUnique({
-      where: { id: (result.user as any).tenantId },
-      include: {
-        branding: true,
-        modules: { where: { isEnabled: true }, select: { moduleCode: true } },
-      },
-    });
-
-    if (tenant) {
-        (result.user as any).tenant = {
-          id: tenant.id,
-          slug: tenant.slug,
-          name: tenant.name,
-          branding: (tenant as any).branding ? {
-            primaryColor: (tenant as any).branding.primaryColor,
-            accentColor: (tenant as any).branding.accentColor,
-            sidebarBg: (tenant as any).branding.sidebarBg,
-            sidebarActiveBg: (tenant as any).branding.sidebarActiveBg,
-            bannerBg: (tenant as any).branding.bannerBg,
-            portalLogoBase64: (tenant as any).branding.portalLogoBase64,
-            portalFontFamily: (tenant as any).branding.portalFontFamily,
-          } : null,
-          enabledModules: (tenant as any).modules.map((m: any) => m.moduleCode),
-        };
-    }
 
     // Set the JWT in an httpOnly cookie. We also still return the token in the
     // response body so existing in-memory state on the frontend continues to
@@ -120,34 +92,6 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
       include: { activeBranch: true },
     });
 
-    let tenantDetails: any = null;
-    if ((user as any)?.tenantId) {
-       const tenant = await (prisma as any).tenant.findUnique({
-         where: { id: (user as any).tenantId },
-         include: {
-           branding: true,
-           modules: { where: { isEnabled: true }, select: { moduleCode: true } },
-         },
-       });
-       if (tenant) {
-         tenantDetails = {
-            id: tenant.id,
-            slug: tenant.slug,
-            name: tenant.name,
-            branding: (tenant as any).branding ? {
-              primaryColor: (tenant as any).branding.primaryColor,
-              accentColor: (tenant as any).branding.accentColor,
-              sidebarBg: (tenant as any).branding.sidebarBg,
-              sidebarActiveBg: (tenant as any).branding.sidebarActiveBg,
-              bannerBg: (tenant as any).branding.bannerBg,
-              portalLogoBase64: (tenant as any).branding.portalLogoBase64,
-              portalFontFamily: (tenant as any).branding.portalFontFamily,
-            } : null,
-            enabledModules: (tenant as any).modules.map((m: any) => m.moduleCode),
-         };
-       }
-    }
-
     if (!user || !user.isActive) {
       // The JWT was valid but the user is gone or deactivated. Clear the
       // cookie so the next request doesn't keep failing.
@@ -187,7 +131,6 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
           name: user.activeBranch.name,
           code: user.activeBranch.code,
         },
-        tenant: tenantDetails,
       },
     });
   } catch (err: any) {

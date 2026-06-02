@@ -24,7 +24,6 @@ import {
   rgb,
 } from 'pdf-lib';
 import { renderReportHtml } from './reportRendererService';
-import { resolveTenantAssets } from './tenantAssetResolver';
 import { generatePdfFromHtml } from './pdfGenerationService';
 import { getObject } from './r2StorageService';
 import {
@@ -134,8 +133,7 @@ export async function generateMergedReportPdf(
 
   if (!skipBaseRender) {
     const profile = mode === 'physical' ? 'pdf-physical' : 'pdf-digital';
-    const tenantAssets = snapshot.tenantBrandingSnapshot || await resolveTenantAssets((snapshot.visit as any)?.tenantId || 'sobhana-default');
-    const html = renderReportHtml(snapshot, { profile, baseUrl, qrDataUrl }, tenantAssets);
+    const html = renderReportHtml(snapshot, { profile, baseUrl, qrDataUrl });
     const basePdf = await generatePdfFromHtml(html, { mode });
 
     if (uploads.length === 0) {
