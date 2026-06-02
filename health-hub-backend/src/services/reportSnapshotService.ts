@@ -27,6 +27,7 @@ import {
   type DerivedFormulaTarget,
 } from './derivedParameterService';
 import prisma from '../lib/prisma';
+import { resolveTenantAssets } from './tenantAssetResolver';
 
 // ============================================================================
 // TYPES
@@ -179,6 +180,7 @@ export interface ExternalUploadSnapshot {
 }
 
 export interface ReportSnapshot {
+  tenantBrandingSnapshot?: any;
   snapshotVersion: number;   // Schema version for forward-compatible rendering
   reportVersionId: string;
   versionNum: number;
@@ -1688,6 +1690,31 @@ export async function saveReportSnapshot(
     ? { ...snapshot.labIncharge, signatureImageBase64: undefined }
     : null;
 
+  // Capture tenant branding exactly as it looks right now
+  const tenantAssets = await resolveTenantAssets((snapshot.visit as any)?.tenantId || 'sobhana-default');
+  const tenantBrandingSnapshot = {
+    businessName: tenantAssets.businessName,
+    businessSubtitle: tenantAssets.businessSubtitle,
+    contactPhone: tenantAssets.contactPhone,
+    contactAddress: tenantAssets.contactAddress,
+    labLicenseNo: tenantAssets.labLicenseNo,
+    reportLogoBase64: tenantAssets.reportLogoBase64,
+    primaryColor: tenantAssets.primaryColor,
+    accentColor: tenantAssets.accentColor,
+    reportFontFamily: tenantAssets.reportFontFamily,
+    customCss: tenantAssets.customCss,
+    headerHtml: tenantAssets.headerHtml,
+    footerHtml: tenantAssets.footerHtml,
+    marginTopMm: tenantAssets.marginTopMm,
+    marginBottomMm: tenantAssets.marginBottomMm,
+    marginLeftMm: tenantAssets.marginLeftMm,
+    marginRightMm: tenantAssets.marginRightMm,
+    reportPageSize: tenantAssets.reportPageSize,
+    showLabIncharge: tenantAssets.showLabIncharge,
+    showQrCode: tenantAssets.showQrCode,
+    signaturePosition: tenantAssets.signaturePosition,
+  };
+
   await prisma.reportVersion.update({
     where: { id: reportVersionId },
     data: {
@@ -1697,6 +1724,8 @@ export async function saveReportSnapshot(
       patientSnapshot: snapshot.patient as any,
       visitSnapshot: snapshot.visit as any,
       externalUploadsSnapshot: snapshot.externalUploads as any,
+      // @ts-ignore Prisma types
+      tenantBrandingSnapshot: tenantBrandingSnapshot as any,
     },
   });
 }

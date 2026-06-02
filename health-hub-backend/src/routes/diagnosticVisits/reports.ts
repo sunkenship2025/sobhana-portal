@@ -42,7 +42,9 @@ import {
   ProductResolutionError,
 } from "../../services/productOrderService";
 
-import { renderReportHtml } from "../../services/reportRendererService";
+import { renderReportHtml } from '../../services/reportRendererService';
+import { resolveTenantAssets } from '../../services/tenantAssetResolver';
+// from "../../services/reportRendererService";
 
 import { generateMergedReportPdf } from "../../services/mergedReportPdfService";
 
@@ -311,7 +313,8 @@ router.get("/:id/preview-report", async (req: AuthRequest, res) => {
     const baseUrl = `${req.protocol}://${req.get("host")}`;
 
     if (format === "html") {
-      const html = renderReportHtml(snapshot, { profile: "screen", baseUrl });
+      const tenantAssets = await resolveTenantAssets((visit as any).tenantId || 'sobhana-default');
+      const html = renderReportHtml(snapshot, { profile: "screen", baseUrl }, tenantAssets);
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.setHeader("Cache-Control", "no-store");
       return res.send(html);
@@ -368,13 +371,12 @@ router.get("/:id/finalized-report", async (req: AuthRequest, res) => {
         )
       : "";
 
+    const tenantAssets = ((loaded as any)?.tenantBrandingSnapshot) || await resolveTenantAssets((loaded as any)?.snapshot?.visit?.tenantId || 'sobhana-default');
     const html = renderReportHtml(loaded.snapshot, {
-      // Physical print uses pre-printed ledger paper, so the HTML must omit
-      // the built-in report header/footer when the browser print dialog opens.
       profile: autoPrint ? "pdf-physical" : "screen",
       baseUrl,
       qrDataUrl,
-    });
+    }, tenantAssets);
     const finalHtml = autoPrint
       ? html.replace(
           "</body>",

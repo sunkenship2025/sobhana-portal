@@ -18,6 +18,7 @@ import {
 import { validateToken, recordAccess } from '../services/reportAccessService';
 import { getReportSnapshot } from '../services/reportSnapshotService';
 import { renderReportHtml } from '../services/reportRendererService';
+import { resolveTenantAssets } from '../services/tenantAssetResolver';
 import { generateMergedReportPdf } from '../services/mergedReportPdfService';
 
 const router = Router();
@@ -237,13 +238,12 @@ router.get('/:token/view', publicReportIpRateLimit, publicReportTokenRateLimit, 
     });
 
     const autoPrint = req.query.print === 'true';
+    const tenantAssets = await resolveTenantAssets((loaded as any)?.snapshot?.visit?.tenantId || 'sobhana-default');
     const html = renderReportHtml(loaded.snapshot, {
-      // Physical print uses pre-printed ledger paper, so auto-print must
-      // switch to the letterhead-safe layout without the embedded header/footer.
       profile: autoPrint ? 'pdf-physical' : 'screen',
       baseUrl,
       qrDataUrl,
-    });
+    }, tenantAssets);
     const finalHtml = autoPrint
       ? html.replace('</body>', '<script>window.onload=function(){setTimeout(function(){window.print()},600)}</script></body>')
       : html;

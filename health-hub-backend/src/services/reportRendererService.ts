@@ -20,18 +20,19 @@ import {
 import fs from 'fs';
 import path from 'path';
 import sanitizeHtml from 'sanitize-html';
+import { TenantRenderAssets } from './tenantAssetResolver';
 
 // ============================================================================
 // INLINE ASSETS — loaded once at startup, embedded in every report HTML
 // ============================================================================
 
 const CSS_DIR = path.join(__dirname, '../../public/css');
-const IMAGES_DIR = path.join(__dirname, '../../public/images');
+// const IMAGES_DIR = path.join(__dirname, '../../public/images');
 const PUBLIC_DIR = path.join(__dirname, '../../public');
 
 let SCREEN_CSS = '';
 let PRINT_CSS = '';
-let LOGO_DATA_URI = '';
+// let LOGO_DATA_URI = '';
 const BUSINESS_TIME_ZONE = process.env.BUSINESS_TIME_ZONE || 'Asia/Kolkata';
 const REPORT_DATE_TIME_FORMATTER = new Intl.DateTimeFormat('en-IN', {
   timeZone: BUSINESS_TIME_ZONE,
@@ -51,8 +52,8 @@ try {
 }
 
 try {
-  const logoBuffer = fs.readFileSync(path.join(IMAGES_DIR, 'sobhana-logo-cropped.png'));
-  LOGO_DATA_URI = `data:image/png;base64,${logoBuffer.toString('base64')}`;
+  // const logoBuffer
+  // LOGO_DATA_URI
 } catch (err) {
   console.error('Failed to load logo for inlining:', err);
 }
@@ -778,25 +779,37 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
   }
 }
 
-function renderHeaderHtml(baseUrl: string, qrImgSrc: string): string {
-  const logoSrc = LOGO_DATA_URI || `${baseUrl}/images/sobhana-logo-cropped.png`;
+function renderHeaderHtml(baseUrl: string, qrDataUrl: string, assets: TenantRenderAssets): string {
 
+  const interpolate = (html: string) => {
+    return html
+      .replace(/\{\{businessName\}\}/g, assets.businessName)
+      .replace(/\{\{businessSubtitle\}\}/g, assets.businessSubtitle || '')
+      .replace(/\{\{contactPhone\}\}/g, assets.contactPhone || '')
+      .replace(/\{\{contactAddress\}\}/g, assets.contactAddress || '')
+      .replace(/\{\{labLicenseNo\}\}/g, assets.labLicenseNo || '')
+      .replace(/\{\{logo\}\}/g, assets.reportLogoBase64);
+  };
+
+  if (assets.headerHtml) {
+    return interpolate(assets.headerHtml);
+  }
+
+  const logoSrc = assets.reportLogoBase64 || `${baseUrl}/images/sobhana-logo-cropped.png`;
   return `
-    <header class="header">
-      <div class="header-logo-row">
-        <img src="${logoSrc}" alt="Sobhana Diagnostic Centre" class="header-logo" />
-        ${qrImgSrc ? `
-        <div class="header-qr no-print">
-          <img src="${qrImgSrc}" alt="QR" class="header-qr-img" />
-          <div class="header-qr-text">Scan to<br>download</div>
+    <header class="report-header">
+      <div class="report-header-content">
+        <img src="${logoSrc}" alt="${assets.businessName} Logo" class="brand-logo" />
+        <div class="brand-text">
+          <div class="brand-name">${assets.businessName}</div>
+          <div class="brand-subtitle">${assets.businessSubtitle || ''}</div>
+          <div class="brand-contact">${assets.contactPhone || ''} | ${assets.contactAddress || ''}</div>
         </div>
-        ` : ''}
-      </div>
-      <div class="header-stripe-band">
-        <div></div><div></div><div></div>
-      </div>
-      <div class="report-badge-row">
-        <span class="report-badge">REPORT</span>
+        ${
+          assets.showQrCode && qrDataUrl
+            ? `<div class="header-qr"><img src="${qrDataUrl}" alt="Verification QR" /></div>`
+            : ''
+        }
       </div>
     </header>`;
 }
@@ -972,7 +985,7 @@ function renderReportBottomHtml(
       </div>`;
 }
 
-function renderFooterHtml(): string {
+function renderFooterHtml(assets: TenantRenderAssets): string {
   return `
     <footer class="footer">
       <div class="footer-stripe"></div>
@@ -989,12 +1002,12 @@ function renderFooterHtml(): string {
     </footer>`;
 }
 
-function buildReportFragments(_snapshot: ReportSnapshot, baseUrl: string, qrDataUrl: string): ReportFragments {
+function buildReportFragments(_snapshot: ReportSnapshot, baseUrl: string, qrDataUrl: string, assets: TenantRenderAssets): ReportFragments {
   // Patient info is now rendered per-page in renderReportPage so the Sample
   // Type field can match the panels actually shown on that page.
   return {
-    headerHtml: renderHeaderHtml(baseUrl, qrDataUrl),
-    footerHtml: renderFooterHtml(),
+    headerHtml: renderHeaderHtml(baseUrl, qrDataUrl, assets),
+    footerHtml: renderFooterHtml(assets),
     qrImgSrc: qrDataUrl,
   };
 }
@@ -1175,6 +1188,7 @@ function renderDocumentHtml(
   snapshot: ReportSnapshot,
   resolved: ResolvedProfile,
   pagesHtml: string,
+  assets: TenantRenderAssets
 ): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1184,6 +1198,14 @@ function renderDocumentHtml(
   <title>Diagnostic Report - ${snapshot.patient.title ? escapeHtml(snapshot.patient.title) + '. ' : ''}${escapeHtml(snapshot.patient.name)} - ${escapeHtml(snapshot.visit.billNumber)}</title>
   ${resolved.cssBlock}
   ${resolved.extraStyles ? `<style>${resolved.extraStyles}</style>` : ''}
+  <style>
+    :root {
+      --report-primary: ${assets.primaryColor || '#1B2B58'};
+      --report-accent: ${assets.accentColor || '#D91C2B'};
+      --report-font: ${assets.reportFontFamily || "'Segoe UI', Tahoma, sans-serif"};
+    }
+    ${assets.customCss || ''}
+  </style>
 </head>
 <body class="report-body ${resolved.bodyClass}">
 ${pagesHtml}
@@ -1191,7 +1213,7 @@ ${pagesHtml}
 </html>`;
 }
 
-export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOptions): string {
+export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOptions, assets: TenantRenderAssets): string {
   const { profile, baseUrl = '', qrDataUrl = '' } = options;
   const resolved = resolveProfile(profile);
 
@@ -1208,7 +1230,7 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
       </section>`;
   };
 
-  const fragments = buildReportFragments(snapshot, baseUrl, qrDataUrl);
+  const fragments = buildReportFragments(snapshot, baseUrl, qrDataUrl, assets);
   if (profile === 'pdf-digital') {
     // Footer is drawn by Puppeteer's footerTemplate (see DIGITAL_PDF_OPTIONS).
     // Pulling it out of the document flow guarantees it always anchors to the
@@ -1220,5 +1242,5 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
     .map(page => renderReportPage(page, fragments, snapshot, baseUrl, isPhysicalPrint))
     .join('');
 
-  return renderDocumentHtml(snapshot, resolved, pages);
+  return renderDocumentHtml(snapshot, resolved, pages, assets);
 }

@@ -34,11 +34,11 @@
    ============================================================================ */
 
 :root {
-  --font-primary: 'Arimo', Arial, Helvetica, sans-serif;
+  --font-primary: var(--report-font, 'Arimo', Arial, Helvetica, sans-serif);
   --color-text: #000000;
   --color-text-light: #000000;
   --color-border: #000000;
-  --color-abnormal: #000000;
+  --color-abnormal: var(--report-accent, #000000);
   --color-border-light: #cfcfcf;
   --spacing-xs: 2pt;
   --spacing-sm: 4pt;
