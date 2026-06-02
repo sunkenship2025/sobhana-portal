@@ -69,7 +69,7 @@ export function TestValueCombobox({
           // pick this up too.
           title={value || undefined}
           className={cn(
-            'w-full justify-between font-normal',
+            'w-full justify-between font-normal test-value-input',
             !value && 'text-muted-foreground',
             className
           )}
