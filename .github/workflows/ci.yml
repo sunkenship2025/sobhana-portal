@@ -10,16 +10,62 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: healthhub_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
     - uses: actions/checkout@v3
     - name: Use Node.js
       uses: actions/setup-node@v3
       with:
         node-version: '18.x'
-    - run: npm install
+
+    - name: Install Dependencies
+      run: npm install
       working-directory: ./health-hub-backend
-    - run: npm run lint
+
+    - name: Lint
+      run: npm run lint
       working-directory: ./health-hub-backend
       continue-on-error: true
-    - run: npm run type-check
+
+    - name: Type Check
+      run: npm run type-check
       working-directory: ./health-hub-backend
+
+    - name: Setup Test DB
+      run: npx prisma db push --accept-data-loss
+      working-directory: ./health-hub-backend
+      env:
+        DATABASE_URL: postgresql://testuser:testpassword@localhost:5433/healthhub_test?schema=public
+        DIRECT_DATABASE_URL: postgresql://testuser:testpassword@localhost:5433/healthhub_test?schema=public
+
+    - name: Run Jest Isolation Tests
+      run: npx jest src/__tests__/tenant-isolation.test.ts
+      working-directory: ./health-hub-backend
+      env:
+        DATABASE_URL: postgresql://testuser:testpassword@localhost:5433/healthhub_test?schema=public
+        DIRECT_DATABASE_URL: postgresql://testuser:testpassword@localhost:5433/healthhub_test?schema=public
+
+    - name: Install Playwright Browsers
+      run: npx playwright install --with-deps
+      working-directory: ./health-hub-backend
+
+    - name: Run Playwright E2E
+      run: npx playwright test tests/e2e/report-branding.spec.ts
+      working-directory: ./health-hub-backend
+      env:
+        DATABASE_URL: postgresql://testuser:testpassword@localhost:5433/healthhub_test?schema=public
+        DIRECT_DATABASE_URL: postgresql://testuser:testpassword@localhost:5433/healthhub_test?schema=public

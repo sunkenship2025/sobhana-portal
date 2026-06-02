@@ -37,6 +37,7 @@ import { initSentry, Sentry, isSentryEnabled } from './lib/sentry';
 initSentry();
 
 // Routes
+import platformRoutes from './routes/platform';
 import authRoutes from './routes/auth';
 import branchRoutes from './routes/branches';
 import patientRoutes from './routes/patients';
@@ -287,6 +288,8 @@ app.use('/api/reports', reportRoutes);
 
 // Branches route (auth required)
 app.use('/api/branches', branchRoutes);
+app.use('/api/platform', authMiddleware, platformRoutes);
+
 
 // Mount tenant context middleware after auth but before branch
 app.use(tenantContextMiddleware);
