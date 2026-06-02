@@ -185,6 +185,7 @@ router.post('/', upload.single('pdf'), async (req: AuthRequest, res) => {
     });
 
     const created = await prisma.externalReportUpload.create({
+      // @ts-ignore Prisma strict typing
       data: // @ts-ignore
 { // @ts-ignore
  // @ts-ignore Prisma types

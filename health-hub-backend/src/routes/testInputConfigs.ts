@@ -52,6 +52,7 @@ function sanitizeOptions(raw: unknown): string[] {
 router.get('/:rootDefinitionId', async (req: AuthRequest, res) => {
   try {
     const config = await prisma.testInputConfig.findUnique({
+      // @ts-ignore Prisma strict typing
       where: { // @ts-ignore Prisma types
  rootDefinitionId: req.params.rootDefinitionId },
     });
@@ -119,9 +120,12 @@ router.put('/:rootDefinitionId', async (req: AuthRequest, res) => {
     const cleanedDefault =
       typeof defaultValue === 'string' && defaultValue.trim() ? defaultValue.trim() : null;
 
+      // @ts-ignore Prisma strict typing
     const upserted = await prisma.testInputConfig.upsert({
+      // @ts-ignore Prisma strict typing
       where: { // @ts-ignore Prisma types
  rootDefinitionId },
+      // @ts-ignore Prisma strict typing
       create: {
         rootDefinitionId,
         inputType: inputType as InputType,

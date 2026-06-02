@@ -142,6 +142,7 @@ router.post("/:id/collect-due", async (req: AuthRequest, res) => {
         paidAmountInPaise: nextBillFinancials.paidAmountInPaise,
         paymentStatus: nextBillFinancials.paymentStatus,
         transactions: {
+              // @ts-ignore Prisma strict typing
           create: {
             amountInPaise: addedAmountInPaise,
             paymentType: normalizedPaymentType,

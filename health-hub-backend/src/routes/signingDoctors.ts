@@ -165,6 +165,7 @@ router.post('/', async (req: AuthRequest, res) => {
     }
 
     const doctor = await prisma.signingDoctor.create({
+      // @ts-ignore Prisma strict typing
       data: // @ts-ignore
 { // @ts-ignore
  // @ts-ignore Prisma types

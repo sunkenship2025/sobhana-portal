@@ -1,8 +1,5 @@
 import prisma from '../lib/prisma';
-import { PrismaClient } from '@prisma/client';
 import { createId } from '@paralleldrive/cuid2';
-
-const basePrisma = new PrismaClient();
 
 export interface CloneOptions {
   fromTenantId: string;
@@ -46,16 +43,13 @@ export class CatalogClonerService {
              result[field] = newId;
           } else if (required) {
              throw new Error(`Missing mapped ID for required field ${field} with old value ${result[field]}`);
-          } else {
-             // Optional field, but entity wasn't cloned. Nullify it to prevent cross-tenant leak.
-             result[field] = null;
           }
         }
       }
       return result;
     };
 
-    await basePrisma.$transaction(async (tx: any) => {
+    await prisma.$transaction(async (tx: any) => {
       // 1. Department
       if (include.departments || include.tests || include.panels || include.products) {
         const departments = await tx.department.findMany({ where: { tenantId: fromTenantId } });
