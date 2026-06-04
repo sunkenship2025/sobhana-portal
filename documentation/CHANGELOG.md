@@ -11,6 +11,11 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 _Tracked here as commits land on `main`. Entries are promoted to a versioned section at release time — see [`RELEASE.md`](RELEASE.md)._
 
 ### Added
+- **Lab Incharge Signing with Branch-Wise Rules.** Added `SigningLabIncharge` and `LabInchargeRule` tables to support assigning specific lab incharges per branch. The report renderer now includes lab incharge signatures (digital versions show the signature image, while printed versions show a manual signing line). Admin UI was updated to a 4-section layout to manage these rules.
+- **Master Title Re-added.** Added "Master" back to the patient title options for pediatric patients, completing title and salutation coverage across the application.
+
+
+
 - **Auto-save on result entry.** [`DiagnosticsResultEntry`](../health-hub/src/pages/diagnostics/DiagnosticsResultEntry.tsx) now persists the in-progress draft 1.5 s after the last keystroke and immediately on field blur. An inline status indicator above the action button shows `Saving…` / `Saved · just now` / `Unsaved changes` / `Save failed — will retry`. In-flight saves are coordinated via a ref so the explicit click and the debounced timer never race. The first results-changed render after `fetchVisit` is suppressed via `autoSavePrimedRef` so the initial state load doesn't trigger a no-op POST.
 - **Per-test scoped partial release.** New [`PartialReleaseSelectorDialog`](../health-hub/src/components/diagnostics/PartialReleaseSelectorDialog.tsx) lets staff pick exactly which test orders go into the partial-release version. The dialog groups orders by department, hints which rows have been edited vs unedited, and seeds defaults from the current draft.
   - `POST /api/visits/diagnostic/:id/release-partial` now accepts an optional body `{ testOrderIds: string[] }`. With an explicit selection: only those orders are finalized in the current draft; the rest are carried forward into the next DRAFT version untouched. Without a body: legacy behaviour (release every draft result that exists) — preserved for backwards compatibility.
@@ -19,9 +24,19 @@ _Tracked here as commits land on `main`. Entries are promoted to a versioned sec
 - **Result-entry button label flips with completeness.** "Save Draft & Preview Report" → `Review & Finalize` when every reportable test has a value AND every required external upload is attached, or `Continue with Partial Report` otherwise. The click target itself is the same — only the label changes — so staff get a one-glance read of what's about to happen.
 
 ### Changed
+- **Branch-Specific Print Addresses.** Bill receipts and clinic prescription prints now dynamically display the correct address based on the branch (e.g., Kukatpally, Balanagar, Chintal).
+- **Result Entry Keyboard Navigation.** Implemented "enter to next box" functionality in the Diagnostics Result Entry page, allowing staff to navigate between input fields using the Enter key for faster data entry.
+
+
+
 - **Finalize / release lives only inside the preview modal now.** [`DiagnosticsReportPreview`](../health-hub/src/pages/diagnostics/DiagnosticsReportPreview.tsx) no longer surfaces "Finalize" / "Release Partial" buttons on the page itself; staff must open the rendered-PDF preview before those actions appear (inside the modal). The previous `hasReviewedPreview` sessionStorage gate is removed — the modal is now the only path. Eliminates the "looked at the JSON-shaped on-screen card and shipped" failure mode.
 
 ### Fixed
+- **Redis Initialization.** Fixed a race condition where the application attempted to ping Redis before the connection was fully ready by waiting for the `ready` event in `ensureRedisReady`.
+- **Title Dropdown Bug.** Fixed an issue where an empty string `Select.Item` caused a blank screen on the new patient form.
+
+
+
 - **External-upload-only visits couldn't be finalized.** `canFinalizeAll` required `totalReportableCount > 0`, but pure EXTERNAL_UPLOAD visits have no reportable orders — the uploaded PDF *is* the report. Added `isExternalUploadOnly` branch in [`DiagnosticsReportPreview.tsx`](../health-hub/src/pages/diagnostics/DiagnosticsReportPreview.tsx) so single-upload visits can finalize once the PDF is attached.
 
 ### Migration notes
