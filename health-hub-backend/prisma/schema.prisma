@@ -1331,6 +1331,7 @@ model ClinicalPanel {
   showSubgroups      Boolean @default(false) // true = render subGroup sections (e.g., CBP: MAIN/DIFFERENTIAL/SMEAR)
   showInterpretation Boolean @default(false) // true = render interpretation block below results
   valueDisplayPrefix String? // e.g., "1:" for Widal dilution format
+  spacedDefinitionsGap Int @default(0)
 
   summaryInterpretationTemplate String? // Template for panel-level interpretation
   subgroupMethods               Json? // Map<subgroupName, methodString> e.g. {"PHYSICAL EXAMINATION": "Transmission refractometry"}

@@ -117,6 +117,12 @@ interface TestOrder {
   testName: string;
   testCode: string;
   price: number;
+  productId?: string;
+  product?: {
+    id: string;
+    name: string;
+    code: string;
+  } | null;
   isPanel: boolean;
   isDerived?: boolean;
   formulaExpression?: string | null;
@@ -1708,6 +1714,7 @@ const DiagnosticsResultEntry = () => {
     panelLayoutType: string;
     panelMethodText: string | null;
     panelMethodItalic: boolean;
+    productName?: string;
     orders: TestOrder[];
   };
   type SingleOrder = {
@@ -1746,8 +1753,10 @@ const DiagnosticsResultEntry = () => {
 
       // If order has a panel.id, group with other orders of same panel
       if (order.panel?.id) {
-        if (!panelGroups.has(order.panel.id)) {
-          panelGroups.set(order.panel.id, {
+        // Scope the panel grouping to the specific productId so identical panels from different products don't merge
+        const panelGroupKey = `${order.productId || 'no-product'}_${order.panel.id}`;
+        if (!panelGroups.has(panelGroupKey)) {
+          panelGroups.set(panelGroupKey, {
             type: 'panel',
             panelId: order.panel.id,
             panelName: order.panel.name,
@@ -1755,10 +1764,11 @@ const DiagnosticsResultEntry = () => {
             panelLayoutType: order.panel.layoutType,
             panelMethodText: order.panel.panelMethodText || null,
             panelMethodItalic: order.panel.panelMethodItalic || false,
+            productName: order.product?.name,
             orders: [],
           });
         }
-        panelGroups.get(order.panel.id)!.orders.push(order);
+        panelGroups.get(panelGroupKey)!.orders.push(order);
       } else {
         // No panel - render as individual test
         orderGroups.push({ type: 'single', order });
@@ -2117,7 +2127,14 @@ const DiagnosticsResultEntry = () => {
                           >
                             <div className="space-y-1">
                               <div className="flex flex-wrap items-center gap-3">
-                                <span className="text-lg font-semibold">{panelGroup.panelDisplayName || panelGroup.panelName}</span>
+                                <div className="flex items-center gap-3">
+                                  <span className="text-lg font-semibold">{panelGroup.panelDisplayName || panelGroup.panelName}</span>
+                                  {panelGroup.productName && panelGroup.productName !== (panelGroup.panelDisplayName || panelGroup.panelName) && (
+                                    <span className="text-sm font-medium text-muted-foreground border-l border-border pl-3">
+                                      (Billed as: {panelGroup.productName})
+                                    </span>
+                                  )}
+                                </div>
                                 <span className="rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">
                                   {total} parameters
                                 </span>

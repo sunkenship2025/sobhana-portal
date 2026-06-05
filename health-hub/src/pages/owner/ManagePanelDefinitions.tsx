@@ -82,6 +82,7 @@ interface ClinicalPanel {
   showSubgroups: boolean;
   showInterpretation: boolean;
   valueDisplayPrefix: string | null;
+  spacedDefinitionsGap: number;
   panelMethodText: string | null;
   panelMethodItalic: boolean;
   narrativeTemplateHtml: string | null;
@@ -340,6 +341,7 @@ export default function ManagePanelDefinitions() {
   const [formShowMethod, setFormShowMethod] = useState(false);
   const [formShowSubgroups, setFormShowSubgroups] = useState(false);
   const [formShowInterpretation, setFormShowInterpretation] = useState(false);
+  const [formSpacedDefinitionsGap, setFormSpacedDefinitionsGap] = useState<number>(0);
   const [formValuePrefix, setFormValuePrefix] = useState('');
   const [formPanelMethodText, setFormPanelMethodText] = useState('');
   const [formPanelMethodItalic, setFormPanelMethodItalic] = useState(false);
@@ -477,7 +479,7 @@ export default function ManagePanelDefinitions() {
     setFormName(''); setFormCode(''); setFormLayout('STANDARD_TABLE'); setFormDeptId('');
     setFormSampleType(''); setFormActive(true); setFormTemplate(''); setFormItems([]);
     setFormShowMethod(false); setFormShowSubgroups(false);
-    setFormShowInterpretation(false); setFormValuePrefix('');
+    setFormShowInterpretation(false); setFormSpacedDefinitionsGap(0); setFormValuePrefix('');
     setFormPanelMethodText(''); setFormPanelMethodItalic(false);
     setFormNarrativeTemplateHtml('');
     setFormSubgroups([]); setNewSubgroupInput('');
@@ -499,6 +501,7 @@ export default function ManagePanelDefinitions() {
     setFormShowMethod(p.showMethodColumn ?? false);
     setFormShowSubgroups(p.showSubgroups ?? false);
     setFormShowInterpretation(p.showInterpretation ?? false);
+    setFormSpacedDefinitionsGap(p.spacedDefinitionsGap ?? 0);
     setFormValuePrefix(p.valueDisplayPrefix || '');
     setFormPanelMethodText(p.panelMethodText || '');
     setFormPanelMethodItalic(p.panelMethodItalic ?? false);
@@ -718,6 +721,7 @@ export default function ManagePanelDefinitions() {
         showMethodColumn: formShowMethod,
         showSubgroups: formShowSubgroups,
         showInterpretation: formShowInterpretation,
+        spacedDefinitionsGap: formSpacedDefinitionsGap,
         valueDisplayPrefix: formValuePrefix || null,
         panelMethodText: formPanelMethodText.trim() || null,
         panelMethodItalic: formPanelMethodItalic,
@@ -1073,6 +1077,21 @@ export default function ManagePanelDefinitions() {
                   <div className="flex items-center gap-2">
                     <Switch checked={formShowInterpretation} onCheckedChange={setFormShowInterpretation} />
                     <Label className="text-sm">Show Interpretation</Label>
+                  </div>
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm shrink-0">Spaced Definitions Gap</Label>
+                      <select
+                        value={formSpacedDefinitionsGap}
+                        onChange={(e) => setFormSpacedDefinitionsGap(parseInt(e.target.value, 10))}
+                        className="h-7 text-xs border rounded w-20 px-1 bg-background"
+                      >
+                        <option value={0}>Off</option>
+                        <option value={1}>1 Row Gap</option>
+                        <option value={2}>2 Row Gap</option>
+                        <option value={3}>3 Row Gap</option>
+                      </select>
+                    </div>
                   </div>
                   {supportsValuePrefix && (
                     <div className="space-y-0.5">
