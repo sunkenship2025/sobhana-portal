@@ -979,7 +979,6 @@ function renderReportBottomHtml(
 function renderFooterHtml(): string {
   return `
     <footer class="footer">
-      <div class="footer-stripe"></div>
       <div class="footer-content">
         <div class="footer-left">
           <div class="note-text">Note : This report is subject to the terms and conditions overleaf.</div>
