@@ -293,13 +293,18 @@ function renderGridRow(run: TestResultSnapshot[], valuePrefix: string | null = n
 }
 
 /** Render a list of tests, grouping joinPrevious runs into grid rows */
-function renderTestsWithGridRuns(tests: TestResultSnapshot[], valuePrefix: string | null = null): string {
+function renderTestsWithGridRuns(tests: TestResultSnapshot[], valuePrefix: string | null = null, gap: number = 0): string {
   const runs = partitionGridRuns(tests);
-  return runs.map((run) =>
+  const renderedRuns = runs.map((run) =>
     run.length === 1
       ? renderTestRow(run[0], false, valuePrefix)
       : renderGridRow(run, valuePrefix)
-  ).join('');
+  );
+  if (gap > 0 && renderedRuns.length > 1) {
+    const gapRows = Array.from({ length: gap }).map(() => `<tr><td colspan="4" style="height: 1.5em; border: none;"></td></tr>`).join('');
+    return renderedRuns.join(gapRows);
+  }
+  return renderedRuns.join('');
 }
 
 /** Standard table for most panels */
@@ -359,11 +364,11 @@ function renderStandardTable(panel: PanelSnapshot): string {
       </tr>`;
           }
         }
-        rowsHtml += renderTestsWithGridRuns(tests, panel.valueDisplayPrefix ?? null);
+        rowsHtml += renderTestsWithGridRuns(tests, panel.valueDisplayPrefix ?? null, panel.spacedDefinitionsGap ?? 0);
       }
     }
   } else {
-    rowsHtml = renderTestsWithGridRuns(panel.tests, panel.valueDisplayPrefix ?? null);
+    rowsHtml = renderTestsWithGridRuns(panel.tests, panel.valueDisplayPrefix ?? null, panel.spacedDefinitionsGap ?? 0);
   }
 
   let interpretBlock = '';
@@ -968,7 +973,6 @@ function renderReportBottomHtml(
         </div>
         ` : ''}
 
-        <div class="report-divider"></div>
       </div>`;
 }
 

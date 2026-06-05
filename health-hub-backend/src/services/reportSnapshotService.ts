@@ -77,6 +77,7 @@ export interface PanelSnapshot {
   subgroupMethods?: Record<string, string> | null;
   subgroupTableOverrides?: Record<string, boolean> | null;
   valueDisplayPrefix?: string | null;
+  spacedDefinitionsGap?: number;
   tests: TestResultSnapshot[];
   interpretationHtml?: string;
   /** Per-narrative signer override the radiologist typed below the framed
@@ -1261,6 +1262,7 @@ function buildPanelsAndDepartments(
       subgroupMethods: (panel.subgroupMethods as Record<string, string>) ?? null,
       subgroupTableOverrides: (panel.subgroupTableOverrides as Record<string, boolean>) ?? null,
       valueDisplayPrefix: panel.valueDisplayPrefix ?? null,
+      spacedDefinitionsGap: panel.spacedDefinitionsGap ?? 0,
       tests: results,
       interpretationHtml,
       signerNameOverride,

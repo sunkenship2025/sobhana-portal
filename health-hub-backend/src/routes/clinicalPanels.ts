@@ -184,7 +184,7 @@ router.post('/', async (req: AuthRequest, res) => {
   try {
     const {
       name, displayName, departmentId, layoutType, sampleType,
-      displayOrder, showMethodColumn, showSubgroups, showInterpretation, valueDisplayPrefix,
+      displayOrder, showMethodColumn, showSubgroups, showInterpretation, valueDisplayPrefix, spacedDefinitionsGap,
       summaryInterpretationTemplate, subgroupMethods, subgroupTableOverrides,
       panelMethodText, panelMethodItalic, narrativeTemplateHtml, items,
     } = req.body;
@@ -247,7 +247,8 @@ router.post('/', async (req: AuthRequest, res) => {
         showMethodColumn: showMethodColumn ?? false,
         showSubgroups: showSubgroups ?? false,
         showInterpretation: showInterpretation ?? false,
-        valueDisplayPrefix: valueDisplayPrefix ?? null,
+        spacedDefinitionsGap: spacedDefinitionsGap ?? 0,
+        valueDisplayPrefix: valueDisplayPrefix || null,
         summaryInterpretationTemplate: summaryInterpretationTemplate ?? null,
         subgroupMethods: subgroupMethods ?? null,
         subgroupTableOverrides: subgroupTableOverrides ?? null,
@@ -297,7 +298,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
   try {
     const {
       name, displayName, departmentId, layoutType, sampleType,
-      displayOrder, showMethodColumn, showSubgroups, showInterpretation, valueDisplayPrefix,
+      displayOrder, showMethodColumn, showSubgroups, showInterpretation, valueDisplayPrefix, spacedDefinitionsGap,
       summaryInterpretationTemplate, subgroupMethods, subgroupTableOverrides,
       panelMethodText, panelMethodItalic, narrativeTemplateHtml, items,
     } = req.body;
@@ -340,7 +341,8 @@ router.put('/:id', async (req: AuthRequest, res) => {
           showMethodColumn: showMethodColumn ?? existing.showMethodColumn,
           showSubgroups: showSubgroups ?? existing.showSubgroups,
           showInterpretation: showInterpretation ?? existing.showInterpretation,
-          valueDisplayPrefix: valueDisplayPrefix !== undefined ? valueDisplayPrefix : existing.valueDisplayPrefix,
+          spacedDefinitionsGap: spacedDefinitionsGap ?? existing.spacedDefinitionsGap,
+          valueDisplayPrefix: valueDisplayPrefix !== undefined ? (valueDisplayPrefix || null) : existing.valueDisplayPrefix,
           summaryInterpretationTemplate: summaryInterpretationTemplate !== undefined
             ? summaryInterpretationTemplate
             : existing.summaryInterpretationTemplate,
