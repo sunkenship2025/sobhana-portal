@@ -301,7 +301,7 @@ function renderTestsWithGridRuns(tests: TestResultSnapshot[], valuePrefix: strin
       : renderGridRow(run, valuePrefix)
   );
   if (gap > 0 && renderedRuns.length > 1) {
-    const gapRows = Array.from({ length: gap }).map(() => `<tr><td colspan="4" style="height: 1.5em; border: none;"></td></tr>`).join('');
+    const gapRows = `<tr><td colspan="4" style="padding: 0; border: none;"><div style="height: ${gap * 1.5}em;"></div></td></tr>`;
     return renderedRuns.join(gapRows);
   }
   return renderedRuns.join('');
@@ -973,12 +973,14 @@ function renderReportBottomHtml(
         </div>
         ` : ''}
 
+        <div class="report-divider"></div>
       </div>`;
 }
 
 function renderFooterHtml(): string {
   return `
     <footer class="footer">
+      <div class="footer-stripe"></div>
       <div class="footer-content">
         <div class="footer-left">
           <div class="note-text">Note : This report is subject to the terms and conditions overleaf.</div>
