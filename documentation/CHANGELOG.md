@@ -11,6 +11,8 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 _Tracked here as commits land on `main`. Entries are promoted to a versioned section at release time — see [`RELEASE.md`](RELEASE.md)._
 
 ### Added
+- **Spaced Definitions Gap Setting.** Added a new configuration option called "Spaced Definitions Gap" to the Layout Configuration settings in the panel editor. This allows toggling spacing between `Off`, `1 Row Gap`, `2 Row Gap`, and `3 Row Gap`. The global report renderer inserts empty table rows to create spacing between tests, affecting live edit preview, WhatsApp PDF, standard PDF print, and the downloaded digital report.
+- **Panel Grouping by Product.** In Diagnostics Result Entry, panel grouping is now scoped to the specific `productId` to prevent identical panels from different products from merging. The UI also displays the product name as "(Billed as: [Product Name])" if it differs from the panel display name.
 - **Lab Incharge Signing with Branch-Wise Rules.** Added `SigningLabIncharge` and `LabInchargeRule` tables to support assigning specific lab incharges per branch. The report renderer now includes lab incharge signatures (digital versions show the signature image, while printed versions show a manual signing line). Admin UI was updated to a 4-section layout to manage these rules.
 - **Master Title Re-added.** Added "Master" back to the patient title options for pediatric patients, completing title and salutation coverage across the application.
 
@@ -32,6 +34,7 @@ _Tracked here as commits land on `main`. Entries are promoted to a versioned sec
 - **Finalize / release lives only inside the preview modal now.** [`DiagnosticsReportPreview`](../health-hub/src/pages/diagnostics/DiagnosticsReportPreview.tsx) no longer surfaces "Finalize" / "Release Partial" buttons on the page itself; staff must open the rendered-PDF preview before those actions appear (inside the modal). The previous `hasReviewedPreview` sessionStorage gate is removed — the modal is now the only path. Eliminates the "looked at the JSON-shaped on-screen card and shipped" failure mode.
 
 ### Fixed
+- **Report Dividers.** Fixed the report divider line that was rendering below the QR code at the end of printed reports, restoring it and improving the gap rows height.
 - **Redis Initialization.** Fixed a race condition where the application attempted to ping Redis before the connection was fully ready by waiting for the `ready` event in `ensureRedisReady`.
 - **Title Dropdown Bug.** Fixed an issue where an empty string `Select.Item` caused a blank screen on the new patient form.
 
