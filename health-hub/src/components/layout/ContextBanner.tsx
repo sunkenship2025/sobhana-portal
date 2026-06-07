@@ -2,7 +2,9 @@ import { useBranchStore } from '@/store/branchStore';
 import { BranchSelector } from './BranchSelector';
 
 export function ContextBanner() {
-  const { getActiveBranch } = useBranchStore();
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const branches = useBranchStore((state) => state.branches);
+  const getActiveBranch = useBranchStore((state) => state.getActiveBranch);
   const activeBranch = getActiveBranch();
   
   return (

@@ -218,10 +218,16 @@ export async function resolveProducts(
     }
   }
 
-  // Resolve each product
+  // Create a map for quick lookup
+  const productMap = new Map(products.map(p => [p.id, p]));
+
+  // Resolve each product in the EXACT order of input productIds
   const resolved: ResolvedProduct[] = [];
 
-  for (const product of products) {
+  for (const productId of productIds) {
+    const product = productMap.get(productId);
+    if (!product) continue;
+
     // Determine effective price: branch override > base price
     const branchOverride = product.branchPricing[0];
     const effectivePrice = branchOverride

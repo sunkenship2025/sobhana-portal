@@ -117,7 +117,9 @@ const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
 
 export default function ManageBillableProducts() {
   const { token } = useAuthStore();
-  const { getActiveBranch } = useBranchStore();
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const branches = useBranchStore((state) => state.branches);
+  const getActiveBranch = useBranchStore((state) => state.getActiveBranch);
   const selectedBranch = getActiveBranch();
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
