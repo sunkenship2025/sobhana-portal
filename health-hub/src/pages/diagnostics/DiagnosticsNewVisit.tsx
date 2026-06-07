@@ -75,7 +75,9 @@ const DiagnosticsNewVisit = () => {
   const navigate = useNavigate();
   const printRef = useRef<HTMLDivElement>(null);
   const { token } = useAuthStore();
-  const { getActiveBranch } = useBranchStore();
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const branches = useBranchStore((state) => state.branches);
+  const getActiveBranch = useBranchStore((state) => state.getActiveBranch);
   const activeBranch = getActiveBranch();
 
   // API data state

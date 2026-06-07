@@ -11,8 +11,16 @@ interface AppLayoutProps {
   hideContextBanner?: boolean;
 }
 
+<<<<<<< HEAD
 export function AppLayout({ children, context, subContext, hideContextBanner = false }: AppLayoutProps) {
   const { getActiveBranch } = useBranchStore();
+=======
+export function AppLayout({ children, context, subContext }: AppLayoutProps) {
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const branches = useBranchStore((state) => state.branches);
+  const getActiveBranch = useBranchStore((state) => state.getActiveBranch);
+  
+>>>>>>> 41a8e7e (branch remembered, bill in order)
   const activeBranch = getActiveBranch();
   const branchVars = getBranchCSSVars(activeBranch?.code);
 
