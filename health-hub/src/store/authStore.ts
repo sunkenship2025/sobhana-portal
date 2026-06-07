@@ -201,7 +201,11 @@ export const useAuthStore = create<AuthState>()(
           // on branch resolution at boot.
           const branchStore = useBranchStore.getState();
           await branchStore.fetchBranches();
-          if (data.user.activeBranch?.id) {
+          
+          // Only set from the backend if we don't already have one persisted locally.
+          // Otherwise, refreshing the page wipes out the user's selected branch
+          // and reverts them to their primary default branch.
+          if (!branchStore.activeBranchId && data.user.activeBranch?.id) {
             branchStore.setActiveBranch(data.user.activeBranch.id);
           }
         } catch (err) {
