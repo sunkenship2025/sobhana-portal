@@ -410,7 +410,15 @@ function RecentPayoutsCard({ rows }: { rows: DoctorsResponse['recentPayouts'] })
 
 export default function OwnerDoctorsPage() {
   const [period, setPeriod] = useState<PeriodKey>('30d');
-  const [branchValue, setBranchValue] = useState<string>('all');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const branchValue = searchParams.get('branch') || 'all';
+
+  const setBranchValue = (newBranch: string) => {
+    setSearchParams(prev => {
+      prev.set('branch', newBranch);
+      return prev;
+    });
+  };
 
   const query = useQuery<DoctorsResponse>({
     queryKey: ['owner-doctors', period, branchValue],

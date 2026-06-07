@@ -539,7 +539,15 @@ function CommsFailuresCard({ rows }: { rows: OperationsResponse['commsFailures']
 // ----- main page --------------------------------------------------------
 
 export default function OwnerOperationsPage() {
-  const [branchValue, setBranchValue] = useState<string>('all');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const branchValue = searchParams.get('branch') || 'all';
+
+  const setBranchValue = (newBranch: string) => {
+    setSearchParams(prev => {
+      prev.set('branch', newBranch);
+      return prev;
+    });
+  };
 
   const query = useQuery<OperationsResponse>({
     queryKey: ['owner-operations', branchValue],

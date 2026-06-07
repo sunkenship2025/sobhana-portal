@@ -488,7 +488,15 @@ function RefundsCard({ refunds }: { refunds: MoneyResponse['refunds'] }) {
 
 export default function OwnerMoneyPage() {
   const [period, setPeriod] = useState<PeriodKey>('30d');
-  const [branchValue, setBranchValue] = useState<string>('all');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const branchValue = searchParams.get('branch') || 'all';
+
+  const setBranchValue = (newBranch: string) => {
+    setSearchParams(prev => {
+      prev.set('branch', newBranch);
+      return prev;
+    });
+  };
 
   const query = useQuery<MoneyResponse>({
     queryKey: ['owner-money', period, branchValue],
