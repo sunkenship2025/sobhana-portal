@@ -1652,8 +1652,10 @@ router.post("/", async (req: AuthRequest, res) => {
 
       totalAmountInPaise = tests.reduce((sum, t) => sum + t.priceInPaise, 0);
 
-<<<<<<< HEAD
-      testOrderData = tests.map((test) => {
+      const testMap = new Map(tests.map(t => [t.id, t]));
+
+      testOrderData = testIds.map((testId: string) => {
+        const test = testMap.get(testId)!;
         const effectiveRule = overrides.get(test.id) ?? defaultReferralRule;
         const referralSnapshot = applyReferralRuleToPrices(
           [test.priceInPaise],
@@ -1668,21 +1670,12 @@ router.post("/", async (req: AuthRequest, res) => {
         return {
           testId: test.id,
           workflowMode: DiagnosticWorkflowMode.REPORTABLE,
-=======
-      const testMap = new Map(tests.map(t => [t.id, t]));
-
-      testOrderData = testIds.map((testId: string) => {
-        const test = testMap.get(testId)!;
-        return {
-          testId: test.id,
->>>>>>> 41a8e7e (branch remembered, bill in order)
           priceInPaise: test.priceInPaise,
           testNameSnapshot: test.name,
           testCodeSnapshot: test.code,
           referenceMinSnapshot: test.referenceMin,
           referenceMaxSnapshot: test.referenceMax,
           referenceUnitSnapshot: test.referenceUnit,
-<<<<<<< HEAD
           referralCommissionType: referralSnapshot.commissionType,
           referralCommissionPercentage: referralSnapshot.commissionPercentage,
           referralCommissionAmountInPaise:
@@ -1693,8 +1686,6 @@ router.post("/", async (req: AuthRequest, res) => {
             diagnosticCenterSnapshot.commissionPercentage,
           diagnosticCenterCommissionAmountInPaise:
             diagnosticCenterSnapshot.commissionAmountInPaise,
-=======
->>>>>>> 41a8e7e (branch remembered, bill in order)
         };
       });
     }
@@ -2536,39 +2527,26 @@ router.post("/:id/tests", async (req: AuthRequest, res) => {
     const result = await prisma.$transaction(async (tx) => {
       // Create test orders with snapshotted metadata (E3-03), preserving input order
       await tx.testOrder.createMany({
-<<<<<<< HEAD
-        data: tests.map((test, index) => ({
-          visitId: visit.id,
-          testId: test.id,
-          branchId: req.branchId!,
-          workflowMode: DiagnosticWorkflowMode.REPORTABLE,
-          priceInPaise: test.priceInPaise,
-          referralCommissionType: referralSnapshots[index].commissionType,
-          referralCommissionPercentage:
-            referralSnapshots[index].commissionPercentage,
-          referralCommissionAmountInPaise:
-            referralSnapshots[index].commissionAmountInPaise,
-          diagnosticCenterCommissionType:
-            diagnosticCenterSnapshots[index].commissionType,
-          diagnosticCenterCommissionPercentage:
-            diagnosticCenterSnapshots[index].commissionPercentage,
-          diagnosticCenterCommissionAmountInPaise:
-            diagnosticCenterSnapshots[index].commissionAmountInPaise,
-          testNameSnapshot: test.name,
-          testCodeSnapshot: test.code,
-          referenceMinSnapshot: test.referenceMin,
-          referenceMaxSnapshot: test.referenceMax,
-          referenceUnitSnapshot: test.referenceUnit,
-        })),
-=======
         data: testIds.map((testId: string) => {
           const test = testMap.get(testId)!;
+          const index = tests.findIndex(t => t.id === test.id);
           return {
             visitId: visit.id,
             testId: test.id,
             branchId: req.branchId!,
+            workflowMode: DiagnosticWorkflowMode.REPORTABLE,
             priceInPaise: test.priceInPaise,
-            referralCommissionPercentage: commissionPercent,
+            referralCommissionType: referralSnapshots[index].commissionType,
+            referralCommissionPercentage:
+              referralSnapshots[index].commissionPercentage,
+            referralCommissionAmountInPaise:
+              referralSnapshots[index].commissionAmountInPaise,
+            diagnosticCenterCommissionType:
+              diagnosticCenterSnapshots[index].commissionType,
+            diagnosticCenterCommissionPercentage:
+              diagnosticCenterSnapshots[index].commissionPercentage,
+            diagnosticCenterCommissionAmountInPaise:
+              diagnosticCenterSnapshots[index].commissionAmountInPaise,
             testNameSnapshot: test.name,
             testCodeSnapshot: test.code,
             referenceMinSnapshot: test.referenceMin,
@@ -2576,7 +2554,6 @@ router.post("/:id/tests", async (req: AuthRequest, res) => {
             referenceUnitSnapshot: test.referenceUnit,
           };
         }),
->>>>>>> 41a8e7e (branch remembered, bill in order)
       });
 
       // Update visit total
