@@ -949,7 +949,15 @@ function DashboardSkeleton() {
 
 export default function OwnerDashboardV2() {
   const branches = useBranchStore((s) => s.branches);
-  const [branchValue, setBranchValue] = useState<string>('all');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const branchValue = searchParams.get('branch') || 'all';
+
+  const setBranchValue = (newBranch: string) => {
+    setSearchParams(prev => {
+      prev.set('branch', newBranch);
+      return prev;
+    });
+  };
 
   const query = useQuery<DashboardV2>({
     queryKey: ['owner-dashboard-v2', branchValue],
