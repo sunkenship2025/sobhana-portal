@@ -11,7 +11,7 @@
  *   - Audit feed
  *   - Communication failures (conditional — hides at zero)
  */
-import { useState } from 'react';
+
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';

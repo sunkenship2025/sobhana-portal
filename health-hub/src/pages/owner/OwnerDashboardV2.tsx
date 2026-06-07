@@ -13,7 +13,7 @@
  *   - 30-day net revenue trend + today's mix
  *   - Branch performance table
  */
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
