@@ -126,7 +126,7 @@ export default function ManageBillableProducts() {
   const [products, setProducts] = useState<BillableProduct[]>([]);
   const [availablePanels, setAvailablePanels] = useState<PanelSummary[]>([]);
   const [availableSubProducts, setAvailableSubProducts] = useState<ProductSummary[]>([]);
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const [branchOptions, setBranchOptions] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
@@ -181,7 +181,7 @@ export default function ManageBillableProducts() {
         fetch(`${API_BASE}/billable-products?workflowMode=BILL_ONLY`, { headers }),
       ]);
       if (panelsRes.ok) setAvailablePanels(await panelsRes.json());
-      if (branchRes.ok) setBranches(await branchRes.json());
+      if (branchRes.ok) setBranchOptions(await branchRes.json());
       if (billOnlyRes.ok) {
         const items: any[] = await billOnlyRes.json();
         setAvailableSubProducts(items.map((p) => ({
@@ -775,7 +775,7 @@ export default function ManageBillableProducts() {
                     <SelectValue placeholder="Select branch..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {branches.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                    {branchOptions.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <Input type="number" placeholder="Price" value={row.price}
