@@ -11,6 +11,7 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 _Tracked here as commits land on `main`. Entries are promoted to a versioned section at release time — see [`RELEASE.md`](RELEASE.md)._
 
 ### Added
+- **URL-based Branch State:** Owner pages (`OwnerDashboardV2`, `OwnerDoctorsPage`, `OwnerMoneyPage`, `OwnerOperationsPage`) now use URL query parameters (`?branch=...`) for branch selector state instead of local component state, enabling shareable URLs.
 - **Lab Incharge Signing with Branch-Wise Rules.** Added `SigningLabIncharge` and `LabInchargeRule` tables to support assigning specific lab incharges per branch. The report renderer now includes lab incharge signatures (digital versions show the signature image, while printed versions show a manual signing line). Admin UI was updated to a 4-section layout to manage these rules.
 - **Master Title Re-added.** Added "Master" back to the patient title options for pediatric patients, completing title and salutation coverage across the application.
 
@@ -24,6 +25,7 @@ _Tracked here as commits land on `main`. Entries are promoted to a versioned sec
 - **Result-entry button label flips with completeness.** "Save Draft & Preview Report" → `Review & Finalize` when every reportable test has a value AND every required external upload is attached, or `Continue with Partial Report` otherwise. The click target itself is the same — only the label changes — so staff get a one-glance read of what's about to happen.
 
 ### Changed
+- **Zustand Store Reactivity:** Updated components like `AppLayout`, `ContextBanner`, and `ClinicNewVisit` to selectively access `useBranchStore` state properties instead of destructuring, aligning with Zustand best practices for optimal re-rendering.
 - **Branch-Specific Print Addresses.** Bill receipts and clinic prescription prints now dynamically display the correct address based on the branch (e.g., Kukatpally, Balanagar, Chintal).
 - **Result Entry Keyboard Navigation.** Implemented "enter to next box" functionality in the Diagnostics Result Entry page, allowing staff to navigate between input fields using the Enter key for faster data entry.
 
@@ -32,6 +34,9 @@ _Tracked here as commits land on `main`. Entries are promoted to a versioned sec
 - **Finalize / release lives only inside the preview modal now.** [`DiagnosticsReportPreview`](../health-hub/src/pages/diagnostics/DiagnosticsReportPreview.tsx) no longer surfaces "Finalize" / "Release Partial" buttons on the page itself; staff must open the rendered-PDF preview before those actions appear (inside the modal). The previous `hasReviewedPreview` sessionStorage gate is removed — the modal is now the only path. Eliminates the "looked at the JSON-shaped on-screen card and shipped" failure mode.
 
 ### Fixed
+- **Test Order Preservation:** Fixed a bug in `diagnosticVisits` and `productOrderService` where the input order of selected tests or products was not strictly preserved during database creation. The system now explicitly maps items to preserve the exact sequence chosen by the user.
+- **Session Hydration:** Fixed an issue in `authStore.ts` where hydration inadvertently overrode the active branch state.
+- **Build Failure:** Fixed unused imports causing frontend build failures.
 - **Redis Initialization.** Fixed a race condition where the application attempted to ping Redis before the connection was fully ready by waiting for the `ready` event in `ensureRedisReady`.
 - **Title Dropdown Bug.** Fixed an issue where an empty string `Select.Item` caused a blank screen on the new patient form.
 
