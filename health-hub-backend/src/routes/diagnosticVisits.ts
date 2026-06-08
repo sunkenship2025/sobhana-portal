@@ -964,14 +964,35 @@ router.get("/:id", async (req: AuthRequest, res) => {
         })
       : [];
 
-    const firstLabPanelItemByTestId = new Map<
-      string,
-      (typeof labPanelItems)[number]
-    >();
+    const productIds = [
+      ...new Set(
+        rawTestOrders
+          .map((order) => order.productId)
+          .filter((productId): productId is string => Boolean(productId)),
+      ),
+    ];
+    const productPanels = productIds.length
+      ? await prisma.billableProductPanel.findMany({
+          where: {
+            productId: { in: productIds },
+            panelId: { not: null },
+          },
+          select: { productId: true, panelId: true },
+        })
+      : [];
+    const productPanelSet = new Map<string, Set<string>>();
+    for (const pp of productPanels) {
+      if (!pp.panelId) continue;
+      const set = productPanelSet.get(pp.productId) || new Set();
+      set.add(pp.panelId);
+      productPanelSet.set(pp.productId, set);
+    }
+
+    const labPanelItemsByTestId = new Map<string, typeof labPanelItems>();
     for (const panelItem of labPanelItems) {
-      if (!firstLabPanelItemByTestId.has(panelItem.testId)) {
-        firstLabPanelItemByTestId.set(panelItem.testId, panelItem);
-      }
+      const list = labPanelItemsByTestId.get(panelItem.testId) || [];
+      list.push(panelItem);
+      labPanelItemsByTestId.set(panelItem.testId, list);
     }
 
     const testDefinitionIds = [
@@ -1015,26 +1036,55 @@ router.get("/:id", async (req: AuthRequest, res) => {
         })
       : [];
 
-    const firstDefinitionPanelItemByDefinitionId = new Map<
+    const definitionPanelItemsByDefinitionId = new Map<
       string,
-      (typeof definitionPanelItems)[number]
+      typeof definitionPanelItems
     >();
     for (const panelItem of definitionPanelItems) {
-      if (
-        !firstDefinitionPanelItemByDefinitionId.has(panelItem.testDefinitionId)
-      ) {
-        firstDefinitionPanelItemByDefinitionId.set(
-          panelItem.testDefinitionId,
-          panelItem,
-        );
-      }
+      const list =
+        definitionPanelItemsByDefinitionId.get(panelItem.testDefinitionId) ||
+        [];
+      list.push(panelItem);
+      definitionPanelItemsByDefinitionId.set(
+        panelItem.testDefinitionId,
+        list,
+      );
     }
 
     const testOrders = rawTestOrders.map((order) => {
-      const labPanelItem = firstLabPanelItemByTestId.get(order.testId);
-      const definitionPanelItem = order.testDefinitionId
-        ? firstDefinitionPanelItemByDefinitionId.get(order.testDefinitionId)
+      const orderProductPanels = order.productId
+        ? productPanelSet.get(order.productId)
         : undefined;
+
+      const labItems = labPanelItemsByTestId.get(order.testId);
+      let labPanelItem = undefined;
+      if (labItems && labItems.length > 0) {
+        if (orderProductPanels) {
+          labPanelItem = labItems.find((item) =>
+            orderProductPanels.has(item.panel.id),
+          );
+        }
+        if (!labPanelItem) {
+          labPanelItem = labItems[0];
+        }
+      }
+
+      let definitionPanelItem = undefined;
+      if (order.testDefinitionId) {
+        const defItems = definitionPanelItemsByDefinitionId.get(
+          order.testDefinitionId,
+        );
+        if (defItems && defItems.length > 0) {
+          if (orderProductPanels) {
+            definitionPanelItem = defItems.find((item) =>
+              orderProductPanels.has(item.panel.id),
+            );
+          }
+          if (!definitionPanelItem) {
+            definitionPanelItem = defItems[0];
+          }
+        }
+      }
 
       return {
         ...order,
