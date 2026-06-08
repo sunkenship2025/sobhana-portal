@@ -351,6 +351,7 @@ export interface CreateClinicDoctorInput {
   commissionType?: 'PERCENTAGE' | 'FIXED_AMOUNT';
   commissionPercent?: number;
   commissionAmountInPaise?: number;
+  consultationFeeInPaise?: number;
   referralDoctorId?: string; // Link if already exists as referral doctor
   branchId: string;
   userId?: string;
