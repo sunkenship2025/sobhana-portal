@@ -323,6 +323,9 @@ router.put('/:id', async (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: layoutError });
     }
 
+    console.log("PUT /:id payload spacedDefinitionsGap:", spacedDefinitionsGap);
+
+
     const panel = await prisma.$transaction(async (tx) => {
       // Delete existing items and recreate
       if (items) {
@@ -379,6 +382,8 @@ router.put('/:id', async (req: AuthRequest, res) => {
         },
       });
     });
+
+    console.log("PUT /:id saved spacedDefinitionsGap:", panel.spacedDefinitionsGap);
 
     return res.json(transformPanel(panel));
   } catch (error: any) {
