@@ -236,56 +236,59 @@ export const BillReceipt = ({
           >
             <tbody>
               <tr>
-                <td className="py-0 whitespace-nowrap" style={{ width: "40%" }}>
-                  <span className="inline-block" style={{ width: "100px" }}>
-                    {documentNumberLabel}
-                  </span>
-                  <span>: {documentNumberValue}</span>
+                <td className="py-0 align-top pr-4">
+                  <div className="flex">
+                    <span className="shrink-0" style={{ width: "100px" }}>
+                      {documentNumberLabel}
+                    </span>
+                    <span className="flex-1">: {documentNumberValue}</span>
+                  </div>
                 </td>
-                <td className="py-0 whitespace-nowrap" style={{ width: "30%" }}>
+                <td className="py-0 align-top whitespace-nowrap px-4">
                   <span className="inline-block" style={{ width: "50px" }}>
                     Age
                   </span>
                   <span>: {patientAgeDisplay}</span>
                 </td>
-                <td
-                  className="py-0 whitespace-nowrap text-right"
-                  style={{ width: "30%" }}
-                >
+                <td className="py-0 align-top whitespace-nowrap text-right">
                   <span>Payment : {paymentSummary}</span>
                 </td>
               </tr>
               <tr>
-                <td className="py-0">
-                  <span className="inline-block" style={{ width: "100px" }}>
-                    Patient Name
-                  </span>
-                  <span>: {patientNameFormatted}</span>
+                <td className="py-0 align-top pr-4">
+                  <div className="flex">
+                    <span className="shrink-0" style={{ width: "100px" }}>
+                      Patient Name
+                    </span>
+                    <span className="flex-1 font-semibold">: {patientNameFormatted}</span>
+                  </div>
                 </td>
-                <td className="py-0 whitespace-nowrap">
+                <td className="py-0 align-top whitespace-nowrap px-4">
                   <span className="inline-block" style={{ width: "50px" }}>
                     Sex
                   </span>
                   <span>: {genderFull}</span>
                 </td>
-                <td className="py-0 whitespace-nowrap text-right">
+                <td className="py-0 align-top whitespace-nowrap text-right">
                   <span>Date : {dateStr}</span>
                 </td>
               </tr>
               <tr>
-                <td className="py-0">
-                  <span className="inline-block" style={{ width: "100px" }}>
-                    {isDiagnostic ? "Referred by" : "Doctor"}
-                  </span>
-                  <span>: {isDiagnostic ? referredBy : (data.doctor?.name ? (data.doctor.name.toLowerCase().startsWith('dr') ? data.doctor.name : `Dr. ${data.doctor.name}`) : "—")}</span>
+                <td className="py-0 align-top pr-4">
+                  <div className="flex">
+                    <span className="shrink-0" style={{ width: "100px" }}>
+                      {isDiagnostic ? "Referred by" : "Doctor"}
+                    </span>
+                    <span className="flex-1">: {isDiagnostic ? referredBy : (data.doctor?.name ? (data.doctor.name.toLowerCase().startsWith('dr') ? data.doctor.name : `Dr. ${data.doctor.name}`) : "—")}</span>
+                  </div>
                 </td>
-                <td className="py-0 whitespace-nowrap">
+                <td className="py-0 align-top whitespace-nowrap px-4">
                   <span className="inline-block" style={{ width: "50px" }}>
                     Phone
                   </span>
                   <span>: {data.patient.phone || "N/A"}</span>
                 </td>
-                <td className="py-0 whitespace-nowrap text-right">
+                <td className="py-0 align-top whitespace-nowrap text-right">
                   <span>Time : {timeStr}</span>
                 </td>
               </tr>
