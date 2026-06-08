@@ -972,6 +972,8 @@ function renderReportBottomHtml(
           <div class="print-qr-text">Scan to download report</div>
         </div>
         ` : ''}
+
+        ${!isPhysicalPrint ? '<div class="report-divider"></div>' : ''}
       </div>`;
 }
 
