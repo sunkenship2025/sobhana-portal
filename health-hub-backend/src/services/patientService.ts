@@ -485,12 +485,25 @@ export interface UpdatePatientInput {
 export async function updatePatient(input: UpdatePatientInput) {
   const { patientId, updates, changeReason, userId, userRole, branchId } = input;
 
+  // Fetch existing patient first so we can validate partial updates properly
+  const existingPatient = await prisma.patient.findUnique({
+    where: { id: patientId },
+    include: {
+      identifiers: true
+    }
+  });
+
+  if (!existingPatient) {
+    throw new ValidationError('Patient not found');
+  }
+
   // E2-10: Validate demographic fields if they are being updated
   if (updates.name !== undefined || updates.age !== undefined || updates.gender !== undefined) {
+    const currentAge = getPatientAge(existingPatient.dateOfBirth, existingPatient.yearOfBirth);
     const validationInput = {
-      name: updates.name ?? '', // Use empty string as fallback for validation
-      age: updates.age ?? 0,
-      gender: updates.gender ?? 'M',
+      name: updates.name ?? existingPatient.name,
+      age: updates.age ?? currentAge,
+      gender: updates.gender ?? existingPatient.gender,
     };
     
     const validationResult = validatePatientDemographics(validationInput);
@@ -534,18 +547,6 @@ export async function updatePatient(input: UpdatePatientInput) {
     if (!validationResult.valid && validationResult.errors.email) {
       throw new ValidationError(validationResult.errors.email);
     }
-  }
-
-  // Fetch existing patient
-  const existingPatient = await prisma.patient.findUnique({
-    where: { id: patientId },
-    include: {
-      identifiers: true
-    }
-  });
-
-  if (!existingPatient) {
-    throw new ValidationError('Patient not found');
   }
 
   // Build map of current values
