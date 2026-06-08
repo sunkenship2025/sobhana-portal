@@ -1099,6 +1099,18 @@ const DiagnosticsResultEntry = () => {
     void runAutoSave();
   }, [runAutoSave]);
 
+  useEffect(() => {
+    if (!loading && visit) {
+      // Focus the first input field on load to save a click
+      setTimeout(() => {
+        const firstInput = document.querySelector('.test-value-input:not([disabled]):not([readonly])') as HTMLElement;
+        if (firstInput) {
+          firstInput.focus();
+        }
+      }, 100);
+    }
+  }, [loading, visit]);
+
   if (loading) {
     return (
       <AppLayout context="diagnostics">
