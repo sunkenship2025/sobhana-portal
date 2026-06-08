@@ -483,6 +483,7 @@ router.post('/:id/preview', async (req: AuthRequest, res) => {
         panelMethodText: panel.panelMethodText,
         panelMethodItalic: panel.panelMethodItalic,
         narrativeTemplateHtml: panel.narrativeTemplateHtml,
+        spacedDefinitionsGap: panel.spacedDefinitionsGap,
       },
       department: panel.department,
       tests: panel.items.map(item => ({
