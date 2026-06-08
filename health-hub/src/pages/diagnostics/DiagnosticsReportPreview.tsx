@@ -17,7 +17,7 @@ import { formatPatientName } from '@/lib/patientDisplay';
 const PdfPreview = lazy(() =>
   import('@/components/diagnostics/PdfPreview').then((m) => ({ default: m.PdfPreview }))
 );
-import { AlertTriangle, ArrowLeft, CheckCircle2, Lock, Printer, MessageCircle, Loader2, Eye, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, Lock, Printer, MessageCircle, Loader2, Eye, X, Download } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
