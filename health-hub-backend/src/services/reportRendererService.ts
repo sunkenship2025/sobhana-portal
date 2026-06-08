@@ -972,8 +972,6 @@ function renderReportBottomHtml(
           <div class="print-qr-text">Scan to download report</div>
         </div>
         ` : ''}
-
-        <div class="report-divider"></div>
       </div>`;
 }
 
