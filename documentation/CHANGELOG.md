@@ -11,6 +11,8 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 _Tracked here as commits land on `main`. Entries are promoted to a versioned section at release time — see [`RELEASE.md`](RELEASE.md)._
 
 ### Added
+- **Spaced Definitions Gap Configuration.** Added a new layout configuration for clinical panels (`spacedDefinitionsGap`) allowing 1 to 3 empty table rows to be inserted between tests for better readability on reports. This is universally applied across live edit previews, WhatsApp PDFs, standard printed PDFs, and downloaded digital reports.
+- **Smart Auto-focus in Result Entry.** The Diagnostics Result Entry page now automatically focuses the first empty input field when the page loads, allowing staff to resume data entry instantly.
 - **Lab Incharge Signing with Branch-Wise Rules.** Added `SigningLabIncharge` and `LabInchargeRule` tables to support assigning specific lab incharges per branch. The report renderer now includes lab incharge signatures (digital versions show the signature image, while printed versions show a manual signing line). Admin UI was updated to a 4-section layout to manage these rules.
 - **Master Title Re-added.** Added "Master" back to the patient title options for pediatric patients, completing title and salutation coverage across the application.
 
@@ -24,6 +26,8 @@ _Tracked here as commits land on `main`. Entries are promoted to a versioned sec
 - **Result-entry button label flips with completeness.** "Save Draft & Preview Report" → `Review & Finalize` when every reportable test has a value AND every required external upload is attached, or `Continue with Partial Report` otherwise. The click target itself is the same — only the label changes — so staff get a one-glance read of what's about to happen.
 
 ### Changed
+- **Print Receipt Styling.** Updated the print receipt layout with dynamic grid sizing, wrapped text indentation, reordered fields, and restored the bold patient name formatting for better scannability.
+- **Owner Dashboard Branch Filters.** Branch filters in owner dashboards (`OwnerDashboardV2`, `OwnerDoctorsPage`, `OwnerMoneyPage`, `OwnerOperationsPage`) are now persisted using URL search parameters instead of local state, allowing bookmarking and preventing auth hydration from overriding the selection on refresh.
 - **Branch-Specific Print Addresses.** Bill receipts and clinic prescription prints now dynamically display the correct address based on the branch (e.g., Kukatpally, Balanagar, Chintal).
 - **Result Entry Keyboard Navigation.** Implemented "enter to next box" functionality in the Diagnostics Result Entry page, allowing staff to navigate between input fields using the Enter key for faster data entry.
 
@@ -32,6 +36,11 @@ _Tracked here as commits land on `main`. Entries are promoted to a versioned sec
 - **Finalize / release lives only inside the preview modal now.** [`DiagnosticsReportPreview`](../health-hub/src/pages/diagnostics/DiagnosticsReportPreview.tsx) no longer surfaces "Finalize" / "Release Partial" buttons on the page itself; staff must open the rendered-PDF preview before those actions appear (inside the modal). The previous `hasReviewedPreview` sessionStorage gate is removed — the modal is now the only path. Eliminates the "looked at the JSON-shaped on-screen card and shipped" failure mode.
 
 ### Fixed
+- **Auth Hydration Branch Override.** Fixed an issue where the auth hydration process on refresh was overwriting the user's currently selected branch with their default active branch.
+- **Test Order to Product Panel Mapping.** Fixed a bug where test orders weren't correctly mapped to product panels when a single test definition belonged to multiple different panels across different products.
+- **Report Printing Glitches.** Fixed report printing glitches involving `position: fixed` elements and QR code cutting off at page boundaries. (Additionally removed a redundant divider line rendering below the QR code).
+- **Validation Error on Patient Update.** Resolved a validation error that occurred during partial patient updates when the patient's age remained unchanged.
+- **TestValueCombobox Focus Advance.** Fixed the `TestValueCombobox` to correctly advance focus to the next input field upon selecting a value.
 - **Redis Initialization.** Fixed a race condition where the application attempted to ping Redis before the connection was fully ready by waiting for the `ready` event in `ensureRedisReady`.
 - **Title Dropdown Bug.** Fixed an issue where an empty string `Select.Item` caused a blank screen on the new patient form.
 
