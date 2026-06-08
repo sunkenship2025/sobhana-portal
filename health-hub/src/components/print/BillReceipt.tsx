@@ -260,7 +260,7 @@ export const BillReceipt = ({
                     <span className="shrink-0" style={{ width: "100px" }}>
                       Patient Name
                     </span>
-                    <span className="flex-1">: {patientNameFormatted}</span>
+                    <span className="flex-1 font-semibold">: {patientNameFormatted}</span>
                   </div>
                 </td>
                 <td className="py-0 align-top whitespace-nowrap px-4">
