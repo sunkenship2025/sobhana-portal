@@ -252,7 +252,7 @@ export const BillReceipt = ({
                   className="py-0 whitespace-nowrap text-right"
                   style={{ width: "30%" }}
                 >
-                  <span>Date : {dateStr}</span>
+                  <span>Payment : {paymentSummary}</span>
                 </td>
               </tr>
               <tr>
@@ -264,12 +264,12 @@ export const BillReceipt = ({
                 </td>
                 <td className="py-0 whitespace-nowrap">
                   <span className="inline-block" style={{ width: "50px" }}>
-                    Phone
+                    Sex
                   </span>
-                  <span>: {data.patient.phone || "N/A"}</span>
+                  <span>: {genderFull}</span>
                 </td>
                 <td className="py-0 whitespace-nowrap text-right">
-                  <span>Sex : {genderFull}</span>
+                  <span>Date : {dateStr}</span>
                 </td>
               </tr>
               <tr>
@@ -281,9 +281,9 @@ export const BillReceipt = ({
                 </td>
                 <td className="py-0 whitespace-nowrap">
                   <span className="inline-block" style={{ width: "50px" }}>
-                    Payment
+                    Phone
                   </span>
-                  <span>: {paymentSummary}</span>
+                  <span>: {data.patient.phone || "N/A"}</span>
                 </td>
                 <td className="py-0 whitespace-nowrap text-right">
                   <span>Time : {timeStr}</span>
