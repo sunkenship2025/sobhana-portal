@@ -457,6 +457,13 @@ router.put('/:id', async (req: AuthRequest, res) => {
     const resolvedPriceInPaise = rawPriceInPaise ?? (basePrice != null ? Math.round(basePrice * 100) : undefined);
     const resolvedIsBundle = rawIsBundle ?? (productType != null ? (productType === 'PANEL_BUNDLE' || productType === 'CUSTOM_PACKAGE') : undefined);
 
+    if (code !== undefined && !CODE_REGEX.test(code)) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'code must be 2-20 uppercase alphanumeric characters or underscores (e.g. CBC_PANEL)',
+      });
+    }
+
     const existing = await prisma.billableProduct.findUnique({ where: { id: req.params.id } });
     if (!existing) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Product not found' });
@@ -610,6 +617,9 @@ router.put('/:id', async (req: AuthRequest, res) => {
     return res.json(withResolvedPrice(product));
   } catch (error: any) {
     console.error('Error updating billable product:', error);
+    if (error.code === 'P2002') {
+      return res.status(409).json({ error: 'CONFLICT', message: `Product code already exists` });
+    }
     return res.status(500).json({ error: 'UPDATE_FAILED', message: error.message });
   }
 });
