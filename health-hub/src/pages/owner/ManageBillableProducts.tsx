@@ -611,7 +611,6 @@ export default function ManageBillableProducts() {
                   value={formCode}
                   onChange={e => setFormCode(e.target.value.toUpperCase())}
                   className="font-mono pr-8"
-                  disabled={!!editingProduct}
                 />
                 {!editingProduct && formCode.trim() && (
                   <span className="absolute right-2 top-2.5">

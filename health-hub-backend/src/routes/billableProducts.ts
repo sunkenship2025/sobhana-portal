@@ -446,7 +446,7 @@ router.post('/', async (req: AuthRequest, res) => {
 router.put('/:id', async (req: AuthRequest, res) => {
   try {
     const {
-      name, description,
+      name, description, code,
       basePriceInPaise: rawPriceInPaise, basePrice,
       isBundle: rawIsBundle, productType,
       workflowMode,
@@ -573,6 +573,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
         where: { id: req.params.id },
         data: {
           name: name ?? existing.name,
+          code: code ?? existing.code,
           description: description !== undefined ? description : existing.description,
           basePriceInPaise: resolvedPriceInPaise ?? existing.basePriceInPaise,
           isBundle: resolvedIsBundle ?? existing.isBundle,
