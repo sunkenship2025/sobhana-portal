@@ -207,9 +207,16 @@ app.use(express.json());
 app.use(cookieParser());
 
 // Static files for reports (CSS, images, fonts)
-app.use('/css', express.static(path.join(__dirname, '../public/css')));
-app.use('/images', express.static(path.join(__dirname, '../public/images')));
-app.use('/fonts', express.static(path.join(__dirname, '../public/fonts')));
+// Send Access-Control-Allow-Origin so html2canvas can load the logo on the frontend
+const staticCorsOptions = {
+  setHeaders: (res: express.Response) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Cross-Origin-Resource-Policy", "cross-origin");
+  }
+};
+app.use('/css', express.static(path.join(__dirname, '../public/css'), staticCorsOptions));
+app.use('/images', express.static(path.join(__dirname, '../public/images'), staticCorsOptions));
+app.use('/fonts', express.static(path.join(__dirname, '../public/fonts'), staticCorsOptions));
 
 // Root route — returns 200 so Render's default port-detection and health checks succeed
 app.get('/', (_req, res) => {
