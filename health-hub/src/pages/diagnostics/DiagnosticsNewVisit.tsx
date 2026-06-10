@@ -29,14 +29,13 @@ import type {
   BillDiscountType,
 } from "@/types";
 import {
-  CheckCircle2,
-  Printer,
   Search,
   UserPlus,
+  CheckCircle2,
+  Printer,
   MessageCircle,
   Plus,
 } from "lucide-react";
-import { useReactToPrint } from "react-to-print";
 import { BillReceipt } from "@/components/print/BillReceipt";
 import {
   validatePatientForm,
@@ -927,10 +926,8 @@ const DiagnosticsNewVisit = () => {
     }
   };
 
-  const handleReactPrint = useReactToPrint({ contentRef: printRef });
-
   const handlePrint = () => {
-    handleReactPrint();
+    window.print();
   };
 
   if (successData) {
@@ -1027,17 +1024,15 @@ const DiagnosticsNewVisit = () => {
                 </div>
 
                 <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:justify-center">
-                  {successData.visitView.visit.id && (
-                    <Button
-                      className="w-full sm:w-auto"
-                      variant="outline"
-                      onClick={() => navigate(`/bill/print/diagnostics/${successData.visitView.visit.id}`)}
-                      disabled={!billLogoLoaded}
-                    >
-                      <Printer className="mr-2 h-4 w-4" />
-                      {billLogoLoaded ? "Print Bill" : "Preparing Print..."}
-                    </Button>
-                  )}
+                  <Button
+                    className="w-full sm:w-auto"
+                    variant="outline"
+                    onClick={handlePrint}
+                    disabled={!billLogoLoaded}
+                  >
+                    <Printer className="mr-2 h-4 w-4" />
+                    {billLogoLoaded ? "Print Bill" : "Preparing Print..."}
+                  </Button>
                   <Button
                     className="w-full sm:w-auto"
                     onClick={() => {
@@ -1097,7 +1092,7 @@ const DiagnosticsNewVisit = () => {
         </div>
 
         {/* Print Content */}
-        <div ref={printRef} className="absolute left-[-9999px] top-[-9999px] overflow-hidden pointer-events-none">
+        <div ref={printRef} className="hidden print:block">
           <BillReceipt
             onLogoLoadedChange={setBillLogoLoaded}
             data={mapDiagnosticsVisitViewToReceiptData(
