@@ -36,7 +36,7 @@ router.get("/:domain/:visitId", async (req: AuthRequest, res) => {
         branch: true,
         bill: { include: { transactions: true } },
         testOrders: {
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
           include: {
             test: true,
             product: true,
