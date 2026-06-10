@@ -7,10 +7,7 @@ import {
   RotateCcw,
   Search,
   UserPlus,
-  ArrowRight,
 } from "lucide-react";
-import { flushSync } from "react-dom";
-import { useReactToPrint } from "react-to-print";
 import { API_BASE } from "@/lib/api";
 import { ClinicPrescriptionPrint } from "@/components/print/ClinicPrescriptionPrint";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -533,17 +530,14 @@ const ClinicNewVisit = () => {
   const [printMode, setPrintMode] = useState<"rx" | "bill" | "both">("both");
   const [isPrinting, setIsPrinting] = useState(false);
 
-  const handleReactPrint = useReactToPrint({ contentRef: printRef });
-
   const handlePrint = (mode: "rx" | "bill" | "both") => {
-    flushSync(() => {
-      setPrintMode(mode);
-      setIsPrinting(true);
-    });
-    handleReactPrint();
+    setPrintMode(mode);
+    setIsPrinting(true);
+    // Give React time to re-render the hidden print block with the new mode
     setTimeout(() => {
+      window.print();
       setIsPrinting(false);
-    }, 500);
+    }, 100);
   };
 
   if (successData) {
@@ -609,17 +603,15 @@ const ClinicNewVisit = () => {
                     Print Prescription
                   </Button>
                   
-                  {visitView.visit.id && (
-                    <Button
-                      className="w-full sm:w-auto"
-                      variant="outline"
-                      onClick={() => navigate(`/bill/print/clinic/${visitView.visit.id}`)}
-                      disabled={!billLogoLoaded}
-                    >
-                      <Printer className="mr-2 h-4 w-4" />
-                      {billLogoLoaded ? (hasBill ? "Print Bill" : "Print Visit Slip") : (hasBill ? "Preparing Bill..." : "Preparing Slip...")}
-                    </Button>
-                  )}
+                  <Button
+                    className="w-full sm:w-auto"
+                    variant="outline"
+                    onClick={() => handlePrint("bill")}
+                    disabled={!billLogoLoaded || isPrinting}
+                  >
+                    <Printer className="mr-2 h-4 w-4" />
+                    {billLogoLoaded ? (hasBill ? "Print Bill" : "Print Visit Slip") : (hasBill ? "Preparing Bill..." : "Preparing Slip...")}
+                  </Button>
 
                   <Button className="w-full sm:w-auto" onClick={resetForm}>
                     Create Another Visit
@@ -637,7 +629,7 @@ const ClinicNewVisit = () => {
           </Card>
         </div>
 
-        <div ref={printRef} className="absolute left-[-9999px] top-[-9999px] overflow-hidden pointer-events-none">
+        <div ref={printRef} className="hidden print:block">
           <ClinicPrescriptionPrint
             visitView={visitView}
             branchName={activeBranch?.name}
