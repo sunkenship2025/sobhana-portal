@@ -132,10 +132,19 @@ export default function BillPrintPage() {
         const blob = pdf.output("blob");
         const file = new File([blob], fileName, { type: "application/pdf" });
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            title: "Bill Receipt",
-            files: [file],
-          });
+          try {
+            await navigator.share({
+              title: "Bill Receipt",
+              files: [file],
+            });
+            return;
+          } catch (shareErr: any) {
+            console.error("Share failed", shareErr);
+            if (shareErr.name !== 'AbortError') {
+              alert("Native share failed. Trying to download...");
+              pdf.save(fileName);
+            }
+          }
         } else {
           pdf.save(fileName);
         }
@@ -143,11 +152,16 @@ export default function BillPrintPage() {
         // Fallback: direct download
         pdf.save(fileName);
       }
-    } catch (err) {
+    } catch (err: any) {
+      alert("Failed to generate PDF: " + err.message);
       console.error("Failed to generate PDF", err);
     } finally {
       setIsGeneratingPdf(false);
     }
+  };
+
+  const handleOpenBrowser = () => {
+    window.open(window.location.href, '_blank');
   };
 
   return (
@@ -165,6 +179,9 @@ export default function BillPrintPage() {
             <Download className="h-4 w-4 mr-2" />
           )}
           {isGeneratingPdf ? "Generating..." : "Share PDF"}
+        </Button>
+        <Button variant="secondary" onClick={handleOpenBrowser} className="bg-white">
+          Open in Browser
         </Button>
       </div>
 
