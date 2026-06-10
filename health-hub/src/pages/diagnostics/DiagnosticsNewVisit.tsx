@@ -29,13 +29,14 @@ import type {
   BillDiscountType,
 } from "@/types";
 import {
-  Search,
-  UserPlus,
   CheckCircle2,
   Printer,
+  Search,
+  UserPlus,
   MessageCircle,
   Plus,
 } from "lucide-react";
+import { useReactToPrint } from "react-to-print";
 import { BillReceipt } from "@/components/print/BillReceipt";
 import {
   validatePatientForm,
@@ -926,8 +927,10 @@ const DiagnosticsNewVisit = () => {
     }
   };
 
+  const handleReactPrint = useReactToPrint({ contentRef: printRef });
+
   const handlePrint = () => {
-    window.print();
+    handleReactPrint();
   };
 
   if (successData) {
@@ -1092,7 +1095,7 @@ const DiagnosticsNewVisit = () => {
         </div>
 
         {/* Print Content */}
-        <div ref={printRef} className="hidden print:block">
+        <div ref={printRef} className="absolute left-[-9999px] top-[-9999px] overflow-hidden pointer-events-none">
           <BillReceipt
             onLogoLoadedChange={setBillLogoLoaded}
             data={mapDiagnosticsVisitViewToReceiptData(
