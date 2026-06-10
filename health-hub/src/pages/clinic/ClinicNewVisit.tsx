@@ -7,8 +7,10 @@ import {
   RotateCcw,
   Search,
   UserPlus,
+  ArrowRight,
 } from "lucide-react";
 import { flushSync } from "react-dom";
+import { useReactToPrint } from "react-to-print";
 import { API_BASE } from "@/lib/api";
 import { ClinicPrescriptionPrint } from "@/components/print/ClinicPrescriptionPrint";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -531,15 +533,21 @@ const ClinicNewVisit = () => {
   const [printMode, setPrintMode] = useState<"rx" | "bill" | "both">("both");
   const [isPrinting, setIsPrinting] = useState(false);
 
+  const handleReactPrint = useReactToPrint({ contentRef: printRef });
+
   const handlePrint = (mode: "rx" | "bill" | "both") => {
     flushSync(() => {
       setPrintMode(mode);
       setIsPrinting(true);
     });
     
-    window.print();
+    // Fire and forget, but reset the UI state right after it opens
+    handleReactPrint();
     
-    setIsPrinting(false);
+    // We can reset isPrinting quickly because react-to-print clones the DOM synchronously
+    setTimeout(() => {
+      setIsPrinting(false);
+    }, 500);
   };
 
   if (successData) {
@@ -631,7 +639,7 @@ const ClinicNewVisit = () => {
           </Card>
         </div>
 
-        <div ref={printRef} className="hidden print:block">
+        <div ref={printRef} className="absolute left-[-9999px] top-[-9999px] overflow-hidden pointer-events-none">
           <ClinicPrescriptionPrint
             visitView={visitView}
             branchName={activeBranch?.name}

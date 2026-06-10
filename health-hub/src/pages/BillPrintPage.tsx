@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
 import { Loader2, AlertTriangle } from "lucide-react";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { API_BASE } from "@/lib/api";
 import { BillReceipt } from "@/components/print/BillReceipt";
 import type { BillReceiptData } from "@/types";
+import { useReactToPrint } from "react-to-print";
 import {
   mapApiBillToReceiptData,
   type ApiBillData,
@@ -18,6 +19,8 @@ export default function BillPrintPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [logoLoaded, setLogoLoaded] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const handlePrint = useReactToPrint({ contentRef });
   const printLabel =
     billData?.visit.hasBill === false ? "Print Visit Slip" : "Print Bill";
 
@@ -84,19 +87,15 @@ export default function BillPrintPage() {
     );
   }
 
-  const handlePrint = () => {
-    window.print();
-  };
-
   return (
     <>
       <div className="no-print fixed top-4 right-4 z-50">
-        <Button onClick={handlePrint} disabled={!logoLoaded}>
+        <Button onClick={() => handlePrint()} disabled={!logoLoaded}>
           {logoLoaded ? printLabel : "Preparing Print..."}
         </Button>
       </div>
 
-      <div id="bill-receipt-container" className="bg-white">
+      <div ref={contentRef} id="bill-receipt-container" className="bg-white">
         <BillReceipt
           data={receiptData}
           onLogoLoadedChange={setLogoLoaded}
