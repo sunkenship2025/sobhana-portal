@@ -87,7 +87,31 @@ export default function BillPrintPage() {
   return (
     <>
       <div className="no-print fixed top-4 right-4 z-50">
-        <Button onClick={() => window.print()} disabled={!logoLoaded}>
+        <Button
+          onClick={() => {
+            // iOS Safari silently ignores window.print(). Detect mobile
+            // and trigger the native share sheet instead, which offers
+            // "Print", "Save to Files", AirDrop, etc.
+            const isMobile =
+              /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+              (navigator.maxTouchPoints > 0 && window.innerWidth < 1024);
+
+            if (isMobile && navigator.share) {
+              // Share the current page URL — iOS share sheet has a "Print" action
+              navigator
+                .share({
+                  title: printLabel,
+                  url: window.location.href,
+                })
+                .catch(() => {
+                  // User cancelled share sheet — that's fine
+                });
+            } else {
+              window.print();
+            }
+          }}
+          disabled={!logoLoaded}
+        >
           {logoLoaded ? printLabel : "Preparing Print..."}
         </Button>
       </div>
