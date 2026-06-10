@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
 import { Loader2, AlertTriangle } from "lucide-react";
@@ -18,6 +18,8 @@ export default function BillPrintPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [logoLoaded, setLogoLoaded] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const receiptRef = useRef<HTMLDivElement>(null);
   const printLabel =
     billData?.visit.hasBill === false ? "Print Visit Slip" : "Print Bill";
 
@@ -63,6 +65,54 @@ export default function BillPrintPage() {
     }
   }, [billData]);
 
+  const isMobile =
+    typeof navigator !== "undefined" &&
+    (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+      (navigator.maxTouchPoints > 0 && window.innerWidth < 1024));
+
+  const handlePrint = async () => {
+    if (isMobile) {
+      // Mobile: capture receipt as image → convert to PDF → download
+      setGenerating(true);
+      try {
+        const html2canvas = (await import("html2canvas")).default;
+        const { jsPDF } = await import("jspdf");
+
+        const el = receiptRef.current;
+        if (!el) return;
+
+        const canvas = await html2canvas(el, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: "#ffffff",
+        });
+
+        const imgWidth = 210; // A4 width in mm
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        const pdf = new jsPDF("p", "mm", [imgWidth, imgHeight]);
+        pdf.addImage(
+          canvas.toDataURL("image/png"),
+          "PNG",
+          0,
+          0,
+          imgWidth,
+          imgHeight
+        );
+
+        const billNo = receiptData?.billNumber || "bill";
+        pdf.save(`${billNo}.pdf`);
+      } catch (err) {
+        console.error("PDF generation failed:", err);
+        // Last resort fallback
+        window.print();
+      } finally {
+        setGenerating(false);
+      }
+    } else {
+      window.print();
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -88,38 +138,25 @@ export default function BillPrintPage() {
     <>
       <div className="no-print fixed top-4 right-4 z-50">
         <Button
-          onClick={() => {
-            // iOS Safari silently ignores window.print(). Detect mobile
-            // and trigger the native share sheet instead, which offers
-            // "Print", "Save to Files", AirDrop, etc.
-            const isMobile =
-              /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
-              (navigator.maxTouchPoints > 0 && window.innerWidth < 1024);
-
-            if (isMobile && navigator.share) {
-              // Share the current page URL — iOS share sheet has a "Print" action
-              navigator
-                .share({
-                  title: printLabel,
-                  url: window.location.href,
-                })
-                .catch(() => {
-                  // User cancelled share sheet — that's fine
-                });
-            } else {
-              window.print();
-            }
-          }}
-          disabled={!logoLoaded}
+          onClick={handlePrint}
+          disabled={!logoLoaded || generating}
         >
-          {logoLoaded ? printLabel : "Preparing Print..."}
+          {generating
+            ? "Generating PDF..."
+            : logoLoaded
+              ? isMobile
+                ? "Download PDF"
+                : printLabel
+              : "Preparing Print..."}
         </Button>
       </div>
 
-      <BillReceipt
-        data={receiptData}
-        onLogoLoadedChange={setLogoLoaded}
-      />
+      <div ref={receiptRef}>
+        <BillReceipt
+          data={receiptData}
+          onLogoLoadedChange={setLogoLoaded}
+        />
+      </div>
     </>
   );
 }
