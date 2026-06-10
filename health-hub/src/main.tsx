@@ -3,6 +3,19 @@ import App from "./App.tsx";
 import "./index.css";
 import { initSentry, Sentry, isSentryEnabled } from "./lib/sentry";
 
+// ── Stale-chunk auto-reload ──────────────────────────────────────────────
+// After a new deployment Vite's chunk filenames change. Users with stale tabs
+// try to import the old chunk → server returns index.html (text/html) instead
+// of JS → "Failed to fetch dynamically imported module" error.
+// Catch this globally and reload once so they silently get the new bundle.
+window.addEventListener("vite:preloadError", () => {
+  const key = "__vite_reload";
+  if (!sessionStorage.getItem(key)) {
+    sessionStorage.setItem(key, "1");
+    window.location.reload();
+  }
+});
+
 // Initialize Sentry before anything React renders so render-time crashes are captured.
 initSentry();
 
