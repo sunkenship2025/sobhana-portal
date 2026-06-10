@@ -1948,7 +1948,7 @@ router.post("/", async (req: AuthRequest, res) => {
 
         // Create test orders with metadata snapshot (E3-03)
         await tx.testOrder.createMany({
-          data: testOrderData.map((tod) => ({
+          data: testOrderData.map((tod, idx) => ({
             visitId: visit.id,
             testId: tod.testId,
             branchId: req.branchId!,
@@ -1970,6 +1970,7 @@ router.post("/", async (req: AuthRequest, res) => {
             referenceUnitSnapshot: tod.referenceUnitSnapshot,
             testDefinitionId: tod.testDefinitionId ?? null,
             productId: tod.productId ?? null,
+            displayOrder: idx,
           })),
         });
 
@@ -2577,7 +2578,7 @@ router.post("/:id/tests", async (req: AuthRequest, res) => {
     const result = await prisma.$transaction(async (tx) => {
       // Create test orders with snapshotted metadata (E3-03), preserving input order
       await tx.testOrder.createMany({
-        data: testIds.map((testId: string) => {
+        data: testIds.map((testId: string, idx: number) => {
           const test = testMap.get(testId)!;
           const index = tests.findIndex(t => t.id === test.id);
           return {
@@ -2602,6 +2603,7 @@ router.post("/:id/tests", async (req: AuthRequest, res) => {
             referenceMinSnapshot: test.referenceMin,
             referenceMaxSnapshot: test.referenceMax,
             referenceUnitSnapshot: test.referenceUnit,
+            displayOrder: idx,
           };
         }),
       });

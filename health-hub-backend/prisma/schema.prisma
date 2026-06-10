@@ -605,6 +605,7 @@ model TestOrder {
   diagnosticCenterCommissionType          ReferralPayoutType?
   diagnosticCenterCommissionPercentage    Float?
   diagnosticCenterCommissionAmountInPaise Int?
+  displayOrder                            Int                    @default(0)
   createdAt                               DateTime               @default(now())
 
   // E3-03: Test metadata snapshot (frozen at order time)
