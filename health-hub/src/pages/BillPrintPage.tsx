@@ -10,9 +10,6 @@ import {
   mapApiBillToReceiptData,
   type ApiBillData,
 } from "@/lib/billReceiptMappers";
-import html2canvas from "html2canvas";
-import jsPDF from "jspdf";
-import { Download, Share2 } from "lucide-react";
 
 export default function BillPrintPage() {
   const { domain, visitId } = useParams<{ domain: string; visitId: string }>();
@@ -21,7 +18,6 @@ export default function BillPrintPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [logoLoaded, setLogoLoaded] = useState(false);
-  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const printLabel =
     billData?.visit.hasBill === false ? "Print Visit Slip" : "Print Bill";
 
@@ -89,83 +85,14 @@ export default function BillPrintPage() {
   }
 
   const handlePrint = () => {
-    window.focus();
-    setTimeout(() => {
-      window.print();
-    }, 100);
-  };
-
-  const handleSharePdf = async () => {
-    try {
-      setIsGeneratingPdf(true);
-      const element = document.getElementById("bill-receipt-container");
-      if (!element) throw new Error("Receipt container not found");
-
-      // Hide the print buttons while capturing
-      const buttonsDiv = document.getElementById("print-actions-container");
-      if (buttonsDiv) buttonsDiv.style.display = 'none';
-
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-      });
-
-      const imgData = canvas.toDataURL("image/jpeg", 1.0);
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "mm",
-        format: "a4",
-      });
-
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-
-      pdf.addImage(imgData, "JPEG", 0, 0, pdfWidth, pdfHeight);
-      
-      const fileName = `Bill_${receiptData.billNumber || receiptData.visitRef || "Receipt"}.pdf`;
-
-      // Use Web Share API if supported
-      if (navigator.share && /mobile|android|iphone|ipad/i.test(navigator.userAgent)) {
-        const blob = pdf.output("blob");
-        const file = new File([blob], fileName, { type: "application/pdf" });
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            title: "Bill Receipt",
-            files: [file],
-          });
-        } else {
-          pdf.save(fileName);
-        }
-      } else {
-        // Fallback: direct download
-        pdf.save(fileName);
-      }
-    } catch (err: any) {
-      console.error("Failed to generate PDF", err);
-      alert("Failed to generate PDF. Make sure your connection is stable. Error: " + err.message);
-    } finally {
-      setIsGeneratingPdf(false);
-      const buttonsDiv = document.getElementById("print-actions-container");
-      if (buttonsDiv) buttonsDiv.style.display = 'flex';
-    }
+    window.print();
   };
 
   return (
     <>
-      <div id="print-actions-container" className="no-print fixed top-4 right-4 z-50 flex gap-2 flex-col sm:flex-row">
-        <Button onClick={handlePrint} disabled={!logoLoaded || isGeneratingPdf}>
+      <div className="no-print fixed top-4 right-4 z-50">
+        <Button onClick={handlePrint} disabled={!logoLoaded}>
           {logoLoaded ? printLabel : "Preparing Print..."}
-        </Button>
-        <Button variant="outline" onClick={handleSharePdf} disabled={!logoLoaded || isGeneratingPdf} className="bg-white">
-          {isGeneratingPdf ? (
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-          ) : /mobile|android|iphone|ipad/i.test(navigator.userAgent) ? (
-            <Share2 className="h-4 w-4 mr-2" />
-          ) : (
-            <Download className="h-4 w-4 mr-2" />
-          )}
-          {isGeneratingPdf ? "Generating..." : "Share PDF"}
         </Button>
       </div>
 

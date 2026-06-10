@@ -8,6 +8,7 @@ import {
   Search,
   UserPlus,
 } from "lucide-react";
+import { flushSync } from "react-dom";
 import { API_BASE } from "@/lib/api";
 import { ClinicPrescriptionPrint } from "@/components/print/ClinicPrescriptionPrint";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -531,14 +532,14 @@ const ClinicNewVisit = () => {
   const [isPrinting, setIsPrinting] = useState(false);
 
   const handlePrint = (mode: "rx" | "bill" | "both") => {
-    setPrintMode(mode);
-    setIsPrinting(true);
-    // Give React time to re-render the hidden print block with the new mode
-    setTimeout(() => {
-      window.focus();
-      window.print();
-      setIsPrinting(false);
-    }, 100);
+    flushSync(() => {
+      setPrintMode(mode);
+      setIsPrinting(true);
+    });
+    
+    window.print();
+    
+    setIsPrinting(false);
   };
 
   if (successData) {
