@@ -1027,15 +1027,17 @@ const DiagnosticsNewVisit = () => {
                 </div>
 
                 <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:justify-center">
-                  <Button
-                    className="w-full sm:w-auto"
-                    variant="outline"
-                    onClick={handlePrint}
-                    disabled={!billLogoLoaded}
-                  >
-                    <Printer className="mr-2 h-4 w-4" />
-                    {billLogoLoaded ? "Print Bill" : "Preparing Print..."}
-                  </Button>
+                  {successData.visitView.visit.id && (
+                    <Button
+                      className="w-full sm:w-auto"
+                      variant="outline"
+                      onClick={() => navigate(`/bill/print/diagnostics/${successData.visitView.visit.id}`)}
+                      disabled={!billLogoLoaded}
+                    >
+                      <Printer className="mr-2 h-4 w-4" />
+                      {billLogoLoaded ? "Print Bill" : "Preparing Print..."}
+                    </Button>
+                  )}
                   <Button
                     className="w-full sm:w-auto"
                     onClick={() => {

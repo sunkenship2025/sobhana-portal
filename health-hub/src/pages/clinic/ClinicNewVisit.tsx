@@ -540,11 +540,7 @@ const ClinicNewVisit = () => {
       setPrintMode(mode);
       setIsPrinting(true);
     });
-    
-    // Fire and forget, but reset the UI state right after it opens
     handleReactPrint();
-    
-    // We can reset isPrinting quickly because react-to-print clones the DOM synchronously
     setTimeout(() => {
       setIsPrinting(false);
     }, 500);
@@ -613,15 +609,17 @@ const ClinicNewVisit = () => {
                     Print Prescription
                   </Button>
                   
-                  <Button
-                    className="w-full sm:w-auto"
-                    variant="outline"
-                    onClick={() => handlePrint("bill")}
-                    disabled={!billLogoLoaded || isPrinting}
-                  >
-                    <Printer className="mr-2 h-4 w-4" />
-                    {billLogoLoaded ? (hasBill ? "Print Bill" : "Print Visit Slip") : (hasBill ? "Preparing Bill..." : "Preparing Slip...")}
-                  </Button>
+                  {visitView.visit.id && (
+                    <Button
+                      className="w-full sm:w-auto"
+                      variant="outline"
+                      onClick={() => navigate(`/bill/print/clinic/${visitView.visit.id}`)}
+                      disabled={!billLogoLoaded}
+                    >
+                      <Printer className="mr-2 h-4 w-4" />
+                      {billLogoLoaded ? (hasBill ? "Print Bill" : "Print Visit Slip") : (hasBill ? "Preparing Bill..." : "Preparing Slip...")}
+                    </Button>
+                  )}
 
                   <Button className="w-full sm:w-auto" onClick={resetForm}>
                     Create Another Visit
