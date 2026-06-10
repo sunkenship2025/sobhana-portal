@@ -535,6 +535,7 @@ const ClinicNewVisit = () => {
     setIsPrinting(true);
     // Give React time to re-render the hidden print block with the new mode
     setTimeout(() => {
+      window.focus();
       window.print();
       setIsPrinting(false);
     }, 100);

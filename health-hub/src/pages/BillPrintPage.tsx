@@ -84,10 +84,17 @@ export default function BillPrintPage() {
     );
   }
 
+  const handlePrint = () => {
+    window.focus();
+    setTimeout(() => {
+      window.print();
+    }, 100);
+  };
+
   return (
     <>
       <div className="no-print fixed top-4 right-4 z-50">
-        <Button onClick={() => window.print()} disabled={!logoLoaded}>
+        <Button onClick={handlePrint} disabled={!logoLoaded}>
           {logoLoaded ? printLabel : "Preparing Print..."}
         </Button>
       </div>

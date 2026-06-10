@@ -927,7 +927,10 @@ const DiagnosticsNewVisit = () => {
   };
 
   const handlePrint = () => {
-    window.print();
+    window.focus();
+    setTimeout(() => {
+      window.print();
+    }, 100);
   };
 
   if (successData) {
