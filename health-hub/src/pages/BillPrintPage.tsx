@@ -111,8 +111,6 @@ export default function BillPrintPage() {
         logging: false,
       });
 
-      if (buttonsDiv) buttonsDiv.style.display = 'flex';
-
       const imgData = canvas.toDataURL("image/jpeg", 1.0);
       const pdf = new jsPDF({
         orientation: "portrait",
@@ -132,19 +130,10 @@ export default function BillPrintPage() {
         const blob = pdf.output("blob");
         const file = new File([blob], fileName, { type: "application/pdf" });
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          try {
-            await navigator.share({
-              title: "Bill Receipt",
-              files: [file],
-            });
-            return;
-          } catch (shareErr: any) {
-            console.error("Share failed", shareErr);
-            if (shareErr.name !== 'AbortError') {
-              alert("Native share failed. Trying to download...");
-              pdf.save(fileName);
-            }
-          }
+          await navigator.share({
+            title: "Bill Receipt",
+            files: [file],
+          });
         } else {
           pdf.save(fileName);
         }
@@ -153,15 +142,13 @@ export default function BillPrintPage() {
         pdf.save(fileName);
       }
     } catch (err: any) {
-      alert("Failed to generate PDF: " + err.message);
       console.error("Failed to generate PDF", err);
+      alert("Failed to generate PDF. Make sure your connection is stable. Error: " + err.message);
     } finally {
       setIsGeneratingPdf(false);
+      const buttonsDiv = document.getElementById("print-actions-container");
+      if (buttonsDiv) buttonsDiv.style.display = 'flex';
     }
-  };
-
-  const handleOpenBrowser = () => {
-    window.open(window.location.href, '_blank');
   };
 
   return (
@@ -179,9 +166,6 @@ export default function BillPrintPage() {
             <Download className="h-4 w-4 mr-2" />
           )}
           {isGeneratingPdf ? "Generating..." : "Share PDF"}
-        </Button>
-        <Button variant="secondary" onClick={handleOpenBrowser} className="bg-white">
-          Open in Browser
         </Button>
       </div>
 
