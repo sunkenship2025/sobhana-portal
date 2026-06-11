@@ -4,6 +4,7 @@ import type { BillReceiptData } from "@/types";
 import { API_BASE_URL } from "@/lib/api";
 import { formatAgeDisplay } from "@/lib/validation";
 import { formatPatientName } from "@/lib/patientDisplay";
+import { useTenantStore } from "@/store/tenantStore";
 
 interface BillReceiptProps {
   data: BillReceiptData;
@@ -20,6 +21,8 @@ export const BillReceipt = ({
   onLogoLoadedChange,
 }: BillReceiptProps) => {
   const isDiagnostic = data.domain === "DIAGNOSTICS";
+  const tenant = useTenantStore((s) => s.tenant);
+  const billLogoUrl = tenant?.branding?.reportLogoBase64 || BILL_LOGO_URL;
   const [logoLoaded, setLogoLoaded] = useState(false);
 
   // ── Date & Time ──
@@ -154,7 +157,7 @@ export const BillReceipt = ({
       setLogoLoaded(true);
       onLogoLoadedChange?.(true);
     };
-    image.src = BILL_LOGO_URL;
+    image.src = billLogoUrl;
 
     if (image.complete) {
       setLogoLoaded(true);
@@ -165,11 +168,11 @@ export const BillReceipt = ({
       image.onload = null;
       image.onerror = null;
     };
-  }, [onLogoLoadedChange]);
+  }, [billLogoUrl, onLogoLoadedChange]);
 
   const clinicLabel = isDiagnostic
-    ? "Sobhana Diagnostic Centre"
-    : "Sobhana Clinic";
+    ? tenant?.config?.businessName || "Sobhana Diagnostic Centre"
+    : tenant?.config?.businessName || "Sobhana Clinic";
 
   return (
     <div className={containerClass}>
@@ -188,8 +191,8 @@ export const BillReceipt = ({
         <div className="border-b border-black px-4 py-1.5 text-center">
           <div className="flex justify-center mb-1">
             <img
-              src={BILL_LOGO_URL}
-              alt="Sobhana"
+              src={billLogoUrl}
+              alt={clinicLabel}
               style={{
                 height: "40px",
                 objectFit: "contain",

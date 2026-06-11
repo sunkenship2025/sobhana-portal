@@ -44,6 +44,7 @@ import {
 import { renderReportHtml } from "../../services/reportRendererService";
 
 import { generateMergedReportPdf } from "../../services/mergedReportPdfService";
+import { resolveTenantAssets } from "../../services/tenantAssetResolver";
 
 import prisma from "../../lib/prisma";
 
@@ -324,7 +325,8 @@ router.get("/:id/preview-report", async (req: AuthRequest, res) => {
     const baseUrl = `${req.protocol}://${req.get("host")}`;
 
     if (format === "html") {
-      const html = renderReportHtml(snapshot, { profile: "screen", baseUrl });
+      const tenantAssets = req.user?.tenantId ? await resolveTenantAssets(req.user.tenantId) : undefined;
+      const html = renderReportHtml(snapshot, { profile: "screen", baseUrl, tenantAssets });
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.setHeader("Cache-Control", "no-store");
       return res.send(html);
@@ -381,12 +383,14 @@ router.get("/:id/finalized-report", async (req: AuthRequest, res) => {
         )
       : "";
 
+    const tenantAssets = loaded.tenantId ? await resolveTenantAssets(loaded.tenantId) : undefined;
     const html = renderReportHtml(loaded.snapshot, {
       // Physical print uses pre-printed ledger paper, so the HTML must omit
       // the built-in report header/footer when the browser print dialog opens.
       profile: autoPrint ? "pdf-physical" : "screen",
       baseUrl,
       qrDataUrl,
+      tenantAssets,
     });
     const finalHtml = autoPrint
       ? html.replace(

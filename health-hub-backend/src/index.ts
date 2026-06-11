@@ -38,6 +38,7 @@ initSentry();
 
 // Routes
 import platformRoutes from './routes/platform';
+import publicTenantRoutes from './routes/publicTenant';
 import authRoutes from './routes/auth';
 import branchRoutes from './routes/branches';
 import patientRoutes from './routes/patients';
@@ -252,6 +253,9 @@ app.get('/readyz', handleReady);
 // Auth routes (no branch context required)
 app.use('/api/auth', authRoutes);
 
+// Public tenant lookup for subdomain-branded login pages.
+app.use('/api/public', publicTenantRoutes);
+
 // System status — auth-required, more detail than the public /health probe.
 // Includes build version + Node memory so ops can correlate "this bug appeared
 // at 14:23" with "deployed at 14:21" and spot memory leaks.
@@ -283,16 +287,19 @@ app.use('/reports', reportDownloadRoutes);
 // WhatsApp webhook (public, no auth) - Meta delivery receipts
 app.use('/webhooks/whatsapp', webhookRoutes);
 
+app.use('/api/platform', authMiddleware, platformRoutes);
+
+// All remaining /api routes are tenant-scoped. Individual routers still keep
+// their auth middleware for backwards compatibility; this app-level layer makes
+// tenant context available before any Prisma query runs.
+app.use('/api', authMiddleware);
+app.use('/api', tenantContextMiddleware);
+
 // Legacy report API (JWT-based, for clinic/Patient360)
 app.use('/api/reports', reportRoutes);
 
 // Branches route (auth required)
 app.use('/api/branches', branchRoutes);
-app.use('/api/platform', authMiddleware, platformRoutes);
-
-
-// Mount tenant context middleware after auth but before branch
-app.use(tenantContextMiddleware);
 
 // Protected routes (auth + branch context required)
 app.use('/api/patients', patientRoutes);

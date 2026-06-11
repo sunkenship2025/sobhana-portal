@@ -2,6 +2,7 @@ import { AuditActionType } from '@prisma/client';
 import crypto from 'crypto';
 import prisma from '../lib/prisma';
 import { logger } from '../lib/logger';
+import { getCurrentTenantId } from '../lib/tenantContext';
 
 
 export interface AuditLogInput {
@@ -9,6 +10,7 @@ export interface AuditLogInput {
   actionType: AuditActionType;
   entityType: string;
   entityId: string;
+  tenantId?: string | null;
   userId?: string | null;
   oldValues?: any;
   newValues?: any;
@@ -47,12 +49,26 @@ function sanitizeAuditPayload(payload: any): any {
 export async function logAction(data: // @ts-ignore
 AuditLogInput): Promise<void> {
   try {
+    const tenantId = data.tenantId || getCurrentTenantId() || (
+      data.branchId
+        ? ((await (prisma as any).branch.findUnique({
+            where: { id: data.branchId },
+            select: { tenantId: true },
+          }))?.tenantId as string | undefined)
+        : undefined
+    );
+
+    if (!tenantId) {
+      throw new Error('Audit tenantId could not be resolved');
+    }
+
     await prisma.auditLog.create({
       // @ts-ignore Prisma strict typing
       data: // @ts-ignore
 { // @ts-ignore
  // @ts-ignore Prisma types
 
+        tenantId,
         branchId: data.branchId,
         actionType: data.actionType,
         entityType: data.entityType,

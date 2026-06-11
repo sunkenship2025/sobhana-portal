@@ -1,15 +1,24 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
+import { useTenantStore } from '@/store/tenantStore';
 import { toast } from 'sonner';
 import { Mail, Lock, LogIn } from 'lucide-react';
 
 const Login = () => {
   const navigate = useNavigate();
   const { login } = useAuthStore();
+  const { tenant, isLoading: isTenantLoading, error: tenantError } = useTenantStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const branding = tenant?.branding;
+  const config = tenant?.config;
+  const primaryColor = branding?.primaryColor || '#1B2B58';
+  const accentColor = branding?.accentColor || '#D91C2B';
+  const businessName = config?.businessName || tenant?.name || 'Sobhana Diagnostic Centre';
+  const businessSubtitle = config?.businessSubtitle || 'Diagnostic Centre & Multi Speciality Clinic';
+  const logo = branding?.portalLogoBase64;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,20 +47,20 @@ const Login = () => {
     <div className="h-screen flex overflow-hidden bg-white font-sans antialiased text-gray-900">
 
       {/* ── Left Hero Panel ── */}
-      <div className="hidden lg:flex lg:w-1/2 relative bg-[#1B2B58]">
+      <div className="hidden lg:flex lg:w-1/2 relative" style={{ backgroundColor: primaryColor }}>
         <img
           src="https://lh3.googleusercontent.com/aida-public/AB6AXuAJCqoXJSoTkrjKSdEXs4DJx4D4x9Ob9KTwKxs0-Y3tT6D2KEWOU076lWn2XD5RTdY3nRmNfOmTFbXYYBqDnqYa9-Sv5OkY9aHwpfWFhrNGPEJXGHfkLTM7KLPDLSVHVhhYI23YmYIEjlrZuW5eivX_iGf3e024KoWLccFyEG4OQF1jba2llN0flFjCh8q4JP1dpm-jsuG1NQZ1zpW9y7pXIzqPQV7vVaIaG4nykeBieWC8y1aYTTiLPB7FNfhW4Qbj--6rzC1maA"
           alt="Medical laboratory"
           className="absolute inset-0 w-full h-full object-cover mix-blend-overlay opacity-60"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#1B2B58]/95 to-[#1B2B58]/50" />
+        <div className="absolute inset-0" style={{ background: `linear-gradient(to top, ${primaryColor}f2, ${primaryColor}80)` }} />
         <div className="relative z-10 flex flex-col justify-end p-16 text-white">
           <h2 className="text-4xl font-extrabold mb-4 tracking-tight">
             Advanced Healthcare Management
           </h2>
           <p className="text-lg text-gray-200 opacity-90 max-w-lg">
-            Securely access patient records, diagnostics, and administrative tools
-            in one unified platform designed for modern medical excellence.
+            Securely access {businessName} records, diagnostics, and administrative tools
+            in one unified platform configured for this client.
           </p>
         </div>
       </div>
@@ -66,33 +75,44 @@ const Login = () => {
               {/* Icon-based logo */}
               <div className="flex items-end justify-center mb-1 gap-3">
                 <div className="relative w-16 h-14 flex items-end shrink-0">
-                  <span
-                    className="material-symbols-outlined text-[#1B2B58] text-5xl absolute left-0 bottom-0 z-10"
-                    style={{ fontVariationSettings: "'FILL' 1, 'wght' 700" }}
-                  >
-                    biotech
-                  </span>
-                  <span
-                    className="material-symbols-outlined text-[#D91C2B] text-4xl absolute right-0 bottom-1 z-20 bg-white rounded-full border-2 border-white"
-                    style={{ fontVariationSettings: "'FILL' 1, 'wght' 600" }}
-                  >
-                    medical_services
-                  </span>
+                  {logo ? (
+                    <img src={logo} alt={businessName} className="h-14 w-14 rounded-xl object-contain" />
+                  ) : (
+                    <>
+                      <span
+                        className="material-symbols-outlined text-5xl absolute left-0 bottom-0 z-10"
+                        style={{ color: primaryColor, fontVariationSettings: "'FILL' 1, 'wght' 700" }}
+                      >
+                        biotech
+                      </span>
+                      <span
+                        className="material-symbols-outlined text-4xl absolute right-0 bottom-1 z-20 bg-white rounded-full border-2 border-white"
+                        style={{ color: accentColor, fontVariationSettings: "'FILL' 1, 'wght' 600" }}
+                      >
+                        medical_services
+                      </span>
+                    </>
+                  )}
                 </div>
                 <h1
-                  className="text-5xl font-black text-[#D91C2B] tracking-tighter uppercase leading-none"
-                  style={{ fontStretch: 'expanded' }}
+                  className="text-5xl font-black tracking-tighter uppercase leading-none"
+                  style={{ color: accentColor, fontStretch: 'expanded' }}
                 >
-                  SOBHANA
+                  {tenant?.slug || 'SOBHANA'}
                 </h1>
               </div>
-              <div className="text-[#1B2B58] font-bold text-xs sm:text-sm tracking-[0.15em] uppercase text-center border-t-2 border-[#1B2B58]/20 pt-2 w-full max-w-[340px]">
-                Diagnostic Centre &amp; Multi Speciality Clinic
+              <div
+                className="font-bold text-xs sm:text-sm tracking-[0.15em] uppercase text-center border-t-2 pt-2 w-full max-w-[340px]"
+                style={{ color: primaryColor, borderColor: `${primaryColor}33` }}
+              >
+                {businessSubtitle}
               </div>
             </div>
 
             <h2 className="text-3xl font-bold text-gray-900 mt-4">Welcome Back</h2>
-            <p className="mt-2 text-sm text-gray-500">Sign in to access your dashboard</p>
+            <p className="mt-2 text-sm text-gray-500">
+              {isTenantLoading ? 'Loading client workspace...' : tenantError || 'Sign in to access your dashboard'}
+            </p>
           </div>
 
           {/* Form */}
@@ -101,7 +121,7 @@ const Login = () => {
 
               {/* Email */}
               <div>
-                <label htmlFor="email" className="block text-sm font-bold text-[#1B2B58] mb-2">
+                <label htmlFor="email" className="block text-sm font-bold mb-2" style={{ color: primaryColor }}>
                   Email address
                 </label>
                 <div className="relative rounded-md shadow-sm">
@@ -117,14 +137,14 @@ const Login = () => {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="Enter your email"
-                    className="pl-10 block w-full rounded-md border border-gray-300 bg-gray-50 text-gray-900 focus:ring-[#D91C2B] focus:border-[#D91C2B] sm:text-sm h-12 transition duration-150 ease-in-out font-medium"
+                    className="pl-10 block w-full rounded-md border border-gray-300 bg-gray-50 text-gray-900 sm:text-sm h-12 transition duration-150 ease-in-out font-medium"
                   />
                 </div>
               </div>
 
               {/* Password */}
               <div>
-                <label htmlFor="password" className="block text-sm font-bold text-[#1B2B58] mb-2">
+                <label htmlFor="password" className="block text-sm font-bold mb-2" style={{ color: primaryColor }}>
                   Password
                 </label>
                 <div className="relative rounded-md shadow-sm">
@@ -140,7 +160,7 @@ const Login = () => {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Enter your password"
-                    className="pl-10 block w-full rounded-md border border-gray-300 bg-gray-50 text-gray-900 focus:ring-[#D91C2B] focus:border-[#D91C2B] sm:text-sm h-12 transition duration-150 ease-in-out font-medium"
+                    className="pl-10 block w-full rounded-md border border-gray-300 bg-gray-50 text-gray-900 sm:text-sm h-12 transition duration-150 ease-in-out font-medium"
                   />
                 </div>
               </div>
@@ -151,7 +171,8 @@ const Login = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-bold rounded-md text-white bg-[#D91C2B] hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#D91C2B] shadow-lg shadow-red-500/30 transition-all duration-200 uppercase tracking-wide disabled:opacity-50"
+              className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-bold rounded-md text-white focus:outline-none focus:ring-2 focus:ring-offset-2 shadow-lg transition-all duration-200 uppercase tracking-wide disabled:opacity-50"
+              style={{ backgroundColor: accentColor, ['--tw-ring-color' as string]: accentColor }}
             >
               <span className="absolute left-0 inset-y-0 flex items-center pl-3">
                 <LogIn className="h-5 w-5 text-red-200 group-hover:text-white transition-colors" />

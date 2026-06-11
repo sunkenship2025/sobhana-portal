@@ -13,6 +13,7 @@ export interface Branch {
   code: string; // e.g., "MPR" for bill prefixes
   address?: string;
   phone?: string;
+  themeOverride?: Record<string, string> | null;
   isActive: boolean;
   createdAt: Date;
 }

@@ -571,6 +571,7 @@ model Branch {
   code      String // MPR, KPY, etc.
   address   String?
   phone     String?
+  themeOverride Json?
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

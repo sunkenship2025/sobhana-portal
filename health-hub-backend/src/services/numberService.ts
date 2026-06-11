@@ -1,4 +1,5 @@
 import prisma from '../lib/prisma';
+import { requireTenantId } from '../lib/tenantContext';
 
 
 /**
@@ -18,6 +19,7 @@ export async function generateNextNumber(
 ): Promise<string> {
   const maxRetries = 10; // E2-05: Higher retry count for high concurrency scenarios
   let lastError: Error | null = null;
+  const tenantId = requireTenantId();
   
   // E2-05: Retry logic for handling concurrent transaction conflicts
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -28,7 +30,7 @@ export async function generateNextNumber(
         let result = await tx.$queryRaw<Array<{ id: string; prefix: string; lastValue: number }>>`
           SELECT id, prefix, "lastValue"
           FROM "NumberSequence"
-          WHERE id = ${sequenceId}
+          WHERE "tenantId" = ${tenantId} AND id = ${sequenceId}
           FOR UPDATE NOWAIT
         `;
 
@@ -39,9 +41,9 @@ export async function generateNextNumber(
           // Use INSERT ... ON CONFLICT to handle race condition atomically
           try {
             await tx.$executeRaw`
-              INSERT INTO "NumberSequence" (id, prefix, "lastValue", "updatedAt")
-              VALUES (${sequenceId}, ${prefix}, 0, NOW())
-              ON CONFLICT (id) DO NOTHING
+              INSERT INTO "NumberSequence" ("tenantId", id, prefix, "lastValue", "updatedAt")
+              VALUES (${tenantId}, ${sequenceId}, ${prefix}, 0, NOW())
+              ON CONFLICT ("tenantId", id) DO NOTHING
             `;
           } catch (insertError) {
             // If insert fails, sequence may have been created by another transaction
@@ -52,7 +54,7 @@ export async function generateNextNumber(
           result = await tx.$queryRaw<Array<{ id: string; prefix: string; lastValue: number }>>`
             SELECT id, prefix, "lastValue"
             FROM "NumberSequence"
-            WHERE id = ${sequenceId}
+            WHERE "tenantId" = ${tenantId} AND id = ${sequenceId}
             FOR UPDATE NOWAIT
           `;
           
@@ -68,7 +70,7 @@ export async function generateNextNumber(
         await tx.$executeRaw`
           UPDATE "NumberSequence"
           SET "lastValue" = ${nextValue}, "updatedAt" = NOW()
-          WHERE id = ${sequenceId}
+          WHERE "tenantId" = ${tenantId} AND id = ${sequenceId}
         `;
 
         // Format with leading zeros (6 digits — covers up to 999,999 entries

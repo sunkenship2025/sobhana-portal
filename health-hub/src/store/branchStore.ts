@@ -21,6 +21,7 @@ import { persist } from 'zustand/middleware';
 import type { Branch } from '@/types';
 import { API_BASE } from '@/lib/api';
 import { useAuthStore } from './authStore';
+import { applyBranchThemeFromBranch } from '@/lib/branchTheme';
 
 // ============================================
 // BRANCH STORE INTERFACE
@@ -77,6 +78,8 @@ export const useBranchStore = create<BranchState>()(
       },
       
       setActiveBranch: (branchId) => {
+        const branch = get().branches.find((b) => b.id === branchId);
+        if (branch) applyBranchThemeFromBranch(branch);
         set({ activeBranchId: branchId });
       },
       
@@ -109,6 +112,9 @@ export const useBranchStore = create<BranchState>()(
           if (response.ok) {
             const branches = await response.json();
             set({ branches, isLoading: false });
+            const activeBranchId = get().activeBranchId;
+            const activeBranch = branches.find((branch: Branch) => branch.id === activeBranchId);
+            if (activeBranch) applyBranchThemeFromBranch(activeBranch);
           } else {
             console.error('Failed to fetch branches:', response.statusText);
             set({ isLoading: false });

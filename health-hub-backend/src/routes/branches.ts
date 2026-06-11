@@ -15,6 +15,7 @@ router.get('/', authMiddleware, async (_req: AuthRequest, res) => {
         code: true,
         address: true,
         phone: true,
+        themeOverride: true,
         isActive: true,
         createdAt: true,
       },

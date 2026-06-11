@@ -20,6 +20,7 @@ import {
 import fs from 'fs';
 import path from 'path';
 import sanitizeHtml from 'sanitize-html';
+import type { TenantRenderAssets } from './tenantAssetResolver';
 
 // ============================================================================
 // INLINE ASSETS — loaded once at startup, embedded in every report HTML
@@ -646,6 +647,7 @@ export interface RenderOptions {
   profile: RenderProfile;
   baseUrl?: string;
   qrDataUrl?: string;
+  tenantAssets?: TenantRenderAssets;
 }
 
 interface ResolvedProfile {
@@ -778,13 +780,31 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
   }
 }
 
-function renderHeaderHtml(baseUrl: string, qrImgSrc: string): string {
-  const logoSrc = LOGO_DATA_URI || `${baseUrl}/images/sobhana-logo-cropped.png`;
+function interpolateTenantTemplate(template: string, assets: TenantRenderAssets): string {
+  const vars: Record<string, string> = {
+    businessName: assets.businessName,
+    businessSubtitle: assets.businessSubtitle || '',
+    contactPhone: assets.contactPhone || '',
+    contactAddress: assets.contactAddress || '',
+    labLicenseNo: assets.labLicenseNo || '',
+    logo: assets.reportLogoBase64 || '',
+  };
+
+  return template.replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_match, key) => vars[key] ?? '');
+}
+
+function renderHeaderHtml(baseUrl: string, qrImgSrc: string, assets?: TenantRenderAssets): string {
+  if (assets?.headerHtml) {
+    return interpolateTenantTemplate(assets.headerHtml, assets);
+  }
+
+  const logoSrc = assets?.reportLogoBase64 || LOGO_DATA_URI || `${baseUrl}/images/sobhana-logo-cropped.png`;
+  const altText = assets?.businessName || 'Diagnostic Centre';
 
   return `
     <header class="header">
       <div class="header-logo-row">
-        <img src="${logoSrc}" alt="Sobhana Diagnostic Centre" class="header-logo" />
+        <img src="${logoSrc}" alt="${escapeHtml(altText)}" class="header-logo" />
         ${qrImgSrc ? `
         <div class="header-qr no-print">
           <img src="${qrImgSrc}" alt="QR" class="header-qr-img" />
@@ -972,7 +992,11 @@ function renderReportBottomHtml(
       </div>`;
 }
 
-function renderFooterHtml(): string {
+function renderFooterHtml(assets?: TenantRenderAssets): string {
+  if (assets?.footerHtml) {
+    return interpolateTenantTemplate(assets.footerHtml, assets);
+  }
+
   return `
     <footer class="footer">
       <div class="footer-stripe"></div>
@@ -982,19 +1006,24 @@ function renderFooterHtml(): string {
           <div class="partial-text">Partial reproduction of this report is not permitted.</div>
         </div>
         <div class="footer-right">
-          <div class="address-text">Balanagar : # 3-67, Sobhana Complex, Balanagar, Hyderabad-500042.</div>
-          <div class="phone-text">Ph : 040-2377 2929, 4016 3301</div>
+          <div class="address-text">${escapeHtml(assets?.contactAddress || 'Balanagar : # 3-67, Sobhana Complex, Balanagar, Hyderabad-500042.')}</div>
+          <div class="phone-text">${escapeHtml(assets?.contactPhone ? `Ph : ${assets.contactPhone}` : 'Ph : 040-2377 2929, 4016 3301')}</div>
         </div>
       </div>
     </footer>`;
 }
 
-function buildReportFragments(_snapshot: ReportSnapshot, baseUrl: string, qrDataUrl: string): ReportFragments {
+function buildReportFragments(
+  _snapshot: ReportSnapshot,
+  baseUrl: string,
+  qrDataUrl: string,
+  tenantAssets?: TenantRenderAssets,
+): ReportFragments {
   // Patient info is now rendered per-page in renderReportPage so the Sample
   // Type field can match the panels actually shown on that page.
   return {
-    headerHtml: renderHeaderHtml(baseUrl, qrDataUrl),
-    footerHtml: renderFooterHtml(),
+    headerHtml: renderHeaderHtml(baseUrl, qrDataUrl, tenantAssets),
+    footerHtml: renderFooterHtml(tenantAssets),
     qrImgSrc: qrDataUrl,
   };
 }
@@ -1175,6 +1204,7 @@ function renderDocumentHtml(
   snapshot: ReportSnapshot,
   resolved: ResolvedProfile,
   pagesHtml: string,
+  tenantAssets?: TenantRenderAssets,
 ): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1184,6 +1214,7 @@ function renderDocumentHtml(
   <title>Diagnostic Report - ${snapshot.patient.title ? escapeHtml(snapshot.patient.title) + '. ' : ''}${escapeHtml(snapshot.patient.name)} - ${escapeHtml(snapshot.visit.billNumber)}</title>
   ${resolved.cssBlock}
   ${resolved.extraStyles ? `<style>${resolved.extraStyles}</style>` : ''}
+  ${tenantAssets?.customCss ? `<style>${tenantAssets.customCss}</style>` : ''}
 </head>
 <body class="report-body ${resolved.bodyClass}">
 ${pagesHtml}
@@ -1192,7 +1223,7 @@ ${pagesHtml}
 }
 
 export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOptions): string {
-  const { profile, baseUrl = '', qrDataUrl = '' } = options;
+  const { profile, baseUrl = '', qrDataUrl = '', tenantAssets } = options;
   const resolved = resolveProfile(profile);
 
   const renderDepartmentSection = (
@@ -1208,7 +1239,7 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
       </section>`;
   };
 
-  const fragments = buildReportFragments(snapshot, baseUrl, qrDataUrl);
+  const fragments = buildReportFragments(snapshot, baseUrl, qrDataUrl, tenantAssets);
   if (profile === 'pdf-digital') {
     // Footer is drawn by Puppeteer's footerTemplate (see DIGITAL_PDF_OPTIONS).
     // Pulling it out of the document flow guarantees it always anchors to the
@@ -1220,5 +1251,5 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
     .map(page => renderReportPage(page, fragments, snapshot, baseUrl, isPhysicalPrint))
     .join('');
 
-  return renderDocumentHtml(snapshot, resolved, pages);
+  return renderDocumentHtml(snapshot, resolved, pages, tenantAssets);
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "Branch" ADD COLUMN IF NOT EXISTS "themeOverride" JSONB;

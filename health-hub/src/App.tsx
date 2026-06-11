@@ -8,6 +8,8 @@ import { useEffect } from "react";
 import { ProtectedRoute } from "./components/layout/ProtectedRoute";
 import { BranchConfirmModal } from "./components/layout/BranchConfirmModal";
 import { useBranchStore } from "./store/branchStore";
+import { useTenantStore } from "./store/tenantStore";
+import { applyBranchThemeFromBranch } from "./lib/branchTheme";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import DiagnosticsNewVisit from "./pages/diagnostics/DiagnosticsNewVisit";
@@ -49,6 +51,23 @@ function GlobalBranchConfirmGate() {
   const setAwaiting = useBranchStore((s) => s.setAwaitingBranchConfirm);
   const open = isAuthenticated && awaiting;
   return <BranchConfirmModal open={open} onConfirm={() => setAwaiting(false)} />;
+}
+
+function TenantBootstrap() {
+  const resolveTenant = useTenantStore((s) => s.resolveTenant);
+  const activeBranchId = useBranchStore((s) => s.activeBranchId);
+  const branches = useBranchStore((s) => s.branches);
+
+  useEffect(() => {
+    void resolveTenant();
+  }, [resolveTenant]);
+
+  useEffect(() => {
+    const activeBranch = branches.find((branch) => branch.id === activeBranchId);
+    if (activeBranch) applyBranchThemeFromBranch(activeBranch);
+  }, [activeBranchId, branches]);
+
+  return null;
 }
 
 function AppRoutes() {
@@ -250,8 +269,9 @@ function AppShell() {
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
+      <TooltipProvider>
+        <TenantBootstrap />
+        <Toaster />
       <Sonner />
       <BrowserRouter>
         <AppShell />

@@ -461,6 +461,7 @@ async function loadFinalizedReportSnapshotForVisit(visitId: string) {
     },
     select: {
       billNumber: true,
+      tenantId: true,
       report: {
         select: {
           versions: {
@@ -508,6 +509,7 @@ async function loadFinalizedReportSnapshotForVisit(visitId: string) {
   return {
     ok: true as const,
     billNumber: visit.billNumber,
+    tenantId: visit.tenantId,
     reportVersionId,
     snapshot,
   };

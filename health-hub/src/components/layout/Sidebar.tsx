@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuthStore, UserRole } from '@/store/authStore';
+import { useTenantStore } from '@/store/tenantStore';
 import {
   Sheet,
   SheetContent,
@@ -176,13 +177,28 @@ export function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
+  const tenant = useTenantStore((s) => s.tenant);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const businessName = tenant?.config?.businessName || tenant?.name || 'Sobhana';
+  const sidebarName = businessName.split(/\s+/).slice(0, 2).join(' ').toUpperCase();
+  const sidebarLogo = tenant?.branding?.portalLogoBase64;
 
   const handleLogout = () => {
     logout();
     setMobileOpen(false);
     navigate('/login');
   };
+
+  const brandMark = (
+    <div className="flex min-w-0 items-center gap-3">
+      {sidebarLogo ? (
+        <img src={sidebarLogo} alt={businessName} className="h-8 w-8 shrink-0 rounded-md bg-white/10 object-contain" />
+      ) : (
+        <Microscope className="h-8 w-8 shrink-0 text-white" />
+      )}
+      <span className="truncate text-lg font-bold text-white">{sidebarName}</span>
+    </div>
+  );
 
   const navItems = (user?.role === 'owner' ? ownerNavItems : staffNavItems).filter((item) =>
     user ? item.roles.includes(user.role) : false,
@@ -287,10 +303,7 @@ export function Sidebar() {
         className="flex h-16 items-center justify-between border-b border-white/10 px-4 text-white md:hidden"
         style={{ backgroundColor: 'var(--branch-sidebar-bg)' }}
       >
-        <div className="flex min-w-0 items-center gap-3">
-          <Microscope className="h-7 w-7 shrink-0 text-white" />
-          <span className="truncate text-lg font-bold text-white">SOBHANA</span>
-        </div>
+        {brandMark}
 
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetTrigger asChild>
@@ -310,8 +323,7 @@ export function Sidebar() {
 
             <div className="flex h-full flex-col">
               <div className="flex h-16 items-center border-b border-white/10 px-6">
-                <Microscope className="h-8 w-8 text-white" />
-                <span className="ml-3 text-xl font-bold text-white">SOBHANA</span>
+                {brandMark}
               </div>
 
               {renderNavContent(() => setMobileOpen(false))}
@@ -342,8 +354,7 @@ export function Sidebar() {
         style={{ backgroundColor: 'var(--branch-sidebar-bg)' }}
       >
         <div className="flex h-16 items-center border-b border-white/10 px-6">
-          <Microscope className="h-8 w-8 text-white" />
-          <span className="ml-3 text-xl font-bold text-white">SOBHANA</span>
+          {brandMark}
         </div>
 
         {renderNavContent()}

@@ -18,6 +18,16 @@ export interface BranchTheme {
   accentForeground: string;
 }
 
+export interface BranchThemeOverride {
+  sidebarBg?: string;
+  sidebarActive?: string;
+  sidebarActiveBg?: string;
+  bannerBg?: string;
+  accent?: string;
+  accentColor?: string;
+  accentForeground?: string;
+}
+
 const branchThemes: Record<string, BranchTheme> = {
   // Sobhana - Chintal → Navy sidebar, Red accent
   CNT: {
@@ -60,9 +70,28 @@ export function getBranchTheme(branchCode?: string): BranchTheme {
   return branchThemes[branchCode] || defaultTheme;
 }
 
+export function getBranchThemeFromBranch(branch?: {
+  code?: string;
+  themeOverride?: BranchThemeOverride | Record<string, unknown> | null;
+}): BranchTheme {
+  const base = getBranchTheme(branch?.code);
+  const override = (branch?.themeOverride || {}) as BranchThemeOverride;
+  return {
+    sidebarBg: override.sidebarBg || base.sidebarBg,
+    sidebarActive: override.sidebarActive || override.sidebarActiveBg || base.sidebarActive,
+    bannerBg: override.bannerBg || base.bannerBg,
+    accent: override.accent || override.accentColor || base.accent,
+    accentForeground: override.accentForeground || base.accentForeground,
+  };
+}
+
 /** Returns CSS custom property map to apply via inline style on a wrapper element */
 export function getBranchCSSVars(branchCode?: string): Record<string, string> {
   const theme = getBranchTheme(branchCode);
+  return getBranchCSSVarsFromTheme(theme);
+}
+
+export function getBranchCSSVarsFromTheme(theme: BranchTheme): Record<string, string> {
   return {
     '--branch-sidebar-bg': theme.sidebarBg,
     '--branch-sidebar-active': theme.sidebarActive,
@@ -70,4 +99,18 @@ export function getBranchCSSVars(branchCode?: string): Record<string, string> {
     '--branch-accent': theme.accent,
     '--branch-accent-fg': theme.accentForeground,
   };
+}
+
+export function applyBranchTheme(theme: BranchTheme): void {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  const vars = getBranchCSSVarsFromTheme(theme);
+  Object.entries(vars).forEach(([key, value]) => root.style.setProperty(key, value));
+}
+
+export function applyBranchThemeFromBranch(branch?: {
+  code?: string;
+  themeOverride?: BranchThemeOverride | Record<string, unknown> | null;
+}): void {
+  applyBranchTheme(getBranchThemeFromBranch(branch));
 }

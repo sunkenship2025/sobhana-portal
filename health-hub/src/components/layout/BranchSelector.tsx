@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { Building2, ChevronDown, Loader2 } from 'lucide-react';
 import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
-import { getBranchTheme } from '@/lib/branchTheme';
+import { getBranchThemeFromBranch } from '@/lib/branchTheme';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,8 +29,8 @@ export function BranchSelector() {
   const canSwitchBranch = user?.role === 'staff' || user?.role === 'owner';
 
   // Render a color dot for a branch
-  const branchDot = (code: string) => {
-    const theme = getBranchTheme(code);
+  const branchDot = (branch: typeof branches[number]) => {
+    const theme = getBranchThemeFromBranch(branch);
     return (
       <span
         className="inline-block h-3 w-3 rounded-full shrink-0"
@@ -72,7 +72,7 @@ export function BranchSelector() {
                 onClick={() => setActiveBranch(branch.id)}
                 className="flex items-center gap-2 cursor-pointer"
               >
-                {branchDot(branch.code)}
+                {branchDot(branch)}
                 <div className="flex flex-col">
                   <span className="font-medium">{branch.name}</span>
                   {branch.address && (
@@ -125,7 +125,7 @@ export function BranchSelector() {
                 branch.id === activeBranchId && 'bg-accent'
               )}
             >
-              {branchDot(branch.code)}
+              {branchDot(branch)}
               <div className="flex flex-col">
                 <span className="font-medium">{branch.name}</span>
                 {branch.address && (

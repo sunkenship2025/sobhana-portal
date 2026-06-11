@@ -35,7 +35,7 @@ function clearJwtCookie(res: Response) {
 // POST /api/auth/login - Public
 router.post('/login', loginIpRateLimit, loginCredentialRateLimit, async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, tenantSlug } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({
@@ -44,7 +44,7 @@ router.post('/login', loginIpRateLimit, loginCredentialRateLimit, async (req, re
       });
     }
 
-    const result = await authService.login(email, password, req.ip, req.get('user-agent'));
+    const result = await authService.login(email, password, req.ip, req.get('user-agent'), tenantSlug);
 
     // Set the JWT in an httpOnly cookie. We also still return the token in the
     // response body so existing in-memory state on the frontend continues to
@@ -119,6 +119,11 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
       setJwtCookie(res, headerToken);
     }
 
+    const tenant = await (prisma as any).tenant.findUnique({
+      where: { id: user.tenantId },
+      select: { id: true, slug: true, name: true },
+    });
+
     return res.json({
       token,
       user: {
@@ -126,6 +131,7 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
         email: user.email,
         name: user.name,
         role: user.role,
+        tenant,
         activeBranch: {
           id: user.activeBranch.id,
           name: user.activeBranch.name,

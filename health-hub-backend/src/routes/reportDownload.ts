@@ -19,6 +19,8 @@ import { validateToken, recordAccess } from '../services/reportAccessService';
 import { getReportSnapshot } from '../services/reportSnapshotService';
 import { renderReportHtml } from '../services/reportRendererService';
 import { generateMergedReportPdf } from '../services/mergedReportPdfService';
+import { resolveTenantAssets } from '../services/tenantAssetResolver';
+import prisma from '../lib/prisma';
 
 const router = Router();
 
@@ -49,6 +51,8 @@ const publicReportLandingTokenRateLimit = createRateLimiter({
 type ReportLoadSuccess = {
   ok: true;
   snapshot: any;
+  reportVersionId: string;
+  tenantId: string | null;
 };
 
 type ReportLoadFailure = {
@@ -83,9 +87,16 @@ async function loadReportForToken(token: string): Promise<ReportLoadResult> {
     };
   }
 
+  const reportVersion = await (prisma as any).reportVersion.findUnique({
+    where: { id: reportVersionId },
+    select: { tenantId: true },
+  });
+
   return {
     ok: true,
     snapshot,
+    reportVersionId,
+    tenantId: reportVersion?.tenantId || null,
   };
 }
 
@@ -107,11 +118,13 @@ async function buildPdfBuffer(
     margin: 1,
     color: { dark: '#000000', light: '#ffffff' },
   });
+  const tenantAssets = loaded.tenantId ? await resolveTenantAssets(loaded.tenantId) : undefined;
 
   const pdfBuffer = await generateMergedReportPdf(loaded.snapshot, {
     mode,
     baseUrl,
     qrDataUrl,
+    tenantAssets,
     // Public token-gated path serves only finalized snapshots, so caching is
     // safe here. Staff/preview callers leave this off to avoid serving stale
     // bytes for a draft.
@@ -237,12 +250,14 @@ router.get('/:token/view', publicReportIpRateLimit, publicReportTokenRateLimit, 
     });
 
     const autoPrint = req.query.print === 'true';
+    const tenantAssets = loaded.tenantId ? await resolveTenantAssets(loaded.tenantId) : undefined;
     const html = renderReportHtml(loaded.snapshot, {
       // Physical print uses pre-printed ledger paper, so auto-print must
       // switch to the letterhead-safe layout without the embedded header/footer.
       profile: autoPrint ? 'pdf-physical' : 'screen',
       baseUrl,
       qrDataUrl,
+      tenantAssets,
     });
     const finalHtml = autoPrint
       ? html.replace('</body>', '<script>window.onload=function(){setTimeout(function(){window.print()},600)}</script></body>')

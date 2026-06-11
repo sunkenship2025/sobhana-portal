@@ -15,6 +15,7 @@ import { ValidationError, UnauthorizedError } from '../utils/errors';
 import { logAction } from './auditService';
 import prisma from '../lib/prisma';
 import { checkLockout, recordFailedAttempt, clearAttempts } from '../lib/loginLockout';
+import { normalizeTenantSlug } from '../lib/tenantResolution';
 
 // Precomputed bcrypt hash used to equalize timing on unknown-email logins.
 // Without this, bcrypt.compare only runs when the email exists, so a request
@@ -63,7 +64,13 @@ export class LoginLockedError extends Error {
   }
 }
 
-export async function login(email: string, password: string, ipAddress?: string, userAgent?: string) {
+export async function login(
+  email: string,
+  password: string,
+  ipAddress?: string,
+  userAgent?: string,
+  tenantSlugInput?: string,
+) {
   // 0) Reject early if this email is currently locked. We don't even hit the DB
   // for locked accounts — saves a query + denies attackers feedback about
   // whether the email exists.
@@ -90,14 +97,26 @@ export async function login(email: string, password: string, ipAddress?: string,
     throw new LoginLockedError(lockStatus.retryAfterSec);
   }
 
-  // Find user
-  const user = await prisma.user.findUnique({
-      // @ts-ignore Prisma strict typing
-    where: { // @ts-ignore Prisma types
- email },
+  const tenantSlug = normalizeTenantSlug(tenantSlugInput);
+  const tenant = tenantSlug
+    ? await (prisma as any).tenant.findFirst({ where: { slug: tenantSlug, isActive: true } })
+    : null;
+
+  if (tenantSlug && !tenant) {
+    await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
+    throw new UnauthorizedError('Invalid credentials');
+  }
+
+  // Find user. Email is tenant-scoped in the Axora schema, so subdomain login
+  // passes tenantSlug and allows the same email to exist in different clients.
+  const user = await prisma.user.findFirst({
+    where: {
+      email,
+      ...(tenant ? { tenantId: tenant.id } : {}),
+    },
     include: {
-      activeBranch: true
-    }
+      activeBranch: true,
+    },
   });
 
   if (!user) {
@@ -184,7 +203,9 @@ export async function login(email: string, password: string, ipAddress?: string,
     {
       id: user.id,
       email: user.email,
-      role: user.role
+      role: user.role,
+      tenantId: user.tenantId,
+      tenantSlug: tenant?.slug,
     },
     process.env.JWT_SECRET!,
     { expiresIn: '1d' }
@@ -213,6 +234,11 @@ export async function login(email: string, password: string, ipAddress?: string,
       email: user.email,
       name: user.name,
       role: user.role,
+      tenant: tenant ? {
+        id: tenant.id,
+        slug: tenant.slug,
+        name: tenant.name,
+      } : null,
       activeBranch: {
           // @ts-ignore Prisma strict typing
           // @ts-ignore Prisma strict typing

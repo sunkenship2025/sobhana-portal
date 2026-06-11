@@ -24,6 +24,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { useBranchStore } from './branchStore';
 import { API_BASE } from '@/lib/api';
+import { useTenantStore } from './tenantStore';
 
 /** Available roles in the system. Mirrors the backend `UserRole` enum. */
 export type UserRole = 'doctor' | 'owner' | 'staff';
@@ -34,6 +35,11 @@ interface User {
   email: string;
   name: string;
   role: UserRole;
+  tenant?: {
+    id: string;
+    slug: string;
+    name: string;
+  } | null;
 }
 
 interface AuthState {
@@ -109,7 +115,11 @@ export const useAuthStore = create<AuthState>()(
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password })
+            body: JSON.stringify({
+              email,
+              password,
+              tenantSlug: useTenantStore.getState().tenant?.slug,
+            })
           });
 
           const data = await response.json();
@@ -119,7 +129,8 @@ export const useAuthStore = create<AuthState>()(
               id: data.user.id,
               email: data.user.email,
               name: data.user.name,
-              role: data.user.role as UserRole
+              role: data.user.role as UserRole,
+              tenant: data.user.tenant || null,
             };
 
             // Token in memory only. The httpOnly cookie set by the backend
@@ -191,9 +202,10 @@ export const useAuthStore = create<AuthState>()(
           }
           const user: User = {
             id: data.user.id,
-            email: data.user.email,
-            name: data.user.name,
-            role: data.user.role as UserRole,
+              email: data.user.email,
+              name: data.user.name,
+              role: data.user.role as UserRole,
+              tenant: data.user.tenant || null,
           };
           set({ user, token: data.token, isAuthenticated: true, isHydrating: false });
 

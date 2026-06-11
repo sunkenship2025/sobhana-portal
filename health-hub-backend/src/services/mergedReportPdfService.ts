@@ -31,6 +31,7 @@ import {
   setCachedMergedPdf,
 } from './mergedReportPdfCache';
 import { logger } from '../lib/logger';
+import type { TenantRenderAssets } from './tenantAssetResolver';
 import type {
   ExternalUploadSnapshot,
   ReportSnapshot,
@@ -86,6 +87,7 @@ export interface GenerateMergedPdfOptions {
   mode: 'physical' | 'digital';
   baseUrl: string;
   qrDataUrl: string;
+  tenantAssets?: TenantRenderAssets;
   /**
    * When true, look up Redis for a cached PDF and write the generated buffer
    * back on miss. Only the public download path passes `cache: true`; staff
@@ -111,7 +113,7 @@ export async function generateMergedReportPdf(
   snapshot: ReportSnapshot,
   options: GenerateMergedPdfOptions
 ): Promise<Buffer> {
-  const { mode, baseUrl, qrDataUrl, cache = false } = options;
+  const { mode, baseUrl, qrDataUrl, tenantAssets, cache = false } = options;
 
   if (cache) {
     const hit = await getCachedMergedPdf(snapshot.reportVersionId, mode).catch(() => null);
@@ -133,7 +135,7 @@ export async function generateMergedReportPdf(
 
   if (!skipBaseRender) {
     const profile = mode === 'physical' ? 'pdf-physical' : 'pdf-digital';
-    const html = renderReportHtml(snapshot, { profile, baseUrl, qrDataUrl });
+    const html = renderReportHtml(snapshot, { profile, baseUrl, qrDataUrl, tenantAssets });
     const basePdf = await generatePdfFromHtml(html, { mode });
 
     if (uploads.length === 0) {

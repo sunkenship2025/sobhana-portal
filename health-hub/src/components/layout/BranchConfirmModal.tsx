@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Building2, Loader2 } from 'lucide-react';
 import { useBranchStore } from '@/store/branchStore';
-import { getBranchTheme } from '@/lib/branchTheme';
+import { getBranchThemeFromBranch } from '@/lib/branchTheme';
 import {
   Dialog,
   DialogContent,
@@ -69,7 +69,7 @@ export function BranchConfirmModal({ open, onConfirm }: BranchConfirmModalProps)
   };
 
   const selected = activeBranches.find((b) => b.id === selectedId);
-  const accent = selected ? getBranchTheme(selected.code).accent : '#1B2B58';
+  const accent = selected ? getBranchThemeFromBranch(selected).accent : '#1B2B58';
 
   return (
     <Dialog open={open}>
@@ -110,7 +110,7 @@ export function BranchConfirmModal({ open, onConfirm }: BranchConfirmModalProps)
               </SelectTrigger>
               <SelectContent>
                 {activeBranches.map((branch) => {
-                  const theme = getBranchTheme(branch.code);
+                  const theme = getBranchThemeFromBranch(branch);
                   return (
                     <SelectItem key={branch.id} value={branch.id}>
                       <div className="flex items-center gap-2">
