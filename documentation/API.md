@@ -96,6 +96,7 @@ Source: [`clinicVisits.ts`](../health-hub-backend/src/routes/clinicVisits.ts).
 | GET | `/` | List bills with filters |
 | GET | `/:id` | Bill detail with payment transactions |
 | POST | `/:id/payments` | Add a payment transaction |
+| GET | `/view/:token` | Public, token-gated inline PDF download (WhatsApp in-app browser compatible) |
 
 Source: [`bills.ts`](../health-hub-backend/src/routes/bills.ts) → service: `billFinancialService`.
 
