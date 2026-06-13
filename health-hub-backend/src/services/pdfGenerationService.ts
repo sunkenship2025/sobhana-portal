@@ -218,7 +218,7 @@ export interface PdfGenerationOptions {
 }
 
 const BILL_PDF_OPTIONS: PDFOptions = {
-  format: 'A4',
+  width: '794px', // A4 width at 96dpi (210mm)
   printBackground: true,
   preferCSSPageSize: true, // respects @page { margin }
   displayHeaderFooter: false,
@@ -251,10 +251,16 @@ export async function generatePdfFromHtml(
 
       const pdfOptions: PDFOptions =
         options.mode === 'physical'
-          ? PHYSICAL_PDF_OPTIONS
+          ? { ...PHYSICAL_PDF_OPTIONS }
           : options.mode === 'bill'
-          ? BILL_PDF_OPTIONS
-          : DIGITAL_PDF_OPTIONS;
+          ? { ...BILL_PDF_OPTIONS }
+          : { ...DIGITAL_PDF_OPTIONS };
+
+      if (options.mode === 'bill') {
+        const bodyHeight = await page.evaluate('document.documentElement.offsetHeight') as number;
+        // We add about 16mm (approx 60px) to account for top/bottom margins of the page
+        pdfOptions.height = `${bodyHeight + 60}px`;
+      }
 
       const pdfBuffer = await page.pdf(pdfOptions);
       return Buffer.from(pdfBuffer);

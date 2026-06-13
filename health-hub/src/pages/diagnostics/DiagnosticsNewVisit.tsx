@@ -1059,7 +1059,7 @@ const DiagnosticsNewVisit = () => {
                         ageUnit: "YEARS",
                         dateOfBirth: "",
                         gender: "M",
-                        whatsappOptIn: false,
+                        whatsappOptIn: true,
                       }); // E2-09: Reset form
                       setValidationErrors({});
                     }}

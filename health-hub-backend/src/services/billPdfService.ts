@@ -370,7 +370,6 @@ export function renderBillHtml(data: BillData): string {
       background: #fff;
     }
     @page {
-      size: A4;
       margin: 8mm 8mm 8mm 8mm;
     }
     .bill-wrap {
