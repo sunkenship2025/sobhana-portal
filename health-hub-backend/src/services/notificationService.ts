@@ -389,7 +389,7 @@ export async function sendBillConfirmation(visitId: string): Promise<void> {
     const billPublicBaseUrl = process.env.PUBLIC_BILL_BASE_URL || '';
     const usePdfTemplate = Boolean(billToken && billPublicBaseUrl);
 
-    const templateName = usePdfTemplate ? 'bill_receipt_pdf' : 'bill_receipt';
+    const templateName = 'bill_receipt'; // User overwrote the original template in Meta
     const templateParams: any = {
       patientName: info.patient.name,
       billNumber: info.visit.billNumber,
@@ -502,7 +502,7 @@ export async function resendBillNotification(
     const billPublicBaseUrl = process.env.PUBLIC_BILL_BASE_URL || '';
     const usePdfTemplate = Boolean(billToken && billPublicBaseUrl);
 
-    const templateName = usePdfTemplate ? 'bill_receipt_pdf' : 'bill_receipt';
+    const templateName = 'bill_receipt'; // User overwrote the original template in Meta
     const templateParams: any = {
       patientName: info.patient.name,
       billNumber: info.visit.billNumber,
