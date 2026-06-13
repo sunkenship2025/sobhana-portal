@@ -513,6 +513,9 @@ model Visit {
   /// Clinic data (if domain = CLINIC)
   clinicVisit ClinicVisit?
 
+  /// Bill access tokens for WhatsApp bill PDF links
+  billAccessTokens BillAccessToken[]
+
   @@unique([branchId, billNumber])
   @@index([branchId])
   @@index([patientId])
@@ -1499,4 +1502,23 @@ model DerivedParameterDef {
   displayOrder       Int      @default(0)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+}
+
+/// BillAccessToken: Secure public access tokens for bill PDF links sent via WhatsApp
+/// Mirrors ReportAccessToken pattern — stores SHA-256 hash of the raw bearer token.
+/// Token in DB = hash; raw token sent to patient; validate by hashing incoming.
+model BillAccessToken {
+  id             String    @id @default(cuid())
+  token          String    @unique // SHA-256 hash of the raw bearer token
+  visitId        String
+  expiresAt      DateTime? // NULL = never expires
+  accessCount    Int       @default(0)
+  lastAccessedAt DateTime?
+  lastAccessedIp String?
+  createdAt      DateTime  @default(now())
+
+  visit Visit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+
+  @@index([visitId])
+  @@index([expiresAt])
 }

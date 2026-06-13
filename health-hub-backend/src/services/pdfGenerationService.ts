@@ -212,10 +212,17 @@ const DIGITAL_PDF_OPTIONS: PDFOptions = {
 
 export interface PdfGenerationOptions {
   /**
-   * Mode: 'physical' for pre-printed letterhead, 'digital' for standalone PDF
+   * Mode: 'physical' for pre-printed letterhead, 'digital' for standalone PDF, 'bill' for raw bill prints
    */
-  mode: 'physical' | 'digital';
+  mode: 'physical' | 'digital' | 'bill';
 }
+
+const BILL_PDF_OPTIONS: PDFOptions = {
+  format: 'A4',
+  printBackground: true,
+  preferCSSPageSize: true, // respects @page { margin }
+  displayHeaderFooter: false,
+};
 
 /**
  * Generates PDF directly from HTML string.
@@ -242,9 +249,12 @@ export async function generatePdfFromHtml(
         timeout: 30000,
       });
 
-      const pdfOptions: PDFOptions = options.mode === 'physical'
-        ? PHYSICAL_PDF_OPTIONS
-        : DIGITAL_PDF_OPTIONS;
+      const pdfOptions: PDFOptions =
+        options.mode === 'physical'
+          ? PHYSICAL_PDF_OPTIONS
+          : options.mode === 'bill'
+          ? BILL_PDF_OPTIONS
+          : DIGITAL_PDF_OPTIONS;
 
       const pdfBuffer = await page.pdf(pdfOptions);
       return Buffer.from(pdfBuffer);
