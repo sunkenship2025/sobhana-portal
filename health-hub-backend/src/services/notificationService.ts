@@ -27,6 +27,7 @@ import {
 import prisma from '../lib/prisma';
 import { createAccessToken } from './reportAccessService';
 import { computeBillFinancialsFromPersisted } from './billFinancialService';
+import { createBillAccessToken } from './billAccessService';
 import { logger as rootLogger } from '../lib/logger';
 
 const log = rootLogger.child({ component: 'notificationService' });
@@ -374,31 +375,69 @@ export async function sendBillConfirmation(visitId: string): Promise<void> {
     const formattedPhone = formatPhoneForWhatsApp(info.phone);
     const billFinancials = computeBillFinancialsFromPersisted(info.bill);
     const amountInRupees = (billFinancials.netAmountInPaise / 100).toLocaleString('en-IN');
+    const patientDisplayName = info.patient.title ? info.patient.title + '. ' + info.patient.name : info.patient.name;
 
-    await createAndSendTemplateMessage({
-      patientId: info.patient.id,
-      phone: formattedPhone,
-        templateName: 'bill_receipt',
-        templateParams: {
-          patientName: info.patient.name,
-          billNumber: info.visit.billNumber,
-          amount: `₹${amountInRupees}`,
-        },
-        contextId: visitId,
-        contextType: MessageContextType.BILL,
-        components: [
+    // Try to generate a bill access token for the PDF link (new template with URL button).
+    // If token creation fails, fall back to the old text-only bill_receipt template.
+    let billToken: string | null = null;
+    try {
+      billToken = await createBillAccessToken(visitId);
+    } catch (tokenErr: any) {
+      log.warn({ err: tokenErr, visitId }, 'bill token creation failed — falling back to bill_receipt template');
+    }
+
+    const billPublicBaseUrl = process.env.PUBLIC_BILL_BASE_URL || '';
+    const usePdfTemplate = Boolean(billToken && billPublicBaseUrl);
+
+    const templateName = usePdfTemplate ? 'bill_receipt_pdf' : 'bill_receipt';
+    const templateParams: any = {
+      patientName: info.patient.name,
+      billNumber: info.visit.billNumber,
+      amount: `₹${amountInRupees}`,
+    };
+    if (usePdfTemplate) templateParams.billToken = billToken;
+
+    const components: TemplateComponent[] = usePdfTemplate
+      ? [
           {
             type: 'body',
             parameters: [
-              { type: 'text', text: info.patient.title ? info.patient.title + '. ' + info.patient.name : info.patient.name },
+              { type: 'text', text: patientDisplayName },
               { type: 'text', text: info.visit.billNumber },
               { type: 'text', text: amountInRupees },
             ],
           },
-        ],
-      });
+          {
+            type: 'button',
+            sub_type: 'url',
+            index: 0,
+            parameters: [
+              { type: 'text', text: billToken! },
+            ],
+          },
+        ]
+      : [
+          {
+            type: 'body',
+            parameters: [
+              { type: 'text', text: patientDisplayName },
+              { type: 'text', text: info.visit.billNumber },
+              { type: 'text', text: amountInRupees },
+            ],
+          },
+        ];
 
-      log.info({ phone: formattedPhone, visitId }, 'bill confirmation sent');
+    await createAndSendTemplateMessage({
+      patientId: info.patient.id,
+      phone: formattedPhone,
+      templateName,
+      templateParams,
+      contextId: visitId,
+      contextType: MessageContextType.BILL,
+      components,
+    });
+
+    log.info({ phone: formattedPhone, visitId, templateName }, 'bill confirmation sent');
   } catch (error: any) {
     log.error({ err: error, visitId }, 'failed to send bill notification');
   }
@@ -450,29 +489,66 @@ export async function resendBillNotification(
     const formattedPhone = formatPhoneForWhatsApp(info.phone);
     const billFinancials = computeBillFinancialsFromPersisted(info.bill);
     const amountInRupees = (billFinancials.netAmountInPaise / 100).toLocaleString('en-IN');
+    const patientDisplayName = info.patient.title ? info.patient.title + '. ' + info.patient.name : info.patient.name;
+
+    // Try to generate a bill access token for the PDF link.
+    let billToken: string | null = null;
+    try {
+      billToken = await createBillAccessToken(visitId);
+    } catch (tokenErr: any) {
+      log.warn({ err: tokenErr, visitId }, 'bill token creation failed — falling back to bill_receipt template');
+    }
+
+    const billPublicBaseUrl = process.env.PUBLIC_BILL_BASE_URL || '';
+    const usePdfTemplate = Boolean(billToken && billPublicBaseUrl);
+
+    const templateName = usePdfTemplate ? 'bill_receipt_pdf' : 'bill_receipt';
+    const templateParams: any = {
+      patientName: info.patient.name,
+      billNumber: info.visit.billNumber,
+      amount: `₹${amountInRupees}`,
+      resendBy: staffUserId || null,
+    };
+    if (usePdfTemplate) templateParams.billToken = billToken;
+
+    const components: TemplateComponent[] = usePdfTemplate
+      ? [
+          {
+            type: 'body',
+            parameters: [
+              { type: 'text', text: patientDisplayName },
+              { type: 'text', text: info.visit.billNumber },
+              { type: 'text', text: amountInRupees },
+            ],
+          },
+          {
+            type: 'button',
+            sub_type: 'url',
+            index: 0,
+            parameters: [
+              { type: 'text', text: billToken! },
+            ],
+          },
+        ]
+      : [
+          {
+            type: 'body',
+            parameters: [
+              { type: 'text', text: patientDisplayName },
+              { type: 'text', text: info.visit.billNumber },
+              { type: 'text', text: amountInRupees },
+            ],
+          },
+        ];
 
     await createAndSendTemplateMessage({
       patientId: info.patient.id,
       phone: formattedPhone,
-      templateName: 'bill_receipt',
-      templateParams: {
-        patientName: info.patient.name,
-        billNumber: info.visit.billNumber,
-        amount: `₹${amountInRupees}`,
-        resendBy: staffUserId || null,
-      },
+      templateName,
+      templateParams,
       contextId: visitId,
       contextType: MessageContextType.BILL,
-      components: [
-        {
-          type: 'body',
-          parameters: [
-            { type: 'text', text: info.patient.title ? info.patient.title + '. ' + info.patient.name : info.patient.name },
-            { type: 'text', text: info.visit.billNumber },
-            { type: 'text', text: amountInRupees },
-          ],
-        },
-      ],
+      components,
     });
 
     return { success: true };

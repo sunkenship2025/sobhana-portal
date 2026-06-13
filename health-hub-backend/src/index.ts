@@ -51,6 +51,7 @@ import auditLogRoutes from './routes/auditLogs';
 import reportRoutes from './routes/reports';
 import reportDownloadRoutes from './routes/reportDownload';
 import billRoutes from './routes/bills';
+import billDownloadRoutes from './routes/billDownload';
 import webhookRoutes from './routes/webhooks';
 import messageRoutes from './routes/messages';
 import departmentRoutes from './routes/departments';
@@ -277,6 +278,10 @@ app.get('/api/system/status', authMiddleware, async (_req, res) => {
 // Report PDF download (token-based, no auth required) - PUBLIC ROUTE
 // Direct PDF download: /reports/:token
 app.use('/reports', reportDownloadRoutes);
+
+// Bill PDF download (token-based, no auth required) - PUBLIC ROUTE
+// Patient-facing bill PDF for WhatsApp links: /bills/view/:token
+app.use('/bills/view', billDownloadRoutes);
 
 // WhatsApp webhook (public, no auth) - Meta delivery receipts
 app.use('/webhooks/whatsapp', webhookRoutes);
