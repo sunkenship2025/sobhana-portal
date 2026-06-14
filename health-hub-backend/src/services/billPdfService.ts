@@ -219,6 +219,7 @@ export async function fetchBillData(visitId: string, domain: 'CLINIC' | 'DIAGNOS
       billNumber: visit.bill?.billNumber || null,
       visitRef: visit.billNumber,
       hasBill: Boolean(visit.bill),
+      paymentStatus: visit.bill?.paymentStatus || (visit as any).paymentStatus || null,
       domain,
       createdAt: visit.createdAt,
       totalAmount: visit.totalAmountInPaise / 100,
@@ -257,15 +258,16 @@ export function renderBillHtml(data: BillData): string {
   // ── Date & Time ──
   const dateObj = new Date(data.visit.createdAt);
   const dateStr = dateObj.toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
   });
   const timeStr = dateObj.toLocaleTimeString('en-IN', {
+    timeZone: 'Asia/Kolkata',
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
+    hour12: true,
   });
 
   // ── Patient display ──
@@ -290,7 +292,7 @@ export function renderBillHtml(data: BillData): string {
     ? 'PAID'
     : rawStatus.includes('PENDING')
     ? 'PENDING'
-    : data.visit.paymentStatus || '—';
+    : 'PENDING';
   const paymentSummary = hasBill ? normalizedStatus : 'Not billed';
 
   // ── Financial ──
