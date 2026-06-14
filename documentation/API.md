@@ -163,7 +163,7 @@ Source: [`testInputConfigs.ts`](../health-hub-backend/src/routes/testInputConfig
 | GET | `/` | List products (filterable by branch, active, workflow mode) |
 | GET | `/:id` | Product + linked panels + branch pricing |
 | POST | `/` | Create product (single test or bundle) |
-| PUT | `/:id` | Update |
+| PUT | `/:id` | Update (now supports updating `code` with validation and uniqueness checks; returns 409 on conflict) |
 | PATCH | `/:id/toggle-active` | Soft enable/disable |
 | DELETE | `/:id` | Delete |
 
