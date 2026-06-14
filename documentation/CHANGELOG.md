@@ -8,9 +8,20 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 
 ## [Unreleased]
 
+### Added
+- **Public Bill PDF Links:** Patients now receive a direct button link to view their bill PDF in WhatsApp, powered by a new `BillAccessToken` model and a public `/bills/view/:token` backend route.
+- **Mobile PDF Printing Fallback:** For mobile devices encountering printing issues, the frontend now automatically captures the receipt using `html2canvas` and generates a downloadable PDF with `jspdf`.
+- **Test Order Display Ordering:** Test orders now carry a `displayOrder` field, ensuring chronological sorting on printed bills and in the visit queue matching the original input order.
+
+### Changed
+- Default patient WhatsApp opt-in state has been toggled from disabled to enabled across diagnostic and edit patient forms.
+- The React app now silently reloads once if a user encounters a stale chunk (failed to fetch dynamically imported module) after a new deployment.
+
 _Tracked here as commits land on `main`. Entries are promoted to a versioned section at release time — see [`RELEASE.md`](RELEASE.md)._
 
 ### Added
+- **Product Code Updates.** Added support for updating product codes via `PUT /api/billable-products/:id` and the UI. Included format validation and uniqueness checks, throwing a `409 Conflict` if the code already exists.
+- **Test Order Sorting.** Test orders on bill fetching are now sorted by `createdAt` ascending, falling back to `id` ascending to ensure a consistent list order.
 - **Lab Incharge Signing with Branch-Wise Rules.** Added `SigningLabIncharge` and `LabInchargeRule` tables to support assigning specific lab incharges per branch. The report renderer now includes lab incharge signatures (digital versions show the signature image, while printed versions show a manual signing line). Admin UI was updated to a 4-section layout to manage these rules.
 - **Master Title Re-added.** Added "Master" back to the patient title options for pediatric patients, completing title and salutation coverage across the application.
 
@@ -24,6 +35,7 @@ _Tracked here as commits land on `main`. Entries are promoted to a versioned sec
 - **Result-entry button label flips with completeness.** "Save Draft & Preview Report" → `Review & Finalize` when every reportable test has a value AND every required external upload is attached, or `Continue with Partial Report` otherwise. The click target itself is the same — only the label changes — so staff get a one-glance read of what's about to happen.
 
 ### Changed
+- **Product Code Mutability.** Product codes are no longer strictly immutable after creation. They can now be updated if the new code meets validation rules and does not conflict with existing codes.
 - **Branch-Specific Print Addresses.** Bill receipts and clinic prescription prints now dynamically display the correct address based on the branch (e.g., Kukatpally, Balanagar, Chintal).
 - **Result Entry Keyboard Navigation.** Implemented "enter to next box" functionality in the Diagnostics Result Entry page, allowing staff to navigate between input fields using the Enter key for faster data entry.
 
