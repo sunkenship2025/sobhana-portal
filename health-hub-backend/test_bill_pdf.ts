@@ -6,7 +6,7 @@ const prisma = new PrismaClient();
 
 async function main() {
   const visit = await prisma.visit.findFirst({
-    where: { bill: { isNot: null } },
+    where: { domain: 'CLINIC', bill: { isNot: null } },
   });
 
   if (!visit) {
@@ -23,6 +23,7 @@ async function main() {
   }
 
   fs.writeFileSync('test_bill.pdf', result.pdfBuffer);
+  console.log('Payment Status in data:', result.billData.visit.paymentStatus);
   console.log('Successfully generated test_bill.pdf');
 }
 
