@@ -201,9 +201,6 @@ export const useAuthStore = create<AuthState>()(
           // on branch resolution at boot.
           const branchStore = useBranchStore.getState();
           await branchStore.fetchBranches();
-          if (data.user.activeBranch?.id) {
-            branchStore.setActiveBranch(data.user.activeBranch.id);
-          }
         } catch (err) {
           console.error('Session hydration failed:', err);
           set({ user: null, token: null, isAuthenticated: false, isHydrating: false });

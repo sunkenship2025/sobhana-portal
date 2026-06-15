@@ -52,6 +52,19 @@ export function TestValueCombobox({
     onChange(next);
     setOpen(false);
     setQuery('');
+
+    // Advance focus to the next input in the form
+    setTimeout(() => {
+      if (!triggerRef.current) return;
+      const form = triggerRef.current.closest('form') || document;
+      const inputs = Array.from(
+        form.querySelectorAll('.test-value-input:not([disabled]):not([readonly])')
+      ) as HTMLElement[];
+      const index = inputs.indexOf(triggerRef.current);
+      if (index > -1 && index < inputs.length - 1) {
+        inputs[index + 1].focus();
+      }
+    }, 10); // Small delay to let Radix finish closing and restoring focus before we move it
   };
 
   return (
