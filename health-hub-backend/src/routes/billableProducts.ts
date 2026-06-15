@@ -446,7 +446,7 @@ router.post('/', async (req: AuthRequest, res) => {
 router.put('/:id', async (req: AuthRequest, res) => {
   try {
     const {
-      name, description,
+      name, description, code,
       basePriceInPaise: rawPriceInPaise, basePrice,
       isBundle: rawIsBundle, productType,
       workflowMode,
@@ -456,6 +456,13 @@ router.put('/:id', async (req: AuthRequest, res) => {
     // Accept either field naming
     const resolvedPriceInPaise = rawPriceInPaise ?? (basePrice != null ? Math.round(basePrice * 100) : undefined);
     const resolvedIsBundle = rawIsBundle ?? (productType != null ? (productType === 'PANEL_BUNDLE' || productType === 'CUSTOM_PACKAGE') : undefined);
+
+    if (code !== undefined && !CODE_REGEX.test(code)) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'code must be 2-20 uppercase alphanumeric characters or underscores (e.g. CBC_PANEL)',
+      });
+    }
 
     const existing = await prisma.billableProduct.findUnique({ where: { id: req.params.id } });
     if (!existing) {
@@ -573,6 +580,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
         where: { id: req.params.id },
         data: {
           name: name ?? existing.name,
+          code: code ?? existing.code,
           description: description !== undefined ? description : existing.description,
           basePriceInPaise: resolvedPriceInPaise ?? existing.basePriceInPaise,
           isBundle: resolvedIsBundle ?? existing.isBundle,
@@ -609,6 +617,9 @@ router.put('/:id', async (req: AuthRequest, res) => {
     return res.json(withResolvedPrice(product));
   } catch (error: any) {
     console.error('Error updating billable product:', error);
+    if (error.code === 'P2002') {
+      return res.status(409).json({ error: 'CONFLICT', message: `Product code already exists` });
+    }
     return res.status(500).json({ error: 'UPDATE_FAILED', message: error.message });
   }
 });

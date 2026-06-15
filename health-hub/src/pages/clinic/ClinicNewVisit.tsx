@@ -100,7 +100,9 @@ const ClinicNewVisit = () => {
   const navigate = useNavigate();
   const printRef = useRef<HTMLDivElement>(null);
   const { token } = useAuthStore();
-  const { getActiveBranch } = useBranchStore();
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const branches = useBranchStore((state) => state.branches);
+  const getActiveBranch = useBranchStore((state) => state.getActiveBranch);
   const activeBranch = getActiveBranch();
 
   const [clinicDoctors, setClinicDoctors] = useState<ClinicDoctor[]>([]);
