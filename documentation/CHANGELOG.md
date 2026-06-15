@@ -21,6 +21,9 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 _Tracked here as commits land on `main`. Entries are promoted to a versioned section at release time — see [`RELEASE.md`](RELEASE.md)._
 
 ### Added
+- **Report Rendering:** Added support for `spacedDefinitionsGap` in `ClinicalPanel`, allowing customizable gap rows (1-3 rows) between tests within a panel on generated reports.
+- **Database Schema:** Added `spacedDefinitionsGap` (Int, default 0) to the `ClinicalPanel` model.
+- **Diagnostics Result Entry:** Added display of billed product name (e.g., "(Billed as: [Product Name])") when different from the panel display name in the result entry view. Grouping of orders in result entry is now scoped to the specific `productId` to prevent merging of identical panels from different products.
 - **Spaced Definitions Gap Setting.** Added a new configuration option called "Spaced Definitions Gap" to the Layout Configuration settings in the panel editor. This allows toggling spacing between `Off`, `1 Row Gap`, `2 Row Gap`, and `3 Row Gap`. The global report renderer inserts empty table rows to create spacing between tests, affecting live edit preview, WhatsApp PDF, standard PDF print, and the downloaded digital report.
 - **Panel Grouping by Product.** In Diagnostics Result Entry, panel grouping is now scoped to the specific `productId` to prevent identical panels from different products from merging. The UI also displays the product name as "(Billed as: [Product Name])" if it differs from the panel display name.
 - **URL-based Branch State:** Owner pages (`OwnerDashboardV2`, `OwnerDoctorsPage`, `OwnerMoneyPage`, `OwnerOperationsPage`) now use URL query parameters (`?branch=...`) for branch selector state instead of local component state, enabling shareable URLs.
