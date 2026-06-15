@@ -17,7 +17,7 @@ import { formatPatientName } from '@/lib/patientDisplay';
 const PdfPreview = lazy(() =>
   import('@/components/diagnostics/PdfPreview').then((m) => ({ default: m.PdfPreview }))
 );
-import { AlertTriangle, ArrowLeft, CheckCircle2, Lock, Printer, MessageCircle, Loader2, Eye, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, Lock, Printer, MessageCircle, Loader2, Eye, X, Download } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,7 +49,8 @@ interface TestResult {
 
 interface ReportVersionSummary {
   id: string;
-  versionNum: number;
+  versionNum?: number;
+  versionNumber?: number;
   status: 'DRAFT' | 'FINALIZED' | string;
   finalizedAt?: string | null;
   testResults?: Array<{ id: string; testOrderId: string; testId: string }>;
@@ -385,12 +386,12 @@ const DiagnosticsReportPreview = () => {
   for (const v of finalizedVersions) {
     for (const r of v.testResults ?? []) {
       if (!sentTestOrderVersions.has(r.testOrderId)) {
-        sentTestOrderVersions.set(r.testOrderId, v.versionNum);
+        sentTestOrderVersions.set(r.testOrderId, v.versionNum ?? v.versionNumber ?? 0);
       }
     }
   }
   const lastFinalizedVersion = finalizedVersions[0];
-  const nextVersionNum = (lastFinalizedVersion?.versionNum ?? 0) + 1;
+  const nextVersionNum = ((lastFinalizedVersion?.versionNum ?? lastFinalizedVersion?.versionNumber) ?? 0) + 1;
 
   const handleFinalize = async () => {
     if (hasDue) {
@@ -656,21 +657,48 @@ const DiagnosticsReportPreview = () => {
         {/* Prior partial-release banner — visible after a partial release while
             the visit stays open for the next batch of results. */}
         {!isFinalized && finalizedVersions.length > 0 && (
-          <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 flex items-start gap-2">
-            <Lock className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-700" />
-            <div>
-              <p className="font-medium">
-                {finalizedVersions.length === 1
-                  ? `Version ${lastFinalizedVersion.versionNum} sent to patient${
-                      lastFinalizedVersion.finalizedAt
-                        ? ` on ${new Date(lastFinalizedVersion.finalizedAt).toLocaleString()}`
-                        : ''
-                    }.`
-                  : `${finalizedVersions.length} versions already sent to patient (latest: v${lastFinalizedVersion.versionNum}).`}
-              </p>
-              <p className="mt-0.5 text-blue-800">
-                Editing remaining tests for version {nextVersionNum}. Earlier versions are locked — edits to already-sent tests will only appear in v{nextVersionNum}.
-              </p>
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 flex items-start justify-between gap-4">
+            <div className="flex items-start gap-2">
+              <Lock className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-700" />
+              <div>
+                <p className="font-medium">
+                  {finalizedVersions.length === 1
+                    ? `Version ${lastFinalizedVersion.versionNum ?? lastFinalizedVersion.versionNumber} sent to patient${
+                        lastFinalizedVersion.finalizedAt
+                          ? ` on ${new Date(lastFinalizedVersion.finalizedAt).toLocaleString()}`
+                          : ''
+                      }.`
+                    : `${finalizedVersions.length} versions already sent to patient (latest: v${lastFinalizedVersion.versionNum ?? lastFinalizedVersion.versionNumber}).`}
+                </p>
+                <p className="mt-0.5 text-blue-800">
+                  Editing remaining tests for version {nextVersionNum}. Earlier versions are locked — edits to already-sent tests will only appear in v{nextVersionNum}.
+                </p>
+              </div>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button variant="outline" size="sm" className="bg-white" onClick={handlePrint}>
+                <Printer className="mr-2 h-4 w-4" />
+                Print Sent
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-white"
+                onClick={() => {
+                  if (!visitId) return toast.error('Report not available');
+                  downloadFinalizedReportPdf({
+                    visitId,
+                    token,
+                    branchId: activeBranchId,
+                  }).catch((error) => {
+                    console.error('Download failed:', error);
+                    toast.error('Failed to download report');
+                  });
+                }}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Download
+              </Button>
             </div>
           </div>
         )}
@@ -1078,7 +1106,7 @@ const DiagnosticsReportPreview = () => {
                   Send the {readyReportInclusionCount} test{readyReportInclusionCount === 1 ? '' : 's'} that {readyReportInclusionCount === 1 ? 'is' : 'are'} ready now. The patient will receive a partial report immediately and a separate WhatsApp message when the remaining {pendingReportInclusionCount} test{pendingReportInclusionCount === 1 ? '' : 's'} {pendingReportInclusionCount === 1 ? 'is' : 'are'} completed.
                 </p>
                 <p className="text-muted-foreground">
-                  This finalizes version {(draftVersion?.versionNum ?? nextVersionNum)}. Edits to these tests after release will only appear in the next version.
+                  This finalizes version {(draftVersion?.versionNum ?? draftVersion?.versionNumber ?? nextVersionNum)}. Edits to these tests after release will only appear in the next version.
                 </p>
                 {hasAbnormalValues && (
                   <p className="font-medium text-warning">

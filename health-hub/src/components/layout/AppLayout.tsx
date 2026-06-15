@@ -12,7 +12,10 @@ interface AppLayoutProps {
 }
 
 export function AppLayout({ children, context, subContext, hideContextBanner = false }: AppLayoutProps) {
-  const { getActiveBranch } = useBranchStore();
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const branches = useBranchStore((state) => state.branches);
+  const getActiveBranch = useBranchStore((state) => state.getActiveBranch);
+  
   const activeBranch = getActiveBranch();
   const branchVars = getBranchCSSVars(activeBranch?.code);
 

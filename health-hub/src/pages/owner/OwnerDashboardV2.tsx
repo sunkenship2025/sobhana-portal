@@ -13,9 +13,9 @@
  *   - 30-day net revenue trend + today's mix
  *   - Branch performance table
  */
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -949,7 +949,15 @@ function DashboardSkeleton() {
 
 export default function OwnerDashboardV2() {
   const branches = useBranchStore((s) => s.branches);
-  const [branchValue, setBranchValue] = useState<string>('all');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const branchValue = searchParams.get('branch') || 'all';
+
+  const setBranchValue = (newBranch: string) => {
+    setSearchParams(prev => {
+      prev.set('branch', newBranch);
+      return prev;
+    });
+  };
 
   const query = useQuery<DashboardV2>({
     queryKey: ['owner-dashboard-v2', branchValue],

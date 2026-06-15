@@ -117,14 +117,16 @@ const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
 
 export default function ManageBillableProducts() {
   const { token } = useAuthStore();
-  const { getActiveBranch } = useBranchStore();
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const branches = useBranchStore((state) => state.branches);
+  const getActiveBranch = useBranchStore((state) => state.getActiveBranch);
   const selectedBranch = getActiveBranch();
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
   const [products, setProducts] = useState<BillableProduct[]>([]);
   const [availablePanels, setAvailablePanels] = useState<PanelSummary[]>([]);
   const [availableSubProducts, setAvailableSubProducts] = useState<ProductSummary[]>([]);
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const [branchOptions, setBranchOptions] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
@@ -179,7 +181,7 @@ export default function ManageBillableProducts() {
         fetch(`${API_BASE}/billable-products?workflowMode=BILL_ONLY`, { headers }),
       ]);
       if (panelsRes.ok) setAvailablePanels(await panelsRes.json());
-      if (branchRes.ok) setBranches(await branchRes.json());
+      if (branchRes.ok) setBranchOptions(await branchRes.json());
       if (billOnlyRes.ok) {
         const items: any[] = await billOnlyRes.json();
         setAvailableSubProducts(items.map((p) => ({
@@ -609,7 +611,6 @@ export default function ManageBillableProducts() {
                   value={formCode}
                   onChange={e => setFormCode(e.target.value.toUpperCase())}
                   className="font-mono pr-8"
-                  disabled={!!editingProduct}
                 />
                 {!editingProduct && formCode.trim() && (
                   <span className="absolute right-2 top-2.5">
@@ -773,7 +774,7 @@ export default function ManageBillableProducts() {
                     <SelectValue placeholder="Select branch..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {branches.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                    {branchOptions.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <Input type="number" placeholder="Price" value={row.price}
