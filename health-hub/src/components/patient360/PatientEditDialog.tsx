@@ -60,7 +60,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
     phone: primaryPhone,
     email: primaryEmail,
     address: patient.address || '',
-    whatsappOptIn: patient.whatsappOptIn ?? false,
+    whatsappOptIn: patient.whatsappOptIn ?? true,
     changeReason: '',
   });
 
@@ -144,7 +144,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
       }
 
       // Handle WhatsApp opt-in change
-      if (formData.whatsappOptIn !== (patient.whatsappOptIn ?? false)) {
+      if (formData.whatsappOptIn !== (patient.whatsappOptIn ?? true)) {
         updatePayload.whatsappOptIn = formData.whatsappOptIn;
       }
 
@@ -194,7 +194,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
         phone: primaryPhone,
         email: primaryEmail,
         address: patient.address || '',
-        whatsappOptIn: patient.whatsappOptIn ?? false,
+        whatsappOptIn: patient.whatsappOptIn ?? true,
         changeReason: '',
       });
     }

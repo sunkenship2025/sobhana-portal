@@ -1608,12 +1608,30 @@ export default function ManagePanelDefinitions() {
                                 </td>
                               </tr>
                             );
-                            const renderRuns = (items: typeof formItems, keyPrefix: string) =>
-                              partitionRuns(items).map((run, idx) =>
+                            const renderRuns = (items: typeof formItems, keyPrefix: string) => {
+                              const runs = partitionRuns(items).map((run, idx) =>
                                 run.length === 1
                                   ? renderSingleItemRow(run[0], `${keyPrefix}-${idx}`)
                                   : renderGridRow(run, `${keyPrefix}-${idx}`)
                               );
+                              if (formSpacedDefinitionsGap > 0 && runs.length > 1) {
+                                const interleaved = [];
+                                for (let i = 0; i < runs.length; i++) {
+                                  interleaved.push(runs[i]);
+                                  if (i < runs.length - 1) {
+                                    interleaved.push(
+                                      <tr key={`${keyPrefix}-gap-${i}`}>
+                                        <td colSpan={4} style={{ padding: 0, border: 'none' }}>
+                                          <div style={{ height: `${formSpacedDefinitionsGap * 1.5}em` }}></div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  }
+                                }
+                                return interleaved;
+                              }
+                              return runs;
+                            };
 
                             if (formShowSubgroups) {
                               // Group by subGroup
@@ -1781,15 +1799,27 @@ export default function ManagePanelDefinitions() {
                       </tr>
                     </thead>
                     <tbody>
-                      {previewData.tests?.map((test: any, i: number) => (
-                        <Fragment key={i}>
-                          {test.subGroup && (i === 0 || test.subGroup !== previewData.tests[i - 1]?.subGroup) && (
-                            <tr>
-                              <td colSpan={4} className="py-1 font-bold bg-gray-50 text-[10px] uppercase tracking-wide">
-                                {test.subGroup}
-                              </td>
-                            </tr>
-                          )}
+                      {previewData.tests?.map((test: any, i: number) => {
+                        const gap = previewData.panel?.spacedDefinitionsGap || 0;
+                        const isSameSubgroup = i > 0 && test.subGroup === previewData.tests[i - 1]?.subGroup;
+                        const shouldAddGap = gap > 0 && isSameSubgroup && !test.joinPrevious;
+                        
+                        return (
+                          <Fragment key={i}>
+                            {shouldAddGap && (
+                              <tr>
+                                <td colSpan={4} style={{ padding: 0, border: 'none' }}>
+                                  <div style={{ height: `${gap * 1.5}em` }}></div>
+                                </td>
+                              </tr>
+                            )}
+                            {test.subGroup && (i === 0 || test.subGroup !== previewData.tests[i - 1]?.subGroup) && (
+                              <tr>
+                                <td colSpan={4} className="py-1 font-bold bg-gray-50 text-[10px] uppercase tracking-wide">
+                                  {test.subGroup}
+                                </td>
+                              </tr>
+                            )}
                           <tr className="border-b border-dashed">
                             <td className="align-top">
                               {renderPreviewLabel(test.name, {
@@ -1805,7 +1835,8 @@ export default function ManagePanelDefinitions() {
                             <td className="py-1 text-muted-foreground">{test.referenceText || (test.referenceMin != null && test.referenceMax != null ? `${test.referenceMin}\u2013${test.referenceMax}` : '\u2014')}</td>
                           </tr>
                         </Fragment>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}

@@ -973,7 +973,7 @@ function renderReportBottomHtml(
         </div>
         ` : ''}
 
-        <div class="report-divider"></div>
+        ${!isPhysicalPrint ? '<div class="report-divider"></div>' : ''}
       </div>`;
 }
 
@@ -1162,8 +1162,39 @@ function renderReportPage(
       )
     : '';
 
+  if (isRadiology) {
+    return `
+  <div class="report-page radiology-page">
+    ${fragments.headerHtml}
+    <table class="report-layout-table" style="width: 100%; border: none; border-collapse: collapse;">
+      <tbody>
+        <tr>
+          <td style="padding: 0; border: none; vertical-align: top;">
+            <main class="report-content">
+              ${page.includePatientInfo ? renderPatientInfoHtml(snapshot, page.sampleTypes) : ''}
+              <div class="results-container">
+                ${page.departmentHtml}
+              </div>
+            </main>
+          </td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr>
+          <td class="report-tfoot-cell" style="padding: 0; border: none;">
+            <div class="report-bottom-wrapper" style="padding: 0 24px;">
+              ${reportBottomHtml}
+            </div>
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+    ${fragments.footerHtml}
+  </div>`;
+  }
+
   return `
-  <div class="report-page${isRadiology ? ' radiology-page' : ''}">
+  <div class="report-page">
     ${fragments.headerHtml}
     <main class="report-content">
       ${page.includePatientInfo ? renderPatientInfoHtml(snapshot, page.sampleTypes) : ''}

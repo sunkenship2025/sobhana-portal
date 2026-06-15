@@ -1099,6 +1099,34 @@ const DiagnosticsResultEntry = () => {
     void runAutoSave();
   }, [runAutoSave]);
 
+  useEffect(() => {
+    if (!loading && visit) {
+      // Focus the first empty input field so staff can resume data entry where they left off.
+      // If all fields are filled, it falls back to focusing the very first field.
+      setTimeout(() => {
+        const elements = Array.from(
+          document.querySelectorAll('.test-value-input:not([disabled]):not([readonly])')
+        ) as HTMLElement[];
+
+        let target = elements.find((el) => {
+          if (el instanceof HTMLInputElement) {
+            return !el.value || el.value.trim() === '';
+          }
+          // For TestValueCombobox (which is a button), we store the value in the title attribute
+          return !el.title || el.title.trim() === '';
+        });
+
+        if (!target && elements.length > 0) {
+          target = elements[0];
+        }
+
+        if (target) {
+          target.focus();
+        }
+      }, 100);
+    }
+  }, [loading, visit]);
+
   if (loading) {
     return (
       <AppLayout context="diagnostics">
