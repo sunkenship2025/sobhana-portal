@@ -21,6 +21,7 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 _Tracked here as commits land on `main`. Entries are promoted to a versioned section at release time — see [`RELEASE.md`](RELEASE.md)._
 
 ### Added
+- **URL-based Branch State:** Owner pages (`OwnerDashboardV2`, `OwnerDoctorsPage`, `OwnerMoneyPage`, `OwnerOperationsPage`) now use URL query parameters (`?branch=...`) for branch selector state instead of local component state, enabling shareable URLs.
 - **Spaced Definitions Gap Configuration.** Added a new layout configuration for clinical panels (`spacedDefinitionsGap`) allowing 1 to 3 empty table rows to be inserted between tests for better readability on reports. This is universally applied across live edit previews, WhatsApp PDFs, standard printed PDFs, and downloaded digital reports.
 - **Smart Auto-focus in Result Entry.** The Diagnostics Result Entry page now automatically focuses the first empty input field when the page loads, allowing staff to resume data entry instantly.
 - **Product Code Updates.** Added support for updating product codes via `PUT /api/billable-products/:id` and the UI. Included format validation and uniqueness checks, throwing a `409 Conflict` if the code already exists.
@@ -38,6 +39,7 @@ _Tracked here as commits land on `main`. Entries are promoted to a versioned sec
 - **Result-entry button label flips with completeness.** "Save Draft & Preview Report" → `Review & Finalize` when every reportable test has a value AND every required external upload is attached, or `Continue with Partial Report` otherwise. The click target itself is the same — only the label changes — so staff get a one-glance read of what's about to happen.
 
 ### Changed
+- **Zustand Store Reactivity:** Updated components like `AppLayout`, `ContextBanner`, and `ClinicNewVisit` to selectively access `useBranchStore` state properties instead of destructuring, aligning with Zustand best practices for optimal re-rendering.
 - **Print Receipt Styling.** Updated the print receipt layout with dynamic grid sizing, wrapped text indentation, reordered fields, and restored the bold patient name formatting for better scannability.
 - **Owner Dashboard Branch Filters.** Branch filters in owner dashboards (`OwnerDashboardV2`, `OwnerDoctorsPage`, `OwnerMoneyPage`, `OwnerOperationsPage`) are now persisted using URL search parameters instead of local state, allowing bookmarking and preventing auth hydration from overriding the selection on refresh.
 - **Product Code Mutability.** Product codes are no longer strictly immutable after creation. They can now be updated if the new code meets validation rules and does not conflict with existing codes.
@@ -49,6 +51,9 @@ _Tracked here as commits land on `main`. Entries are promoted to a versioned sec
 - **Finalize / release lives only inside the preview modal now.** [`DiagnosticsReportPreview`](../health-hub/src/pages/diagnostics/DiagnosticsReportPreview.tsx) no longer surfaces "Finalize" / "Release Partial" buttons on the page itself; staff must open the rendered-PDF preview before those actions appear (inside the modal). The previous `hasReviewedPreview` sessionStorage gate is removed — the modal is now the only path. Eliminates the "looked at the JSON-shaped on-screen card and shipped" failure mode.
 
 ### Fixed
+- **Test Order Preservation:** Fixed a bug in `diagnosticVisits` and `productOrderService` where the input order of selected tests or products was not strictly preserved during database creation. The system now explicitly maps items to preserve the exact sequence chosen by the user.
+- **Session Hydration:** Fixed an issue in `authStore.ts` where hydration inadvertently overrode the active branch state.
+- **Build Failure:** Fixed unused imports causing frontend build failures.
 - **Auth Hydration Branch Override.** Fixed an issue where the auth hydration process on refresh was overwriting the user's currently selected branch with their default active branch.
 - **Test Order to Product Panel Mapping.** Fixed a bug where test orders weren't correctly mapped to product panels when a single test definition belonged to multiple different panels across different products.
 - **Report Printing Glitches.** Fixed report printing glitches involving `position: fixed` elements and QR code cutting off at page boundaries. (Additionally removed a redundant divider line rendering below the QR code).
