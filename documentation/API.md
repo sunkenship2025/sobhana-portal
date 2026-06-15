@@ -96,6 +96,7 @@ Source: [`clinicVisits.ts`](../health-hub-backend/src/routes/clinicVisits.ts).
 | GET | `/` | List bills with filters |
 | GET | `/:id` | Bill detail with payment transactions |
 | POST | `/:id/payments` | Add a payment transaction |
+| GET | `/view/:token` | Public, token-gated inline PDF download (WhatsApp in-app browser compatible) |
 
 Source: [`bills.ts`](../health-hub-backend/src/routes/bills.ts) → service: `billFinancialService`.
 
@@ -162,7 +163,7 @@ Source: [`testInputConfigs.ts`](../health-hub-backend/src/routes/testInputConfig
 | GET | `/` | List products (filterable by branch, active, workflow mode) |
 | GET | `/:id` | Product + linked panels + branch pricing |
 | POST | `/` | Create product (single test or bundle) |
-| PUT | `/:id` | Update |
+| PUT | `/:id` | Update (now supports updating `code` with validation and uniqueness checks; returns 409 on conflict) |
 | PATCH | `/:id/toggle-active` | Soft enable/disable |
 | DELETE | `/:id` | Delete |
 
