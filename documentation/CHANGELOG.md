@@ -21,6 +21,8 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 _Tracked here as commits land on `main`. Entries are promoted to a versioned section at release time — see [`RELEASE.md`](RELEASE.md)._
 
 ### Added
+- **Spaced Definitions Gap Setting.** Added a new configuration option called "Spaced Definitions Gap" to the Layout Configuration settings in the panel editor. This allows toggling spacing between `Off`, `1 Row Gap`, `2 Row Gap`, and `3 Row Gap`. The global report renderer inserts empty table rows to create spacing between tests, affecting live edit preview, WhatsApp PDF, standard PDF print, and the downloaded digital report.
+- **Panel Grouping by Product.** In Diagnostics Result Entry, panel grouping is now scoped to the specific `productId` to prevent identical panels from different products from merging. The UI also displays the product name as "(Billed as: [Product Name])" if it differs from the panel display name.
 - **URL-based Branch State:** Owner pages (`OwnerDashboardV2`, `OwnerDoctorsPage`, `OwnerMoneyPage`, `OwnerOperationsPage`) now use URL query parameters (`?branch=...`) for branch selector state instead of local component state, enabling shareable URLs.
 - **Spaced Definitions Gap Configuration.** Added a new layout configuration for clinical panels (`spacedDefinitionsGap`) allowing 1 to 3 empty table rows to be inserted between tests for better readability on reports. This is universally applied across live edit previews, WhatsApp PDFs, standard printed PDFs, and downloaded digital reports.
 - **Smart Auto-focus in Result Entry.** The Diagnostics Result Entry page now automatically focuses the first empty input field when the page loads, allowing staff to resume data entry instantly.
@@ -51,6 +53,7 @@ _Tracked here as commits land on `main`. Entries are promoted to a versioned sec
 - **Finalize / release lives only inside the preview modal now.** [`DiagnosticsReportPreview`](../health-hub/src/pages/diagnostics/DiagnosticsReportPreview.tsx) no longer surfaces "Finalize" / "Release Partial" buttons on the page itself; staff must open the rendered-PDF preview before those actions appear (inside the modal). The previous `hasReviewedPreview` sessionStorage gate is removed — the modal is now the only path. Eliminates the "looked at the JSON-shaped on-screen card and shipped" failure mode.
 
 ### Fixed
+- **Report Dividers.** Fixed the report divider line that was rendering below the QR code at the end of printed reports, restoring it and improving the gap rows height.
 - **Test Order Preservation:** Fixed a bug in `diagnosticVisits` and `productOrderService` where the input order of selected tests or products was not strictly preserved during database creation. The system now explicitly maps items to preserve the exact sequence chosen by the user.
 - **Session Hydration:** Fixed an issue in `authStore.ts` where hydration inadvertently overrode the active branch state.
 - **Build Failure:** Fixed unused imports causing frontend build failures.
