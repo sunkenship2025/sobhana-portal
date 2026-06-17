@@ -1248,16 +1248,19 @@ const DiagnosticsNewVisit = () => {
                   const totalItems = matchingPatients.length + 1;
                   if (e.key === 'ArrowDown') {
                     e.preventDefault();
+                    e.stopPropagation();
                     setHighlightedPatientIndex((prev) =>
                       prev < totalItems - 1 ? prev + 1 : 0
                     );
                   } else if (e.key === 'ArrowUp') {
                     e.preventDefault();
+                    e.stopPropagation();
                     setHighlightedPatientIndex((prev) =>
                       prev > 0 ? prev - 1 : totalItems - 1
                     );
                   } else if (e.key === 'Enter') {
                     e.preventDefault();
+                    e.stopPropagation();
                     if (highlightedPatientIndex < matchingPatients.length) {
                       handleSelectPatient(matchingPatients[highlightedPatientIndex]);
                     } else {
