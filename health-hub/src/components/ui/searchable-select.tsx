@@ -19,6 +19,7 @@ export interface SearchableSelectOption {
 }
 
 interface SearchableSelectProps {
+  id?: string;
   value?: string;
   onValueChange: (value: string) => void;
   options: SearchableSelectOption[];
@@ -27,9 +28,11 @@ interface SearchableSelectProps {
   emptyText?: string;
   disabled?: boolean;
   className?: string;
+  onSkip?: () => void;
 }
 
 export function SearchableSelect({
+  id,
   value,
   onValueChange,
   options,
@@ -38,6 +41,7 @@ export function SearchableSelect({
   emptyText = 'No options found.',
   disabled = false,
   className,
+  onSkip,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
 
@@ -50,12 +54,20 @@ export function SearchableSelect({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          id={id}
           type="button"
           variant="outline"
           role="combobox"
           aria-expanded={open}
           disabled={disabled}
           className={cn('w-full justify-between font-normal', className)}
+          onKeyDown={(e) => {
+            if (e.shiftKey && e.key === 'Enter') {
+              e.preventDefault();
+              setOpen(false);
+              onSkip?.();
+            }
+          }}
         >
           <span className="truncate text-left">
             {selectedOption ? selectedOption.label : placeholder}

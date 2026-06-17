@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { API_BASE } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -74,6 +74,9 @@ type DiscountMode = "NONE" | BillDiscountType;
 const DiagnosticsNewVisit = () => {
   const navigate = useNavigate();
   const printRef = useRef<HTMLDivElement>(null);
+  const phoneInputRef = useRef<HTMLInputElement>(null);
+  const testSelectorRef = useRef<HTMLDivElement>(null);
+  const submitButtonRef = useRef<HTMLButtonElement>(null);
   const { token } = useAuthStore();
   const activeBranchId = useBranchStore((state) => state.activeBranchId);
   const branches = useBranchStore((state) => state.branches);
@@ -88,6 +91,8 @@ const DiagnosticsNewVisit = () => {
   >([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCenterId, setSelectedCenterId] = useState<string>("");
+  const [highlightedPatientIndex, setHighlightedPatientIndex] = useState(0);
+  const patientListRef = useRef<HTMLDivElement>(null);
 
   const [phone, setPhone] = useState("");
   const [billSearch, setBillSearch] = useState("");
@@ -215,6 +220,22 @@ const DiagnosticsNewVisit = () => {
 
     fetchData();
   }, [token, activeBranch]);
+
+  // Auto-focus phone input on page load
+  useEffect(() => {
+    if (!successData) {
+      // Small delay to ensure DOM is ready after any transitions
+      const timer = setTimeout(() => {
+        phoneInputRef.current?.focus();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [successData]);
+
+  // Reset highlighted patient index when matching patients change
+  useEffect(() => {
+    setHighlightedPatientIndex(0);
+  }, [matchingPatients]);
 
   const selectedDoctor = referralDoctors.find(
     (doctor) => doctor.id === selectedDoctorId,
@@ -465,6 +486,11 @@ const DiagnosticsNewVisit = () => {
   const handleCreateNewPatient = () => {
     setShowNewPatientForm(true);
     setSelectedPatient(null);
+    // Auto-focus the name field when "Create New Patient" is clicked
+    setTimeout(() => {
+      const nameInput = document.getElementById('name') as HTMLInputElement;
+      nameInput?.focus();
+    }, 100);
   };
 
   const handleSelectPatient = (result: PatientSearchResult) => {
@@ -472,7 +498,20 @@ const DiagnosticsNewVisit = () => {
     setShowNewPatientForm(false);
     // Auto-check WhatsApp opt-in if patient already opted in
     setWhatsappOptIn((result.patient as any).whatsappOptIn ?? true);
+    // Auto-focus test search input after selecting a patient
+    setTimeout(() => {
+      focusTestSelector();
+    }, 150);
   };
+
+  // Helper to focus the test search input inside the ProductSelector
+  const focusTestSelector = useCallback(() => {
+    if (testSelectorRef.current) {
+      const searchInput = testSelectorRef.current.querySelector('input[type="text"]') as HTMLInputElement;
+      searchInput?.focus();
+      testSelectorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, []);
 
   const totalAmount = selectedProducts.reduce((sum, prodId) => {
     const product = products.find((p) => p.id === prodId);
@@ -1062,6 +1101,8 @@ const DiagnosticsNewVisit = () => {
                         whatsappOptIn: true,
                       }); // E2-09: Reset form
                       setValidationErrors({});
+                      // Re-focus phone input after reset
+                      setTimeout(() => phoneInputRef.current?.focus(), 150);
                     }}
                   >
                     Create Another Visit
@@ -1126,6 +1167,7 @@ const DiagnosticsNewVisit = () => {
                 <Label htmlFor="phone">Phone Number *</Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Input
+                    ref={phoneInputRef}
                     id="phone"
                     placeholder="Enter 10-digit phone"
                     value={phone}
@@ -1134,7 +1176,26 @@ const DiagnosticsNewVisit = () => {
                         e.target.value.replace(/\D/g, "").slice(0, 10),
                       )
                     }
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (phone.length >= 10) {
+                          handleSearch();
+                          // Focus the patient list container for arrow key navigation
+                          setTimeout(() => {
+                            if (matchingPatients.length > 0) {
+                              setHighlightedPatientIndex(0);
+                              patientListRef.current?.focus();
+                            } else {
+                              const billInput = document.getElementById('bill') as HTMLInputElement;
+                              billInput?.focus();
+                            }
+                          }, 300);
+                        }
+                      }
+                    }}
                     maxLength={10}
+                    autoComplete="off"
                   />
                   <Button
                     className="w-full sm:w-auto"
@@ -1152,6 +1213,16 @@ const DiagnosticsNewVisit = () => {
                   placeholder="D-XXXXX"
                   value={billSearch}
                   onChange={(e) => setBillSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      // Move focus to matching patients area or stay
+                      if (matchingPatients.length > 0) {
+                        const firstPatient = document.querySelector('[data-radix-collection-item]') as HTMLElement;
+                        firstPatient?.focus();
+                      }
+                    }
+                  }}
                 />
               </div>
             </div>
@@ -1165,53 +1236,99 @@ const DiagnosticsNewVisit = () => {
               <CardTitle>Matching Patients</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <RadioGroup
-                value={selectedPatient?.id || ""}
-                onValueChange={(id) => {
-                  const result = matchingPatients.find(
-                    (r) => r.patient.id === id,
-                  );
-                  if (result) handleSelectPatient(result);
+              {/* Keyboard-navigable patient list: Arrow Up/Down to move, Enter to select */}
+              <div
+                ref={patientListRef}
+                tabIndex={0}
+                role="listbox"
+                aria-label="Matching patients"
+                className="space-y-2 outline-none"
+                onKeyDown={(e) => {
+                  // Total items = patients + 1 (Create New Patient button)
+                  const totalItems = matchingPatients.length + 1;
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setHighlightedPatientIndex((prev) =>
+                      prev < totalItems - 1 ? prev + 1 : 0
+                    );
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setHighlightedPatientIndex((prev) =>
+                      prev > 0 ? prev - 1 : totalItems - 1
+                    );
+                  } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (highlightedPatientIndex < matchingPatients.length) {
+                      handleSelectPatient(matchingPatients[highlightedPatientIndex]);
+                    } else {
+                      // Last item = Create New Patient
+                      handleCreateNewPatient();
+                    }
+                  }
                 }}
               >
-                {matchingPatients.map((result) => (
-                  <div
-                    key={result.patient.id}
-                    className={`flex items-center space-x-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                      selectedPatient?.id === result.patient.id
-                        ? "border-primary bg-accent"
-                        : "border-border hover:bg-muted"
-                    }`}
-                    onClick={() => handleSelectPatient(result)}
-                  >
-                    <RadioGroupItem
-                      value={result.patient.id}
-                      id={result.patient.id}
-                    />
-                    <Label
-                      htmlFor={result.patient.id}
-                      className="flex-1 cursor-pointer"
+                <RadioGroup
+                  value={selectedPatient?.id || ""}
+                  onValueChange={(id) => {
+                    const result = matchingPatients.find(
+                      (r) => r.patient.id === id,
+                    );
+                    if (result) handleSelectPatient(result);
+                  }}
+                >
+                  {matchingPatients.map((result, index) => (
+                    <div
+                      key={result.patient.id}
+                      className={`flex items-center space-x-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                        selectedPatient?.id === result.patient.id
+                          ? "border-primary bg-accent"
+                          : highlightedPatientIndex === index
+                            ? "border-primary/50 bg-accent/50 ring-2 ring-primary/30"
+                            : "border-border hover:bg-muted"
+                      }`}
+                      onClick={() => handleSelectPatient(result)}
+                      onMouseEnter={() => setHighlightedPatientIndex(index)}
+                      role="option"
+                      aria-selected={selectedPatient?.id === result.patient.id}
                     >
-                      <span className="font-medium">{formatPatientName(result.patient.name, (result.patient as any).title)}</span>
-                      <span className="text-muted-foreground ml-2">
-                        |{" "}
-                        {result.patient.ageDisplay ||
-                          `${result.patient.age} Years`}{" "}
-                        | {result.patient.gender}
-                      </span>
-                    </Label>
-                  </div>
-                ))}
-              </RadioGroup>
+                      <RadioGroupItem
+                        value={result.patient.id}
+                        id={result.patient.id}
+                      />
+                      <Label
+                        htmlFor={result.patient.id}
+                        className="flex-1 cursor-pointer"
+                      >
+                        <span className="font-medium">{formatPatientName(result.patient.name, (result.patient as any).title)}</span>
+                        <span className="text-muted-foreground ml-2">
+                          |{" "}
+                          {result.patient.ageDisplay ||
+                            `${result.patient.age} Years`}{" "}
+                          | {result.patient.gender}
+                        </span>
+                      </Label>
+                    </div>
+                  ))}
+                </RadioGroup>
 
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={handleCreateNewPatient}
-              >
-                <UserPlus className="h-4 w-4 mr-2" />
-                Create New Patient
-              </Button>
+                <Button
+                  variant="outline"
+                  className={`w-full transition-colors ${
+                    highlightedPatientIndex === matchingPatients.length
+                      ? "ring-2 ring-primary/30 border-primary/50"
+                      : ""
+                  }`}
+                  onClick={handleCreateNewPatient}
+                  onMouseEnter={() => setHighlightedPatientIndex(matchingPatients.length)}
+                >
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Create New Patient
+                </Button>
+              </div>
+
+              <p className="text-xs text-muted-foreground text-center">
+                Use ↑↓ arrow keys to navigate, Enter to select
+              </p>
             </CardContent>
           </Card>
         )}
@@ -1269,6 +1386,13 @@ const DiagnosticsNewVisit = () => {
                           ...validationErrors,
                           name: undefined,
                         });
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const ageInput = document.getElementById('age') as HTMLInputElement;
+                        ageInput?.focus();
                       }
                     }}
                     className={validationErrors.name ? "border-red-500" : ""}
@@ -1330,6 +1454,13 @@ const DiagnosticsNewVisit = () => {
                             ...validationErrors,
                             age: undefined,
                           });
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          // Skip to test selector since gender already has a default
+                          focusTestSelector();
                         }
                       }}
                       className={`flex-1 ${validationErrors.age ? "border-red-500" : ""}`}
@@ -1424,6 +1555,7 @@ const DiagnosticsNewVisit = () => {
               <CardTitle>Select Tests</CardTitle>
             </CardHeader>
             <CardContent>
+              <div ref={testSelectorRef}>
               <ProductSelector
                 products={products}
                 selectedProductIds={selectedProducts}
@@ -1464,8 +1596,12 @@ const DiagnosticsNewVisit = () => {
                     );
                   });
                 }}
+                onDone={() => {
+                  document.getElementById('referral-doctor')?.focus();
+                }}
                 disabled={isSubmitting}
               />
+              </div>
             </CardContent>
           </Card>
         )}
@@ -1482,6 +1618,7 @@ const DiagnosticsNewVisit = () => {
                 <Label>Referral Doctor (optional)</Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <SearchableSelect
+                    id="referral-doctor"
                     value={selectedDoctorId}
                     onValueChange={(value) => {
                       setSelectedDoctorId(value);
@@ -1495,7 +1632,10 @@ const DiagnosticsNewVisit = () => {
                             getEffectiveDoctorPayout(doctor, productId),
                         ),
                       );
+                      // Auto-focus next field after selection
+                      setTimeout(() => document.getElementById('diagnostic-center')?.focus(), 150);
                     }}
+                    onSkip={() => document.getElementById('diagnostic-center')?.focus()}
                     options={referralDoctors.map((doctor) => ({
                       value: doctor.id,
                       label: doctor.name,
@@ -1506,7 +1646,7 @@ const DiagnosticsNewVisit = () => {
                         .filter(Boolean)
                         .join(" "),
                     }))}
-                    placeholder="Search referral doctor"
+                    placeholder="Search referral doctor (Shift+Enter to skip)"
                     searchPlaceholder="Search by doctor name, phone or number"
                     emptyText="No referral doctors found."
                     className="h-11"
@@ -1537,6 +1677,7 @@ const DiagnosticsNewVisit = () => {
                 <Label>Diagnostic Referral (optional)</Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <SearchableSelect
+                    id="diagnostic-center"
                     value={selectedCenterId}
                     onValueChange={(value) => {
                       setSelectedCenterId(value);
@@ -1553,7 +1694,10 @@ const DiagnosticsNewVisit = () => {
                             ),
                         ),
                       );
+                      // Auto-focus next field after selection
+                      setTimeout(() => document.getElementById('discount-mode-trigger')?.focus(), 150);
                     }}
+                    onSkip={() => document.getElementById('discount-mode-trigger')?.focus()}
                     options={diagnosticCenters.map((center) => ({
                       value: center.id,
                       label: center.name,
@@ -1573,8 +1717,8 @@ const DiagnosticsNewVisit = () => {
                         .filter(Boolean)
                         .join(" "),
                     }))}
-                    placeholder="Search external diagnostic center"
-                    searchPlaceholder="Search by center name, number, contact or phone"
+                    placeholder="Search diagnostic center (Shift+Enter to skip)"
+                    searchPlaceholder="Search by center name, phone or number"
                     emptyText="No diagnostic centers found."
                     className="h-11"
                   />
@@ -1909,7 +2053,7 @@ const DiagnosticsNewVisit = () => {
                     htmlFor="diagnostic-discount-value"
                     className="font-semibold text-muted-foreground"
                   >
-                    Discount
+                    Discount <span className="text-[10px] ml-2 font-normal">(Shift+Enter to skip)</span>
                   </Label>
                   <div className="grid gap-2 sm:grid-cols-[150px_minmax(0,1fr)]">
                     <Select
@@ -1918,9 +2062,30 @@ const DiagnosticsNewVisit = () => {
                         setDiscountMode(value as DiscountMode);
                         setDiscountValue("");
                         setDiscountReason("");
+                        // Auto-focus the next relevant field based on discount mode
+                        setTimeout(() => {
+                          if (value === "NONE") {
+                            document.getElementById('diagnostic-paid-amount')?.focus();
+                          } else {
+                            document.getElementById('diagnostic-discount-value')?.focus();
+                          }
+                        }, 150);
                       }}
                     >
-                      <SelectTrigger aria-label="Discount type">
+                      <SelectTrigger 
+                        id="discount-mode-trigger" 
+                        aria-label="Discount type"
+                        onKeyDown={(e) => {
+                          if (e.shiftKey && e.key === 'Enter') {
+                            e.preventDefault();
+                            if (discountMode === "NONE") {
+                              document.getElementById('diagnostic-paid-amount')?.focus();
+                            } else {
+                              document.getElementById('diagnostic-discount-value')?.focus();
+                            }
+                          }
+                        }}
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1935,6 +2100,12 @@ const DiagnosticsNewVisit = () => {
                       inputMode="numeric"
                       value={discountValue}
                       onChange={(e) => setDiscountValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          document.getElementById('diagnostic-discount-reason')?.focus();
+                        }
+                      }}
                       placeholder={
                         discountMode === "PERCENTAGE"
                           ? "Enter discount %"
@@ -1956,6 +2127,12 @@ const DiagnosticsNewVisit = () => {
                         placeholder="Reason for discount (Required)"
                         value={discountReason}
                         onChange={(e) => setDiscountReason(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            document.getElementById('diagnostic-paid-amount')?.focus();
+                          }
+                        }}
                       />
                     </>
                   )}
@@ -1974,6 +2151,17 @@ const DiagnosticsNewVisit = () => {
                     step="1"
                     value={paidAmount}
                     onChange={(e) => setPaidAmount(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const activeRadio = document.getElementById(paymentMode.toLowerCase());
+                        if (activeRadio) {
+                          activeRadio.focus();
+                        } else {
+                          submitButtonRef.current?.focus();
+                        }
+                      }
+                    }}
                     placeholder={`Full amount ${formatMoney(netPayable)}`}
                   />
                 </div>
@@ -2021,20 +2209,76 @@ const DiagnosticsNewVisit = () => {
                         cash: Number(paidAmount || netPayable),
                         online: 0,
                       });
+                      setTimeout(() => {
+                        const cashInput = document.getElementById('split-cash') as HTMLInputElement;
+                        if (cashInput) {
+                          cashInput.focus();
+                          cashInput.select(); // Highlight the text
+                        }
+                      }, 100);
                     }
                   }}
                   className="flex gap-6"
+                  orientation="horizontal"
                 >
                   <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="CASH" id="cash" />
+                    <RadioGroupItem 
+                      value="CASH" 
+                      id="cash" 
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          submitButtonRef.current?.focus();
+                        } else if (e.key === 'ArrowDown') {
+                          const nextEl = document.getElementById('existingDiagWhatsappOptIn');
+                          if (nextEl) {
+                            e.preventDefault();
+                            nextEl.focus();
+                          }
+                        }
+                      }}
+                    />
                     <Label htmlFor="cash">Cash</Label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="ONLINE" id="online" />
+                    <RadioGroupItem 
+                      value="ONLINE" 
+                      id="online" 
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          submitButtonRef.current?.focus();
+                        } else if (e.key === 'ArrowDown') {
+                          const nextEl = document.getElementById('existingDiagWhatsappOptIn');
+                          if (nextEl) {
+                            e.preventDefault();
+                            nextEl.focus();
+                          }
+                        }
+                      }}
+                    />
                     <Label htmlFor="online">Online</Label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="SPLIT" id="split" />
+                    <RadioGroupItem 
+                      value="SPLIT" 
+                      id="split" 
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          // Needs a slight delay because the split inputs render conditionally
+                          setTimeout(() => {
+                            document.getElementById('split-cash')?.focus();
+                          }, 100);
+                        } else if (e.key === 'ArrowDown') {
+                          const nextEl = document.getElementById('existingDiagWhatsappOptIn');
+                          if (nextEl) {
+                            e.preventDefault();
+                            nextEl.focus();
+                          }
+                        }
+                      }}
+                    />
                     <Label htmlFor="split">Split</Label>
                   </div>
                 </RadioGroup>
@@ -2044,8 +2288,10 @@ const DiagnosticsNewVisit = () => {
                     <div className="flex-1 space-y-2">
                       <Label>Cash ₹</Label>
                       <Input
+                        id="split-cash"
                         type="number"
                         min="0"
+                        placeholder="Shift+→ to Online"
                         value={splitAmounts.cash || ""}
                         onChange={(e) => {
                           const cash = Number(e.target.value);
@@ -2057,13 +2303,32 @@ const DiagnosticsNewVisit = () => {
                             ),
                           });
                         }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            const onlineInput = document.getElementById('split-online') as HTMLInputElement;
+                            if (onlineInput) {
+                              onlineInput.focus();
+                              onlineInput.select();
+                            }
+                          } else if (e.shiftKey && (e.key === 'ArrowRight' || e.key === 'ArrowDown')) {
+                            e.preventDefault();
+                            const onlineInput = document.getElementById('split-online') as HTMLInputElement;
+                            if (onlineInput) {
+                              onlineInput.focus();
+                              onlineInput.select();
+                            }
+                          }
+                        }}
                       />
                     </div>
                     <div className="flex-1 space-y-2">
                       <Label>Online ₹</Label>
                       <Input
+                        id="split-online"
                         type="number"
                         min="0"
+                        placeholder="Shift+← to Cash"
                         value={splitAmounts.online || ""}
                         onChange={(e) => {
                           const online = Number(e.target.value);
@@ -2074,6 +2339,19 @@ const DiagnosticsNewVisit = () => {
                             ),
                             online,
                           });
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            submitButtonRef.current?.focus();
+                          } else if (e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowUp')) {
+                            e.preventDefault();
+                            const cashInput = document.getElementById('split-cash') as HTMLInputElement;
+                            if (cashInput) {
+                              cashInput.focus();
+                              cashInput.select();
+                            }
+                          }
                         }}
                       />
                     </div>
@@ -2090,6 +2368,12 @@ const DiagnosticsNewVisit = () => {
                     onCheckedChange={(checked) =>
                       setWhatsappOptIn(checked === true)
                     }
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        submitButtonRef.current?.focus();
+                      }
+                    }}
                   />
                   <Label
                     htmlFor="existingDiagWhatsappOptIn"
@@ -2102,6 +2386,7 @@ const DiagnosticsNewVisit = () => {
               )}
 
               <Button
+                ref={submitButtonRef}
                 className="w-full"
                 size="lg"
                 onClick={handleSubmit}

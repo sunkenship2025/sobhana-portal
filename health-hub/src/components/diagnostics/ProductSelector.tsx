@@ -23,8 +23,8 @@ export interface ProductForSelector {
 interface ProductSelectorProps {
   products: ProductForSelector[];
   selectedProductIds: string[];
-  onSelectionChange: (productIds: string[]) => void;
   onQuickAddBillOnly?: (draftName: string) => void;
+  onDone?: () => void;
   disabled?: boolean;
   placeholder?: string;
 }
@@ -91,10 +91,10 @@ function TypeIcon({ productType, className }: { productType: ProductVisualKind; 
 
 // ─── Component ──────────────────────────────────────────────────────
 export function ProductSelector({
-  products,
   selectedProductIds,
   onSelectionChange,
   onQuickAddBillOnly,
+  onDone,
   disabled = false,
   placeholder = "Type to search products (e.g., CBP, LFT, Thyroid)..."
 }: ProductSelectorProps) {
@@ -207,10 +207,16 @@ export function ProductSelector({
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!isOpen || flatList.length === 0) {
-      if (e.key === 'Enter' && searchQuery.trim() && onQuickAddBillOnly) {
-        e.preventDefault();
-        handleQuickAdd();
-        return;
+      if (e.key === 'Enter') {
+        if (searchQuery.trim() && onQuickAddBillOnly) {
+          e.preventDefault();
+          handleQuickAdd();
+          return;
+        } else if (!searchQuery.trim() && onDone) {
+          e.preventDefault();
+          onDone();
+          return;
+        }
       }
       if (e.key === 'Backspace' && !searchQuery && selectedProductIds.length > 0) {
         handleRemove(selectedProductIds[selectedProductIds.length - 1]);
