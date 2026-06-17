@@ -91,6 +91,7 @@ function TypeIcon({ productType, className }: { productType: ProductVisualKind; 
 
 // ─── Component ──────────────────────────────────────────────────────
 export function ProductSelector({
+  products,
   selectedProductIds,
   onSelectionChange,
   onQuickAddBillOnly,
