@@ -1270,15 +1270,7 @@ const DiagnosticsNewVisit = () => {
                   }
                 }}
               >
-                <RadioGroup
-                  value={selectedPatient?.id || ""}
-                  onValueChange={(id) => {
-                    const result = matchingPatients.find(
-                      (r) => r.patient.id === id,
-                    );
-                    if (result) handleSelectPatient(result);
-                  }}
-                >
+                <div className="space-y-2">
                   {matchingPatients.map((result, index) => (
                     <div
                       key={result.patient.id}
@@ -1294,14 +1286,17 @@ const DiagnosticsNewVisit = () => {
                       role="option"
                       aria-selected={selectedPatient?.id === result.patient.id}
                     >
-                      <RadioGroupItem
-                        value={result.patient.id}
-                        id={result.patient.id}
-                      />
-                      <Label
-                        htmlFor={result.patient.id}
-                        className="flex-1 cursor-pointer"
-                      >
+                      {/* Visual radio circle — not a button, won't steal Enter */}
+                      <div className={`h-4 w-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                        selectedPatient?.id === result.patient.id
+                          ? "border-primary"
+                          : "border-muted-foreground"
+                      }`}>
+                        {selectedPatient?.id === result.patient.id && (
+                          <div className="h-2 w-2 rounded-full bg-primary" />
+                        )}
+                      </div>
+                      <div className="flex-1">
                         <span className="font-medium">{formatPatientName(result.patient.name, (result.patient as any).title)}</span>
                         <span className="text-muted-foreground ml-2">
                           |{" "}
@@ -1309,10 +1304,10 @@ const DiagnosticsNewVisit = () => {
                             `${result.patient.age} Years`}{" "}
                           | {result.patient.gender}
                         </span>
-                      </Label>
+                      </div>
                     </div>
                   ))}
-                </RadioGroup>
+                </div>
 
                 <Button
                   variant="outline"
