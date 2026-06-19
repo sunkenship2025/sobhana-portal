@@ -9,6 +9,7 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 ## [Unreleased]
 
 ### Added
+- **Keyboard navigation for New Visit:** Added robust keyboard shortcuts and auto-focusing for a faster data entry experience during a new visit. Users can now navigate patient search, test selection, and payment splitting entirely via the keyboard (Enter, Arrows, Shift+Arrows) to accelerate billing.
 - **Public Bill PDF Links:** Patients now receive a direct button link to view their bill PDF in WhatsApp, powered by a new `BillAccessToken` model and a public `/bills/view/:token` backend route.
 - **Mobile PDF Printing Fallback:** For mobile devices encountering printing issues, the frontend now automatically captures the receipt using `html2canvas` and generates a downloadable PDF with `jspdf`.
 - **Test Order Display Ordering:** Test orders now carry a `displayOrder` field, ensuring chronological sorting on printed bills and in the visit queue matching the original input order.
