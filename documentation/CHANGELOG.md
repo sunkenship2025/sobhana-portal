@@ -15,6 +15,7 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 - **Bill Payment Status:** The generated bill PDFs now display the payment status (e.g. PAID, PENDING) matching the actual bill transaction state.
 
 ### Changed
+- **Diagnostics New Visit Navigation:** Improved keyboard navigation flow and UI stability (fixed crash/event stealing bugs on Patient selection) in the Diagnostics New Visit form.
 - Default patient WhatsApp opt-in state has been toggled from disabled to enabled across diagnostic and edit patient forms.
 - The React app now silently reloads once if a user encounters a stale chunk (failed to fetch dynamically imported module) after a new deployment.
 
