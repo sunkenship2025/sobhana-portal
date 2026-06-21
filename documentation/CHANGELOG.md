@@ -9,6 +9,9 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 ## [Unreleased]
 
 ### Added
+- **Confirm Bill Dialog:** Added a confirm bill dialog to the clinic and diagnostic visit keyboard flow.
+- **New-Patient Title-First Flow:** Implemented a title-first flow for new patient entry to improve UX and speed.
+- **Unified Keyboard Focus Flow:** Hardened keyboard focus flow for diagnostic visit entry.
 - **Keyboard navigation for New Visit:** Added robust keyboard shortcuts and auto-focusing for a faster data entry experience during a new visit. Users can now navigate patient search, test selection, and payment splitting entirely via the keyboard (Enter, Arrows, Shift+Arrows) to accelerate billing.
 - **Keyboard navigation & auto-focus in Diagnostics New Visit:** Added keyboard shortcuts (`Enter` to advance, `Shift+Arrows` to navigate split payments) and automatic focus behaviors to streamline the entry of patient visits and billing without requiring a mouse.
 - **Enhanced Keyboard Navigation for Rapid Data Entry:** Added comprehensive keyboard shortcuts to the Diagnostics New Visit flow. Users can now use `Enter` to seamlessly advance focus through discount, payment, and split-amount fields. Also added `Shift+Arrow` shortcuts to quickly toggle between Cash and Online inputs when splitting payments, and improved Arrow key navigation within the matching patient list. This enables rapid, mouse-free data entry and resolves previous blocking issues during high-speed interaction.
@@ -18,6 +21,7 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 - **Bill Payment Status:** The generated bill PDFs now display the payment status (e.g. PAID, PENDING) matching the actual bill transaction state.
 
 ### Changed
+- **Unified Owner Money Formatting:** Consolidated money (rupee) formatting into a shared `lib/payoutFormatters.ts` utility and applied it across owner dashboards, money pages, and payout details.
 - **Diagnostics New Visit Navigation:** Improved keyboard navigation flow and UI stability (fixed crash/event stealing bugs on Patient selection) in the Diagnostics New Visit form.
 - Default patient WhatsApp opt-in state has been toggled from disabled to enabled across diagnostic and edit patient forms.
 - The React app now silently reloads once if a user encounters a stale chunk (failed to fetch dynamically imported module) after a new deployment.
