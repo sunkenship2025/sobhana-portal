@@ -68,7 +68,7 @@ import {
 } from "@/components/ui/dialog";
 import { mapDiagnosticsVisitViewToReceiptData } from "@/lib/billReceiptMappers";
 import { TITLE_TO_GENDER, titleOptions, formatPatientName } from "@/lib/patientDisplay";
-import { goToStep, goToNext, goToPrev, handleFlowKey } from "@/lib/focusFlow";
+import { goToStep, goToNext, goToPrev, hasNextStep, handleFlowKey } from "@/lib/focusFlow";
 
 type DiscountMode = "NONE" | BillDiscountType;
 
@@ -78,6 +78,7 @@ const DiagnosticsNewVisit = () => {
   const phoneInputRef = useRef<HTMLInputElement>(null);
   const testSelectorRef = useRef<HTMLDivElement>(null);
   const submitButtonRef = useRef<HTMLButtonElement>(null);
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const { token } = useAuthStore();
   const activeBranchId = useBranchStore((state) => state.activeBranchId);
   const branches = useBranchStore((state) => state.branches);
@@ -145,6 +146,7 @@ const DiagnosticsNewVisit = () => {
   const [showAddDoctorDialog, setShowAddDoctorDialog] = useState(false);
   const [showAddCenterDialog, setShowAddCenterDialog] = useState(false);
   const [showAddProductDialog, setShowAddProductDialog] = useState(false);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [newDoctorName, setNewDoctorName] = useState("");
   const [newDoctorPhone, setNewDoctorPhone] = useState("");
   const [newCenterName, setNewCenterName] = useState("");
@@ -506,8 +508,8 @@ const DiagnosticsNewVisit = () => {
   const handleCreateNewPatient = () => {
     setShowNewPatientForm(true);
     setSelectedPatient(null);
-    // Focus the name field once the new-patient form has committed (step 22).
-    goToStep(22);
+    // Focus the Title field once the new-patient form has committed (step 21).
+    goToStep(21);
   };
 
   const handleSelectPatient = (result: PatientSearchResult) => {
@@ -617,17 +619,14 @@ const DiagnosticsNewVisit = () => {
     return true;
   };
 
-  const handleSubmit = async () => {
+  // Single source of truth for synchronous bill validation. Gates the confirm
+  // dialog and is re-checked inside handleSubmit (defense in depth).
+  const runBillValidation = (): boolean => {
     if (!token || !activeBranch) {
       toast.error("Not authenticated");
-      return;
+      return false;
     }
-
-    let patient = selectedPatient;
-
-    // Create new patient if needed
     if (showNewPatientForm && !selectedPatient) {
-      // E2-10: Validate patient form
       const errors = validatePatientForm({
         name: newPatient.name,
         age: newPatient.age,
@@ -635,19 +634,76 @@ const DiagnosticsNewVisit = () => {
         phone,
         ageUnit: newPatient.ageUnit,
       });
-
       if (Object.keys(errors).length > 0) {
         setValidationErrors(errors);
         toast.error("Please fix validation errors before submitting");
-        return;
+        return false;
       }
-
       if (!newPatient.name || (!newPatient.age && !newPatient.dateOfBirth)) {
-        // E2-09: Accept either age or DOB
         toast.error("Please fill in all patient details");
-        return;
+        return false;
       }
+    } else if (!selectedPatient) {
+      toast.error("Please select or create a patient");
+      return false;
+    }
+    if (selectedProducts.length === 0) {
+      toast.error("Please select at least one test");
+      return false;
+    }
+    if (
+      discountMode !== "NONE" &&
+      safeDiscountNumeric > 0 &&
+      discountReason.trim() === ""
+    ) {
+      toast.error("A reason must be provided when applying a discount");
+      return false;
+    }
+    if (discountMode === "PERCENTAGE" && safeDiscountNumeric > 100) {
+      toast.error("Discount percentage cannot exceed 100%");
+      return false;
+    }
+    if (discountMode === "FLAT_AMOUNT" && safeDiscountNumeric > totalAmount) {
+      toast.error("Discount cannot exceed total amount");
+      return false;
+    }
+    if (safePaidAmount > netPayable) {
+      toast.error("Paid amount cannot exceed net payable");
+      return false;
+    }
+    return true;
+  };
 
+  // Keyboard flow's terminal action: validate, then open the confirm dialog.
+  const openConfirmBill = () => {
+    if (runBillValidation()) setShowConfirmDialog(true);
+  };
+
+  // Terminal-field key handler: advance to the next field if one still needs
+  // input, otherwise open the confirm dialog.
+  const flowKeyOrConfirm = (e: ReactKeyboardEvent<HTMLElement>) => {
+    if (e.repeat) return;
+    const step = Number((e.currentTarget as HTMLElement).dataset.focusStep);
+    if (e.key === "Escape") {
+      e.preventDefault();
+      goToPrev(step);
+      return;
+    }
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (hasNextStep(step)) goToNext(step);
+    else openConfirmBill();
+  };
+
+  const handleSubmit = async () => {
+    // Validation lives in runBillValidation (also gates the confirm dialog).
+    if (!runBillValidation()) return;
+    if (!token || !activeBranch) return;
+
+    let patient = selectedPatient;
+
+    // Create new patient if needed
+    if (showNewPatientForm && !selectedPatient) {
       try {
         const res = await fetch(`${API_BASE}/patients`, {
           method: "POST",
@@ -749,35 +805,6 @@ const DiagnosticsNewVisit = () => {
 
     if (!patient) {
       toast.error("Please select or create a patient");
-      return;
-    }
-
-    if (selectedProducts.length === 0) {
-      toast.error("Please select at least one test");
-      return;
-    }
-
-    if (
-      discountMode !== "NONE" &&
-      safeDiscountNumeric > 0 &&
-      discountReason.trim() === ""
-    ) {
-      toast.error("A reason must be provided when applying a discount");
-      return;
-    }
-
-    if (discountMode === "PERCENTAGE" && safeDiscountNumeric > 100) {
-      toast.error("Discount percentage cannot exceed 100%");
-      return;
-    }
-
-    if (discountMode === "FLAT_AMOUNT" && safeDiscountNumeric > totalAmount) {
-      toast.error("Discount cannot exceed total amount");
-      return;
-    }
-
-    if (safePaidAmount > netPayable) {
-      toast.error("Paid amount cannot exceed net payable");
       return;
     }
 
@@ -1032,6 +1059,7 @@ const DiagnosticsNewVisit = () => {
 
       setSuccessData({ visitView });
       setBillLogoLoaded(false);
+      setShowConfirmDialog(false);
     } catch (error: any) {
       toast.error(error.message || "Failed to create visit");
     } finally {
@@ -1430,9 +1458,14 @@ const DiagnosticsNewVisit = () => {
                           gender: undefined,
                         });
                       }
+                      // Title chosen (gender auto-derived) → advance to Name.
+                      goToStep(22);
                     }}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger
+                      data-focus-step={21}
+                      onKeyDown={handleFlowKey}
+                    >
                       <SelectValue placeholder="Select title" />
                     </SelectTrigger>
                     <SelectContent>
@@ -2263,7 +2296,7 @@ const DiagnosticsNewVisit = () => {
                       value="CASH"
                       id="cash"
                       data-focus-step={paymentMode === "CASH" ? 100 : undefined}
-                      onKeyDown={handleFlowKey}
+                      onKeyDown={flowKeyOrConfirm}
                     />
                     <Label htmlFor="cash">Cash</Label>
                   </div>
@@ -2272,7 +2305,7 @@ const DiagnosticsNewVisit = () => {
                       value="ONLINE"
                       id="online"
                       data-focus-step={paymentMode === "ONLINE" ? 100 : undefined}
-                      onKeyDown={handleFlowKey}
+                      onKeyDown={flowKeyOrConfirm}
                     />
                     <Label htmlFor="online">Online</Label>
                   </div>
@@ -2281,7 +2314,7 @@ const DiagnosticsNewVisit = () => {
                       value="SPLIT"
                       id="split"
                       data-focus-step={paymentMode === "SPLIT" ? 100 : undefined}
-                      onKeyDown={handleFlowKey}
+                      onKeyDown={flowKeyOrConfirm}
                     />
                     <Label htmlFor="split">Split</Label>
                   </div>
@@ -2350,7 +2383,7 @@ const DiagnosticsNewVisit = () => {
                             }
                             return;
                           }
-                          handleFlowKey(e);
+                          flowKeyOrConfirm(e);
                         }}
                         data-focus-step={120}
                       />
@@ -2368,7 +2401,7 @@ const DiagnosticsNewVisit = () => {
                     onCheckedChange={(checked) =>
                       setWhatsappOptIn(checked === true)
                     }
-                    onKeyDown={handleFlowKey}
+                    onKeyDown={flowKeyOrConfirm}
                     data-focus-step={130}
                   />
                   <Label
@@ -2385,16 +2418,89 @@ const DiagnosticsNewVisit = () => {
                 ref={submitButtonRef}
                 className="w-full"
                 size="lg"
-                onClick={handleSubmit}
+                onClick={openConfirmBill}
                 disabled={isSubmitting}
-                data-focus-step={140}
               >
-                {isSubmitting ? 'Creating...' : 'Generate Bill & Create Visit'}
+                Review & Generate Bill
               </Button>
             </CardContent>
           </Card>
         )}
       </div>
+
+      {/* Confirm & generate bill */}
+      <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <DialogContent
+          className="sm:max-w-md"
+          onOpenAutoFocus={(e) => {
+            // Focus "Generate Bill" (not the first DOM button) so Enter confirms.
+            e.preventDefault();
+            confirmButtonRef.current?.focus();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Confirm Bill</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 py-2 text-sm">
+            <div className="flex justify-between gap-4">
+              <span className="text-muted-foreground">Patient</span>
+              <span className="font-medium text-right">
+                {selectedPatient
+                  ? `${formatPatientName(selectedPatient.name, selectedPatient.title)} · ${selectedPatient.ageDisplay || selectedPatient.age} · ${selectedPatient.gender}`
+                  : `${formatPatientName(newPatient.name, newPatient.title)} · ${newPatient.age} ${newPatient.ageUnit.toLowerCase()} · ${newPatient.gender}`}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Tests</span>
+              <span className="font-medium">{selectedProducts.length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Total</span>
+              <span className="font-medium">{formatMoney(totalAmount)}</span>
+            </div>
+            {discountAmount > 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Discount</span>
+                <span className="font-medium">-{formatMoney(discountAmount)}</span>
+              </div>
+            )}
+            <div className="flex justify-between border-t pt-2">
+              <span className="text-muted-foreground">Net payable</span>
+              <span className="font-semibold">{formatMoney(netPayable)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">
+                Paid ({paymentMode.toLowerCase()})
+              </span>
+              <span className="font-medium">{formatMoney(safePaidAmount)}</span>
+            </div>
+            {dueAmount > 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Due</span>
+                <span className="font-semibold text-amber-700">
+                  {formatMoney(dueAmount)}
+                </span>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setShowConfirmDialog(false)}
+              disabled={isSubmitting}
+            >
+              Back
+            </Button>
+            <Button
+              ref={confirmButtonRef}
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "Creating..." : "Generate Bill"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Quick-add Bill-Only Product Dialog */}
       <Dialog

@@ -84,6 +84,12 @@ export function goToNext(fromStep: number, maxFrames = 5): void {
   advance(maxFrames);
 }
 
+/** True if any focusable step exists strictly after `fromStep` (used to decide
+ *  whether a terminal field should advance or trigger a final action). */
+export function hasNextStep(fromStep: number): boolean {
+  return orderedSteps().some((c) => c.step > fromStep && isFocusable(c.el));
+}
+
 /** Focus the last focusable step strictly before `fromStep` (Escape = step back). */
 export function goToPrev(fromStep: number): void {
   const prev = [...orderedSteps()].reverse().find((c) => c.step < fromStep && isFocusable(c.el));
