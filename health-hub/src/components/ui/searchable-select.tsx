@@ -29,6 +29,11 @@ interface SearchableSelectProps {
   disabled?: boolean;
   className?: string;
   onSkip?: () => void;
+  /** Called when the user advances past this field with the popover closed
+   *  (plain Enter or Shift+Enter), e.g. to move focus to the next field. */
+  onAdvance?: () => void;
+  /** Optional focus-flow step number tagged onto the trigger button. */
+  focusStep?: number;
 }
 
 export function SearchableSelect({
@@ -42,6 +47,8 @@ export function SearchableSelect({
   disabled = false,
   className,
   onSkip,
+  onAdvance,
+  focusStep,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
 
@@ -60,12 +67,20 @@ export function SearchableSelect({
           role="combobox"
           aria-expanded={open}
           disabled={disabled}
+          data-focus-step={focusStep}
           className={cn('w-full justify-between font-normal', className)}
           onKeyDown={(e) => {
-            if (e.shiftKey && e.key === 'Enter') {
+            if (e.key === 'Enter' && e.shiftKey) {
+              // Documented skip alias.
               e.preventDefault();
               setOpen(false);
               onSkip?.();
+            } else if (e.key === 'Enter' && !open) {
+              // Plain Enter on a closed trigger advances instead of opening the
+              // popover, so it never dead-stops the keyboard flow. Open with
+              // Space / ArrowDown / click instead.
+              e.preventDefault();
+              (onAdvance ?? onSkip)?.();
             }
           }}
         >

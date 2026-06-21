@@ -23,10 +23,13 @@ export interface ProductForSelector {
 interface ProductSelectorProps {
   products: ProductForSelector[];
   selectedProductIds: string[];
+  onSelectionChange: (productIds: string[]) => void;
   onQuickAddBillOnly?: (draftName: string) => void;
   onDone?: () => void;
   disabled?: boolean;
   placeholder?: string;
+  /** Optional focus-flow step number tagged onto the search input. */
+  focusStep?: number;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -97,7 +100,8 @@ export function ProductSelector({
   onQuickAddBillOnly,
   onDone,
   disabled = false,
-  placeholder = "Type to search products (e.g., CBP, LFT, Thyroid)..."
+  placeholder = "Type to search products (e.g., CBP, LFT, Thyroid)...",
+  focusStep,
 }: ProductSelectorProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
@@ -266,6 +270,7 @@ export function ProductSelector({
               placeholder={placeholder}
               className="pl-10 h-12 text-base"
               disabled={disabled}
+              data-focus-step={focusStep}
             />
           </div>
 
