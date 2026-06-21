@@ -217,7 +217,10 @@ export function ProductSelector({
           e.preventDefault();
           handleQuickAdd();
           return;
-        } else if (!searchQuery.trim() && onDone) {
+        } else if (!searchQuery.trim() && onDone && selectedProductIds.length > 0) {
+          // Only advance once at least one test is selected. Advancing with an
+          // empty selection would jump to the billing section, which isn't
+          // rendered until products exist — leaving focus lost.
           e.preventDefault();
           onDone();
           return;
@@ -243,6 +246,7 @@ export function ProductSelector({
         if (flatList[highlightedIndex]) handleAdd(flatList[highlightedIndex]);
         break;
       case 'Escape':
+        e.preventDefault();
         setIsOpen(false);
         setSearchQuery('');
         break;

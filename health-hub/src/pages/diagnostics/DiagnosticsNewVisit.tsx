@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { API_BASE } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -548,6 +548,74 @@ const DiagnosticsNewVisit = () => {
       minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
       maximumFractionDigits: 2,
     })}`;
+
+  // --- Keyboard-flow validation gating -------------------------------------
+  // Enter advances only when the current field is valid, so the operator can't
+  // silently skip past a required/invalid field and only discover it at Submit.
+  // Each validator returns true when valid; when invalid it surfaces the same
+  // error (inline or toast) the Submit handler would and returns false.
+  const flowGuard =
+    (validate: () => boolean) => (e: ReactKeyboardEvent<HTMLElement>) => {
+      if (e.repeat) return; // ignore key auto-repeat
+      const step = Number((e.currentTarget as HTMLElement).dataset.focusStep);
+      if (e.key === "Escape") {
+        e.preventDefault();
+        goToPrev(step);
+        return;
+      }
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      if (!validate()) return;
+      goToNext(step);
+    };
+
+  // Reuse the canonical patient rules; gate only on the named field's error.
+  const guardPatientField = (key: "name" | "age") => () => {
+    const errors = validatePatientForm({
+      name: newPatient.name,
+      age: newPatient.age,
+      gender: newPatient.gender,
+      phone,
+      ageUnit: newPatient.ageUnit,
+    });
+    if (errors[key]) {
+      setValidationErrors((prev) => ({ ...prev, [key]: errors[key] }));
+      return false;
+    }
+    return true;
+  };
+
+  const guardDiscountValue = () => {
+    if (discountMode === "PERCENTAGE" && safeDiscountNumeric > 100) {
+      toast.error("Discount percentage cannot exceed 100%");
+      return false;
+    }
+    if (discountMode === "FLAT_AMOUNT" && safeDiscountNumeric > totalAmount) {
+      toast.error("Discount cannot exceed total amount");
+      return false;
+    }
+    return true;
+  };
+
+  const guardDiscountReason = () => {
+    if (
+      discountMode !== "NONE" &&
+      safeDiscountNumeric > 0 &&
+      discountReason.trim() === ""
+    ) {
+      toast.error("A reason must be provided when applying a discount");
+      return false;
+    }
+    return true;
+  };
+
+  const guardPaidAmount = () => {
+    if (safePaidAmount > netPayable) {
+      toast.error("Paid amount cannot exceed net payable");
+      return false;
+    }
+    return true;
+  };
 
   const handleSubmit = async () => {
     if (!token || !activeBranch) {
@@ -1183,7 +1251,7 @@ const DiagnosticsNewVisit = () => {
                       )
                     }
                     onKeyDown={async (e) => {
-                      if (e.key !== 'Enter') return;
+                      if (e.repeat || e.key !== 'Enter') return;
                       e.preventDefault();
                       if (phone.length < 10) return;
                       // Search, then decide from the COMMITTED DOM (the patient
@@ -1283,6 +1351,8 @@ const DiagnosticsNewVisit = () => {
                       onMouseEnter={() => setHighlightedPatientIndex(index)}
                       role="option"
                       aria-selected={selectedPatient?.id === result.patient.id}
+                      aria-posinset={index + 1}
+                      aria-setsize={matchingPatients.length + 1}
                     >
                       {/* Visual radio circle — not a button, won't steal Enter */}
                       <div className={`h-4 w-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
@@ -1309,6 +1379,10 @@ const DiagnosticsNewVisit = () => {
 
                 <Button
                   id={`patient-option-${matchingPatients.length}`}
+                  role="option"
+                  aria-selected={false}
+                  aria-posinset={matchingPatients.length + 1}
+                  aria-setsize={matchingPatients.length + 1}
                   variant="outline"
                   className={`w-full transition-colors ${
                     highlightedPatientIndex === matchingPatients.length
@@ -1385,7 +1459,7 @@ const DiagnosticsNewVisit = () => {
                         });
                       }
                     }}
-                    onKeyDown={handleFlowKey}
+                    onKeyDown={flowGuard(guardPatientField("name"))}
                     data-focus-step={22}
                     className={validationErrors.name ? "border-red-500" : ""}
                   />
@@ -1453,7 +1527,7 @@ const DiagnosticsNewVisit = () => {
                           });
                         }
                       }}
-                      onKeyDown={handleFlowKey}
+                      onKeyDown={flowGuard(guardPatientField("age"))}
                       data-focus-step={26}
                       className={`flex-1 ${validationErrors.age ? "border-red-500" : ""}`}
                     />
@@ -1639,9 +1713,10 @@ const DiagnosticsNewVisit = () => {
                         .filter(Boolean)
                         .join(" "),
                     }))}
-                    placeholder="Search referral doctor (Shift+Enter to skip)"
+                    placeholder="Search referral doctor (Enter to skip)"
                     searchPlaceholder="Search by doctor name, phone or number"
                     emptyText="No referral doctors found."
+                    ariaLabel="Referral doctor — Enter to skip, Space to open"
                     className="h-11"
                   />
                   {selectedDoctorId && (
@@ -1712,9 +1787,10 @@ const DiagnosticsNewVisit = () => {
                         .filter(Boolean)
                         .join(" "),
                     }))}
-                    placeholder="Search diagnostic center (Shift+Enter to skip)"
+                    placeholder="Search diagnostic center (Enter to skip)"
                     searchPlaceholder="Search by center name, phone or number"
                     emptyText="No diagnostic centers found."
+                    ariaLabel="Diagnostic referral center — Enter to skip, Space to open"
                     className="h-11"
                   />
                   {selectedCenterId && (
@@ -2083,7 +2159,7 @@ const DiagnosticsNewVisit = () => {
                       inputMode="numeric"
                       value={discountValue}
                       onChange={(e) => setDiscountValue(e.target.value)}
-                      onKeyDown={handleFlowKey}
+                      onKeyDown={flowGuard(guardDiscountValue)}
                       data-focus-step={70}
                       placeholder={
                         discountMode === "PERCENTAGE"
@@ -2106,7 +2182,7 @@ const DiagnosticsNewVisit = () => {
                         placeholder="Reason for discount (Required)"
                         value={discountReason}
                         onChange={(e) => setDiscountReason(e.target.value)}
-                        onKeyDown={handleFlowKey}
+                        onKeyDown={flowGuard(guardDiscountReason)}
                         data-focus-step={80}
                       />
                     </>
@@ -2126,7 +2202,7 @@ const DiagnosticsNewVisit = () => {
                     step="1"
                     value={paidAmount}
                     onChange={(e) => setPaidAmount(e.target.value)}
-                    onKeyDown={handleFlowKey}
+                    onKeyDown={flowGuard(guardPaidAmount)}
                     data-focus-step={90}
                     placeholder={`Full amount ${formatMoney(netPayable)}`}
                   />

@@ -34,6 +34,9 @@ interface SearchableSelectProps {
   onAdvance?: () => void;
   /** Optional focus-flow step number tagged onto the trigger button. */
   focusStep?: number;
+  /** Accessible name for the trigger (screen readers otherwise announce only
+   *  "combobox"). Falls back to `placeholder`. */
+  ariaLabel?: string;
 }
 
 export function SearchableSelect({
@@ -49,6 +52,7 @@ export function SearchableSelect({
   onSkip,
   onAdvance,
   focusStep,
+  ariaLabel,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
 
@@ -66,6 +70,7 @@ export function SearchableSelect({
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          aria-label={ariaLabel ?? placeholder}
           disabled={disabled}
           data-focus-step={focusStep}
           className={cn('w-full justify-between font-normal', className)}

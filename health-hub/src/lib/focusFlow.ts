@@ -31,8 +31,23 @@ function orderedSteps(scope: ParentNode = document): Step[] {
     .sort((a, b) => a.step - b.step);
 }
 
+// Scroll the target into view only when it is not comfortably inside the
+// viewport, so big jumps (e.g. test search -> billing further down) bring the
+// next field into view, while small intra-card moves don't jar the page.
+function ensureVisible(el: HTMLElement) {
+  const rect = el.getBoundingClientRect();
+  const vh = window.innerHeight || document.documentElement.clientHeight;
+  const margin = 120; // keep clear of sticky headers / page edges
+  if (rect.top < margin || rect.bottom > vh - margin) {
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+}
+
 function focusEl(el: HTMLElement) {
-  el.focus();
+  // preventScroll so we control scrolling via ensureVisible (focus()'s default
+  // 'nearest' scroll leaves far-away targets pinned to the viewport edge).
+  el.focus({ preventScroll: true });
+  ensureVisible(el);
   if (el instanceof HTMLInputElement && el.type !== 'date') el.select?.();
 }
 
@@ -81,6 +96,9 @@ export function goToPrev(fromStep: number): void {
  * Reads the step number off the element's own `data-focus-step`.
  */
 export function handleFlowKey(e: ReactKeyboardEvent<HTMLElement>): void {
+  // Ignore key auto-repeat (holding Enter) — otherwise it advances several
+  // steps at once and queues cascading scroll animations.
+  if (e.repeat) return;
   const step = Number((e.currentTarget as HTMLElement).dataset.focusStep);
   if (!Number.isFinite(step)) return;
   if (e.key === 'Enter') {
