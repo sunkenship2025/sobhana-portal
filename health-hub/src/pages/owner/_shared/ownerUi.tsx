@@ -10,10 +10,11 @@ import React from 'react';
 import { RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Skeleton } from '@/components/ui/skeleton';
+import { formatRupees } from '@/lib/payoutFormatters';
 import { cn } from '@/lib/utils';
 import { useBranchStore } from '@/store/branchStore';
 
-export { formatRupees } from '@/lib/payoutFormatters';
+export { formatRupees };
 
 // ----- design tokens ----------------------------------------------------
 
