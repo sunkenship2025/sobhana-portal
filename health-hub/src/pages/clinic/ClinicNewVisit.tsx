@@ -27,6 +27,13 @@ import {
 import { StatusBadge } from "@/components/ui/status-badge";
 import { goToStep, goToNext, goToPrev, handleFlowKey } from "@/lib/focusFlow";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
   computeSmartAge,
   type ValidationErrors,
   validatePatientForm,
@@ -100,6 +107,7 @@ function buildClinicVisitView(apiVisit: any): ClinicVisitView {
 const ClinicNewVisit = () => {
   const navigate = useNavigate();
   const printRef = useRef<HTMLDivElement>(null);
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const { token } = useAuthStore();
   const activeBranchId = useBranchStore((state) => state.activeBranchId);
   const branches = useBranchStore((state) => state.branches);
@@ -155,11 +163,8 @@ const ClinicNewVisit = () => {
     if (e.repeat) return;
     if (e.key === "Enter") {
       e.preventDefault();
-      if (!selectedDoctorId) {
-        toast.error("Please select a doctor");
-        return;
-      }
-      handleSubmit();
+      // Validate, then open the confirm dialog (deliberate, non-volatile).
+      openConfirmBill();
     } else if (e.key === "Escape") {
       e.preventDefault();
       const step = Number((e.currentTarget as HTMLElement).dataset.focusStep);
@@ -183,6 +188,7 @@ const ClinicNewVisit = () => {
   const [successData, setSuccessData] = useState<{
     visitView: ClinicVisitView;
   } | null>(null);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   const [revisitContext, setRevisitContext] =
     useState<ClinicRevisitContext | null>(null);
@@ -316,6 +322,58 @@ const ClinicNewVisit = () => {
   const handleCreateNewPatient = () => {
     setShowNewPatientForm(true);
     setSelectedPatient(null);
+    // Start the new-patient flow at Title (step 21).
+    goToStep(21);
+  };
+
+  // Single source of truth for synchronous validation. Gates the confirm
+  // dialog; handleSubmit re-checks as defense in depth.
+  const runBillValidation = (): boolean => {
+    if (!token || !activeBranch) {
+      toast.error("Not authenticated");
+      return false;
+    }
+    if (showNewPatientForm && !selectedPatient) {
+      const errors = validatePatientForm({
+        name: newPatient.name,
+        title: newPatient.title,
+        age: newPatient.age,
+        gender: newPatient.gender,
+        phone,
+        ageUnit: newPatient.ageUnit,
+      });
+      if (Object.keys(errors).length > 0) {
+        setValidationErrors(errors);
+        toast.error("Please fix validation errors before submitting");
+        return false;
+      }
+      if (!newPatient.name || (!newPatient.age && !newPatient.dateOfBirth)) {
+        toast.error("Please fill in all patient details");
+        return false;
+      }
+    } else if (!selectedPatient) {
+      toast.error("Please select or create a patient");
+      return false;
+    }
+    if (!selectedDoctorId) {
+      toast.error("Please select a doctor");
+      return false;
+    }
+    if (!consultationFee.trim()) {
+      toast.error("Please enter a consultation fee");
+      return false;
+    }
+    const parsedFee = parseInt(consultationFee, 10);
+    if (Number.isNaN(parsedFee) || parsedFee < 0) {
+      toast.error("Consultation fee must be a valid non-negative number");
+      return false;
+    }
+    return true;
+  };
+
+  // Terminal action of the keyboard flow: validate, then open the confirm dialog.
+  const openConfirmBill = () => {
+    if (runBillValidation()) setShowConfirmDialog(true);
   };
 
   const handleSelectPatient = (patient: Patient) => {
@@ -576,6 +634,7 @@ const ClinicNewVisit = () => {
       }
 
       setSuccessData({ visitView });
+      setShowConfirmDialog(false);
     } catch (error: any) {
       toast.error(error.message || "Failed to create visit");
     } finally {
@@ -1417,19 +1476,96 @@ const ClinicNewVisit = () => {
               <Button
                 className="w-full"
                 size="lg"
-                onClick={handleSubmit}
+                onClick={openConfirmBill}
                 disabled={isSubmitting}
               >
-                {isSubmitting
-                  ? "Creating Visit..."
-                  : isRevisitSelected
-                    ? "Register Clinic Revisit"
-                    : "Generate Clinic Bill"}
+                {isRevisitSelected
+                  ? "Review & Register Revisit"
+                  : "Review & Generate Bill"}
               </Button>
             </CardContent>
           </Card>
         )}
       </div>
+
+      {/* Confirm & generate */}
+      <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <DialogContent
+          className="sm:max-w-md"
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            confirmButtonRef.current?.focus();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {isRevisitSelected ? "Confirm Revisit" : "Confirm Bill"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 py-2 text-sm">
+            <div className="flex justify-between gap-4">
+              <span className="text-muted-foreground">Patient</span>
+              <span className="font-medium text-right">
+                {selectedPatient
+                  ? `${formatPatientName(selectedPatient.name, selectedPatient.title)} · ${selectedPatient.ageDisplay || selectedPatient.age} · ${selectedPatient.gender}`
+                  : `${formatPatientName(newPatient.name, newPatient.title)} · ${newPatient.age} ${newPatient.ageUnit.toLowerCase()} · ${newPatient.gender}`}
+              </span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-muted-foreground">Doctor</span>
+              <span className="font-medium text-right">
+                {clinicDoctors.find((d) => d.id === selectedDoctorId)?.name ||
+                  "—"}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Visit type</span>
+              <span className="font-medium">{visitType}</span>
+            </div>
+            {isRevisitSelected ? (
+              <div className="flex justify-between border-t pt-2">
+                <span className="text-muted-foreground">Mode</span>
+                <span className="font-semibold text-blue-700">
+                  Revisit — no new bill
+                </span>
+              </div>
+            ) : (
+              <>
+                <div className="flex justify-between border-t pt-2">
+                  <span className="text-muted-foreground">Consultation fee</span>
+                  <span className="font-semibold">₹{consultationFee}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">
+                    Payment ({paymentMode.toLowerCase()})
+                  </span>
+                  <span className="font-medium">₹{consultationFee}</span>
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setShowConfirmDialog(false)}
+              disabled={isSubmitting}
+            >
+              Back
+            </Button>
+            <Button
+              ref={confirmButtonRef}
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+            >
+              {isSubmitting
+                ? "Creating..."
+                : isRevisitSelected
+                  ? "Register Revisit"
+                  : "Generate Bill"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 };
