@@ -23,6 +23,17 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+backend-debug.log
+health-hub-backend/backend-runtime.log
+
+# Local runtime process files
+backend.pid
+health-hub/frontend.pid
+health-hub-backend/backend.pid
+
+# Root-level accidental npm lockfile.
+# Keep package locks inside health-hub/ and health-hub-backend/ tracked.
+/package-lock.json
 
 # Editor directories and files
 .vscode/*

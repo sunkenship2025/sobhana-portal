@@ -572,7 +572,7 @@ const DiagnosticsNewVisit = () => {
     };
 
   // Reuse the canonical patient rules; gate only on the named field's error.
-  const guardPatientField = (key: "name" | "age") => () => {
+  const guardPatientField = (key: "name" | "age" | "gender") => () => {
     const errors = validatePatientForm({
       name: newPatient.name,
       age: newPatient.age,
@@ -1520,6 +1520,8 @@ const DiagnosticsNewVisit = () => {
                           gender: undefined,
                         });
                       }
+                      // Advance to Age after gender selection
+                      goToStep(26);
                     }}
                     className="flex flex-wrap gap-4"
                   >
@@ -1528,8 +1530,8 @@ const DiagnosticsNewVisit = () => {
                         <RadioGroupItem
                           value={g}
                           id={`gender-${g}`}
-                          data-focus-step={newPatient.gender === g ? 24 : undefined}
-                          onKeyDown={handleFlowKey}
+                          data-focus-step={24}
+                          onKeyDown={flowGuard(guardPatientField("gender"))}
                         />
                         <Label htmlFor={`gender-${g}`}>{g}</Label>
                       </div>
@@ -1573,7 +1575,7 @@ const DiagnosticsNewVisit = () => {
                         })
                       }
                     >
-                      <SelectTrigger className="w-full sm:w-[110px]">
+                      <SelectTrigger className="w-full sm:w-[110px]" data-focus-step={27} onKeyDown={handleFlowKey}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1609,6 +1611,8 @@ const DiagnosticsNewVisit = () => {
                         setNewPatient({ ...newPatient, dateOfBirth: dob });
                       }
                     }}
+                    data-focus-step={28}
+                    onKeyDown={handleFlowKey}
                   />
                   <p className="text-xs text-gray-500">
                     If DOB is entered, age will be calculated automatically
@@ -1634,6 +1638,8 @@ const DiagnosticsNewVisit = () => {
                       whatsappOptIn: checked === true,
                     })
                   }
+                  data-focus-step={29}
+                  onKeyDown={handleFlowKey}
                 />
                 <Label
                   htmlFor="whatsappOptIn"

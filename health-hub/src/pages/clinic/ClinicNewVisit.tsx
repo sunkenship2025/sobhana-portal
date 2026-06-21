@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   CheckCircle2,
@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { goToStep, goToNext, goToPrev, handleFlowKey } from "@/lib/focusFlow";
 import {
   computeSmartAge,
   type ValidationErrors,
@@ -111,7 +112,62 @@ const ClinicNewVisit = () => {
   const [billLogoLoaded, setBillLogoLoaded] = useState(false);
 
   const [phone, setPhone] = useState("");
+  // Enter advances only when the current field is valid
+  const flowGuard =
+    (validate: () => boolean) => (e: ReactKeyboardEvent<HTMLElement>) => {
+      if (e.repeat) return;
+      const step = Number((e.currentTarget as HTMLElement).dataset.focusStep);
+      if (e.key === "Escape") {
+        e.preventDefault();
+        goToPrev(step);
+        return;
+      }
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      if (!validate()) return;
+      goToNext(step);
+    };
+
+  const guardPatientField = (key: "name" | "age") => () => {
+    const errors = validatePatientForm({
+      name: newPatient.name,
+      age: newPatient.age,
+      gender: newPatient.gender,
+      phone,
+      ageUnit: newPatient.ageUnit,
+    });
+    if (errors[key]) {
+      setValidationErrors((prev) => ({ ...prev, [key]: errors[key] }));
+      return false;
+    }
+    return true;
+  };
+
+  const guardPhone = () => {
+    if (phone.length !== 10) {
+      toast.error("Please enter a valid 10-digit phone number");
+      return false;
+    }
+    return true;
+  };
+
+  const flowKeyOrConfirm = (e: ReactKeyboardEvent<HTMLElement>) => {
+    if (e.repeat) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (!selectedDoctorId) {
+        toast.error("Please select a doctor");
+        return;
+      }
+      handleSubmit();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      const step = Number((e.currentTarget as HTMLElement).dataset.focusStep);
+      goToPrev(step);
+    }
+  };
   const [matchingPatients, setMatchingPatients] = useState<Patient[]>([]);
+  const [highlightedPatientIndex, setHighlightedPatientIndex] = useState(0);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [showNewPatientForm, setShowNewPatientForm] = useState(false);
   const [visitType, setVisitType] = useState<VisitType>("OP");
@@ -602,7 +658,7 @@ const ClinicNewVisit = () => {
                     <Printer className="mr-2 h-4 w-4" />
                     Print Prescription
                   </Button>
-                  
+
                   <Button
                     className="w-full sm:w-auto"
                     variant="outline"
@@ -670,6 +726,9 @@ const ClinicNewVisit = () => {
                   }
                   maxLength={10}
                   className="w-full sm:max-w-sm"
+                  onKeyDown={flowGuard(guardPhone)}
+                  data-focus-step={10}
+                  autoFocus
                 />
                 <Button
                   className="w-full sm:w-auto"
@@ -689,26 +748,55 @@ const ClinicNewVisit = () => {
               <CardTitle>Matching Patients</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <RadioGroup
-                value={selectedPatient?.id || ""}
-                onValueChange={(id) => {
-                  const patient = matchingPatients.find(
-                    (candidate) => candidate.id === id,
-                  );
-                  if (patient) handleSelectPatient(patient);
+              <div
+                className="space-y-2 outline-none"
+                tabIndex={0}
+                data-focus-step={20}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setHighlightedPatientIndex(prev =>
+                      Math.min(prev + 1, matchingPatients.length)
+                    );
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setHighlightedPatientIndex(prev => Math.max(prev - 1, 0));
+                  } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (highlightedPatientIndex < matchingPatients.length) {
+                      handleSelectPatient(matchingPatients[highlightedPatientIndex]);
+                    } else {
+                      handleCreateNewPatient();
+                    }
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    goToPrev(20);
+                  }
                 }}
+                onBlur={() => setHighlightedPatientIndex(0)}
               >
-                {matchingPatients.map((patient) => (
+                {matchingPatients.map((patient, index) => (
                   <div
                     key={patient.id}
                     className={`flex items-center space-x-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                       selectedPatient?.id === patient.id
                         ? "border-primary bg-accent"
-                        : "border-border hover:bg-muted"
+                        : highlightedPatientIndex === index
+                          ? "border-primary/50 bg-accent/50 ring-2 ring-primary/30"
+                          : "border-border hover:bg-muted"
                     }`}
                     onClick={() => handleSelectPatient(patient)}
+                    onMouseEnter={() => setHighlightedPatientIndex(index)}
                   >
-                    <RadioGroupItem value={patient.id} id={patient.id} />
+                    <div className={`h-4 w-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                      selectedPatient?.id === patient.id
+                        ? "border-primary"
+                        : "border-muted-foreground"
+                    }`}>
+                      {selectedPatient?.id === patient.id && (
+                        <div className="h-2 w-2 rounded-full bg-primary" />
+                      )}
+                    </div>
                     <Label
                       htmlFor={patient.id}
                       className="flex-1 cursor-pointer"
@@ -722,17 +810,26 @@ const ClinicNewVisit = () => {
                     </Label>
                   </div>
                 ))}
-              </RadioGroup>
 
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={handleCreateNewPatient}
-                type="button"
-              >
-                <UserPlus className="h-4 w-4 mr-2" />
-                Create New Patient
-              </Button>
+                <Button
+                  variant="outline"
+                  className={`w-full transition-colors ${
+                    highlightedPatientIndex === matchingPatients.length
+                      ? "ring-2 ring-primary/30 border-primary/50"
+                      : ""
+                  }`}
+                  onClick={handleCreateNewPatient}
+                  onMouseEnter={() => setHighlightedPatientIndex(matchingPatients.length)}
+                  type="button"
+                >
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Create New Patient
+                </Button>
+              </div>
+
+              <p className="text-xs text-muted-foreground text-center">
+                Use ↑↓ arrow keys to navigate, Enter to select
+              </p>
             </CardContent>
           </Card>
         )}
@@ -762,9 +859,10 @@ const ClinicNewVisit = () => {
                           gender: undefined,
                         });
                       }
+                      goToStep(22);
                     }}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger data-focus-step={21} onKeyDown={handleFlowKey}>
                       <SelectValue placeholder="Select title" />
                     </SelectTrigger>
                     <SelectContent>
@@ -794,6 +892,8 @@ const ClinicNewVisit = () => {
                         });
                       }
                     }}
+                    onKeyDown={flowGuard(guardPatientField("name"))}
+                    data-focus-step={22}
                     className={validationErrors.name ? "border-red-500" : ""}
                   />
                   {validationErrors.name && (
@@ -820,6 +920,7 @@ const ClinicNewVisit = () => {
                           gender: undefined,
                         });
                       }
+                      goToStep(26);
                     }}
                     className="flex flex-wrap gap-4"
                   >
@@ -828,6 +929,8 @@ const ClinicNewVisit = () => {
                         <RadioGroupItem
                           value={gender}
                           id={`gender-${gender}`}
+                          data-focus-step={24}
+                          onKeyDown={handleFlowKey}
                         />
                         <Label htmlFor={`gender-${gender}`}>{gender}</Label>
                       </div>
@@ -859,6 +962,8 @@ const ClinicNewVisit = () => {
                           });
                         }
                       }}
+                      onKeyDown={flowGuard(guardPatientField("age"))}
+                      data-focus-step={26}
                       className={`flex-1 ${validationErrors.age ? "border-red-500" : ""}`}
                     />
                     <Select
@@ -870,7 +975,7 @@ const ClinicNewVisit = () => {
                         })
                       }
                     >
-                      <SelectTrigger className="w-full sm:w-[110px]">
+                      <SelectTrigger className="w-full sm:w-[110px]" data-focus-step={27} onKeyDown={handleFlowKey}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -906,6 +1011,8 @@ const ClinicNewVisit = () => {
                         setNewPatient({ ...newPatient, dateOfBirth: dob });
                       }
                     }}
+                    data-focus-step={28}
+                    onKeyDown={handleFlowKey}
                   />
                   <p className="text-xs text-gray-500">
                     If DOB is entered, age will be calculated automatically
@@ -929,6 +1036,8 @@ const ClinicNewVisit = () => {
                       whatsappOptIn: checked === true,
                     })
                   }
+                  data-focus-step={29}
+                  onKeyDown={handleFlowKey}
                 />
                 <Label
                   htmlFor="clinicWhatsappOptIn"
@@ -956,23 +1065,36 @@ const ClinicNewVisit = () => {
                   className="flex flex-col gap-3 sm:flex-row sm:gap-6"
                 >
                   <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="OP" id="op" />
+                    <RadioGroupItem
+                      value="OP"
+                      id="op"
+                      data-focus-step={30}
+                      onKeyDown={handleFlowKey}
+                    />
                     <Label htmlFor="op">OP (Outpatient)</Label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="IP" id="ip" />
+                    <RadioGroupItem
+                      value="IP"
+                      id="ip"
+                      data-focus-step={30}
+                      onKeyDown={handleFlowKey}
+                    />
                     <Label htmlFor="ip">IP (Inpatient)</Label>
                   </div>
                 </RadioGroup>
               </div>
 
               <div className="space-y-2">
-                <Label>Doctor *</Label>
                 <Select
                   value={selectedDoctorId}
                   onValueChange={setSelectedDoctorId}
                 >
-                  <SelectTrigger className="max-w-sm">
+                  <SelectTrigger
+                    className="max-w-sm"
+                    data-focus-step={40}
+                    onKeyDown={handleFlowKey}
+                  >
                     <SelectValue
                       placeholder={
                         isLoading
@@ -1000,6 +1122,8 @@ const ClinicNewVisit = () => {
                     value={hospitalWard}
                     onChange={(event) => setHospitalWard(event.target.value)}
                     className="max-w-sm"
+                    data-focus-step={45}
+                    onKeyDown={handleFlowKey}
                   />
                 </div>
               )}
@@ -1090,6 +1214,8 @@ const ClinicNewVisit = () => {
                         value="VISIT"
                         id="mode-visit"
                         className="mt-1"
+                        data-focus-step={50}
+                        onKeyDown={handleFlowKey}
                       />
                       <span className="space-y-1">
                         <span className="block font-medium">
@@ -1105,6 +1231,8 @@ const ClinicNewVisit = () => {
                         value="REVISIT"
                         id="mode-revisit"
                         className="mt-1"
+                        data-focus-step={50}
+                        onKeyDown={handleFlowKey}
                       />
                       <span className="space-y-1">
                         <span className="block font-medium">Revisit</span>
@@ -1132,6 +1260,8 @@ const ClinicNewVisit = () => {
                     value={consultationFee}
                     onChange={(event) => setConsultationFee(event.target.value)}
                     disabled={isRevisitSelected}
+                    data-focus-step={60}
+                    onKeyDown={handleFlowKey}
                     className={
                       isRevisitSelected
                         ? "bg-blue-50 text-blue-700 font-medium"
@@ -1163,20 +1293,36 @@ const ClinicNewVisit = () => {
                         setPaymentMode(value as any);
                         if (value === "SPLIT") {
                           setSplitAmounts({ cash: consultationFee, online: 0 });
+                          goToStep(110);
                         }
                       }}
                       className="flex gap-6"
                     >
                       <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="CASH" id="cash" />
+                        <RadioGroupItem
+                          value="CASH"
+                          id="cash"
+                          data-focus-step={100}
+                          onKeyDown={flowKeyOrConfirm}
+                        />
                         <Label htmlFor="cash">Cash</Label>
                       </div>
                       <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="ONLINE" id="online" />
+                        <RadioGroupItem
+                          value="ONLINE"
+                          id="online"
+                          data-focus-step={100}
+                          onKeyDown={flowKeyOrConfirm}
+                        />
                         <Label htmlFor="online">Online</Label>
                       </div>
                       <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="SPLIT" id="split" />
+                        <RadioGroupItem
+                          value="SPLIT"
+                          id="split"
+                          data-focus-step={100}
+                          onKeyDown={flowKeyOrConfirm}
+                        />
                         <Label htmlFor="split">Split Payment</Label>
                       </div>
                     </RadioGroup>
@@ -1186,6 +1332,7 @@ const ClinicNewVisit = () => {
                         <div className="flex-1 space-y-2">
                           <Label>Cash Amount (₹)</Label>
                           <Input
+                            id="split-cash"
                             type="number"
                             min="0"
                             value={splitAmounts.cash || ""}
@@ -1196,11 +1343,25 @@ const ClinicNewVisit = () => {
                                 online: Math.max(0, consultationFee - cash),
                               });
                             }}
+                            onKeyDown={(e) => {
+                              if (e.shiftKey && (e.key === 'ArrowRight' || e.key === 'ArrowDown')) {
+                                e.preventDefault();
+                                const onlineInput = document.getElementById('split-online') as HTMLInputElement;
+                                if (onlineInput) {
+                                  onlineInput.focus();
+                                  onlineInput.select();
+                                }
+                                return;
+                              }
+                              handleFlowKey(e);
+                            }}
+                            data-focus-step={110}
                           />
                         </div>
                         <div className="flex-1 space-y-2">
                           <Label>Online Amount (₹)</Label>
                           <Input
+                            id="split-online"
                             type="number"
                             min="0"
                             value={splitAmounts.online || ""}
@@ -1211,6 +1372,19 @@ const ClinicNewVisit = () => {
                                 online,
                               });
                             }}
+                            onKeyDown={(e) => {
+                              if (e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowUp')) {
+                                e.preventDefault();
+                                const cashInput = document.getElementById('split-cash') as HTMLInputElement;
+                                if (cashInput) {
+                                  cashInput.focus();
+                                  cashInput.select();
+                                }
+                                return;
+                              }
+                              flowKeyOrConfirm(e);
+                            }}
+                            data-focus-step={120}
                           />
                         </div>
                       </div>
@@ -1225,6 +1399,8 @@ const ClinicNewVisit = () => {
                         onCheckedChange={(checked) =>
                           setWhatsappOptIn(checked === true)
                         }
+                        onKeyDown={flowKeyOrConfirm}
+                        data-focus-step={130}
                       />
                       <Label
                         htmlFor="existingPatientWhatsappOptIn"
