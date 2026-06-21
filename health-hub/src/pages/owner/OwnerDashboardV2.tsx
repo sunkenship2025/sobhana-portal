@@ -20,6 +20,7 @@ import { RefreshCw } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { API_BASE } from '@/lib/api';
+import { formatRupees } from '@/lib/payoutFormatters';
 import { apiRequest, cn } from '@/lib/utils';
 import { useBranchStore } from '@/store/branchStore';
 
@@ -141,17 +142,6 @@ const TOKENS = {
   commissionBar: '#E48A8A',
   net: '#5DCAA5',
 };
-
-// ----- formatting -------------------------------------------------------
-
-function formatRupees(paise: number, options?: { short?: boolean }): string {
-  const rupees = paise / 100;
-  if (options?.short) {
-    if (Math.abs(rupees) >= 100000) return `₹${(rupees / 100000).toFixed(1)}L`;
-    if (Math.abs(rupees) >= 1000) return `₹${(rupees / 1000).toFixed(1)}k`;
-  }
-  return `₹${Math.round(rupees).toLocaleString('en-IN')}`;
-}
 
 function formatIstDateTime(iso: string): string {
   const d = new Date(iso);

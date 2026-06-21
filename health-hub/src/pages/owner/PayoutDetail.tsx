@@ -33,15 +33,11 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { PayoutDetail as PayoutDetailType, PaymentType } from '@/types';
+import { formatRupees } from '@/lib/payoutFormatters';
 import { formatReferralPayout } from '@/lib/referralPayouts';
 import { formatPatientName } from '@/lib/patientDisplay';
 import { PayoutMarkPaidDialog } from '@/components/payouts/PayoutMarkPaidDialog';
 import { PayoutDeleteDialog } from '@/components/payouts/PayoutDeleteDialog';
-
-// Helper to format amount in Rupees
-const formatRupees = (paise: number): string => {
-  return `₹${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-};
 
 // Helper to format date
 const formatDate = (dateStr: string | null): string => {

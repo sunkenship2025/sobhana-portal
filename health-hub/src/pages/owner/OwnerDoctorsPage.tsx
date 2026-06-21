@@ -315,7 +315,7 @@ function ExternalFlowCard({ flow }: { flow: DoctorsResponse['externalFlow'] }) {
         className="mt-3 border-t pt-2 text-right"
         style={{ borderColor: TOKENS.border, fontSize: 13, color: netColor }}
       >
-        Net inflow {net >= 0 ? '+' : '−'}
+        Net inflow {net >= 0 ? '+' : '-'}
         {formatRupees(Math.abs(net), { short: true })}
       </div>
     </SectionCard>

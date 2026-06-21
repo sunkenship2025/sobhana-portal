@@ -1,12 +1,26 @@
 /**
- * Shared formatters used across PayoutsList, PayoutDetail, ByDoctor, and the
- * Run Cycle sheet. Lifted out of PayoutsList.tsx so display is consistent.
+ * Shared formatters used across the owner and payouts surfaces.
+ * Keep money display centralized so the rupee presentation does not drift.
  */
 
-export function formatRupees(paise: number): string {
-  return `₹${(paise / 100).toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-  })}`;
+export function formatRupees(
+  paise: number,
+  options?: { short?: boolean },
+): string {
+  const rupees = paise / 100;
+
+  if (options?.short) {
+    if (Math.abs(rupees) >= 100000) return `\u20B9${(rupees / 100000).toFixed(1)}L`;
+    if (Math.abs(rupees) >= 1000) return `\u20B9${(rupees / 1000).toFixed(1)}k`;
+  }
+
+  const formatted = Number.isInteger(rupees)
+    ? rupees.toLocaleString("en-IN")
+    : rupees.toLocaleString("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+  return `\u20B9${formatted}`;
 }
 
 export function formatDate(dateStr: string | Date | null | undefined): string {

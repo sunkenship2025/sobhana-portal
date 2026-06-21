@@ -252,7 +252,7 @@ function OldestUnpaidCard({ rows }: { rows: MoneyResponse['oldestUnpaid'] }) {
                   {r.daysOverdue}d
                 </td>
                 <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
-                  {formatRupees(r.owedInPaise)}
+                  {formatRupees(r.owedInPaise, { short: true })}
                 </td>
               </tr>
             ))}
@@ -425,9 +425,9 @@ function DiscountLogCard({ rows }: { rows: MoneyResponse['discountLog'] }) {
                   <td className="py-2" style={{ color: TOKENS.textPrimary }}>
                     {formatPatientName(d.patientName, d.patientTitle)}
                   </td>
-                  <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
-                    {formatRupees(d.discountInPaise)}
-                  </td>
+                <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
+                  {formatRupees(d.discountInPaise, { short: true })}
+                </td>
                   <td
                     className="py-2 text-right"
                     style={{
@@ -453,7 +453,7 @@ function RefundsCard({ refunds }: { refunds: MoneyResponse['refunds'] }) {
   return (
     <SectionCard label="Refunds">
       <div className="font-medium" style={{ fontSize: 22, color: TOKENS.textPrimary }}>
-        {formatRupees(refunds.totalInPaise)}
+        {formatRupees(refunds.totalInPaise, { short: true })}
       </div>
       <div style={{ fontSize: 11, color: TOKENS.textTertiary }}>
         {refunds.count} refund{refunds.count === 1 ? '' : 's'}
@@ -474,7 +474,7 @@ function RefundsCard({ refunds }: { refunds: MoneyResponse['refunds'] }) {
                 </span>
               </span>
               <span style={{ color: TOKENS.textPrimary }}>
-                {formatRupees(r.refundedInPaise)}
+                {formatRupees(r.refundedInPaise, { short: true })}
               </span>
             </div>
           ))}

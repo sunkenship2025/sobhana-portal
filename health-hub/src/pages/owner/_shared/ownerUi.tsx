@@ -13,6 +13,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { useBranchStore } from '@/store/branchStore';
 
+export { formatRupees } from '@/lib/payoutFormatters';
+
 // ----- design tokens ----------------------------------------------------
 
 export const TOKENS = {
@@ -39,17 +41,6 @@ export const TOKENS = {
   commissionBar: '#E48A8A',
   net: '#5DCAA5',
 } as const;
-
-// ----- formatting -------------------------------------------------------
-
-export function formatRupees(paise: number, options?: { short?: boolean }): string {
-  const rupees = paise / 100;
-  if (options?.short) {
-    if (Math.abs(rupees) >= 100000) return `₹${(rupees / 100000).toFixed(1)}L`;
-    if (Math.abs(rupees) >= 1000) return `₹${(rupees / 1000).toFixed(1)}k`;
-  }
-  return `₹${Math.round(rupees).toLocaleString('en-IN')}`;
-}
 
 export function formatIstDateTime(iso: string): string {
   const d = new Date(iso);
