@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { goToStep, goToNext, goToPrev, handleFlowKey } from "@/lib/focusFlow";
 import {
@@ -930,7 +931,7 @@ const ClinicNewVisit = () => {
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
                   <Label>Title</Label>
-                  <Select
+                  <SearchableSelect
                     value={newPatient.title}
                     onValueChange={(v) => {
                       const autoGender = TITLE_TO_GENDER[v];
@@ -947,18 +948,14 @@ const ClinicNewVisit = () => {
                       }
                       goToStep(22);
                     }}
-                  >
-                    <SelectTrigger data-focus-step={21} onKeyDown={handleFlowKey}>
-                      <SelectValue placeholder="Select title" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {titleOptions.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    options={titleOptions}
+                    placeholder="Select title"
+                    searchPlaceholder="Type a title..."
+                    emptyText="No title found."
+                    onAdvance={() => goToStep(22)}
+                    focusStep={21}
+                    ariaLabel="Title"
+                  />
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="name">Full Name *</Label>

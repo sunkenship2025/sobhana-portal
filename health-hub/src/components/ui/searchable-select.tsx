@@ -55,14 +55,22 @@ export function SearchableSelect({
   ariaLabel,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
+  // Controlled search so a keystroke on the closed trigger can open the popover
+  // AND seed the filter (otherwise the char that opened it would be lost).
+  const [search, setSearch] = useState('');
 
   const selectedOption = useMemo(
     () => options.find((option) => option.value === value),
     [options, value]
   );
 
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (!next) setSearch('');
+  };
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <Button
           id={id}
@@ -83,9 +91,23 @@ export function SearchableSelect({
             } else if (e.key === 'Enter' && !open) {
               // Plain Enter on a closed trigger advances instead of opening the
               // popover, so it never dead-stops the keyboard flow. Open with
-              // Space / ArrowDown / click instead.
+              // Space / ArrowDown / typing / click instead.
               e.preventDefault();
               (onAdvance ?? onSkip)?.();
+            } else if (
+              !open &&
+              e.key.length === 1 &&
+              !e.ctrlKey &&
+              !e.metaKey &&
+              !e.altKey &&
+              /\S/.test(e.key)
+            ) {
+              // Type-to-search: a printable key on the closed trigger opens the
+              // popover and seeds the filter with that character, so you can
+              // just start typing (e.g. "ma" -> Master) without opening first.
+              e.preventDefault();
+              setSearch(e.key);
+              setOpen(true);
             }
           }}
         >
@@ -97,7 +119,11 @@ export function SearchableSelect({
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
         <Command shouldFilter>
-          <CommandInput placeholder={searchPlaceholder} />
+          <CommandInput
+            placeholder={searchPlaceholder}
+            value={search}
+            onValueChange={setSearch}
+          />
           <CommandList>
             <CommandEmpty>{emptyText}</CommandEmpty>
             {options.map((option) => (
