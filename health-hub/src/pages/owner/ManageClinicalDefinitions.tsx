@@ -110,7 +110,7 @@ const STATUS_COLORS: Record<string, string> = {
   ACTIVE: 'bg-green-100 text-green-800',
   LOCKED: 'bg-yellow-100 text-yellow-800',
   DEPRECATED: 'bg-orange-100 text-orange-800',
-  ARCHIVED: 'bg-gray-100 text-gray-800',
+  ARCHIVED: 'bg-gray-100 text-foreground',
 };
 
 const SAMPLE_COLORS: Record<string, string> = {
@@ -851,7 +851,7 @@ export default function ManageClinicalDefinitions() {
                         <Button size="sm" variant="ghost" onClick={() => handleViewImpact(def)} title="View Impact" className="h-7 px-2 gap-1 text-xs">
                           <Eye className="h-3.5 w-3.5" /> Impact
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(def)} title="Delete definition" className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50">
+                        <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(def)} title="Delete definition" className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-red-50">
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                         {statusActions(def).map(a => (
@@ -956,17 +956,17 @@ export default function ManageClinicalDefinitions() {
                       {formMode === 'create' && formCode.trim() && (
                         <span className="absolute right-2 top-2.5">
                           {codeChecking ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> :
-                           !CODE_REGEX.test(formCode.trim()) ? <AlertCircle className="h-4 w-4 text-red-500" /> :
+                           !CODE_REGEX.test(formCode.trim()) ? <AlertCircle className="h-4 w-4 text-destructive" /> :
                            codeAvailable === true ? <CheckCircle2 className="h-4 w-4 text-green-600" /> :
-                           codeAvailable === false ? <AlertCircle className="h-4 w-4 text-red-500" /> : null}
+                           codeAvailable === false ? <AlertCircle className="h-4 w-4 text-destructive" /> : null}
                         </span>
                       )}
                     </div>
                     {formMode === 'create' && formCode.trim() && !CODE_REGEX.test(formCode.trim()) && (
-                      <p className="text-xs text-red-500">2-20 uppercase letters, digits, or underscores</p>
+                      <p className="text-xs text-destructive">2-20 uppercase letters, digits, or underscores</p>
                     )}
                     {formMode === 'create' && codeAvailable === false && (
-                      <p className="text-xs text-red-500">Code already in use</p>
+                      <p className="text-xs text-destructive">Code already in use</p>
                     )}
                   </div>
                   <div className="space-y-1.5">
@@ -1019,11 +1019,11 @@ export default function ManageClinicalDefinitions() {
                     {formShowCritical && (
                       <>
                         <div className="space-y-1.5">
-                          <Label className="text-red-600">Critical Low</Label>
+                          <Label className="text-destructive">Critical Low</Label>
                           <Input type="number" value={formGeneralCriticalMin} onChange={e => setFormGeneralCriticalMin(e.target.value)} placeholder="e.g., 7" className="border-red-200 focus:border-red-400" />
                         </div>
                         <div className="space-y-1.5">
-                          <Label className="text-red-600">Critical High</Label>
+                          <Label className="text-destructive">Critical High</Label>
                           <Input type="number" value={formGeneralCriticalMax} onChange={e => setFormGeneralCriticalMax(e.target.value)} placeholder="e.g., 20" className="border-red-200 focus:border-red-400" />
                         </div>
                       </>
@@ -1116,8 +1116,8 @@ export default function ManageClinicalDefinitions() {
                         <span>Ref Min</span>
                         <span>Ref Max</span>
                         <span>Unit</span>
-                        {formShowCritical && <span className="text-red-600">Crit Low</span>}
-                        {formShowCritical && <span className="text-red-600">Crit High</span>}
+                        {formShowCritical && <span className="text-destructive">Crit Low</span>}
+                        {formShowCritical && <span className="text-destructive">Crit High</span>}
                         <span>Text</span>
                         <span></span>
                       </div>
@@ -1203,7 +1203,7 @@ export default function ManageClinicalDefinitions() {
                             </>
                           )}
                           <Textarea placeholder="Text" value={r.referenceText ?? ''} onChange={e => updateRange(i, 'referenceText', e.target.value || null)} className="text-xs min-h-[32px] py-1.5 resize-y" rows={2} />
-                          <Button size="sm" variant="ghost" onClick={() => removeRange(i)} className="h-8 w-7 p-0 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">✕</Button>
+                          <Button size="sm" variant="ghost" onClick={() => removeRange(i)} className="h-8 w-7 p-0 text-destructive opacity-0 group-hover:opacity-100 transition-opacity">✕</Button>
                         </div>
                       ))}
                     </div>
@@ -1346,7 +1346,7 @@ export default function ManageClinicalDefinitions() {
                                   <Label className="text-xs">Interpretation Text *</Label>
                                   <Textarea value={r.interpretationText} onChange={e => updateRule(i, 'interpretationText', e.target.value)} className="text-xs min-h-[50px]" />
                                 </div>
-                                <Button size="sm" variant="ghost" onClick={() => removeRule(i)} className="text-red-500 shrink-0 mt-5">
+                                <Button size="sm" variant="ghost" onClick={() => removeRule(i)} className="text-destructive shrink-0 mt-5">
                                   ✕
                                 </Button>
                               </div>

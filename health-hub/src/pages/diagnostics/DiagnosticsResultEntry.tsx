@@ -1422,7 +1422,7 @@ const DiagnosticsResultEntry = () => {
                     <button
                       type="button"
                       onClick={() => deleteUpload(upload.id, order.id)}
-                      className="text-xs font-medium text-red-600 hover:underline"
+                      className="text-xs font-medium text-destructive hover:underline"
                     >
                       Remove
                     </button>

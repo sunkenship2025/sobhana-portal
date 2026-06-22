@@ -90,7 +90,7 @@ export function BranchConfirmModal({ open, onConfirm }: BranchConfirmModalProps)
               <DialogTitle className="text-lg font-bold text-[#1B2B58]">
                 Confirm Branch
               </DialogTitle>
-              <DialogDescription className="text-sm text-gray-500">
+              <DialogDescription className="text-sm text-muted-foreground">
                 Choose the branch you want to work in.
               </DialogDescription>
             </div>
@@ -99,7 +99,7 @@ export function BranchConfirmModal({ open, onConfirm }: BranchConfirmModalProps)
 
         <div className="py-2">
           {isLoading && activeBranches.length === 0 ? (
-            <div className="flex items-center gap-2 rounded-md border bg-gray-50 px-3 py-3 text-sm text-gray-600">
+            <div className="flex items-center gap-2 rounded-md border bg-gray-50 px-3 py-3 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading branches…
             </div>

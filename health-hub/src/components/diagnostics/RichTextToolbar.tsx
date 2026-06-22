@@ -40,7 +40,7 @@ interface RichTextToolbarProps {
 export function RichTextToolbar({ state, onCommand, active = true, className }: RichTextToolbarProps) {
   const toolbarButtonClassName = useMemo(
     () =>
-      'h-8 w-8 rounded-md border border-transparent p-0 text-slate-600 hover:border-slate-300 hover:bg-white hover:text-slate-900',
+      'h-8 w-8 rounded-md border border-transparent p-0 text-muted-foreground hover:border-slate-300 hover:bg-white hover:text-foreground',
     []
   );
 
@@ -57,7 +57,7 @@ export function RichTextToolbar({ state, onCommand, active = true, className }: 
       <select
         value={state.block}
         onChange={(event) => dispatch('formatBlock', `<${event.target.value}>`)}
-        className="h-8 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
+        className="h-8 rounded-md border border-slate-200 bg-white px-2 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
       >
         {BLOCK_SELECTOR_OPTIONS.map((option) => (
           <option key={option.value} value={option.value}>
@@ -69,7 +69,7 @@ export function RichTextToolbar({ state, onCommand, active = true, className }: 
       <select
         value={state.fontFamily}
         onChange={(event) => dispatch('fontName', event.target.value)}
-        className="h-8 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
+        className="h-8 rounded-md border border-slate-200 bg-white px-2 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
       >
         {NARRATIVE_FONT_FAMILIES.map((fontFamily) => (
           <option key={fontFamily} value={fontFamily}>
@@ -81,7 +81,7 @@ export function RichTextToolbar({ state, onCommand, active = true, className }: 
       <select
         value={state.fontSize}
         onChange={(event) => dispatch('fontSize', event.target.value)}
-        className="h-8 w-20 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
+        className="h-8 w-20 rounded-md border border-slate-200 bg-white px-2 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
       >
         {NARRATIVE_FONT_SIZE_OPTIONS.map((option) => (
           <option key={option.value} value={option.value}>
@@ -95,7 +95,7 @@ export function RichTextToolbar({ state, onCommand, active = true, className }: 
       <Button
         type="button"
         variant="ghost"
-        className={cn(toolbarButtonClassName, state.bold && 'border-slate-300 bg-white text-slate-900')}
+        className={cn(toolbarButtonClassName, state.bold && 'border-slate-300 bg-white text-foreground')}
         onMouseDown={(event) => {
           event.preventDefault();
           dispatch('bold');
@@ -107,7 +107,7 @@ export function RichTextToolbar({ state, onCommand, active = true, className }: 
       <Button
         type="button"
         variant="ghost"
-        className={cn(toolbarButtonClassName, state.italic && 'border-slate-300 bg-white text-slate-900')}
+        className={cn(toolbarButtonClassName, state.italic && 'border-slate-300 bg-white text-foreground')}
         onMouseDown={(event) => {
           event.preventDefault();
           dispatch('italic');
@@ -119,7 +119,7 @@ export function RichTextToolbar({ state, onCommand, active = true, className }: 
       <Button
         type="button"
         variant="ghost"
-        className={cn(toolbarButtonClassName, state.underline && 'border-slate-300 bg-white text-slate-900')}
+        className={cn(toolbarButtonClassName, state.underline && 'border-slate-300 bg-white text-foreground')}
         onMouseDown={(event) => {
           event.preventDefault();
           dispatch('underline');
@@ -134,7 +134,7 @@ export function RichTextToolbar({ state, onCommand, active = true, className }: 
       <Button
         type="button"
         variant="ghost"
-        className={cn(toolbarButtonClassName, state.alignment === 'left' && 'border-slate-300 bg-white text-slate-900')}
+        className={cn(toolbarButtonClassName, state.alignment === 'left' && 'border-slate-300 bg-white text-foreground')}
         onMouseDown={(event) => {
           event.preventDefault();
           dispatch('justifyLeft');
@@ -146,7 +146,7 @@ export function RichTextToolbar({ state, onCommand, active = true, className }: 
       <Button
         type="button"
         variant="ghost"
-        className={cn(toolbarButtonClassName, state.alignment === 'center' && 'border-slate-300 bg-white text-slate-900')}
+        className={cn(toolbarButtonClassName, state.alignment === 'center' && 'border-slate-300 bg-white text-foreground')}
         onMouseDown={(event) => {
           event.preventDefault();
           dispatch('justifyCenter');
@@ -158,7 +158,7 @@ export function RichTextToolbar({ state, onCommand, active = true, className }: 
       <Button
         type="button"
         variant="ghost"
-        className={cn(toolbarButtonClassName, state.alignment === 'right' && 'border-slate-300 bg-white text-slate-900')}
+        className={cn(toolbarButtonClassName, state.alignment === 'right' && 'border-slate-300 bg-white text-foreground')}
         onMouseDown={(event) => {
           event.preventDefault();
           dispatch('justifyRight');
@@ -170,7 +170,7 @@ export function RichTextToolbar({ state, onCommand, active = true, className }: 
       <Button
         type="button"
         variant="ghost"
-        className={cn(toolbarButtonClassName, state.alignment === 'justify' && 'border-slate-300 bg-white text-slate-900')}
+        className={cn(toolbarButtonClassName, state.alignment === 'justify' && 'border-slate-300 bg-white text-foreground')}
         onMouseDown={(event) => {
           event.preventDefault();
           dispatch('justifyFull');
@@ -185,7 +185,7 @@ export function RichTextToolbar({ state, onCommand, active = true, className }: 
       <Button
         type="button"
         variant="ghost"
-        className={cn(toolbarButtonClassName, state.unorderedList && 'border-slate-300 bg-white text-slate-900')}
+        className={cn(toolbarButtonClassName, state.unorderedList && 'border-slate-300 bg-white text-foreground')}
         onMouseDown={(event) => {
           event.preventDefault();
           dispatch('insertUnorderedList');
@@ -197,7 +197,7 @@ export function RichTextToolbar({ state, onCommand, active = true, className }: 
       <Button
         type="button"
         variant="ghost"
-        className={cn(toolbarButtonClassName, state.orderedList && 'border-slate-300 bg-white text-slate-900')}
+        className={cn(toolbarButtonClassName, state.orderedList && 'border-slate-300 bg-white text-foreground')}
         onMouseDown={(event) => {
           event.preventDefault();
           dispatch('insertOrderedList');
@@ -209,7 +209,7 @@ export function RichTextToolbar({ state, onCommand, active = true, className }: 
 
       <div className="mx-1 h-6 w-px bg-slate-200" />
 
-      <label className="flex h-8 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-600 shadow-sm">
+      <label className="flex h-8 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-xs text-muted-foreground shadow-sm">
         <Type className="h-3.5 w-3.5" />
         <span>Text</span>
         <input
@@ -221,7 +221,7 @@ export function RichTextToolbar({ state, onCommand, active = true, className }: 
         />
       </label>
 
-      <label className="flex h-8 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-600 shadow-sm">
+      <label className="flex h-8 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-xs text-muted-foreground shadow-sm">
         <Highlighter className="h-3.5 w-3.5" />
         <span>Highlight</span>
         <input

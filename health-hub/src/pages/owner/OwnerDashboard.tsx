@@ -203,7 +203,7 @@ function getSignalMeta(status: SignalStatus) {
         label: 'Below Expected',
         icon: ArrowDownRight,
         className:
-          'border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300',
+          'border-red-200 bg-red-50 text-destructive dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300',
       };
     case 'ABOVE_EXPECTED':
       return {
@@ -217,7 +217,7 @@ function getSignalMeta(status: SignalStatus) {
         label: 'Typical',
         icon: ChevronUp,
         className:
-          'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300',
+          'border-slate-200 bg-slate-50 text-foreground dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300',
       };
   }
 }
@@ -324,7 +324,7 @@ function TrendTooltipContent({
         <p className="text-muted-foreground">
           Expected: {currencyFormatter.format(point.lower_bound)} - {currencyFormatter.format(point.upper_bound)}
         </p>
-        <p className={cn(point.deviation_percent < 0 ? 'text-red-600' : 'text-emerald-600')}>
+        <p className={cn(point.deviation_percent < 0 ? 'text-destructive' : 'text-emerald-600')}>
           Deviation: {formatPercent(point.deviation_percent)}
         </p>
       </div>
@@ -611,7 +611,7 @@ function BusinessMetricsPanel() {
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {metricsQuery.data.operations.whatsapp.delivered} delivered ·{' '}
-                  <span className={metricsQuery.data.operations.whatsapp.failed > 0 ? 'font-medium text-red-600' : ''}>
+                  <span className={metricsQuery.data.operations.whatsapp.failed > 0 ? 'font-medium text-destructive' : ''}>
                     {metricsQuery.data.operations.whatsapp.failed} failed
                   </span>
                 </p>
@@ -809,7 +809,7 @@ const OwnerDashboard = () => {
               </div>
               <Button
                 variant="secondary"
-                className="rounded-2xl bg-white text-slate-900 hover:bg-slate-100"
+                className="rounded-2xl bg-white text-foreground hover:bg-slate-100"
                 onClick={() => dashboardQuery.refetch()}
                 disabled={dashboardQuery.isFetching}
               >
@@ -986,7 +986,7 @@ const OwnerDashboard = () => {
                         className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-card px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
                       >
                         <div className="flex items-start gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-red-50 text-sm font-semibold text-red-600 dark:bg-red-950/40 dark:text-red-300">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-red-50 text-sm font-semibold text-destructive dark:bg-red-950/40 dark:text-red-300">
                             {issue.rank}
                           </div>
                           <div>
@@ -1004,7 +1004,7 @@ const OwnerDashboard = () => {
                           >
                             {signalMeta.label}
                           </Badge>
-                          <p className="text-sm font-medium text-red-600 dark:text-red-300">
+                          <p className="text-sm font-medium text-destructive dark:text-red-300">
                             {formatPercent(issue.deviation_percent)} vs median
                           </p>
                         </div>

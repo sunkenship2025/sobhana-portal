@@ -35,7 +35,7 @@ const Login = () => {
   };
 
   return (
-    <div className="h-screen flex overflow-hidden bg-white font-sans antialiased text-gray-900">
+    <div className="h-screen flex overflow-hidden bg-white font-sans antialiased text-foreground">
 
       {/* ── Left Hero Panel ── */}
       <div className="hidden lg:flex lg:w-1/2 relative bg-[#1B2B58]">
@@ -91,8 +91,8 @@ const Login = () => {
               </div>
             </div>
 
-            <h2 className="text-3xl font-bold text-gray-900 mt-4">Welcome Back</h2>
-            <p className="mt-2 text-sm text-gray-500">Sign in to access your dashboard</p>
+            <h2 className="text-3xl font-bold text-foreground mt-4">Welcome Back</h2>
+            <p className="mt-2 text-sm text-muted-foreground">Sign in to access your dashboard</p>
           </div>
 
           {/* Form */}
@@ -106,7 +106,7 @@ const Login = () => {
                 </label>
                 <div className="relative rounded-md shadow-sm">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Mail className="h-5 w-5 text-gray-400" />
+                    <Mail className="h-5 w-5 text-muted-foreground" />
                   </div>
                   <input
                     id="email"
@@ -117,7 +117,7 @@ const Login = () => {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="Enter your email"
-                    className="pl-10 block w-full rounded-md border border-gray-300 bg-gray-50 text-gray-900 focus:ring-[#D91C2B] focus:border-[#D91C2B] sm:text-sm h-12 transition duration-150 ease-in-out font-medium"
+                    className="pl-10 block w-full rounded-md border border-gray-300 bg-gray-50 text-foreground focus:ring-[#D91C2B] focus:border-[#D91C2B] sm:text-sm h-12 transition duration-150 ease-in-out font-medium"
                   />
                 </div>
               </div>
@@ -129,7 +129,7 @@ const Login = () => {
                 </label>
                 <div className="relative rounded-md shadow-sm">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Lock className="h-5 w-5 text-gray-400" />
+                    <Lock className="h-5 w-5 text-muted-foreground" />
                   </div>
                   <input
                     id="password"
@@ -140,7 +140,7 @@ const Login = () => {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Enter your password"
-                    className="pl-10 block w-full rounded-md border border-gray-300 bg-gray-50 text-gray-900 focus:ring-[#D91C2B] focus:border-[#D91C2B] sm:text-sm h-12 transition duration-150 ease-in-out font-medium"
+                    className="pl-10 block w-full rounded-md border border-gray-300 bg-gray-50 text-foreground focus:ring-[#D91C2B] focus:border-[#D91C2B] sm:text-sm h-12 transition duration-150 ease-in-out font-medium"
                   />
                 </div>
               </div>

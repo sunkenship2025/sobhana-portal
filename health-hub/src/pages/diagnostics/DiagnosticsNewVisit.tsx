@@ -1520,7 +1520,7 @@ const DiagnosticsNewVisit = () => {
                     className={validationErrors.name ? "border-red-500" : ""}
                   />
                   {validationErrors.name && (
-                    <p className="text-sm text-red-500">
+                    <p className="text-sm text-destructive">
                       {validationErrors.name}
                     </p>
                   )}
@@ -1563,7 +1563,7 @@ const DiagnosticsNewVisit = () => {
                     ))}
                   </RadioGroup>
                   {validationErrors.gender && (
-                    <p className="text-sm text-red-500">
+                    <p className="text-sm text-destructive">
                       {validationErrors.gender}
                     </p>
                   )}
@@ -1611,7 +1611,7 @@ const DiagnosticsNewVisit = () => {
                     </Select>
                   </div>
                   {validationErrors.age && (
-                    <p className="text-sm text-red-500">
+                    <p className="text-sm text-destructive">
                       {validationErrors.age}
                     </p>
                   )}
@@ -1638,7 +1638,7 @@ const DiagnosticsNewVisit = () => {
                     }}
                     onKeyDown={handleFlowKey}
                   />
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-muted-foreground">
                     If DOB is entered, age will be calculated automatically
                   </p>
                 </div>
@@ -1646,7 +1646,7 @@ const DiagnosticsNewVisit = () => {
 
               {/* Phone validation error */}
               {validationErrors.phone && (
-                <div className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-md p-3">
+                <div className="text-sm text-destructive bg-red-50 border border-red-200 rounded-md p-3">
                   <strong>Phone:</strong> {validationErrors.phone}
                 </div>
               )}

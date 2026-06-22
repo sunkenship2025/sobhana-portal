@@ -251,7 +251,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
             {/* Name */}
             <div className="space-y-2">
               <Label htmlFor="name">
-                Full Name <span className="text-red-500">*</span>
+                Full Name <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="name"
@@ -266,7 +266,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
                 required
               />
               {validationErrors.name && (
-                <p className="text-sm text-red-500">{validationErrors.name}</p>
+                <p className="text-sm text-destructive">{validationErrors.name}</p>
               )}
             </div>
 
@@ -274,7 +274,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="age">
-                  Age <span className="text-red-500">*</span>
+                  Age <span className="text-destructive">*</span>
                 </Label>
                 <div className="flex gap-2">
                   <Input
@@ -307,13 +307,13 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
                   </Select>
                 </div>
                 {validationErrors.age && (
-                  <p className="text-sm text-red-500">{validationErrors.age}</p>
+                  <p className="text-sm text-destructive">{validationErrors.age}</p>
                 )}
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="gender">
-                  Gender <span className="text-red-500">*</span>
+                  Gender <span className="text-destructive">*</span>
                 </Label>
                 <Select
                   value={formData.gender}
@@ -339,7 +339,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
             {/* Phone */}
             <div className="space-y-2">
               <Label htmlFor="phone">
-                Phone Number <span className="text-red-500">*</span>
+                Phone Number <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="phone"
@@ -358,7 +358,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
                 required
               />
               {validationErrors.phone && (
-                <p className="text-sm text-red-500">{validationErrors.phone}</p>
+                <p className="text-sm text-destructive">{validationErrors.phone}</p>
               )}
             </div>
 
@@ -379,7 +379,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
                 placeholder="patient@example.com"
               />
               {validationErrors.email && (
-                <p className="text-sm text-red-500">{validationErrors.email}</p>
+                <p className="text-sm text-destructive">{validationErrors.email}</p>
               )}
             </div>
 
@@ -400,7 +400,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
                 placeholder="Patient address"
               />
               {validationErrors.address && (
-                <p className="text-sm text-red-500">{validationErrors.address}</p>
+                <p className="text-sm text-destructive">{validationErrors.address}</p>
               )}
             </div>
 
@@ -423,7 +423,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
             {identityFieldsChanged() && (
               <div className="space-y-2 border-t pt-4">
                 <Label htmlFor="changeReason" className="text-orange-600">
-                  Reason for Change <span className="text-red-500">*</span>
+                  Reason for Change <span className="text-destructive">*</span>
                 </Label>
                 <Textarea
                   id="changeReason"
