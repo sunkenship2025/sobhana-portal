@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -89,12 +90,11 @@ export default function GlobalPatientSearch() {
     <AppLayout context="clinic" subContext="Patient 360">
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-foreground">Patient 360</h1>
-          <p className="text-muted-foreground mt-1">
-            Search any patient across all Sobhana branches
-          </p>
-        </div>
+        <PageHeader
+          title="Patient 360"
+          subtitle="Search any patient across all Sobhana branches"
+          className="mb-2"
+        />
 
         {/* Search Form */}
         <Card>

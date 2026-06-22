@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -86,10 +87,7 @@ const DoctorDashboard = () => {
   return (
     <AppLayout context="doctor">
       <div className="space-y-6 animate-fade-in">
-        <div>
-          <h1 className="text-2xl font-bold">My Reports</h1>
-          <p className="text-muted-foreground">View your lab reports — drafts and finalized.</p>
-        </div>
+        <PageHeader title="My Reports" subtitle="View your lab reports — drafts and finalized." />
 
         {/* Filters */}
         <Card>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { API_BASE } from '@/lib/api';
@@ -139,10 +140,7 @@ const Dashboard = () => {
   return (
     <AppLayout context="dashboard">
       <div className="space-y-6 animate-fade-in">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-          <p className="text-muted-foreground">Today's work at a glance</p>
-        </div>
+        <PageHeader title="Dashboard" subtitle="Today's work at a glance" />
 
         {loading && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">

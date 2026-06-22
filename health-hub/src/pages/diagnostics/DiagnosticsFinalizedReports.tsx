@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { API_BASE } from '@/lib/api';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -191,10 +192,7 @@ const DiagnosticsFinalizedReports = () => {
   return (
     <AppLayout context="diagnostics">
       <div className="space-y-6 animate-fade-in">
-        <div>
-          <h1 className="text-2xl font-bold">Finalized Reports</h1>
-          <p className="text-muted-foreground">View and share completed lab reports</p>
-        </div>
+        <PageHeader title="Finalized Reports" subtitle="View and share completed lab reports" />
 
         {/* Filters */}
         <Card>
