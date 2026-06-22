@@ -23,6 +23,7 @@ import { API_BASE } from '@/lib/api';
 import { formatRupees } from '@/lib/payoutFormatters';
 import { apiRequest, cn } from '@/lib/utils';
 import { useBranchStore } from '@/store/branchStore';
+import { TOKENS } from './_shared/ownerUi';
 
 // ----- types ------------------------------------------------------------
 
@@ -115,33 +116,7 @@ interface DashboardV2 {
   }[];
 }
 
-// ----- design tokens ----------------------------------------------------
-
-const TOKENS = {
-  healthy: '#0F6E56',
-  caution: '#854F0B',
-  cautionLight: '#B7793C',
-  critical: '#A32D2D',
-  info: '#185FA5',
-  textPrimary: '#1F1F1E',
-  textSecondary: '#5F5E5A',
-  textTertiary: '#888780',
-  surface: '#FFFFFF',
-  page: '#FAFAF8',
-  border: 'rgba(0,0,0,0.08)',
-  borderStrong: 'rgba(0,0,0,0.15)',
-  // categorical
-  reportable: '#378ADD',
-  clinic: '#5DCAA5',
-  billOnly: '#FAC775',
-  cash: '#BA7517',
-  online: '#185FA5',
-  // waterfall
-  gross: '#9DC4ED',
-  discount: '#FAC775',
-  commissionBar: '#E48A8A',
-  net: '#5DCAA5',
-};
+// Design tokens are the single source of truth in ./_shared/ownerUi (imported above).
 
 function formatIstDateTime(iso: string): string {
   const d = new Date(iso);
