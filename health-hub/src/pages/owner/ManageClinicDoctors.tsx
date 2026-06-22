@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { API_BASE } from '@/lib/api';
+import { useState } from 'react';
+import { useApiQuery, useApiMutation, apiCall, qk } from '@/lib/query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -35,37 +35,51 @@ const ManageClinicDoctors = () => {
   const { lookupDoctorByPhone, getReferralDoctors, invalidateDoctorLookups } =
     useDoctorLookup();
 
-  const [clinicDoctors, setClinicDoctors] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Clinic doctors are global (not branch-scoped).
+  const { data: clinicDoctors = [] } = useApiQuery<any[]>({
+    queryKey: qk.clinicDoctors(),
+    queryFn: () => apiCall<any[]>('/clinic-doctors'),
+  });
+
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [existingDoctor, setExistingDoctor] = useState<any>(null);
   const [linkedDoctorId, setLinkedDoctorId] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
-  // Fetch clinic doctors from API
-  const fetchClinicDoctors = async () => {
-    if (!token) return;
-    try {
-      const res = await fetch(`${API_BASE}/clinic-doctors`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const doctors = await res.json();
-        setClinicDoctors(doctors);
-      }
-    } catch (err) {
-      console.error('Error fetching clinic doctors:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const saveMutation = useApiMutation<
+    unknown,
+    { editingId: string | null; payload: Record<string, unknown> }
+  >({
+    mutationFn: ({ editingId, payload }) =>
+      editingId
+        ? apiCall(`/clinic-doctors/${editingId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+          })
+        : apiCall('/clinic-doctors', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          }),
+    invalidate: [qk.clinicDoctors()],
+    onSuccess: (_data, { editingId }) => {
+      invalidateDoctorLookups();
+      toast.success(editingId ? 'Doctor updated' : 'Doctor added');
+      resetForm();
+    },
+    onError: (err) => toast.error(err.message || 'Failed to save doctor'),
+  });
 
-  useEffect(() => {
-    fetchClinicDoctors();
-  }, [token]);
+  const deleteMutation = useApiMutation<unknown, string>({
+    mutationFn: (id) => apiCall(`/clinic-doctors/${id}`, { method: 'DELETE' }),
+    invalidate: [qk.clinicDoctors()],
+    onSuccess: () => {
+      invalidateDoctorLookups();
+      toast.success('Doctor deleted');
+    },
+    onError: (err) => toast.error(err.message || 'Failed to delete doctor'),
+    onSettled: () => setDeleteId(null),
+  });
 
   const [formData, setFormData] = useState({
     name: '',
@@ -163,57 +177,7 @@ const ManageClinicDoctors = () => {
       referralDoctorId: linkedDoctorId,
     };
 
-    if (submitting) return;
-    setSubmitting(true);
-    try {
-      if (editingId) {
-        // Update existing doctor via API
-        const res = await fetch(`${API_BASE}/clinic-doctors/${editingId}`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`
-          },
-          body: JSON.stringify(payload)
-        });
-        
-        if (!res.ok) {
-          const err = await res.json();
-          toast.error(err.message || 'Failed to update doctor');
-          return;
-        }
-        
-        toast.success('Doctor updated');
-      } else {
-        // Create new doctor via API
-        const res = await fetch(`${API_BASE}/clinic-doctors`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`
-          },
-          body: JSON.stringify(payload)
-        });
-        
-        if (!res.ok) {
-          const err = await res.json();
-          toast.error(err.message || 'Failed to add doctor');
-          return;
-        }
-        
-        toast.success('Doctor added');
-      }
-      
-      // Refresh the list
-      await fetchClinicDoctors();
-      invalidateDoctorLookups();
-      resetForm();
-    } catch (err) {
-      console.error('Error saving doctor:', err);
-      toast.error('Failed to save doctor');
-    } finally {
-      setSubmitting(false);
-    }
+    saveMutation.mutate({ editingId, payload });
   };
 
   const handleEdit = (doctor: typeof clinicDoctors[0]) => {
@@ -229,33 +193,8 @@ const ManageClinicDoctors = () => {
     setShowForm(true);
   };
 
-  const handleDelete = async () => {
-    if (deleteId) {
-      if (deleting) return;
-      setDeleting(true);
-      try {
-        const res = await fetch(`${API_BASE}/clinic-doctors/${deleteId}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${token}` }
-        });
-
-        if (!res.ok) {
-          const err = await res.json();
-          toast.error(err.message || 'Failed to delete doctor');
-          return;
-        }
-
-        toast.success('Doctor deleted');
-        await fetchClinicDoctors();
-        invalidateDoctorLookups();
-      } catch (err) {
-        console.error('Error deleting doctor:', err);
-        toast.error('Failed to delete doctor');
-      } finally {
-        setDeleting(false);
-        setDeleteId(null);
-      }
-    }
+  const handleDelete = () => {
+    if (deleteId) deleteMutation.mutate(deleteId);
   };
 
   return (
@@ -383,9 +322,9 @@ const ManageClinicDoctors = () => {
                   <X className="h-4 w-4 mr-2" />
                   Cancel
                 </Button>
-                <Button onClick={handleSubmit} disabled={submitting}>
+                <Button onClick={handleSubmit} disabled={saveMutation.isPending}>
                   <Check className="h-4 w-4 mr-2" />
-                  {submitting ? 'Saving...' : `${editingId ? 'Update' : 'Add'} Doctor`}
+                  {saveMutation.isPending ? 'Saving...' : `${editingId ? 'Update' : 'Add'} Doctor`}
                 </Button>
               </div>
             </CardContent>
@@ -445,9 +384,9 @@ const ManageClinicDoctors = () => {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} disabled={deleting} className="bg-destructive text-destructive-foreground">
-              {deleting ? 'Deleting...' : 'Delete'}
+            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} disabled={deleteMutation.isPending} className="bg-destructive text-destructive-foreground">
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
