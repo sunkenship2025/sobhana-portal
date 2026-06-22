@@ -11,7 +11,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, FileText, ChevronRight, User, Lock, IndianRupee, Printer, MessageCircle, Eye, X, Loader2, Download } from 'lucide-react';
+import { ArrowLeft, FileText, ChevronRight, User, IndianRupee, Printer, MessageCircle, Eye, X, Loader2, Download } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import type { Patient360View, VisitTimelineItem, VisitDomain } from '@/types';
@@ -330,19 +330,6 @@ function VisitDetailDrawer({ visit, open, onClose, patientPhone, onPreviewReport
             </Button>
           </div>
 
-          <Separator />
-
-          {/* Read-Only Notice */}
-          <div className="bg-muted/50 rounded-lg p-4 flex items-start gap-3">
-            <Lock className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
-            <div className="text-sm text-muted-foreground">
-              <p className="font-medium text-foreground">Read-Only View</p>
-              <p className="mt-1">
-                This visit was handled at the {visit.branchName} branch.
-                No changes can be made from Patient 360.
-              </p>
-            </div>
-          </div>
         </div>
       </SheetContent>
     </Sheet>
@@ -456,11 +443,6 @@ export default function Patient360() {
           <span className="font-medium">Patient 360</span>
           <span className="text-muted-foreground">•</span>
           <span className="text-muted-foreground">Global History</span>
-          <span className="text-muted-foreground">•</span>
-          <span className="text-muted-foreground flex items-center gap-1">
-            <Lock className="h-3 w-3" />
-            Read-Only
-          </span>
         </div>
 
         {/* Patient Identity Card (Editable) */}
