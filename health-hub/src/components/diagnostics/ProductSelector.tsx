@@ -106,6 +106,12 @@ export function ProductSelector({
   const [searchQuery, setSearchQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+  // Where the results panel should open (below the input by default; flips above
+  // when the input sits too low in the viewport) and how tall it may be.
+  const [dropdown, setDropdown] = useState<{ placement: 'below' | 'above'; maxHeight: number }>({
+    placement: 'below',
+    maxHeight: 288,
+  });
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -190,18 +196,24 @@ export function ProductSelector({
     }
   }, [highlightedIndex, flatList]);
 
-  // Keep the results dropdown on-screen: when it opens with the input sitting
-  // low in the viewport, the absolutely-positioned list would spill past the
-  // bottom edge and get cut off. Scroll the input up so the list is visible.
+  // Keep the results panel fully on-screen. It's absolutely positioned, so it
+  // doesn't extend the page — if the input sits low with nothing below to
+  // scroll to, a below-anchored panel would be clipped. Flip it above the input
+  // when there's more room there, and cap its height to the available space.
   useEffect(() => {
-    if (!isOpen || filteredProducts.length === 0 || !inputRef.current) return;
+    if (!isOpen || !inputRef.current) return;
     const rect = inputRef.current.getBoundingClientRect();
     const vh = window.innerHeight || document.documentElement.clientHeight;
-    const dropdownH = 300; // matches max-h-72 + a little chrome
-    if (rect.bottom + dropdownH > vh) {
-      inputRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    }
-  }, [isOpen, filteredProducts.length]);
+    const gap = 8;
+    const spaceBelow = vh - rect.bottom - gap;
+    const spaceAbove = rect.top - gap;
+    const placeAbove = spaceBelow < 200 && spaceAbove > spaceBelow;
+    const space = placeAbove ? spaceAbove : spaceBelow;
+    setDropdown({
+      placement: placeAbove ? 'above' : 'below',
+      maxHeight: Math.max(120, Math.min(288, space)),
+    });
+  }, [isOpen, filteredProducts.length, searchQuery]);
 
   const handleAdd = (product: ProductForSelector) => {
     onSelectionChange([...selectedProductIds, product.id]);
@@ -309,7 +321,11 @@ export function ProductSelector({
         {isOpen && filteredProducts.length > 0 && (
           <div
             ref={listRef}
-            className="absolute z-50 w-full mt-1 bg-popover border rounded-lg shadow-lg max-h-72 overflow-auto"
+            style={{ maxHeight: dropdown.maxHeight }}
+            className={cn(
+              "absolute z-50 w-full bg-popover border rounded-lg shadow-lg overflow-auto",
+              dropdown.placement === 'above' ? "bottom-full mb-1" : "mt-1"
+            )}
           >
             {groupedProducts.map((group) => (
               <div key={group.type}>
@@ -382,7 +398,12 @@ export function ProductSelector({
 
         {/* No results */}
         {isOpen && searchQuery.length >= 2 && filteredProducts.length === 0 && (
-          <div className="absolute z-50 w-full mt-1 bg-popover border rounded-lg shadow-lg p-4 text-center text-muted-foreground space-y-3">
+          <div
+            className={cn(
+              "absolute z-50 w-full bg-popover border rounded-lg shadow-lg p-4 text-center text-muted-foreground space-y-3",
+              dropdown.placement === 'above' ? "bottom-full mb-1" : "mt-1"
+            )}
+          >
             <p>No products found for &ldquo;{searchQuery}&rdquo;</p>
             {onQuickAddBillOnly && (
               <Button
