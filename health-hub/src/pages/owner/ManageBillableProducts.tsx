@@ -8,6 +8,7 @@ import {
   CheckCircle2, AlertCircle, Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { LoadingState } from '@/components/ui/loading-state';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
@@ -501,7 +502,7 @@ export default function ManageBillableProducts() {
 
       {/* Table */}
       {loading ? (
-        <div className="py-8 text-center text-muted-foreground">Loading...</div>
+        <LoadingState />
       ) : products.length === 0 ? (
         <div className="py-8 text-center text-muted-foreground">No products found</div>
       ) : (
