@@ -114,7 +114,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const SAMPLE_COLORS: Record<string, string> = {
-  blood: 'bg-red-500',
+  blood: 'bg-destructive/100',
   serum: 'bg-amber-500',
   urine: 'bg-yellow-400',
   plasma: 'bg-orange-400',
@@ -851,7 +851,7 @@ export default function ManageClinicalDefinitions() {
                         <Button size="sm" variant="ghost" onClick={() => handleViewImpact(def)} title="View Impact" className="h-7 px-2 gap-1 text-xs">
                           <Eye className="h-3.5 w-3.5" /> Impact
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(def)} title="Delete definition" className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-red-50">
+                        <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(def)} title="Delete definition" className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10">
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                         {statusActions(def).map(a => (
@@ -1020,11 +1020,11 @@ export default function ManageClinicalDefinitions() {
                       <>
                         <div className="space-y-1.5">
                           <Label className="text-destructive">Critical Low</Label>
-                          <Input type="number" value={formGeneralCriticalMin} onChange={e => setFormGeneralCriticalMin(e.target.value)} placeholder="e.g., 7" className="border-red-200 focus:border-red-400" />
+                          <Input type="number" value={formGeneralCriticalMin} onChange={e => setFormGeneralCriticalMin(e.target.value)} placeholder="e.g., 7" className="border-destructive/30 focus:border-red-400" />
                         </div>
                         <div className="space-y-1.5">
                           <Label className="text-destructive">Critical High</Label>
-                          <Input type="number" value={formGeneralCriticalMax} onChange={e => setFormGeneralCriticalMax(e.target.value)} placeholder="e.g., 20" className="border-red-200 focus:border-red-400" />
+                          <Input type="number" value={formGeneralCriticalMax} onChange={e => setFormGeneralCriticalMax(e.target.value)} placeholder="e.g., 20" className="border-destructive/30 focus:border-red-400" />
                         </div>
                       </>
                     )}
@@ -1198,8 +1198,8 @@ export default function ManageClinicalDefinitions() {
                           <Input placeholder="Unit" value={r.referenceUnit ?? ''} onChange={e => updateRange(i, 'referenceUnit', e.target.value || null)} className="h-8 text-xs" />
                           {formShowCritical && (
                             <>
-                              <Input type="number" placeholder="Crit Low" value={r.criticalMin ?? ''} onChange={e => updateRange(i, 'criticalMin', e.target.value ? parseFloat(e.target.value) : null)} className="h-8 text-xs border-red-200 focus:border-red-400" />
-                              <Input type="number" placeholder="Crit High" value={r.criticalMax ?? ''} onChange={e => updateRange(i, 'criticalMax', e.target.value ? parseFloat(e.target.value) : null)} className="h-8 text-xs border-red-200 focus:border-red-400" />
+                              <Input type="number" placeholder="Crit Low" value={r.criticalMin ?? ''} onChange={e => updateRange(i, 'criticalMin', e.target.value ? parseFloat(e.target.value) : null)} className="h-8 text-xs border-destructive/30 focus:border-red-400" />
+                              <Input type="number" placeholder="Crit High" value={r.criticalMax ?? ''} onChange={e => updateRange(i, 'criticalMax', e.target.value ? parseFloat(e.target.value) : null)} className="h-8 text-xs border-destructive/30 focus:border-red-400" />
                             </>
                           )}
                           <Textarea placeholder="Text" value={r.referenceText ?? ''} onChange={e => updateRange(i, 'referenceText', e.target.value || null)} className="text-xs min-h-[32px] py-1.5 resize-y" rows={2} />

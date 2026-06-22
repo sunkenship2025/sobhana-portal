@@ -537,7 +537,7 @@ export default function PayoutsList() {
             label="Pending Amount"
             value={formatRupees(list.totals?.pendingAmountInPaise ?? 0)}
             icon={<IndianRupee className="h-5 w-5 text-destructive" />}
-            tint="bg-red-100"
+            tint="bg-destructive/15"
             loading={loading}
           />
           <SummaryCard

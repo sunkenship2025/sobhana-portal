@@ -1517,7 +1517,7 @@ const DiagnosticsNewVisit = () => {
                     }}
                     onKeyDown={flowGuard(guardPatientField("name"))}
                     data-focus-step={22}
-                    className={validationErrors.name ? "border-red-500" : ""}
+                    className={validationErrors.name ? "border-destructive" : ""}
                   />
                   {validationErrors.name && (
                     <p className="text-sm text-destructive">
@@ -1589,7 +1589,7 @@ const DiagnosticsNewVisit = () => {
                       }}
                       onKeyDown={flowGuard(guardPatientField("age"))}
                       data-focus-step={26}
-                      className={`flex-1 ${validationErrors.age ? "border-red-500" : ""}`}
+                      className={`flex-1 ${validationErrors.age ? "border-destructive" : ""}`}
                     />
                     <Select
                       value={newPatient.ageUnit}
@@ -1646,7 +1646,7 @@ const DiagnosticsNewVisit = () => {
 
               {/* Phone validation error */}
               {validationErrors.phone && (
-                <div className="text-sm text-destructive bg-red-50 border border-red-200 rounded-md p-3">
+                <div className="text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-md p-3">
                   <strong>Phone:</strong> {validationErrors.phone}
                 </div>
               )}

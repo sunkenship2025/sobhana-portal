@@ -262,7 +262,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
                     setValidationErrors({ ...validationErrors, name: undefined });
                   }
                 }}
-                className={validationErrors.name ? 'border-red-500' : ''}
+                className={validationErrors.name ? 'border-destructive' : ''}
                 required
               />
               {validationErrors.name && (
@@ -289,7 +289,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
                         setValidationErrors({ ...validationErrors, age: undefined });
                       }
                     }}
-                    className={`flex-1 ${validationErrors.age ? 'border-red-500' : ''}`}
+                    className={`flex-1 ${validationErrors.age ? 'border-destructive' : ''}`}
                     required
                   />
                   <Select
@@ -324,7 +324,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
                     }
                   }}
                 >
-                  <SelectTrigger id="gender" className={validationErrors.gender ? 'border-red-500' : ''}>
+                  <SelectTrigger id="gender" className={validationErrors.gender ? 'border-destructive' : ''}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -353,7 +353,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
                     setValidationErrors({ ...validationErrors, phone: undefined });
                   }
                 }}
-                className={validationErrors.phone ? 'border-red-500' : ''}
+                className={validationErrors.phone ? 'border-destructive' : ''}
                 placeholder="10-digit mobile number"
                 required
               />
@@ -375,7 +375,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
                     setValidationErrors({ ...validationErrors, email: undefined });
                   }
                 }}
-                className={validationErrors.email ? 'border-red-500' : ''}
+                className={validationErrors.email ? 'border-destructive' : ''}
                 placeholder="patient@example.com"
               />
               {validationErrors.email && (
@@ -395,7 +395,7 @@ export function PatientEditDialog({ patient, token, onSuccess }: PatientEditDial
                     setValidationErrors({ ...validationErrors, address: undefined });
                   }
                 }}
-                className={validationErrors.address ? 'border-red-500' : ''}
+                className={validationErrors.address ? 'border-destructive' : ''}
                 rows={2}
                 placeholder="Patient address"
               />

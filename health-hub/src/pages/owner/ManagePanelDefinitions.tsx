@@ -916,7 +916,7 @@ export default function ManagePanelDefinitions() {
                       <Button size="sm" variant="ghost" onClick={() => handlePreview(panel)} title="Preview panel structure" className="h-7 px-2 gap-1 text-xs">
                         <Eye className="h-3.5 w-3.5" /> Preview
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(panel)} title="Delete panel" className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-red-50">
+                      <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(panel)} title="Delete panel" className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10">
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                       <Switch

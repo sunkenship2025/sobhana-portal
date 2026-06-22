@@ -566,7 +566,7 @@ export default function ManageBillableProducts() {
                       <Button size="sm" variant="ghost" onClick={() => openPricing(product)} title="Branch Pricing" className="h-7 w-7 p-0">
                         <IndianRupee className="h-3.5 w-3.5" />
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(product)} title="Delete product" className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-red-50">
+                      <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(product)} title="Delete product" className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10">
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                       <Switch

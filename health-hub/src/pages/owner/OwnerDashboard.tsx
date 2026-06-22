@@ -203,7 +203,7 @@ function getSignalMeta(status: SignalStatus) {
         label: 'Below Expected',
         icon: ArrowDownRight,
         className:
-          'border-red-200 bg-red-50 text-destructive dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300',
+          'border-destructive/30 bg-destructive/10 text-destructive dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300',
       };
     case 'ABOVE_EXPECTED':
       return {
@@ -986,7 +986,7 @@ const OwnerDashboard = () => {
                         className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-card px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
                       >
                         <div className="flex items-start gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-red-50 text-sm font-semibold text-destructive dark:bg-red-950/40 dark:text-red-300">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-destructive/10 text-sm font-semibold text-destructive dark:bg-red-950/40 dark:text-red-300">
                             {issue.rank}
                           </div>
                           <div>
