@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAuthStore } from '@/store/authStore';
+import { useDoctorLookup } from '@/hooks/use-doctor-lookup';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, X, Check, AlertTriangle, Link as LinkIcon } from 'lucide-react';
 import {
@@ -30,7 +31,9 @@ import {
 
 const ManageDoctors = () => {
   const { token } = useAuthStore();
-  
+  const { lookupDoctorByPhone, getClinicDoctors, invalidateDoctorLookups } =
+    useDoctorLookup();
+
   const [referralDoctors, setReferralDoctors] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -72,22 +75,14 @@ const ManageDoctors = () => {
 
   const checkExistingDoctor = async (phone: string) => {
     if (phone.length >= 10 && token) {
-      try {
-        const res = await fetch(`${API_BASE}/doctors/search-by-contact?phone=${phone}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const data = await res.json();
-        
-        if (data.clinicDoctor) {
-          setExistingDoctor({ type: 'clinic', doctor: data.clinicDoctor });
-        } else if (data.referralDoctor && !editingId) {
-          toast.error('This phone number is already registered as a referral doctor');
-          setExistingDoctor({ type: 'referral', doctor: data.referralDoctor });
-        } else {
-          setExistingDoctor(null);
-        }
-      } catch (err) {
-        console.error('Error checking doctor:', err);
+      const data = await lookupDoctorByPhone(phone);
+      if (data.clinicDoctor) {
+        setExistingDoctor({ type: 'clinic', doctor: data.clinicDoctor });
+      } else if (data.referralDoctor && !editingId) {
+        toast.error('This phone number is already registered as a referral doctor');
+        setExistingDoctor({ type: 'referral', doctor: data.referralDoctor });
+      } else {
+        setExistingDoctor(null);
       }
     } else {
       setExistingDoctor(null);
@@ -96,36 +91,12 @@ const ManageDoctors = () => {
 
   const checkExistingDoctorByName = async (name: string) => {
     if (name.length >= 3 && token && !editingId) {
-      try {
-        console.log('Searching for clinic doctor by name:', name);
-        // Search clinic doctors by name
-        const res = await fetch(`${API_BASE}/clinic-doctors`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        
-        if (!res.ok) {
-          console.error('Failed to fetch clinic doctors:', res.status);
-          return;
-        }
-        
-        const clinicDoctors = await res.json();
-        console.log('Clinic doctors found:', clinicDoctors.length);
-        
-        const match = clinicDoctors.find((doc: any) => 
-          doc.name.toLowerCase().includes(name.toLowerCase())
-        );
-        
-        if (match) {
-          console.log('Match found:', match);
-          setExistingDoctor({ type: 'clinic', doctor: match });
-        } else {
-          console.log('No match found');
-          setExistingDoctor(null);
-        }
-      } catch (err) {
-        console.error('Error searching doctor by name:', err);
-        setExistingDoctor(null);
-      }
+      // Cached clinic-doctor list (fetched once, not per keystroke), matched locally.
+      const clinicDoctors = await getClinicDoctors();
+      const match = clinicDoctors.find((doc: any) =>
+        doc.name.toLowerCase().includes(name.toLowerCase())
+      );
+      setExistingDoctor(match ? { type: 'clinic', doctor: match } : null);
     } else {
       if (name.length < 3) {
         setExistingDoctor(null);
@@ -236,6 +207,7 @@ const ManageDoctors = () => {
       
       // Refresh the list
       await fetchReferralDoctors();
+      invalidateDoctorLookups();
       resetForm();
     } catch (err) {
       console.error('Error saving doctor:', err);
@@ -273,6 +245,7 @@ const ManageDoctors = () => {
 
         toast.success('Doctor deleted');
         await fetchReferralDoctors();
+        invalidateDoctorLookups();
       } catch (err) {
         console.error('Error deleting doctor:', err);
         toast.error('Failed to delete doctor');

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAuthStore } from '@/store/authStore';
+import { useDoctorLookup } from '@/hooks/use-doctor-lookup';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, X, Check, AlertTriangle, Link as LinkIcon } from 'lucide-react';
 import { formatReferralPayout } from '@/lib/referralPayouts';
@@ -31,6 +32,8 @@ import {
 
 const ManageClinicDoctors = () => {
   const { token } = useAuthStore();
+  const { lookupDoctorByPhone, getReferralDoctors, invalidateDoctorLookups } =
+    useDoctorLookup();
 
   const [clinicDoctors, setClinicDoctors] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,22 +78,14 @@ const ManageClinicDoctors = () => {
 
   const checkExistingDoctor = async (phone: string) => {
     if (phone.length >= 10 && token) {
-      try {
-        const res = await fetch(`${API_BASE}/doctors/search-by-contact?phone=${phone}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const data = await res.json();
-        
-        if (data.referralDoctor) {
-          setExistingDoctor({ type: 'referral', doctor: data.referralDoctor });
-        } else if (data.clinicDoctor && !editingId) {
-          toast.error('This phone number is already registered as a clinic doctor');
-          setExistingDoctor({ type: 'clinic', doctor: data.clinicDoctor });
-        } else {
-          setExistingDoctor(null);
-        }
-      } catch (err) {
-        console.error('Error checking doctor:', err);
+      const data = await lookupDoctorByPhone(phone);
+      if (data.referralDoctor) {
+        setExistingDoctor({ type: 'referral', doctor: data.referralDoctor });
+      } else if (data.clinicDoctor && !editingId) {
+        toast.error('This phone number is already registered as a clinic doctor');
+        setExistingDoctor({ type: 'clinic', doctor: data.clinicDoctor });
+      } else {
+        setExistingDoctor(null);
       }
     } else {
       setExistingDoctor(null);
@@ -99,25 +94,12 @@ const ManageClinicDoctors = () => {
 
   const checkExistingDoctorByName = async (name: string) => {
     if (name.length >= 3 && token) {
-      try {
-        // Search referral doctors by name
-        const res = await fetch(`${API_BASE}/referral-doctors`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const referralDoctors = await res.json();
-        
-        const match = referralDoctors.find((doc: any) => 
-          doc.name.toLowerCase().includes(name.toLowerCase())
-        );
-        
-        if (match) {
-          setExistingDoctor({ type: 'referral', doctor: match });
-        } else {
-          setExistingDoctor(null);
-        }
-      } catch (err) {
-        console.error('Error searching doctor by name:', err);
-      }
+      // Cached referral-doctor list (fetched once, not per keystroke), matched locally.
+      const referralDoctors = await getReferralDoctors();
+      const match = referralDoctors.find((doc: any) =>
+        doc.name.toLowerCase().includes(name.toLowerCase())
+      );
+      setExistingDoctor(match ? { type: 'referral', doctor: match } : null);
     } else {
       setExistingDoctor(null);
     }
@@ -224,6 +206,7 @@ const ManageClinicDoctors = () => {
       
       // Refresh the list
       await fetchClinicDoctors();
+      invalidateDoctorLookups();
       resetForm();
     } catch (err) {
       console.error('Error saving doctor:', err);
@@ -264,6 +247,7 @@ const ManageClinicDoctors = () => {
 
         toast.success('Doctor deleted');
         await fetchClinicDoctors();
+        invalidateDoctorLookups();
       } catch (err) {
         console.error('Error deleting doctor:', err);
         toast.error('Failed to delete doctor');

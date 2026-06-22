@@ -17,6 +17,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAuthStore } from '@/store/authStore';
+import { useDoctorLookup } from '@/hooks/use-doctor-lookup';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import {
@@ -86,6 +87,12 @@ const EMPTY_REFERRAL_FORM = {
 
 export default function ManageDoctorsAndReferrals() {
   const { token } = useAuthStore();
+  const {
+    lookupDoctorByPhone,
+    getClinicDoctors,
+    getReferralDoctors,
+    invalidateDoctorLookups,
+  } = useDoctorLookup();
   const navigate = useNavigate();
   const goToPayouts = (doctorId: string, doctorType: 'REFERRAL' | 'CLINIC' | 'DIAGNOSTIC_CENTER') => {
     navigate(`/owner/payouts?doctorId=${doctorId}&doctorType=${doctorType}`);
@@ -177,20 +184,15 @@ export default function ManageDoctorsAndReferrals() {
 
   const refCheckPhone = async (phone: string) => {
     if (phone.length >= 10 && token) {
-      try {
-        const res = await fetch(`${API_BASE}/doctors/search-by-contact?phone=${phone}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        if (data.clinicDoctor) {
-          setRefExistingDoctor({ type: 'clinic', doctor: data.clinicDoctor });
-        } else if (data.referralDoctor && !refEditingId) {
-          toast.error('This phone number is already registered as a referral doctor');
-          setRefExistingDoctor({ type: 'referral', doctor: data.referralDoctor });
-        } else {
-          setRefExistingDoctor(null);
-        }
-      } catch { setRefExistingDoctor(null); }
+      const data = await lookupDoctorByPhone(phone);
+      if (data.clinicDoctor) {
+        setRefExistingDoctor({ type: 'clinic', doctor: data.clinicDoctor });
+      } else if (data.referralDoctor && !refEditingId) {
+        toast.error('This phone number is already registered as a referral doctor');
+        setRefExistingDoctor({ type: 'referral', doctor: data.referralDoctor });
+      } else {
+        setRefExistingDoctor(null);
+      }
     } else {
       setRefExistingDoctor(null);
     }
@@ -198,15 +200,10 @@ export default function ManageDoctorsAndReferrals() {
 
   const refCheckName = async (name: string) => {
     if (name.length >= 3 && token && !refEditingId) {
-      try {
-        const res = await fetch(`${API_BASE}/clinic-doctors`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) return;
-        const list = await res.json();
-        const match = list.find((d: any) => d.name.toLowerCase().includes(name.toLowerCase()));
-        setRefExistingDoctor(match ? { type: 'clinic', doctor: match } : null);
-      } catch { setRefExistingDoctor(null); }
+      // Cached clinic-doctor list (fetched once, not per keystroke), matched locally.
+      const list = await getClinicDoctors();
+      const match = list.find((d: any) => d.name.toLowerCase().includes(name.toLowerCase()));
+      setRefExistingDoctor(match ? { type: 'clinic', doctor: match } : null);
     } else if (name.length < 3) {
       setRefExistingDoctor(null);
     }
@@ -339,6 +336,7 @@ export default function ManageDoctorsAndReferrals() {
         toast.success('Doctor added');
       }
       await fetchReferralDoctors();
+      invalidateDoctorLookups();
       refResetForm();
     } catch { toast.error('Failed to save doctor'); }
     finally { setRefSubmitting(false); }
@@ -369,6 +367,7 @@ export default function ManageDoctorsAndReferrals() {
       if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed'); return; }
       toast.success('Doctor deleted');
       await fetchReferralDoctors();
+      invalidateDoctorLookups();
     } catch { toast.error('Failed to delete'); }
     finally { setRefDeleting(false); }
     setRefDeleteId(null);
@@ -396,20 +395,15 @@ export default function ManageDoctorsAndReferrals() {
 
   const clinicCheckPhone = async (phone: string) => {
     if (phone.length >= 10 && token) {
-      try {
-        const res = await fetch(`${API_BASE}/doctors/search-by-contact?phone=${phone}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        if (data.referralDoctor) {
-          setClinicExistingDoctor({ type: 'referral', doctor: data.referralDoctor });
-        } else if (data.clinicDoctor && !clinicEditingId) {
-          toast.error('Phone already registered as clinic doctor');
-          setClinicExistingDoctor({ type: 'clinic', doctor: data.clinicDoctor });
-        } else {
-          setClinicExistingDoctor(null);
-        }
-      } catch { setClinicExistingDoctor(null); }
+      const data = await lookupDoctorByPhone(phone);
+      if (data.referralDoctor) {
+        setClinicExistingDoctor({ type: 'referral', doctor: data.referralDoctor });
+      } else if (data.clinicDoctor && !clinicEditingId) {
+        toast.error('Phone already registered as clinic doctor');
+        setClinicExistingDoctor({ type: 'clinic', doctor: data.clinicDoctor });
+      } else {
+        setClinicExistingDoctor(null);
+      }
     } else {
       setClinicExistingDoctor(null);
     }
@@ -417,14 +411,10 @@ export default function ManageDoctorsAndReferrals() {
 
   const clinicCheckName = async (name: string) => {
     if (name.length >= 3 && token) {
-      try {
-        const res = await fetch(`${API_BASE}/referral-doctors`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const list = await res.json();
-        const match = list.find((d: any) => d.name.toLowerCase().includes(name.toLowerCase()));
-        setClinicExistingDoctor(match ? { type: 'referral', doctor: match } : null);
-      } catch { setClinicExistingDoctor(null); }
+      // Cached referral-doctor list (fetched once, not per keystroke), matched locally.
+      const list = await getReferralDoctors();
+      const match = list.find((d: any) => d.name.toLowerCase().includes(name.toLowerCase()));
+      setClinicExistingDoctor(match ? { type: 'referral', doctor: match } : null);
     } else {
       setClinicExistingDoctor(null);
     }
@@ -484,6 +474,7 @@ export default function ManageDoctorsAndReferrals() {
         toast.success('Doctor added');
       }
       await fetchClinicDoctors();
+      invalidateDoctorLookups();
       clinicResetForm();
     } catch { toast.error('Failed to save doctor'); }
     finally { setClinicSubmitting(false); }
@@ -513,6 +504,7 @@ export default function ManageDoctorsAndReferrals() {
       if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed'); return; }
       toast.success('Doctor deleted');
       await fetchClinicDoctors();
+      invalidateDoctorLookups();
     } catch { toast.error('Failed to delete'); }
     finally { setClinicDeleting(false); }
     setClinicDeleteId(null);
