@@ -3,6 +3,7 @@ import { X, Search, Plus, Package, FlaskConical, Layers, FileUp } from 'lucide-r
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -106,10 +107,6 @@ export function ProductSelector({
   const [searchQuery, setSearchQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
-  // How tall the results panel may be — capped to the room below the input so it
-  // never spills past the viewport. We also nudge the page up on open to make room.
-  const [maxHeight, setMaxHeight] = useState(288);
-  const positionedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -194,34 +191,6 @@ export function ProductSelector({
     }
   }, [highlightedIndex, flatList]);
 
-  // When the results panel opens, make sure it fits *below* the input (dropping
-  // it upward would float over the form above and look broken). If there isn't
-  // ~300px of room, scroll the input up to create it, then cap the panel to
-  // whatever space remains. Runs once per open, not per keystroke.
-  useEffect(() => {
-    if (!isOpen) {
-      positionedRef.current = false;
-      return;
-    }
-    if (filteredProducts.length === 0 || positionedRef.current) return;
-    positionedRef.current = true;
-
-    const el = inputRef.current;
-    if (!el) return;
-    const vh = window.innerHeight || document.documentElement.clientHeight;
-    const gap = 8;
-    const roomBelow = () =>
-      Math.min(288, Math.max(0, vh - el.getBoundingClientRect().bottom - gap));
-
-    if (vh - el.getBoundingClientRect().bottom - gap < 300) {
-      // Not enough room — pull the input up, then measure the new space.
-      el.scrollIntoView({ block: 'center', behavior: 'auto' });
-      requestAnimationFrame(() => setMaxHeight(roomBelow()));
-    } else {
-      setMaxHeight(roomBelow());
-    }
-  }, [isOpen, filteredProducts.length]);
-
   const handleAdd = (product: ProductForSelector) => {
     onSelectionChange([...selectedProductIds, product.id]);
     setSearchQuery('');
@@ -288,10 +257,16 @@ export function ProductSelector({
   return (
     <div className="space-y-3">
       {/* Search Input */}
-      <div className="relative">
+      <Popover
+        open={isOpen && (filteredProducts.length > 0 || searchQuery.length >= 2)}
+        onOpenChange={(open) => {
+          if (!open) setIsOpen(false);
+        }}
+      >
         <div className="flex flex-col gap-2 sm:flex-row">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <PopoverAnchor asChild>
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               ref={inputRef}
               type="text"
@@ -308,7 +283,8 @@ export function ProductSelector({
               disabled={disabled}
               data-focus-step={focusStep}
             />
-          </div>
+            </div>
+          </PopoverAnchor>
 
           {onQuickAddBillOnly && (
             <Button
@@ -324,13 +300,18 @@ export function ProductSelector({
           )}
         </div>
 
-        {/* Dropdown */}
-        {isOpen && filteredProducts.length > 0 && (
-          <div
-            ref={listRef}
-            style={{ maxHeight }}
-            className="absolute z-50 w-full mt-1 bg-popover border rounded-lg shadow-lg overflow-auto"
-          >
+        <PopoverContent
+          align="start"
+          sideOffset={4}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+          // Keep focus on the search input when clicking non-row areas (group
+          // headers, padding) so the blur-close timer doesn't fire mid-interaction.
+          onMouseDown={(e) => e.preventDefault()}
+          className="w-[var(--radix-popover-trigger-width)] max-h-[min(320px,var(--radix-popover-content-available-height))] overflow-auto p-0"
+        >
+          {filteredProducts.length > 0 ? (
+            <div ref={listRef}>
             {groupedProducts.map((group) => (
               <div key={group.type}>
                 <div className="px-4 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50 sticky top-0 flex items-center gap-1.5">
@@ -397,30 +378,28 @@ export function ProductSelector({
                 })}
               </div>
             ))}
-          </div>
-        )}
-
-        {/* No results */}
-        {isOpen && searchQuery.length >= 2 && filteredProducts.length === 0 && (
-          <div className="absolute z-50 w-full mt-1 bg-popover border rounded-lg shadow-lg p-4 text-center text-muted-foreground space-y-3">
-            <p>No products found for &ldquo;{searchQuery}&rdquo;</p>
-            {onQuickAddBillOnly && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  handleQuickAdd();
-                }}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Add as Bill-Only Item
-              </Button>
-            )}
-          </div>
-        )}
-      </div>
+            </div>
+          ) : (
+            <div className="p-4 text-center text-muted-foreground space-y-3">
+              <p>No products found for &ldquo;{searchQuery}&rdquo;</p>
+              {onQuickAddBillOnly && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    handleQuickAdd();
+                  }}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add as Bill-Only Item
+                </Button>
+              )}
+            </div>
+          )}
+        </PopoverContent>
+      </Popover>
 
       {/* Selected Products as Chips */}
       {selectedProducts.length > 0 && (

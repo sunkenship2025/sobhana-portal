@@ -1275,20 +1275,26 @@ const DiagnosticsNewVisit = () => {
   return (
     <AppLayout context="diagnostics">
       {ConfirmDialog}
-      <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
-        <div>
-          <h1 className="text-2xl font-bold">New Diagnostic Visit</h1>
-          <p className="text-muted-foreground">
-            Register a patient for lab tests and generate a bill.
-          </p>
+      <div className="max-w-[760px] mx-auto space-y-4 pb-24 animate-fade-in">
+        <div className="flex items-baseline justify-between gap-4">
+          <h1 className="text-lg font-semibold">New Diagnostic Visit</h1>
+          {selectedPatient && (
+            <span className="truncate text-sm text-muted-foreground">
+              {formatPatientName(selectedPatient.name, selectedPatient.title)}
+              {selectedPatient.age
+                ? ` · ${selectedPatient.ageDisplay || selectedPatient.age + "y"}`
+                : ""}
+              {selectedPatient.gender ? ` · ${selectedPatient.gender}` : ""}
+            </span>
+          )}
         </div>
 
         {/* Patient Lookup */}
         <Card>
-          <CardHeader>
-            <CardTitle>Patient Lookup</CardTitle>
+          <CardHeader className="px-5 pt-4 pb-0">
+            <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Patient Lookup</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="px-5 pb-5 pt-3 space-y-3">
             <div>
               <div className="space-y-2">
                 <Label htmlFor="phone">Phone Number *</Label>
@@ -1342,10 +1348,10 @@ const DiagnosticsNewVisit = () => {
         {/* Matching Patients */}
         {(matchingPatients.length > 0 || phone.length === 10) && (
           <Card>
-            <CardHeader>
-              <CardTitle>Matching Patients</CardTitle>
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Matching Patients</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="px-5 pb-5 pt-3 space-y-3">
               {/* Keyboard-navigable patient list: Arrow Up/Down to move, Enter to select */}
               <div
                 ref={patientListRef}
@@ -1459,10 +1465,10 @@ const DiagnosticsNewVisit = () => {
         {/* New Patient Form */}
         {showNewPatientForm && (
           <Card>
-            <CardHeader>
-              <CardTitle>New Patient</CardTitle>
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">New Patient</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="px-5 pb-5 pt-3 space-y-3">
               {/* Row 1: Title + Name */}
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
@@ -1673,10 +1679,10 @@ const DiagnosticsNewVisit = () => {
         {/* Select Tests */}
         {(selectedPatient || showNewPatientForm) && (
           <Card>
-            <CardHeader>
-              <CardTitle>Select Tests</CardTitle>
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Select Tests</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-5 pb-5 pt-3">
               <div ref={testSelectorRef}>
               <ProductSelector
                 products={products}
@@ -1730,10 +1736,10 @@ const DiagnosticsNewVisit = () => {
         {/* Billing */}
         {selectedProducts.length > 0 && (
           <Card>
-            <CardHeader>
-              <CardTitle>Billing</CardTitle>
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Billing</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="px-5 pb-5 pt-3 space-y-3">
               {/* Referral Doctor */}
               <div className="space-y-3">
                 <Label>Referral Doctor (optional)</Label>
@@ -2451,18 +2457,52 @@ const DiagnosticsNewVisit = () => {
                   </Label>
                 </div>
               )}
-
-              <Button
-                ref={submitButtonRef}
-                className="w-full"
-                size="lg"
-                onClick={openConfirmBill}
-                disabled={isSubmitting}
-              >
-                Review & Generate Bill
-              </Button>
             </CardContent>
           </Card>
+        )}
+
+        {/* Sticky bill summary + action — appears with the bill, pins to the
+            bottom (the Billing card makes the page taller than the viewport). */}
+        {selectedProducts.length > 0 && (
+          <div className="sticky bottom-0 -mx-4 mt-4 border-t bg-background/95 px-4 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6 print:hidden">
+            <div className="mx-auto flex max-w-[760px] flex-wrap items-center gap-x-5 gap-y-1">
+            <div className="flex items-center gap-x-5 text-sm tabular-nums">
+              <span className="text-muted-foreground">
+                Tests{" "}
+                <b className="font-semibold text-foreground">
+                  {selectedProducts.length}
+                </b>
+              </span>
+              <span className="text-muted-foreground/40">·</span>
+              <span className="text-muted-foreground">
+                Total{" "}
+                <b className="font-semibold text-foreground">
+                  {formatMoney(netPayable)}
+                </b>
+              </span>
+              {dueAmount > 0 && (
+                <>
+                  <span className="text-muted-foreground/40">·</span>
+                  <span className="text-muted-foreground">
+                    Due{" "}
+                    <b className="font-semibold text-amber-700">
+                      {formatMoney(dueAmount)}
+                    </b>
+                  </span>
+                </>
+              )}
+            </div>
+            <Button
+              ref={submitButtonRef}
+              size="lg"
+              className="ml-auto min-w-[200px]"
+              onClick={openConfirmBill}
+              disabled={isSubmitting || selectedProducts.length === 0}
+            >
+              Generate Bill
+            </Button>
+          </div>
+        </div>
         )}
       </div>
 
