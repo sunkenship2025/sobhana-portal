@@ -296,26 +296,44 @@ const ClinicNewVisit = () => {
     };
   }, [selectedPatient?.id, selectedDoctorId, token, activeBranch]);
 
+  // Shared lookup: returns the matching patients (also used by the phone Enter
+  // handler so it can branch on a FRESH result instead of stale state).
+  const runPatientSearch = async (value: string): Promise<Patient[]> => {
+    if (value.length !== 10 || !token || !activeBranch) return [];
+    try {
+      const res = await fetch(`${API_BASE}/patients/search?phone=${value}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "X-Branch-Id": activeBranch.id,
+        },
+      });
+      if (res.ok) {
+        const results = await res.json();
+        return results.map((result: any) => result.patient);
+      }
+    } catch (error) {
+      console.error("Search failed:", error);
+    }
+    return [];
+  };
+
   const handlePhoneChange = async (value: string) => {
     setPhone(value);
-    if (value.length === 10 && token && activeBranch) {
-      try {
-        const res = await fetch(`${API_BASE}/patients/search?phone=${value}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "X-Branch-Id": activeBranch.id,
-          },
-        });
-        if (res.ok) {
-          const results = await res.json();
-          const patients = results.map((result: any) => result.patient);
-          setMatchingPatients(patients);
-        }
-      } catch (error) {
-        console.error("Search failed:", error);
-      }
+    setMatchingPatients(value.length === 10 ? await runPatientSearch(value) : []);
+  };
+
+  // Phone Enter: search, then branch on the fresh result. Existing patient(s)
+  // land on the match list; a brand-new number skips straight to Title (step 21)
+  // so the operator doesn't have to press Enter twice to "Create New Patient".
+  const handlePhoneEnter = async () => {
+    if (!guardPhone()) return;
+    const patients = await runPatientSearch(phone);
+    setMatchingPatients(patients);
+    setHighlightedPatientIndex(0);
+    if (patients.length > 0) {
+      goToStep(20);
     } else {
-      setMatchingPatients([]);
+      handleCreateNewPatient();
     }
   };
 
@@ -785,7 +803,16 @@ const ClinicNewVisit = () => {
                   }
                   maxLength={10}
                   className="w-full sm:max-w-sm"
-                  onKeyDown={flowGuard(guardPhone)}
+                  onKeyDown={(e) => {
+                    if (e.repeat) return;
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handlePhoneEnter();
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      goToPrev(10);
+                    }
+                  }}
                   data-focus-step={10}
                   autoFocus
                 />

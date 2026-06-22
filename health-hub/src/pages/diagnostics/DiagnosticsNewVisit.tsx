@@ -462,7 +462,7 @@ const DiagnosticsNewVisit = () => {
   };
 
   // Search patients via API
-  const handleSearch = async () => {
+  const handleSearch = async (): Promise<PatientSearchResult[]> => {
     if (phone.length >= 10 && token && activeBranch) {
       try {
         const res = await fetch(`${API_BASE}/patients/search?phone=${phone}`, {
@@ -476,11 +476,13 @@ const DiagnosticsNewVisit = () => {
           setMatchingPatients(results);
           setSelectedPatient(null);
           setShowNewPatientForm(false);
+          return results;
         }
       } catch (error) {
         console.error("Search failed:", error);
       }
     }
+    return [];
   };
 
   const handlePhoneChange = async (value: string) => {
@@ -1282,12 +1284,17 @@ const DiagnosticsNewVisit = () => {
                       if (e.repeat || e.key !== 'Enter') return;
                       e.preventDefault();
                       if (phone.length < 10) return;
-                      // Search, then decide from the COMMITTED DOM (the patient
-                      // listbox renders once phone is 10 digits) — no stale
-                      // closure / setTimeout(300) race.
-                      await handleSearch();
-                      setHighlightedPatientIndex(0);
-                      goToStep(20);
+                      // Search, then branch on the FRESH result (handleSearch
+                      // returns the matches) — no stale closure / setTimeout race.
+                      const matches = await handleSearch();
+                      if (matches.length > 0) {
+                        // Existing patient(s): land on the match list to pick one.
+                        setHighlightedPatientIndex(0);
+                        goToStep(20);
+                      } else {
+                        // New patient: skip the (empty) list and start at Title.
+                        handleCreateNewPatient();
+                      }
                     }}
                     maxLength={10}
                     autoComplete="off"
