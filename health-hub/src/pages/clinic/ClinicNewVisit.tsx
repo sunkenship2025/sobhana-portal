@@ -838,19 +838,25 @@ const ClinicNewVisit = () => {
   return (
     <AppLayout context="clinic" subContext="Reception">
       {ConfirmDialog}
-      <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
-        <div>
-          <h1 className="text-2xl font-bold">New Clinic Visit</h1>
-          <p className="text-muted-foreground">
-            Register a clinic visit and generate a bill or revisit slip.
-          </p>
+      <div className="max-w-[760px] mx-auto space-y-4 pb-24 animate-fade-in">
+        <div className="flex items-baseline justify-between gap-4">
+          <h1 className="text-lg font-semibold">New Clinic Visit</h1>
+          {selectedPatient && (
+            <span className="truncate text-sm text-muted-foreground">
+              {formatPatientName(selectedPatient.name, selectedPatient.title)}
+              {selectedPatient.age
+                ? ` · ${selectedPatient.ageDisplay || selectedPatient.age + "y"}`
+                : ""}
+              {selectedPatient.gender ? ` · ${selectedPatient.gender}` : ""}
+            </span>
+          )}
         </div>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Patient Lookup</CardTitle>
+          <CardHeader className="px-5 pt-4 pb-0">
+            <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Patient Lookup</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="px-5 pb-5 pt-3 space-y-3">
             <div className="space-y-2">
               <Label htmlFor="phone">Phone Number *</Label>
               <div className="flex flex-col gap-2 sm:flex-row">
@@ -892,10 +898,10 @@ const ClinicNewVisit = () => {
 
         {(matchingPatients.length > 0 || phone.length === 10) && (
           <Card>
-            <CardHeader>
-              <CardTitle>Matching Patients</CardTitle>
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Matching Patients</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="px-5 pb-5 pt-3 space-y-3">
               <div
                 className="space-y-2 outline-none"
                 tabIndex={0}
@@ -984,10 +990,10 @@ const ClinicNewVisit = () => {
 
         {showNewPatientForm && (
           <Card>
-            <CardHeader>
-              <CardTitle>New Patient</CardTitle>
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">New Patient</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="px-5 pb-5 pt-3 space-y-3">
               {/* Row 1: Title + Name */}
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
@@ -1197,10 +1203,10 @@ const ClinicNewVisit = () => {
 
         {(selectedPatient || showNewPatientForm) && (
           <Card>
-            <CardHeader>
-              <CardTitle>Visit Details</CardTitle>
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Visit Details</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="px-5 pb-5 pt-3 space-y-3">
               <div className="space-y-2">
                 <Label>Visit Type *</Label>
                 <RadioGroup
@@ -1230,7 +1236,8 @@ const ClinicNewVisit = () => {
               </div>
 
               <div className="space-y-2">
-                <Select
+                <Label>Consulting Doctor *</Label>
+                <SearchableSelect
                   value={selectedDoctorId}
                   onValueChange={(id) => {
                     setSelectedDoctorId(id);
@@ -1241,31 +1248,35 @@ const ClinicNewVisit = () => {
                         String(Math.round(doc.consultationFeeInPaise / 100)),
                       );
                     }
-                    // Selecting a doctor advances to the fee field (step 60).
+                    // Doctor chosen → advance to the fee field (step 60).
                     goToStep(60);
                   }}
-                >
-                  <SelectTrigger
-                    className="max-w-sm"
-                    data-focus-step={40}
-                    onKeyDown={handleFlowKey}
-                  >
-                    <SelectValue
-                      placeholder={
-                        isLoading
-                          ? "Loading doctors..."
-                          : "Select consulting doctor"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clinicDoctors.map((doctor) => (
-                      <SelectItem key={doctor.id} value={doctor.id}>
-                        {doctor.name} — {doctor.specialty}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onAdvance={() => goToStep(60)}
+                  focusStep={40}
+                  options={clinicDoctors.map((doctor) => {
+                    const fee =
+                      doctor.consultationFeeInPaise != null
+                        ? Math.round(doctor.consultationFeeInPaise / 100)
+                        : null;
+                    return {
+                      value: doctor.id,
+                      label: doctor.name,
+                      description: [doctor.specialty, fee != null ? `₹${fee}` : null]
+                        .filter(Boolean)
+                        .join(" · "),
+                      keywords: [doctor.name, doctor.specialty]
+                        .filter(Boolean)
+                        .join(" "),
+                    };
+                  })}
+                  placeholder={
+                    isLoading ? "Loading doctors…" : "Select consulting doctor"
+                  }
+                  searchPlaceholder="Search by doctor name or specialty"
+                  emptyText="No consulting doctors found."
+                  ariaLabel="Consulting doctor"
+                  className="h-11 max-w-sm"
+                />
               </div>
 
               {visitType === "IP" && (
@@ -1288,10 +1299,10 @@ const ClinicNewVisit = () => {
 
         {(selectedPatient || showNewPatientForm) && selectedDoctorId && (
           <Card>
-            <CardHeader>
-              <CardTitle>Billing</CardTitle>
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Billing</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="px-5 pb-5 pt-3 space-y-3">
               {checkingRevisit && (
                 <p className="text-sm text-muted-foreground animate-pulse">
                   Checking revisit eligibility...
@@ -1589,19 +1600,39 @@ const ClinicNewVisit = () => {
                   )}
                 </>
               )}
+            </CardContent>
+          </Card>
+        )}
 
+        {/* Sticky bill summary + action — appears with the bill, pins to bottom */}
+        {(selectedPatient || showNewPatientForm) && selectedDoctorId && (
+          <div className="sticky bottom-0 -mx-4 mt-4 border-t bg-background/95 px-4 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6 print:hidden">
+            <div className="mx-auto flex max-w-[760px] flex-wrap items-center gap-x-5 gap-y-1">
+              <div className="flex items-center gap-x-5 text-sm tabular-nums">
+                {isRevisitSelected ? (
+                  <span className="text-muted-foreground">
+                    Revisit —{" "}
+                    <b className="font-semibold text-foreground">no bill</b>
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    Fee{" "}
+                    <b className="font-semibold text-foreground">
+                      ₹{consultationFee || 0}
+                    </b>
+                  </span>
+                )}
+              </div>
               <Button
-                className="w-full"
                 size="lg"
+                className="ml-auto min-w-[200px]"
                 onClick={openConfirmBill}
                 disabled={isSubmitting}
               >
-                {isRevisitSelected
-                  ? "Review & Register Revisit"
-                  : "Review & Generate Bill"}
+                {isRevisitSelected ? "Register Revisit" : "Generate Bill"}
               </Button>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         )}
       </div>
 
