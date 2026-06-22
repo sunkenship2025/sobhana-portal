@@ -99,7 +99,7 @@ export function BranchConfirmModal({ open, onConfirm }: BranchConfirmModalProps)
 
         <div className="py-2">
           {isLoading && activeBranches.length === 0 ? (
-            <div className="flex items-center gap-2 rounded-md border bg-gray-50 px-3 py-3 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-3 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading branches…
             </div>

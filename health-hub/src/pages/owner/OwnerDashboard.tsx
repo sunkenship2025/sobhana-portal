@@ -217,7 +217,7 @@ function getSignalMeta(status: SignalStatus) {
         label: 'Typical',
         icon: ChevronUp,
         className:
-          'border-slate-200 bg-slate-50 text-foreground dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300',
+          'border-border bg-muted text-foreground dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300',
       };
   }
 }
@@ -809,7 +809,7 @@ const OwnerDashboard = () => {
               </div>
               <Button
                 variant="secondary"
-                className="rounded-2xl bg-white text-foreground hover:bg-slate-100"
+                className="rounded-2xl bg-white text-foreground hover:bg-muted"
                 onClick={() => dashboardQuery.refetch()}
                 disabled={dashboardQuery.isFetching}
               >

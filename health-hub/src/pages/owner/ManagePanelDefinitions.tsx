@@ -100,14 +100,14 @@ interface ClinicalPanel {
 
 const LAYOUT_TYPES = [
   { value: 'STANDARD_TABLE', label: 'Standard Table – configurable test table', hint: '', color: 'bg-blue-100 text-blue-800' },
-  { value: 'TEXT_ONLY', label: 'Text Only – free text result', hint: 'Max 1 item', color: 'bg-gray-100 text-foreground' },
+  { value: 'TEXT_ONLY', label: 'Text Only – free text result', hint: 'Max 1 item', color: 'bg-muted text-foreground' },
   { value: 'IMAGING_NARRATIVE', label: 'Imaging Narrative – radiology reports', hint: '', color: 'bg-purple-100 text-purple-800' },
   { value: 'PROCEDURE_STRUCTURED', label: 'Procedure Structured – procedure reports', hint: '', color: 'bg-amber-100 text-amber-800' },
 ];
 
 function layoutBadge(layoutType: string) {
   const lt = LAYOUT_TYPES.find(l => l.value === layoutType);
-  return lt ? lt.color : 'bg-gray-100 text-foreground';
+  return lt ? lt.color : 'bg-muted text-foreground';
 }
 
 const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
@@ -904,7 +904,7 @@ export default function ManagePanelDefinitions() {
                   </TableCell>
                   <TableCell>{panel.department?.name || '—'}</TableCell>
                   <TableCell>
-                    <Badge className={panel.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-foreground'}>
+                    <Badge className={panel.isActive ? 'bg-green-100 text-green-800' : 'bg-muted text-foreground'}>
                       {panel.isActive ? 'Active' : 'Inactive'}
                     </Badge>
                   </TableCell>
@@ -1498,7 +1498,7 @@ export default function ManagePanelDefinitions() {
                           <div className="font-medium text-xs mb-1">
                             {availableDefs.find(d => d.id === formItems[0]?.testDefinitionId)?.name || 'Test Name'}
                           </div>
-                          <div className="min-h-[96px] rounded border border-dashed bg-slate-50 p-3 text-[11px] text-foreground">
+                          <div className="min-h-[96px] rounded border border-dashed bg-muted p-3 text-[11px] text-foreground">
                             {hasMeaningfulRichText(formNarrativeTemplateHtml) ? (
                               <div
                                 className="rich-text-preview"
@@ -1647,7 +1647,7 @@ export default function ManagePanelDefinitions() {
                                 <Fragment key={group || '__none'}>
                                   {group && (
                                     <tr>
-                                      <td colSpan={colCount} className="py-1 font-bold bg-gray-50 text-[10px] uppercase tracking-wide">
+                                      <td colSpan={colCount} className="py-1 font-bold bg-muted text-[10px] uppercase tracking-wide">
                                         {group}
                                       </td>
                                     </tr>
@@ -1744,7 +1744,7 @@ export default function ManagePanelDefinitions() {
                     {previewData.tests?.length ? (
                       <>
                         <div className="font-medium">{previewData.tests[0]?.name || 'Test Name'}</div>
-                        <div className="min-h-[96px] rounded border border-dashed bg-slate-50 p-3 text-foreground">
+                        <div className="min-h-[96px] rounded border border-dashed bg-muted p-3 text-foreground">
                           {hasMeaningfulRichText(previewData.panel?.narrativeTemplateHtml) ? (
                             <div
                               className="rich-text-preview"
@@ -1817,7 +1817,7 @@ export default function ManagePanelDefinitions() {
                             )}
                             {test.subGroup && (i === 0 || test.subGroup !== previewData.tests[i - 1]?.subGroup) && (
                               <tr>
-                                <td colSpan={4} className="py-1 font-bold bg-gray-50 text-[10px] uppercase tracking-wide">
+                                <td colSpan={4} className="py-1 font-bold bg-muted text-[10px] uppercase tracking-wide">
                                   {test.subGroup}
                                 </td>
                               </tr>

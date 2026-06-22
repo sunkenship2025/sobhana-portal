@@ -112,11 +112,11 @@ export function PartialReleaseSelectorDialog({
                       className={cn(
                         'flex items-start gap-3 rounded-md border px-3 py-2.5 transition-colors',
                         order.disabled
-                          ? 'border-slate-200 bg-slate-50 cursor-not-allowed opacity-70'
+                          ? 'border-border bg-muted cursor-not-allowed opacity-70'
                           : 'cursor-pointer',
                         !order.disabled && isChecked
                           ? 'border-primary/40 bg-primary/5'
-                          : !order.disabled && 'border-slate-200 bg-white hover:bg-slate-50',
+                          : !order.disabled && 'border-border bg-white hover:bg-muted',
                       )}
                     >
                       <Checkbox

@@ -110,7 +110,7 @@ const STATUS_COLORS: Record<string, string> = {
   ACTIVE: 'bg-green-100 text-green-800',
   LOCKED: 'bg-yellow-100 text-yellow-800',
   DEPRECATED: 'bg-orange-100 text-orange-800',
-  ARCHIVED: 'bg-gray-100 text-foreground',
+  ARCHIVED: 'bg-muted text-foreground',
 };
 
 const SAMPLE_COLORS: Record<string, string> = {

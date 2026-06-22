@@ -105,12 +105,12 @@ const WORKFLOW_LABELS: Record<WorkflowMode, string> = {
 
 function typeBadgeColor(productType: string) {
   const pt = PRODUCT_TYPES.find(p => p.value === productType);
-  return pt ? pt.color : 'bg-gray-100 text-foreground';
+  return pt ? pt.color : 'bg-muted text-foreground';
 }
 
 function workflowBadgeColor(workflowMode: string) {
   const wm = WORKFLOW_MODES.find((mode) => mode.value === workflowMode);
-  return wm ? wm.color : 'bg-gray-100 text-foreground';
+  return wm ? wm.color : 'bg-muted text-foreground';
 }
 
 const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
@@ -554,7 +554,7 @@ export default function ManageBillableProducts() {
                     <Badge variant="outline" className="text-xs">{product.panelCount ?? product.panels?.length ?? 0}</Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge className={product.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-foreground'}>
+                    <Badge className={product.isActive ? 'bg-green-100 text-green-800' : 'bg-muted text-foreground'}>
                       {product.isActive ? 'Active' : 'Inactive'}
                     </Badge>
                   </TableCell>
