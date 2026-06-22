@@ -2305,6 +2305,20 @@ const DiagnosticsNewVisit = () => {
                       goToStep(110);
                     }
                   }}
+                  onKeyDown={(e) => {
+                    // Terminal Enter for the whole payment group: works wherever
+                    // focus sits among the radios. SPLIT routes to the amount
+                    // inputs; CASH/ONLINE open the confirm dialog.
+                    if (e.repeat) return;
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      goToPrev(100);
+                    } else if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (paymentMode === "SPLIT") goToStep(110);
+                      else openConfirmBill();
+                    }
+                  }}
                   className="flex gap-6"
                   orientation="horizontal"
                 >
@@ -2313,7 +2327,6 @@ const DiagnosticsNewVisit = () => {
                       value="CASH"
                       id="cash"
                       data-focus-step={paymentMode === "CASH" ? 100 : undefined}
-                      onKeyDown={flowKeyOrConfirm}
                     />
                     <Label htmlFor="cash">Cash</Label>
                   </div>
@@ -2322,7 +2335,6 @@ const DiagnosticsNewVisit = () => {
                       value="ONLINE"
                       id="online"
                       data-focus-step={paymentMode === "ONLINE" ? 100 : undefined}
-                      onKeyDown={flowKeyOrConfirm}
                     />
                     <Label htmlFor="online">Online</Label>
                   </div>
@@ -2331,7 +2343,6 @@ const DiagnosticsNewVisit = () => {
                       value="SPLIT"
                       id="split"
                       data-focus-step={paymentMode === "SPLIT" ? 100 : undefined}
-                      onKeyDown={flowKeyOrConfirm}
                     />
                     <Label htmlFor="split">Split</Label>
                   </div>

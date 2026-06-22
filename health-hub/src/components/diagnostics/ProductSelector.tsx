@@ -190,6 +190,19 @@ export function ProductSelector({
     }
   }, [highlightedIndex, flatList]);
 
+  // Keep the results dropdown on-screen: when it opens with the input sitting
+  // low in the viewport, the absolutely-positioned list would spill past the
+  // bottom edge and get cut off. Scroll the input up so the list is visible.
+  useEffect(() => {
+    if (!isOpen || filteredProducts.length === 0 || !inputRef.current) return;
+    const rect = inputRef.current.getBoundingClientRect();
+    const vh = window.innerHeight || document.documentElement.clientHeight;
+    const dropdownH = 300; // matches max-h-72 + a little chrome
+    if (rect.bottom + dropdownH > vh) {
+      inputRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }, [isOpen, filteredProducts.length]);
+
   const handleAdd = (product: ProductForSelector) => {
     onSelectionChange([...selectedProductIds, product.id]);
     setSearchQuery('');

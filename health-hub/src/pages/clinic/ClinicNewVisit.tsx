@@ -1433,6 +1433,20 @@ const ClinicNewVisit = () => {
                           goToStep(110);
                         }
                       }}
+                      onKeyDown={(e) => {
+                        // Terminal Enter for the whole payment group: works
+                        // wherever focus sits among the radios. SPLIT routes to
+                        // the amount inputs; CASH/ONLINE open the confirm dialog.
+                        if (e.repeat) return;
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          goToPrev(100);
+                        } else if (e.key === "Enter") {
+                          e.preventDefault();
+                          if (paymentMode === "SPLIT") goToStep(110);
+                          else openConfirmBill();
+                        }
+                      }}
                       className="flex gap-6"
                     >
                       <div className="flex items-center space-x-2">
@@ -1440,7 +1454,6 @@ const ClinicNewVisit = () => {
                           value="CASH"
                           id="cash"
                           data-focus-step={100}
-                          onKeyDown={flowKeyOrConfirm}
                         />
                         <Label htmlFor="cash">Cash</Label>
                       </div>
@@ -1449,7 +1462,6 @@ const ClinicNewVisit = () => {
                           value="ONLINE"
                           id="online"
                           data-focus-step={100}
-                          onKeyDown={flowKeyOrConfirm}
                         />
                         <Label htmlFor="online">Online</Label>
                       </div>
@@ -1458,7 +1470,6 @@ const ClinicNewVisit = () => {
                           value="SPLIT"
                           id="split"
                           data-focus-step={100}
-                          onKeyDown={flowKeyOrConfirm}
                         />
                         <Label htmlFor="split">Split Payment</Label>
                       </div>
