@@ -106,12 +106,10 @@ export function ProductSelector({
   const [searchQuery, setSearchQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
-  // Where the results panel should open (below the input by default; flips above
-  // when the input sits too low in the viewport) and how tall it may be.
-  const [dropdown, setDropdown] = useState<{ placement: 'below' | 'above'; maxHeight: number }>({
-    placement: 'below',
-    maxHeight: 288,
-  });
+  // How tall the results panel may be — capped to the room below the input so it
+  // never spills past the viewport. We also nudge the page up on open to make room.
+  const [maxHeight, setMaxHeight] = useState(288);
+  const positionedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -196,24 +194,33 @@ export function ProductSelector({
     }
   }, [highlightedIndex, flatList]);
 
-  // Keep the results panel fully on-screen. It's absolutely positioned, so it
-  // doesn't extend the page — if the input sits low with nothing below to
-  // scroll to, a below-anchored panel would be clipped. Flip it above the input
-  // when there's more room there, and cap its height to the available space.
+  // When the results panel opens, make sure it fits *below* the input (dropping
+  // it upward would float over the form above and look broken). If there isn't
+  // ~300px of room, scroll the input up to create it, then cap the panel to
+  // whatever space remains. Runs once per open, not per keystroke.
   useEffect(() => {
-    if (!isOpen || !inputRef.current) return;
-    const rect = inputRef.current.getBoundingClientRect();
+    if (!isOpen) {
+      positionedRef.current = false;
+      return;
+    }
+    if (filteredProducts.length === 0 || positionedRef.current) return;
+    positionedRef.current = true;
+
+    const el = inputRef.current;
+    if (!el) return;
     const vh = window.innerHeight || document.documentElement.clientHeight;
     const gap = 8;
-    const spaceBelow = vh - rect.bottom - gap;
-    const spaceAbove = rect.top - gap;
-    const placeAbove = spaceBelow < 200 && spaceAbove > spaceBelow;
-    const space = placeAbove ? spaceAbove : spaceBelow;
-    setDropdown({
-      placement: placeAbove ? 'above' : 'below',
-      maxHeight: Math.max(120, Math.min(288, space)),
-    });
-  }, [isOpen, filteredProducts.length, searchQuery]);
+    const roomBelow = () =>
+      Math.min(288, Math.max(0, vh - el.getBoundingClientRect().bottom - gap));
+
+    if (vh - el.getBoundingClientRect().bottom - gap < 300) {
+      // Not enough room — pull the input up, then measure the new space.
+      el.scrollIntoView({ block: 'center', behavior: 'auto' });
+      requestAnimationFrame(() => setMaxHeight(roomBelow()));
+    } else {
+      setMaxHeight(roomBelow());
+    }
+  }, [isOpen, filteredProducts.length]);
 
   const handleAdd = (product: ProductForSelector) => {
     onSelectionChange([...selectedProductIds, product.id]);
@@ -321,11 +328,8 @@ export function ProductSelector({
         {isOpen && filteredProducts.length > 0 && (
           <div
             ref={listRef}
-            style={{ maxHeight: dropdown.maxHeight }}
-            className={cn(
-              "absolute z-50 w-full bg-popover border rounded-lg shadow-lg overflow-auto",
-              dropdown.placement === 'above' ? "bottom-full mb-1" : "mt-1"
-            )}
+            style={{ maxHeight }}
+            className="absolute z-50 w-full mt-1 bg-popover border rounded-lg shadow-lg overflow-auto"
           >
             {groupedProducts.map((group) => (
               <div key={group.type}>
@@ -398,12 +402,7 @@ export function ProductSelector({
 
         {/* No results */}
         {isOpen && searchQuery.length >= 2 && filteredProducts.length === 0 && (
-          <div
-            className={cn(
-              "absolute z-50 w-full bg-popover border rounded-lg shadow-lg p-4 text-center text-muted-foreground space-y-3",
-              dropdown.placement === 'above' ? "bottom-full mb-1" : "mt-1"
-            )}
-          >
+          <div className="absolute z-50 w-full mt-1 bg-popover border rounded-lg shadow-lg p-4 text-center text-muted-foreground space-y-3">
             <p>No products found for &ldquo;{searchQuery}&rdquo;</p>
             {onQuickAddBillOnly && (
               <Button
