@@ -27,6 +27,7 @@ import {
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { goToStep, goToNext, goToPrev, handleFlowKey } from "@/lib/focusFlow";
+import { useVisitDefaults } from "@/store/visitDefaultsStore";
 import {
   Dialog,
   DialogContent,
@@ -183,7 +184,7 @@ const ClinicNewVisit = () => {
     DEFAULT_CONSULTATION_FEE,
   );
   const [paymentMode, setPaymentMode] = useState<"CASH" | "ONLINE" | "SPLIT">(
-    "CASH",
+    () => useVisitDefaults.getState().lastClinicPaymentMode,
   );
   const [splitAmounts, setSplitAmounts] = useState({ cash: 0, online: 0 });
   const [successData, setSuccessData] = useState<{
@@ -229,8 +230,22 @@ const ClinicNewVisit = () => {
         });
 
         if (res.ok) {
-          const doctors = await res.json();
+          const doctors: ClinicDoctor[] = await res.json();
           setClinicDoctors(doctors);
+          // Pre-select a doctor so the operator doesn't pick one every visit:
+          // prefer the last-used doctor, else auto-select when there's only one.
+          const rememberedId = useVisitDefaults.getState().lastClinicDoctorId;
+          const preferred =
+            doctors.find((d) => d.id === rememberedId) ??
+            (doctors.length === 1 ? doctors[0] : null);
+          if (preferred) {
+            setSelectedDoctorId(preferred.id);
+            if (preferred.consultationFeeInPaise != null) {
+              setConsultationFee(
+                String(Math.round(preferred.consultationFeeInPaise / 100)),
+              );
+            }
+          }
         }
       } catch (error) {
         console.error("Failed to fetch doctors:", error);
@@ -331,9 +346,13 @@ const ClinicNewVisit = () => {
     const patients = await runPatientSearch(phone);
     setMatchingPatients(patients);
     setHighlightedPatientIndex(0);
-    if (patients.length > 0) {
+    if (patients.length === 1) {
+      // Exactly one match — select it and skip the list step entirely.
+      handleSelectPatient(patients[0]);
+    } else if (patients.length > 1) {
       goToStep(20);
     } else {
+      // New patient — skip the (empty) list and start at Title.
       handleCreateNewPatient();
     }
   };
@@ -399,6 +418,8 @@ const ClinicNewVisit = () => {
     setSelectedPatient(patient);
     setShowNewPatientForm(false);
     setWhatsappOptIn((patient as any).whatsappOptIn ?? true);
+    // Advance to Visit Details once that card has committed (step 30).
+    goToStep(30);
   };
 
   const resetForm = () => {
@@ -406,15 +427,26 @@ const ClinicNewVisit = () => {
     setPhone("");
     setMatchingPatients([]);
     setSelectedPatient(null);
-    setSelectedDoctorId("");
+    // Re-apply the remembered/auto-selected doctor so "Create Another Visit"
+    // doesn't drop it back to an empty picker.
+    const rememberedId = useVisitDefaults.getState().lastClinicDoctorId;
+    const preferred =
+      clinicDoctors.find((d) => d.id === rememberedId) ??
+      (clinicDoctors.length === 1 ? clinicDoctors[0] : null);
+    setSelectedDoctorId(preferred?.id ?? "");
     setHospitalWard("");
     setShowNewPatientForm(false);
-    setConsultationFee(DEFAULT_CONSULTATION_FEE);
+    setConsultationFee(
+      preferred?.consultationFeeInPaise != null
+        ? String(Math.round(preferred.consultationFeeInPaise / 100))
+        : DEFAULT_CONSULTATION_FEE,
+    );
     setRevisitContext(null);
     setSelectedRevisitMode("VISIT");
-    setPaymentMode("CASH");
+    setPaymentMode(useVisitDefaults.getState().lastClinicPaymentMode);
     setSplitAmounts({ cash: 0, online: 0 });
     setNewPatient({
+      title: "",
       name: "",
       age: "",
       ageUnit: "YEARS",
@@ -1012,7 +1044,9 @@ const ClinicNewVisit = () => {
                         <RadioGroupItem
                           value={gender}
                           id={`gender-${gender}`}
-                          data-focus-step={24}
+                          data-focus-step={
+                            TITLE_TO_GENDER[newPatient.title] ? undefined : 24
+                          }
                           onKeyDown={handleFlowKey}
                         />
                         <Label htmlFor={`gender-${gender}`}>{gender}</Label>
@@ -1058,7 +1092,7 @@ const ClinicNewVisit = () => {
                         })
                       }
                     >
-                      <SelectTrigger className="w-full sm:w-[110px]" data-focus-step={27} onKeyDown={handleFlowKey}>
+                      <SelectTrigger className="w-full sm:w-[110px]" onKeyDown={handleFlowKey}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1094,7 +1128,6 @@ const ClinicNewVisit = () => {
                         setNewPatient({ ...newPatient, dateOfBirth: dob });
                       }
                     }}
-                    data-focus-step={28}
                     onKeyDown={handleFlowKey}
                   />
                   <p className="text-xs text-gray-500">
@@ -1119,7 +1152,6 @@ const ClinicNewVisit = () => {
                       whatsappOptIn: checked === true,
                     })
                   }
-                  data-focus-step={29}
                   onKeyDown={handleFlowKey}
                 />
                 <Label
@@ -1171,7 +1203,18 @@ const ClinicNewVisit = () => {
               <div className="space-y-2">
                 <Select
                   value={selectedDoctorId}
-                  onValueChange={setSelectedDoctorId}
+                  onValueChange={(id) => {
+                    setSelectedDoctorId(id);
+                    useVisitDefaults.getState().setLastClinicDoctorId(id);
+                    const doc = clinicDoctors.find((d) => d.id === id);
+                    if (doc?.consultationFeeInPaise != null) {
+                      setConsultationFee(
+                        String(Math.round(doc.consultationFeeInPaise / 100)),
+                      );
+                    }
+                    // Selecting a doctor advances to the fee field (step 60).
+                    goToStep(60);
+                  }}
                 >
                   <SelectTrigger
                     className="max-w-sm"
@@ -1373,9 +1416,20 @@ const ClinicNewVisit = () => {
                     <RadioGroup
                       value={paymentMode}
                       onValueChange={(value) => {
-                        setPaymentMode(value as any);
-                        if (value === "SPLIT") {
-                          setSplitAmounts({ cash: consultationFee, online: 0 });
+                        const mode = value as "CASH" | "ONLINE" | "SPLIT";
+                        setPaymentMode(mode);
+                        // Remember CASH/ONLINE as the default; SPLIT is a
+                        // per-transaction choice (its amounts seed on change).
+                        if (mode !== "SPLIT") {
+                          useVisitDefaults
+                            .getState()
+                            .setLastClinicPaymentMode(mode);
+                        }
+                        if (mode === "SPLIT") {
+                          setSplitAmounts({
+                            cash: Number(consultationFee) || 0,
+                            online: 0,
+                          });
                           goToStep(110);
                         }
                       }}
@@ -1423,7 +1477,7 @@ const ClinicNewVisit = () => {
                               const cash = Number(e.target.value);
                               setSplitAmounts({
                                 cash,
-                                online: Math.max(0, consultationFee - cash),
+                                online: Math.max(0, Number(consultationFee) - cash),
                               });
                             }}
                             onKeyDown={(e) => {
@@ -1451,7 +1505,7 @@ const ClinicNewVisit = () => {
                             onChange={(e) => {
                               const online = Number(e.target.value);
                               setSplitAmounts({
-                                cash: Math.max(0, consultationFee - online),
+                                cash: Math.max(0, Number(consultationFee) - online),
                                 online,
                               });
                             }}
@@ -1483,7 +1537,6 @@ const ClinicNewVisit = () => {
                           setWhatsappOptIn(checked === true)
                         }
                         onKeyDown={flowKeyOrConfirm}
-                        data-focus-step={130}
                       />
                       <Label
                         htmlFor="existingPatientWhatsappOptIn"

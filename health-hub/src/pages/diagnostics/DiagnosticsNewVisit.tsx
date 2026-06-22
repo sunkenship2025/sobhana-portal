@@ -69,6 +69,7 @@ import {
 import { mapDiagnosticsVisitViewToReceiptData } from "@/lib/billReceiptMappers";
 import { TITLE_TO_GENDER, titleOptions, formatPatientName } from "@/lib/patientDisplay";
 import { goToStep, goToNext, goToPrev, hasNextStep, handleFlowKey } from "@/lib/focusFlow";
+import { useVisitDefaults } from "@/store/visitDefaultsStore";
 
 type DiscountMode = "NONE" | BillDiscountType;
 
@@ -105,7 +106,7 @@ const DiagnosticsNewVisit = () => {
   const [showNewPatientForm, setShowNewPatientForm] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [paymentMode, setPaymentMode] = useState<"CASH" | "ONLINE" | "SPLIT">(
-    "CASH",
+    () => useVisitDefaults.getState().lastDiagPaymentMode,
   );
   const [splitAmounts, setSplitAmounts] = useState({ cash: 0, online: 0 });
   const [discountMode, setDiscountMode] = useState<DiscountMode>("NONE");
@@ -1194,7 +1195,9 @@ const DiagnosticsNewVisit = () => {
                       setReferralOverrides({});
                       setDiagnosticCenterOverrides({});
                       setSelectedCenterId("");
-                      setPaymentMode("CASH");
+                      setPaymentMode(
+                        useVisitDefaults.getState().lastDiagPaymentMode,
+                      );
                       setSplitAmounts({ cash: 0, online: 0 });
                       setNewPatient({
                         name: "",
@@ -1287,8 +1290,11 @@ const DiagnosticsNewVisit = () => {
                       // Search, then branch on the FRESH result (handleSearch
                       // returns the matches) — no stale closure / setTimeout race.
                       const matches = await handleSearch();
-                      if (matches.length > 0) {
-                        // Existing patient(s): land on the match list to pick one.
+                      if (matches.length === 1) {
+                        // Exactly one match: select it and skip the list step.
+                        handleSelectPatient(matches[0]);
+                      } else if (matches.length > 1) {
+                        // Several matches: land on the list to pick one.
                         setHighlightedPatientIndex(0);
                         goToStep(20);
                       } else {
@@ -1530,7 +1536,9 @@ const DiagnosticsNewVisit = () => {
                         <RadioGroupItem
                           value={g}
                           id={`gender-${g}`}
-                          data-focus-step={24}
+                          data-focus-step={
+                            TITLE_TO_GENDER[newPatient.title] ? undefined : 24
+                          }
                           onKeyDown={flowGuard(guardPatientField("gender"))}
                         />
                         <Label htmlFor={`gender-${g}`}>{g}</Label>
@@ -1575,7 +1583,7 @@ const DiagnosticsNewVisit = () => {
                         })
                       }
                     >
-                      <SelectTrigger className="w-full sm:w-[110px]" data-focus-step={27} onKeyDown={handleFlowKey}>
+                      <SelectTrigger className="w-full sm:w-[110px]" onKeyDown={handleFlowKey}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1611,7 +1619,6 @@ const DiagnosticsNewVisit = () => {
                         setNewPatient({ ...newPatient, dateOfBirth: dob });
                       }
                     }}
-                    data-focus-step={28}
                     onKeyDown={handleFlowKey}
                   />
                   <p className="text-xs text-gray-500">
@@ -1638,7 +1645,6 @@ const DiagnosticsNewVisit = () => {
                       whatsappOptIn: checked === true,
                     })
                   }
-                  data-focus-step={29}
                   onKeyDown={handleFlowKey}
                 />
                 <Label
@@ -2242,7 +2248,6 @@ const DiagnosticsNewVisit = () => {
                     value={paidAmount}
                     onChange={(e) => setPaidAmount(e.target.value)}
                     onKeyDown={flowGuard(guardPaidAmount)}
-                    data-focus-step={90}
                     placeholder={`Full amount ${formatMoney(netPayable)}`}
                   />
                 </div>
@@ -2284,8 +2289,14 @@ const DiagnosticsNewVisit = () => {
                 <RadioGroup
                   value={paymentMode}
                   onValueChange={(v) => {
-                    setPaymentMode(v as any);
-                    if (v === "SPLIT") {
+                    const mode = v as "CASH" | "ONLINE" | "SPLIT";
+                    setPaymentMode(mode);
+                    // Remember CASH/ONLINE as the default; SPLIT is a
+                    // per-transaction choice (its amounts seed on change).
+                    if (mode !== "SPLIT") {
+                      useVisitDefaults.getState().setLastDiagPaymentMode(mode);
+                    }
+                    if (mode === "SPLIT") {
                       setSplitAmounts({
                         cash: Number(paidAmount || netPayable),
                         online: 0,
@@ -2408,7 +2419,6 @@ const DiagnosticsNewVisit = () => {
                       setWhatsappOptIn(checked === true)
                     }
                     onKeyDown={flowKeyOrConfirm}
-                    data-focus-step={130}
                   />
                   <Label
                     htmlFor="existingDiagWhatsappOptIn"
