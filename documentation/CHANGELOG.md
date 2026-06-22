@@ -9,6 +9,10 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 ## [Unreleased]
 
 ### Added
+- **New Visit Flow UI/UX Improvements:** Redesigned the diagnostics and clinic new visit pages with a cleaner single-column layout, improved "sticky" bottom bar, focused keyboard navigation, and portalled `Radix Popover` drop-downs to prevent collision and cut-offs.
+- **Shared UI Components:** Extracted repeated structural and state-representing elements into new shared components: `PageHeader`, `LoadingState`, and `EmptyState`.
+- **Visit Defaults Persistence:** Added `visitDefaultsStore` Zustand store to automatically persist the front-desk operator's last choices (e.g., payment mode, consulting doctor) for seamless repetitive data entry.
+- **React Query Adoption:** Integrated `@tanstack/react-query` to manage client-side fetching for Global Patient Search and doctor lookups (`useDoctorLookup`), eliminating redundant keystroke-triggered refetches and improving form responsiveness.
 - **Keyboard navigation for New Visit:** Added robust keyboard shortcuts and auto-focusing for a faster data entry experience during a new visit. Users can now navigate patient search, test selection, and payment splitting entirely via the keyboard (Enter, Arrows, Shift+Arrows) to accelerate billing.
 - **Keyboard navigation & auto-focus in Diagnostics New Visit:** Added keyboard shortcuts (`Enter` to advance, `Shift+Arrows` to navigate split payments) and automatic focus behaviors to streamline the entry of patient visits and billing without requiring a mouse.
 - **Enhanced Keyboard Navigation for Rapid Data Entry:** Added comprehensive keyboard shortcuts to the Diagnostics New Visit flow. Users can now use `Enter` to seamlessly advance focus through discount, payment, and split-amount fields. Also added `Shift+Arrow` shortcuts to quickly toggle between Cash and Online inputs when splitting payments, and improved Arrow key navigation within the matching patient list. This enables rapid, mouse-free data entry and resolves previous blocking issues during high-speed interaction.
@@ -18,6 +22,8 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 - **Bill Payment Status:** The generated bill PDFs now display the payment status (e.g. PAID, PENDING) matching the actual bill transaction state.
 
 ### Changed
+- **Owner Dashboard / Payouts Money Formatting:** Consolidated rupee formatting logic across owner dashboard and payout sections into a single `formatRupees` helper inside `src/lib/payoutFormatters.ts`.
+- **Theme Color Tokenization:** Tokenized hard-coded background, text, and border colors (destructive red, gray/slate) in owner interfaces into a single source-of-truth `TOKENS` object.
 - **Diagnostics New Visit Navigation:** Improved keyboard navigation flow and UI stability (fixed crash/event stealing bugs on Patient selection) in the Diagnostics New Visit form.
 - Default patient WhatsApp opt-in state has been toggled from disabled to enabled across diagnostic and edit patient forms.
 - The React app now silently reloads once if a user encounters a stale chunk (failed to fetch dynamically imported module) after a new deployment.
