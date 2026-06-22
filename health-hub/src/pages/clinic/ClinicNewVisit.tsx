@@ -249,6 +249,13 @@ const ClinicNewVisit = () => {
                 String(Math.round(preferred.consultationFeeInPaise / 100)),
               );
             }
+          } else {
+            // No preferred doctor in this branch — drop any selection that
+            // isn't in this branch's list so the billing/confirm never render
+            // off a stale doctor (e.g. after switching branch mid-flow).
+            setSelectedDoctorId((cur) =>
+              doctors.some((d: ClinicDoctor) => d.id === cur) ? cur : "",
+            );
           }
         }
       } catch (error) {
