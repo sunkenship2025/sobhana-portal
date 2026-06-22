@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { API_BASE } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -68,6 +69,7 @@ import {
 } from "@/components/ui/dialog";
 import { mapDiagnosticsVisitViewToReceiptData } from "@/lib/billReceiptMappers";
 import { TITLE_TO_GENDER, titleOptions, formatPatientName } from "@/lib/patientDisplay";
+import { useConfirm } from "@/hooks/use-confirm";
 import { goToStep, goToNext, goToPrev, hasNextStep, handleFlowKey } from "@/lib/focusFlow";
 import { useVisitDefaults } from "@/store/visitDefaultsStore";
 
@@ -75,6 +77,8 @@ type DiscountMode = "NONE" | BillDiscountType;
 
 const DiagnosticsNewVisit = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { confirm, ConfirmDialog } = useConfirm();
   const printRef = useRef<HTMLDivElement>(null);
   const phoneInputRef = useRef<HTMLInputElement>(null);
   const testSelectorRef = useRef<HTMLDivElement>(null);
@@ -98,7 +102,6 @@ const DiagnosticsNewVisit = () => {
   const patientListRef = useRef<HTMLDivElement>(null);
 
   const [phone, setPhone] = useState("");
-  const [billSearch, setBillSearch] = useState("");
   const [matchingPatients, setMatchingPatients] = useState<
     PatientSearchResult[]
   >([]);
@@ -462,50 +465,53 @@ const DiagnosticsNewVisit = () => {
     setShowAddProductDialog(true);
   };
 
-  // Search patients via API
-  const handleSearch = async (): Promise<PatientSearchResult[]> => {
-    if (phone.length >= 10 && token && activeBranch) {
-      try {
-        const res = await fetch(`${API_BASE}/patients/search?phone=${phone}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "X-Branch-Id": activeBranch.id,
-          },
-        });
-        if (res.ok) {
-          const results = await res.json();
-          setMatchingPatients(results);
-          setSelectedPatient(null);
-          setShowNewPatientForm(false);
-          return results;
-        }
-      } catch (error) {
-        console.error("Search failed:", error);
-      }
+  // Patient lookup goes through React Query's cache. Both the search fired while
+  // typing (on the 10th digit) and the one on Enter call this with the same
+  // queryKey, so React Query dedupes them into a single request and serves the
+  // result from cache within staleTime — pressing Enter no longer waits on a
+  // second round-trip. A failed request returns [] (and isn't cached as data).
+  const fetchPatients = async (
+    phoneValue: string,
+  ): Promise<PatientSearchResult[]> => {
+    if (phoneValue.length < 10 || !token || !activeBranch) return [];
+    try {
+      return await queryClient.fetchQuery<PatientSearchResult[]>({
+        queryKey: ["patientSearch", "diagnostic", activeBranch.id, phoneValue],
+        queryFn: async ({ signal }) => {
+          const res = await fetch(
+            `${API_BASE}/patients/search?phone=${phoneValue}`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "X-Branch-Id": activeBranch.id,
+              },
+              signal,
+            },
+          );
+          if (!res.ok) throw new Error("Patient search failed");
+          return (await res.json()) as PatientSearchResult[];
+        },
+        staleTime: 10_000,
+        retry: 1,
+      });
+    } catch (error) {
+      console.error("Search failed:", error);
+      return [];
     }
-    return [];
+  };
+
+  // Search patients via API (Search button / explicit lookup).
+  const handleSearch = async (): Promise<PatientSearchResult[]> => {
+    const results = await fetchPatients(phone);
+    setMatchingPatients(results);
+    setSelectedPatient(null);
+    setShowNewPatientForm(false);
+    return results;
   };
 
   const handlePhoneChange = async (value: string) => {
     setPhone(value);
-    if (value.length === 10 && token && activeBranch) {
-      try {
-        const res = await fetch(`${API_BASE}/patients/search?phone=${value}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "X-Branch-Id": activeBranch.id,
-          },
-        });
-        if (res.ok) {
-          const results = await res.json();
-          setMatchingPatients(results);
-        }
-      } catch (error) {
-        console.error("Search failed:", error);
-      }
-    } else {
-      setMatchingPatients([]);
-    }
+    setMatchingPatients(value.length === 10 ? await fetchPatients(value) : []);
   };
 
   const handleCreateNewPatient = () => {
@@ -735,18 +741,26 @@ const DiagnosticsNewVisit = () => {
           const duplicateInfo = JSON.parse(errorData.message);
           const existing = duplicateInfo.existingPatient;
 
-          const userConfirm = window.confirm(
-            `⚠️ Potential Duplicate Detected\n\n` +
-              `Existing Patient: ${existing.patientNumber}\n` +
-              `Name: ${formatPatientName(existing.name, existing.title)}\n` +
-              `Age: ${existing.ageDisplay || existing.age}, Gender: ${existing.gender}\n` +
-              `Phone: ${existing.phone}\n\n` +
-              `This looks like the same person. Do you want to:\n` +
-              `• Click OK to USE EXISTING patient\n` +
-              `• Click Cancel to CREATE NEW patient anyway`,
-          );
+          const choice = await confirm({
+            title: "Possible duplicate patient",
+            description: (
+              <div className="space-y-2 text-sm">
+                <p>A patient with this phone number already exists:</p>
+                <p className="font-medium text-foreground">
+                  {existing.patientNumber} · {formatPatientName(existing.name, existing.title)} · {existing.ageDisplay || `${existing.age}y`} · {existing.gender} · {existing.phone}
+                </p>
+                <p>Is this the same person?</p>
+              </div>
+            ),
+            confirmText: "Use existing patient",
+            cancelText: "Create new anyway",
+            destructiveCancel: true,
+            defaultFocus: "confirm",
+          });
 
-          if (userConfirm) {
+          if (choice === null) return; // dismissed — abort without creating anything
+
+          if (choice) {
             // Use existing patient. Carry through ageDisplay/ageUnit so the
             // bill receipt renders the smart age string instead of falling
             // back to "N/A" (the receipt prefers ageDisplay over numeric age).
@@ -1181,6 +1195,11 @@ const DiagnosticsNewVisit = () => {
                     className="w-full sm:w-auto"
                     onClick={() => {
                       setSuccessData(null);
+                      // Drop cached searches so a just-registered patient shows
+                      // up if the same number is looked up again.
+                      queryClient.invalidateQueries({
+                        queryKey: ["patientSearch"],
+                      });
                       setPhone("");
                       setMatchingPatients([]);
                       setSelectedPatient(null);
@@ -1255,6 +1274,7 @@ const DiagnosticsNewVisit = () => {
 
   return (
     <AppLayout context="diagnostics">
+      {ConfirmDialog}
       <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
         <div>
           <h1 className="text-2xl font-bold">New Diagnostic Visit</h1>
@@ -1269,7 +1289,7 @@ const DiagnosticsNewVisit = () => {
             <CardTitle>Patient Lookup</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
+            <div>
               <div className="space-y-2">
                 <Label htmlFor="phone">Phone Number *</Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
@@ -1314,15 +1334,6 @@ const DiagnosticsNewVisit = () => {
                     <Search className="h-4 w-4" />
                   </Button>
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="bill">Bill Number (optional)</Label>
-                <Input
-                  id="bill"
-                  placeholder="D-XXXXX"
-                  value={billSearch}
-                  onChange={(e) => setBillSearch(e.target.value)}
-                />
               </div>
             </div>
           </CardContent>

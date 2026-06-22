@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
   MessageCircle,
@@ -41,6 +42,7 @@ import {
   validatePatientForm,
 } from "@/lib/validation";
 import { TITLE_TO_GENDER, titleOptions, formatPatientName } from "@/lib/patientDisplay";
+import { useConfirm } from "@/hooks/use-confirm";
 import { useAuthStore } from "@/store/authStore";
 import { useBranchStore } from "@/store/branchStore";
 import { toast } from "sonner";
@@ -108,6 +110,8 @@ function buildClinicVisitView(apiVisit: any): ClinicVisitView {
 
 const ClinicNewVisit = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { confirm, ConfirmDialog } = useConfirm();
   const printRef = useRef<HTMLDivElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const { token } = useAuthStore();
@@ -312,25 +316,38 @@ const ClinicNewVisit = () => {
     };
   }, [selectedPatient?.id, selectedDoctorId, token, activeBranch]);
 
-  // Shared lookup: returns the matching patients (also used by the phone Enter
-  // handler so it can branch on a FRESH result instead of stale state).
+  // Patient lookup goes through React Query's cache. Both the search fired while
+  // typing (on the 10th digit) and the one on Enter call this with the same
+  // queryKey, so React Query dedupes them into a single request and serves the
+  // result from cache within staleTime — pressing Enter no longer waits on a
+  // second round-trip. A failed request returns [] (and isn't cached as data).
   const runPatientSearch = async (value: string): Promise<Patient[]> => {
     if (value.length !== 10 || !token || !activeBranch) return [];
     try {
-      const res = await fetch(`${API_BASE}/patients/search?phone=${value}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "X-Branch-Id": activeBranch.id,
+      return await queryClient.fetchQuery<Patient[]>({
+        queryKey: ["patientSearch", "clinic", activeBranch.id, value],
+        queryFn: async ({ signal }) => {
+          const res = await fetch(
+            `${API_BASE}/patients/search?phone=${value}`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "X-Branch-Id": activeBranch.id,
+              },
+              signal,
+            },
+          );
+          if (!res.ok) throw new Error("Patient search failed");
+          const results = await res.json();
+          return results.map((result: any) => result.patient) as Patient[];
         },
+        staleTime: 10_000,
+        retry: 1,
       });
-      if (res.ok) {
-        const results = await res.json();
-        return results.map((result: any) => result.patient);
-      }
     } catch (error) {
       console.error("Search failed:", error);
+      return [];
     }
-    return [];
   };
 
   const handlePhoneChange = async (value: string) => {
@@ -424,6 +441,9 @@ const ClinicNewVisit = () => {
 
   const resetForm = () => {
     setSuccessData(null);
+    // Drop cached searches so a just-registered patient shows up if the same
+    // number is looked up again.
+    queryClient.invalidateQueries({ queryKey: ["patientSearch"] });
     setPhone("");
     setMatchingPatients([]);
     setSelectedPatient(null);
@@ -514,18 +534,26 @@ const ClinicNewVisit = () => {
           const duplicateInfo = JSON.parse(errorData.message);
           const existing = duplicateInfo.existingPatient;
 
-          const userConfirm = window.confirm(
-            `⚠️ Potential Duplicate Detected\n\n` +
-              `Existing Patient: ${existing.patientNumber}\n` +
-              `Name: ${formatPatientName(existing.name, existing.title)}\n` +
-              `Age: ${existing.ageDisplay || existing.age}, Gender: ${existing.gender}\n` +
-              `Phone: ${existing.phone}\n\n` +
-              `This looks like the same person. Do you want to:\n` +
-              `• Click OK to USE EXISTING patient\n` +
-              `• Click Cancel to CREATE NEW patient anyway`,
-          );
+          const choice = await confirm({
+            title: "Possible duplicate patient",
+            description: (
+              <div className="space-y-2 text-sm">
+                <p>A patient with this phone number already exists:</p>
+                <p className="font-medium text-foreground">
+                  {existing.patientNumber} · {formatPatientName(existing.name, existing.title)} · {existing.ageDisplay || `${existing.age}y`} · {existing.gender} · {existing.phone}
+                </p>
+                <p>Is this the same person?</p>
+              </div>
+            ),
+            confirmText: "Use existing patient",
+            cancelText: "Create new anyway",
+            destructiveCancel: true,
+            defaultFocus: "confirm",
+          });
 
-          if (userConfirm) {
+          if (choice === null) return; // dismissed — abort without creating anything
+
+          if (choice) {
             patient = {
               id: existing.id,
               patientNumber: existing.patientNumber,
@@ -809,6 +837,7 @@ const ClinicNewVisit = () => {
 
   return (
     <AppLayout context="clinic" subContext="Reception">
+      {ConfirmDialog}
       <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
         <div>
           <h1 className="text-2xl font-bold">New Clinic Visit</h1>
