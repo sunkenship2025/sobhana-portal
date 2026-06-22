@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,28 +51,28 @@ export default function GlobalPatientSearch() {
   const navigate = useNavigate();
   const [searchType, setSearchType] = useState<'phone' | 'name'>('phone');
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<PatientSearchResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // The submitted search (set on Search / Enter) drives the query; the live
+  // input box stays separate so we only fetch on submit, not per keystroke.
+  const [submitted, setSubmitted] = useState<{
+    type: 'phone' | 'name';
+    q: string;
+  } | null>(null);
 
-  const handleSearch = async () => {
-    if (!query.trim()) return;
+  const { data, isFetching, isError, error } = useQuery({
+    queryKey: ['globalPatientSearch', submitted?.type, submitted?.q],
+    queryFn: () => searchPatients(submitted!.type, submitted!.q),
+    enabled: !!submitted?.q,
+    staleTime: 30_000,
+    retry: 1,
+  });
 
-    setIsSearching(true);
-    setError(null);
-    try {
-      const data = await searchPatients(searchType, query.trim());
-      setResults(data);
-      setHasSearched(true);
-    } catch (error: any) {
-      console.error('Search failed:', error);
-      setError(error.message || 'Search failed. Please try again.');
-      setResults([]);
-      setHasSearched(true);
-    } finally {
-      setIsSearching(false);
-    }
+  const results = data ?? [];
+  // A search "happened" once the query for the current submission has resolved.
+  const hasSearched = submitted !== null && data !== undefined && !isFetching;
+
+  const handleSearch = () => {
+    const q = query.trim();
+    if (q) setSubmitted({ type: searchType, q });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -131,13 +132,22 @@ export default function GlobalPatientSearch() {
                 onKeyDown={handleKeyDown}
                 className="flex-1"
               />
-              <Button className="w-full sm:w-auto" onClick={handleSearch} disabled={isSearching || !query.trim()}>
+              <Button className="w-full sm:w-auto" onClick={handleSearch} disabled={isFetching || !query.trim()}>
                 <Search className="h-4 w-4 mr-2" />
-                {isSearching ? 'Searching...' : 'Search'}
+                {isFetching ? 'Searching...' : 'Search'}
               </Button>
             </div>
           </CardContent>
         </Card>
+
+        {/* Search error */}
+        {isError && (
+          <Card className="border-destructive/50">
+            <CardContent className="py-4 text-sm text-destructive">
+              {(error as Error)?.message || 'Search failed. Please try again.'}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Results Header */}
         {hasSearched && (
