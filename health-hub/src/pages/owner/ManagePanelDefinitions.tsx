@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LoadingState } from '@/components/ui/loading-state';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
@@ -869,7 +870,7 @@ export default function ManagePanelDefinitions() {
       {loading ? (
         <LoadingState />
       ) : panels.length === 0 ? (
-        <div className="py-8 text-center text-muted-foreground">No panels found</div>
+        <EmptyState title="No panels found" />
       ) : (
         <div className="border rounded-lg overflow-x-auto">
           <Table>

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LoadingState } from '@/components/ui/loading-state';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
@@ -750,7 +751,7 @@ export default function ManageClinicalDefinitions() {
       {loading ? (
         <LoadingState />
       ) : definitions.length === 0 ? (
-        <div className="py-12 text-center text-muted-foreground">No definitions found</div>
+        <EmptyState title="No definitions found" />
       ) : (
         <div className="border rounded-lg overflow-hidden">
           <Table>
