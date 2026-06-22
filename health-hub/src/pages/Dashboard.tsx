@@ -51,6 +51,8 @@ const Dashboard = () => {
   const [diagnosticVisits, setDiagnosticVisits] = useState<DiagnosticVisitSummary[]>([]);
   const [clinicVisits, setClinicVisits] = useState<ClinicVisitSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -60,6 +62,7 @@ const Dashboard = () => {
       }
 
       setLoading(true);
+      setError(false);
       try {
         const [diagnosticRes, clinicRes] = await Promise.all([
           fetch(`${API_BASE}/visits/diagnostic`, {
@@ -89,13 +92,14 @@ const Dashboard = () => {
         setClinicVisits(clinicData || []);
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error);
+        setError(true);
       } finally {
         setLoading(false);
       }
     };
 
     fetchDashboardData();
-  }, [token, activeBranchId]);
+  }, [token, activeBranchId, reloadKey]);
 
   const metrics = useMemo(() => {
     const today = new Date();
@@ -147,6 +151,27 @@ const Dashboard = () => {
           </div>
         )}
 
+        {error && !loading && (
+          <Card className="border-destructive/50 bg-destructive/5">
+            <CardContent className="flex flex-col items-start gap-3 py-6 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2 text-sm">
+                <AlertCircle className="h-5 w-5 shrink-0 text-destructive" />
+                <span>Couldn't load this branch's data. Figures are hidden so nothing here reads as a false "All Clear".</span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full sm:w-auto"
+                onClick={() => setReloadKey((k) => k + 1)}
+              >
+                Retry
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {!error && (
+          <>
         <div className="grid gap-4 md:grid-cols-3">
           <Card className={metrics.pendingResults.length > 0 ? 'border-warning/50 bg-warning/5' : ''}>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -217,7 +242,7 @@ const Dashboard = () => {
             <CardTitle>Quick Actions</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-2">
               <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2 btn-branch-outline">
                 <Link to="/diagnostics/new">
                   <FlaskConical className="h-6 w-6" />
@@ -228,18 +253,6 @@ const Dashboard = () => {
                 <Link to="/clinic/new">
                   <Stethoscope className="h-6 w-6" />
                   New Clinic Visit
-                </Link>
-              </Button>
-              <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2 btn-branch-outline">
-                <Link to="/diagnostics/pending">
-                  <Clock className="h-6 w-6" />
-                  Enter Results
-                </Link>
-              </Button>
-              <Button asChild variant="outline" className="h-auto py-4 flex-col gap-2 btn-branch-outline">
-                <Link to="/clinic/queue">
-                  <Users className="h-6 w-6" />
-                  Visit Queue
                 </Link>
               </Button>
             </div>
@@ -326,6 +339,8 @@ const Dashboard = () => {
             )}
           </CardContent>
         </Card>
+          </>
+        )}
       </div>
     </AppLayout>
   );

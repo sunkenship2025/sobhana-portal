@@ -870,7 +870,7 @@ function BranchTableCard({ rows }: { rows: DashboardV2['branchTable'] }) {
                 >
                   <td className="py-3">
                     <Link
-                      to={`/branches/${r.branchId}`}
+                      to={`/owner?branch=${r.branchId}`}
                       style={{ color: TOKENS.info, textDecoration: 'none' }}
                     >
                       {r.branchName}{' '}

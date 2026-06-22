@@ -85,13 +85,13 @@ export default function GlobalPatientSearch() {
   };
 
   return (
-    <AppLayout context="clinic" subContext="Global Patient Search">
+    <AppLayout context="clinic" subContext="Patient 360">
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-foreground">Global Patient Search</h1>
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold text-foreground">Patient 360</h1>
           <p className="text-muted-foreground mt-1">
-            Find a patient across all branches
+            Search any patient across all Sobhana branches
           </p>
         </div>
 
@@ -142,16 +142,15 @@ export default function GlobalPatientSearch() {
         {/* Results Header */}
         {hasSearched && (
           <div className="flex flex-wrap items-center gap-2 border-b pb-2 text-sm text-muted-foreground">
-            <span className="font-medium">SEARCH RESULTS</span>
-            <span>•</span>
-            <span>GLOBAL</span>
-            <span>•</span>
-            <span>READ-ONLY</span>
-            {results.length > 0 && (
-              <>
-                <span className="ml-auto">{results.length} patient(s) found</span>
-              </>
-            )}
+            <span className="font-medium text-foreground">
+              {results.length === 0
+                ? 'No patients found'
+                : `${results.length} ${results.length === 1 ? 'patient' : 'patients'} found`}
+            </span>
+            <span>·</span>
+            <span>all branches</span>
+            <span>·</span>
+            <span>read-only</span>
           </div>
         )}
 

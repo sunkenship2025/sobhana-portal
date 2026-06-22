@@ -14,6 +14,7 @@ import {
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
+import { useConfirm } from '@/hooks/use-confirm';
 import {
   Plus, Pencil, Trash2, UserCheck, Link2, Search, Upload, FileSignature,
 } from 'lucide-react';
@@ -100,6 +101,7 @@ function getInitials(name: string) {
 
 export default function ManageSigningDoctors() {
   const { token } = useAuthStore();
+  const { confirm, ConfirmDialog } = useConfirm();
   const signatureInputRef = useRef<HTMLInputElement>(null);
 
   const [doctors, setDoctors] = useState<SigningDoctor[]>([]);
@@ -532,6 +534,14 @@ export default function ManageSigningDoctors() {
 
   const handleDeleteLabInchargeRule = async (ruleId: string) => {
     if (deletingLabInchargeRuleIds.has(ruleId)) return;
+    const ok = await confirm({
+      title: "Delete lab in-charge rule?",
+      description:
+        "Reports matching this rule will lose their assigned lab in-charge until another rule covers them.",
+      confirmText: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     setDeletingLabInchargeRuleIds((prev) => { const next = new Set(prev); next.add(ruleId); return next; });
     try {
       const res = await fetch(`${API_BASE}/lab-incharge-rules/${ruleId}`, {
@@ -653,6 +663,14 @@ export default function ManageSigningDoctors() {
 
   const handleDeleteRule = async (ruleId: string) => {
     if (deletingRuleIds.has(ruleId)) return;
+    const ok = await confirm({
+      title: "Delete signing rule?",
+      description:
+        "Reports matching this rule will lose their assigned signer until another rule covers them.",
+      confirmText: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     setDeletingRuleIds((prev) => {
       const next = new Set(prev);
       next.add(ruleId);
@@ -690,6 +708,7 @@ export default function ManageSigningDoctors() {
   // ─── Render ──────────────────────────────────────────────────────
   return (
     <div className="space-y-8">
+      {ConfirmDialog}
       {/* ── Signing Doctors ─────────────────────────────────────── */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">

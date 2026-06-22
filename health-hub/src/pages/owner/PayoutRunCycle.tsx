@@ -438,7 +438,7 @@ export function PayoutRunCycle({
                     variant={totalCounts.will === 0 ? "default" : "outline"}
                     onClick={viewAlreadyDerivedInList}
                   >
-                    Pay {totals.pendingCount} pending ·{" "}
+                    View {totals.pendingCount} pending ·{" "}
                     {formatRupees(totals.pendingAmt)}
                   </Button>
                 )}
