@@ -296,13 +296,14 @@ body.report-body {
 }
 
 /* Column widths (4 columns: Test | Result | Unit | Ref Range).
-   Result is wide enough that two-word text values (e.g. "PALE YELLOW",
-   "OPAQUE GREY") fit on a single line; genuinely long values still wrap.
-   Unit is narrow and never wraps — the reclaimed space goes to Result. */
-.results-table .col-test { width: 28%; text-align: left; }
-.results-table .col-value { width: 20%; text-align: center; }
-.results-table .col-unit { width: 7%; text-align: center; white-space: nowrap; }
-.results-table .col-ref { width: 45%; text-align: center; }
+   Widths are the default hints; with auto table-layout the Result column is
+   dynamic — it stays at ~12% for short values (e.g. "80") but grows just enough
+   to keep two-word text values like "PALE YELLOW" / "OPAQUE GREY" on one line
+   (nowrap), borrowing space from the neighbouring columns only when needed. */
+.results-table .col-test { width: 30%; text-align: left; }
+.results-table .col-value { width: 12%; text-align: center; white-space: nowrap; }
+.results-table .col-unit { width: 10%; text-align: center; }
+.results-table .col-ref { width: 48%; text-align: center; }
 
 /* Side-by-side grid rows — items sharing joinPrevious render as one flex row */
 .results-table tr.grid-row-tr td.grid-row-cell {
