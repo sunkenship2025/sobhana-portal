@@ -272,6 +272,7 @@ const DiagnosticsFinalizedReports = () => {
                         className="w-full sm:w-10"
                         onClick={() => navigate(`/diagnostics/preview/${visit.id}`)}
                         title="View Report"
+                        aria-label="View report"
                       >
                         <Eye className="h-4 w-4" />
                       </Button>
@@ -291,6 +292,7 @@ const DiagnosticsFinalizedReports = () => {
                           });
                         }}
                         title="Print"
+                        aria-label="Print report"
                       >
                         <Printer className="h-4 w-4" />
                       </Button>
@@ -301,6 +303,7 @@ const DiagnosticsFinalizedReports = () => {
                         onClick={() => handleWhatsApp(visit.id)}
                         disabled={sendingVisitIds.has(visit.id)}
                         title="Send via WhatsApp"
+                        aria-label="Send report via WhatsApp"
                       >
                         <MessageCircle className="h-4 w-4" />
                       </Button>

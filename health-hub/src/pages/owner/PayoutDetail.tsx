@@ -264,7 +264,7 @@ const PayoutDetailPage = () => {
         {/* Header */}
         <div className="flex items-center justify-between print:hidden">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate('/owner/payouts')}>
+            <Button variant="ghost" size="icon" aria-label="Back to payouts" onClick={() => navigate('/owner/payouts')}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div>
