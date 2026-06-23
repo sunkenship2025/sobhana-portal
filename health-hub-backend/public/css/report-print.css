@@ -189,7 +189,7 @@ body.report-body {
 
 .panel-method {
   margin: 0 0 3pt 0;
-  font-size: 6.9pt;
+  font-size: 6.4pt;
   color: var(--color-text);
   line-height: 1.08;
 }
@@ -206,7 +206,8 @@ body.report-body {
   width: 100%;
   border-collapse: collapse;
   margin-bottom: 5pt;
-  font-size: 10pt;
+  font-size: 11pt;
+  line-height: 1.1;
 }
 
 .results-table th {
@@ -215,7 +216,7 @@ body.report-body {
   font-weight: 600;
   text-align: left;
   padding: 3pt 5pt;
-  font-size: 9pt;
+  font-size: 9.5pt;
   text-transform: uppercase;
   letter-spacing: 0.3px;
   border-top: 0.5pt solid var(--color-border);
@@ -271,14 +272,14 @@ body.report-body {
 /* Indentation for sub-tests */
 .results-table tr.indent-1 .col-test { padding-left: var(--spacing-md); }
 
-.results-table td.col-unit { color: var(--color-text); }
-.results-table td.col-ref { color: var(--color-text); font-size: 9.2pt; }
+.results-table td.col-unit { color: var(--color-text); font-size: 9.5pt; }
+.results-table td.col-ref { color: var(--color-text); font-size: 10pt; }
 .results-table td.col-test,
 .results-table td.col-param { vertical-align: top; text-align: left; }
 
 .test-name.is-bold { font-weight: bold; }
 .test-method {
-  font-size: 6.5pt;
+  font-size: 6pt;
   color: var(--color-text);
   line-height: 1.02;
   padding-top: 0;
@@ -289,7 +290,7 @@ body.report-body {
 .section-divider td {
   background: transparent;
   font-weight: bold;
-  font-size: 9.4pt;
+  font-size: 10pt;
   text-transform: uppercase;
   letter-spacing: 0.3px;
   padding: 2pt 5pt 1pt;
@@ -316,7 +317,7 @@ body.report-body {
 
 .smear-header {
   font-weight: bold;
-  font-size: 9.4pt;
+  font-size: 10pt;
   text-transform: uppercase;
   letter-spacing: 0.3px;
   color: var(--color-text);
@@ -342,7 +343,7 @@ body.report-body {
   display: flex;
   align-items: baseline;
   padding: 0.5pt 0;
-  font-size: 10pt;
+  font-size: 11pt;
 }
 
 .smear-label {
