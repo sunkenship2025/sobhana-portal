@@ -358,13 +358,13 @@ export const BillReceipt = ({
           >
             <div>
               <div className="flex justify-between py-0">
-                <span>Total Amount</span>
+                <span>Total</span>
                 <span style={{ fontVariantNumeric: "tabular-nums" }}>
                   : {fmt(subtotalAmount)}
                 </span>
               </div>
               <div className="flex justify-between py-0">
-                <span>Paid Amount</span>
+                <span>Paid</span>
                 <span style={{ fontVariantNumeric: "tabular-nums" }}>
                   : {fmt(paidAmount)}
                 </span>
@@ -379,7 +379,7 @@ export const BillReceipt = ({
               )}
               {dueAmount > 0 && (
                 <div className="flex justify-between py-0 font-bold">
-                  <span>Due Amount</span>
+                  <span>Balance due</span>
                   <span style={{ fontVariantNumeric: "tabular-nums" }}>
                     : {fmt(dueAmount)}
                   </span>

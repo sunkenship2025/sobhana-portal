@@ -1118,7 +1118,7 @@ const DiagnosticsNewVisit = () => {
                     />
                   </div>
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="text-muted-foreground">Final Total:</span>
+                    <span className="text-muted-foreground">Net payable:</span>
                     <span className="font-semibold">
                       {formatMoney(
                         (successData.visitView.visit.netAmountInPaise ??
@@ -1127,7 +1127,7 @@ const DiagnosticsNewVisit = () => {
                     </span>
                   </div>
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="text-muted-foreground">Due:</span>
+                    <span className="text-muted-foreground">Balance due:</span>
                     <span
                       className={
                         successData.visitView.visit.dueAmountInPaise
@@ -2277,7 +2277,7 @@ const DiagnosticsNewVisit = () => {
                     </div>
 
                     <div className="font-semibold text-muted-foreground">
-                      Final total
+                      Net payable
                     </div>
                     <div className="text-xl font-bold">
                       {formatMoney(netPayable)}
@@ -2552,7 +2552,7 @@ const DiagnosticsNewVisit = () => {
             </div>
             {dueAmount > 0 && (
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Due</span>
+                <span className="text-muted-foreground">Balance due</span>
                 <span className="font-semibold text-amber-700">
                   {formatMoney(dueAmount)}
                 </span>

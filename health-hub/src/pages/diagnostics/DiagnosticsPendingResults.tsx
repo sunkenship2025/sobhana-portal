@@ -361,7 +361,7 @@ const DiagnosticsPendingResults = () => {
                           )}
                         {(visit.dueAmountInPaise ?? 0) > 0 && (
                           <span className="font-medium text-amber-700">
-                            Due: {formatMoneyFromPaise(visit.dueAmountInPaise)}
+                            Balance due: {formatMoneyFromPaise(visit.dueAmountInPaise)}
                           </span>
                         )}
                       </div>
@@ -411,7 +411,7 @@ const DiagnosticsPendingResults = () => {
               <div className="space-y-4">
                 <div className="rounded-lg border bg-muted/30 p-3 text-sm space-y-2">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Subtotal</span>
+                    <span className="text-muted-foreground">Total</span>
                     <span>
                       {formatMoneyFromPaise(
                         Math.round((dueVisit.totalAmount ?? 0) * 100),
@@ -425,19 +425,19 @@ const DiagnosticsPendingResults = () => {
                     </span>
                   </div>
                   <div className="flex justify-between font-medium">
-                    <span>Net</span>
+                    <span>Net payable</span>
                     <span>
                       {formatMoneyFromPaise(dueVisit.netAmountInPaise)}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Already Paid</span>
+                    <span className="text-muted-foreground">Already paid</span>
                     <span>
                       {formatMoneyFromPaise(dueVisit.paidAmountInPaise)}
                     </span>
                   </div>
                   <div className="flex justify-between font-semibold text-amber-700">
-                    <span>Due</span>
+                    <span>Balance due</span>
                     <span>
                       {formatMoneyFromPaise(dueVisit.dueAmountInPaise)}
                     </span>
