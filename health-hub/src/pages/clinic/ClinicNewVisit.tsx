@@ -877,7 +877,8 @@ const ClinicNewVisit = () => {
                     )
                   }
                   maxLength={10}
-                  className="w-full sm:max-w-sm"
+                  autoComplete="off"
+                  className="w-full"
                   onKeyDown={(e) => {
                     if (e.repeat) return;
                     if (e.key === "Enter") {
@@ -895,6 +896,7 @@ const ClinicNewVisit = () => {
                   className="w-full sm:w-auto"
                   variant="secondary"
                   type="button"
+                  onClick={() => handlePhoneChange(phone)}
                 >
                   <Search className="h-4 w-4" />
                 </Button>
@@ -958,17 +960,14 @@ const ClinicNewVisit = () => {
                         <div className="h-2 w-2 rounded-full bg-primary" />
                       )}
                     </div>
-                    <Label
-                      htmlFor={patient.id}
-                      className="flex-1 cursor-pointer"
-                    >
+                    <div className="flex-1">
                       <span className="font-medium">{formatPatientName(patient.name, (patient as any).title)}</span>
                       <span className="text-muted-foreground ml-2">
                         |{" "}
                         {(patient as any).ageDisplay || `${patient.age} Years`}{" "}
                         | {patient.gender}
                       </span>
-                    </Label>
+                    </div>
                   </div>
                 ))}
 
@@ -1106,13 +1105,15 @@ const ClinicNewVisit = () => {
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Input
                       id="age"
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       placeholder="Age"
                       value={newPatient.age}
                       onChange={(event) => {
                         setNewPatient({
                           ...newPatient,
-                          age: event.target.value,
+                          age: event.target.value.replace(/\D/g, ""),
                         });
                         if (validationErrors.age) {
                           setValidationErrors({
@@ -1282,7 +1283,7 @@ const ClinicNewVisit = () => {
                   searchPlaceholder="Search by doctor name or specialty"
                   emptyText="No consulting doctors found."
                   ariaLabel="Consulting doctor"
-                  className="h-11 max-w-sm"
+                  className="h-11"
                 />
               </div>
 
@@ -1495,6 +1496,7 @@ const ClinicNewVisit = () => {
                         }
                       }}
                       className="flex gap-6"
+                      orientation="horizontal"
                     >
                       <div className="flex items-center space-x-2">
                         <RadioGroupItem
@@ -1518,18 +1520,19 @@ const ClinicNewVisit = () => {
                           id="split"
                           data-focus-step={100}
                         />
-                        <Label htmlFor="split">Split Payment</Label>
+                        <Label htmlFor="split">Split</Label>
                       </div>
                     </RadioGroup>
 
                     {paymentMode === "SPLIT" && (
                       <div className="flex gap-4 mt-4">
                         <div className="flex-1 space-y-2">
-                          <Label>Cash Amount (₹)</Label>
+                          <Label>Cash ₹</Label>
                           <Input
                             id="split-cash"
                             type="number"
                             min="0"
+                            placeholder="Shift+→ to Online"
                             value={splitAmounts.cash || ""}
                             onChange={(e) => {
                               const cash = Number(e.target.value);
@@ -1554,11 +1557,12 @@ const ClinicNewVisit = () => {
                           />
                         </div>
                         <div className="flex-1 space-y-2">
-                          <Label>Online Amount (₹)</Label>
+                          <Label>Online ₹</Label>
                           <Input
                             id="split-online"
                             type="number"
                             min="0"
+                            placeholder="Shift+← to Cash"
                             value={splitAmounts.online || ""}
                             onChange={(e) => {
                               const online = Number(e.target.value);

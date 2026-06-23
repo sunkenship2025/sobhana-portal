@@ -1090,7 +1090,7 @@ const DiagnosticsNewVisit = () => {
 
   if (successData) {
     return (
-      <AppLayout context="diagnostics">
+      <AppLayout context="diagnostics" subContext="Reception">
         <div className="max-w-2xl mx-auto animate-fade-in print:hidden">
           <Card className="border-success/30 bg-success/5">
             <CardContent className="pt-6">
@@ -1273,7 +1273,7 @@ const DiagnosticsNewVisit = () => {
   }
 
   return (
-    <AppLayout context="diagnostics">
+    <AppLayout context="diagnostics" subContext="Reception">
       {ConfirmDialog}
       <div className="max-w-[760px] mx-auto space-y-4 pb-24 animate-fade-in">
         <div className="flex items-baseline justify-between gap-4">
@@ -1295,51 +1295,49 @@ const DiagnosticsNewVisit = () => {
             <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Patient Lookup</CardTitle>
           </CardHeader>
           <CardContent className="px-5 pb-5 pt-3 space-y-3">
-            <div>
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone Number *</Label>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Input
-                    ref={phoneInputRef}
-                    id="phone"
-                    placeholder="Enter 10-digit phone"
-                    value={phone}
-                    onChange={(e) =>
-                      handlePhoneChange(
-                        e.target.value.replace(/\D/g, "").slice(0, 10),
-                      )
+            <div className="space-y-2">
+              <Label htmlFor="phone">Phone Number *</Label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  ref={phoneInputRef}
+                  id="phone"
+                  placeholder="Enter 10-digit phone"
+                  value={phone}
+                  onChange={(e) =>
+                    handlePhoneChange(
+                      e.target.value.replace(/\D/g, "").slice(0, 10),
+                    )
+                  }
+                  onKeyDown={async (e) => {
+                    if (e.repeat || e.key !== 'Enter') return;
+                    e.preventDefault();
+                    if (phone.length < 10) return;
+                    // Search, then branch on the FRESH result (handleSearch
+                    // returns the matches) — no stale closure / setTimeout race.
+                    const matches = await handleSearch();
+                    if (matches.length === 1) {
+                      // Exactly one match: select it and skip the list step.
+                      handleSelectPatient(matches[0]);
+                    } else if (matches.length > 1) {
+                      // Several matches: land on the list to pick one.
+                      setHighlightedPatientIndex(0);
+                      goToStep(20);
+                    } else {
+                      // New patient: skip the (empty) list and start at Title.
+                      handleCreateNewPatient();
                     }
-                    onKeyDown={async (e) => {
-                      if (e.repeat || e.key !== 'Enter') return;
-                      e.preventDefault();
-                      if (phone.length < 10) return;
-                      // Search, then branch on the FRESH result (handleSearch
-                      // returns the matches) — no stale closure / setTimeout race.
-                      const matches = await handleSearch();
-                      if (matches.length === 1) {
-                        // Exactly one match: select it and skip the list step.
-                        handleSelectPatient(matches[0]);
-                      } else if (matches.length > 1) {
-                        // Several matches: land on the list to pick one.
-                        setHighlightedPatientIndex(0);
-                        goToStep(20);
-                      } else {
-                        // New patient: skip the (empty) list and start at Title.
-                        handleCreateNewPatient();
-                      }
-                    }}
-                    maxLength={10}
-                    autoComplete="off"
-                    data-focus-step={10}
-                  />
-                  <Button
-                    className="w-full sm:w-auto"
-                    onClick={handleSearch}
-                    variant="secondary"
-                  >
-                    <Search className="h-4 w-4" />
-                  </Button>
-                </div>
+                  }}
+                  maxLength={10}
+                  autoComplete="off"
+                  data-focus-step={10}
+                />
+                <Button
+                  className="w-full sm:w-auto"
+                  onClick={handleSearch}
+                  variant="secondary"
+                >
+                  <Search className="h-4 w-4" />
+                </Button>
               </div>
             </div>
           </CardContent>
