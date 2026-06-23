@@ -2,6 +2,12 @@
 
 162 inline `fetch()` sites across 31 files (65 queries / 83 mutations / 33 imperative), heaviest in `pages/owner/Manage*`. Migrate **one page at a time** onto a single pattern. Source: workflow `react-query-migration-plan` (wf_a57656e9-385).
 
+## Status — paused after tier 4 (2026-06-23)
+
+**Done & deployed (tiers 1–4):** shared layer (`src/lib/query.ts`), `ManageDoctors`, `ManageClinicDoctors`, `ManageDiagnosticCenters`, `ManageDepartments`, plus the cross-cutting branch-switch cache flush (`src/lib/queryClient.ts` singleton + `branchStore.setActiveBranch → queryClient.clear()`). ~4 of 31 page files migrated. All builds/lint/tsc green; the branch-flush + query-gating logic is covered by a throwaway vitest run (11/11 passing — not committed, the repo has no test harness).
+
+**Paused here by choice.** Tiers 5–8 (payouts family → heavy `Manage*` → shared singletons → visits/clinical) are **not started** — tracked in [`BACKLOG.md`](./BACKLOG.md) under "React Query migration (remaining)". Resume from tier 5 (payouts family, 4 files on the `['payouts']` namespace) when picked back up.
+
 ## Shared layer — `src/lib/query.ts`
 Branch header is injected in the **wrapper**, never in `apiRequest` (keep its global blast radius zero — callers that deliberately omit `X-Branch-Id` must stay unaffected).
 
