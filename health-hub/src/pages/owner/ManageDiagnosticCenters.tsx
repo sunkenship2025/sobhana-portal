@@ -219,10 +219,10 @@ export default function ManageDiagnosticCenters() {
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex gap-2 justify-end">
-                    <Button variant="ghost" size="icon" onClick={() => handleEdit(center)}>
+                    <Button variant="ghost" size="icon" onClick={() => handleEdit(center)} aria-label="Edit center">
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(center.id)}>
+                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(center.id)} aria-label="Delete center">
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>

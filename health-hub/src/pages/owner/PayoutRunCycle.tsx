@@ -314,6 +314,7 @@ export function PayoutRunCycle({
                   )
                 }
                 disabled={phase === "running" || phase === "preview-loading"}
+                aria-label="Previous month"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
@@ -331,6 +332,7 @@ export function PayoutRunCycle({
                   )
                 }
                 disabled={phase === "running" || phase === "preview-loading"}
+                aria-label="Next month"
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>

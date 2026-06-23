@@ -358,10 +358,10 @@ const ManageClinicDoctors = () => {
                       <TableCell className="font-mono text-sm">{doctor.registrationNumber}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex gap-2 justify-end">
-                          <Button variant="ghost" size="icon" onClick={() => handleEdit(doctor)}>
+                          <Button variant="ghost" size="icon" onClick={() => handleEdit(doctor)} aria-label="Edit doctor">
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => setDeleteId(doctor.id)}>
+                          <Button variant="ghost" size="icon" onClick={() => setDeleteId(doctor.id)} aria-label="Delete doctor">
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         </div>

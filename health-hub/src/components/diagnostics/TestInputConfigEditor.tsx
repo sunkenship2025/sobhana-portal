@@ -189,6 +189,7 @@ export function TestInputConfigEditor({ rootDefinitionId, config, onChange, test
                     variant="ghost"
                     className="h-7 w-7 text-muted-foreground hover:text-destructive"
                     onClick={() => removeOption(idx)}
+                    aria-label="Remove value"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>

@@ -621,10 +621,11 @@ const DiagnosticsReportPreview = () => {
         {/* Header with Status */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button 
-              variant="ghost" 
-              size="icon" 
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => navigate(-1)}
+              aria-label="Back"
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
@@ -1070,6 +1071,7 @@ const DiagnosticsReportPreview = () => {
                 variant="ghost"
                 size="icon"
                 onClick={handlePreviewClose}
+                aria-label="Close preview"
               >
                 <X className="h-5 w-5" />
               </Button>

@@ -769,6 +769,7 @@ export default function Patient360() {
               <Button
                 variant="ghost"
                 size="icon"
+                aria-label="Close preview"
                 onClick={() => {
                   setShowPreview(false);
                   if (previewPdfUrl) {

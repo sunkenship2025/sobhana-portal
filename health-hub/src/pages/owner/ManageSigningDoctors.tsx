@@ -797,10 +797,10 @@ export default function ManageSigningDoctors() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex gap-1 justify-end">
-                        <Button variant="ghost" size="icon" onClick={() => handleEditDoctor(doc)} className="h-8 w-8">
+                        <Button variant="ghost" size="icon" onClick={() => handleEditDoctor(doc)} className="h-8 w-8" aria-label="Edit signing doctor">
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => setDeleteId(doc.id)} className="h-8 w-8">
+                        <Button variant="ghost" size="icon" onClick={() => setDeleteId(doc.id)} className="h-8 w-8" aria-label="Delete signing doctor">
                           <Trash2 className="h-3.5 w-3.5 text-destructive" />
                         </Button>
                       </div>
@@ -876,6 +876,7 @@ export default function ManageSigningDoctors() {
                         onClick={() => handleDeleteRule(rule.id)}
                         disabled={deletingRuleIds.has(rule.id)}
                         className="h-8 w-8"
+                        aria-label="Delete signing rule"
                       >
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>
@@ -974,10 +975,10 @@ export default function ManageSigningDoctors() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex gap-1 justify-end">
-                        <Button variant="ghost" size="icon" onClick={() => handleEditLabIncharge(li)} className="h-8 w-8">
+                        <Button variant="ghost" size="icon" onClick={() => handleEditLabIncharge(li)} className="h-8 w-8" aria-label="Edit lab incharge">
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => setDeleteLabInchargeId(li.id)} className="h-8 w-8">
+                        <Button variant="ghost" size="icon" onClick={() => setDeleteLabInchargeId(li.id)} className="h-8 w-8" aria-label="Delete lab incharge">
                           <Trash2 className="h-3.5 w-3.5 text-destructive" />
                         </Button>
                       </div>
@@ -1047,6 +1048,7 @@ export default function ManageSigningDoctors() {
                         onClick={() => handleDeleteLabInchargeRule(rule.id)}
                         disabled={deletingLabInchargeRuleIds.has(rule.id)}
                         className="h-8 w-8"
+                        aria-label="Delete lab incharge rule"
                       >
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>

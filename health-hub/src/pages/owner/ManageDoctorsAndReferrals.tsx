@@ -909,6 +909,7 @@ export default function ManageDoctorsAndReferrals() {
                               variant="ghost"
                               size="icon"
                               onClick={() => removeProductRule(rule.productId)}
+                              aria-label="Remove product rule"
                             >
                               <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
@@ -975,11 +976,12 @@ export default function ManageDoctorsAndReferrals() {
                         size="icon"
                         onClick={() => goToPayouts(doc.id, 'REFERRAL')}
                         title="View payouts"
+                        aria-label="View payouts"
                       >
                         <IndianRupee className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleRefEdit(doc)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" onClick={() => setRefDeleteId(doc.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => handleRefEdit(doc)} aria-label="Edit doctor"><Pencil className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => setRefDeleteId(doc.id)} aria-label="Delete doctor"><Trash2 className="h-4 w-4 text-destructive" /></Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -1172,11 +1174,12 @@ export default function ManageDoctorsAndReferrals() {
                         size="icon"
                         onClick={() => goToPayouts(doc.id, 'CLINIC')}
                         title="View payouts"
+                        aria-label="View payouts"
                       >
                         <IndianRupee className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleClinicEdit(doc)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" onClick={() => setClinicDeleteId(doc.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => handleClinicEdit(doc)} aria-label="Edit doctor"><Pencil className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => setClinicDeleteId(doc.id)} aria-label="Delete doctor"><Trash2 className="h-4 w-4 text-destructive" /></Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -1419,6 +1422,7 @@ export default function ManageDoctorsAndReferrals() {
                               variant="ghost"
                               size="icon"
                               onClick={() => removeCenterProductRule(rule.productId)}
+                              aria-label="Remove product rule"
                             >
                               <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
@@ -1492,11 +1496,12 @@ export default function ManageDoctorsAndReferrals() {
                         size="icon"
                         onClick={() => goToPayouts(center.id, 'DIAGNOSTIC_CENTER')}
                         title="View payouts"
+                        aria-label="View payouts"
                       >
                         <IndianRupee className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleCenterEdit(center)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" onClick={() => setCenterDeleteId(center.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => handleCenterEdit(center)} aria-label="Edit center"><Pencil className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => setCenterDeleteId(center.id)} aria-label="Delete center"><Trash2 className="h-4 w-4 text-destructive" /></Button>
                     </div>
                   </TableCell>
                 </TableRow>

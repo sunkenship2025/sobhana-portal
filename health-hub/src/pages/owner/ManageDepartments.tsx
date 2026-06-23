@@ -286,10 +286,10 @@ export default function ManageDepartments() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex gap-1 justify-end">
-                      <Button variant="ghost" size="icon" onClick={() => handleEdit(dept)} className="h-8 w-8">
+                      <Button variant="ghost" size="icon" onClick={() => handleEdit(dept)} className="h-8 w-8" aria-label="Edit department">
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => setDeleteId(dept.id)} className="h-8 w-8">
+                      <Button variant="ghost" size="icon" onClick={() => setDeleteId(dept.id)} className="h-8 w-8" aria-label="Delete department">
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>
                     </div>
