@@ -6,7 +6,7 @@
  *
  * CRITICAL MEASUREMENTS (from actual Sobhana letterhead):
  * - Header (pre-printed): 3.2 cm = 32mm
- * - Footer (pre-printed): 1.55 cm = 15.5mm
+ * - Footer (pre-printed): 2.2 cm = 22mm
  * - Left/Right margins: 15mm
  */
 
@@ -17,7 +17,7 @@
 @page {
   size: A4;
   margin-top: 32mm;
-  margin-bottom: 15.5mm;
+  margin-bottom: 22mm;
   margin-left: 15mm;
   margin-right: 15mm;
 }
@@ -74,6 +74,20 @@ body.report-body {
   padding-top: 2mm;
 }
 .report-bottom-section { margin-top: 9pt; }
+
+/* Lock the signature / QR block to the bottom of the printed sheet so it sits
+   just above the pre-printed 22mm (2.2cm) footer band, however short the report
+   is. A4 height (297mm) − 32mm top margin − 22mm bottom margin = 243mm of
+   printable height; use a hair less so sub-pixel rounding can't spill the
+   signature onto a blank second page. Radiology keeps its own tfoot layout. */
+.report-page:not(.radiology-page) .report-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 242mm;
+}
+.report-page:not(.radiology-page) .report-bottom-section {
+  margin-top: auto;
+}
 
 /* Removed position: fixed hack. We now use a table tfoot for radiology signatures to repeat naturally */
 .report-layout-table {
