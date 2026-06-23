@@ -162,7 +162,7 @@ const PHYSICAL_PDF_OPTIONS: PDFOptions = {
   preferCSSPageSize: false,
   margin: {
     top: '32mm',    // Header space on pre-printed letterhead
-    bottom: '15.5mm', // Footer space on pre-printed letterhead
+    bottom: '22mm', // Footer space on pre-printed letterhead (real band is 2.2cm)
     left: '15mm',
     right: '15mm',
   },
