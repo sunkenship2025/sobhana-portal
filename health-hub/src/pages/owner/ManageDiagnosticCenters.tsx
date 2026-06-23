@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { EmptyState } from '@/components/ui/empty-state';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 import {
@@ -187,7 +188,7 @@ export default function ManageDiagnosticCenters() {
       </div>
 
       {centers.length === 0 ? (
-        <p className="text-center text-muted-foreground py-8">No diagnostic centers yet.</p>
+        <EmptyState title="No diagnostic centers yet" />
       ) : (
         <Table>
           <TableHeader>

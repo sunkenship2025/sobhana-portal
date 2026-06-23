@@ -16,6 +16,7 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { useAuthStore } from '@/store/authStore';
 import { useDoctorLookup } from '@/hooks/use-doctor-lookup';
 import { useBranchStore } from '@/store/branchStore';
@@ -932,7 +933,7 @@ export default function ManageDoctorsAndReferrals() {
         {refLoading ? (
           <p className="text-center text-muted-foreground py-6">Loading...</p>
         ) : referralDoctors.length === 0 ? (
-          <p className="text-center text-muted-foreground py-8">No referral doctors yet.</p>
+          <EmptyState title="No referral doctors yet" />
         ) : (
           <Table>
             <TableHeader>
@@ -1138,7 +1139,7 @@ export default function ManageDoctorsAndReferrals() {
         {clinicLoading ? (
           <p className="text-center text-muted-foreground py-6">Loading...</p>
         ) : clinicDoctors.length === 0 ? (
-          <p className="text-center text-muted-foreground py-8">No clinic doctors yet.</p>
+          <EmptyState title="No clinic doctors yet" />
         ) : (
           <Table>
             <TableHeader>
@@ -1445,7 +1446,7 @@ export default function ManageDoctorsAndReferrals() {
         {centersLoading ? (
           <p className="text-center text-muted-foreground py-6">Loading...</p>
         ) : centers.length === 0 ? (
-          <p className="text-center text-muted-foreground py-8">No diagnostic centers yet.</p>
+          <EmptyState title="No diagnostic centers yet" />
         ) : (
           <Table>
             <TableHeader>

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { EmptyState } from '@/components/ui/empty-state';
 import { useAuthStore } from '@/store/authStore';
 import { useDoctorLookup } from '@/hooks/use-doctor-lookup';
 import { toast } from 'sonner';
@@ -306,7 +307,7 @@ const ManageDoctors = () => {
           </CardHeader>
           <CardContent>
             {referralDoctors.length === 0 ? (
-              <p className="text-center text-muted-foreground py-8">No doctors added yet.</p>
+              <EmptyState title="No doctors yet" />
             ) : (
               <Table>
                 <TableHeader>

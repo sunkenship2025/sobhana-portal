@@ -8,6 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter,
 } from '@/components/ui/sheet';
@@ -737,7 +738,7 @@ export default function ManageSigningDoctors() {
         </div>
 
         {filteredDoctors.length === 0 ? (
-          <p className="text-center text-muted-foreground py-8">No signing doctors found.</p>
+          <EmptyState title="No signing doctors" />
         ) : (
           <div className="border rounded-lg overflow-hidden">
             <Table>
@@ -832,7 +833,7 @@ export default function ManageSigningDoctors() {
         </div>
 
         {rules.length === 0 ? (
-          <p className="text-center text-muted-foreground py-8">No signing rules yet.</p>
+          <EmptyState title="No signing rules yet" />
         ) : (
           <div className="border rounded-lg overflow-hidden">
             <Table>
@@ -923,7 +924,7 @@ export default function ManageSigningDoctors() {
           const q = labInchargeSearch.toLowerCase();
           return li.name.toLowerCase().includes(q) || li.designation.toLowerCase().includes(q);
         }).length === 0 ? (
-          <p className="text-center text-muted-foreground py-8">No lab incharges found.</p>
+          <EmptyState title="No lab incharges" />
         ) : (
           <div className="border rounded-lg overflow-hidden">
             <Table>
@@ -1010,7 +1011,7 @@ export default function ManageSigningDoctors() {
         </div>
 
         {labInchargeRules.length === 0 ? (
-          <p className="text-center text-muted-foreground py-8">No lab incharge rules yet.</p>
+          <EmptyState title="No lab incharge rules yet" />
         ) : (
           <div className="border rounded-lg overflow-hidden">
             <Table>
