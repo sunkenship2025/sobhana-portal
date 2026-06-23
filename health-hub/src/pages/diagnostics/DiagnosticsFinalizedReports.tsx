@@ -3,6 +3,7 @@ import { API_BASE } from '@/lib/api';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
+import { LoadingState } from '@/components/ui/loading-state';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,7 +13,7 @@ import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { toast } from 'sonner';
-import { CheckCircle2, Search, Eye, Printer, MessageCircle, Loader2 } from 'lucide-react';
+import { CheckCircle2, Search, Eye, Printer, MessageCircle } from 'lucide-react';
 import { openFinalizedReportWindow } from '@/lib/reportAccess';
 import { formatPatientName } from '@/lib/patientDisplay';
 
@@ -182,9 +183,7 @@ const DiagnosticsFinalizedReports = () => {
   if (loading) {
     return (
       <AppLayout context="diagnostics">
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
+        <LoadingState />
       </AppLayout>
     );
   }

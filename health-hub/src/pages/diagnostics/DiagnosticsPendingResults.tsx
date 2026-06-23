@@ -3,6 +3,7 @@ import { API_BASE } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { PageHeader } from "@/components/ui/page-header";
+import { LoadingState } from "@/components/ui/loading-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +19,7 @@ import { useBranchStore } from "@/store/branchStore";
 import { useAuthStore } from "@/store/authStore";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toast } from "sonner";
-import { Clock, Search, Loader2 } from "lucide-react";
+import { Clock, Search } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -269,9 +270,7 @@ const DiagnosticsPendingResults = () => {
   if (loading) {
     return (
       <AppLayout context="diagnostics">
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
+        <LoadingState />
       </AppLayout>
     );
   }
