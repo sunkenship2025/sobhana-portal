@@ -295,11 +295,14 @@ body.report-body {
   vertical-align: middle;
 }
 
-/* Column widths (4 columns: Test | Result | Unit | Ref Range) */
-.results-table .col-test { width: 30%; text-align: left; }
-.results-table .col-value { width: 12%; text-align: center; }
-.results-table .col-unit { width: 10%; text-align: center; }
-.results-table .col-ref { width: 48%; text-align: center; }
+/* Column widths (4 columns: Test | Result | Unit | Ref Range).
+   Result is wide enough that two-word text values (e.g. "PALE YELLOW",
+   "OPAQUE GREY") fit on a single line; genuinely long values still wrap.
+   Unit is narrow and never wraps — the reclaimed space goes to Result. */
+.results-table .col-test { width: 28%; text-align: left; }
+.results-table .col-value { width: 20%; text-align: center; }
+.results-table .col-unit { width: 7%; text-align: center; white-space: nowrap; }
+.results-table .col-ref { width: 45%; text-align: center; }
 
 /* Side-by-side grid rows — items sharing joinPrevious render as one flex row */
 .results-table tr.grid-row-tr td.grid-row-cell {
