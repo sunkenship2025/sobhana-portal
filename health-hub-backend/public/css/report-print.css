@@ -12,6 +12,9 @@
 
 /* ============================================================================
    PAGE SETUP (CRITICAL — DO NOT CHANGE)
+   The effective PDF margins are set by PHYSICAL_PDF_OPTIONS in
+   pdfGenerationService.ts (preferCSSPageSize: false). Keep these @page values
+   in sync with that — the real letterhead footer band is 22mm.
    ============================================================================ */
 
 @page {
@@ -54,7 +57,7 @@
 
 body.report-body {
   font-family: var(--font-primary);
-  font-size: 9.35pt;
+  font-size: 10pt;
   line-height: 1.18;
   color: #000000;
   background: white;
@@ -76,10 +79,10 @@ body.report-body {
 .report-bottom-section { margin-top: 9pt; }
 
 /* Lock the signature / QR block to the bottom of the printed sheet so it sits
-   just above the pre-printed 22mm (2.2cm) footer band, however short the report
-   is. A4 height (297mm) − 32mm top margin − 22mm bottom margin = 243mm of
-   printable height; use a hair less so sub-pixel rounding can't spill the
-   signature onto a blank second page. Radiology keeps its own tfoot layout. */
+   just above the pre-printed 22mm footer band, however short the report is.
+   A4 height (297mm) − 32mm top margin − 22mm bottom margin = 243mm of printable
+   height; use a hair less so sub-pixel rounding can't spill the signature onto
+   a blank second page. Radiology keeps its own tfoot layout (excluded here). */
 .report-page:not(.radiology-page) .report-content {
   display: flex;
   flex-direction: column;
@@ -126,7 +129,7 @@ body.report-body {
   display: table-cell;
   width: 50%;
   padding: 0.5pt 0;
-  font-size: 9.1pt;
+  font-size: 9.8pt;
 }
 
 .info-item .label {
@@ -153,7 +156,7 @@ body.report-body {
 }
 
 .department-header {
-  font-size: 10.8pt;
+  font-size: 11.6pt;
   font-weight: bold;
   color: var(--color-text);
   border-bottom: 0.5pt solid var(--color-border);
@@ -174,7 +177,7 @@ body.report-body {
 }
 
 .panel-title {
-  font-size: 9.8pt;
+  font-size: 10.6pt;
   font-weight: bold;
   margin-bottom: 1pt;
   padding: 0 0 1pt 0;
@@ -186,7 +189,7 @@ body.report-body {
 
 .panel-method {
   margin: 0 0 3pt 0;
-  font-size: 7.7pt;
+  font-size: 6.9pt;
   color: var(--color-text);
   line-height: 1.08;
 }
@@ -203,7 +206,7 @@ body.report-body {
   width: 100%;
   border-collapse: collapse;
   margin-bottom: 5pt;
-  font-size: 9pt;
+  font-size: 10pt;
 }
 
 .results-table th {
@@ -212,7 +215,7 @@ body.report-body {
   font-weight: 600;
   text-align: left;
   padding: 3pt 5pt;
-  font-size: 8.1pt;
+  font-size: 9pt;
   text-transform: uppercase;
   letter-spacing: 0.3px;
   border-top: 0.5pt solid var(--color-border);
@@ -222,7 +225,7 @@ body.report-body {
 }
 
 .results-table td {
-  padding: 4pt 5pt 3pt;
+  padding: 3pt 5pt 2pt;
   border: none;
   background: transparent;
   vertical-align: top;
@@ -269,13 +272,13 @@ body.report-body {
 .results-table tr.indent-1 .col-test { padding-left: var(--spacing-md); }
 
 .results-table td.col-unit { color: var(--color-text); }
-.results-table td.col-ref { color: var(--color-text); font-size: 8.4pt; }
+.results-table td.col-ref { color: var(--color-text); font-size: 9.2pt; }
 .results-table td.col-test,
 .results-table td.col-param { vertical-align: top; text-align: left; }
 
 .test-name.is-bold { font-weight: bold; }
 .test-method {
-  font-size: 7.15pt;
+  font-size: 6.5pt;
   color: var(--color-text);
   line-height: 1.02;
   padding-top: 0;
@@ -286,7 +289,7 @@ body.report-body {
 .section-divider td {
   background: transparent;
   font-weight: bold;
-  font-size: 8.7pt;
+  font-size: 9.4pt;
   text-transform: uppercase;
   letter-spacing: 0.3px;
   padding: 2pt 5pt 1pt;
@@ -313,7 +316,7 @@ body.report-body {
 
 .smear-header {
   font-weight: bold;
-  font-size: 8.7pt;
+  font-size: 9.4pt;
   text-transform: uppercase;
   letter-spacing: 0.3px;
   color: var(--color-text);
@@ -339,7 +342,7 @@ body.report-body {
   display: flex;
   align-items: baseline;
   padding: 0.5pt 0;
-  font-size: 9pt;
+  font-size: 10pt;
 }
 
 .smear-label {
@@ -364,7 +367,7 @@ body.report-body {
 .widal-table { width: 60%; margin: 0 auto var(--spacing-sm); }
 .widal-table .col-antigen { width: 60%; }
 .widal-table .col-titre { width: 40%; text-align: center; }
-.widal-note { text-align: center; font-size: 7.5pt; margin-bottom: var(--spacing-sm); }
+.widal-note { text-align: center; font-size: 8pt; margin-bottom: var(--spacing-sm); }
 
 /* ============================================================================
    INTERPRETATION BLOCK
@@ -377,8 +380,8 @@ body.report-body {
   background: transparent;
 }
 
-.interpretation-block strong { display: block; margin-bottom: var(--spacing-xs); font-size: 8.5pt; }
-.interpretation-block p { line-height: 1.3; font-size: 8.5pt; white-space: pre-wrap; }
+.interpretation-block strong { display: block; margin-bottom: var(--spacing-xs); font-size: 9.2pt; }
+.interpretation-block p { line-height: 1.3; font-size: 9.2pt; white-space: pre-wrap; }
 
 /* ============================================================================
    TEXT-ONLY RESULTS
@@ -417,7 +420,7 @@ body.report-body {
 
 .imaging-narrative {
   color: var(--color-text);
-  font-size: 8.5pt;
+  font-size: 9.2pt;
   line-height: 1.55;
 }
 
@@ -480,7 +483,7 @@ body.report-body {
    ============================================================================ */
 
 .report-note {
-  font-size: 7.9pt;
+  font-size: 8.5pt;
   color: var(--color-text);
   text-align: left;
   padding: 0;
@@ -546,14 +549,14 @@ body.report-body {
   margin-bottom: 2pt;
 }
 .lab-incharge-label {
-  font-size: 8.8pt;
+  font-size: 9.4pt;
   font-weight: bold;
 }
 
 .signature-image { height: 38pt; width: auto; margin-bottom: 1pt; }
-.doctor-name { font-weight: bold; font-size: 9.2pt; }
-.doctor-degrees { font-size: 7.8pt; }
-.doctor-designation { font-size: 7.8pt; }
+.doctor-name { font-weight: bold; font-size: 9.8pt; }
+.doctor-degrees { font-size: 8.2pt; }
+.doctor-designation { font-size: 8.2pt; }
 .doctor-reg { font-size: 6.5pt; }
 
 /* ============================================================================
