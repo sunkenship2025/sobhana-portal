@@ -24,10 +24,10 @@ PDF/blob exports (`/payouts/export`, `/payouts/:id/export`, ReportPreview, `repo
 `apiRequest`, `authStore` login/logout/hydrate, `branchStore.fetchBranches`, `reportAccess.ts`. `use-doctor-lookup.ts` is already on RQ — exemplar; keep its keys + `invalidateDoctorLookups()`. The visit pages' patient-search `fetchQuery` is canonical — leave it.
 
 ## Migration order
-1. Shared layer (`src/lib/query.ts`).
-2. **`ManageDoctors.tsx`** (first; proves the pattern + external-cache invalidation).
-3. `ManageClinicDoctors.tsx` (twin).
-4. Branch-scoped CRUD: `ManageDiagnosticCenters`, `ManageDepartments` (prove `branchScoped`; also wire `setActiveBranch → queryClient.clear()` here).
+1. ✅ Shared layer (`src/lib/query.ts`).
+2. ✅ **`ManageDoctors.tsx`** (first; proves the pattern + external-cache invalidation).
+3. ✅ `ManageClinicDoctors.tsx` (twin).
+4. ✅ Branch-scoped CRUD: `ManageDiagnosticCenters`, `ManageDepartments` (proved `branchScoped`; keys carry `branchId`). The `setActiveBranch → queryClient.clear()` contract is now wired centrally: `src/lib/queryClient.ts` exports the app-wide `QueryClient` singleton (App.tsx consumes it), and `branchStore.setActiveBranch` calls `queryClient.clear()` when the branch actually changes — closing the header-`BranchSelector` gap (it previously switched branch without flushing). `BranchConfirmModal`'s own `clear()` is now redundant but harmless.
 5. Payouts family (4 files together — `['payouts']` namespace).
 6. Heavy `Manage*` one at a time: BillableProducts → ClinicalDefinitions → PanelDefinitions → DoctorsAndReferrals → **SigningDoctors last** (multipart + sequenced chains).
 7. Shared singletons: Dashboard, BillPrintPage, PatientEditDialog, TestInputConfigEditor.

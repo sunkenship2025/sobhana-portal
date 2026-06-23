@@ -113,4 +113,8 @@ export const qk = {
   // --- global (no branchId in key) ---
   referralDoctors: () => ["referral-doctors"] as const,
   clinicDoctors: () => ["clinic-doctors"] as const,
+  // --- branch-scoped (branchId in key; flushed wholesale on branch switch) ---
+  diagnosticCenters: (branchId: string | null) =>
+    ["diagnostic-centers", branchId] as const,
+  departments: (branchId: string | null) => ["departments", branchId] as const,
 } as const;

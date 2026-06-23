@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { API_BASE } from '@/lib/api';
+import { useState } from 'react';
+import { useApiQuery, useApiMutation, branchRequest, useBranchId, qk } from '@/lib/query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -7,8 +7,6 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
-import { useAuthStore } from '@/store/authStore';
-import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import {
   Plus, Pencil, Trash2, Building2, Search, Beaker, LayoutGrid,
@@ -73,16 +71,12 @@ function deptCode(name: string) {
 /* ───────── Component ───────── */
 
 export default function ManageDepartments() {
-  const { token } = useAuthStore();
+  const branchId = useBranchId();
 
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -91,39 +85,52 @@ export default function ManageDepartments() {
     showLabIncharge: true,
   });
 
-  const getHeaders = () => {
-    const { activeBranchId } = useBranchStore.getState();
-    return {
-      'Authorization': `Bearer ${token}`,
-      'X-Branch-Id': activeBranchId || '',
-      'Content-Type': 'application/json',
-    };
-  };
+  // Branch-scoped list (X-Branch-Id header) → branchId belongs in the key.
+  const { data: departments = [], isLoading: loading } = useApiQuery<Department[]>({
+    branchScoped: true,
+    queryKey: qk.departments(branchId),
+    queryFn: () =>
+      branchRequest<Department[]>('/departments?includeInactive=true', branchId!),
+  });
 
-  const fetchDepartments = async () => {
-    if (!token) return;
-    try {
-      const { activeBranchId } = useBranchStore.getState();
-      const res = await fetch(`${API_BASE}/departments?includeInactive=true`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'X-Branch-Id': activeBranchId || '',
-        },
-      });
-      if (res.ok) {
-        setDepartments(await res.json());
-      } else {
-        toast.error('Failed to load departments');
-      }
-    } catch (err) {
-      console.error('Error fetching departments:', err);
-      toast.error('Failed to load departments');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const saveMutation = useApiMutation<
+    Department,
+    { editingId: string | null; payload: Record<string, unknown> }
+  >({
+    mutationFn: ({ editingId, payload }) =>
+      branchRequest<Department>(
+        editingId ? `/departments/${editingId}` : '/departments',
+        branchId!,
+        { method: editingId ? 'PATCH' : 'POST', body: JSON.stringify(payload) },
+      ),
+    invalidate: [qk.departments(branchId)],
+    onSuccess: (_data, { editingId }) => {
+      toast.success(editingId ? 'Department updated' : 'Department created');
+      resetForm();
+    },
+    onError: (err) => toast.error(err.message || 'Failed to save department'),
+  });
 
-  useEffect(() => { fetchDepartments(); }, [token]);
+  const toggleMutation = useApiMutation<Department, Department>({
+    mutationFn: (dept) =>
+      branchRequest<Department>(`/departments/${dept.id}`, branchId!, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: !dept.isActive }),
+      }),
+    invalidate: [qk.departments(branchId)],
+    onSuccess: (_data, dept) =>
+      toast.success(`Department ${!dept.isActive ? 'activated' : 'deactivated'}`),
+    onError: (err) => toast.error(err.message || 'Failed to update status'),
+  });
+
+  const deleteMutation = useApiMutation<void, string>({
+    mutationFn: (id) =>
+      branchRequest<void>(`/departments/${id}`, branchId!, { method: 'DELETE' }),
+    invalidate: [qk.departments(branchId)],
+    onSuccess: () => toast.success('Department deactivated'),
+    onError: (err) => toast.error(err.message || 'Failed to delete department'),
+    onSettled: () => setDeleteId(null),
+  });
 
   const resetForm = () => {
     setFormData({ name: '', reportHeaderText: '', displayOrder: '0', showLabIncharge: true });
@@ -148,7 +155,7 @@ export default function ManageDepartments() {
     setDialogOpen(true);
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     if (!formData.name.trim()) {
       toast.error('Department name is required');
       return;
@@ -156,97 +163,23 @@ export default function ManageDepartments() {
 
     const order = parseInt(formData.displayOrder) || 0;
 
-    if (submitting) return;
-    setSubmitting(true);
-    try {
-      if (editingId) {
-        const res = await fetch(`${API_BASE}/departments/${editingId}`, {
-          method: 'PATCH',
-          headers: getHeaders(),
-          body: JSON.stringify({
-            name: formData.name.trim(),
-            reportHeaderText: formData.reportHeaderText.trim() || null,
-            displayOrder: order,
-            showLabIncharge: formData.showLabIncharge,
-          }),
-        });
-        if (!res.ok) {
-          const err = await res.json();
-          toast.error(err.message || 'Failed to update department');
-          return;
-        }
-        toast.success('Department updated');
-      } else {
-        const res = await fetch(`${API_BASE}/departments`, {
-          method: 'POST',
-          headers: getHeaders(),
-          body: JSON.stringify({
-            name: formData.name.trim(),
-            reportHeaderText: formData.reportHeaderText.trim() || null,
-            displayOrder: order,
-            showLabIncharge: formData.showLabIncharge,
-          }),
-        });
-        if (!res.ok) {
-          const err = await res.json();
-          toast.error(err.message || 'Failed to create department');
-          return;
-        }
-        toast.success('Department created');
-      }
-      await fetchDepartments();
-      resetForm();
-    } catch (err) {
-      console.error('Error saving department:', err);
-      toast.error('Failed to save department');
-    } finally {
-      setSubmitting(false);
-    }
+    saveMutation.mutate({
+      editingId,
+      payload: {
+        name: formData.name.trim(),
+        reportHeaderText: formData.reportHeaderText.trim() || null,
+        displayOrder: order,
+        showLabIncharge: formData.showLabIncharge,
+      },
+    });
   };
 
-  const handleToggleActive = async (dept: Department) => {
-    try {
-      const res = await fetch(`${API_BASE}/departments/${dept.id}`, {
-        method: 'PATCH',
-        headers: getHeaders(),
-        body: JSON.stringify({ isActive: !dept.isActive }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        toast.error(err.message || 'Failed to update status');
-        return;
-      }
-      toast.success(`Department ${!dept.isActive ? 'activated' : 'deactivated'}`);
-      await fetchDepartments();
-    } catch (err) {
-      console.error('Error toggling department active:', err);
-      toast.error('Failed to update status');
-    }
+  const handleToggleActive = (dept: Department) => {
+    toggleMutation.mutate(dept);
   };
 
-  const handleDelete = async () => {
-    if (!deleteId) return;
-    if (deleting) return;
-    setDeleting(true);
-    try {
-      const res = await fetch(`${API_BASE}/departments/${deleteId}`, {
-        method: 'DELETE',
-        headers: getHeaders(),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        toast.error(err.message || 'Failed to delete department');
-        return;
-      }
-      toast.success('Department deactivated');
-      await fetchDepartments();
-    } catch (err) {
-      console.error('Error deleting department:', err);
-      toast.error('Failed to delete department');
-    } finally {
-      setDeleting(false);
-      setDeleteId(null);
-    }
+  const handleDelete = () => {
+    if (deleteId) deleteMutation.mutate(deleteId);
   };
 
   // ─── Filter ─────────────────────────────────────────────────────────────
@@ -450,9 +383,9 @@ export default function ManageDepartments() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={resetForm} disabled={submitting}>Cancel</Button>
-            <Button onClick={handleSubmit} disabled={submitting}>
-              {submitting ? 'Saving...' : (editingId ? 'Update' : 'Create')}
+            <Button variant="outline" onClick={resetForm} disabled={saveMutation.isPending}>Cancel</Button>
+            <Button onClick={handleSubmit} disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? 'Saving...' : (editingId ? 'Update' : 'Create')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -469,9 +402,9 @@ export default function ManageDepartments() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} disabled={deleting} className="bg-destructive text-destructive-foreground">
-              {deleting ? 'Deleting...' : 'Delete'}
+            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} disabled={deleteMutation.isPending} className="bg-destructive text-destructive-foreground">
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
