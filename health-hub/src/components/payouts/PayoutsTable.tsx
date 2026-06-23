@@ -220,7 +220,7 @@ export function PayoutsTable({
                       {row.paidAt ? (
                         <Badge
                           variant="outline"
-                          className="bg-green-50 text-green-700 border-green-200"
+                          className="bg-success/10 text-success border-success/20"
                         >
                           <Check className="h-3 w-3 mr-1" />
                           Paid
@@ -228,7 +228,7 @@ export function PayoutsTable({
                       ) : (
                         <Badge
                           variant="outline"
-                          className="bg-yellow-50 text-yellow-700 border-yellow-200"
+                          className="bg-warning/10 text-warning border-warning/20"
                         >
                           <Clock className="h-3 w-3 mr-1" />
                           Pending
