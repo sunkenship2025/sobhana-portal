@@ -113,8 +113,8 @@ export function PayoutsTable({
                 onChange={onSortChange}
               />
             </TableHead>
-            <TableHead className="w-24">Type</TableHead>
-            <TableHead>
+            <TableHead className="w-24 hidden md:table-cell">Type</TableHead>
+            <TableHead className="hidden md:table-cell">
               <SortHeader
                 label="Period"
                 field="periodStart"
@@ -134,7 +134,7 @@ export function PayoutsTable({
               />
             </TableHead>
             <TableHead className="w-28">Status</TableHead>
-            <TableHead>
+            <TableHead className="hidden md:table-cell">
               <SortHeader
                 label="Derived"
                 field="derivedAt"
@@ -192,7 +192,7 @@ export function PayoutsTable({
                       <Checkbox checked={checked} aria-label="Select row" />
                     </TableCell>
                     <TableCell className="font-medium">{row.doctorName}</TableCell>
-                    <TableCell>
+                    <TableCell className="hidden md:table-cell">
                       <Badge
                         variant={
                           row.doctorType === "REFERRAL"
@@ -210,7 +210,7 @@ export function PayoutsTable({
                         {formatDoctorTypeShort(row.doctorType)}
                       </Badge>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden md:table-cell">
                       {formatPeriod(row.periodStartDate, row.periodEndDate)}
                     </TableCell>
                     <TableCell className="text-right font-semibold tabular-nums">
@@ -235,7 +235,7 @@ export function PayoutsTable({
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell className="hidden md:table-cell text-muted-foreground">
                       {formatDate(row.derivedAt)}
                     </TableCell>
                     <TableCell data-row-actions className="text-right">
