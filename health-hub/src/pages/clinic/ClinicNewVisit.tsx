@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
   MessageCircle,
@@ -24,8 +25,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { goToStep, goToNext, goToPrev, handleFlowKey } from "@/lib/focusFlow";
+import { useVisitDefaults } from "@/store/visitDefaultsStore";
 import {
   Dialog,
   DialogContent,
@@ -39,6 +42,7 @@ import {
   validatePatientForm,
 } from "@/lib/validation";
 import { TITLE_TO_GENDER, titleOptions, formatPatientName } from "@/lib/patientDisplay";
+import { useConfirm } from "@/hooks/use-confirm";
 import { useAuthStore } from "@/store/authStore";
 import { useBranchStore } from "@/store/branchStore";
 import { toast } from "sonner";
@@ -106,6 +110,8 @@ function buildClinicVisitView(apiVisit: any): ClinicVisitView {
 
 const ClinicNewVisit = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { confirm, ConfirmDialog } = useConfirm();
   const printRef = useRef<HTMLDivElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const { token } = useAuthStore();
@@ -182,7 +188,7 @@ const ClinicNewVisit = () => {
     DEFAULT_CONSULTATION_FEE,
   );
   const [paymentMode, setPaymentMode] = useState<"CASH" | "ONLINE" | "SPLIT">(
-    "CASH",
+    () => useVisitDefaults.getState().lastClinicPaymentMode,
   );
   const [splitAmounts, setSplitAmounts] = useState({ cash: 0, online: 0 });
   const [successData, setSuccessData] = useState<{
@@ -228,8 +234,29 @@ const ClinicNewVisit = () => {
         });
 
         if (res.ok) {
-          const doctors = await res.json();
+          const doctors: ClinicDoctor[] = await res.json();
           setClinicDoctors(doctors);
+          // Pre-select a doctor so the operator doesn't pick one every visit:
+          // prefer the last-used doctor, else auto-select when there's only one.
+          const rememberedId = useVisitDefaults.getState().lastClinicDoctorId;
+          const preferred =
+            doctors.find((d) => d.id === rememberedId) ??
+            (doctors.length === 1 ? doctors[0] : null);
+          if (preferred) {
+            setSelectedDoctorId(preferred.id);
+            if (preferred.consultationFeeInPaise != null) {
+              setConsultationFee(
+                String(Math.round(preferred.consultationFeeInPaise / 100)),
+              );
+            }
+          } else {
+            // No preferred doctor in this branch — drop any selection that
+            // isn't in this branch's list so the billing/confirm never render
+            // off a stale doctor (e.g. after switching branch mid-flow).
+            setSelectedDoctorId((cur) =>
+              doctors.some((d: ClinicDoctor) => d.id === cur) ? cur : "",
+            );
+          }
         }
       } catch (error) {
         console.error("Failed to fetch doctors:", error);
@@ -296,26 +323,61 @@ const ClinicNewVisit = () => {
     };
   }, [selectedPatient?.id, selectedDoctorId, token, activeBranch]);
 
+  // Patient lookup goes through React Query's cache. Both the search fired while
+  // typing (on the 10th digit) and the one on Enter call this with the same
+  // queryKey, so React Query dedupes them into a single request and serves the
+  // result from cache within staleTime — pressing Enter no longer waits on a
+  // second round-trip. A failed request returns [] (and isn't cached as data).
+  const runPatientSearch = async (value: string): Promise<Patient[]> => {
+    if (value.length !== 10 || !token || !activeBranch) return [];
+    try {
+      return await queryClient.fetchQuery<Patient[]>({
+        queryKey: ["patientSearch", "clinic", activeBranch.id, value],
+        queryFn: async ({ signal }) => {
+          const res = await fetch(
+            `${API_BASE}/patients/search?phone=${value}`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "X-Branch-Id": activeBranch.id,
+              },
+              signal,
+            },
+          );
+          if (!res.ok) throw new Error("Patient search failed");
+          const results = await res.json();
+          return results.map((result: any) => result.patient) as Patient[];
+        },
+        staleTime: 10_000,
+        retry: 1,
+      });
+    } catch (error) {
+      console.error("Search failed:", error);
+      return [];
+    }
+  };
+
   const handlePhoneChange = async (value: string) => {
     setPhone(value);
-    if (value.length === 10 && token && activeBranch) {
-      try {
-        const res = await fetch(`${API_BASE}/patients/search?phone=${value}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "X-Branch-Id": activeBranch.id,
-          },
-        });
-        if (res.ok) {
-          const results = await res.json();
-          const patients = results.map((result: any) => result.patient);
-          setMatchingPatients(patients);
-        }
-      } catch (error) {
-        console.error("Search failed:", error);
-      }
+    setMatchingPatients(value.length === 10 ? await runPatientSearch(value) : []);
+  };
+
+  // Phone Enter: search, then branch on the fresh result. Existing patient(s)
+  // land on the match list; a brand-new number skips straight to Title (step 21)
+  // so the operator doesn't have to press Enter twice to "Create New Patient".
+  const handlePhoneEnter = async () => {
+    if (!guardPhone()) return;
+    const patients = await runPatientSearch(phone);
+    setMatchingPatients(patients);
+    setHighlightedPatientIndex(0);
+    if (patients.length === 1) {
+      // Exactly one match — select it and skip the list step entirely.
+      handleSelectPatient(patients[0]);
+    } else if (patients.length > 1) {
+      goToStep(20);
     } else {
-      setMatchingPatients([]);
+      // New patient — skip the (empty) list and start at Title.
+      handleCreateNewPatient();
     }
   };
 
@@ -380,22 +442,38 @@ const ClinicNewVisit = () => {
     setSelectedPatient(patient);
     setShowNewPatientForm(false);
     setWhatsappOptIn((patient as any).whatsappOptIn ?? true);
+    // Advance to Visit Details once that card has committed (step 30).
+    goToStep(30);
   };
 
   const resetForm = () => {
     setSuccessData(null);
+    // Drop cached searches so a just-registered patient shows up if the same
+    // number is looked up again.
+    queryClient.invalidateQueries({ queryKey: ["patientSearch"] });
     setPhone("");
     setMatchingPatients([]);
     setSelectedPatient(null);
-    setSelectedDoctorId("");
+    // Re-apply the remembered/auto-selected doctor so "Create Another Visit"
+    // doesn't drop it back to an empty picker.
+    const rememberedId = useVisitDefaults.getState().lastClinicDoctorId;
+    const preferred =
+      clinicDoctors.find((d) => d.id === rememberedId) ??
+      (clinicDoctors.length === 1 ? clinicDoctors[0] : null);
+    setSelectedDoctorId(preferred?.id ?? "");
     setHospitalWard("");
     setShowNewPatientForm(false);
-    setConsultationFee(DEFAULT_CONSULTATION_FEE);
+    setConsultationFee(
+      preferred?.consultationFeeInPaise != null
+        ? String(Math.round(preferred.consultationFeeInPaise / 100))
+        : DEFAULT_CONSULTATION_FEE,
+    );
     setRevisitContext(null);
     setSelectedRevisitMode("VISIT");
-    setPaymentMode("CASH");
+    setPaymentMode(useVisitDefaults.getState().lastClinicPaymentMode);
     setSplitAmounts({ cash: 0, online: 0 });
     setNewPatient({
+      title: "",
       name: "",
       age: "",
       ageUnit: "YEARS",
@@ -463,18 +541,26 @@ const ClinicNewVisit = () => {
           const duplicateInfo = JSON.parse(errorData.message);
           const existing = duplicateInfo.existingPatient;
 
-          const userConfirm = window.confirm(
-            `⚠️ Potential Duplicate Detected\n\n` +
-              `Existing Patient: ${existing.patientNumber}\n` +
-              `Name: ${formatPatientName(existing.name, existing.title)}\n` +
-              `Age: ${existing.ageDisplay || existing.age}, Gender: ${existing.gender}\n` +
-              `Phone: ${existing.phone}\n\n` +
-              `This looks like the same person. Do you want to:\n` +
-              `• Click OK to USE EXISTING patient\n` +
-              `• Click Cancel to CREATE NEW patient anyway`,
-          );
+          const choice = await confirm({
+            title: "Possible duplicate patient",
+            description: (
+              <div className="space-y-2 text-sm">
+                <p>A patient with this phone number already exists:</p>
+                <p className="font-medium text-foreground">
+                  {existing.patientNumber} · {formatPatientName(existing.name, existing.title)} · {existing.ageDisplay || `${existing.age}y`} · {existing.gender} · {existing.phone}
+                </p>
+                <p>Is this the same person?</p>
+              </div>
+            ),
+            confirmText: "Use existing patient",
+            cancelText: "Create new anyway",
+            destructiveCancel: true,
+            defaultFocus: "confirm",
+          });
 
-          if (userConfirm) {
+          if (choice === null) return; // dismissed — abort without creating anything
+
+          if (choice) {
             patient = {
               id: existing.id,
               patientNumber: existing.patientNumber,
@@ -758,19 +844,26 @@ const ClinicNewVisit = () => {
 
   return (
     <AppLayout context="clinic" subContext="Reception">
-      <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
-        <div>
-          <h1 className="text-2xl font-bold">New Clinic Visit</h1>
-          <p className="text-muted-foreground">
-            Register a clinic visit and generate a bill or revisit slip.
-          </p>
+      {ConfirmDialog}
+      <div className="max-w-[760px] mx-auto space-y-4 pb-24 animate-fade-in">
+        <div className="flex items-baseline justify-between gap-4">
+          <h1 className="text-lg font-semibold">New Clinic Visit</h1>
+          {selectedPatient && (
+            <span className="truncate text-sm text-muted-foreground">
+              {formatPatientName(selectedPatient.name, selectedPatient.title)}
+              {selectedPatient.age
+                ? ` · ${selectedPatient.ageDisplay || selectedPatient.age + "y"}`
+                : ""}
+              {selectedPatient.gender ? ` · ${selectedPatient.gender}` : ""}
+            </span>
+          )}
         </div>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Patient Lookup</CardTitle>
+          <CardHeader className="px-5 pt-4 pb-0">
+            <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Patient Lookup</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="px-5 pb-5 pt-3 space-y-3">
             <div className="space-y-2">
               <Label htmlFor="phone">Phone Number *</Label>
               <div className="flex flex-col gap-2 sm:flex-row">
@@ -784,8 +877,18 @@ const ClinicNewVisit = () => {
                     )
                   }
                   maxLength={10}
-                  className="w-full sm:max-w-sm"
-                  onKeyDown={flowGuard(guardPhone)}
+                  autoComplete="off"
+                  className="w-full"
+                  onKeyDown={(e) => {
+                    if (e.repeat) return;
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handlePhoneEnter();
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      goToPrev(10);
+                    }
+                  }}
                   data-focus-step={10}
                   autoFocus
                 />
@@ -793,6 +896,7 @@ const ClinicNewVisit = () => {
                   className="w-full sm:w-auto"
                   variant="secondary"
                   type="button"
+                  onClick={() => handlePhoneChange(phone)}
                 >
                   <Search className="h-4 w-4" />
                 </Button>
@@ -803,10 +907,10 @@ const ClinicNewVisit = () => {
 
         {(matchingPatients.length > 0 || phone.length === 10) && (
           <Card>
-            <CardHeader>
-              <CardTitle>Matching Patients</CardTitle>
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Matching Patients</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="px-5 pb-5 pt-3 space-y-3">
               <div
                 className="space-y-2 outline-none"
                 tabIndex={0}
@@ -856,17 +960,14 @@ const ClinicNewVisit = () => {
                         <div className="h-2 w-2 rounded-full bg-primary" />
                       )}
                     </div>
-                    <Label
-                      htmlFor={patient.id}
-                      className="flex-1 cursor-pointer"
-                    >
+                    <div className="flex-1">
                       <span className="font-medium">{formatPatientName(patient.name, (patient as any).title)}</span>
                       <span className="text-muted-foreground ml-2">
                         |{" "}
                         {(patient as any).ageDisplay || `${patient.age} Years`}{" "}
                         | {patient.gender}
                       </span>
-                    </Label>
+                    </div>
                   </div>
                 ))}
 
@@ -895,15 +996,15 @@ const ClinicNewVisit = () => {
 
         {showNewPatientForm && (
           <Card>
-            <CardHeader>
-              <CardTitle>New Patient</CardTitle>
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">New Patient</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="px-5 pb-5 pt-3 space-y-3">
               {/* Row 1: Title + Name */}
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
                   <Label>Title</Label>
-                  <Select
+                  <SearchableSelect
                     value={newPatient.title}
                     onValueChange={(v) => {
                       const autoGender = TITLE_TO_GENDER[v];
@@ -920,18 +1021,14 @@ const ClinicNewVisit = () => {
                       }
                       goToStep(22);
                     }}
-                  >
-                    <SelectTrigger data-focus-step={21} onKeyDown={handleFlowKey}>
-                      <SelectValue placeholder="Select title" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {titleOptions.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    options={titleOptions}
+                    placeholder="Select title"
+                    searchPlaceholder="Type a title..."
+                    emptyText="No title found."
+                    onAdvance={() => goToStep(22)}
+                    focusStep={21}
+                    ariaLabel="Title"
+                  />
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="name">Full Name *</Label>
@@ -953,10 +1050,10 @@ const ClinicNewVisit = () => {
                     }}
                     onKeyDown={flowGuard(guardPatientField("name"))}
                     data-focus-step={22}
-                    className={validationErrors.name ? "border-red-500" : ""}
+                    className={validationErrors.name ? "border-destructive" : ""}
                   />
                   {validationErrors.name && (
-                    <p className="text-sm text-red-500">
+                    <p className="text-sm text-destructive">
                       {validationErrors.name}
                     </p>
                   )}
@@ -988,7 +1085,9 @@ const ClinicNewVisit = () => {
                         <RadioGroupItem
                           value={gender}
                           id={`gender-${gender}`}
-                          data-focus-step={24}
+                          data-focus-step={
+                            TITLE_TO_GENDER[newPatient.title] ? undefined : 24
+                          }
                           onKeyDown={handleFlowKey}
                         />
                         <Label htmlFor={`gender-${gender}`}>{gender}</Label>
@@ -996,7 +1095,7 @@ const ClinicNewVisit = () => {
                     ))}
                   </RadioGroup>
                   {validationErrors.gender && (
-                    <p className="text-sm text-red-500">
+                    <p className="text-sm text-destructive">
                       {validationErrors.gender}
                     </p>
                   )}
@@ -1006,13 +1105,15 @@ const ClinicNewVisit = () => {
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Input
                       id="age"
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       placeholder="Age"
                       value={newPatient.age}
                       onChange={(event) => {
                         setNewPatient({
                           ...newPatient,
-                          age: event.target.value,
+                          age: event.target.value.replace(/\D/g, ""),
                         });
                         if (validationErrors.age) {
                           setValidationErrors({
@@ -1023,7 +1124,7 @@ const ClinicNewVisit = () => {
                       }}
                       onKeyDown={flowGuard(guardPatientField("age"))}
                       data-focus-step={26}
-                      className={`flex-1 ${validationErrors.age ? "border-red-500" : ""}`}
+                      className={`flex-1 ${validationErrors.age ? "border-destructive" : ""}`}
                     />
                     <Select
                       value={newPatient.ageUnit}
@@ -1034,7 +1135,7 @@ const ClinicNewVisit = () => {
                         })
                       }
                     >
-                      <SelectTrigger className="w-full sm:w-[110px]" data-focus-step={27} onKeyDown={handleFlowKey}>
+                      <SelectTrigger className="w-full sm:w-[110px]" onKeyDown={handleFlowKey}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1045,7 +1146,7 @@ const ClinicNewVisit = () => {
                     </Select>
                   </div>
                   {validationErrors.age && (
-                    <p className="text-sm text-red-500">
+                    <p className="text-sm text-destructive">
                       {validationErrors.age}
                     </p>
                   )}
@@ -1070,17 +1171,16 @@ const ClinicNewVisit = () => {
                         setNewPatient({ ...newPatient, dateOfBirth: dob });
                       }
                     }}
-                    data-focus-step={28}
                     onKeyDown={handleFlowKey}
                   />
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-muted-foreground">
                     If DOB is entered, age will be calculated automatically
                   </p>
                 </div>
               </div>
 
               {validationErrors.phone && (
-                <div className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-md p-3">
+                <div className="text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-md p-3">
                   <strong>Phone:</strong> {validationErrors.phone}
                 </div>
               )}
@@ -1095,7 +1195,6 @@ const ClinicNewVisit = () => {
                       whatsappOptIn: checked === true,
                     })
                   }
-                  data-focus-step={29}
                   onKeyDown={handleFlowKey}
                 />
                 <Label
@@ -1112,10 +1211,10 @@ const ClinicNewVisit = () => {
 
         {(selectedPatient || showNewPatientForm) && (
           <Card>
-            <CardHeader>
-              <CardTitle>Visit Details</CardTitle>
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Visit Details</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="px-5 pb-5 pt-3 space-y-3">
               <div className="space-y-2">
                 <Label>Visit Type *</Label>
                 <RadioGroup
@@ -1145,31 +1244,47 @@ const ClinicNewVisit = () => {
               </div>
 
               <div className="space-y-2">
-                <Select
+                <Label>Consulting Doctor *</Label>
+                <SearchableSelect
                   value={selectedDoctorId}
-                  onValueChange={setSelectedDoctorId}
-                >
-                  <SelectTrigger
-                    className="max-w-sm"
-                    data-focus-step={40}
-                    onKeyDown={handleFlowKey}
-                  >
-                    <SelectValue
-                      placeholder={
-                        isLoading
-                          ? "Loading doctors..."
-                          : "Select consulting doctor"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clinicDoctors.map((doctor) => (
-                      <SelectItem key={doctor.id} value={doctor.id}>
-                        {doctor.name} — {doctor.specialty}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onValueChange={(id) => {
+                    setSelectedDoctorId(id);
+                    useVisitDefaults.getState().setLastClinicDoctorId(id);
+                    const doc = clinicDoctors.find((d) => d.id === id);
+                    if (doc?.consultationFeeInPaise != null) {
+                      setConsultationFee(
+                        String(Math.round(doc.consultationFeeInPaise / 100)),
+                      );
+                    }
+                    // Doctor chosen → advance to the fee field (step 60).
+                    goToStep(60);
+                  }}
+                  onAdvance={() => goToStep(60)}
+                  focusStep={40}
+                  options={clinicDoctors.map((doctor) => {
+                    const fee =
+                      doctor.consultationFeeInPaise != null
+                        ? Math.round(doctor.consultationFeeInPaise / 100)
+                        : null;
+                    return {
+                      value: doctor.id,
+                      label: doctor.name,
+                      description: [doctor.specialty, fee != null ? `₹${fee}` : null]
+                        .filter(Boolean)
+                        .join(" · "),
+                      keywords: [doctor.name, doctor.specialty]
+                        .filter(Boolean)
+                        .join(" "),
+                    };
+                  })}
+                  placeholder={
+                    isLoading ? "Loading doctors…" : "Select consulting doctor"
+                  }
+                  searchPlaceholder="Search by doctor name or specialty"
+                  emptyText="No consulting doctors found."
+                  ariaLabel="Consulting doctor"
+                  className="h-11"
+                />
               </div>
 
               {visitType === "IP" && (
@@ -1192,10 +1307,10 @@ const ClinicNewVisit = () => {
 
         {(selectedPatient || showNewPatientForm) && selectedDoctorId && (
           <Card>
-            <CardHeader>
-              <CardTitle>Billing</CardTitle>
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Billing</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="px-5 pb-5 pt-3 space-y-3">
               {checkingRevisit && (
                 <p className="text-sm text-muted-foreground animate-pulse">
                   Checking revisit eligibility...
@@ -1349,20 +1464,45 @@ const ClinicNewVisit = () => {
                     <RadioGroup
                       value={paymentMode}
                       onValueChange={(value) => {
-                        setPaymentMode(value as any);
-                        if (value === "SPLIT") {
-                          setSplitAmounts({ cash: consultationFee, online: 0 });
+                        const mode = value as "CASH" | "ONLINE" | "SPLIT";
+                        setPaymentMode(mode);
+                        // Remember CASH/ONLINE as the default; SPLIT is a
+                        // per-transaction choice (its amounts seed on change).
+                        if (mode !== "SPLIT") {
+                          useVisitDefaults
+                            .getState()
+                            .setLastClinicPaymentMode(mode);
+                        }
+                        if (mode === "SPLIT") {
+                          setSplitAmounts({
+                            cash: Number(consultationFee) || 0,
+                            online: 0,
+                          });
                           goToStep(110);
                         }
                       }}
+                      onKeyDown={(e) => {
+                        // Terminal Enter for the whole payment group: works
+                        // wherever focus sits among the radios. SPLIT routes to
+                        // the amount inputs; CASH/ONLINE open the confirm dialog.
+                        if (e.repeat) return;
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          goToPrev(100);
+                        } else if (e.key === "Enter") {
+                          e.preventDefault();
+                          if (paymentMode === "SPLIT") goToStep(110);
+                          else openConfirmBill();
+                        }
+                      }}
                       className="flex gap-6"
+                      orientation="horizontal"
                     >
                       <div className="flex items-center space-x-2">
                         <RadioGroupItem
                           value="CASH"
                           id="cash"
                           data-focus-step={100}
-                          onKeyDown={flowKeyOrConfirm}
                         />
                         <Label htmlFor="cash">Cash</Label>
                       </div>
@@ -1371,7 +1511,6 @@ const ClinicNewVisit = () => {
                           value="ONLINE"
                           id="online"
                           data-focus-step={100}
-                          onKeyDown={flowKeyOrConfirm}
                         />
                         <Label htmlFor="online">Online</Label>
                       </div>
@@ -1380,26 +1519,26 @@ const ClinicNewVisit = () => {
                           value="SPLIT"
                           id="split"
                           data-focus-step={100}
-                          onKeyDown={flowKeyOrConfirm}
                         />
-                        <Label htmlFor="split">Split Payment</Label>
+                        <Label htmlFor="split">Split</Label>
                       </div>
                     </RadioGroup>
 
                     {paymentMode === "SPLIT" && (
                       <div className="flex gap-4 mt-4">
                         <div className="flex-1 space-y-2">
-                          <Label>Cash Amount (₹)</Label>
+                          <Label>Cash ₹</Label>
                           <Input
                             id="split-cash"
                             type="number"
                             min="0"
+                            placeholder="Shift+→ to Online"
                             value={splitAmounts.cash || ""}
                             onChange={(e) => {
                               const cash = Number(e.target.value);
                               setSplitAmounts({
                                 cash,
-                                online: Math.max(0, consultationFee - cash),
+                                online: Math.max(0, Number(consultationFee) - cash),
                               });
                             }}
                             onKeyDown={(e) => {
@@ -1418,16 +1557,17 @@ const ClinicNewVisit = () => {
                           />
                         </div>
                         <div className="flex-1 space-y-2">
-                          <Label>Online Amount (₹)</Label>
+                          <Label>Online ₹</Label>
                           <Input
                             id="split-online"
                             type="number"
                             min="0"
+                            placeholder="Shift+← to Cash"
                             value={splitAmounts.online || ""}
                             onChange={(e) => {
                               const online = Number(e.target.value);
                               setSplitAmounts({
-                                cash: Math.max(0, consultationFee - online),
+                                cash: Math.max(0, Number(consultationFee) - online),
                                 online,
                               });
                             }}
@@ -1459,7 +1599,6 @@ const ClinicNewVisit = () => {
                           setWhatsappOptIn(checked === true)
                         }
                         onKeyDown={flowKeyOrConfirm}
-                        data-focus-step={130}
                       />
                       <Label
                         htmlFor="existingPatientWhatsappOptIn"
@@ -1472,19 +1611,39 @@ const ClinicNewVisit = () => {
                   )}
                 </>
               )}
+            </CardContent>
+          </Card>
+        )}
 
+        {/* Sticky bill summary + action — appears with the bill, pins to bottom */}
+        {(selectedPatient || showNewPatientForm) && selectedDoctorId && (
+          <div className="sticky bottom-0 -mx-4 mt-4 border-t bg-background/95 px-4 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6 print:hidden">
+            <div className="mx-auto flex max-w-[760px] flex-wrap items-center gap-x-5 gap-y-1">
+              <div className="flex items-center gap-x-5 text-sm tabular-nums">
+                {isRevisitSelected ? (
+                  <span className="text-muted-foreground">
+                    Revisit —{" "}
+                    <b className="font-semibold text-foreground">no bill</b>
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    Fee{" "}
+                    <b className="font-semibold text-foreground">
+                      ₹{consultationFee || 0}
+                    </b>
+                  </span>
+                )}
+              </div>
               <Button
-                className="w-full"
                 size="lg"
+                className="ml-auto min-w-[200px]"
                 onClick={openConfirmBill}
                 disabled={isSubmitting}
               >
-                {isRevisitSelected
-                  ? "Review & Register Revisit"
-                  : "Review & Generate Bill"}
+                {isRevisitSelected ? "Register Revisit" : "Generate Bill"}
               </Button>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         )}
       </div>
 

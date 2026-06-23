@@ -113,8 +113,8 @@ export function PayoutsTable({
                 onChange={onSortChange}
               />
             </TableHead>
-            <TableHead className="w-24">Type</TableHead>
-            <TableHead>
+            <TableHead className="w-24 hidden md:table-cell">Type</TableHead>
+            <TableHead className="hidden md:table-cell">
               <SortHeader
                 label="Period"
                 field="periodStart"
@@ -134,7 +134,7 @@ export function PayoutsTable({
               />
             </TableHead>
             <TableHead className="w-28">Status</TableHead>
-            <TableHead>
+            <TableHead className="hidden md:table-cell">
               <SortHeader
                 label="Derived"
                 field="derivedAt"
@@ -192,7 +192,7 @@ export function PayoutsTable({
                       <Checkbox checked={checked} aria-label="Select row" />
                     </TableCell>
                     <TableCell className="font-medium">{row.doctorName}</TableCell>
-                    <TableCell>
+                    <TableCell className="hidden md:table-cell">
                       <Badge
                         variant={
                           row.doctorType === "REFERRAL"
@@ -210,7 +210,7 @@ export function PayoutsTable({
                         {formatDoctorTypeShort(row.doctorType)}
                       </Badge>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden md:table-cell">
                       {formatPeriod(row.periodStartDate, row.periodEndDate)}
                     </TableCell>
                     <TableCell className="text-right font-semibold tabular-nums">
@@ -220,7 +220,7 @@ export function PayoutsTable({
                       {row.paidAt ? (
                         <Badge
                           variant="outline"
-                          className="bg-green-50 text-green-700 border-green-200"
+                          className="bg-success/10 text-success border-success/20"
                         >
                           <Check className="h-3 w-3 mr-1" />
                           Paid
@@ -228,14 +228,14 @@ export function PayoutsTable({
                       ) : (
                         <Badge
                           variant="outline"
-                          className="bg-yellow-50 text-yellow-700 border-yellow-200"
+                          className="bg-warning/10 text-warning border-warning/20"
                         >
                           <Clock className="h-3 w-3 mr-1" />
                           Pending
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell className="hidden md:table-cell text-muted-foreground">
                       {formatDate(row.derivedAt)}
                     </TableCell>
                     <TableCell data-row-actions className="text-right">

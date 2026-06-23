@@ -208,13 +208,15 @@ Code-splitting today: `AdminConfigCenter` lazy-loads its 5–7 admin tab pages, 
 
 ### 4.2 State
 
-Three Zustand stores in [`src/store/`](../health-hub/src/store/):
+Five Zustand stores in [`src/store/`](../health-hub/src/store/):
 
 - **`authStore`** — `token`, `user`, `isAuthenticated`. localStorage-persisted via `persist` middleware. JWT decoded client-side to detect expiry.
 - **`branchStore`** — `activeBranchId`, `branches`. Persisted. Every API call includes `X-Branch-Id: activeBranchId`.
 - **`appStore`** — minor UI state, not persisted.
+- **`payoutPrefsStore`** — owner payout configuration and UI preferences. Persisted.
+- **`visitDefaultsStore`** — front-desk operator's last choices for new visits (e.g. consulting doctor, payment mode). Persisted.
 
-`@tanstack/react-query` is in `package.json` and a `QueryClient` is instantiated in `App.tsx`, but **it is not currently used** for fetches — pages call `fetch()` directly. This is technical debt; see [Known architectural debts](#9-known-architectural-debts).
+`@tanstack/react-query` is configured with a `QueryClient` in `App.tsx` and is incrementally being adopted (e.g. for global patient search and doctor lookups), but many older pages still call `fetch()` directly. This migration is ongoing; see [Known architectural debts](#9-known-architectural-debts).
 
 ### 4.3 Components
 
@@ -503,7 +505,7 @@ These exist; they're tracked here so newcomers don't think they're invisible.
 
 1. **`diagnosticVisits.ts` is ~3,800 LOC** — needs to be split per endpoint into a feature folder. Most "fix the bill" commits in git history land here.
 2. **Dual FK migration in flight** — `TestOrder.testId` (legacy `LabTest`) and `TestOrder.testDefinitionId` (new) both populated. Code branches on which is present. Finishing the migration is a tracked refactor.
-3. **`@tanstack/react-query` is installed but unused** — every page reconstructs `fetch()` calls inline (~150 sites). Migrating one page at a time is incremental.
+3. **`@tanstack/react-query` partial adoption** — while newer flows (patient search, doctor lookups) use React Query, many older pages still reconstruct `fetch()` calls inline (~150 sites). Migrating one page at a time is incremental.
 4. **`react-hook-form` + `zod` installed, unused** — forms hand-rolled with `useState`. Same incremental migration plan.
 5. **No automated test suite** — see [`TESTING.md`](TESTING.md) for the strategy.
 6. **CSP disabled** in Helmet config — `contentSecurityPolicy: false`. Should be re-enabled with a tested policy.

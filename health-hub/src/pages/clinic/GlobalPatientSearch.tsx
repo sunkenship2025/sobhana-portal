@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -50,28 +52,28 @@ export default function GlobalPatientSearch() {
   const navigate = useNavigate();
   const [searchType, setSearchType] = useState<'phone' | 'name'>('phone');
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<PatientSearchResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // The submitted search (set on Search / Enter) drives the query; the live
+  // input box stays separate so we only fetch on submit, not per keystroke.
+  const [submitted, setSubmitted] = useState<{
+    type: 'phone' | 'name';
+    q: string;
+  } | null>(null);
 
-  const handleSearch = async () => {
-    if (!query.trim()) return;
+  const { data, isFetching, isError, error } = useQuery({
+    queryKey: ['globalPatientSearch', submitted?.type, submitted?.q],
+    queryFn: () => searchPatients(submitted!.type, submitted!.q),
+    enabled: !!submitted?.q,
+    staleTime: 30_000,
+    retry: 1,
+  });
 
-    setIsSearching(true);
-    setError(null);
-    try {
-      const data = await searchPatients(searchType, query.trim());
-      setResults(data);
-      setHasSearched(true);
-    } catch (error: any) {
-      console.error('Search failed:', error);
-      setError(error.message || 'Search failed. Please try again.');
-      setResults([]);
-      setHasSearched(true);
-    } finally {
-      setIsSearching(false);
-    }
+  const results = data ?? [];
+  // A search "happened" once the query for the current submission has resolved.
+  const hasSearched = submitted !== null && data !== undefined && !isFetching;
+
+  const handleSearch = () => {
+    const q = query.trim();
+    if (q) setSubmitted({ type: searchType, q });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -85,15 +87,14 @@ export default function GlobalPatientSearch() {
   };
 
   return (
-    <AppLayout context="clinic" subContext="Global Patient Search">
+    <AppLayout context="clinic" subContext="Patient 360">
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-foreground">Global Patient Search</h1>
-          <p className="text-muted-foreground mt-1">
-            Find a patient across all branches
-          </p>
-        </div>
+        <PageHeader
+          title="Patient 360"
+          subtitle="Search any patient across all Sobhana branches"
+          className="mb-2"
+        />
 
         {/* Search Form */}
         <Card>
@@ -131,27 +132,35 @@ export default function GlobalPatientSearch() {
                 onKeyDown={handleKeyDown}
                 className="flex-1"
               />
-              <Button className="w-full sm:w-auto" onClick={handleSearch} disabled={isSearching || !query.trim()}>
+              <Button className="w-full sm:w-auto" onClick={handleSearch} disabled={isFetching || !query.trim()}>
                 <Search className="h-4 w-4 mr-2" />
-                {isSearching ? 'Searching...' : 'Search'}
+                {isFetching ? 'Searching...' : 'Search'}
               </Button>
             </div>
           </CardContent>
         </Card>
 
+        {/* Search error */}
+        {isError && (
+          <Card className="border-destructive/50">
+            <CardContent className="py-4 text-sm text-destructive">
+              {(error as Error)?.message || 'Search failed. Please try again.'}
+            </CardContent>
+          </Card>
+        )}
+
         {/* Results Header */}
         {hasSearched && (
           <div className="flex flex-wrap items-center gap-2 border-b pb-2 text-sm text-muted-foreground">
-            <span className="font-medium">SEARCH RESULTS</span>
-            <span>•</span>
-            <span>GLOBAL</span>
-            <span>•</span>
-            <span>READ-ONLY</span>
-            {results.length > 0 && (
-              <>
-                <span className="ml-auto">{results.length} patient(s) found</span>
-              </>
-            )}
+            <span className="font-medium text-foreground">
+              {results.length === 0
+                ? 'No patients found'
+                : `${results.length} ${results.length === 1 ? 'patient' : 'patients'} found`}
+            </span>
+            <span>·</span>
+            <span>all branches</span>
+            <span>·</span>
+            <span>read-only</span>
           </div>
         )}
 

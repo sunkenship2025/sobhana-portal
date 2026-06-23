@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect } from 'react';
 import { API_BASE } from '@/lib/api';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { PageHeader } from '@/components/ui/page-header';
+import { LoadingState } from '@/components/ui/loading-state';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +13,7 @@ import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { toast } from 'sonner';
-import { CheckCircle2, Search, Eye, Printer, MessageCircle, Loader2 } from 'lucide-react';
+import { CheckCircle2, Search, Eye, Printer, MessageCircle } from 'lucide-react';
 import { openFinalizedReportWindow } from '@/lib/reportAccess';
 import { formatPatientName } from '@/lib/patientDisplay';
 
@@ -181,9 +183,7 @@ const DiagnosticsFinalizedReports = () => {
   if (loading) {
     return (
       <AppLayout context="diagnostics">
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
+        <LoadingState />
       </AppLayout>
     );
   }
@@ -191,10 +191,7 @@ const DiagnosticsFinalizedReports = () => {
   return (
     <AppLayout context="diagnostics">
       <div className="space-y-6 animate-fade-in">
-        <div>
-          <h1 className="text-2xl font-bold">Finalized Reports</h1>
-          <p className="text-muted-foreground">View and share completed lab reports</p>
-        </div>
+        <PageHeader title="Finalized Reports" subtitle="View and share completed lab reports" />
 
         {/* Filters */}
         <Card>
@@ -235,7 +232,7 @@ const DiagnosticsFinalizedReports = () => {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-success" />
-              Finalized Reports ({filteredVisits.length})
+              Reports ({filteredVisits.length})
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -274,6 +271,7 @@ const DiagnosticsFinalizedReports = () => {
                         className="w-full sm:w-10"
                         onClick={() => navigate(`/diagnostics/preview/${visit.id}`)}
                         title="View Report"
+                        aria-label="View report"
                       >
                         <Eye className="h-4 w-4" />
                       </Button>
@@ -293,6 +291,7 @@ const DiagnosticsFinalizedReports = () => {
                           });
                         }}
                         title="Print"
+                        aria-label="Print report"
                       >
                         <Printer className="h-4 w-4" />
                       </Button>
@@ -303,6 +302,7 @@ const DiagnosticsFinalizedReports = () => {
                         onClick={() => handleWhatsApp(visit.id)}
                         disabled={sendingVisitIds.has(visit.id)}
                         title="Send via WhatsApp"
+                        aria-label="Send report via WhatsApp"
                       >
                         <MessageCircle className="h-4 w-4" />
                       </Button>

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { API_BASE } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -68,12 +69,16 @@ import {
 } from "@/components/ui/dialog";
 import { mapDiagnosticsVisitViewToReceiptData } from "@/lib/billReceiptMappers";
 import { TITLE_TO_GENDER, titleOptions, formatPatientName } from "@/lib/patientDisplay";
+import { useConfirm } from "@/hooks/use-confirm";
 import { goToStep, goToNext, goToPrev, hasNextStep, handleFlowKey } from "@/lib/focusFlow";
+import { useVisitDefaults } from "@/store/visitDefaultsStore";
 
 type DiscountMode = "NONE" | BillDiscountType;
 
 const DiagnosticsNewVisit = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { confirm, ConfirmDialog } = useConfirm();
   const printRef = useRef<HTMLDivElement>(null);
   const phoneInputRef = useRef<HTMLInputElement>(null);
   const testSelectorRef = useRef<HTMLDivElement>(null);
@@ -97,7 +102,6 @@ const DiagnosticsNewVisit = () => {
   const patientListRef = useRef<HTMLDivElement>(null);
 
   const [phone, setPhone] = useState("");
-  const [billSearch, setBillSearch] = useState("");
   const [matchingPatients, setMatchingPatients] = useState<
     PatientSearchResult[]
   >([]);
@@ -105,7 +109,7 @@ const DiagnosticsNewVisit = () => {
   const [showNewPatientForm, setShowNewPatientForm] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [paymentMode, setPaymentMode] = useState<"CASH" | "ONLINE" | "SPLIT">(
-    "CASH",
+    () => useVisitDefaults.getState().lastDiagPaymentMode,
   );
   const [splitAmounts, setSplitAmounts] = useState({ cash: 0, online: 0 });
   const [discountMode, setDiscountMode] = useState<DiscountMode>("NONE");
@@ -461,48 +465,53 @@ const DiagnosticsNewVisit = () => {
     setShowAddProductDialog(true);
   };
 
-  // Search patients via API
-  const handleSearch = async () => {
-    if (phone.length >= 10 && token && activeBranch) {
-      try {
-        const res = await fetch(`${API_BASE}/patients/search?phone=${phone}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "X-Branch-Id": activeBranch.id,
-          },
-        });
-        if (res.ok) {
-          const results = await res.json();
-          setMatchingPatients(results);
-          setSelectedPatient(null);
-          setShowNewPatientForm(false);
-        }
-      } catch (error) {
-        console.error("Search failed:", error);
-      }
+  // Patient lookup goes through React Query's cache. Both the search fired while
+  // typing (on the 10th digit) and the one on Enter call this with the same
+  // queryKey, so React Query dedupes them into a single request and serves the
+  // result from cache within staleTime — pressing Enter no longer waits on a
+  // second round-trip. A failed request returns [] (and isn't cached as data).
+  const fetchPatients = async (
+    phoneValue: string,
+  ): Promise<PatientSearchResult[]> => {
+    if (phoneValue.length < 10 || !token || !activeBranch) return [];
+    try {
+      return await queryClient.fetchQuery<PatientSearchResult[]>({
+        queryKey: ["patientSearch", "diagnostic", activeBranch.id, phoneValue],
+        queryFn: async ({ signal }) => {
+          const res = await fetch(
+            `${API_BASE}/patients/search?phone=${phoneValue}`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "X-Branch-Id": activeBranch.id,
+              },
+              signal,
+            },
+          );
+          if (!res.ok) throw new Error("Patient search failed");
+          return (await res.json()) as PatientSearchResult[];
+        },
+        staleTime: 10_000,
+        retry: 1,
+      });
+    } catch (error) {
+      console.error("Search failed:", error);
+      return [];
     }
+  };
+
+  // Search patients via API (Search button / explicit lookup).
+  const handleSearch = async (): Promise<PatientSearchResult[]> => {
+    const results = await fetchPatients(phone);
+    setMatchingPatients(results);
+    setSelectedPatient(null);
+    setShowNewPatientForm(false);
+    return results;
   };
 
   const handlePhoneChange = async (value: string) => {
     setPhone(value);
-    if (value.length === 10 && token && activeBranch) {
-      try {
-        const res = await fetch(`${API_BASE}/patients/search?phone=${value}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "X-Branch-Id": activeBranch.id,
-          },
-        });
-        if (res.ok) {
-          const results = await res.json();
-          setMatchingPatients(results);
-        }
-      } catch (error) {
-        console.error("Search failed:", error);
-      }
-    } else {
-      setMatchingPatients([]);
-    }
+    setMatchingPatients(value.length === 10 ? await fetchPatients(value) : []);
   };
 
   const handleCreateNewPatient = () => {
@@ -732,18 +741,26 @@ const DiagnosticsNewVisit = () => {
           const duplicateInfo = JSON.parse(errorData.message);
           const existing = duplicateInfo.existingPatient;
 
-          const userConfirm = window.confirm(
-            `⚠️ Potential Duplicate Detected\n\n` +
-              `Existing Patient: ${existing.patientNumber}\n` +
-              `Name: ${formatPatientName(existing.name, existing.title)}\n` +
-              `Age: ${existing.ageDisplay || existing.age}, Gender: ${existing.gender}\n` +
-              `Phone: ${existing.phone}\n\n` +
-              `This looks like the same person. Do you want to:\n` +
-              `• Click OK to USE EXISTING patient\n` +
-              `• Click Cancel to CREATE NEW patient anyway`,
-          );
+          const choice = await confirm({
+            title: "Possible duplicate patient",
+            description: (
+              <div className="space-y-2 text-sm">
+                <p>A patient with this phone number already exists:</p>
+                <p className="font-medium text-foreground">
+                  {existing.patientNumber} · {formatPatientName(existing.name, existing.title)} · {existing.ageDisplay || `${existing.age}y`} · {existing.gender} · {existing.phone}
+                </p>
+                <p>Is this the same person?</p>
+              </div>
+            ),
+            confirmText: "Use existing patient",
+            cancelText: "Create new anyway",
+            destructiveCancel: true,
+            defaultFocus: "confirm",
+          });
 
-          if (userConfirm) {
+          if (choice === null) return; // dismissed — abort without creating anything
+
+          if (choice) {
             // Use existing patient. Carry through ageDisplay/ageUnit so the
             // bill receipt renders the smart age string instead of falling
             // back to "N/A" (the receipt prefers ageDisplay over numeric age).
@@ -1073,7 +1090,7 @@ const DiagnosticsNewVisit = () => {
 
   if (successData) {
     return (
-      <AppLayout context="diagnostics">
+      <AppLayout context="diagnostics" subContext="Reception">
         <div className="max-w-2xl mx-auto animate-fade-in print:hidden">
           <Card className="border-success/30 bg-success/5">
             <CardContent className="pt-6">
@@ -1101,7 +1118,7 @@ const DiagnosticsNewVisit = () => {
                     />
                   </div>
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="text-muted-foreground">Final Total:</span>
+                    <span className="text-muted-foreground">Net payable:</span>
                     <span className="font-semibold">
                       {formatMoney(
                         (successData.visitView.visit.netAmountInPaise ??
@@ -1110,7 +1127,7 @@ const DiagnosticsNewVisit = () => {
                     </span>
                   </div>
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="text-muted-foreground">Due:</span>
+                    <span className="text-muted-foreground">Balance due:</span>
                     <span
                       className={
                         successData.visitView.visit.dueAmountInPaise
@@ -1178,6 +1195,11 @@ const DiagnosticsNewVisit = () => {
                     className="w-full sm:w-auto"
                     onClick={() => {
                       setSuccessData(null);
+                      // Drop cached searches so a just-registered patient shows
+                      // up if the same number is looked up again.
+                      queryClient.invalidateQueries({
+                        queryKey: ["patientSearch"],
+                      });
                       setPhone("");
                       setMatchingPatients([]);
                       setSelectedPatient(null);
@@ -1192,7 +1214,9 @@ const DiagnosticsNewVisit = () => {
                       setReferralOverrides({});
                       setDiagnosticCenterOverrides({});
                       setSelectedCenterId("");
-                      setPaymentMode("CASH");
+                      setPaymentMode(
+                        useVisitDefaults.getState().lastDiagPaymentMode,
+                      );
                       setSplitAmounts({ cash: 0, online: 0 });
                       setNewPatient({
                         name: "",
@@ -1249,67 +1273,71 @@ const DiagnosticsNewVisit = () => {
   }
 
   return (
-    <AppLayout context="diagnostics">
-      <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
-        <div>
-          <h1 className="text-2xl font-bold">New Diagnostic Visit</h1>
-          <p className="text-muted-foreground">
-            Register a patient for lab tests and generate a bill.
-          </p>
+    <AppLayout context="diagnostics" subContext="Reception">
+      {ConfirmDialog}
+      <div className="max-w-[760px] mx-auto space-y-4 pb-24 animate-fade-in">
+        <div className="flex items-baseline justify-between gap-4">
+          <h1 className="text-lg font-semibold">New Diagnostic Visit</h1>
+          {selectedPatient && (
+            <span className="truncate text-sm text-muted-foreground">
+              {formatPatientName(selectedPatient.name, selectedPatient.title)}
+              {selectedPatient.age
+                ? ` · ${selectedPatient.ageDisplay || selectedPatient.age + "y"}`
+                : ""}
+              {selectedPatient.gender ? ` · ${selectedPatient.gender}` : ""}
+            </span>
+          )}
         </div>
 
         {/* Patient Lookup */}
         <Card>
-          <CardHeader>
-            <CardTitle>Patient Lookup</CardTitle>
+          <CardHeader className="px-5 pt-4 pb-0">
+            <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Patient Lookup</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone Number *</Label>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Input
-                    ref={phoneInputRef}
-                    id="phone"
-                    placeholder="Enter 10-digit phone"
-                    value={phone}
-                    onChange={(e) =>
-                      handlePhoneChange(
-                        e.target.value.replace(/\D/g, "").slice(0, 10),
-                      )
-                    }
-                    onKeyDown={async (e) => {
-                      if (e.repeat || e.key !== 'Enter') return;
-                      e.preventDefault();
-                      if (phone.length < 10) return;
-                      // Search, then decide from the COMMITTED DOM (the patient
-                      // listbox renders once phone is 10 digits) — no stale
-                      // closure / setTimeout(300) race.
-                      await handleSearch();
+          <CardContent className="px-5 pb-5 pt-3 space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="phone">Phone Number *</Label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  ref={phoneInputRef}
+                  id="phone"
+                  placeholder="Enter 10-digit phone"
+                  value={phone}
+                  onChange={(e) =>
+                    handlePhoneChange(
+                      e.target.value.replace(/\D/g, "").slice(0, 10),
+                    )
+                  }
+                  onKeyDown={async (e) => {
+                    if (e.repeat || e.key !== 'Enter') return;
+                    e.preventDefault();
+                    if (phone.length < 10) return;
+                    // Search, then branch on the FRESH result (handleSearch
+                    // returns the matches) — no stale closure / setTimeout race.
+                    const matches = await handleSearch();
+                    if (matches.length === 1) {
+                      // Exactly one match: select it and skip the list step.
+                      handleSelectPatient(matches[0]);
+                    } else if (matches.length > 1) {
+                      // Several matches: land on the list to pick one.
                       setHighlightedPatientIndex(0);
                       goToStep(20);
-                    }}
-                    maxLength={10}
-                    autoComplete="off"
-                    data-focus-step={10}
-                  />
-                  <Button
-                    className="w-full sm:w-auto"
-                    onClick={handleSearch}
-                    variant="secondary"
-                  >
-                    <Search className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="bill">Bill Number (optional)</Label>
-                <Input
-                  id="bill"
-                  placeholder="D-XXXXX"
-                  value={billSearch}
-                  onChange={(e) => setBillSearch(e.target.value)}
+                    } else {
+                      // New patient: skip the (empty) list and start at Title.
+                      handleCreateNewPatient();
+                    }
+                  }}
+                  maxLength={10}
+                  autoComplete="off"
+                  data-focus-step={10}
                 />
+                <Button
+                  className="w-full sm:w-auto"
+                  onClick={handleSearch}
+                  variant="secondary"
+                >
+                  <Search className="h-4 w-4" />
+                </Button>
               </div>
             </div>
           </CardContent>
@@ -1318,10 +1346,10 @@ const DiagnosticsNewVisit = () => {
         {/* Matching Patients */}
         {(matchingPatients.length > 0 || phone.length === 10) && (
           <Card>
-            <CardHeader>
-              <CardTitle>Matching Patients</CardTitle>
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Matching Patients</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="px-5 pb-5 pt-3 space-y-3">
               {/* Keyboard-navigable patient list: Arrow Up/Down to move, Enter to select */}
               <div
                 ref={patientListRef}
@@ -1435,15 +1463,15 @@ const DiagnosticsNewVisit = () => {
         {/* New Patient Form */}
         {showNewPatientForm && (
           <Card>
-            <CardHeader>
-              <CardTitle>New Patient</CardTitle>
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">New Patient</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="px-5 pb-5 pt-3 space-y-3">
               {/* Row 1: Title + Name */}
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
                   <Label>Title</Label>
-                  <Select
+                  <SearchableSelect
                     value={newPatient.title}
                     onValueChange={(v) => {
                       const autoGender = TITLE_TO_GENDER[v];
@@ -1461,21 +1489,14 @@ const DiagnosticsNewVisit = () => {
                       // Title chosen (gender auto-derived) → advance to Name.
                       goToStep(22);
                     }}
-                  >
-                    <SelectTrigger
-                      data-focus-step={21}
-                      onKeyDown={handleFlowKey}
-                    >
-                      <SelectValue placeholder="Select title" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {titleOptions.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    options={titleOptions}
+                    placeholder="Select title"
+                    searchPlaceholder="Type a title..."
+                    emptyText="No title found."
+                    onAdvance={() => goToStep(22)}
+                    focusStep={21}
+                    ariaLabel="Title"
+                  />
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="name">Full Name *</Label>
@@ -1494,10 +1515,10 @@ const DiagnosticsNewVisit = () => {
                     }}
                     onKeyDown={flowGuard(guardPatientField("name"))}
                     data-focus-step={22}
-                    className={validationErrors.name ? "border-red-500" : ""}
+                    className={validationErrors.name ? "border-destructive" : ""}
                   />
                   {validationErrors.name && (
-                    <p className="text-sm text-red-500">
+                    <p className="text-sm text-destructive">
                       {validationErrors.name}
                     </p>
                   )}
@@ -1530,7 +1551,9 @@ const DiagnosticsNewVisit = () => {
                         <RadioGroupItem
                           value={g}
                           id={`gender-${g}`}
-                          data-focus-step={24}
+                          data-focus-step={
+                            TITLE_TO_GENDER[newPatient.title] ? undefined : 24
+                          }
                           onKeyDown={flowGuard(guardPatientField("gender"))}
                         />
                         <Label htmlFor={`gender-${g}`}>{g}</Label>
@@ -1538,7 +1561,7 @@ const DiagnosticsNewVisit = () => {
                     ))}
                   </RadioGroup>
                   {validationErrors.gender && (
-                    <p className="text-sm text-red-500">
+                    <p className="text-sm text-destructive">
                       {validationErrors.gender}
                     </p>
                   )}
@@ -1564,7 +1587,7 @@ const DiagnosticsNewVisit = () => {
                       }}
                       onKeyDown={flowGuard(guardPatientField("age"))}
                       data-focus-step={26}
-                      className={`flex-1 ${validationErrors.age ? "border-red-500" : ""}`}
+                      className={`flex-1 ${validationErrors.age ? "border-destructive" : ""}`}
                     />
                     <Select
                       value={newPatient.ageUnit}
@@ -1575,7 +1598,7 @@ const DiagnosticsNewVisit = () => {
                         })
                       }
                     >
-                      <SelectTrigger className="w-full sm:w-[110px]" data-focus-step={27} onKeyDown={handleFlowKey}>
+                      <SelectTrigger className="w-full sm:w-[110px]" onKeyDown={handleFlowKey}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1586,7 +1609,7 @@ const DiagnosticsNewVisit = () => {
                     </Select>
                   </div>
                   {validationErrors.age && (
-                    <p className="text-sm text-red-500">
+                    <p className="text-sm text-destructive">
                       {validationErrors.age}
                     </p>
                   )}
@@ -1611,10 +1634,9 @@ const DiagnosticsNewVisit = () => {
                         setNewPatient({ ...newPatient, dateOfBirth: dob });
                       }
                     }}
-                    data-focus-step={28}
                     onKeyDown={handleFlowKey}
                   />
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-muted-foreground">
                     If DOB is entered, age will be calculated automatically
                   </p>
                 </div>
@@ -1622,7 +1644,7 @@ const DiagnosticsNewVisit = () => {
 
               {/* Phone validation error */}
               {validationErrors.phone && (
-                <div className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-md p-3">
+                <div className="text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-md p-3">
                   <strong>Phone:</strong> {validationErrors.phone}
                 </div>
               )}
@@ -1638,7 +1660,6 @@ const DiagnosticsNewVisit = () => {
                       whatsappOptIn: checked === true,
                     })
                   }
-                  data-focus-step={29}
                   onKeyDown={handleFlowKey}
                 />
                 <Label
@@ -1656,10 +1677,10 @@ const DiagnosticsNewVisit = () => {
         {/* Select Tests */}
         {(selectedPatient || showNewPatientForm) && (
           <Card>
-            <CardHeader>
-              <CardTitle>Select Tests</CardTitle>
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Select Tests</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-5 pb-5 pt-3">
               <div ref={testSelectorRef}>
               <ProductSelector
                 products={products}
@@ -1713,10 +1734,10 @@ const DiagnosticsNewVisit = () => {
         {/* Billing */}
         {selectedProducts.length > 0 && (
           <Card>
-            <CardHeader>
-              <CardTitle>Billing</CardTitle>
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Billing</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="px-5 pb-5 pt-3 space-y-3">
               {/* Referral Doctor */}
               <div className="space-y-3">
                 <Label>Referral Doctor (optional)</Label>
@@ -2242,7 +2263,6 @@ const DiagnosticsNewVisit = () => {
                     value={paidAmount}
                     onChange={(e) => setPaidAmount(e.target.value)}
                     onKeyDown={flowGuard(guardPaidAmount)}
-                    data-focus-step={90}
                     placeholder={`Full amount ${formatMoney(netPayable)}`}
                   />
                 </div>
@@ -2257,7 +2277,7 @@ const DiagnosticsNewVisit = () => {
                     </div>
 
                     <div className="font-semibold text-muted-foreground">
-                      Final total
+                      Net payable
                     </div>
                     <div className="text-xl font-bold">
                       {formatMoney(netPayable)}
@@ -2284,14 +2304,34 @@ const DiagnosticsNewVisit = () => {
                 <RadioGroup
                   value={paymentMode}
                   onValueChange={(v) => {
-                    setPaymentMode(v as any);
-                    if (v === "SPLIT") {
+                    const mode = v as "CASH" | "ONLINE" | "SPLIT";
+                    setPaymentMode(mode);
+                    // Remember CASH/ONLINE as the default; SPLIT is a
+                    // per-transaction choice (its amounts seed on change).
+                    if (mode !== "SPLIT") {
+                      useVisitDefaults.getState().setLastDiagPaymentMode(mode);
+                    }
+                    if (mode === "SPLIT") {
                       setSplitAmounts({
                         cash: Number(paidAmount || netPayable),
                         online: 0,
                       });
                       // Focus the split-cash input once it has rendered (step 110).
                       goToStep(110);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    // Terminal Enter for the whole payment group: works wherever
+                    // focus sits among the radios. SPLIT routes to the amount
+                    // inputs; CASH/ONLINE open the confirm dialog.
+                    if (e.repeat) return;
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      goToPrev(100);
+                    } else if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (paymentMode === "SPLIT") goToStep(110);
+                      else openConfirmBill();
                     }
                   }}
                   className="flex gap-6"
@@ -2302,7 +2342,6 @@ const DiagnosticsNewVisit = () => {
                       value="CASH"
                       id="cash"
                       data-focus-step={paymentMode === "CASH" ? 100 : undefined}
-                      onKeyDown={flowKeyOrConfirm}
                     />
                     <Label htmlFor="cash">Cash</Label>
                   </div>
@@ -2311,7 +2350,6 @@ const DiagnosticsNewVisit = () => {
                       value="ONLINE"
                       id="online"
                       data-focus-step={paymentMode === "ONLINE" ? 100 : undefined}
-                      onKeyDown={flowKeyOrConfirm}
                     />
                     <Label htmlFor="online">Online</Label>
                   </div>
@@ -2320,7 +2358,6 @@ const DiagnosticsNewVisit = () => {
                       value="SPLIT"
                       id="split"
                       data-focus-step={paymentMode === "SPLIT" ? 100 : undefined}
-                      onKeyDown={flowKeyOrConfirm}
                     />
                     <Label htmlFor="split">Split</Label>
                   </div>
@@ -2408,7 +2445,6 @@ const DiagnosticsNewVisit = () => {
                       setWhatsappOptIn(checked === true)
                     }
                     onKeyDown={flowKeyOrConfirm}
-                    data-focus-step={130}
                   />
                   <Label
                     htmlFor="existingDiagWhatsappOptIn"
@@ -2419,18 +2455,52 @@ const DiagnosticsNewVisit = () => {
                   </Label>
                 </div>
               )}
-
-              <Button
-                ref={submitButtonRef}
-                className="w-full"
-                size="lg"
-                onClick={openConfirmBill}
-                disabled={isSubmitting}
-              >
-                Review & Generate Bill
-              </Button>
             </CardContent>
           </Card>
+        )}
+
+        {/* Sticky bill summary + action — appears with the bill, pins to the
+            bottom (the Billing card makes the page taller than the viewport). */}
+        {selectedProducts.length > 0 && (
+          <div className="sticky bottom-0 -mx-4 mt-4 border-t bg-background/95 px-4 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:-mx-6 sm:px-6 print:hidden">
+            <div className="mx-auto flex max-w-[760px] flex-wrap items-center gap-x-5 gap-y-1">
+            <div className="flex items-center gap-x-5 text-sm tabular-nums">
+              <span className="text-muted-foreground">
+                Tests{" "}
+                <b className="font-semibold text-foreground">
+                  {selectedProducts.length}
+                </b>
+              </span>
+              <span className="text-muted-foreground/40">·</span>
+              <span className="text-muted-foreground">
+                Total{" "}
+                <b className="font-semibold text-foreground">
+                  {formatMoney(netPayable)}
+                </b>
+              </span>
+              {dueAmount > 0 && (
+                <>
+                  <span className="text-muted-foreground/40">·</span>
+                  <span className="text-muted-foreground">
+                    Due{" "}
+                    <b className="font-semibold text-amber-700">
+                      {formatMoney(dueAmount)}
+                    </b>
+                  </span>
+                </>
+              )}
+            </div>
+            <Button
+              ref={submitButtonRef}
+              size="lg"
+              className="ml-auto min-w-[200px]"
+              onClick={openConfirmBill}
+              disabled={isSubmitting || selectedProducts.length === 0}
+            >
+              Generate Bill
+            </Button>
+          </div>
+        </div>
         )}
       </div>
 
@@ -2482,7 +2552,7 @@ const DiagnosticsNewVisit = () => {
             </div>
             {dueAmount > 0 && (
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Due</span>
+                <span className="text-muted-foreground">Balance due</span>
                 <span className="font-semibold text-amber-700">
                   {formatMoney(dueAmount)}
                 </span>

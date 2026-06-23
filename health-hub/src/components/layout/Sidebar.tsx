@@ -97,7 +97,7 @@ const ownerNavItems: NavItem[] = [
     ],
   },
   {
-    label: 'My Reports',
+    label: 'My reports',
     icon: UserRound,
     href: '/doctor',
     roles: ['owner'],
@@ -137,14 +137,14 @@ const staffNavItems: NavItem[] = [
     href: '/diagnostics',
     roles: ['staff'],
     subItems: [
-      { label: 'New Visit', href: '/diagnostics/new' },
+      { label: 'New visit', href: '/diagnostics/new' },
       {
-        label: 'Pending Results',
+        label: 'Pending results',
         href: '/diagnostics/pending',
         matchPrefixes: ['/diagnostics/pending', '/diagnostics/results/'],
       },
       {
-        label: 'Finalized Reports',
+        label: 'Finalized reports',
         href: '/diagnostics/finalized',
         matchPrefixes: ['/diagnostics/finalized', '/diagnostics/preview/'],
       },
@@ -156,8 +156,8 @@ const staffNavItems: NavItem[] = [
     href: '/clinic',
     roles: ['staff'],
     subItems: [
-      { label: 'New Visit', href: '/clinic/new' },
-      { label: 'OP / IP Queue', href: '/clinic/queue' },
+      { label: 'New visit', href: '/clinic/new' },
+      { label: 'OP / IP queue', href: '/clinic/queue' },
     ],
   },
   {
@@ -166,7 +166,7 @@ const staffNavItems: NavItem[] = [
     href: '/owner/config',
     roles: ['staff'],
     subItems: [
-      { label: 'Config Center', href: '/owner/config' },
+      { label: 'Config center', href: '/owner/config' },
       { label: 'Payouts', href: '/owner/payouts', matchPrefixes: ['/owner/payouts'] },
     ],
   },

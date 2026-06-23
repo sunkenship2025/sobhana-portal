@@ -132,6 +132,7 @@ export interface ClinicDoctor {
   registrationNumber: string;
   phone?: string;
   letterheadNote?: string; // Optional footer/tagline for prescription print
+  consultationFeeInPaise?: number | null; // Default consultation fee for this doctor
   referralDoctorId?: string; // Link if also a referral doctor
 }
 

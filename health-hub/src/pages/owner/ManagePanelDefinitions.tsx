@@ -7,6 +7,8 @@ import {
   ChevronDown, ChevronRight, CheckCircle2, AlertCircle, Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { LoadingState } from '@/components/ui/loading-state';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
@@ -98,14 +100,14 @@ interface ClinicalPanel {
 
 const LAYOUT_TYPES = [
   { value: 'STANDARD_TABLE', label: 'Standard Table – configurable test table', hint: '', color: 'bg-blue-100 text-blue-800' },
-  { value: 'TEXT_ONLY', label: 'Text Only – free text result', hint: 'Max 1 item', color: 'bg-gray-100 text-gray-800' },
+  { value: 'TEXT_ONLY', label: 'Text Only – free text result', hint: 'Max 1 item', color: 'bg-muted text-foreground' },
   { value: 'IMAGING_NARRATIVE', label: 'Imaging Narrative – radiology reports', hint: '', color: 'bg-purple-100 text-purple-800' },
   { value: 'PROCEDURE_STRUCTURED', label: 'Procedure Structured – procedure reports', hint: '', color: 'bg-amber-100 text-amber-800' },
 ];
 
 function layoutBadge(layoutType: string) {
   const lt = LAYOUT_TYPES.find(l => l.value === layoutType);
-  return lt ? lt.color : 'bg-gray-100 text-gray-800';
+  return lt ? lt.color : 'bg-muted text-foreground';
 }
 
 const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
@@ -866,9 +868,9 @@ export default function ManagePanelDefinitions() {
 
       {/* Table */}
       {loading ? (
-        <div className="py-8 text-center text-muted-foreground">Loading...</div>
+        <LoadingState />
       ) : panels.length === 0 ? (
-        <div className="py-8 text-center text-muted-foreground">No panels found</div>
+        <EmptyState title="No panels found" />
       ) : (
         <div className="border rounded-lg overflow-x-auto">
           <Table>
@@ -902,7 +904,7 @@ export default function ManagePanelDefinitions() {
                   </TableCell>
                   <TableCell>{panel.department?.name || '—'}</TableCell>
                   <TableCell>
-                    <Badge className={panel.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
+                    <Badge className={panel.isActive ? 'bg-green-100 text-green-800' : 'bg-muted text-foreground'}>
                       {panel.isActive ? 'Active' : 'Inactive'}
                     </Badge>
                   </TableCell>
@@ -914,7 +916,7 @@ export default function ManagePanelDefinitions() {
                       <Button size="sm" variant="ghost" onClick={() => handlePreview(panel)} title="Preview panel structure" className="h-7 px-2 gap-1 text-xs">
                         <Eye className="h-3.5 w-3.5" /> Preview
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(panel)} title="Delete panel" className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50">
+                      <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(panel)} title="Delete panel" className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10">
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                       <Switch
@@ -971,17 +973,17 @@ export default function ManagePanelDefinitions() {
                     {!editingPanel && formCode.trim() && (
                       <span className="absolute right-2 top-2.5">
                         {codeChecking ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> :
-                         !CODE_REGEX.test(formCode.trim()) ? <AlertCircle className="h-4 w-4 text-red-500" /> :
+                         !CODE_REGEX.test(formCode.trim()) ? <AlertCircle className="h-4 w-4 text-destructive" /> :
                          codeAvailable === true ? <CheckCircle2 className="h-4 w-4 text-green-600" /> :
-                         codeAvailable === false ? <AlertCircle className="h-4 w-4 text-red-500" /> : null}
+                         codeAvailable === false ? <AlertCircle className="h-4 w-4 text-destructive" /> : null}
                       </span>
                     )}
                   </div>
                   {!editingPanel && formCode.trim() && !CODE_REGEX.test(formCode.trim()) && (
-                    <p className="text-xs text-red-500 mt-0.5">2-20 uppercase letters, digits, or underscores</p>
+                    <p className="text-xs text-destructive mt-0.5">2-20 uppercase letters, digits, or underscores</p>
                   )}
                   {!editingPanel && codeAvailable === false && (
-                    <p className="text-xs text-red-500 mt-0.5">Code already in use</p>
+                    <p className="text-xs text-destructive mt-0.5">Code already in use</p>
                   )}
                 </div>
                 <div>
@@ -1149,7 +1151,7 @@ export default function ManagePanelDefinitions() {
                                 )}
                                 <button
                                   onClick={() => removeSubgroup(sg)}
-                                  className="text-red-400 hover:text-red-600 ml-0.5 leading-none shrink-0"
+                                  className="text-red-400 hover:text-destructive ml-0.5 leading-none shrink-0"
                                 >
                                   ×
                                 </button>
@@ -1323,7 +1325,7 @@ export default function ManagePanelDefinitions() {
                               </Badge>
                             )}
                             {item.indentLevel > 0 && <span className="text-[10px] text-muted-foreground shrink-0">\u21e5{item.indentLevel}</span>}
-                            <Button size="sm" variant="ghost" onClick={() => removeItem(i)} className="text-red-500 shrink-0 h-7 w-7 p-0">
+                            <Button size="sm" variant="ghost" onClick={() => removeItem(i)} className="text-destructive shrink-0 h-7 w-7 p-0">
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
@@ -1496,7 +1498,7 @@ export default function ManagePanelDefinitions() {
                           <div className="font-medium text-xs mb-1">
                             {availableDefs.find(d => d.id === formItems[0]?.testDefinitionId)?.name || 'Test Name'}
                           </div>
-                          <div className="min-h-[96px] rounded border border-dashed bg-slate-50 p-3 text-[11px] text-slate-700">
+                          <div className="min-h-[96px] rounded border border-dashed bg-muted p-3 text-[11px] text-foreground">
                             {hasMeaningfulRichText(formNarrativeTemplateHtml) ? (
                               <div
                                 className="rich-text-preview"
@@ -1645,7 +1647,7 @@ export default function ManagePanelDefinitions() {
                                 <Fragment key={group || '__none'}>
                                   {group && (
                                     <tr>
-                                      <td colSpan={colCount} className="py-1 font-bold bg-gray-50 text-[10px] uppercase tracking-wide">
+                                      <td colSpan={colCount} className="py-1 font-bold bg-muted text-[10px] uppercase tracking-wide">
                                         {group}
                                       </td>
                                     </tr>
@@ -1742,7 +1744,7 @@ export default function ManagePanelDefinitions() {
                     {previewData.tests?.length ? (
                       <>
                         <div className="font-medium">{previewData.tests[0]?.name || 'Test Name'}</div>
-                        <div className="min-h-[96px] rounded border border-dashed bg-slate-50 p-3 text-slate-700">
+                        <div className="min-h-[96px] rounded border border-dashed bg-muted p-3 text-foreground">
                           {hasMeaningfulRichText(previewData.panel?.narrativeTemplateHtml) ? (
                             <div
                               className="rich-text-preview"
@@ -1815,7 +1817,7 @@ export default function ManagePanelDefinitions() {
                             )}
                             {test.subGroup && (i === 0 || test.subGroup !== previewData.tests[i - 1]?.subGroup) && (
                               <tr>
-                                <td colSpan={4} className="py-1 font-bold bg-gray-50 text-[10px] uppercase tracking-wide">
+                                <td colSpan={4} className="py-1 font-bold bg-muted text-[10px] uppercase tracking-wide">
                                   {test.subGroup}
                                 </td>
                               </tr>

@@ -1,11 +1,10 @@
-import { useState, useEffect } from 'react';
-import { API_BASE } from '@/lib/api';
+import { useState } from 'react';
+import { useApiQuery, useApiMutation, branchRequest, useBranchId, qk } from '@/lib/query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { useAuthStore } from '@/store/authStore';
-import { useBranchStore } from '@/store/branchStore';
+import { EmptyState } from '@/components/ui/empty-state';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 import {
@@ -56,54 +55,63 @@ const EMPTY_FORM = {
 };
 
 export default function ManageDiagnosticCenters() {
-  const { token } = useAuthStore();
+  const branchId = useBranchId();
 
-  const [centers, setCenters] = useState<DiagnosticCenter[]>([]);
-  const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
   const [formData, setFormData] = useState({ ...EMPTY_FORM });
 
-  const getHeaders = () => {
-    const { activeBranchId } = useBranchStore.getState();
-    return {
-      'Authorization': `Bearer ${token}`,
-      'X-Branch-Id': activeBranchId || '',
-      'Content-Type': 'application/json',
-    };
-  };
+  // Branch-scoped list (X-Branch-Id header) → branchId belongs in the key.
+  const { data: centers = [], isLoading: loading } = useApiQuery<DiagnosticCenter[]>({
+    branchScoped: true,
+    queryKey: qk.diagnosticCenters(branchId),
+    queryFn: () =>
+      branchRequest<DiagnosticCenter[]>(
+        '/diagnostic-centers?includeInactive=true',
+        branchId!,
+      ),
+  });
 
-  const fetchCenters = async () => {
-    if (!token) return;
-    try {
-      const { activeBranchId } = useBranchStore.getState();
-      const res = await fetch(`${API_BASE}/diagnostic-centers?includeInactive=true`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'X-Branch-Id': activeBranchId || '',
-        },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setCenters(data);
-      } else {
-        toast.error('Failed to load diagnostic centers');
-      }
-    } catch (err) {
-      console.error('Error fetching diagnostic centers:', err);
-      toast.error('Failed to load diagnostic centers');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const saveMutation = useApiMutation<
+    DiagnosticCenter,
+    { editingId: string | null; payload: Record<string, unknown> }
+  >({
+    mutationFn: ({ editingId, payload }) =>
+      branchRequest<DiagnosticCenter>(
+        editingId ? `/diagnostic-centers/${editingId}` : '/diagnostic-centers',
+        branchId!,
+        { method: editingId ? 'PATCH' : 'POST', body: JSON.stringify(payload) },
+      ),
+    invalidate: [qk.diagnosticCenters(branchId)],
+    onSuccess: (_data, { editingId }) => {
+      toast.success(editingId ? 'Diagnostic center updated' : 'Diagnostic center created');
+      resetForm();
+    },
+    onError: (err) => toast.error(err.message || 'Failed to save diagnostic center'),
+  });
 
-  useEffect(() => {
-    fetchCenters();
-  }, [token]);
+  const toggleMutation = useApiMutation<DiagnosticCenter, DiagnosticCenter>({
+    mutationFn: (center) =>
+      branchRequest<DiagnosticCenter>(`/diagnostic-centers/${center.id}`, branchId!, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: !center.isActive }),
+      }),
+    invalidate: [qk.diagnosticCenters(branchId)],
+    onSuccess: (_data, center) =>
+      toast.success(`Center ${!center.isActive ? 'activated' : 'deactivated'}`),
+    onError: (err) => toast.error(err.message || 'Failed to update status'),
+  });
+
+  const deleteMutation = useApiMutation<void, string>({
+    mutationFn: (id) =>
+      branchRequest<void>(`/diagnostic-centers/${id}`, branchId!, { method: 'DELETE' }),
+    invalidate: [qk.diagnosticCenters(branchId)],
+    onSuccess: () => toast.success('Diagnostic center deactivated'),
+    onError: (err) => toast.error(err.message || 'Failed to delete center'),
+    onSettled: () => setDeleteId(null),
+  });
 
   const resetForm = () => {
     setFormData({ ...EMPTY_FORM });
@@ -130,7 +138,7 @@ export default function ManageDiagnosticCenters() {
     setDialogOpen(true);
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     if (!formData.name.trim()) {
       toast.error('Center name is required');
       return;
@@ -142,105 +150,25 @@ export default function ManageDiagnosticCenters() {
       return;
     }
 
-    const payload = {
-      name: formData.name.trim(),
-      contactPerson: formData.contactPerson.trim() || null,
-      phone: formData.phone.trim() || null,
-      email: formData.email.trim() || null,
-      address: formData.address.trim() || null,
-      commissionPercent: commission,
-    };
-
-    if (submitting) return;
-    setSubmitting(true);
-    try {
-      if (editingId) {
-        const res = await fetch(`${API_BASE}/diagnostic-centers/${editingId}`, {
-          method: 'PATCH',
-          headers: getHeaders(),
-          body: JSON.stringify(payload),
-        });
-
-        if (!res.ok) {
-          const err = await res.json();
-          toast.error(err.message || 'Failed to update center');
-          return;
-        }
-
-        toast.success('Diagnostic center updated');
-      } else {
-        const res = await fetch(`${API_BASE}/diagnostic-centers`, {
-          method: 'POST',
-          headers: getHeaders(),
-          body: JSON.stringify(payload),
-        });
-
-        if (!res.ok) {
-          const err = await res.json();
-          toast.error(err.message || 'Failed to create center');
-          return;
-        }
-
-        toast.success('Diagnostic center created');
-      }
-
-      await fetchCenters();
-      resetForm();
-    } catch (err) {
-      console.error('Error saving diagnostic center:', err);
-      toast.error('Failed to save diagnostic center');
-    } finally {
-      setSubmitting(false);
-    }
+    saveMutation.mutate({
+      editingId,
+      payload: {
+        name: formData.name.trim(),
+        contactPerson: formData.contactPerson.trim() || null,
+        phone: formData.phone.trim() || null,
+        email: formData.email.trim() || null,
+        address: formData.address.trim() || null,
+        commissionPercent: commission,
+      },
+    });
   };
 
-  const handleToggleActive = async (center: DiagnosticCenter) => {
-    try {
-      const res = await fetch(`${API_BASE}/diagnostic-centers/${center.id}`, {
-        method: 'PATCH',
-        headers: getHeaders(),
-        body: JSON.stringify({ isActive: !center.isActive }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        toast.error(err.message || 'Failed to update status');
-        return;
-      }
-
-      toast.success(`Center ${!center.isActive ? 'activated' : 'deactivated'}`);
-      await fetchCenters();
-    } catch (err) {
-      console.error('Error toggling center active:', err);
-      toast.error('Failed to update status');
-    }
+  const handleToggleActive = (center: DiagnosticCenter) => {
+    toggleMutation.mutate(center);
   };
 
-  const handleDelete = async () => {
-    if (!deleteId) return;
-    if (deleting) return;
-    setDeleting(true);
-    try {
-      const res = await fetch(`${API_BASE}/diagnostic-centers/${deleteId}`, {
-        method: 'DELETE',
-        headers: getHeaders(),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        toast.error(err.message || 'Failed to delete center');
-        return;
-      }
-
-      toast.success('Diagnostic center deactivated');
-      await fetchCenters();
-    } catch (err) {
-      console.error('Error deleting diagnostic center:', err);
-      toast.error('Failed to delete center');
-    } finally {
-      setDeleting(false);
-      setDeleteId(null);
-    }
+  const handleDelete = () => {
+    if (deleteId) deleteMutation.mutate(deleteId);
   };
 
   if (loading) {
@@ -260,7 +188,7 @@ export default function ManageDiagnosticCenters() {
       </div>
 
       {centers.length === 0 ? (
-        <p className="text-center text-muted-foreground py-8">No diagnostic centers yet.</p>
+        <EmptyState title="No diagnostic centers yet" />
       ) : (
         <Table>
           <TableHeader>
@@ -292,10 +220,10 @@ export default function ManageDiagnosticCenters() {
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex gap-2 justify-end">
-                    <Button variant="ghost" size="icon" onClick={() => handleEdit(center)}>
+                    <Button variant="ghost" size="icon" onClick={() => handleEdit(center)} aria-label="Edit center">
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(center.id)}>
+                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(center.id)} aria-label="Delete center">
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>
@@ -376,9 +304,9 @@ export default function ManageDiagnosticCenters() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={resetForm} disabled={submitting}>Cancel</Button>
-            <Button onClick={handleSubmit} disabled={submitting}>
-              {submitting ? 'Saving...' : (editingId ? 'Update' : 'Create')}
+            <Button variant="outline" onClick={resetForm} disabled={saveMutation.isPending}>Cancel</Button>
+            <Button onClick={handleSubmit} disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? 'Saving...' : (editingId ? 'Update' : 'Create')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -394,9 +322,9 @@ export default function ManageDiagnosticCenters() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} disabled={deleting} className="bg-destructive text-destructive-foreground">
-              {deleting ? 'Deleting...' : 'Delete'}
+            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} disabled={deleteMutation.isPending} className="bg-destructive text-destructive-foreground">
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

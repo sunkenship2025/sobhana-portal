@@ -227,7 +227,7 @@ const PayoutDetailPage = () => {
     return (
       <AppLayout context="owner" subContext="payouts">
         <div className="flex items-center justify-center h-64">
-          <p className="text-gray-500">Loading payout details...</p>
+          <p className="text-muted-foreground">Loading payout details...</p>
         </div>
       </AppLayout>
     );
@@ -237,7 +237,7 @@ const PayoutDetailPage = () => {
     return (
       <AppLayout context="owner" subContext="payouts">
         <div className="flex items-center justify-center h-64">
-          <p className="text-gray-500">Payout not found</p>
+          <p className="text-muted-foreground">Payout not found</p>
         </div>
       </AppLayout>
     );
@@ -264,12 +264,12 @@ const PayoutDetailPage = () => {
         {/* Header */}
         <div className="flex items-center justify-between print:hidden">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate('/owner/payouts')}>
+            <Button variant="ghost" size="icon" aria-label="Back to payouts" onClick={() => navigate('/owner/payouts')}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Payout Details</h1>
-              <p className="text-gray-500">{payout.doctorName} • {formatPeriod(payout.periodStartDate, payout.periodEndDate)}</p>
+              <h1 className="text-2xl font-bold text-foreground">Payout Details</h1>
+              <p className="text-muted-foreground">{payout.doctorName} • {formatPeriod(payout.periodStartDate, payout.periodEndDate)}</p>
             </div>
           </div>
 
@@ -304,10 +304,10 @@ const PayoutDetailPage = () => {
         {/* Print Header */}
         <div className="hidden print:block space-y-1">
           <h1 className="text-xl font-semibold">Payout Statement</h1>
-          <p className="text-sm text-gray-700">
+          <p className="text-sm text-foreground">
             {payout.doctorName} ({payout.doctorType}) | {formatPeriod(payout.periodStartDate, payout.periodEndDate)}
           </p>
-          <p className="text-sm text-gray-700">
+          <p className="text-sm text-foreground">
             Branch: {payout.branchName} | Status: {payout.paidAt ? `Paid on ${formatDate(payout.paidAt)}` : 'Pending'}
           </p>
         </div>
@@ -321,7 +321,7 @@ const PayoutDetailPage = () => {
                   <User className="h-5 w-5 text-blue-600" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Doctor</p>
+                  <p className="text-sm text-muted-foreground">Doctor</p>
                   <p className="font-semibold">{payout.doctorName}</p>
                   <Badge variant={payout.doctorType === 'REFERRAL' ? 'default' : 'secondary'} className="mt-1">
                     {payout.doctorType}
@@ -338,7 +338,7 @@ const PayoutDetailPage = () => {
                   <Calendar className="h-5 w-5 text-purple-600" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Period</p>
+                  <p className="text-sm text-muted-foreground">Period</p>
                   <p className="font-semibold">{formatPeriod(payout.periodStartDate, payout.periodEndDate)}</p>
                 </div>
               </div>
@@ -352,7 +352,7 @@ const PayoutDetailPage = () => {
                   <IndianRupee className="h-5 w-5 text-green-600" />
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Total Amount</p>
+                  <p className="text-sm text-muted-foreground">Total Amount</p>
                   <p className="text-xl font-bold text-green-700">{formatRupees(payout.derivedAmountInPaise)}</p>
                 </div>
               </div>
@@ -368,9 +368,9 @@ const PayoutDetailPage = () => {
                       <Check className="h-5 w-5 text-green-600" />
                     </div>
                     <div>
-                      <p className="text-sm text-gray-500">Status</p>
+                      <p className="text-sm text-muted-foreground">Status</p>
                       <p className="font-semibold text-green-700">Paid</p>
-                      <p className="text-xs text-gray-500">{formatDate(payout.paidAt)}</p>
+                      <p className="text-xs text-muted-foreground">{formatDate(payout.paidAt)}</p>
                     </div>
                   </>
                 ) : (
@@ -379,7 +379,7 @@ const PayoutDetailPage = () => {
                       <Clock className="h-5 w-5 text-yellow-600" />
                     </div>
                     <div>
-                      <p className="text-sm text-gray-500">Status</p>
+                      <p className="text-sm text-muted-foreground">Status</p>
                       <p className="font-semibold text-yellow-700">Pending</p>
                     </div>
                   </>
@@ -401,22 +401,22 @@ const PayoutDetailPage = () => {
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
-                  <p className="text-sm text-gray-500">Payment Method</p>
+                  <p className="text-sm text-muted-foreground">Payment Method</p>
                   <p className="font-medium">{payout.paymentMethod}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Paid On</p>
+                  <p className="text-sm text-muted-foreground">Paid On</p>
                   <p className="font-medium">{formatDate(payout.paidAt)}</p>
                 </div>
                 {payout.paymentReferenceId && (
                   <div>
-                    <p className="text-sm text-gray-500">Reference ID</p>
+                    <p className="text-sm text-muted-foreground">Reference ID</p>
                     <p className="font-medium">{payout.paymentReferenceId}</p>
                   </div>
                 )}
                 {payout.notes && (
                   <div className="col-span-2">
-                    <p className="text-sm text-gray-500">Notes</p>
+                    <p className="text-sm text-muted-foreground">Notes</p>
                     <p className="font-medium">{payout.notes}</p>
                   </div>
                 )}
@@ -447,7 +447,7 @@ const PayoutDetailPage = () => {
               </div>
             )}
             {filteredLineItems.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-8 text-muted-foreground">
                 {lineItemSearch
                   ? 'No line items match your search.'
                   : 'No line items found for this period.'}
@@ -494,7 +494,7 @@ const PayoutDetailPage = () => {
             <div className="flex justify-end">
               <div className="text-right space-y-2">
                 <div className="flex justify-between gap-12">
-                  <span className="text-gray-500">Total Items:</span>
+                  <span className="text-muted-foreground">Total Items:</span>
                   <span className="font-medium">{payout.lineItems.length}</span>
                 </div>
                 <div className="flex justify-between gap-12 text-lg">
@@ -509,7 +509,7 @@ const PayoutDetailPage = () => {
         {/* Metadata */}
         <Card className="print:hidden">
           <CardContent className="pt-6">
-            <div className="flex flex-wrap gap-6 text-sm text-gray-500">
+            <div className="flex flex-wrap gap-6 text-sm text-muted-foreground">
               <div>
                 <span className="font-medium">Derived At:</span> {formatDate(payout.derivedAt)}
               </div>

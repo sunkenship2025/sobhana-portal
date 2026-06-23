@@ -8,12 +8,14 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter,
 } from '@/components/ui/sheet';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
+import { useConfirm } from '@/hooks/use-confirm';
 import {
   Plus, Pencil, Trash2, UserCheck, Link2, Search, Upload, FileSignature,
 } from 'lucide-react';
@@ -100,6 +102,7 @@ function getInitials(name: string) {
 
 export default function ManageSigningDoctors() {
   const { token } = useAuthStore();
+  const { confirm, ConfirmDialog } = useConfirm();
   const signatureInputRef = useRef<HTMLInputElement>(null);
 
   const [doctors, setDoctors] = useState<SigningDoctor[]>([]);
@@ -532,6 +535,14 @@ export default function ManageSigningDoctors() {
 
   const handleDeleteLabInchargeRule = async (ruleId: string) => {
     if (deletingLabInchargeRuleIds.has(ruleId)) return;
+    const ok = await confirm({
+      title: "Delete lab in-charge rule?",
+      description:
+        "Reports matching this rule will lose their assigned lab in-charge until another rule covers them.",
+      confirmText: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     setDeletingLabInchargeRuleIds((prev) => { const next = new Set(prev); next.add(ruleId); return next; });
     try {
       const res = await fetch(`${API_BASE}/lab-incharge-rules/${ruleId}`, {
@@ -653,6 +664,14 @@ export default function ManageSigningDoctors() {
 
   const handleDeleteRule = async (ruleId: string) => {
     if (deletingRuleIds.has(ruleId)) return;
+    const ok = await confirm({
+      title: "Delete signing rule?",
+      description:
+        "Reports matching this rule will lose their assigned signer until another rule covers them.",
+      confirmText: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     setDeletingRuleIds((prev) => {
       const next = new Set(prev);
       next.add(ruleId);
@@ -690,6 +709,7 @@ export default function ManageSigningDoctors() {
   // ─── Render ──────────────────────────────────────────────────────
   return (
     <div className="space-y-8">
+      {ConfirmDialog}
       {/* ── Signing Doctors ─────────────────────────────────────── */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
@@ -718,7 +738,7 @@ export default function ManageSigningDoctors() {
         </div>
 
         {filteredDoctors.length === 0 ? (
-          <p className="text-center text-muted-foreground py-8">No signing doctors found.</p>
+          <EmptyState title="No signing doctors" />
         ) : (
           <div className="border rounded-lg overflow-hidden">
             <Table>
@@ -778,10 +798,10 @@ export default function ManageSigningDoctors() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex gap-1 justify-end">
-                        <Button variant="ghost" size="icon" onClick={() => handleEditDoctor(doc)} className="h-8 w-8">
+                        <Button variant="ghost" size="icon" onClick={() => handleEditDoctor(doc)} className="h-8 w-8" aria-label="Edit signing doctor">
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => setDeleteId(doc.id)} className="h-8 w-8">
+                        <Button variant="ghost" size="icon" onClick={() => setDeleteId(doc.id)} className="h-8 w-8" aria-label="Delete signing doctor">
                           <Trash2 className="h-3.5 w-3.5 text-destructive" />
                         </Button>
                       </div>
@@ -813,7 +833,7 @@ export default function ManageSigningDoctors() {
         </div>
 
         {rules.length === 0 ? (
-          <p className="text-center text-muted-foreground py-8">No signing rules yet.</p>
+          <EmptyState title="No signing rules yet" />
         ) : (
           <div className="border rounded-lg overflow-hidden">
             <Table>
@@ -857,6 +877,7 @@ export default function ManageSigningDoctors() {
                         onClick={() => handleDeleteRule(rule.id)}
                         disabled={deletingRuleIds.has(rule.id)}
                         className="h-8 w-8"
+                        aria-label="Delete signing rule"
                       >
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>
@@ -903,7 +924,7 @@ export default function ManageSigningDoctors() {
           const q = labInchargeSearch.toLowerCase();
           return li.name.toLowerCase().includes(q) || li.designation.toLowerCase().includes(q);
         }).length === 0 ? (
-          <p className="text-center text-muted-foreground py-8">No lab incharges found.</p>
+          <EmptyState title="No lab incharges" />
         ) : (
           <div className="border rounded-lg overflow-hidden">
             <Table>
@@ -955,10 +976,10 @@ export default function ManageSigningDoctors() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex gap-1 justify-end">
-                        <Button variant="ghost" size="icon" onClick={() => handleEditLabIncharge(li)} className="h-8 w-8">
+                        <Button variant="ghost" size="icon" onClick={() => handleEditLabIncharge(li)} className="h-8 w-8" aria-label="Edit lab incharge">
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => setDeleteLabInchargeId(li.id)} className="h-8 w-8">
+                        <Button variant="ghost" size="icon" onClick={() => setDeleteLabInchargeId(li.id)} className="h-8 w-8" aria-label="Delete lab incharge">
                           <Trash2 className="h-3.5 w-3.5 text-destructive" />
                         </Button>
                       </div>
@@ -990,7 +1011,7 @@ export default function ManageSigningDoctors() {
         </div>
 
         {labInchargeRules.length === 0 ? (
-          <p className="text-center text-muted-foreground py-8">No lab incharge rules yet.</p>
+          <EmptyState title="No lab incharge rules yet" />
         ) : (
           <div className="border rounded-lg overflow-hidden">
             <Table>
@@ -1028,6 +1049,7 @@ export default function ManageSigningDoctors() {
                         onClick={() => handleDeleteLabInchargeRule(rule.id)}
                         disabled={deletingLabInchargeRuleIds.has(rule.id)}
                         className="h-8 w-8"
+                        aria-label="Delete lab incharge rule"
                       >
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>

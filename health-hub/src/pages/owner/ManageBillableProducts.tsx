@@ -8,6 +8,8 @@ import {
   CheckCircle2, AlertCircle, Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { LoadingState } from '@/components/ui/loading-state';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
@@ -103,12 +105,12 @@ const WORKFLOW_LABELS: Record<WorkflowMode, string> = {
 
 function typeBadgeColor(productType: string) {
   const pt = PRODUCT_TYPES.find(p => p.value === productType);
-  return pt ? pt.color : 'bg-gray-100 text-gray-800';
+  return pt ? pt.color : 'bg-muted text-foreground';
 }
 
 function workflowBadgeColor(workflowMode: string) {
   const wm = WORKFLOW_MODES.find((mode) => mode.value === workflowMode);
-  return wm ? wm.color : 'bg-gray-100 text-gray-800';
+  return wm ? wm.color : 'bg-muted text-foreground';
 }
 
 const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
@@ -501,9 +503,9 @@ export default function ManageBillableProducts() {
 
       {/* Table */}
       {loading ? (
-        <div className="py-8 text-center text-muted-foreground">Loading...</div>
+        <LoadingState />
       ) : products.length === 0 ? (
-        <div className="py-8 text-center text-muted-foreground">No products found</div>
+        <EmptyState title="No products found" />
       ) : (
         <div className="border rounded-lg overflow-x-auto">
           <Table>
@@ -552,7 +554,7 @@ export default function ManageBillableProducts() {
                     <Badge variant="outline" className="text-xs">{product.panelCount ?? product.panels?.length ?? 0}</Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge className={product.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
+                    <Badge className={product.isActive ? 'bg-green-100 text-green-800' : 'bg-muted text-foreground'}>
                       {product.isActive ? 'Active' : 'Inactive'}
                     </Badge>
                   </TableCell>
@@ -564,7 +566,7 @@ export default function ManageBillableProducts() {
                       <Button size="sm" variant="ghost" onClick={() => openPricing(product)} title="Branch Pricing" className="h-7 w-7 p-0">
                         <IndianRupee className="h-3.5 w-3.5" />
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(product)} title="Delete product" className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50">
+                      <Button size="sm" variant="ghost" onClick={() => setDeleteConfirm(product)} title="Delete product" className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10">
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                       <Switch
@@ -615,17 +617,17 @@ export default function ManageBillableProducts() {
                 {!editingProduct && formCode.trim() && (
                   <span className="absolute right-2 top-2.5">
                     {codeChecking ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> :
-                     !CODE_REGEX.test(formCode.trim()) ? <AlertCircle className="h-4 w-4 text-red-500" /> :
+                     !CODE_REGEX.test(formCode.trim()) ? <AlertCircle className="h-4 w-4 text-destructive" /> :
                      codeAvailable === true ? <CheckCircle2 className="h-4 w-4 text-green-600" /> :
-                     codeAvailable === false ? <AlertCircle className="h-4 w-4 text-red-500" /> : null}
+                     codeAvailable === false ? <AlertCircle className="h-4 w-4 text-destructive" /> : null}
                   </span>
                 )}
               </div>
               {!editingProduct && formCode.trim() && !CODE_REGEX.test(formCode.trim()) && (
-                <p className="text-xs text-red-500 mt-0.5">2-20 uppercase letters, digits, or underscores</p>
+                <p className="text-xs text-destructive mt-0.5">2-20 uppercase letters, digits, or underscores</p>
               )}
               {!editingProduct && codeAvailable === false && (
-                <p className="text-xs text-red-500 mt-0.5">Code already in use</p>
+                <p className="text-xs text-destructive mt-0.5">Code already in use</p>
               )}
             </div>
             <div>
@@ -730,7 +732,7 @@ export default function ManageBillableProducts() {
                             ))}
                         </SelectContent>
                       </Select>
-                      <Button size="sm" variant="ghost" onClick={() => removePanel(i)} className="text-red-500 shrink-0 h-8 w-8 p-0">
+                      <Button size="sm" variant="ghost" onClick={() => removePanel(i)} className="text-destructive shrink-0 h-8 w-8 p-0">
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
@@ -781,7 +783,7 @@ export default function ManageBillableProducts() {
                   onChange={e => updatePricingRow(i, 'price', parseFloat(e.target.value) || 0)}
                   className="w-24 h-8 text-xs" />
                 <Switch checked={row.isActive} onCheckedChange={v => updatePricingRow(i, 'isActive', v)} />
-                <Button size="sm" variant="ghost" onClick={() => removePricingRow(i)} className="text-red-500 h-8 w-8 p-0">
+                <Button size="sm" variant="ghost" onClick={() => removePricingRow(i)} className="text-destructive h-8 w-8 p-0">
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>

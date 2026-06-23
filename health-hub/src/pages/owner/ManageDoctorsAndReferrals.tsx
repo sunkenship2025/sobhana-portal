@@ -16,7 +16,9 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { useAuthStore } from '@/store/authStore';
+import { useDoctorLookup } from '@/hooks/use-doctor-lookup';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import {
@@ -86,6 +88,12 @@ const EMPTY_REFERRAL_FORM = {
 
 export default function ManageDoctorsAndReferrals() {
   const { token } = useAuthStore();
+  const {
+    lookupDoctorByPhone,
+    getClinicDoctors,
+    getReferralDoctors,
+    invalidateDoctorLookups,
+  } = useDoctorLookup();
   const navigate = useNavigate();
   const goToPayouts = (doctorId: string, doctorType: 'REFERRAL' | 'CLINIC' | 'DIAGNOSTIC_CENTER') => {
     navigate(`/owner/payouts?doctorId=${doctorId}&doctorType=${doctorType}`);
@@ -177,20 +185,15 @@ export default function ManageDoctorsAndReferrals() {
 
   const refCheckPhone = async (phone: string) => {
     if (phone.length >= 10 && token) {
-      try {
-        const res = await fetch(`${API_BASE}/doctors/search-by-contact?phone=${phone}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        if (data.clinicDoctor) {
-          setRefExistingDoctor({ type: 'clinic', doctor: data.clinicDoctor });
-        } else if (data.referralDoctor && !refEditingId) {
-          toast.error('This phone number is already registered as a referral doctor');
-          setRefExistingDoctor({ type: 'referral', doctor: data.referralDoctor });
-        } else {
-          setRefExistingDoctor(null);
-        }
-      } catch { setRefExistingDoctor(null); }
+      const data = await lookupDoctorByPhone(phone);
+      if (data.clinicDoctor) {
+        setRefExistingDoctor({ type: 'clinic', doctor: data.clinicDoctor });
+      } else if (data.referralDoctor && !refEditingId) {
+        toast.error('This phone number is already registered as a referral doctor');
+        setRefExistingDoctor({ type: 'referral', doctor: data.referralDoctor });
+      } else {
+        setRefExistingDoctor(null);
+      }
     } else {
       setRefExistingDoctor(null);
     }
@@ -198,15 +201,10 @@ export default function ManageDoctorsAndReferrals() {
 
   const refCheckName = async (name: string) => {
     if (name.length >= 3 && token && !refEditingId) {
-      try {
-        const res = await fetch(`${API_BASE}/clinic-doctors`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) return;
-        const list = await res.json();
-        const match = list.find((d: any) => d.name.toLowerCase().includes(name.toLowerCase()));
-        setRefExistingDoctor(match ? { type: 'clinic', doctor: match } : null);
-      } catch { setRefExistingDoctor(null); }
+      // Cached clinic-doctor list (fetched once, not per keystroke), matched locally.
+      const list = await getClinicDoctors();
+      const match = list.find((d: any) => d.name.toLowerCase().includes(name.toLowerCase()));
+      setRefExistingDoctor(match ? { type: 'clinic', doctor: match } : null);
     } else if (name.length < 3) {
       setRefExistingDoctor(null);
     }
@@ -339,6 +337,7 @@ export default function ManageDoctorsAndReferrals() {
         toast.success('Doctor added');
       }
       await fetchReferralDoctors();
+      invalidateDoctorLookups();
       refResetForm();
     } catch { toast.error('Failed to save doctor'); }
     finally { setRefSubmitting(false); }
@@ -369,6 +368,7 @@ export default function ManageDoctorsAndReferrals() {
       if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed'); return; }
       toast.success('Doctor deleted');
       await fetchReferralDoctors();
+      invalidateDoctorLookups();
     } catch { toast.error('Failed to delete'); }
     finally { setRefDeleting(false); }
     setRefDeleteId(null);
@@ -396,20 +396,15 @@ export default function ManageDoctorsAndReferrals() {
 
   const clinicCheckPhone = async (phone: string) => {
     if (phone.length >= 10 && token) {
-      try {
-        const res = await fetch(`${API_BASE}/doctors/search-by-contact?phone=${phone}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        if (data.referralDoctor) {
-          setClinicExistingDoctor({ type: 'referral', doctor: data.referralDoctor });
-        } else if (data.clinicDoctor && !clinicEditingId) {
-          toast.error('Phone already registered as clinic doctor');
-          setClinicExistingDoctor({ type: 'clinic', doctor: data.clinicDoctor });
-        } else {
-          setClinicExistingDoctor(null);
-        }
-      } catch { setClinicExistingDoctor(null); }
+      const data = await lookupDoctorByPhone(phone);
+      if (data.referralDoctor) {
+        setClinicExistingDoctor({ type: 'referral', doctor: data.referralDoctor });
+      } else if (data.clinicDoctor && !clinicEditingId) {
+        toast.error('Phone already registered as clinic doctor');
+        setClinicExistingDoctor({ type: 'clinic', doctor: data.clinicDoctor });
+      } else {
+        setClinicExistingDoctor(null);
+      }
     } else {
       setClinicExistingDoctor(null);
     }
@@ -417,14 +412,10 @@ export default function ManageDoctorsAndReferrals() {
 
   const clinicCheckName = async (name: string) => {
     if (name.length >= 3 && token) {
-      try {
-        const res = await fetch(`${API_BASE}/referral-doctors`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const list = await res.json();
-        const match = list.find((d: any) => d.name.toLowerCase().includes(name.toLowerCase()));
-        setClinicExistingDoctor(match ? { type: 'referral', doctor: match } : null);
-      } catch { setClinicExistingDoctor(null); }
+      // Cached referral-doctor list (fetched once, not per keystroke), matched locally.
+      const list = await getReferralDoctors();
+      const match = list.find((d: any) => d.name.toLowerCase().includes(name.toLowerCase()));
+      setClinicExistingDoctor(match ? { type: 'referral', doctor: match } : null);
     } else {
       setClinicExistingDoctor(null);
     }
@@ -484,6 +475,7 @@ export default function ManageDoctorsAndReferrals() {
         toast.success('Doctor added');
       }
       await fetchClinicDoctors();
+      invalidateDoctorLookups();
       clinicResetForm();
     } catch { toast.error('Failed to save doctor'); }
     finally { setClinicSubmitting(false); }
@@ -513,6 +505,7 @@ export default function ManageDoctorsAndReferrals() {
       if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed'); return; }
       toast.success('Doctor deleted');
       await fetchClinicDoctors();
+      invalidateDoctorLookups();
     } catch { toast.error('Failed to delete'); }
     finally { setClinicDeleting(false); }
     setClinicDeleteId(null);
@@ -917,6 +910,7 @@ export default function ManageDoctorsAndReferrals() {
                               variant="ghost"
                               size="icon"
                               onClick={() => removeProductRule(rule.productId)}
+                              aria-label="Remove product rule"
                             >
                               <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
@@ -939,7 +933,7 @@ export default function ManageDoctorsAndReferrals() {
         {refLoading ? (
           <p className="text-center text-muted-foreground py-6">Loading...</p>
         ) : referralDoctors.length === 0 ? (
-          <p className="text-center text-muted-foreground py-8">No referral doctors yet.</p>
+          <EmptyState title="No referral doctors yet" />
         ) : (
           <Table>
             <TableHeader>
@@ -983,11 +977,12 @@ export default function ManageDoctorsAndReferrals() {
                         size="icon"
                         onClick={() => goToPayouts(doc.id, 'REFERRAL')}
                         title="View payouts"
+                        aria-label="View payouts"
                       >
                         <IndianRupee className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleRefEdit(doc)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" onClick={() => setRefDeleteId(doc.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => handleRefEdit(doc)} aria-label="Edit doctor"><Pencil className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => setRefDeleteId(doc.id)} aria-label="Delete doctor"><Trash2 className="h-4 w-4 text-destructive" /></Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -1144,7 +1139,7 @@ export default function ManageDoctorsAndReferrals() {
         {clinicLoading ? (
           <p className="text-center text-muted-foreground py-6">Loading...</p>
         ) : clinicDoctors.length === 0 ? (
-          <p className="text-center text-muted-foreground py-8">No clinic doctors yet.</p>
+          <EmptyState title="No clinic doctors yet" />
         ) : (
           <Table>
             <TableHeader>
@@ -1180,11 +1175,12 @@ export default function ManageDoctorsAndReferrals() {
                         size="icon"
                         onClick={() => goToPayouts(doc.id, 'CLINIC')}
                         title="View payouts"
+                        aria-label="View payouts"
                       >
                         <IndianRupee className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleClinicEdit(doc)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" onClick={() => setClinicDeleteId(doc.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => handleClinicEdit(doc)} aria-label="Edit doctor"><Pencil className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => setClinicDeleteId(doc.id)} aria-label="Delete doctor"><Trash2 className="h-4 w-4 text-destructive" /></Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -1427,6 +1423,7 @@ export default function ManageDoctorsAndReferrals() {
                               variant="ghost"
                               size="icon"
                               onClick={() => removeCenterProductRule(rule.productId)}
+                              aria-label="Remove product rule"
                             >
                               <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
@@ -1449,7 +1446,7 @@ export default function ManageDoctorsAndReferrals() {
         {centersLoading ? (
           <p className="text-center text-muted-foreground py-6">Loading...</p>
         ) : centers.length === 0 ? (
-          <p className="text-center text-muted-foreground py-8">No diagnostic centers yet.</p>
+          <EmptyState title="No diagnostic centers yet" />
         ) : (
           <Table>
             <TableHeader>
@@ -1500,11 +1497,12 @@ export default function ManageDoctorsAndReferrals() {
                         size="icon"
                         onClick={() => goToPayouts(center.id, 'DIAGNOSTIC_CENTER')}
                         title="View payouts"
+                        aria-label="View payouts"
                       >
                         <IndianRupee className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleCenterEdit(center)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" onClick={() => setCenterDeleteId(center.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => handleCenterEdit(center)} aria-label="Edit center"><Pencil className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => setCenterDeleteId(center.id)} aria-label="Delete center"><Trash2 className="h-4 w-4 text-destructive" /></Button>
                     </div>
                   </TableCell>
                 </TableRow>

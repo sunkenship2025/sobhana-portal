@@ -27,8 +27,8 @@ export function RichTextNarrativeEditor({
   const [toolbarState, setToolbarState] = useState<ToolbarState>(DEFAULT_TOOLBAR_STATE);
 
   return (
-    <div className={cn('overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm', className)}>
-      <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-2">
+    <div className={cn('overflow-hidden rounded-2xl border border-border bg-white shadow-sm', className)}>
+      <div className="border-b border-border bg-muted/80 px-3 py-2">
         <RichTextToolbar
           state={toolbarState}
           onCommand={(command, valueArg) => surfaceRef.current?.runCommand(command, valueArg)}
@@ -44,7 +44,7 @@ export function RichTextNarrativeEditor({
           placeholder={placeholder}
           onToolbarStateChange={setToolbarState}
           contentClassName={cn(
-            'rich-text-narrative-editor w-full rounded-xl border border-slate-200 bg-white px-6 py-5 text-[15px] leading-7 text-slate-800 shadow-[0_10px_30px_-20px_rgba(15,23,42,0.4)] outline-none transition focus-within:border-primary/40 focus-within:shadow-[0_12px_36px_-18px_rgba(37,99,235,0.3)]',
+            'rich-text-narrative-editor w-full rounded-xl border border-border bg-white px-6 py-5 text-[15px] leading-7 text-foreground shadow-[0_10px_30px_-20px_rgba(15,23,42,0.4)] outline-none transition focus-within:border-primary/40 focus-within:shadow-[0_12px_36px_-18px_rgba(37,99,235,0.3)]',
             minHeightClassName
           )}
         />

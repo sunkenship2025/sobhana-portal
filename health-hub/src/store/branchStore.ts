@@ -21,6 +21,7 @@ import { persist } from 'zustand/middleware';
 import type { Branch } from '@/types';
 import { API_BASE } from '@/lib/api';
 import { useAuthStore } from './authStore';
+import { queryClient } from '@/lib/queryClient';
 
 // ============================================
 // BRANCH STORE INTERFACE
@@ -77,7 +78,15 @@ export const useBranchStore = create<BranchState>()(
       },
       
       setActiveBranch: (branchId) => {
+        const previous = get().activeBranchId;
         set({ activeBranchId: branchId });
+        // Flush TanStack Query's cache when the branch actually changes so no
+        // branch-scoped data leaks across branches. This is the single source
+        // of truth for the contract documented above — every switch path
+        // (header BranchSelector, post-login BranchConfirmModal) inherits it.
+        if (previous && previous !== branchId) {
+          queryClient.clear();
+        }
       },
       
       setBranches: (branches) => {

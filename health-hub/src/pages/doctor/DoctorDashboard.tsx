@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAppStore } from '@/store/appStore';
 import { FlagBadge } from '@/components/ui/flag-badge';
+import { StatusBadge } from '@/components/ui/status-badge';
 import { Search, FileText, Eye } from 'lucide-react';
 import {
   Dialog,
@@ -24,6 +26,28 @@ import {
 } from '@/components/ui/table';
 import type { DiagnosticVisitView } from '@/types';
 import { formatPatientName } from '@/lib/patientDisplay';
+
+// Mirrors the date-window logic used on the Pending/Finalized pages.
+const matchesDateFilter = (filter: string, value: string | Date | null | undefined) => {
+  if (filter === 'all') return true;
+
+  const source = value ? new Date(value) : null;
+  if (!source) return false;
+
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrowStart = new Date(todayStart);
+  tomorrowStart.setDate(todayStart.getDate() + 1);
+  const yesterdayStart = new Date(todayStart);
+  yesterdayStart.setDate(todayStart.getDate() - 1);
+  const weekStart = new Date(todayStart);
+  weekStart.setDate(todayStart.getDate() - 6);
+
+  if (filter === 'today') return source >= todayStart && source < tomorrowStart;
+  if (filter === 'yesterday') return source >= yesterdayStart && source < todayStart;
+  if (filter === 'week') return source >= weekStart && source < tomorrowStart;
+  return true;
+};
 
 const DoctorDashboard = () => {
   const { 
@@ -50,6 +74,7 @@ const DoctorDashboard = () => {
   }, [reportsWithResults, getDiagnosticVisitView]);
 
   const filteredReports = visitsWithDetails.filter((visitView) => {
+    if (!matchesDateFilter(dateFilter, visitView.visit.createdAt)) return false;
     if (!search) return true;
     const searchLower = search.toLowerCase();
     return (
@@ -62,10 +87,7 @@ const DoctorDashboard = () => {
   return (
     <AppLayout context="doctor">
       <div className="space-y-6 animate-fade-in">
-        <div>
-          <h1 className="text-2xl font-bold">My Reports</h1>
-          <p className="text-muted-foreground">Which finalized reports are available for me?</p>
-        </div>
+        <PageHeader title="My Reports" subtitle="View your lab reports — drafts and finalized." />
 
         {/* Filters */}
         <Card>
@@ -81,6 +103,7 @@ const DoctorDashboard = () => {
                     <SelectItem value="today">Today</SelectItem>
                     <SelectItem value="yesterday">Yesterday</SelectItem>
                     <SelectItem value="week">This Week</SelectItem>
+                    <SelectItem value="all">All Time</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -131,6 +154,7 @@ const DoctorDashboard = () => {
                           <span className="text-muted-foreground">
                             | {(visitView.patient as any).ageDisplay || visitView.patient.age} | {visitView.patient.gender}
                           </span>
+                          <StatusBadge status={visitView.visit.status} />
                         </div>
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                           <span className="text-muted-foreground">

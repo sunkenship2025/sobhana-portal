@@ -405,8 +405,8 @@ export default function PayoutsList() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Payouts</h1>
-            <p className="text-gray-500">
+            <h1 className="text-2xl font-bold text-foreground">Payouts</h1>
+            <p className="text-muted-foreground">
               Commissions for referral doctors, clinic doctors, and diagnostic centers
             </p>
           </div>
@@ -536,8 +536,8 @@ export default function PayoutsList() {
           <SummaryCard
             label="Pending Amount"
             value={formatRupees(list.totals?.pendingAmountInPaise ?? 0)}
-            icon={<IndianRupee className="h-5 w-5 text-red-600" />}
-            tint="bg-red-100"
+            icon={<IndianRupee className="h-5 w-5 text-destructive" />}
+            tint="bg-destructive/15"
             loading={loading}
           />
           <SummaryCard
@@ -763,7 +763,7 @@ function SummaryCard(props: {
         <div className="flex items-center gap-3">
           <div className={`p-2 ${props.tint} rounded-lg`}>{props.icon}</div>
           <div className="min-w-0">
-            <p className="text-sm text-gray-500">{props.label}</p>
+            <p className="text-sm text-muted-foreground">{props.label}</p>
             {props.loading ? (
               <Skeleton className="h-7 w-20" />
             ) : (

@@ -2,6 +2,7 @@ import { Suspense, lazy } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { LoadingState } from '@/components/ui/loading-state';
 import {
   FlaskConical, LayoutGrid, Package, Building2, UserCheck, Users,
 } from 'lucide-react';
@@ -22,9 +23,7 @@ const TABS = [
   { value: 'referrals', label: 'Referrals', icon: Users },
 ] as const;
 
-const Loading = () => (
-  <div className="py-12 text-center text-muted-foreground">Loading...</div>
-);
+const Loading = () => <LoadingState />;
 
 export default function AdminConfigCenter() {
   const [searchParams, setSearchParams] = useSearchParams();

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -55,14 +55,23 @@ export function SearchableSelect({
   ariaLabel,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
+  // Controlled search so a keystroke on the closed trigger can open the popover
+  // AND seed the filter (otherwise the char that opened it would be lost).
+  const [search, setSearch] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const selectedOption = useMemo(
     () => options.find((option) => option.value === value),
     [options, value]
   );
 
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (!next) setSearch('');
+  };
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <Button
           id={id}
@@ -83,9 +92,23 @@ export function SearchableSelect({
             } else if (e.key === 'Enter' && !open) {
               // Plain Enter on a closed trigger advances instead of opening the
               // popover, so it never dead-stops the keyboard flow. Open with
-              // Space / ArrowDown / click instead.
+              // Space / ArrowDown / typing / click instead.
               e.preventDefault();
               (onAdvance ?? onSkip)?.();
+            } else if (
+              !open &&
+              e.key.length === 1 &&
+              !e.ctrlKey &&
+              !e.metaKey &&
+              !e.altKey &&
+              /\S/.test(e.key)
+            ) {
+              // Type-to-search: a printable key on the closed trigger opens the
+              // popover and seeds the filter with that character, so you can
+              // just start typing (e.g. "ma" -> Master) without opening first.
+              e.preventDefault();
+              setSearch(e.key);
+              setOpen(true);
             }
           }}
         >
@@ -95,9 +118,30 @@ export function SearchableSelect({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+      <PopoverContent
+        className="w-[var(--radix-popover-trigger-width)] p-0"
+        align="start"
+        onOpenAutoFocus={(e) => {
+          // When opened by typing, Radix's default autofocus selects the seeded
+          // text, so the next key replaces it ("m" then "r" -> "r"). Focus the
+          // input ourselves and collapse the cursor to the end so it appends.
+          if (!search) return;
+          e.preventDefault();
+          const el = inputRef.current;
+          if (el) {
+            el.focus();
+            const end = el.value.length;
+            el.setSelectionRange(end, end);
+          }
+        }}
+      >
         <Command shouldFilter>
-          <CommandInput placeholder={searchPlaceholder} />
+          <CommandInput
+            ref={inputRef}
+            placeholder={searchPlaceholder}
+            value={search}
+            onValueChange={setSearch}
+          />
           <CommandList>
             <CommandEmpty>{emptyText}</CommandEmpty>
             {options.map((option) => (

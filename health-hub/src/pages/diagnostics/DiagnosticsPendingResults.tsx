@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect } from "react";
 import { API_BASE } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { PageHeader } from "@/components/ui/page-header";
+import { LoadingState } from "@/components/ui/loading-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +19,7 @@ import { useBranchStore } from "@/store/branchStore";
 import { useAuthStore } from "@/store/authStore";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toast } from "sonner";
-import { Clock, Search, Loader2 } from "lucide-react";
+import { Clock, Search } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -268,9 +270,7 @@ const DiagnosticsPendingResults = () => {
   if (loading) {
     return (
       <AppLayout context="diagnostics">
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
+        <LoadingState />
       </AppLayout>
     );
   }
@@ -278,12 +278,7 @@ const DiagnosticsPendingResults = () => {
   return (
     <AppLayout context="diagnostics">
       <div className="space-y-6 animate-fade-in">
-        <div>
-          <h1 className="text-2xl font-bold">Pending Results</h1>
-          <p className="text-muted-foreground">
-            Which lab cases still need results entered?
-          </p>
-        </div>
+        <PageHeader title="Pending Results" subtitle="Which lab cases still need results entered?" />
 
         {/* Filters */}
         <Card>
@@ -366,7 +361,7 @@ const DiagnosticsPendingResults = () => {
                           )}
                         {(visit.dueAmountInPaise ?? 0) > 0 && (
                           <span className="font-medium text-amber-700">
-                            Due: {formatMoneyFromPaise(visit.dueAmountInPaise)}
+                            Balance due: {formatMoneyFromPaise(visit.dueAmountInPaise)}
                           </span>
                         )}
                       </div>
@@ -416,7 +411,7 @@ const DiagnosticsPendingResults = () => {
               <div className="space-y-4">
                 <div className="rounded-lg border bg-muted/30 p-3 text-sm space-y-2">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Subtotal</span>
+                    <span className="text-muted-foreground">Total</span>
                     <span>
                       {formatMoneyFromPaise(
                         Math.round((dueVisit.totalAmount ?? 0) * 100),
@@ -430,19 +425,19 @@ const DiagnosticsPendingResults = () => {
                     </span>
                   </div>
                   <div className="flex justify-between font-medium">
-                    <span>Net</span>
+                    <span>Net payable</span>
                     <span>
                       {formatMoneyFromPaise(dueVisit.netAmountInPaise)}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Already Paid</span>
+                    <span className="text-muted-foreground">Already paid</span>
                     <span>
                       {formatMoneyFromPaise(dueVisit.paidAmountInPaise)}
                     </span>
                   </div>
                   <div className="flex justify-between font-semibold text-amber-700">
-                    <span>Due</span>
+                    <span>Balance due</span>
                     <span>
                       {formatMoneyFromPaise(dueVisit.dueAmountInPaise)}
                     </span>
