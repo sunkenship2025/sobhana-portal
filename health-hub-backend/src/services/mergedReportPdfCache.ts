@@ -19,7 +19,7 @@
 import { getRedisClient } from '../lib/redis';
 import { logger } from '../lib/logger';
 
-const KEY_PREFIX = 'merged-pdf:v9:';
+const KEY_PREFIX = 'merged-pdf:v10:';
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 const CACHE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — skip outliers so they don't flush LRU
 

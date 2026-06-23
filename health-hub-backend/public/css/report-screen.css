@@ -194,6 +194,12 @@ body.report-body {
   line-height: 1.5;
 }
 
+/* Give the left column (Patient Name / Age / Sample Type …) 2cm more room so
+   long names stay on one line; the right column (Bill No / Patient ID /
+   Registered On / Reported On) shifts 2cm to the right by default. */
+.info-row .info-item:first-child { width: calc(50% + 20mm); }
+.info-row .info-item:last-child { width: calc(50% - 20mm); }
+
 .info-item .label {
   font-weight: bold;
   color: #333;
