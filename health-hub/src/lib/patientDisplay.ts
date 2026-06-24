@@ -1,5 +1,11 @@
 import type { Title } from "@/types";
 
+/** Format a paise integer as an INR currency string (e.g. 123450 → "₹1,234.50"
+ *  rendered as ₹1,234). Shared by Patient360 financial/glance/chip surfaces. */
+export function formatCurrency(paise: number): string {
+  return `₹${(paise / 100).toLocaleString("en-IN")}`;
+}
+
 export const TITLE_TO_GENDER: Record<string, "M" | "F" | undefined> = {
   MR: "M",
   MASTER: "M",

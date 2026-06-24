@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
@@ -54,6 +54,7 @@ import type {
   ClinicVisitView,
   Patient,
   PaymentType,
+  SearchKind,
   VisitType,
 } from "@/types";
 
@@ -108,8 +109,22 @@ function buildClinicVisitView(apiVisit: any): ClinicVisitView {
   };
 }
 
+/**
+ * Navigation state this page accepts (Group C step 14b — net-new prefill reader).
+ * Sources:
+ *   - SmartSearchResults "no match → Register"  → { prefill: { kind, value } }
+ *   - Patient360 NewVisitMenu                    → { prefillPatientId, prefillPatient }
+ * Direct navigation (no state) behaves exactly as before.
+ */
+interface NewVisitPrefillState {
+  prefill?: { kind: SearchKind; value: string };
+  prefillPatientId?: string;
+  prefillPatient?: Patient;
+}
+
 const ClinicNewVisit = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { confirm, ConfirmDialog } = useConfirm();
   const printRef = useRef<HTMLDivElement>(null);
@@ -387,6 +402,79 @@ const ClinicNewVisit = () => {
     // Start the new-patient flow at Title (step 21).
     goToStep(21);
   };
+
+  // --- Group C step 14b: prefill reader -------------------------------------
+  // Seed the search/create step from navigation state when arriving from the
+  // smart-search "no match → Register" path or the Patient360 NewVisitMenu.
+  // Runs exactly once (consumedPrefill guard); direct navigation (no state)
+  // is a no-op so the page behaves as before. A phone prefill defers its
+  // patient search until auth/branch are ready.
+  const consumedPrefill = useRef(false);
+  useEffect(() => {
+    if (consumedPrefill.current) return;
+    const state = (location.state ?? null) as NewVisitPrefillState | null;
+    if (!state || (!state.prefill && !state.prefillPatientId && !state.prefillPatient)) {
+      consumedPrefill.current = true;
+      return;
+    }
+
+    // 1. A concrete patient (from the detail page) — select it directly.
+    if (state.prefillPatient) {
+      consumedPrefill.current = true;
+      handleSelectPatient(state.prefillPatient);
+      return;
+    }
+
+    // 2. A patientId only — look it up by phone-less search is not possible;
+    //    defer to the prefill.value path below if present, else just wait for
+    //    auth/branch and treat it as a soft hint (no-op until a richer payload).
+    //    (NewVisitMenu always passes prefillPatient, so this is rarely hit.)
+
+    // 3. A typed value from the smart search. Phone seeds + searches; other
+    //    kinds open the new-patient form and seed the name when it's a name.
+    if (state.prefill) {
+      const { kind, value } = state.prefill;
+      const trimmed = (value ?? "").trim();
+      if (kind === "phone") {
+        const digits = trimmed.replace(/\D/g, "").slice(0, 10);
+        setPhone(digits);
+        // A full 10-digit number triggers the same search/branch as a manual
+        // Enter, but only once auth/branch are ready.
+        if (digits.length === 10) {
+          if (!token || !activeBranch) {
+            // Not ready yet — re-run when token/activeBranch land (deps below).
+            return;
+          }
+          consumedPrefill.current = true;
+          runPatientSearch(digits).then((patients) => {
+            setMatchingPatients(patients);
+            setHighlightedPatientIndex(0);
+            if (patients.length === 1) {
+              handleSelectPatient(patients[0]);
+            } else if (patients.length > 1) {
+              goToStep(20);
+            } else {
+              handleCreateNewPatient();
+            }
+          });
+        } else {
+          // Partial phone: seed the field, consume, and let the operator finish.
+          consumedPrefill.current = true;
+        }
+        return;
+      }
+
+      // Non-phone typed value → start a fresh registration, seeding name.
+      consumedPrefill.current = true;
+      setShowNewPatientForm(true);
+      setSelectedPatient(null);
+      if (kind === "name" && trimmed) {
+        setNewPatient((prev) => ({ ...prev, name: trimmed }));
+      }
+      goToStep(21);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state, token, activeBranch]);
 
   // Single source of truth for synchronous validation. Gates the confirm
   // dialog; handleSubmit re-checks as defense in depth.

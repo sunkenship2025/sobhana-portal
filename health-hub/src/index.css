@@ -307,6 +307,22 @@
   flex-shrink: 0;
 }
 
+/* Patient360 §8: respect prefers-reduced-motion for the vaul Drawer scale/slide
+   (mobile inspector + mobile timeline filters) and Radix overlay animations. */
+@media (prefers-reduced-motion: reduce) {
+  [data-vaul-drawer],
+  [data-vaul-overlay],
+  [vaul-drawer],
+  [vaul-overlay] {
+    transition: none !important;
+    animation: none !important;
+  }
+  [data-vaul-drawer-wrapper] {
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
 @media print {
   /* Hide everything by default */
   body * {

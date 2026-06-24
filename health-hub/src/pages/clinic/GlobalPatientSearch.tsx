@@ -1,255 +1,141 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { AppLayout } from '@/components/layout/AppLayout';
-import { PageHeader } from '@/components/ui/page-header';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Search, Phone, User, Eye } from 'lucide-react';
-import { apiRequest } from '@/lib/utils';
-import { useBranchStore } from '@/store/branchStore';
-import type { PatientSearchResult, VisitDomain } from '@/types';
-import { API_BASE } from '@/lib/api';
-import { formatPatientName } from '@/lib/patientDisplay';
-
-// API call for patient search
-const searchPatients = async (
-  searchType: 'phone' | 'name',
-  query: string
-): Promise<PatientSearchResult[]> => {
-  const params = new URLSearchParams();
-  if (searchType === 'phone') {
-    params.set('phone', query);
-  } else {
-    params.set('name', query);
-  }
-
-  const branchId = useBranchStore.getState().activeBranchId || 'cmjzumgap00003zwljoqlubsn';
-  return apiRequest<PatientSearchResult[]>(`${API_BASE}/patients/search?${params}`, {
-    headers: {
-      'x-branch-id': branchId, // Use valid branch ID from store
-    },
-  });
-};
-
-function getDomainLabel(domain: VisitDomain, visitType?: 'OP' | 'IP'): string {
-  if (domain === 'DIAGNOSTICS') return 'Diagnostic Visit';
-  if (visitType === 'IP') return 'Clinic IP Visit';
-  return 'Clinic OP Visit';
-}
-
-function formatDate(date: Date): string {
-  return new Date(date).toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
-}
+/**
+ * GlobalPatientSearch — the Patient360 smart search entry page (§2, Group C).
+ *
+ * Hosts the SmartSearchBar + SmartSearchResults. Auto-detects the search kind
+ * (phone/name/email/patientNumber/bill) with live debounced type-ahead, override
+ * pills, recently-viewed on empty input, bill→visit resolve, and no-match→
+ * register (carrying the typed value into the new-visit flow).
+ *
+ * Cross-branch GLOBAL view (binding decision 1): the search hooks go through
+ * `apiCall` with NO branch header — there is no hardcoded fallback branchId, no
+ * phone/name toggle, and no manual "submitted" state. The query fires off the
+ * debounced input; the Search button + Enter only re-focus/force the same query.
+ */
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { AppLayout } from "@/components/layout/AppLayout";
+import { PageHeader } from "@/components/ui/page-header";
+import { Card, CardContent } from "@/components/ui/card";
+import { useAuthStore } from "@/store/authStore";
+import {
+  getRecentPatients,
+  clearRecentPatients,
+} from "@/lib/recentPatients";
+import { useSmartSearch, useBillLookup } from "@/hooks/patient360/usePatient360";
+import { SmartSearchBar } from "@/components/patient360/SmartSearchBar";
+import { SmartSearchResults } from "@/components/patient360/SmartSearchResults";
+import type { SearchKind } from "@/types";
 
 export default function GlobalPatientSearch() {
   const navigate = useNavigate();
-  const [searchType, setSearchType] = useState<'phone' | 'name'>('phone');
-  const [query, setQuery] = useState('');
-  // The submitted search (set on Search / Enter) drives the query; the live
-  // input box stays separate so we only fetch on submit, not per keystroke.
-  const [submitted, setSubmitted] = useState<{
-    type: 'phone' | 'name';
-    q: string;
-  } | null>(null);
+  const userId = useAuthStore((s) => s.user?.id);
 
-  const { data, isFetching, isError, error } = useQuery({
-    queryKey: ['globalPatientSearch', submitted?.type, submitted?.q],
-    queryFn: () => searchPatients(submitted!.type, submitted!.q),
-    enabled: !!submitted?.q,
-    staleTime: 30_000,
-    retry: 1,
-  });
+  const [rawQuery, setRawQuery] = useState("");
+  // null = auto-detect; a SearchKind = forced via an override pill.
+  const [override, setOverride] = useState<SearchKind | null>(null);
+  // Bumped to re-read localStorage after a clear (recently-viewed is read on
+  // every render but localStorage writes from the detail page need a nudge).
+  const [recentNonce, setRecentNonce] = useState(0);
 
-  const results = data ?? [];
-  // A search "happened" once the query for the current submission has resolved.
-  const hasSearched = submitted !== null && data !== undefined && !isFetching;
+  // Patient-search slice (phone/name/email/patientNumber). The hook owns the
+  // 300ms debounce + detection + type-gated placeholderData.
+  const search = useSmartSearch(rawQuery, override ?? undefined);
+  const effectiveKind = search.effectiveKind;
+  const detectedKind = search.detectedKind;
 
-  const handleSearch = () => {
-    const q = query.trim();
-    if (q) setSubmitted({ type: searchType, q });
-  };
+  // Bill slice: only enabled when the effective kind is bill and we have a value.
+  const bill = useBillLookup(
+    search.billValue ?? undefined,
+    effectiveKind === "bill",
+  );
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleSearch();
-    }
-  };
+  const recent = useMemo(
+    () => getRecentPatients(userId),
+    // recentNonce forces a re-read after Clear.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [userId, recentNonce],
+  );
 
-  const handleViewPatient360 = (patientId: string) => {
+  // "active" = a network query is enabled for the current input (min-length met
+  // for the patient path, or a value present for the bill path).
+  const active =
+    effectiveKind === "bill" ? !!search.billValue : search.active;
+
+  const openPatient = (patientId: string) =>
     navigate(`/clinic/patient-360/${patientId}`);
+
+  const openVisit = (patientId: string, visitId: string) =>
+    navigate(`/clinic/patient-360/${patientId}?visit=${visitId}`);
+
+  const register = () => {
+    // Carry the typed value into the new-visit flow (Group C step 14b reader).
+    // For a phone search we know it's a phone; otherwise pass the raw text.
+    const kind: SearchKind = effectiveKind;
+    navigate("/clinic/new", {
+      state: { prefill: { kind, value: rawQuery.trim() } },
+    });
+  };
+
+  const clear = () => {
+    setRawQuery("");
+    setOverride(null);
+  };
+
+  const clearRecent = () => {
+    clearRecentPatients(userId);
+    setRecentNonce((n) => n + 1);
+  };
+
+  const retry = () => {
+    if (effectiveKind === "bill") bill.refetch();
+    else search.refetch();
   };
 
   return (
     <AppLayout context="clinic" subContext="Patient 360">
-      <div className="max-w-4xl mx-auto space-y-6">
-        {/* Header */}
+      <div className="mx-auto max-w-3xl space-y-6">
         <PageHeader
           title="Patient 360"
           subtitle="Search any patient across all Sobhana branches"
           className="mb-2"
         />
 
-        {/* Search Form */}
         <Card>
           <CardContent className="pt-6">
-            {/* Search Type Tabs */}
-            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:gap-4">
-              <Button
-                variant={searchType === 'phone' ? 'default' : 'outline'}
-                onClick={() => setSearchType('phone')}
-                className="flex-1"
-              >
-                <Phone className="h-4 w-4 mr-2" />
-                Search by Phone (recommended)
-              </Button>
-              <Button
-                variant={searchType === 'name' ? 'default' : 'outline'}
-                onClick={() => setSearchType('name')}
-                className="flex-1"
-              >
-                <User className="h-4 w-4 mr-2" />
-                Search by Name
-              </Button>
-            </div>
-
-            {/* Search Input */}
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Input
-                placeholder={
-                  searchType === 'phone'
-                    ? 'Enter phone number...'
-                    : 'Enter patient name...'
-                }
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className="flex-1"
-              />
-              <Button className="w-full sm:w-auto" onClick={handleSearch} disabled={isFetching || !query.trim()}>
-                <Search className="h-4 w-4 mr-2" />
-                {isFetching ? 'Searching...' : 'Search'}
-              </Button>
-            </div>
+            <SmartSearchBar
+              rawQuery={rawQuery}
+              onChange={(v) => {
+                setRawQuery(v);
+                // Editing text resets any active override (§5).
+                if (override) setOverride(null);
+              }}
+              detection={detectedKind}
+              effectiveKind={effectiveKind}
+              overrideActive={override !== null}
+              onOverride={setOverride}
+              onSubmit={retry}
+            />
           </CardContent>
         </Card>
 
-        {/* Search error */}
-        {isError && (
-          <Card className="border-destructive/50">
-            <CardContent className="py-4 text-sm text-destructive">
-              {(error as Error)?.message || 'Search failed. Please try again.'}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Results Header */}
-        {hasSearched && (
-          <div className="flex flex-wrap items-center gap-2 border-b pb-2 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">
-              {results.length === 0
-                ? 'No patients found'
-                : `${results.length} ${results.length === 1 ? 'patient' : 'patients'} found`}
-            </span>
-            <span>·</span>
-            <span>all branches</span>
-            <span>·</span>
-            <span>read-only</span>
-          </div>
-        )}
-
-        {/* Search Results */}
-        {hasSearched && results.length === 0 && (
-          <Card>
-            <CardContent className="py-12 text-center text-muted-foreground">
-              <User className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>No patients found matching your search.</p>
-              <p className="text-sm mt-1">Try a different phone number or name.</p>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Patient Cards */}
-        <div className="space-y-4">
-          {results.map((result) => (
-            <Card key={result.patient.id} className="overflow-hidden">
-              <CardHeader className="pb-3">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
-                      {formatPatientName(result.patient.name, (result.patient as any).title)}
-                      <span className="text-muted-foreground font-normal">|</span>
-                      <span className="text-muted-foreground font-normal">
-                        {(result.patient as any).ageDisplay || result.patient.age}
-                      </span>
-                      <span className="text-muted-foreground font-normal">|</span>
-                      <span className="text-muted-foreground font-normal">
-                        {result.patient.gender}
-                      </span>
-                    </CardTitle>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Phone:{' '}
-                      {result.patient.identifiers.find((i) => i.type === 'PHONE')?.value || 'N/A'}
-                    </p>
-                  </div>
-                  <Badge variant="outline" className="w-fit text-xs">
-                    {result.patient.patientNumber}
-                  </Badge>
-                </div>
-              </CardHeader>
-
-              <CardContent className="pt-0">
-                {/* History Snapshot */}
-                <div className="bg-muted/50 rounded-lg p-4 mb-4">
-                  <h4 className="text-sm font-medium text-muted-foreground mb-3">
-                    HISTORY SNAPSHOT
-                  </h4>
-                  {result.historySnapshot.length > 0 ? (
-                    <ul className="space-y-2">
-                      {result.historySnapshot.slice(0, 3).map((visit, idx) => (
-                        <li key={idx} className="flex flex-wrap items-center gap-2 text-sm">
-                          <span className="text-muted-foreground">•</span>
-                          <span className="font-medium">
-                            {getDomainLabel(visit.domain, visit.visitType)}
-                          </span>
-                          <span className="text-muted-foreground">—</span>
-                          <span>{visit.branchName}</span>
-                          <span className="text-muted-foreground">—</span>
-                          <span className="text-muted-foreground">
-                            {formatDate(visit.createdAt)}
-                          </span>
-                        </li>
-                      ))}
-                      {result.totalVisits > 3 && (
-                        <li className="text-sm text-muted-foreground pl-4">
-                          ... and {result.totalVisits - 3} more visit(s)
-                        </li>
-                      )}
-                    </ul>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">No visit history</p>
-                  )}
-                </div>
-
-                {/* View Patient 360 Button */}
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => handleViewPatient360(result.patient.id)}
-                >
-                  <Eye className="h-4 w-4 mr-2" />
-                  View Patient 360
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <SmartSearchResults
+          effectiveKind={effectiveKind}
+          typed={rawQuery.trim()}
+          active={active}
+          patientResults={search.data}
+          patientLoading={search.isFetching && active && effectiveKind !== "bill"}
+          patientError={effectiveKind !== "bill" ? search.error : null}
+          billResult={bill.data}
+          billLoading={bill.isFetching && effectiveKind === "bill"}
+          billError={effectiveKind === "bill" ? bill.error : null}
+          recent={recent}
+          onOpenPatient={openPatient}
+          onOpenVisit={openVisit}
+          onRegister={register}
+          onClear={clear}
+          onClearRecent={clearRecent}
+          onRetry={retry}
+        />
       </div>
     </AppLayout>
   );

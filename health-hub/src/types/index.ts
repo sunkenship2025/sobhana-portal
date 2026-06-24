@@ -54,6 +54,7 @@ export interface Patient {
   gender: Gender;
   address?: string;
   identifiers: PatientIdentifier[];
+  whatsappOptIn?: boolean; // WhatsApp delivery preference (summary/PATCH shapes)
   createdAt: Date;
 }
 
@@ -550,10 +551,23 @@ export interface VisitTimelineItem {
   originalVisitDate?: Date | string | null;
   billedAt?: Date | string | null;
   createdAt: Date;
-  // Diagnostic specific
+  // Diagnostic specific (legacy /360 view shape — kept for back-compat)
   reportStatus?: ReportVersionStatus; // DRAFT | FINALIZED (only if report exists)
   reportVersionId?: string; // For "View Report" link
   finalizedAt?: Date | null;
+  // --- Patient360 v2 (cursor-paginated /360/timeline) — net-new fields ---
+  // Discriminated report state; diagnostics only (CLINIC → null). Decoded ONLY
+  // in mapReportStateToChip. Absent on the legacy /360 view.
+  reportState?: ReportState | null;
+  // True iff a FINALIZED report version carries an abnormal flag (boolean only,
+  // never values/test-names). Absent on the legacy /360 view.
+  hasAbnormalResults?: boolean;
+  // Rollup of the visit's testOrder workflow modes. CLINIC → null.
+  workflowMode?: VisitWorkflowMode | null;
+  // Latest REPORT-context delivery progression, or null when never sent.
+  delivery?: VisitDelivery | null;
+  // Nested discount object (mirrors the flat discount* fields above).
+  discount?: VisitDiscount;
 }
 
 // Complete Patient 360 view (backend-assembled)
@@ -575,6 +589,161 @@ export interface PatientSearchResult {
     createdAt: Date;
   }[];
   totalVisits: number;
+}
+
+// ============================================
+// PATIENT 360 v2 (§6 of 06-frontend-plan.md)
+// Shapes mirror the live backend in patientService.ts. The four endpoints are
+// GLOBAL (cross-branch) — no branchId scoping in responses or query keys.
+// ============================================
+
+// Backend `paymentStatus` on the timeline/bill can be REFUNDED too (the FE
+// PaymentStatus union is only PAID|PENDING and is kept for back-compat). This
+// widened alias is what the v2 financial/chip code reasons over.
+export type VisitPaymentStatus = PaymentStatus | "REFUNDED";
+
+// Discriminated report state (patientService.ts:605-611). Diagnostics only;
+// CLINIC visits → null. `version` is the MAX finalized versionNum.
+export type ReportState =
+  | { kind: "FINALIZED"; version: number }
+  | { kind: "PARTIALLY_FINALIZED"; finalized: number; total: number }
+  | { kind: "BILL_ONLY" }
+  | { kind: "EXTERNAL_UPLOAD_PENDING" }
+  | { kind: "RESULTS_PENDING" }
+  | null;
+
+// workflowMode rollup (patientService.ts:613). 'MIXED' when heterogeneous.
+export type VisitWorkflowMode =
+  | "REPORTABLE"
+  | "BILL_ONLY"
+  | "EXTERNAL_UPLOAD"
+  | "MIXED";
+
+// Latest REPORT-context MessageLog progression (patientService.ts:869-896).
+export interface VisitDelivery {
+  status: string; // PENDING | SENT | DELIVERED | READ | FAILED (raw MessageLog status)
+  sentAt: Date | string | null;
+  deliveredAt: Date | string | null;
+  readAt: Date | string | null;
+}
+
+// Nested discount object (patientService.ts:509-513 / mapBillFinancials).
+export interface VisitDiscount {
+  amount: number; // discountAmountInPaise
+  type: BillDiscountType | null;
+  reason: string | null;
+}
+
+// Glance aggregate (getPatient360Summary `glance`, patientService.ts:774-787).
+export interface Patient360Glance {
+  outstandingDueInPaise: number;
+  totalVisits: number;
+  totalVisitsIncludingCancelled: number;
+  lastVisit: {
+    visitId: string;
+    domain: VisitDomain;
+    branchName: string;
+    createdAt: Date | string;
+  } | null;
+  reportCounts: {
+    finalized: number;
+    notFinalized: number;
+    billOnly: number;
+  };
+}
+
+// Full /patients/:id/360/summary response (patientService.ts:756-791).
+export interface Patient360Summary {
+  patient: Patient;
+  glance: Patient360Glance;
+  branches: { id: string; name: string }[];
+}
+
+// Cursor-paginated /patients/:id/360/timeline page (patientService.ts:981-985).
+export interface Patient360TimelinePage {
+  items: VisitTimelineItem[];
+  pageInfo: {
+    nextCursor: string | null;
+    hasMore: boolean;
+    pageSize: number;
+  };
+  appliedFilters: {
+    domain: VisitDomain | null;
+    from: string | null;
+    to: string | null;
+    branchId: string | null;
+    unpaidOnly: boolean;
+    includeCancelled: boolean;
+  };
+}
+
+// /patients/by-bill/:billNumber response (resolveBillToVisit, patientService.ts:1009-1028).
+export interface BillLookupResult {
+  patient: {
+    id: string;
+    patientNumber: string;
+    name: string;
+    title?: Title | null;
+    ageDisplay?: string;
+    gender: Gender;
+    identifiers: PatientIdentifier[];
+  };
+  visit: {
+    visitId: string;
+    domain: VisitDomain;
+    branchName: string;
+    createdAt: Date | string;
+    billNumber: string | null;
+    totalAmountInPaise: number;
+    paymentStatus: VisitPaymentStatus | null;
+  };
+}
+
+// Smart-search detection (§5 / lib/smartSearch.ts).
+export type SearchKind = "phone" | "name" | "email" | "patientNumber" | "bill";
+
+export interface Detection {
+  kind: SearchKind;
+  // The query value normalized for the network call (e.g. digits-only phone).
+  // null when the raw input does not yet meet the per-kind min-length gate.
+  value: string | null;
+}
+
+// Client-side timeline filter state (mirrors the /360/timeline query params,
+// minus pageSize which is fixed/clamped server-side, and minus the cursor which
+// lives in the infinite-query pageParam, never in the key — §3.2).
+export interface TimelineFilters {
+  domain: VisitDomain | null;
+  from: string | null; // YYYY-MM-DD (date-only; backend normalizes to UTC)
+  to: string | null; // YYYY-MM-DD
+  branchId: string | null;
+  unpaidOnly: boolean;
+  includeCancelled: boolean;
+  pageSize?: number; // optional override; clamped 1–50 server-side, default 20
+}
+
+// localStorage recently-viewed entry (lib/recentPatients.ts).
+export interface RecentPatient {
+  patientId: string;
+  name: string;
+  patientNumber: string;
+  ageDisplay?: string;
+  gender?: Gender;
+  viewedAt: number; // epoch ms
+}
+
+// PATCH /patients/:id payload (updatePatient input, patientService.ts:1038-1056).
+export interface PatientEditPayload {
+  name?: string;
+  title?: Title;
+  age?: number;
+  ageUnit?: AgeUnit;
+  gender?: Gender;
+  address?: string;
+  phone?: string;
+  email?: string;
+  whatsappOptIn?: boolean;
+  changeReason?: string;
 }
 
 // ============================================

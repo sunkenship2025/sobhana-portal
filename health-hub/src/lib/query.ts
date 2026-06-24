@@ -22,6 +22,7 @@ import { apiRequest } from "@/lib/utils";
 import { API_BASE } from "@/lib/api";
 import { useBranchStore } from "@/store/branchStore";
 import { useAuthStore } from "@/store/authStore";
+import type { SearchKind, TimelineFilters } from "@/types";
 
 /** `apiRequest` + `X-Branch-Id`. `branchId` is required so the queryFn sends
  *  the same id that's in the queryKey (no `getState()` drift on branch switch). */
@@ -113,6 +114,15 @@ export const qk = {
   // --- global (no branchId in key) ---
   referralDoctors: () => ["referral-doctors"] as const,
   clinicDoctors: () => ["clinic-doctors"] as const,
+  // --- patient360 (global endpoints — NO branchId in key; resolution 1/§11) ---
+  // Cross-branch stale-leak is prevented by queryClient.clear() on branch switch.
+  patient360Summary: (patientId: string) =>
+    ["patient360", "summary", patientId] as const,
+  patient360Timeline: (patientId: string, filters: TimelineFilters) =>
+    ["patient360", "timeline", patientId, filters] as const,
+  patientSmartSearch: (type: SearchKind, q: string) =>
+    ["patientSearch", "smart", type, q] as const,
+  billLookup: (billNumber: string) => ["billLookup", billNumber] as const,
   // --- branch-scoped (branchId in key; flushed wholesale on branch switch) ---
   diagnosticCenters: (branchId: string | null) =>
     ["diagnostic-centers", branchId] as const,
