@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Patient360 Redesign — Low-Fi Wireframes</title>
+<style>
+  :root{
+    --ink:#2b2b2b; --line:#9a9a9a; --line2:#c7c7c7; --fill:#ededed; --fill2:#f6f6f6;
+    --muted:#7a7a7a; --accent:#444; --warn:#555;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#dcdcdc;color:var(--ink);
+    font-family:"Segoe UI",system-ui,sans-serif;font-size:13px;line-height:1.4;padding:32px 16px 80px}
+  h1.page{font-size:22px;margin:0 0 4px}
+  .sub{color:#555;margin:0 0 24px;max-width:780px}
+  .legend{background:#fff;border:1px solid var(--line2);border-radius:8px;padding:12px 16px;max-width:780px;margin:0 auto 28px;font-size:12px}
+  .legend b{font-size:13px}
+  .legend ul{margin:6px 0 0;padding-left:18px}
+  .frame-wrap{max-width:1120px;margin:0 auto 40px}
+  .frame-label{font-weight:700;font-size:14px;margin:0 0 2px}
+  .frame-note{color:#555;font-size:12px;margin:0 0 10px;max-width:900px}
+  .device{background:#fff;border:2px solid var(--line);border-radius:10px;overflow:hidden;
+    box-shadow:0 6px 18px rgba(0,0,0,.12)}
+  .device.mobile{max-width:380px}
+  /* wireframe primitives */
+  .bar{border-bottom:1px dashed var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .sticky{background:var(--fill);border-bottom:2px solid var(--line)}
+  .chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:14px;
+    padding:2px 9px;font-size:11px;background:#fff}
+  .chip.solid{background:var(--fill);font-weight:600}
+  .chip.due{border-style:solid;border-width:1.5px}
+  .pill{border:1px solid var(--line);border-radius:6px;padding:3px 8px;font-size:11px;background:#fff}
+  .btn{border:1.5px solid var(--accent);border-radius:6px;padding:4px 10px;font-size:11px;background:#fff;cursor:default;white-space:nowrap}
+  .btn.primary{background:var(--accent);color:#fff}
+  .btn.ghost{border-style:dashed}
+  .box{border:1px solid var(--line2);border-radius:6px;background:var(--fill2)}
+  .skel{background:linear-gradient(90deg,#e6e6e6,#f2f2f2,#e6e6e6);border-radius:5px;height:12px}
+  .muted{color:var(--muted)}
+  .mono{font-family:ui-monospace,Menlo,monospace}
+  .tag{font-size:9px;letter-spacing:.04em;text-transform:uppercase;background:#333;color:#fff;border-radius:3px;padding:1px 5px}
+  .tag.alt{background:#888}
+  .grow{flex:1}
+  .body{display:flex;min-height:430px}
+  .col-timeline{flex:1.35;border-right:2px solid var(--line);padding:0}
+  .col-inspector{flex:1;background:var(--fill2);padding:0}
+  .secthead{padding:9px 14px;border-bottom:1px dashed var(--line);font-weight:700;font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .filters{padding:8px 14px;border-bottom:1px dashed var(--line2);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .seg span{padding:3px 9px;font-size:11px;border-right:1px solid var(--line2)}
+  .seg span:last-child{border-right:0}
+  .seg span.on{background:var(--accent);color:#fff}
+  .monthhead{padding:5px 14px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:#666;background:#f0f0f0}
+  .visit{padding:10px 14px;border-bottom:1px dashed var(--line2);cursor:default}
+  .visit.sel{background:#e9e9e9;border-left:4px solid var(--accent)}
+  .visit.cancelled{opacity:.55}
+  .visit .top{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .visit .mid{margin:6px 0 4px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .visit .acts{display:flex;gap:6px;margin-top:7px;flex-wrap:wrap}
+  .strike{text-decoration:line-through}
+  .ann{border-left:3px solid #bbb;background:#fffef0;padding:6px 10px;margin:6px 14px;font-size:11px;color:#555}
+  .insp-sec{padding:11px 14px;border-bottom:1px dashed var(--line2)}
+  .kv{display:flex;justify-content:space-between;margin:3px 0}
+  .empty-insp{display:flex;align-items:center;justify-content:center;height:100%;color:#999;text-align:center;padding:24px}
+  .glance{display:flex;gap:0;border-bottom:2px solid var(--line)}
+  .glance .g{flex:1;padding:9px 14px;border-right:1px dashed var(--line2)}
+  .glance .g:last-child{border-right:0;flex:0 0 auto;display:flex;align-items:center}
+  .glance .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#777}
+  .glance .val{font-size:16px;font-weight:700;margin-top:2px}
+  .skelrow{padding:12px 14px;border-bottom:1px dashed var(--line2)}
+  .err{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:320px;text-align:center;gap:10px;padding:30px}
+  .err .icon{width:46px;height:46px;border:2px solid var(--line);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;color:#777}
+  .twocol-err{display:flex;gap:20px;flex-wrap:wrap}
+  .twocol-err .device{flex:1;min-width:300px}
+  .sheet{border-top:2px solid var(--line);background:var(--fill2)}
+  .row-state{display:flex;gap:14px;flex-wrap:wrap}
+  .row-state .device{flex:1;min-width:300px}
+  .dot{width:7px;height:7px;border-radius:50%;background:#666;display:inline-block}
+  details.notes{max-width:1120px;margin:0 auto 40px;background:#fff;border:1px solid var(--line2);border-radius:8px;padding:10px 16px}
+  details.notes summary{font-weight:700;cursor:pointer}
+  code{background:#eee;padding:1px 4px;border-radius:3px;font-size:11px}
+</style>
+</head>
+<body>
+
+<div style="max-width:1120px;margin:0 auto 8px">
+  <h1 class="page">Patient360 — Low-Fi Wireframes</h1>
+  <p class="sub">Greyscale layout sketches for owner review <b>before any frontend code</b>. Placeholder data only.
+  Reflects the locked scope decisions (see <code>04-decisions.md</code>). Color, spacing, and exact components are NOT final — this is about layout, information priority, and which controls live where.</p>
+</div>
+
+<div class="legend">
+  <b>Decisions baked into these frames</b>
+  <ul>
+    <li><b>Read-only for money</b> (Q2): "Collect payment" is a deep-link out to billing, not inline.</li>
+    <li><b>Due number</b> (Q3/Q11): calculated live; excludes cancelled visits, refunded &amp; failed payments.</li>
+    <li><b>Results</b> (Q4): timeline shows a generic <i>"⚠ Abnormal results"</i> badge only — no values/test names (open the report PDF for specifics).</li>
+    <li><b>No duplicate hint</b> (Q5), <b>no deceased banner</b> (Q10), <b>no WhatsApp opt-in gate</b> (Q7) — but the destination number is shown before sending.</li>
+    <li><b>Delivery status</b> (Q8): Sent → Delivered → Read shown per report (real, from MessageLog webhook).</li>
+    <li><b>Doctors</b> (Q1): no access — staff/owner only (not depicted).</li>
+    <li>Cancelled visits: greyed + struck, behind a "Show cancelled" toggle, excluded from dues.</li>
+  </ul>
+</div>
+
+<!-- ============ FRAME 1: DESKTOP DEFAULT ============ -->
+<div class="frame-wrap">
+  <p class="frame-label">1 · Desktop — default (no visit selected)</p>
+  <p class="frame-note">Sticky identity header → at-a-glance strip (Due is the headline number) → filterable timeline as the primary object → inspector waiting on the right.</p>
+  <div class="device">
+    <!-- sticky header -->
+    <div class="bar sticky">
+      <span class="btn ghost">← Back</span>
+      <b style="font-size:15px">RAMESH KUMAR</b>
+      <span class="chip">MR · 54Y · M</span>
+      <span class="chip mono">P-01432</span>
+      <span class="chip">📞 98xxx-xx210</span>
+      <span class="chip">✓ WhatsApp</span>
+      <span class="muted">· 2 branches</span>
+      <span class="grow"></span>
+      <span class="btn">✎ Edit</span>
+    </div>
+    <!-- glance strip -->
+    <div class="glance">
+      <div class="g"><div class="lbl">Last visit</div><div class="val">12 Jun · Diagnostics</div></div>
+      <div class="g"><div class="lbl">Outstanding due</div><div class="val">₹1,250 ▲</div></div>
+      <div class="g"><div class="lbl">Reports</div><div class="val">3 ✓ · 1 pending</div></div>
+      <div class="g"><span class="btn primary">+ New Visit ▾</span></div>
+    </div>
+    <div class="body">
+      <!-- timeline -->
+      <div class="col-timeline">
+        <div class="secthead">VISIT TIMELINE <span class="muted" style="font-weight:400">(24 active)</span></div>
+        <div class="filters">
+          <div class="seg"><span class="on">All</span><span>Diagnostics</span><span>Clinic</span></div>
+          <span class="pill">Date ▾</span><span class="pill">Branch ▾</span>
+          <span class="pill">☐ Unpaid only</span><span class="pill">☐ Show cancelled</span>
+        </div>
+        <div class="monthhead">June 2026</div>
+        <div class="visit">
+          <div class="top"><span class="tag">DIAG</span><b>12 Jun</b><span class="muted mono">MPR · #2231</span><span class="grow"></span><span class="chip solid">🟢 PAID</span></div>
+          <div class="mid"><span class="chip">✅ Finalized v1</span><span class="chip">⚠ Abnormal results</span><b>₹2,400</b></div>
+          <div class="acts"><span class="btn">View Report</span><span class="btn ghost">Reprint Bill</span><span class="btn ghost">WhatsApp</span><span class="btn ghost">Inspect ▸</span></div>
+        </div>
+        <div class="visit">
+          <div class="top"><span class="tag alt">CLINIC·OP</span><b>09 Jun</b><span class="muted mono">#2180-R</span><span class="chip">🔁 Revisit</span><span class="grow"></span><span class="chip solid due">🟡 DUE ₹500</span></div>
+          <div class="mid"><span class="muted">Dr. Mehta</span><b>₹500</b></div>
+          <div class="ann" style="margin:6px 0">↳ Original visit #2180 · 02 Jun · <u>open ▸</u></div>
+          <div class="acts"><span class="btn ghost">Reprint Bill</span><span class="btn ghost">Inspect ▸</span></div>
+        </div>
+        <div class="monthhead">May 2026</div>
+        <div class="visit">
+          <div class="top"><span class="tag">DIAG</span><b>28 May</b><span class="muted mono">MPR · #2009</span><span class="grow"></span><span class="chip solid">🟢 PAID</span></div>
+          <div class="mid"><span class="chip">✅ Finalized v1</span><b>₹800</b></div>
+          <div class="acts"><span class="btn">View Report</span><span class="btn ghost">Reprint Bill</span><span class="btn ghost">Inspect ▸</span></div>
+        </div>
+        <div style="padding:12px 14px;text-align:center"><span class="btn ghost">↓ Load older visits</span></div>
+      </div>
+      <!-- inspector -->
+      <div class="col-inspector">
+        <div class="secthead">INSPECTOR</div>
+        <div class="empty-insp">Select a visit to see details,<br>billing breakdown &amp; report actions →<br><span style="font-size:11px">(opens here, inline)</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ FRAME 2: DESKTOP — VISIT SELECTED ============ -->
+<div class="frame-wrap">
+  <p class="frame-label">2 · Desktop — visit selected (inspector open, finalized diagnostic)</p>
+  <p class="frame-note">One unified inspector replaces today's separate drawer + full-screen modal. Financial breakdown (Paid/Due — backend-dep), report actions with real delivery status, and the read-only "Collect payment" deep-link.</p>
+  <div class="device">
+    <div class="bar sticky">
+      <span class="btn ghost">← Back</span><b style="font-size:15px">RAMESH KUMAR</b>
+      <span class="chip">MR · 54Y · M</span><span class="chip mono">P-01432</span>
+      <span class="chip">📞 98xxx-xx210</span><span class="chip">✓ WhatsApp</span>
+      <span class="grow"></span><span class="btn">✎ Edit</span>
+    </div>
+    <div class="glance">
+      <div class="g"><div class="lbl">Last visit</div><div class="val">12 Jun · Diagnostics</div></div>
+      <div class="g"><div class="lbl">Outstanding due</div><div class="val">₹1,250 ▲</div></div>
+      <div class="g"><div class="lbl">Reports</div><div class="val">3 ✓ · 1 pending</div></div>
+      <div class="g"><span class="btn primary">+ New Visit ▾</span></div>
+    </div>
+    <div class="body">
+      <div class="col-timeline">
+        <div class="secthead">VISIT TIMELINE <span class="muted" style="font-weight:400">(24 active)</span></div>
+        <div class="filters">
+          <div class="seg"><span class="on">All</span><span>Diagnostics</span><span>Clinic</span></div>
+          <span class="pill">Date ▾</span><span class="pill">Branch ▾</span><span class="pill">☐ Unpaid only</span>
+        </div>
+        <div class="monthhead">June 2026</div>
+        <div class="visit sel">
+          <div class="top"><span class="tag">DIAG</span><b>12 Jun</b><span class="muted mono">MPR · #2231</span><span class="grow"></span><span class="chip solid">🟢 PAID</span></div>
+          <div class="mid"><span class="chip">✅ Finalized v1</span><span class="chip">⚠ Abnormal results</span><b>₹2,400</b></div>
+        </div>
+        <div class="visit">
+          <div class="top"><span class="tag alt">CLINIC·OP</span><b>09 Jun</b><span class="chip">🔁 Revisit</span><span class="grow"></span><span class="chip solid due">🟡 DUE ₹500</span></div>
+          <div class="mid"><span class="muted">Dr. Mehta · ₹500</span></div>
+        </div>
+        <div class="monthhead">May 2026</div>
+        <div class="visit">
+          <div class="top"><span class="tag">DIAG</span><b>28 May</b><span class="muted mono">#2009</span><span class="grow"></span><span class="chip solid">🟢 PAID</span></div>
+          <div class="mid"><span class="chip">✅ Finalized v1</span><b>₹800</b></div>
+        </div>
+      </div>
+      <div class="col-inspector">
+        <div class="secthead">INSPECTOR — 12 Jun · Diagnostics <span class="grow"></span><span class="btn ghost">✕</span></div>
+        <div class="insp-sec">
+          <div style="font-weight:700;margin-bottom:4px">Bill #MPR-2231 <span class="muted mono">· visit ref V-8841</span></div>
+          <div class="kv"><span class="muted">Total</span><b>₹2,400</b></div>
+          <div class="kv"><span class="muted">Discount (festival)</span><span>−₹200</span></div>
+          <div class="kv"><span class="muted">Paid</span><b>₹2,200</b> <span class="chip solid">🟢 PAID</span></div>
+          <div class="kv"><span class="muted">Method</span><span>ONLINE · ref TXN-55120</span></div>
+          <div class="muted" style="font-size:10px;margin-top:4px">Paid/Due/method ← backend-dep (not in API today)</div>
+        </div>
+        <div class="insp-sec">
+          <div style="font-weight:700;margin-bottom:6px">Report ✅ Finalized v1 · ⚠ has abnormal results</div>
+          <div class="acts" style="display:flex;gap:6px;flex-wrap:wrap">
+            <span class="btn">View</span><span class="btn ghost">Print</span><span class="btn ghost">WhatsApp → 98xxx-xx210</span>
+          </div>
+          <div style="margin-top:8px;font-size:11px"><span class="dot"></span> Sent ✓ · Delivered ✓ · Read 12 Jun 4:20pm
+            <div class="muted" style="font-size:10px">(live status from MessageLog webhook)</div></div>
+        </div>
+        <div class="insp-sec">
+          <span class="btn ghost">🖨 Print Bill</span>
+          <span class="btn">→ Collect payment</span>
+          <div class="muted" style="font-size:10px;margin-top:4px">"Collect payment" opens the billing screen — 360 stays read-only for money</div>
+        </div>
+        <div class="insp-sec" style="border-bottom:0">
+          <div class="muted" style="font-size:11px">PDF preview renders inline here when "View" is tapped. ESC / ✕ / backdrop close it. (Full-screen on mobile.)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ FRAME 3: filtered + cancelled visible ============ -->
+<div class="frame-wrap">
+  <p class="frame-label">3 · Desktop — "Unpaid only" + "Show cancelled" toggled</p>
+  <p class="frame-note">Filters narrow the timeline. Cancelled visit appears greyed/struck and is explicitly excluded from the due number.</p>
+  <div class="device">
+    <div class="bar sticky">
+      <b style="font-size:15px">RAMESH KUMAR</b><span class="chip">MR · 54Y · M</span><span class="chip mono">P-01432</span>
+      <span class="grow"></span><span class="btn">✎ Edit</span>
+    </div>
+    <div class="glance">
+      <div class="g"><div class="lbl">Last visit</div><div class="val">12 Jun · Diagnostics</div></div>
+      <div class="g"><div class="lbl">Outstanding due</div><div class="val">₹1,250 ▲</div></div>
+      <div class="g"><div class="lbl">Reports</div><div class="val">3 ✓ · 1 pending</div></div>
+      <div class="g"><span class="btn primary">+ New Visit ▾</span></div>
+    </div>
+    <div class="body">
+      <div class="col-timeline" style="flex:1">
+        <div class="secthead">VISIT TIMELINE <span class="muted" style="font-weight:400">(2 shown · filtered)</span></div>
+        <div class="filters">
+          <div class="seg"><span class="on">All</span><span>Diagnostics</span><span>Clinic</span></div>
+          <span class="pill" style="background:var(--accent);color:#fff">☑ Unpaid only</span>
+          <span class="pill" style="background:var(--accent);color:#fff">☑ Show cancelled</span>
+        </div>
+        <div class="monthhead">June 2026</div>
+        <div class="visit">
+          <div class="top"><span class="tag alt">CLINIC·OP</span><b>09 Jun</b><span class="chip">🔁 Revisit</span><span class="grow"></span><span class="chip solid due">🟡 DUE ₹500</span></div>
+          <div class="mid"><span class="muted">Dr. Mehta · ₹500</span></div>
+          <div class="acts"><span class="btn">→ Collect payment</span><span class="btn ghost">Reprint Bill</span></div>
+        </div>
+        <div class="visit cancelled">
+          <div class="top"><span class="tag alt">DIAG</span><b class="strike">05 Jun</b><span class="muted mono strike">#2150</span><span class="grow"></span><span class="chip">⨯ Cancelled</span></div>
+          <div class="mid"><span class="muted strike">₹500</span><span class="muted">— excluded from dues</span></div>
+        </div>
+        <div class="visit">
+          <div class="top"><span class="tag">DIAG</span><b>03 Jun</b><span class="muted mono">#2098</span><span class="grow"></span><span class="chip solid due">🟡 DUE ₹750</span></div>
+          <div class="mid"><span class="chip">✅ Finalized v1</span><b>₹750</b></div>
+          <div class="acts"><span class="btn">→ Collect payment</span><span class="btn ghost">View Report</span></div>
+        </div>
+      </div>
+      <div class="col-inspector"><div class="secthead">INSPECTOR</div><div class="empty-insp">Select a visit →</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ FRAME 4: loading + error states ============ -->
+<div class="frame-wrap">
+  <p class="frame-label">4 · States — loading skeleton, and the two distinct error paths</p>
+  <p class="frame-note">Skeleton instead of a bare spinner. Crucially, a network/server failure is NO LONGER shown as "Patient not found" — it gets a Retry. A genuine 404 is its own state.</p>
+  <div class="twocol-err">
+    <div class="device">
+      <div class="bar sticky"><div class="skel" style="width:120px;height:16px"></div><span class="grow"></span><div class="skel" style="width:50px"></div></div>
+      <div class="glance">
+        <div class="g"><div class="skel" style="width:60px"></div><div class="skel" style="width:90px;height:16px;margin-top:6px"></div></div>
+        <div class="g"><div class="skel" style="width:60px"></div><div class="skel" style="width:70px;height:16px;margin-top:6px"></div></div>
+        <div class="g"><div class="skel" style="width:60px"></div><div class="skel" style="width:80px;height:16px;margin-top:6px"></div></div>
+      </div>
+      <div class="skelrow"><div class="skel" style="width:75%"></div><div class="skel" style="width:55%;margin-top:8px"></div></div>
+      <div class="skelrow"><div class="skel" style="width:65%"></div><div class="skel" style="width:45%;margin-top:8px"></div></div>
+      <div class="skelrow"><div class="skel" style="width:70%"></div><div class="skel" style="width:50%;margin-top:8px"></div></div>
+      <p class="frame-note" style="padding:8px 14px;margin:0">⟳ Loading skeleton</p>
+    </div>
+    <div class="device">
+      <div class="err">
+        <div class="icon">⚠</div>
+        <b>Couldn't load this patient</b>
+        <span class="muted">Network or server error — your connection may have dropped.</span>
+        <span class="btn primary">⟳ Retry</span>
+        <span class="muted" style="font-size:11px">(distinct from a real 404)</span>
+      </div>
+    </div>
+    <div class="device">
+      <div class="err">
+        <div class="icon">👤</div>
+        <b>Patient not found</b>
+        <span class="muted">This record doesn't exist or the link is invalid.</span>
+        <span class="btn">← Back to Search</span>
+        <span class="muted" style="font-size:11px">(genuine 404 only)</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ FRAME 5: mobile ============ -->
+<div class="frame-wrap">
+  <p class="frame-label">5 · Mobile / tablet — default &amp; inspector bottom-sheet</p>
+  <p class="frame-note">Header collapses, glance wraps with <b>Due first</b>, timeline is full-width, filters move into a sheet. Inspector is a bottom sheet; PDF preview goes full-screen within the same flow (no separate modal).</p>
+  <div class="row-state">
+    <div class="device mobile">
+      <div class="bar sticky"><b>RAMESH KUMAR</b><span class="grow"></span><span class="btn ghost">⋮</span></div>
+      <div class="bar" style="gap:6px"><span class="chip">54Y · M</span><span class="chip mono">P-01432</span><span class="chip">📞 98xxx-xx210</span></div>
+      <div style="display:flex;flex-wrap:wrap;border-bottom:2px solid var(--line)">
+        <div class="g" style="flex:1 0 50%;padding:8px 14px;border-right:1px dashed var(--line2)"><div class="lbl" style="font-size:10px;text-transform:uppercase;color:#777">Due</div><div style="font-size:16px;font-weight:700">₹1,250 ▲</div></div>
+        <div class="g" style="flex:1 0 50%;padding:8px 14px"><div class="lbl" style="font-size:10px;text-transform:uppercase;color:#777">Last</div><div style="font-size:13px;font-weight:600;margin-top:3px">12 Jun · Diag</div></div>
+        <div style="flex:1 0 100%;padding:8px 14px;border-top:1px dashed var(--line2);display:flex;gap:8px">
+          <span class="chip">Reports 3✓ 1⏳</span><span class="grow"></span><span class="btn primary">+ New ▾</span></div>
+      </div>
+      <div class="filters"><div class="seg"><span class="on">All</span><span>Diag</span><span>Clinic</span></div><span class="pill">⚙ Filters</span></div>
+      <div class="monthhead">June 2026</div>
+      <div class="visit">
+        <div class="top"><span class="tag">DIAG</span><b>12 Jun</b><span class="grow"></span><span class="chip solid">🟢 PAID</span></div>
+        <div class="mid"><span class="chip">✅ Final v1</span><span class="chip">⚠ Abnormal</span><b>₹2,400</b></div>
+        <div class="acts"><span class="btn">View Report</span><span class="btn ghost">⋯</span></div>
+      </div>
+      <div class="visit">
+        <div class="top"><span class="tag alt">CLINIC</span><b>09 Jun</b><span class="chip">🔁</span><span class="grow"></span><span class="chip solid due">🟡 DUE ₹500</span></div>
+        <div class="mid"><span class="muted">Dr. Mehta · ₹500</span></div>
+      </div>
+    </div>
+    <div class="device mobile">
+      <div class="bar sticky" style="opacity:.5"><b>RAMESH KUMAR</b><span class="grow"></span><span class="btn ghost">⋮</span></div>
+      <div style="opacity:.4;padding:18px 14px;text-align:center;color:#888">· timeline behind ·</div>
+      <div class="sheet">
+        <div class="secthead">12 Jun · Diagnostics <span class="grow"></span><span class="btn ghost">✕</span></div>
+        <div class="insp-sec">
+          <div style="font-weight:700">Bill #MPR-2231</div>
+          <div class="kv"><span class="muted">Total</span><b>₹2,400</b></div>
+          <div class="kv"><span class="muted">Paid</span><b>₹2,200</b><span class="chip solid">🟢 PAID</span></div>
+        </div>
+        <div class="insp-sec">
+          <div style="font-weight:700;margin-bottom:6px">Report ✅ Finalized v1</div>
+          <div class="acts"><span class="btn">View</span><span class="btn ghost">Print</span><span class="btn ghost">WhatsApp</span></div>
+          <div style="margin-top:6px;font-size:11px"><span class="dot"></span> Delivered ✓ · Read</div>
+        </div>
+        <div class="insp-sec" style="border-bottom:0"><span class="btn ghost">🖨 Print Bill</span> <span class="btn">→ Collect payment</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<details class="notes">
+  <summary>Annotations &amp; what's intentionally NOT here</summary>
+  <ul>
+    <li><b>"+ New Visit ▾"</b> offers only enabled modules (Axora). Diagnostics-only tenant → Diagnostics only; clinic fields self-hide.</li>
+    <li><b>Status chips</b> are shown with emoji here purely as low-fi stand-ins; final = text+icon chips (WCAG-safe, no color-only meaning).</li>
+    <li><b>Report state</b> can be: Finalized v{n}, Partially finalized (X of Y), Bill-only, External-upload pending, Results pending. (backend-dep)</li>
+    <li><b>Abnormal badge</b> is generic only — no test names or values anywhere on this screen (Q4). Specifics live in the report PDF.</li>
+    <li><b>Not shown by decision:</b> duplicate/merge hint (Q5), deceased banner (Q10), WhatsApp opt-in gate (Q7), doctor access (Q1), inline payment (Q2), result trend charts (deferred).</li>
+    <li><b>Backend-dep markers</b> flag data the current API doesn't return yet — these gate the "backend-first" work: Paid/Due/discount/method, abnormal flag, delivery status, partial-report state, cursor pagination.</li>
+  </ul>
+</details>
+
+</body>
+</html>

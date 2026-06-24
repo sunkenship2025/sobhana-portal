@@ -522,6 +522,7 @@ model Visit {
   @@index([domain])
   @@index([status])
   @@index([createdAt])
+  @@index([patientId, createdAt])
 }
 
 /// Referral: Explicit doctor access control

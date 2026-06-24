@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Patient360 Search (Entry Page) — Low-Fi Wireframes</title>
+<style>
+  :root{--ink:#2b2b2b;--line:#9a9a9a;--line2:#c7c7c7;--fill:#ededed;--fill2:#f6f6f6;--muted:#7a7a7a;--accent:#444}
+  *{box-sizing:border-box}
+  body{margin:0;background:#dcdcdc;color:var(--ink);font-family:"Segoe UI",system-ui,sans-serif;font-size:13px;line-height:1.4;padding:32px 16px 80px}
+  h1.page{font-size:22px;margin:0 0 4px}
+  .sub{color:#555;margin:0 0 22px;max-width:820px}
+  .legend{background:#fff;border:1px solid var(--line2);border-radius:8px;padding:12px 16px;max-width:820px;margin:0 auto 28px;font-size:12px}
+  .legend ul{margin:6px 0 0;padding-left:18px}
+  .frame-wrap{max-width:1040px;margin:0 auto 40px}
+  .frame-label{font-weight:700;font-size:14px;margin:0 0 2px}
+  .frame-note{color:#555;font-size:12px;margin:0 0 10px;max-width:920px}
+  .device{background:#fff;border:2px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,.12)}
+  .device.mobile{max-width:380px}
+  .topbar{background:var(--fill);border-bottom:2px solid var(--line);padding:8px 14px;display:flex;align-items:center;gap:10px}
+  .topbar .crumbs{color:#666;font-size:12px}
+  .grow{flex:1}
+  .content{padding:22px 26px}
+  .h2{font-size:18px;font-weight:700;margin:0}
+  .lead{color:#666;margin:2px 0 18px}
+  /* smart search */
+  .searchbar{display:flex;align-items:center;border:2px solid var(--accent);border-radius:9px;background:#fff;padding:0 6px 0 14px;max-width:680px}
+  .searchbar .mag{font-size:16px;color:#666;margin-right:8px}
+  .searchbar input,.searchbar .fake{flex:1;border:0;font-size:15px;padding:13px 0;background:transparent;outline:none;color:#333}
+  .searchbar .fake.ph{color:#9a9a9a}
+  .searchbar .btn{margin:6px}
+  .btn{border:1.5px solid var(--accent);border-radius:6px;padding:7px 14px;font-size:12px;background:#fff;cursor:default;white-space:nowrap}
+  .btn.primary{background:var(--accent);color:#fff}
+  .btn.ghost{border-style:dashed}
+  .btn.sm{padding:4px 10px;font-size:11px}
+  .detect{margin:8px 2px 0;font-size:12px;color:#555;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .detbadge{border:1px solid var(--accent);border-radius:5px;padding:2px 8px;font-size:11px;background:var(--fill);font-weight:600}
+  .accepts{margin:14px 2px 0;font-size:11px;color:#888;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .ex{border:1px dashed var(--line);border-radius:12px;padding:2px 9px;background:#fafafa;font-family:ui-monospace,Menlo,monospace}
+  .override{margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .ovpill{border:1px solid var(--line);border-radius:14px;padding:2px 10px;font-size:11px;background:#fff}
+  .ovpill.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  /* results */
+  .reshead{margin:20px 2px 10px;font-size:12px;color:#666;border-bottom:1px dashed var(--line2);padding-bottom:6px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .pcard{border:1px solid var(--line2);border-radius:8px;padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;gap:14px;max-width:680px}
+  .pcard:hover{background:var(--fill2)}
+  .avatar{width:38px;height:38px;border-radius:50%;border:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;color:#888;flex:0 0 auto;font-size:13px}
+  .pcard .main{flex:1;min-width:0}
+  .pcard .nm{font-weight:700;font-size:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .pcard .meta{color:#666;font-size:12px;margin-top:2px}
+  .chip{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:12px;padding:1px 8px;font-size:11px;background:#fff}
+  .mono{font-family:ui-monospace,Menlo,monospace}
+  .muted{color:var(--muted)}
+  .resolve{border:1px solid var(--accent);border-left:4px solid var(--accent);border-radius:7px;background:var(--fill2);padding:12px 14px;max-width:680px;margin-bottom:10px}
+  .empty{border:1px dashed var(--line);border-radius:8px;padding:26px;text-align:center;max-width:680px;color:#777}
+  .recent{margin-top:8px;max-width:680px}
+  .recent .lbl{font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:#888;margin:18px 2px 8px}
+  .rrow{display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px dashed var(--line2);font-size:13px}
+  details.notes{max-width:1040px;margin:0 auto 40px;background:#fff;border:1px solid var(--line2);border-radius:8px;padding:10px 16px}
+  details.notes summary{font-weight:700;cursor:pointer}
+  code{background:#eee;padding:1px 4px;border-radius:3px;font-size:11px}
+  .dep{color:#a05a00;font-size:10px;border:1px solid #d9b38c;background:#fff7ec;border-radius:4px;padding:0 5px}
+</style>
+</head>
+<body>
+
+<div style="max-width:1040px;margin:0 auto 8px">
+  <h1 class="page">Patient360 — Search / Entry Page</h1>
+  <p class="sub">Replacing the two-button "Search by Phone / Search by Name" toggle with <b>one smart search bar</b> that accepts phone, name, patient ID, or bill number and routes accordingly. Greyscale, placeholder data, for review before code.</p>
+</div>
+
+<div class="legend">
+  <b>The core idea</b>
+  <ul>
+    <li><b>One input, no mode toggle.</b> Type anything; the system detects the type and shows a small "Detected: …" label you can override.</li>
+    <li><b>Phone</b> → all matching patients (handles family members sharing a number). <b>Name</b> → matching patients. <b>Patient ID</b> (e.g. <code>P-01432</code>) → that patient. <b>Bill no.</b> (e.g. <code>MPR-2231</code>) → resolves to the patient + jumps to that visit.</li>
+    <li><b>No match</b> → a clear "Register new patient" path (walk-in), instead of a dead end.</li>
+    <li><span class="dep">backend-dep</span> Today the API searches phone / name / email only. Patient-ID and Bill-no. lookups need a small backend add.</li>
+  </ul>
+</div>
+
+<!-- ===== FRAME 1: default empty ===== -->
+<div class="frame-wrap">
+  <p class="frame-label">1 · Default (empty) — one bar + accepted inputs + recent patients</p>
+  <p class="frame-note">No black/grey toggle buttons. The placeholder itself teaches what's accepted. "Recently viewed" gives the front desk a 1-tap path back to the patient they just had.</p>
+  <div class="device">
+    <div class="topbar"><b>SOBHANA</b><span class="crumbs">· Operations › Patient 360</span><span class="grow"></span><span class="btn sm">🏢 Sobhana — Chintal ▾</span></div>
+    <div class="content">
+      <p class="h2">Patient 360</p>
+      <p class="lead">Search any patient across all Sobhana branches</p>
+      <div class="searchbar">
+        <span class="mag">🔍</span>
+        <span class="fake ph">Search by phone, name, patient ID, or bill number…</span>
+        <span class="btn primary">Search</span>
+      </div>
+      <div class="accepts">Accepts:
+        <span class="ex">98xxxxxxxx</span><span class="ex">Ramesh Kumar</span><span class="ex">P-01432</span><span class="ex">MPR-2231</span>
+      </div>
+      <div class="recent">
+        <div class="lbl">Recently viewed</div>
+        <div class="rrow"><span class="avatar">RK</span><b>Ramesh Kumar</b><span class="muted">54Y · M ·</span><span class="mono muted">P-01432</span><span class="grow"></span><span class="muted">12 Jun</span><span class="btn ghost sm">Open</span></div>
+        <div class="rrow"><span class="avatar">SD</span><b>Sita Devi</b><span class="muted">31Y · F ·</span><span class="mono muted">P-00987</span><span class="grow"></span><span class="muted">12 Jun</span><span class="btn ghost sm">Open</span></div>
+        <div class="rrow"><span class="avatar">AK</span><b>Aarav Kumar</b><span class="muted">4Y · M ·</span><span class="mono muted">P-01588</span><span class="grow"></span><span class="muted">11 Jun</span><span class="btn ghost sm">Open</span></div>
+        <div class="muted" style="font-size:10px;margin-top:4px">↑ Recently-viewed is a front-desk speed add (local, optional)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== FRAME 2: phone typed, multiple matches (shared phone) ===== -->
+<div class="frame-wrap">
+  <p class="frame-label">2 · Phone typed → multiple matches (shared-phone family)</p>
+  <p class="frame-note">Detection shows "phone number". Because families share a number, ALL matches are listed with enough to pick the right person (name + age + gender + last visit). This is the wrong-patient safeguard, handled at the entry point.</p>
+  <div class="device">
+    <div class="topbar"><b>SOBHANA</b><span class="crumbs">· Operations › Patient 360</span><span class="grow"></span><span class="btn sm">🏢 Sobhana — Chintal ▾</span></div>
+    <div class="content">
+      <p class="h2">Patient 360</p>
+      <div class="searchbar">
+        <span class="mag">🔍</span>
+        <span class="fake mono">98xxx-xx210</span>
+        <span class="btn primary">Search</span>
+      </div>
+      <div class="detect">Detected: <span class="detbadge">📞 Phone number</span>
+        <span class="muted">Not right?</span>
+        <div class="override">
+          <span class="ovpill">Name</span><span class="ovpill">Patient ID</span><span class="ovpill">Bill no.</span>
+        </div>
+      </div>
+      <div class="reshead"><b style="color:#333">3 patients on this number</b><span>· all branches · read-only</span></div>
+      <div class="pcard"><span class="avatar">RK</span><div class="main"><div class="nm">Ramesh Kumar <span class="chip">54Y · M</span> <span class="mono muted">P-01432</span></div><div class="meta">Last: 12 Jun · Diagnostics · MPR · 24 visits</div></div><span class="btn">Open ▸</span></div>
+      <div class="pcard"><span class="avatar">SD</span><div class="main"><div class="nm">Sita Devi <span class="chip">31Y · F</span> <span class="mono muted">P-00987</span></div><div class="meta">Last: 12 Jun · Clinic OP · KPY · 6 visits</div></div><span class="btn">Open ▸</span></div>
+      <div class="pcard"><span class="avatar">AK</span><div class="main"><div class="nm">Aarav Kumar <span class="chip">4Y · M</span> <span class="mono muted">P-01588</span></div><div class="meta">Last: 11 Jun · Diagnostics · MPR · 2 visits</div></div><span class="btn">Open ▸</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== FRAME 3: bill number resolves to a visit ===== -->
+<div class="frame-wrap">
+  <p class="frame-label">3 · Bill number typed → resolves to the patient + that visit</p>
+  <p class="frame-note">A bill number isn't a patient — it's one visit. So instead of a generic patient card, it resolves the owner and offers to jump straight to that visit inside Patient 360. <span class="dep">backend-dep</span></p>
+  <div class="device">
+    <div class="topbar"><b>SOBHANA</b><span class="crumbs">· Operations › Patient 360</span><span class="grow"></span><span class="btn sm">🏢 Sobhana — Chintal ▾</span></div>
+    <div class="content">
+      <p class="h2">Patient 360</p>
+      <div class="searchbar"><span class="mag">🔍</span><span class="fake mono">MPR-2231</span><span class="btn primary">Search</span></div>
+      <div class="detect">Detected: <span class="detbadge">🧾 Bill number</span><span class="muted">Not right? </span>
+        <div class="override"><span class="ovpill">Phone</span><span class="ovpill">Name</span><span class="ovpill">Patient ID</span></div></div>
+      <div class="reshead"><b style="color:#333">Bill MPR-2231</b><span>· 12 Jun 2026 · Diagnostics · ₹2,400 · 🟢 PAID</span></div>
+      <div class="resolve">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="avatar">RK</span>
+          <div class="main"><div class="nm">Ramesh Kumar <span class="chip">54Y · M</span> <span class="mono muted">P-01432</span></div>
+            <div class="meta">Belongs to this patient · MPR branch</div></div>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          <span class="btn primary">Open visit in Patient 360 ▸</span>
+          <span class="btn ghost">Open full patient record</span>
+          <span class="btn ghost">Reprint bill</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== FRAME 4: no match → register ===== -->
+<div class="frame-wrap">
+  <p class="frame-label">4 · No match → register-new path (walk-in)</p>
+  <p class="frame-note">A walk-in with no record shouldn't hit a dead end. The empty state offers the next action: register them (carrying over what was typed).</p>
+  <div class="device">
+    <div class="topbar"><b>SOBHANA</b><span class="crumbs">· Operations › Patient 360</span><span class="grow"></span><span class="btn sm">🏢 Sobhana — Chintal ▾</span></div>
+    <div class="content">
+      <p class="h2">Patient 360</p>
+      <div class="searchbar"><span class="mag">🔍</span><span class="fake mono">98xxx-99999</span><span class="btn primary">Search</span></div>
+      <div class="detect">Detected: <span class="detbadge">📞 Phone number</span></div>
+      <div class="reshead"><b style="color:#333">No patients found</b><span>· searched all branches</span></div>
+      <div class="empty">
+        <div style="font-size:30px">🔍</div>
+        <p>No patient matches <span class="mono">98xxx-99999</span>.</p>
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:6px">
+          <span class="btn primary">+ Register new patient</span>
+          <span class="btn ghost">Try a different search</span>
+        </div>
+        <div class="muted" style="font-size:11px;margin-top:8px">"Register" pre-fills the phone you typed.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== FRAME 5: name + patient-id, and mobile ===== -->
+<div class="frame-wrap">
+  <p class="frame-label">5 · Name search (list) &amp; Patient-ID (direct) · + mobile</p>
+  <p class="frame-note">Name → a normal match list (same card). Patient ID → usually a single exact patient (skip the list, but still confirm identity). Mobile keeps the single bar full-width.</p>
+  <div style="display:flex;gap:16px;flex-wrap:wrap">
+    <div class="device" style="flex:1;min-width:340px">
+      <div class="topbar"><b>SOBHANA</b><span class="crumbs">· Patient 360</span></div>
+      <div class="content">
+        <div class="searchbar"><span class="mag">🔍</span><span class="fake">ramesh</span><span class="btn primary">Search</span></div>
+        <div class="detect">Detected: <span class="detbadge">👤 Name</span></div>
+        <div class="reshead"><b style="color:#333">2 patients</b><span>· all branches</span></div>
+        <div class="pcard"><span class="avatar">RK</span><div class="main"><div class="nm">Ramesh Kumar <span class="chip">54Y · M</span> <span class="mono muted">P-01432</span></div><div class="meta">📞 98xxx-xx210 · Last 12 Jun</div></div><span class="btn">Open ▸</span></div>
+        <div class="pcard"><span class="avatar">RB</span><div class="main"><div class="nm">Ramesh Babu <span class="chip">41Y · M</span> <span class="mono muted">P-00321</span></div><div class="meta">📞 90xxx-xx118 · Last 02 May</div></div><span class="btn">Open ▸</span></div>
+      </div>
+    </div>
+    <div class="device mobile">
+      <div class="topbar"><b>SOBHANA</b><span class="grow"></span><span class="btn sm">🏢 ▾</span></div>
+      <div class="content" style="padding:16px">
+        <p class="h2" style="font-size:16px">Patient 360</p>
+        <div class="searchbar" style="padding:0 4px 0 10px"><span class="mag">🔍</span><span class="fake ph" style="font-size:13px">Phone, name, ID, bill…</span></div>
+        <div style="text-align:right;margin-top:8px"><span class="btn primary sm">Search</span></div>
+        <div class="recent"><div class="lbl">Recent</div>
+          <div class="rrow"><span class="avatar">RK</span><b>Ramesh Kumar</b><span class="grow"></span><span class="btn ghost sm">Open</span></div>
+          <div class="rrow"><span class="avatar">AK</span><b>Aarav Kumar</b><span class="grow"></span><span class="btn ghost sm">Open</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<details class="notes">
+  <summary>Detection rules &amp; what needs backend</summary>
+  <ul>
+    <li><b>Detection (frontend, instant):</b> contains <code>@</code> → email · matches <code>^P-?\d+</code> → patient ID · looks like a bill number (branch-prefix + digits, e.g. <code>MPR-2231</code>, or a leading <code>#</code>) → bill · all digits &amp; length ≥ 7 → phone · otherwise → name. A wrong guess is one tap to override.</li>
+    <li><b>Already works:</b> phone, name, email search (<code>GET /patients/search</code>).</li>
+    <li><span class="dep">backend-dep</span> <b>Patient-ID search</b> — add <code>patientNumber</code> to the search service.</li>
+    <li><span class="dep">backend-dep</span> <b>Bill-number lookup</b> — resolve a bill number → its visit + patient, to power Frame 3 (jump-to-visit).</li>
+    <li><b>Debounced live results</b> (type-ahead) vs. press-Enter is an open choice — see question to owner.</li>
+    <li>Shared-phone disambiguation (Frame 2) is the key safety behavior and needs no backend change.</li>
+  </ul>
+</details>
+
+</body>
+</html>

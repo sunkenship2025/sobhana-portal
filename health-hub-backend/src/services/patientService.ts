@@ -1,9 +1,16 @@
-import { PrismaClient, IdentifierType, PatientChangeType } from '@prisma/client';
+import { PrismaClient, IdentifierType, PatientChangeType, Prisma, BillDiscountType, PaymentStatus, PaymentType, ReportStatus, VisitStatus, VisitDomain, DiagnosticWorkflowMode } from '@prisma/client';
 import { generatePatientNumber } from './numberService';
 import { logAction } from './auditService';
-import { ValidationError, ConflictError } from '../utils/errors';
+import { ValidationError, ConflictError, NotFoundError } from '../utils/errors';
 import * as patientMatching from './patientMatchingService';
 import { validatePatientDemographics, validateAddress, calculateYOBFromAge, calculateAgeFromDOB, getPatientAge, getPatientAgeDisplay } from '../utils/validation';
+import { computeBillFinancialsFromPersisted } from './billFinancialService';
+import {
+  buildTimelineWhere,
+  encodeCursor,
+  toAppliedFilters,
+  TimelineFilters,
+} from './patient360Util';
 import crypto from 'crypto';
 import prisma from '../lib/prisma';
 
@@ -229,9 +236,29 @@ export async function searchPatients(query: {
   phone?: string;
   email?: string;
   name?: string;
+  patientNumber?: string;
   limit?: number;
 }) {
   const limit = query.limit || 20;
+
+  // patientNumber is an exact/unique key — do NOT route through fuzzy matching.
+  // Direct findUnique, mapped into the SAME search-result shape. Empty array (not
+  // 404) on no match so the frontend shows the "no match → register" state.
+  if (query.patientNumber) {
+    const patient = await prisma.patient.findUnique({
+      where: { patientNumber: query.patientNumber },
+      include: {
+        identifiers: true,
+        visits: {
+          include: { branch: { select: { name: true } } },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+
+    if (!patient) return [];
+    return [toSearchResult(patient)];
+  }
 
   // Use centralized patient matching service (E2-02)
   const matches = await patientMatching.findPatientsByIdentifier(
@@ -252,7 +279,12 @@ export async function searchPatients(query: {
   const patients = matches.map(match => match.patient);
 
   // Transform to search result format with history snapshot
-  return patients.map((patient: any) => ({
+  return patients.map((patient: any) => toSearchResult(patient));
+}
+
+// Shared search-result shaper (used by fuzzy + patientNumber paths).
+function toSearchResult(patient: any) {
+  return {
     patient: {
       id: patient.id,
       patientNumber: patient.patientNumber,
@@ -269,15 +301,15 @@ export async function searchPatients(query: {
       whatsappOptIn: patient.whatsappOptIn,
       createdAt: patient.createdAt
     },
-    historySnapshot: patient.visits.slice(0, 3).map((visit: any) => ({
+    historySnapshot: (patient.visits ?? []).slice(0, 3).map((visit: any) => ({
       visitId: visit.id,
       domain: visit.domain,
       branchName: visit.branch?.name || 'Unknown',
       visitType: visit.visitType,
       createdAt: visit.createdAt
     })),
-    totalVisits: patient.visits.length
-  }));
+    totalVisits: (patient.visits ?? []).length
+  };
 }
 
 export async function getPatientById(patientId: string) {
@@ -315,7 +347,14 @@ export async function getPatient360View(patientId: string) {
             select: { id: true, name: true, code: true }
           },
           bill: {
-            select: {   paymentStatus: true, billedAt: true }
+            select: {
+              paymentStatus: true,
+              billedAt: true,
+              transactions: {
+                select: { paymentType: true },
+                orderBy: { transactionDate: 'desc' },
+              },
+            },
           },
           report: {
             include: {
@@ -396,7 +435,7 @@ export async function getPatient360View(patientId: string) {
       branchName: visit.branch?.name || 'Unknown',
       status: visit.status,
       totalAmountInPaise: visit.totalAmountInPaise,
-      paymentType: visit.bill?.paymentType || null,
+      paymentType: visit.bill?.transactions?.[0]?.paymentType || null,
       paymentStatus: visit.bill?.paymentStatus || null,
       billedAt: visit.bill?.billedAt || null,
       createdAt: visit.createdAt
@@ -452,6 +491,540 @@ export async function getPatient360View(patientId: string) {
     visitTimeline,
     totalVisits: patient.visits.length,
     branches: Array.from(branchMap.values())
+  };
+}
+
+// ============================================================================
+// Patient360 — Glance Summary + Cursor-Paginated Timeline (05-backend-plan.md)
+// GLOBAL across branches: no query here filters by req.branchId (§11).
+// ============================================================================
+
+const ABNORMAL_FLAGS: ('HIGH' | 'LOW' | 'CRITICAL_HIGH' | 'CRITICAL_LOW')[] = [
+  'HIGH',
+  'LOW',
+  'CRITICAL_HIGH',
+  'CRITICAL_LOW',
+];
+
+export interface VisitDiscount {
+  amount: number;
+  type: 'FLAT_AMOUNT' | 'PERCENTAGE' | null;
+  reason: string | null;
+}
+
+export interface MappedBillFinancials {
+  hasBill: boolean;
+  paymentStatus: PaymentStatus | null;
+  paymentType: PaymentType | null;
+  paidAmountInPaise: number;
+  netAmountInPaise: number;
+  dueAmountInPaise: number;
+  discountAmountInPaise: number;
+  discountType: BillDiscountType | null;
+  discountPercentage: number | null;
+  discountReason: string | null;
+  discount: VisitDiscount;
+  transactions: { amountInPaise: number; paymentType: PaymentType; transactionDate: Date }[];
+}
+
+type BillForMapping = {
+  paymentStatus: PaymentStatus;
+  totalAmountInPaise: number;
+  discountType: BillDiscountType | null;
+  discountPercentage: number | null;
+  discountAmountInPaise: number;
+  discountReason: string | null;
+  paidAmountInPaise: number;
+  transactions?: { amountInPaise: number; paymentType: PaymentType; transactionDate: Date }[];
+} | null | undefined;
+
+/**
+ * Step 1 — Shared per-bill mapping helper with REFUNDED/CANCELLED guards.
+ * Reuses the authoritative computeBillFinancialsFromPersisted; never re-derives due.
+ * Forces dueAmountInPaise=0 for REFUNDED bills or CANCELLED visits (the compute
+ * helper is refund-unaware and would otherwise fabricate a positive due).
+ */
+export function mapBillFinancials(
+  bill: BillForMapping,
+  visitStatus: VisitStatus | string,
+): MappedBillFinancials {
+  if (!bill) {
+    return {
+      hasBill: false,
+      paymentStatus: null,
+      paymentType: null,
+      paidAmountInPaise: 0,
+      netAmountInPaise: 0,
+      dueAmountInPaise: 0,
+      discountAmountInPaise: 0,
+      discountType: null,
+      discountPercentage: null,
+      discountReason: null,
+      discount: { amount: 0, type: null, reason: null },
+      transactions: [],
+    };
+  }
+
+  const computed = computeBillFinancialsFromPersisted({
+    totalAmountInPaise: bill.totalAmountInPaise,
+    discountReason: bill.discountReason,
+    discountType: bill.discountType,
+    discountPercentage: bill.discountPercentage,
+    discountAmountInPaise: bill.discountAmountInPaise,
+    paidAmountInPaise: bill.paidAmountInPaise,
+    transactions: bill.transactions,
+  });
+
+  const isRefunded = bill.paymentStatus === 'REFUNDED';
+  const isCancelled = visitStatus === 'CANCELLED';
+  const dueAmountInPaise = isRefunded || isCancelled ? 0 : computed.dueAmountInPaise;
+
+  const transactions = bill.transactions ?? [];
+  const paymentType = transactions[0]?.paymentType ?? null;
+
+  return {
+    hasBill: true,
+    paymentStatus: bill.paymentStatus,
+    paymentType,
+    paidAmountInPaise: computed.paidAmountInPaise,
+    netAmountInPaise: computed.netAmountInPaise,
+    dueAmountInPaise,
+    discountAmountInPaise: computed.discountAmountInPaise,
+    discountType: computed.discountType,
+    discountPercentage: computed.discountPercentage,
+    discountReason: computed.discountReason,
+    discount: {
+      amount: computed.discountAmountInPaise,
+      type: computed.discountType,
+      reason: computed.discountReason,
+    },
+    transactions,
+  };
+}
+
+export type ReportState =
+  | { kind: 'FINALIZED'; version: number }
+  | { kind: 'PARTIALLY_FINALIZED'; finalized: number; total: number }
+  | { kind: 'BILL_ONLY' }
+  | { kind: 'EXTERNAL_UPLOAD_PENDING' }
+  | { kind: 'RESULTS_PENDING' }
+  | null;
+
+export type VisitWorkflowMode = 'REPORTABLE' | 'BILL_ONLY' | 'EXTERNAL_UPLOAD' | 'MIXED';
+
+type VisitForReportState = {
+  domain: VisitDomain | string;
+  status: VisitStatus | string;
+  testOrders?: { workflowMode: DiagnosticWorkflowMode }[];
+  report?: { versions?: { status: ReportStatus; versionNum: number }[] } | null;
+};
+
+/**
+ * Step 5 — reportState derivation. Mirrors deriveDiagnosticVisitComposition's
+ * FINALIZED/version logic. CLINIC visits → null. Precedence per §5.
+ */
+export function deriveReportState(visit: VisitForReportState): ReportState {
+  if (visit.domain === 'CLINIC') return null;
+
+  const orders = visit.testOrders ?? [];
+  const versions = visit.report?.versions ?? [];
+
+  // 1. Zero-order diagnostic visit → RESULTS_PENDING (explicit, no fall-through).
+  if (orders.length === 0) return { kind: 'RESULTS_PENDING' };
+
+  // 2. All BILL_ONLY → BILL_ONLY.
+  if (orders.every((o) => o.workflowMode === 'BILL_ONLY')) return { kind: 'BILL_ONLY' };
+
+  const finalizedVersions = versions.filter((v) => v.status === 'FINALIZED');
+  const hasFinalizedVersion = finalizedVersions.length > 0;
+
+  // 3. COMPLETED && some FINALIZED → FINALIZED with MAX finalized versionNum
+  //    (never length / trailing draft).
+  if (visit.status === 'COMPLETED' && hasFinalizedVersion) {
+    const version = finalizedVersions.reduce((max, v) => Math.max(max, v.versionNum), 0);
+    return { kind: 'FINALIZED', version };
+  }
+
+  // 4. Some FINALIZED but not COMPLETED → PARTIALLY_FINALIZED.
+  if (hasFinalizedVersion && visit.status !== 'COMPLETED') {
+    const total = orders.filter((o) => o.workflowMode !== 'BILL_ONLY').length;
+    return { kind: 'PARTIALLY_FINALIZED', finalized: finalizedVersions.length, total };
+  }
+
+  // 5. EXTERNAL_UPLOAD present and none finalized → EXTERNAL_UPLOAD_PENDING.
+  if (orders.some((o) => o.workflowMode === 'EXTERNAL_UPLOAD')) {
+    return { kind: 'EXTERNAL_UPLOAD_PENDING' };
+  }
+
+  // 6. Reportable orders exist, none finalized → RESULTS_PENDING.
+  return { kind: 'RESULTS_PENDING' };
+}
+
+/**
+ * workflowMode rollup: single mode if testOrders homogeneous, else 'MIXED'.
+ * CLINIC visits → null.
+ */
+export function deriveWorkflowMode(visit: VisitForReportState): VisitWorkflowMode | null {
+  if (visit.domain === 'CLINIC') return null;
+  const orders = visit.testOrders ?? [];
+  if (orders.length === 0) return null;
+  const modes = new Set(orders.map((o) => o.workflowMode));
+  if (modes.size > 1) return 'MIXED';
+  return [...modes][0] as VisitWorkflowMode;
+}
+
+/**
+ * Step 2 — getPatient360Summary: aggregate-only glance. One $transaction batch.
+ * No visit array load. Stays correct across timeline paging (independent of pages).
+ */
+export async function getPatient360Summary(patientId: string) {
+  const [
+    patient,
+    openBills,
+    totalVisits,
+    totalVisitsIncludingCancelled,
+    lastVisit,
+    finalized,
+    billOnly,
+    diagnosticTotal,
+    branchRows,
+  ] = await prisma.$transaction([
+    prisma.patient.findUnique({
+      where: { id: patientId },
+      include: { identifiers: true },
+    }),
+    prisma.bill.findMany({
+      where: {
+        visit: { patientId, status: { not: 'CANCELLED' } },
+        paymentStatus: { notIn: ['PAID', 'REFUNDED'] },
+      },
+      select: {
+        totalAmountInPaise: true,
+        discountAmountInPaise: true,
+        paidAmountInPaise: true,
+      },
+    }),
+    prisma.visit.count({ where: { patientId, status: { not: 'CANCELLED' } } }),
+    prisma.visit.count({ where: { patientId } }),
+    prisma.visit.findFirst({
+      where: { patientId, status: { not: 'CANCELLED' } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: {
+        id: true,
+        domain: true,
+        createdAt: true,
+        branch: { select: { name: true } },
+      },
+    }),
+    prisma.visit.count({
+      where: {
+        patientId,
+        domain: 'DIAGNOSTICS',
+        status: 'COMPLETED',
+        report: { is: { versions: { some: { status: 'FINALIZED' } } } },
+      },
+    }),
+    prisma.visit.count({
+      where: {
+        patientId,
+        domain: 'DIAGNOSTICS',
+        status: { not: 'CANCELLED' },
+        testOrders: { every: { workflowMode: 'BILL_ONLY' }, some: {} },
+      },
+    }),
+    prisma.visit.count({
+      where: { patientId, domain: 'DIAGNOSTICS', status: { not: 'CANCELLED' } },
+    }),
+    prisma.visit.findMany({
+      where: { patientId },
+      distinct: ['branchId'],
+      select: { branch: { select: { id: true, name: true } } },
+    }),
+  ]);
+
+  if (!patient) {
+    return null;
+  }
+
+  const outstandingDueInPaise = openBills.reduce(
+    (sum, b) => sum + computeBillFinancialsFromPersisted(b).dueAmountInPaise,
+    0,
+  );
+
+  const notFinalized = Math.max(0, diagnosticTotal - finalized - billOnly);
+
+  return {
+    patient: {
+      id: patient.id,
+      patientNumber: patient.patientNumber,
+      name: patient.name,
+      title: patient.title,
+      age: getPatientAge(patient.dateOfBirth, patient.yearOfBirth),
+      ageUnit: patient.ageUnit || 'YEARS',
+      ageDisplay: getPatientAgeDisplay(patient.dateOfBirth, patient.yearOfBirth, patient.ageUnit),
+      dateOfBirth: patient.dateOfBirth,
+      yearOfBirth: patient.yearOfBirth,
+      gender: patient.gender,
+      address: patient.address,
+      identifiers: patient.identifiers,
+      whatsappOptIn: patient.whatsappOptIn,
+      whatsappOptInAt: patient.whatsappOptInAt,
+      createdAt: patient.createdAt,
+    },
+    glance: {
+      outstandingDueInPaise,
+      totalVisits,
+      totalVisitsIncludingCancelled,
+      lastVisit: lastVisit
+        ? {
+            visitId: lastVisit.id,
+            domain: lastVisit.domain,
+            branchName: lastVisit.branch?.name || 'Unknown',
+            createdAt: lastVisit.createdAt,
+          }
+        : null,
+      reportCounts: { finalized, notFinalized, billOnly },
+    },
+    branches: branchRows
+      .map((row) => row.branch)
+      .filter((b): b is { id: string; name: string } => Boolean(b)),
+  };
+}
+
+// TIMELINE_INCLUDE: rich per-visit selection for the inspector list.
+const TIMELINE_INCLUDE = {
+  branch: { select: { id: true, name: true, code: true } },
+  bill: {
+    select: {
+      billNumber: true,
+      paymentStatus: true,
+      billedAt: true,
+      totalAmountInPaise: true,
+      discountType: true,
+      discountPercentage: true,
+      discountAmountInPaise: true,
+      discountReason: true,
+      paidAmountInPaise: true,
+      transactions: {
+        select: { amountInPaise: true, paymentType: true, transactionDate: true },
+        orderBy: { transactionDate: 'desc' as const },
+      },
+    },
+  },
+  report: {
+    select: {
+      versions: {
+        select: { id: true, status: true, versionNum: true, finalizedAt: true },
+        orderBy: { versionNum: 'desc' as const },
+      },
+    },
+  },
+  testOrders: { select: { workflowMode: true } },
+  clinicVisit: {
+    include: { clinicDoctor: { select: { name: true } } },
+  },
+} satisfies Prisma.VisitInclude;
+
+/**
+ * Step 4 — getPatient360Timeline: cursor-paginated page + 3 batched lookups
+ * (4 with revisits). No per-visit loops / N+1.
+ */
+export async function getPatient360Timeline(patientId: string, filters: TimelineFilters) {
+  const pageSize = filters.pageSize;
+
+  // Query 1 — the visit page (take pageSize+1 sentinel for hasMore).
+  const rows = await prisma.visit.findMany({
+    where: buildTimelineWhere(patientId, filters),
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: pageSize + 1,
+    include: TIMELINE_INCLUDE,
+  });
+
+  const hasMore = rows.length > pageSize;
+  const page = hasMore ? rows.slice(0, pageSize) : rows;
+  const last = page[page.length - 1];
+  const nextCursor = hasMore && last ? encodeCursor(last.createdAt, last.id) : null;
+
+  const dxIds = page.filter((v) => v.domain === 'DIAGNOSTICS').map((v) => v.id);
+  const pageIds = page.map((v) => v.id);
+
+  // Query 2 — abnormal-results existence (batched, FINALIZED only). Boolean per
+  // visit — NO values/flags/test-names (privacy).
+  const abnormalVisitIds = new Set<string>();
+  if (dxIds.length > 0) {
+    const abnormalRows = await prisma.testResult.findMany({
+      where: {
+        flag: { in: ABNORMAL_FLAGS },
+        reportVersion: { status: 'FINALIZED', report: { visitId: { in: dxIds } } },
+      },
+      select: { reportVersion: { select: { report: { select: { visitId: true } } } } },
+      distinct: ['reportVersionId'],
+    });
+    for (const r of abnormalRows) {
+      const vid = r.reportVersion?.report?.visitId;
+      if (vid) abnormalVisitIds.add(vid);
+    }
+  }
+
+  // Query 3 — latest REPORT MessageLog per visit (batched). Sorted desc, keep first.
+  const deliveryByVisit = new Map<
+    string,
+    { status: string; sentAt: Date | null; deliveredAt: Date | null; readAt: Date | null }
+  >();
+  if (pageIds.length > 0) {
+    const logs = await prisma.messageLog.findMany({
+      where: { contextType: 'REPORT', contextId: { in: pageIds } },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        contextId: true,
+        status: true,
+        sentAt: true,
+        deliveredAt: true,
+        readAt: true,
+      },
+    });
+    for (const log of logs) {
+      if (!deliveryByVisit.has(log.contextId)) {
+        deliveryByVisit.set(log.contextId, {
+          status: log.status,
+          sentAt: log.sentAt,
+          deliveredAt: log.deliveredAt,
+          readAt: log.readAt,
+        });
+      }
+    }
+  }
+
+  // Query 4 (conditional) — original-visit map for clinic revisits.
+  const originalVisitIds = page
+    .map((v) => v.clinicVisit?.originalVisitId)
+    .filter((id): id is string => Boolean(id));
+
+  const originalVisitMap =
+    originalVisitIds.length > 0
+      ? new Map(
+          (
+            await prisma.visit.findMany({
+              where: { id: { in: Array.from(new Set(originalVisitIds)) } },
+              select: {
+                id: true,
+                createdAt: true,
+                billNumber: true,
+                bill: { select: { billNumber: true } },
+              },
+            })
+          ).map((v) => [
+            v.id,
+            {
+              visitRef: v.billNumber,
+              billNumber: v.bill?.billNumber || null,
+              createdAt: v.createdAt,
+            },
+          ]),
+        )
+      : new Map<string, { visitRef: string; billNumber: string | null; createdAt: Date }>();
+
+  const items = page.map((visit) => {
+    const financials = mapBillFinancials(visit.bill, visit.status);
+    const delivery = deliveryByVisit.get(visit.id) ?? null;
+
+    const item: any = {
+      visitId: visit.id,
+      domain: visit.domain,
+      visitRef: visit.billNumber,
+      billNumber: visit.bill?.billNumber || null,
+      hasBill: financials.hasBill,
+      branchId: visit.branchId,
+      branchName: visit.branch?.name || 'Unknown',
+      status: visit.status,
+      totalAmountInPaise: visit.totalAmountInPaise,
+      paymentType: financials.paymentType,
+      paymentStatus: financials.paymentStatus,
+      billedAt: visit.bill?.billedAt || null,
+      createdAt: visit.createdAt,
+      // Financials (flat compat + nested discount)
+      paidAmountInPaise: financials.paidAmountInPaise,
+      netAmountInPaise: financials.netAmountInPaise,
+      dueAmountInPaise: financials.dueAmountInPaise,
+      discountAmountInPaise: financials.discountAmountInPaise,
+      discountType: financials.discountType,
+      discountPercentage: financials.discountPercentage,
+      discountReason: financials.discountReason,
+      discount: financials.discount,
+      transactions: financials.transactions,
+      // Report state + workflow + abnormal flag + delivery
+      reportState: deriveReportState(visit),
+      workflowMode: deriveWorkflowMode(visit),
+      hasAbnormalResults: abnormalVisitIds.has(visit.id),
+      delivery,
+    };
+
+    if (visit.domain === 'CLINIC' && visit.clinicVisit) {
+      item.visitType = visit.clinicVisit.visitType;
+      item.doctorName = visit.clinicVisit.clinicDoctor?.name;
+      item.startedAt = visit.clinicVisit.startedAt;
+      item.completedAt = visit.clinicVisit.completedAt;
+      item.isRevisit = visit.clinicVisit.isRevisit;
+      item.originalVisitId = visit.clinicVisit.originalVisitId;
+
+      if (visit.clinicVisit.originalVisitId) {
+        const original = originalVisitMap.get(visit.clinicVisit.originalVisitId);
+        item.originalVisitVisitRef = original?.visitRef || null;
+        item.originalVisitBillNumber = original?.billNumber || null;
+        item.originalVisitDate = original?.createdAt || null;
+      }
+    }
+
+    return item;
+  });
+
+  return {
+    items,
+    pageInfo: { nextCursor, hasMore, pageSize },
+    appliedFilters: toAppliedFilters(filters),
+  };
+}
+
+/**
+ * §10b — resolveBillToVisit: bill number → its visit + patient.
+ * billNumber lives on both Visit.billNumber and Bill.billNumber. Throws 404 if none.
+ */
+export async function resolveBillToVisit(billNumber: string) {
+  const visit = await prisma.visit.findFirst({
+    where: { OR: [{ billNumber }, { bill: { is: { billNumber } } }] },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    include: {
+      patient: { include: { identifiers: true } },
+      branch: { select: { id: true, name: true } },
+      bill: { select: { billNumber: true, paymentStatus: true, totalAmountInPaise: true, billedAt: true } },
+    },
+  });
+
+  if (!visit || !visit.patient) {
+    throw new NotFoundError(`No visit found for bill number ${billNumber}`);
+  }
+
+  const patient = visit.patient;
+
+  return {
+    patient: {
+      id: patient.id,
+      patientNumber: patient.patientNumber,
+      name: patient.name,
+      title: patient.title,
+      ageDisplay: getPatientAgeDisplay(patient.dateOfBirth, patient.yearOfBirth, patient.ageUnit),
+      gender: patient.gender,
+      identifiers: patient.identifiers,
+    },
+    visit: {
+      visitId: visit.id,
+      domain: visit.domain,
+      branchName: visit.branch?.name || 'Unknown',
+      createdAt: visit.createdAt,
+      billNumber: visit.bill?.billNumber || visit.billNumber,
+      totalAmountInPaise: visit.bill?.totalAmountInPaise ?? visit.totalAmountInPaise,
+      paymentStatus: visit.bill?.paymentStatus || null,
+    },
   };
 }
 

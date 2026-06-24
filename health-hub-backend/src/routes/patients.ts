@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import * as patientService from '../services/patientService';
+import { parseTimelineQuery } from '../services/patient360Util';
 
 const router = Router();
 
@@ -55,12 +56,13 @@ router.post('/', async (req: AuthRequest, res) => {
 // GET /api/patients/search - Search patients
 router.get('/search', async (req: AuthRequest, res) => {
   try {
-    const { phone, email, name, limit } = req.query;
+    const { phone, email, name, patientNumber, limit } = req.query;
 
     const patients = await patientService.searchPatients({
       phone: phone as string,
       email: email as string,
       name: name as string,
+      patientNumber: patientNumber as string,
       limit: limit ? parseInt(limit as string) : undefined
     });
 
@@ -76,6 +78,30 @@ router.get('/search', async (req: AuthRequest, res) => {
     return res.status(500).json({
       error: 'INTERNAL_ERROR',
       message: 'Failed to search patients'
+    });
+  }
+});
+
+// GET /api/patients/by-bill/:billNumber - Resolve a bill number to its patient + visit (§10b)
+// Registered before /:id so the literal segment is not captured as an id.
+router.get('/by-bill/:billNumber', async (req: AuthRequest, res) => {
+  try {
+    const { billNumber } = req.params;
+
+    const result = await patientService.resolveBillToVisit(billNumber);
+
+    return res.json(result);
+  } catch (err: any) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({
+        error: err.error,
+        message: err.message
+      });
+    }
+    console.error('Resolve bill to visit error:', err);
+    return res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: 'Failed to resolve bill number'
     });
   }
 });
@@ -124,6 +150,66 @@ router.get('/:id/360', async (req: AuthRequest, res) => {
     return res.status(500).json({
       error: 'INTERNAL_ERROR',
       message: 'Failed to get patient 360 view'
+    });
+  }
+});
+
+// GET /api/patients/:id/360/summary - Patient360 glance (aggregate-only, global) (§2b)
+// auth + branch context attached for auth/audit ONLY — handler does not scope queries by branchId (§11.1).
+router.get('/:id/360/summary', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+
+    const summary = await patientService.getPatient360Summary(id);
+
+    if (!summary) {
+      return res.status(404).json({
+        error: 'NOT_FOUND',
+        message: 'Patient not found'
+      });
+    }
+
+    return res.json(summary);
+  } catch (err: any) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({
+        error: err.error,
+        message: err.message
+      });
+    }
+    console.error('Get patient 360 summary error:', err);
+    return res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: 'Failed to get patient 360 summary'
+    });
+  }
+});
+
+// GET /api/patients/:id/360/timeline - Patient360 cursor-paginated timeline (global) (§2c)
+// auth + branch context attached for auth/audit ONLY — handler does not scope queries by branchId (§11.1).
+router.get('/:id/360/timeline', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+
+    // Parse / coerce / clamp query params via the service util (pageSize 1–50,
+    // UTC end-of-day normalization, opaque cursor decode).
+    const filters = parseTimelineQuery(req.query as Record<string, unknown>);
+
+    const page = await patientService.getPatient360Timeline(id, filters);
+
+    // page.appliedFilters already reflects the coerced/clamped values.
+    return res.json(page);
+  } catch (err: any) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({
+        error: err.error,
+        message: err.message
+      });
+    }
+    console.error('Get patient 360 timeline error:', err);
+    return res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: 'Failed to get patient 360 timeline'
     });
   }
 });
