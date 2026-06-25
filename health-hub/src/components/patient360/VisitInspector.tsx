@@ -27,7 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Eye, EyeOff, FileText, Printer, ReceiptText, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Eye, EyeOff, FileText, Loader2, MessageCircle, Printer, ReceiptText, X, ZoomIn, ZoomOut } from "lucide-react";
 import { toast } from "sonner";
 import { FinancialDetailPanel } from "./FinancialDetailPanel";
 import { ReportActions } from "./ReportActions";
@@ -76,7 +76,7 @@ function InspectorBody({
   patientPhone?: string | null;
   reportActions: UseReportActions;
 }) {
-  const { preview, busy, viewReport, viewBill, printReport, sendWhatsApp, closePreview } =
+  const { preview, busy, viewReport, viewBill, printReport, sendWhatsApp, sendBillWhatsApp, closePreview } =
     reportActions;
   const isDiagnostic = visit.domain === "DIAGNOSTICS";
   const activePreview = preview?.visitId === visit.visitId ? preview : null;
@@ -162,6 +162,24 @@ function InspectorBody({
             )}
             {hasBill ? "Print bill" : "Print visit slip"}
           </Button>
+          {hasBill && patientPhone && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="justify-start text-green-600 hover:bg-green-50 hover:text-green-700 sm:col-span-2"
+              disabled={busy?.visitId === visit.visitId}
+              onClick={() => sendBillWhatsApp(visit.visitId)}
+            >
+              {busy?.visitId === visit.visitId && busy.action === "whatsapp-bill" ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <MessageCircle className="mr-2 h-4 w-4" aria-hidden="true" />
+              )}
+              {busy?.visitId === visit.visitId && busy.action === "whatsapp-bill"
+                ? "Sending…"
+                : "Send on WhatsApp"}
+            </Button>
+          )}
         </div>
         {/* Collect-payment deep-link intentionally omitted for v1 (06-frontend-plan §4 / Q5);
             print-bill is the supported path. */}

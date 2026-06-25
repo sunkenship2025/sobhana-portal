@@ -22,7 +22,7 @@ import { API_BASE } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import { useBranchStore } from "@/store/branchStore";
 
-export type ReportAction = "view" | "print" | "whatsapp";
+export type ReportAction = "view" | "print" | "whatsapp" | "whatsapp-bill";
 
 export interface ReportBusy {
   visitId: string;
@@ -52,6 +52,8 @@ export interface UseReportActions {
   printReport: (visitId: string) => Promise<void>;
   /** POST /messages/:visitId/send-report (branch-scoped). The ONE WhatsApp path. */
   sendWhatsApp: (visitId: string) => Promise<void>;
+  /** POST /messages/:visitId/send-bill (branch-scoped). Sends the bill on WhatsApp. */
+  sendBillWhatsApp: (visitId: string) => Promise<void>;
   /** Revoke the current preview blob and clear `preview`. */
   closePreview: () => void;
 }
@@ -160,6 +162,25 @@ export function useReportActions(isMobile?: boolean): UseReportActions {
     [branchId],
   );
 
+  const sendBillWhatsApp = useCallback(
+    async (visitId: string) => {
+      setBusy({ visitId, action: "whatsapp-bill" });
+      try {
+        // Bill endpoints ARE branch-scoped → carry X-Branch-Id explicitly.
+        await apiRequest(`${API_BASE}/messages/${visitId}/send-bill`, {
+          method: "POST",
+          headers: { "X-Branch-Id": branchId ?? "" },
+        });
+        toast.success("Bill sent on WhatsApp.");
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to send bill.");
+      } finally {
+        setBusy(null);
+      }
+    },
+    [branchId],
+  );
+
   // Revoke on unmount.
   useEffect(() => revoke, [revoke]);
 
@@ -178,6 +199,7 @@ export function useReportActions(isMobile?: boolean): UseReportActions {
     viewBill,
     printReport,
     sendWhatsApp,
+    sendBillWhatsApp,
     closePreview,
   };
 }
