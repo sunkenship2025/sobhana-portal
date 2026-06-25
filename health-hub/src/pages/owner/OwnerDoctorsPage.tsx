@@ -413,7 +413,7 @@ function RecentPayoutsCard({ rows }: { rows: DoctorsResponse['recentPayouts'] })
                         textTransform: 'capitalize',
                       }}
                     >
-                      {r.status}
+                      {r.status === 'derived' ? 'pending review' : r.status}
                     </span>
                   </td>
                   <td className="py-2" style={{ color: TOKENS.textSecondary }}>
