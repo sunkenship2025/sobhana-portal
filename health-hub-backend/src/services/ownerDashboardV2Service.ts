@@ -356,6 +356,10 @@ export async function getOwnerDashboardV2(
     priorBranchBills,
     priorBranchTestOrders,
     priorBranchClinicVisits,
+
+    // lifted out of sequential stragglers so they run in the parallel batch
+    visitsLast7,
+    allRecentVisits,
   ] = await Promise.all([
     prisma.reportVersion.count({
       where: {
@@ -689,6 +693,22 @@ export async function getOwnerDashboardV2(
         },
       },
     }),
+
+    // dormant-branch detection needs all branches; only computed in all-branches
+    // mode, otherwise resolves to [] so it stays out of the critical path.
+    branchId
+      ? Promise.resolve([] as { branchId: string }[])
+      : prisma.visit.groupBy({
+          by: ['branchId'],
+          where: { createdAt: { gte: sevenDaysAgo } },
+          _count: true,
+        }),
+
+    // last visit per branch (for the branch-table dormancy column)
+    prisma.visit.groupBy({
+      by: ['branchId'],
+      _max: { createdAt: true },
+    }),
   ]);
 
   // ----- action queue ----------------------------------------------------
@@ -750,11 +770,6 @@ export async function getOwnerDashboardV2(
 
   // dormant_branch — only meaningful in all-branches view
   if (!branchId) {
-    const visitsLast7 = await prisma.visit.groupBy({
-      by: ['branchId'],
-      where: { createdAt: { gte: sevenDaysAgo } },
-      _count: true,
-    });
     const activeBranchSet = new Set(visitsLast7.map((v) => v.branchId));
     const dormantCount = allBranches.filter(
       (b) =>
@@ -1013,10 +1028,6 @@ export async function getOwnerDashboardV2(
 
   // last visit per branch (for dormancy)
   const lastVisitByBranch = new Map<string, Date>();
-  const allRecentVisits = await prisma.visit.groupBy({
-    by: ['branchId'],
-    _max: { createdAt: true },
-  });
   for (const row of allRecentVisits) {
     if (row._max.createdAt) lastVisitByBranch.set(row.branchId, row._max.createdAt);
   }

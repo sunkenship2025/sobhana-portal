@@ -818,7 +818,12 @@ export default function OwnerDashboardV2() {
         `${API_BASE}/owner/dashboard-v2?branch=${encodeURIComponent(branchValue)}`,
       ),
     refetchInterval: 5 * 60 * 1000,
-    staleTime: 60 * 1000,
+    // Match staleTime to the poll interval so revisiting the page within the
+    // window serves the last result instead of visibly refetching (the numbers
+    // were "popping in" 1-2s after the shell rendered). The 5-min poll still
+    // keeps values fresh in the background.
+    staleTime: 5 * 60 * 1000,
+    placeholderData: (prev) => prev,
   });
 
   const data = query.data;
