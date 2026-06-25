@@ -19,11 +19,17 @@ import { logger } from '../lib/logger';
 
 const CACHE_TTL_SEC = 30; // shorter TTL — this page is meant to feel live
 const cacheKey = (branchId: string | null) =>
-  `owner-operations:v1:${branchId ?? 'all'}`;
+  `owner-operations:v2:${branchId ?? 'all'}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const SLA_TAT_MINUTES = 24;
+const SLA_TAT_MINUTES = 1440; // 24 hours from registration (owner decision)
+
+// Discount-audit thresholds (P1-E)
+const DISCOUNT_AUDIT_PERCENT = 10; // fire audit at >= 10%
+const DISCOUNT_AUDIT_PAISE = 50_000; // ...or >= ₹500 absolute
+const DISCOUNT_HIGH_PERCENT = 30; // "high" severity tier
+const DISCOUNT_HIGH_PAISE = 200_000; // ...or >= ₹2,000 absolute
 
 export interface OperationsKpi {
   tatMedianMinutes: number | null;
@@ -31,8 +37,11 @@ export interface OperationsKpi {
   finalizedToday: number;
   finalizableToday: number;
   inQueue: number;
+  inQueueDiagnostics: number;
+  inQueueClinic: number;
   deliveryRatePercent: number | null;
   deliveryAttempted: number;
+  inFlight: number;
 }
 
 export interface TatHistogramBin {
@@ -48,6 +57,7 @@ export interface TatHistogram {
   slaMinutes: number;
   breachCount: number;
   sampleCount: number;
+  xMaxMinutes: number; // data-driven upper bound of the x-axis (for frontend scaling)
 }
 
 export interface DiagnosticsQueueRow {
@@ -127,18 +137,40 @@ function percentile(sorted: number[], p: number): number | null {
   return sorted[idx];
 }
 
-function buildHistogram(durations: number[]): TatHistogramBin[] {
-  // 3-min bins from 0..30, then a 30+ open-ended bin
+const HISTOGRAM_BIN_COUNT = 11; // 10 fixed-width bins + 1 open-ended overflow bin
+
+/**
+ * Data-driven histogram. The x-range is derived from the data (p95 + largest
+ * non-empty observation, padded 10%) instead of a hardcoded 33-min window, so
+ * the same chart works whether durations are minutes or many hours.
+ * Returns the bins plus the xMax the frontend should scale to.
+ */
+function buildHistogram(
+  durations: number[],
+  p95: number | null,
+): { bins: TatHistogramBin[]; xMaxMinutes: number } {
+  const maxObserved = durations.length > 0 ? Math.max(...durations) : 0;
+  // Use p95 (robust) and the largest observation as anchors; pad 10%.
+  const rawMax = Math.max(p95 ?? 0, maxObserved);
+  // Round to a sensible step and guarantee a non-zero range.
+  const xMaxMinutes = Math.max(30, Math.ceil((rawMax * 1.1) / 5) * 5);
+  const binWidth = xMaxMinutes / (HISTOGRAM_BIN_COUNT - 1);
+
   const bins: TatHistogramBin[] = [];
-  for (let lo = 0; lo < 30; lo += 3) {
-    bins.push({ rangeMin: lo, rangeMax: lo + 3, count: 0 });
+  for (let i = 0; i < HISTOGRAM_BIN_COUNT - 1; i += 1) {
+    bins.push({ rangeMin: i * binWidth, rangeMax: (i + 1) * binWidth, count: 0 });
   }
-  bins.push({ rangeMin: 30, rangeMax: 999, count: 0 });
+  // Final open-ended overflow bin (anything >= xMax).
+  bins.push({ rangeMin: xMaxMinutes, rangeMax: 999_999, count: 0 });
+
   for (const d of durations) {
-    const idx = d >= 30 ? bins.length - 1 : Math.min(bins.length - 2, Math.floor(d / 3));
+    const idx =
+      d >= xMaxMinutes
+        ? bins.length - 1
+        : Math.min(bins.length - 2, Math.floor(d / binWidth));
     bins[idx].count += 1;
   }
-  return bins;
+  return { bins, xMaxMinutes };
 }
 
 function isOffHoursIst(d: Date): boolean {
@@ -178,9 +210,9 @@ export async function getOwnerOperations(
   const [
     scopedBranch,
     last100Finalized,
-    finalizedToday,
-    finalizableTodayOrders,
-    inQueueCount,
+    finalizedTodayRows,
+    finalizableTodayVisits,
+    inQueueByDomain,
     diagnosticsRaw,
     diagnosticsFinalized,
     clinicWaitingRows,
@@ -213,27 +245,36 @@ export async function getOwnerOperations(
       },
     }),
 
-    prisma.reportVersion.count({
+    // Finalized today as DISTINCT visits (a multi-test visit finalizes one report).
+    prisma.reportVersion.findMany({
       where: {
         status: 'FINALIZED',
         finalizedAt: { gte: todayStart, lt: tomorrowStart },
         ...(branchId ? { report: { branchId } } : {}),
       },
+      select: { report: { select: { visitId: true } } },
     }),
 
-    prisma.testOrder.count({
+    // Finalizable today as DISTINCT visits having >= 1 REPORTABLE order today.
+    prisma.testOrder.findMany({
       where: {
         createdAt: { gte: todayStart, lt: tomorrowStart },
         workflowMode: 'REPORTABLE',
         ...(branchId ? { branchId } : {}),
       },
+      select: { visitId: true },
+      distinct: ['visitId'],
     }),
 
-    prisma.visit.count({
+    // In-queue split by domain (P0-D): grouped so the KPI reconciles with the
+    // two domain-scoped queue cards below.
+    prisma.visit.groupBy({
+      by: ['domain'],
       where: {
         status: { in: ['WAITING', 'IN_PROGRESS'] },
         ...(branchId ? { branchId } : {}),
       },
+      _count: true,
     }),
 
     // Diagnostics queue — visits not yet finalized, with patient + first product
@@ -345,7 +386,10 @@ export async function getOwnerOperations(
 
     prisma.messageLog.groupBy({
       by: ['status'],
-      where: { createdAt: { gte: todayStart, lt: tomorrowStart } },
+      where: {
+        createdAt: { gte: todayStart, lt: tomorrowStart },
+        ...(branchId ? { branchId } : {}),
+      },
       _count: true,
     }),
 
@@ -366,12 +410,15 @@ export async function getOwnerOperations(
       },
     }),
 
-    // Recent bills with significant discounts
+    // Recent bills with significant discounts (P1-E: threshold, not rupee-one)
     prisma.bill.findMany({
       where: {
-        discountAmountInPaise: { gt: 0 },
         billedAt: { gte: yesterdayStart },
         ...(branchId ? { branchId } : {}),
+        OR: [
+          { discountPercentage: { gte: DISCOUNT_AUDIT_PERCENT } },
+          { discountAmountInPaise: { gte: DISCOUNT_AUDIT_PAISE } },
+        ],
       },
       orderBy: { billedAt: 'desc' },
       take: 10,
@@ -379,8 +426,10 @@ export async function getOwnerOperations(
         id: true,
         discountPercentage: true,
         discountAmountInPaise: true,
+        discountReason: true,
         billNumber: true,
         billedAt: true,
+        discountedByUser: { select: { name: true } },
         visit: { select: { patient: { select: { name: true } } } },
       },
     }),
@@ -408,6 +457,7 @@ export async function getOwnerOperations(
       where: {
         status: 'FAILED',
         createdAt: { gte: yesterdayStart },
+        ...(branchId ? { branchId } : {}),
       },
       orderBy: { createdAt: 'desc' },
       take: 20,
@@ -438,36 +488,63 @@ export async function getOwnerOperations(
   const tatP50 = percentile(sortedDurations, 50);
   const tatP95 = percentile(sortedDurations, 95);
   const breachCount = durations.filter((d) => d > SLA_TAT_MINUTES).length;
+  const { bins: histogramBins, xMaxMinutes } = buildHistogram(durations, tatP95);
   const tatHistogram: TatHistogram = {
-    bins: buildHistogram(durations),
+    bins: histogramBins,
     p50Minutes: tatP50,
     p95Minutes: tatP95,
     slaMinutes: SLA_TAT_MINUTES,
     breachCount,
     sampleCount: durations.length,
+    xMaxMinutes,
   };
 
-  // delivery rate today
+  // delivery rate today (P0-A): denominator excludes in-flight SENT.
+  // attempted = DELIVERED + READ + FAILED; SENT is surfaced separately as inFlight.
   let deliveredToday = 0;
   let attemptedToday = 0;
+  let inFlightToday = 0;
   for (const row of commsToday) {
     const c = (row._count as any) ?? 0;
-    if (row.status === 'SENT' || row.status === 'FAILED') attemptedToday += c;
-    else if (row.status === 'DELIVERED' || row.status === 'READ') {
+    if (row.status === 'SENT') {
+      inFlightToday += c;
+    } else if (row.status === 'FAILED') {
+      attemptedToday += c;
+    } else if (row.status === 'DELIVERED' || row.status === 'READ') {
       deliveredToday += c;
       attemptedToday += c;
     }
   }
   const deliveryRate = attemptedToday > 0 ? Math.round((deliveredToday / attemptedToday) * 100) : null;
 
+  // P0-B: distinct-visit counts (a 3-test visit counts once, not three times).
+  const finalizedDistinctVisits = new Set(
+    finalizedTodayRows
+      .map((r) => r.report?.visitId)
+      .filter((v): v is string => Boolean(v)),
+  ).size;
+  const finalizableDistinctVisits = finalizableTodayVisits.length;
+
+  // P0-D: in-queue split by domain so the KPI reconciles with the two cards.
+  let inQueueDiagnostics = 0;
+  let inQueueClinic = 0;
+  for (const row of inQueueByDomain) {
+    const c = (row._count as any) ?? 0;
+    if (row.domain === 'DIAGNOSTICS') inQueueDiagnostics += c;
+    else if (row.domain === 'CLINIC') inQueueClinic += c;
+  }
+
   const kpis: OperationsKpi = {
     tatMedianMinutes: tatP50,
     tatSampleCount: durations.length,
-    finalizedToday,
-    finalizableToday: finalizableTodayOrders,
-    inQueue: inQueueCount,
+    finalizedToday: finalizedDistinctVisits,
+    finalizableToday: finalizableDistinctVisits,
+    inQueue: inQueueDiagnostics + inQueueClinic,
+    inQueueDiagnostics,
+    inQueueClinic,
     deliveryRatePercent: deliveryRate,
     deliveryAttempted: attemptedToday,
+    inFlight: inFlightToday,
   };
 
   // --- diagnostics queue ---------------------------------------------------
@@ -591,11 +668,16 @@ export async function getOwnerOperations(
     });
   }
   for (const b of auditDiscounts) {
+    // P1-E: reserve "high" for the top tier; the query already enforced the
+    // audit threshold (>= 10% or >= ₹500), so everything here is at least medium.
+    const pct = b.discountPercentage ?? 0;
+    const isHigh =
+      pct >= DISCOUNT_HIGH_PERCENT || b.discountAmountInPaise >= DISCOUNT_HIGH_PAISE;
     audit.push({
       id: `disc-${b.id}`,
-      severity: 'high',
-      event: `Discount ${Math.round(b.discountPercentage ?? 0)}%`,
-      who: null,
+      severity: isHigh ? 'high' : 'medium',
+      event: `Discount ${Math.round(pct)}%`,
+      who: b.discountedByUser?.name ?? null,
       detail: `${b.visit.patient.name} · ${b.billNumber} · ₹${Math.round(b.discountAmountInPaise / 100).toLocaleString('en-IN')} off`,
       whenIso: b.billedAt.toISOString(),
       drillTo: null,

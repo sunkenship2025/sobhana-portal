@@ -2,9 +2,12 @@ import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import {
-  BriefcaseMedical,
+  Activity,
+  Banknote,
   Building2,
+  ClipboardList,
   FlaskConical,
+  HandCoins,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -12,7 +15,6 @@ import {
   Stethoscope,
   Users,
   UserRound,
-  WalletCards,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuthStore, UserRole } from '@/store/authStore';
@@ -53,7 +55,7 @@ const ownerNavItems: NavItem[] = [
   },
   {
     label: 'Money',
-    icon: WalletCards,
+    icon: Banknote,
     href: '/money/bills',
     roles: ['owner'],
     matchPrefixes: ['/money/'],
@@ -67,44 +69,54 @@ const ownerNavItems: NavItem[] = [
   },
   {
     label: 'Operations',
-    icon: BriefcaseMedical,
+    icon: Activity,
     href: '/ops/queue',
     roles: ['owner'],
     subItems: [
-      { label: 'Live queue', href: '/ops/queue', section: 'Operations' },
-      { label: 'Audit & alerts', href: '/ops/audit', section: 'Operations' },
+      { label: 'Live queue', href: '/ops/queue' },
+      { label: 'Audit & alerts', href: '/ops/audit' },
+    ],
+  },
+  {
+    label: 'Workflows',
+    icon: ClipboardList,
+    href: '/clinic/patient-search',
+    roles: ['owner'],
+    matchPrefixes: [
+      '/clinic/patient-search',
+      '/clinic/patient-360/',
+      '/diagnostics/new',
+      '/diagnostics/pending',
+      '/diagnostics/results/',
+      '/diagnostics/finalized',
+      '/diagnostics/preview/',
+      '/clinic/new',
+      '/clinic/queue',
+    ],
+    subItems: [
       {
         label: 'Patient 360',
         href: '/clinic/patient-search',
-        section: 'Workflows',
         matchPrefixes: ['/clinic/patient-search', '/clinic/patient-360/'],
       },
-      { label: 'New diagnostic visit', href: '/diagnostics/new', section: 'Workflows' },
+      { label: 'New diagnostic visit', href: '/diagnostics/new' },
       {
         label: 'Pending results',
         href: '/diagnostics/pending',
-        section: 'Workflows',
         matchPrefixes: ['/diagnostics/pending', '/diagnostics/results/'],
       },
       {
         label: 'Finalized reports',
         href: '/diagnostics/finalized',
-        section: 'Workflows',
         matchPrefixes: ['/diagnostics/finalized', '/diagnostics/preview/'],
       },
-      { label: 'New clinic visit', href: '/clinic/new', section: 'Workflows' },
-      { label: 'OP / IP queue', href: '/clinic/queue', section: 'Workflows' },
+      { label: 'New clinic visit', href: '/clinic/new' },
+      { label: 'OP / IP queue', href: '/clinic/queue' },
     ],
   },
   {
-    label: 'My reports',
-    icon: UserRound,
-    href: '/doctor',
-    roles: ['owner'],
-  },
-  {
     label: 'Payouts',
-    icon: WalletCards,
+    icon: HandCoins,
     href: '/owner/payouts',
     roles: ['owner'],
   },

@@ -30,12 +30,12 @@ import type { Prisma } from '@prisma/client';
 
 const CACHE_TTL_SEC = 60;
 const cacheKey = (branchId: string | null) =>
-  `owner-dashboard-v2:v1:${branchId ?? 'all'}`;
+  `owner-dashboard-v2:v2:${branchId ?? 'all'}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TREND_DAYS = 30;
-const SLA_TAT_MINUTES = 24;
+const SLA_TAT_MINUTES = 1440; // 24h from registration (owner-set SLA)
 const DORMANT_DAYS = 7;
 
 // --- types ---------------------------------------------------------------
@@ -63,8 +63,14 @@ export interface MoneyToday {
   discountInPaise: number;
   commissionInPaise: number;
   netInPaise: number;
+  // Discounts as a % of gross (0 when gross is 0). Surfaced inline so a
+  // discount leak is visible without opening the discounts page.
+  discountRatePct: number;
   cashInPaise: number;
   onlineInPaise: number;
+  // Cash + online collected today. Collected differs from billed because
+  // patients pay across days; the UI labels this "Collected today".
+  collectedTotalInPaise: number;
   outstandingInPaise: number;
   // Comparison vs same-day-of-week average over the last 4 weeks. Null when
   // < 4 prior samples exist (baseline forming) so the UI can suppress the
@@ -75,6 +81,11 @@ export interface MoneyToday {
 
 export interface PayoutLiability {
   totalInPaise: number;
+  // Split of the total by stage: toReview matches the payouts_to_review chip
+  // (reviewedAt == null && paidAt == null); approvedUnpaid is reviewed but not
+  // yet paid (reviewedAt != null && paidAt == null). Sum == totalInPaise.
+  toReviewInPaise: number;
+  approvedUnpaidInPaise: number;
   byType: {
     referralInPaise: number;
     clinicInPaise: number;
@@ -98,6 +109,7 @@ export interface OpsPulseClinic {
   inConsultation: number;
   completedToday: number;
   revisitsToday: number;
+  revisitRatePct: number | null;
   avgWaitMinutes: number | null;
   onShiftDoctorName: string | null;
 }
@@ -259,9 +271,16 @@ export async function getOwnerDashboardV2(
   const sevenDaysAgo = startOfDaysAgoIst(now, 7);
   const thirtyDaysAgo = startOfDaysAgoIst(now, TREND_DAYS - 1);
   const trendRangeStart = startOfDaysAgoIst(now, TREND_DAYS - 1);
-  // 4-week same-day baseline: pull everything from the last 28 days so we can
-  // derive both the trend and the "vs 4-week DoW avg" delta from one fetch.
-  const baselineStart = startOfDaysAgoIst(now, 28);
+  // Baseline window must cover the full 30-day TREND window so the branch table
+  // (which filters >= thirtyDaysAgo) and the trend series both see every day —
+  // previously this started 28 days back and silently zeroed the two oldest
+  // trend days for every branch. It also feeds the 4-week same-day DoW delta.
+  const baselineStart = startOfDaysAgoIst(now, TREND_DAYS - 1);
+  // Prior 30-day window for branch period-over-period delta: the 30 days
+  // immediately before the current window, i.e. days [60..30) ago. The current
+  // branch net aggregates rows >= thirtyDaysAgo; the prior window aggregates
+  // rows in [priorWindowStart, thirtyDaysAgo). Same shape, same perf profile.
+  const priorWindowStart = startOfDaysAgoIst(now, 2 * TREND_DAYS - 1);
 
   // ----- branch resolution & data age ------------------------------------
   const branchScopeWhere: Prisma.VisitWhereInput = branchId ? { branchId } : {};
@@ -332,6 +351,11 @@ export async function getOwnerDashboardV2(
     // branch table — fetched after main bills query
     branchVisitCounts,
     branchTatSamples,
+
+    // branch prior-window net (days [60..30) ago) for period-over-period delta
+    priorBranchBills,
+    priorBranchTestOrders,
+    priorBranchClinicVisits,
   ] = await Promise.all([
     prisma.reportVersion.count({
       where: {
@@ -617,6 +641,54 @@ export async function getOwnerDashboardV2(
       },
       take: 2000,
     }),
+
+    // prior-window branch net inputs — mirror the baseline branch aggregation
+    // but scoped to [priorWindowStart, thirtyDaysAgo). gross - discount per bill,
+    // commission per test order + clinic visit, bucketed by branch.
+    prisma.bill.findMany({
+      where: {
+        billedAt: { gte: priorWindowStart, lt: thirtyDaysAgo },
+        ...billBranchWhere,
+      },
+      select: {
+        totalAmountInPaise: true,
+        discountAmountInPaise: true,
+        branchId: true,
+      },
+    }),
+    prisma.testOrder.findMany({
+      where: {
+        createdAt: { gte: priorWindowStart, lt: thirtyDaysAgo },
+        ...(branchId ? { branchId } : {}),
+      },
+      select: {
+        branchId: true,
+        priceInPaise: true,
+        referralCommissionType: true,
+        referralCommissionPercentage: true,
+        referralCommissionAmountInPaise: true,
+        diagnosticCenterCommissionType: true,
+        diagnosticCenterCommissionPercentage: true,
+        diagnosticCenterCommissionAmountInPaise: true,
+      },
+    }),
+    prisma.clinicVisit.findMany({
+      where: {
+        createdAt: { gte: priorWindowStart, lt: thirtyDaysAgo },
+        ...(branchId ? { visit: { branchId } } : {}),
+      },
+      select: {
+        consultationFeeInPaise: true,
+        visit: { select: { branchId: true } },
+        clinicDoctor: {
+          select: {
+            commissionType: true,
+            commissionPercent: true,
+            commissionAmountInPaise: true,
+          },
+        },
+      },
+    }),
   ]);
 
   // ----- action queue ----------------------------------------------------
@@ -695,7 +767,7 @@ export async function getOwnerDashboardV2(
         severity: 'medium',
         label: `${dormantCount} dormant branch${dormantCount === 1 ? '' : 'es'}`,
         count: dormantCount,
-        drillTo: '/branches?filter=dormant',
+        drillTo: '/owner#branch-performance',
       });
     }
   }
@@ -733,7 +805,7 @@ export async function getOwnerDashboardV2(
 
   // ----- bucket baseline by IST date for trend + dow comparison -----------
   const dailyNetMap = new Map<string, number>();
-  for (let i = 0; i < 28; i += 1) {
+  for (let i = 0; i < TREND_DAYS; i += 1) {
     dailyNetMap.set(toIstDateKey(startOfDaysAgoIst(now, i)), 0);
   }
   for (const b of baselineBills) {
@@ -779,8 +851,10 @@ export async function getOwnerDashboardV2(
     discountInPaise: discountToday,
     commissionInPaise: commissionToday,
     netInPaise: netToday,
+    discountRatePct: grossToday > 0 ? Math.round((discountToday / grossToday) * 100) : 0,
     cashInPaise: cashToday,
     onlineInPaise: onlineToday,
+    collectedTotalInPaise: cashToday + onlineToday,
     outstandingInPaise: outstandingTotal,
     deltaPercent,
     baselineSamples,
@@ -789,6 +863,8 @@ export async function getOwnerDashboardV2(
   // ----- payout liability -------------------------------------------------
   const liability: PayoutLiability = {
     totalInPaise: 0,
+    toReviewInPaise: 0,
+    approvedUnpaidInPaise: 0,
     byType: { referralInPaise: 0, clinicInPaise: 0, diagnosticCenterInPaise: 0 },
   };
   for (const row of payoutLiabilityRows) {
@@ -799,6 +875,14 @@ export async function getOwnerDashboardV2(
     else if (row.doctorType === 'DIAGNOSTIC_CENTER')
       liability.byType.diagnosticCenterInPaise = amt;
   }
+  // Stage split: toReview MUST equal the payouts_to_review chip definition
+  // (reviewedAt == null && paidAt == null). approvedUnpaid is the remainder of
+  // the open (paidAt == null) liability — i.e. reviewed but not yet paid.
+  liability.toReviewInPaise = payoutsToReviewAgg._sum.derivedAmountInPaise ?? 0;
+  liability.approvedUnpaidInPaise = Math.max(
+    0,
+    liability.totalInPaise - liability.toReviewInPaise,
+  );
 
   // ----- ops pulse -------------------------------------------------------
   const tatDurations = diagFinalizedTodaySamples
@@ -849,6 +933,10 @@ export async function getOwnerDashboardV2(
       inConsultation: clinicInProgress,
       completedToday: clinicCompletedToday,
       revisitsToday: clinicRevisitsToday,
+      revisitRatePct:
+        clinicCompletedToday > 0
+          ? Math.round((clinicRevisitsToday / clinicCompletedToday) * 100)
+          : null,
       avgWaitMinutes: avgWait,
       onShiftDoctorName: clinicShiftDoctor?.clinicDoctor?.name ?? null,
     },
@@ -856,8 +944,8 @@ export async function getOwnerDashboardV2(
   };
 
   // ----- revenue trend (last 30 days) ------------------------------------
-  // Pull the last 30-day slice from dailyNetMap (we already covered 28); add
-  // days 28 + 29 with their own bucket entries since baseline only went 28d.
+  // dailyNetMap is seeded + populated for the full 30-day window, so every
+  // trend day reflects real bills/orders (no silently-zeroed oldest days).
   const trendKeys: string[] = [];
   for (let i = TREND_DAYS - 1; i >= 0; i -= 1) {
     trendKeys.push(toIstDateKey(startOfDaysAgoIst(now, i)));
@@ -933,6 +1021,26 @@ export async function getOwnerDashboardV2(
     if (row._max.createdAt) lastVisitByBranch.set(row.branchId, row._max.createdAt);
   }
 
+  // prior-window net per branch (same shape as current: gross - discount - commission)
+  const priorBranchAgg = new Map<string, { gross: number; discount: number }>();
+  for (const b of priorBranchBills) {
+    const cur = priorBranchAgg.get(b.branchId) ?? { gross: 0, discount: 0 };
+    cur.gross += b.totalAmountInPaise;
+    cur.discount += b.discountAmountInPaise;
+    priorBranchAgg.set(b.branchId, cur);
+  }
+  const priorBranchCommission = new Map<string, number>();
+  for (const o of priorBranchTestOrders) {
+    const cur = priorBranchCommission.get(o.branchId) ?? 0;
+    priorBranchCommission.set(o.branchId, cur + accruedCommissionInPaise([o]));
+  }
+  for (const v of priorBranchClinicVisits) {
+    const bid = v.visit?.branchId;
+    if (!bid) continue;
+    const cur = priorBranchCommission.get(bid) ?? 0;
+    priorBranchCommission.set(bid, cur + clinicCommissionInPaise([v]));
+  }
+
   const visibleBranches = branchId
     ? allBranches.filter((b) => b.id === branchId)
     : allBranches;
@@ -942,6 +1050,9 @@ export async function getOwnerDashboardV2(
       const agg = branchAgg.get(b.id) ?? { gross: 0, discount: 0 };
       const commission = branchCommission.get(b.id) ?? 0;
       const net = agg.gross - agg.discount - commission;
+      const priorAgg = priorBranchAgg.get(b.id) ?? { gross: 0, discount: 0 };
+      const priorNet =
+        priorAgg.gross - priorAgg.discount - (priorBranchCommission.get(b.id) ?? 0);
       const visits = visitCountByBranch.get(b.id) ?? 0;
       const tatList = (branchTatBuckets.get(b.id) ?? []).sort((a, c) => a - c);
       const lastVisit = lastVisitByBranch.get(b.id);
@@ -956,7 +1067,8 @@ export async function getOwnerDashboardV2(
         visitCount: visits,
         avgTicketInPaise: visits > 0 ? Math.round(net / visits) : null,
         tatP50Minutes: percentile(tatList, 50),
-        deltaPercent: null, // requires prior-period fetch — wired in phase 2
+        deltaPercent:
+          priorNet > 0 ? Math.round(((net - priorNet) / priorNet) * 100) : null,
         daysDormant: daysDormant >= DORMANT_DAYS ? daysDormant : 0,
       };
     })

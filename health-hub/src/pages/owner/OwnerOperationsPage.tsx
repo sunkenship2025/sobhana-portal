@@ -30,6 +30,7 @@ import {
   ErrorCard,
   FullPageSkeleton,
   SeverityBadge,
+  TruncationFooter,
 } from './_shared/ownerUi';
 
 interface OperationsResponse {
@@ -41,8 +42,11 @@ interface OperationsResponse {
     finalizedToday: number;
     finalizableToday: number;
     inQueue: number;
+    inQueueDiagnostics: number;
+    inQueueClinic: number;
     deliveryRatePercent: number | null;
     deliveryAttempted: number;
+    inFlight: number;
   };
   tatHistogram: {
     bins: { rangeMin: number; rangeMax: number; count: number }[];
@@ -51,6 +55,7 @@ interface OperationsResponse {
     slaMinutes: number;
     breachCount: number;
     sampleCount: number;
+    xMaxMinutes: number;
   };
    diagnosticsQueue: Array<{
      visitId: string;
@@ -104,10 +109,18 @@ interface OperationsResponse {
 
 // ----- TAT histogram ----------------------------------------------------
 
+// Compact human label for a duration in minutes (axis spans hours now).
+function fmtMinutes(mins: number): string {
+  const m = Math.round(mins);
+  if (m < 90) return `${m}m`;
+  const hrs = m / 60;
+  return Number.isInteger(hrs) ? `${hrs}h` : `${hrs.toFixed(1)}h`;
+}
+
 function TatHistogramCard({ histogram }: { histogram: OperationsResponse['tatHistogram'] }) {
   if (histogram.sampleCount === 0) {
     return (
-      <SectionCard label="TAT distribution" description="Last 100 finalized reports">
+      <SectionCard label="Registration→Report time" description="Last 100 finalized reports">
         <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>
           No finalized reports yet.
         </div>
@@ -118,27 +131,33 @@ function TatHistogramCard({ histogram }: { histogram: OperationsResponse['tatHis
   const width = 600;
   const height = 140;
   const binWidth = width / histogram.bins.length;
-  const slaX = (histogram.slaMinutes / 33) * width;
-  const p50X =
-    histogram.p50Minutes !== null
-      ? (Math.min(33, histogram.p50Minutes) / 33) * width
-      : null;
-  const p95X =
-    histogram.p95Minutes !== null
-      ? (Math.min(33, histogram.p95Minutes) / 33) * width
-      : null;
 
+  // P0-C: x-range is data-driven (xMaxMinutes from the backend). Markers and the
+  // SLA line scale to that range; the SLA line is only drawn if it fits on-scale.
+  const xMax = Math.max(1, histogram.xMaxMinutes);
+  const xPos = (mins: number) => (Math.min(xMax, mins) / xMax) * width;
+  const slaOnScale = histogram.slaMinutes <= xMax;
+  const slaX = xPos(histogram.slaMinutes);
+  const p50X = histogram.p50Minutes !== null ? xPos(histogram.p50Minutes) : null;
+  const p95X = histogram.p95Minutes !== null ? xPos(histogram.p95Minutes) : null;
+
+  // Color thresholds scale to the range (early/healthy → late/critical).
   function colorFor(rangeMin: number): string {
-    if (rangeMin < 10) return TOKENS.healthy;
-    if (rangeMin < 18) return TOKENS.cautionLight;
-    if (rangeMin < 28) return TOKENS.caution;
+    const frac = rangeMin / xMax;
+    if (frac < 0.3) return TOKENS.healthy;
+    if (frac < 0.55) return TOKENS.cautionLight;
+    if (frac < 0.85) return TOKENS.caution;
     return TOKENS.critical;
   }
 
   return (
     <SectionCard
-      label="TAT distribution"
-      description="Last 100 finalized · 3-minute bins · SLA dashed red"
+      label="Registration→Report time"
+      description={
+        slaOnScale
+          ? 'Last 100 finalized · SLA dashed red'
+          : 'Last 100 finalized · SLA is 24h (off-scale)'
+      }
     >
       <div className="relative" style={{ height }}>
         <svg
@@ -183,35 +202,37 @@ function TatHistogramCard({ histogram }: { histogram: OperationsResponse['tatHis
               strokeDasharray="3,2"
             />
           )}
-          <line
-            x1={slaX}
-            y1={4}
-            x2={slaX}
-            y2={height - 4}
-            stroke={TOKENS.critical}
-            strokeWidth={1}
-            strokeDasharray="3,2"
-          />
+          {slaOnScale && (
+            <line
+              x1={slaX}
+              y1={4}
+              x2={slaX}
+              y2={height - 4}
+              stroke={TOKENS.critical}
+              strokeWidth={1}
+              strokeDasharray="3,2"
+            />
+          )}
         </svg>
       </div>
       <div
         className="mt-2 flex items-center justify-between"
         style={{ color: TOKENS.textTertiary, fontSize: 11 }}
       >
-        <span>0m</span>
-        <span>15m</span>
-        <span>30m+</span>
+        <span>0</span>
+        <span>{fmtMinutes(xMax / 2)}</span>
+        <span>{fmtMinutes(xMax)}+</span>
       </div>
       <div
         className="mt-2 border-t pt-2"
         style={{ borderColor: TOKENS.border, fontSize: 12, color: TOKENS.textSecondary }}
       >
-        p50 {Math.round(histogram.p50Minutes ?? 0)}m · p95 {Math.round(histogram.p95Minutes ?? 0)}m ·{' '}
-        SLA {histogram.slaMinutes}m
+        p50 {fmtMinutes(histogram.p50Minutes ?? 0)} · p95 {fmtMinutes(histogram.p95Minutes ?? 0)} ·{' '}
+        SLA {fmtMinutes(histogram.slaMinutes)}
         {histogram.breachCount > 0 && (
           <span style={{ color: TOKENS.critical }}>
             {' '}
-            · {histogram.breachCount} breached SLA{' '}
+            · {histogram.breachCount} over 24h{' '}
             <Link to="/diagnostics/pending?filter=overdue" style={{ color: TOKENS.info }}>
               open list ↗
             </Link>
@@ -296,6 +317,7 @@ function DiagnosticsQueueCard({ rows }: { rows: OperationsResponse['diagnosticsQ
           </tbody>
         </table>
       </div>
+      <TruncationFooter shown={Math.min(10, rows.length)} total={rows.length} />
     </SectionCard>
   );
 }
@@ -364,7 +386,7 @@ function ClinicQueueCard({ groups }: { groups: OperationsResponse['clinicQueue']
                   </span>
                   <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
                     {g.branchName ?? '—'}
-                    {g.shiftStartIso && ` · since ${formatIstTime(g.shiftStartIso)}`}
+                    {g.shiftStartIso && ` · first consult at ${formatIstTime(g.shiftStartIso)}`}
                   </div>
                 </span>
               </div>
@@ -521,8 +543,8 @@ function CommsFailuresCard({ rows }: { rows: OperationsResponse['commsFailures']
                 <td className="py-2" style={{ color: TOKENS.critical }}>
                   {r.failureReason}
                 </td>
-                <td className="py-2">
-                  <span style={{ color: TOKENS.info, fontSize: 12 }}>{r.action} ↗</span>
+                <td className="py-2" style={{ color: TOKENS.textTertiary }}>
+                  {r.action}
                 </td>
                 <td className="py-2" style={{ color: TOKENS.textTertiary }}>
                   {formatIstTime(r.failedAtIso)}
@@ -591,10 +613,10 @@ export default function OwnerOperationsPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
               <KpiCard
-                label="TAT median (today)"
+                label="Registration→Report (median)"
                 value={
                   data.kpis.tatMedianMinutes !== null
-                    ? `${Math.round(data.kpis.tatMedianMinutes)}m`
+                    ? fmtMinutes(data.kpis.tatMedianMinutes)
                     : '—'
                 }
                 sub={
@@ -604,14 +626,14 @@ export default function OwnerOperationsPage() {
                 }
               />
               <KpiCard
-                label="Reports finalized"
+                label="Visits with reports finalized"
                 value={`${data.kpis.finalizedToday}/${data.kpis.finalizableToday}`}
-                sub="finalized / orderable today"
+                sub="finalized / reportable visits today"
               />
               <KpiCard
                 label="In queue right now"
                 value={data.kpis.inQueue}
-                sub="waiting + in progress"
+                sub={`incl. ${data.kpis.inQueueDiagnostics} diagnostics + ${data.kpis.inQueueClinic} clinic`}
               />
               <KpiCard
                 label="Message delivery"
@@ -620,7 +642,7 @@ export default function OwnerOperationsPage() {
                     ? `${data.kpis.deliveryRatePercent}%`
                     : '—'
                 }
-                sub={`${data.kpis.deliveryAttempted} attempted today`}
+                sub={`${data.kpis.deliveryAttempted} settled · ${data.kpis.inFlight} in flight`}
               />
             </div>
 

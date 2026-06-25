@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
-import { getOwnerDashboardData } from '../services/ownerDashboardService';
 import { getOwnerMetrics, MetricsWindow } from '../services/ownerMetricsService';
 import { getOwnerDashboardV2 } from '../services/ownerDashboardV2Service';
 import { getOwnerMoney, PeriodKey as MoneyPeriod } from '../services/ownerMoneyService';
@@ -24,19 +23,6 @@ router.get('/dashboard-v2', async (req: AuthRequest, res) => {
     return res.json(data);
   } catch (err: any) {
     req.log.error({ err }, 'owner dashboard v2 load failed');
-    return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'Failed to load owner dashboard',
-    });
-  }
-});
-
-router.get('/dashboard', async (req: AuthRequest, res) => {
-  try {
-    const data = await getOwnerDashboardData();
-    return res.json(data);
-  } catch (err: any) {
-    req.log.error({ err }, 'owner dashboard load failed');
     return res.status(500).json({
       error: 'INTERNAL_ERROR',
       message: 'Failed to load owner dashboard',

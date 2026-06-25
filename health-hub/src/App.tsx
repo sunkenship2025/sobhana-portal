@@ -21,7 +21,6 @@ import ClinicVisitQueue from "./pages/clinic/ClinicVisitQueue";
 import GlobalPatientSearch from "./pages/clinic/GlobalPatientSearch";
 import Patient360 from "./pages/clinic/Patient360";
 import DoctorDashboard from "./pages/doctor/DoctorDashboard";
-import OwnerDashboard from "./pages/owner/OwnerDashboard";
 import OwnerDashboardV2 from "./pages/owner/OwnerDashboardV2";
 import OwnerMoneyPage from "./pages/owner/OwnerMoneyPage";
 import OwnerDoctorsPage from "./pages/owner/OwnerDoctorsPage";
@@ -150,15 +149,10 @@ function AppRoutes() {
         </ProtectedRoute>
       } />
       
-      {/* Owner only — new decision-first dashboard at /owner; legacy preserved at /owner/legacy */}
+      {/* Owner only — decision-first dashboard */}
       <Route path="/owner" element={
         <ProtectedRoute allowedRoles={['owner']}>
           <OwnerDashboardV2 />
-        </ProtectedRoute>
-      } />
-      <Route path="/owner/legacy" element={
-        <ProtectedRoute allowedRoles={['owner']}>
-          <OwnerDashboard />
         </ProtectedRoute>
       } />
       <Route path="/money/bills" element={

@@ -11,7 +11,7 @@
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { API_BASE } from '@/lib/api';
 import { apiRequest } from '@/lib/utils';
@@ -38,8 +38,10 @@ interface DoctorsResponse {
   branchScope: { branchId: string | null; branchName: string | null };
   kpis: {
     netReferralRevenueInPaise: number;
+    netClinicRevenueInPaise: number;
     commissionPaidInPaise: number;
     liabilityOpenInPaise: number;
+    liabilityToReviewInPaise: number;
     outsourcedSpendInPaise: number;
   };
   leaderboard: Array<{
@@ -55,6 +57,7 @@ interface DoctorsResponse {
     netInPaise: number;
     owedInPaise: number;
     flagHighRate: boolean;
+    visitsDeltaPercent: number | null;
   }>;
   payoutAging: Array<{
     key: '0_7' | '8_15' | '16_30' | '30_plus';
@@ -82,25 +85,46 @@ interface DoctorsResponse {
 
 function LeaderboardCard({ rows }: { rows: DoctorsResponse['leaderboard'] }) {
   const [showAll, setShowAll] = useState(false);
-  const visible = showAll ? rows : rows.slice(0, 25);
+  const [activeOnly, setActiveOnly] = useState(true);
+  // Active doctors first (preserving net-desc order within each group),
+  // then optionally hide inactive entirely.
+  const sorted = [...rows].sort((a, b) => Number(b.isActive) - Number(a.isActive));
+  const filtered = activeOnly ? sorted.filter((r) => r.isActive) : sorted;
+  const inactiveCount = rows.length - rows.filter((r) => r.isActive).length;
+  const visible = showAll ? filtered : filtered.slice(0, 25);
   return (
     <SectionCard
       label="Doctor leaderboard"
       description="Sorted by net descending · high-rate doctors (>25%) tinted"
       rightSlot={
-        rows.length > 25 ? (
-          <button
-            onClick={() => setShowAll((v) => !v)}
-            style={{
-              color: TOKENS.info,
-              fontSize: 12,
-              background: 'transparent',
-              border: 0,
-            }}
-          >
-            {showAll ? 'show top 25' : `show all (${rows.length})`}
-          </button>
-        ) : null
+        <div className="flex items-center gap-3">
+          {inactiveCount > 0 && (
+            <button
+              onClick={() => setActiveOnly((v) => !v)}
+              style={{
+                color: activeOnly ? TOKENS.info : TOKENS.textTertiary,
+                fontSize: 12,
+                background: 'transparent',
+                border: 0,
+              }}
+            >
+              {activeOnly ? `active only (+${inactiveCount} hidden)` : 'show all'}
+            </button>
+          )}
+          {filtered.length > 25 ? (
+            <button
+              onClick={() => setShowAll((v) => !v)}
+              style={{
+                color: TOKENS.info,
+                fontSize: 12,
+                background: 'transparent',
+                border: 0,
+              }}
+            >
+              {showAll ? 'show top 25' : `show all (${filtered.length})`}
+            </button>
+          ) : null}
+        </div>
       }
     >
       {rows.length === 0 ? (
@@ -164,12 +188,9 @@ function LeaderboardCard({ rows }: { rows: DoctorsResponse['leaderboard'] }) {
                           .toUpperCase() || '—'}
                       </span>
                       <span>
-                        <Link
-                          to={`/people/doctors/${r.doctorId}`}
-                          style={{ color: TOKENS.info, textDecoration: 'none' }}
-                        >
+                        <span style={{ color: TOKENS.textPrimary }}>
                           {r.doctorName}
-                        </Link>
+                        </span>
                         <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
                           {r.doctorNumber} ·{' '}
                           {r.doctorType === 'REFERRAL' ? 'referral' : 'clinic'}
@@ -179,7 +200,23 @@ function LeaderboardCard({ rows }: { rows: DoctorsResponse['leaderboard'] }) {
                     </div>
                   </td>
                   <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
-                    {r.visits}
+                    <span>{r.visits}</span>
+                    <span
+                      className="ml-1"
+                      style={{
+                        fontSize: 11,
+                        color:
+                          r.visitsDeltaPercent === null
+                            ? TOKENS.textTertiary
+                            : r.visitsDeltaPercent >= 0
+                              ? TOKENS.healthy
+                              : TOKENS.critical,
+                      }}
+                    >
+                      {r.visitsDeltaPercent === null
+                        ? '—'
+                        : `${r.visitsDeltaPercent >= 0 ? '▲' : '▼'}${Math.abs(r.visitsDeltaPercent)}%`}
+                    </span>
                   </td>
                   <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
                     {formatRupees(r.grossInPaise, { short: true })}
@@ -460,11 +497,17 @@ export default function OwnerDoctorsPage() {
 
         {data && (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
               <KpiCard
-                label="Net referral revenue"
+                label="Net from referral doctors"
                 value={formatRupees(data.kpis.netReferralRevenueInPaise, { short: true })}
                 sub="gross − accrued commission"
+              />
+              {/* Clinic-doctor net; hidden by display-conditional when OP/IP is off for the tenant (not a toggle framework). */}
+              <KpiCard
+                label="Net from clinic doctors"
+                value={formatRupees(data.kpis.netClinicRevenueInPaise, { short: true })}
+                sub="consultation − accrued commission"
               />
               <KpiCard
                 label="Commission paid"
@@ -474,7 +517,7 @@ export default function OwnerDoctorsPage() {
               <KpiCard
                 label="Liability open"
                 value={formatRupees(data.kpis.liabilityOpenInPaise, { short: true })}
-                sub="awaiting payment"
+                sub={`${formatRupees(data.kpis.liabilityToReviewInPaise, { short: true })} to review`}
               />
               <KpiCard
                 label="Outsourced spend"

@@ -172,6 +172,31 @@ async function createAndSendTemplateMessage(input: {
   contextType?: MessageContextType;
   components: TemplateComponent[];
 }) {
+  const resolvedContextType = input.contextType ?? MessageContextType.REPORT;
+
+  // For REPORT/BILL contexts the contextId is a visitId, so we can derive the
+  // owning branch. Other context types don't carry a visitId, so leave branch null.
+  // Never throw on a missing visit — fall back to null.
+  let branchId: string | null = null;
+  if (
+    resolvedContextType === MessageContextType.REPORT ||
+    resolvedContextType === MessageContextType.BILL
+  ) {
+    try {
+      const visit = await prisma.visit.findUnique({
+        where: { id: input.contextId },
+        select: { branchId: true },
+      });
+      branchId = visit?.branchId ?? null;
+    } catch (branchErr: any) {
+      log.warn(
+        { err: branchErr, contextId: input.contextId },
+        'failed to resolve branch for message log — falling back to null',
+      );
+      branchId = null;
+    }
+  }
+
   const messageLog = await prisma.messageLog.create({
     data: {
       patientId: input.patientId,
@@ -180,8 +205,9 @@ async function createAndSendTemplateMessage(input: {
       templateName: input.templateName,
       templateParams: input.templateParams,
       status: 'PENDING',
-      contextType: input.contextType ?? MessageContextType.REPORT,
+      contextType: resolvedContextType,
       contextId: input.contextId,
+      branchId,
     },
   });
 

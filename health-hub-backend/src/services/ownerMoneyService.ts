@@ -22,7 +22,7 @@ import type { Prisma } from '@prisma/client';
 
 const CACHE_TTL_SEC = 60;
 const cacheKey = (period: PeriodKey, branchId: string | null) =>
-  `owner-money:v1:${period}:${branchId ?? 'all'}`;
+  `owner-money:v2:${period}:${branchId ?? 'all'}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -38,8 +38,11 @@ export interface MoneyKpi {
   netInPaise: number;
   outstandingInPaise: number;
   outstandingAgedInPaise: number; // > 30 days portion of outstanding
+  outstandingAgedBillCount: number; // # of open bills aged > 30 days
   discountInPaise: number;
   discountBillCount: number;
+  commissionInPaise: number; // referral + clinic commission accrued in period (Net-to-you composition)
+  collectionRatePct: number | null; // % of this period's net-billable that has been collected
   grossDeltaPercent: number | null;
   netDeltaPercent: number | null;
 }
@@ -79,6 +82,7 @@ export interface CashByUserRow {
   branchName: string;
   cashInPaise: number;
   onlineInPaise: number;
+  totalCollectedInPaise: number;
   transactionCount: number;
   flagSoloCash: boolean;
 }
@@ -92,6 +96,7 @@ export interface DiscountRow {
   discountInPaise: number;
   discountPercent: number;
   reason: string | null;
+  grantedBy: string | null;
   flag: boolean;
 }
 
@@ -120,7 +125,9 @@ export interface MoneyResponse {
   oldestUnpaid: OldestUnpaidRow[];
   cashByBranch: CashByBranchRow[];
   cashByUser: CashByUserRow[];
+  cashByUserTotalCount: number;
   discountLog: DiscountRow[];
+  discountLogTotalCount: number;
   refunds: RefundSummary;
 }
 
@@ -259,6 +266,7 @@ export async function getOwnerMoney(
         discountAmountInPaise: true,
         discountPercentage: true,
         discountReason: true,
+        discountedByUser: { select: { name: true } },
         paidAmountInPaise: true,
         paymentStatus: true,
         visit: { select: { patient: { select: { id: true, name: true, title: true } } } },
@@ -348,7 +356,9 @@ export async function getOwnerMoney(
     }),
     prisma.bill.aggregate({
       where: { paymentStatus: 'REFUNDED', billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere },
-      _sum: { totalAmountInPaise: true, discountAmountInPaise: true },
+      // Cash actually returned to the patient = what was paid in. Face value
+      // (total - discount) overstates refunds for partially-paid bills.
+      _sum: { paidAmountInPaise: true },
       _count: true,
     }),
     prisma.paymentTransaction.findMany({
@@ -377,11 +387,10 @@ export async function getOwnerMoney(
       select: {
         id: true,
         billNumber: true,
-        totalAmountInPaise: true,
-        discountAmountInPaise: true,
         paidAmountInPaise: true,
+        refundReason: true,
+        refundedAt: true,
         updatedAt: true,
-        discountReason: true,
         visit: { select: { patient: { select: { name: true, title: true } } } },
       },
     }),
@@ -419,28 +428,54 @@ export async function getOwnerMoney(
       ),
     0,
   );
-  const cutoff30 = new Date(now.getTime() - 30 * DAY_MS);
-  const outstandingAged = openBills
-    .filter((b) => b.billedAt < cutoff30)
-    .reduce(
-      (s, b) =>
-        s +
-        Math.max(
-          0,
-          b.totalAmountInPaise - b.discountAmountInPaise - b.paidAmountInPaise,
-        ),
-      0,
-    );
+  // IST day boundary so "aged > 30d" matches the aging buckets below.
+  const cutoff30 = startOfDaysAgoIst(now, 30);
+  const agedOpenBills = openBills.filter(
+    (b) =>
+      b.billedAt < cutoff30 &&
+      b.totalAmountInPaise - b.discountAmountInPaise - b.paidAmountInPaise > 0,
+  );
+  const outstandingAged = agedOpenBills.reduce(
+    (s, b) =>
+      s +
+      Math.max(
+        0,
+        b.totalAmountInPaise - b.discountAmountInPaise - b.paidAmountInPaise,
+      ),
+    0,
+  );
+  const outstandingAgedBillCount = agedOpenBills.length;
 
   const discountBillCount = billsInWindow.filter((b) => b.discountAmountInPaise > 0).length;
+
+  // Collection rate for the selected period: of what was net-billable
+  // (gross - discount) for bills billed in this window, how much has been
+  // collected. Unpaid-from-this-period = the still-owed remainder on those bills.
+  const netBillableInWindow = grossInWindow - discountInWindow;
+  const unpaidFromThisPeriod = billsInWindow.reduce(
+    (s, b) =>
+      s +
+      Math.max(
+        0,
+        b.totalAmountInPaise - b.discountAmountInPaise - b.paidAmountInPaise,
+      ),
+    0,
+  );
+  const collectionRatePct =
+    netBillableInWindow > 0
+      ? Math.round(((netBillableInWindow - unpaidFromThisPeriod) / netBillableInWindow) * 100)
+      : null;
 
   const kpis: MoneyKpi = {
     grossInPaise: grossInWindow,
     netInPaise: netInWindow,
     outstandingInPaise: outstandingTotal,
     outstandingAgedInPaise: outstandingAged,
+    outstandingAgedBillCount,
     discountInPaise: discountInWindow,
     discountBillCount,
+    commissionInPaise: commissionInWindow,
+    collectionRatePct,
     grossDeltaPercent,
     netDeltaPercent,
   };
@@ -476,9 +511,9 @@ export async function getOwnerMoney(
   const revenueTrend = dayKeys.map((d) => ({ date: d, netInPaise: dayMap.get(d) ?? 0 }));
 
   // ---- aging ----
-  const cutoff7 = new Date(now.getTime() - 7 * DAY_MS);
-  const cutoff15 = new Date(now.getTime() - 15 * DAY_MS);
-  const cutoff30agedAt = new Date(now.getTime() - 30 * DAY_MS);
+  const cutoff7 = startOfDaysAgoIst(now, 7);
+  const cutoff15 = startOfDaysAgoIst(now, 15);
+  const cutoff30agedAt = startOfDaysAgoIst(now, 30);
   const aging: AgingBucket[] = [
     { key: '0_7', label: '0–7 days', amountInPaise: 0, billCount: 0 },
     { key: '8_15', label: '8–15 days', amountInPaise: 0, billCount: 0 },
@@ -585,11 +620,13 @@ export async function getOwnerMoney(
         branchName: v.branchName,
         cashInPaise: v.cash,
         onlineInPaise: v.online,
+        totalCollectedInPaise: userTotal,
         transactionCount: v.count,
         flagSoloCash: userCashShare > SOLO_USER_CASH_PCT && userTotal > 0,
       };
     })
-    .sort((a, b) => b.cashInPaise - a.cashInPaise);
+    .sort((a, b) => b.totalCollectedInPaise - a.totalCollectedInPaise);
+  const cashByUserTotalCount = cashByUser.length;
 
   // ---- discount log ----
   const discountLog: DiscountRow[] = billsInWindow
@@ -603,16 +640,18 @@ export async function getOwnerMoney(
       discountInPaise: b.discountAmountInPaise,
       discountPercent: Math.round(b.discountPercentage ?? 0),
       reason: b.discountReason ?? null,
+      grantedBy: b.discountedByUser?.name ?? null,
       flag:
         (b.discountPercentage ?? 0) > HIGH_DISCOUNT_PCT ||
         b.discountAmountInPaise > HIGH_DISCOUNT_PAISE,
     }))
     .sort((a, b) => b.discountInPaise - a.discountInPaise);
+  const discountLogTotalCount = discountLog.length;
 
   // ---- refunds ----
-  const refundedTotal =
-    (refundedBills._sum.totalAmountInPaise ?? 0) -
-    (refundedBills._sum.discountAmountInPaise ?? 0);
+  // Cash actually returned = sum of paidAmountInPaise on refunded bills, not
+  // face value (total - discount).
+  const refundedTotal = refundedBills._sum.paidAmountInPaise ?? 0;
   const refunds: RefundSummary = {
     totalInPaise: refundedTotal,
     count: refundedBills._count,
@@ -623,10 +662,12 @@ export async function getOwnerMoney(
       billNumber: b.billNumber,
       patientName: b.visit.patient.name,
       patientTitle: b.visit.patient.title,
-      refundedInPaise:
-        b.totalAmountInPaise - b.discountAmountInPaise - (b.paidAmountInPaise ?? 0),
-      reason: b.discountReason ?? null,
-      refundedAt: b.updatedAt.toISOString(),
+      // Cash returned on this bill = what the patient had paid in.
+      refundedInPaise: b.paidAmountInPaise ?? 0,
+      reason: b.refundReason ?? null,
+      // Prefer the real refund timestamp; fall back to updatedAt for historical
+      // rows where the refund flow never wrote refundedAt.
+      refundedAt: (b.refundedAt ?? b.updatedAt).toISOString(),
     })),
   };
 
@@ -640,7 +681,9 @@ export async function getOwnerMoney(
     oldestUnpaid,
     cashByBranch,
     cashByUser,
+    cashByUserTotalCount,
     discountLog,
+    discountLogTotalCount,
     refunds,
   };
 

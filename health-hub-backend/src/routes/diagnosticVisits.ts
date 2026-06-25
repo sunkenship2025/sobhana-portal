@@ -1807,6 +1807,8 @@ router.post("/", async (req: AuthRequest, res) => {
             discountType: billFinancials.discountType,
             discountPercentage: billFinancials.discountPercentage,
             discountAmountInPaise: billFinancials.discountAmountInPaise,
+            discountedByUserId:
+              billFinancials.discountAmountInPaise > 0 ? req.user!.id : null,
             paidAmountInPaise: billFinancials.paidAmountInPaise,
             paymentStatus: billFinancials.paymentStatus,
             transactions:
@@ -2622,6 +2624,10 @@ router.post("/:id/tests", async (req: AuthRequest, res) => {
           ...(nextBillFinancials
             ? {
                 discountAmountInPaise: nextBillFinancials.discountAmountInPaise,
+                discountedByUserId:
+                  nextBillFinancials.discountAmountInPaise > 0
+                    ? req.user!.id
+                    : null,
                 paidAmountInPaise: nextBillFinancials.paidAmountInPaise,
                 paymentStatus: nextBillFinancials.paymentStatus,
               }
@@ -2808,6 +2814,10 @@ router.delete("/:id/tests/:testOrderId", async (req: AuthRequest, res) => {
           ...(nextBillFinancials
             ? {
                 discountAmountInPaise: nextBillFinancials.discountAmountInPaise,
+                discountedByUserId:
+                  nextBillFinancials.discountAmountInPaise > 0
+                    ? req.user!.id
+                    : null,
                 paidAmountInPaise: nextBillFinancials.paidAmountInPaise,
                 paymentStatus: nextBillFinancials.paymentStatus,
               }

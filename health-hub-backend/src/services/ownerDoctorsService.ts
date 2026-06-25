@@ -19,7 +19,7 @@ import type { Prisma } from '@prisma/client';
 
 const CACHE_TTL_SEC = 60;
 const cacheKey = (period: PeriodKey, branchId: string | null) =>
-  `owner-doctors:v1:${period}:${branchId ?? 'all'}`;
+  `owner-doctors:v2:${period}:${branchId ?? 'all'}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -29,8 +29,12 @@ export type PeriodKey = '7d' | '30d' | 'mtd' | 'ytd';
 
 export interface DoctorsKpi {
   netReferralRevenueInPaise: number;
+  netClinicRevenueInPaise: number;
   commissionPaidInPaise: number;
   liabilityOpenInPaise: number;
+  // Slice of liabilityOpen still needing review (reviewedAt == null && paidAt == null);
+  // same definition the dashboard's payouts_to_review chip uses.
+  liabilityToReviewInPaise: number;
   outsourcedSpendInPaise: number;
 }
 
@@ -47,6 +51,9 @@ export interface LeaderboardRow {
   netInPaise: number;
   owedInPaise: number;
   flagHighRate: boolean;
+  // Period-over-period visit delta vs the immediately preceding equal-length
+  // window; null when there were no prior-window visits to compare against.
+  visitsDeltaPercent: number | null;
 }
 
 export interface PayoutAgingBucket {
@@ -172,10 +179,16 @@ export async function getOwnerDoctors(
 
   const now = new Date();
   const win = periodWindow(period, now);
+  // Prior equal-length window: immediately preceding the selected one.
+  const priorWin = {
+    start: new Date(win.start.getTime() - (win.end.getTime() - win.start.getTime())),
+    end: win.start,
+  };
 
   const [
     scopedBranch,
     referralLinks, // visits per referral doctor (window-scoped)
+    priorReferralLinks, // referral-doctor visits in the prior equal-length window
     clinicVisitsInWindow,
     payoutsInWindow,
     payoutsOpen,
@@ -214,6 +227,15 @@ export async function getOwnerDoctors(
           },
         },
       },
+    }),
+
+    // Same shape as above, shifted back one period length — for the visit delta.
+    prisma.referralDoctor_Visit.findMany({
+      where: {
+        createdAt: { gte: priorWin.start, lt: priorWin.end },
+        ...(branchId ? { branchId } : {}),
+      },
+      select: { referralDoctorId: true },
     }),
 
     prisma.clinicVisit.findMany({
@@ -348,6 +370,15 @@ export async function getOwnerDoctors(
     referralCommission += visitCommission;
   }
 
+  // Prior-window visit counts per referral doctor, for the period-over-period delta.
+  const priorReferralVisits = new Map<string, number>();
+  for (const link of priorReferralLinks) {
+    priorReferralVisits.set(
+      link.referralDoctorId,
+      (priorReferralVisits.get(link.referralDoctorId) ?? 0) + 1,
+    );
+  }
+
   let clinicGross = 0;
   let clinicCommission = 0;
   const clinicAggMap = new Map<
@@ -371,6 +402,12 @@ export async function getOwnerDoctors(
   );
   const liabilityOpen = payoutsOpen.reduce(
     (s, r) => s + r.derivedAmountInPaise,
+    0,
+  );
+  // Subset of open liability still awaiting review — matches the dashboard's
+  // payouts_to_review definition (reviewedAt == null && paidAt == null).
+  const liabilityToReview = payoutsOpen.reduce(
+    (s, r) => (r.reviewedAt === null ? s + r.derivedAmountInPaise : s),
     0,
   );
 
@@ -410,8 +447,10 @@ export async function getOwnerDoctors(
 
   const kpis: DoctorsKpi = {
     netReferralRevenueInPaise: referralGross - referralCommission,
+    netClinicRevenueInPaise: clinicGross - clinicCommission,
     commissionPaidInPaise: commissionPaid,
     liabilityOpenInPaise: liabilityOpen,
+    liabilityToReviewInPaise: liabilityToReview,
     outsourcedSpendInPaise: outgoingTotal,
   };
 
@@ -432,6 +471,7 @@ export async function getOwnerDoctors(
     if (!d) continue;
     const net = agg.gross - agg.commission;
     const rate = agg.gross > 0 ? Math.round((agg.commission / agg.gross) * 100) : 0;
+    const priorVisits = priorReferralVisits.get(doctorId) ?? 0;
     leaderboard.push({
       doctorId,
       doctorNumber: d.doctorNumber,
@@ -445,6 +485,8 @@ export async function getOwnerDoctors(
       netInPaise: net,
       owedInPaise: owedByDoctor.get(doctorId) ?? 0,
       flagHighRate: rate > HIGH_RATE_PCT,
+      visitsDeltaPercent:
+        priorVisits > 0 ? Math.round(((agg.visits - priorVisits) / priorVisits) * 100) : null,
     });
   }
   for (const [doctorId, agg] of clinicAggMap) {
@@ -465,6 +507,8 @@ export async function getOwnerDoctors(
       netInPaise: net,
       owedInPaise: owedByDoctor.get(doctorId) ?? 0,
       flagHighRate: rate > HIGH_RATE_PCT,
+      // Clinic doctors have no referral-visit prior-window data to compare.
+      visitsDeltaPercent: null,
     });
   }
   leaderboard.sort((a, b) => b.netInPaise - a.netInPaise);

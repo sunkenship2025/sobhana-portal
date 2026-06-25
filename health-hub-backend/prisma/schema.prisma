@@ -443,6 +443,7 @@ model Branch {
   auditLogs                 AuditLog[]
   productBranchPricing      ProductBranchPricing[]
   labInchargeRules          LabInchargeRule[]
+  messageLogs               MessageLog[]
 
   @@index([isActive])
   @@index([code])
@@ -466,6 +467,7 @@ model User {
   PaymentTransaction   PaymentTransaction[]
   ExternalReportUpload ExternalReportUpload[]
   TestResultEntered    TestResult[]           @relation("TestResultEnteredBy")
+  discountedBills      Bill[]                 @relation("BillDiscountedBy")
 
   @@index([role])
   @@index([activeBranchId])
@@ -555,15 +557,19 @@ model Bill {
   discountPercentage    Float?
   discountAmountInPaise Int               @default(0)
   discountReason        String?
+  discountedByUserId    String? // User who authorized the discount (set when discountAmountInPaise > 0)
   paidAmountInPaise     Int               @default(0)
   billedAt              DateTime          @default(now()) // Explicit billing timestamp; remains stable after payment updates
   paymentStatus         PaymentStatus     @default(PENDING)
+  refundReason          String? // Reason captured when a bill is refunded (forward-compatible; no refund flow writes this yet)
+  refundedAt            DateTime? // When the refund was processed; null until a refund flow exists
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
 
-  visit        Visit                @relation(fields: [visitId], references: [id], onDelete: Cascade)
-  branch       Branch               @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  transactions PaymentTransaction[]
+  visit            Visit                @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  branch           Branch               @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  discountedByUser User?                @relation("BillDiscountedBy", fields: [discountedByUserId], references: [id], onDelete: SetNull)
+  transactions     PaymentTransaction[]
 
   @@unique([branchId, billNumber])
   @@index([billNumber])
@@ -907,16 +913,19 @@ model MessageLog {
   readAt         DateTime?
   contextType    MessageContextType // REPORT | BILL | REMINDER | CAMPAIGN | PAYMENT
   contextId      String // visitId, billId, etc.
+  branchId       String? // Branch the message belongs to, derived from the visit at send time; null for historical rows
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  branch  Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   @@index([patientId])
   @@index([waMessageId])
   @@index([contextType, contextId])
   @@index([status])
   @@index([createdAt])
+  @@index([branchId])
 }
 
 // ============================================================================

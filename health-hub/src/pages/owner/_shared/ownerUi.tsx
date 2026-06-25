@@ -307,8 +307,13 @@ export function BranchFilter({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="rounded-md border bg-white px-3 py-1.5"
-      style={{ fontSize: 13, borderColor: TOKENS.border, color: TOKENS.textPrimary }}
+      className="inline-flex rounded-md border bg-white px-2.5 py-1.5"
+      style={{
+        fontSize: 12,
+        borderColor: TOKENS.border,
+        background: TOKENS.surface,
+        color: TOKENS.textPrimary,
+      }}
     >
       <option value="all">All branches</option>
       {branches.map((b) => (
@@ -488,5 +493,223 @@ export function NumericLink({ to, children }: { to: string; children: React.Reac
     >
       {children}
     </Link>
+  );
+}
+
+// ----- trend chart ------------------------------------------------------
+
+/**
+ * Shared daily-trend line chart. Uses a fixed-aspect responsive svg (the
+ * viewBox is sized to the data) so the rendered slope is honest — never
+ * preserveAspectRatio="none", which stretches and lies about the trend.
+ */
+export function TrendChart({
+  data,
+  height = 140,
+  valueFormat = (v) => String(v),
+  markLastAsToday = false,
+  accent = TOKENS.info,
+}: {
+  data: { date: string; value: number }[];
+  height?: number;
+  valueFormat?: (v: number) => string;
+  markLastAsToday?: boolean;
+  accent?: string;
+}) {
+  if (!data || data.length === 0) {
+    return (
+      <div
+        className="flex items-center justify-center"
+        style={{ height, color: TOKENS.textTertiary, fontSize: 12 }}
+      >
+        No data
+      </div>
+    );
+  }
+
+  // viewBox coordinate space (sized to the data; svg scales to container width)
+  const VB_W = 600;
+  const VB_H = height;
+  const padL = 8;
+  const padR = 8;
+  const padT = 14;
+  const padB = 18;
+  const plotW = VB_W - padL - padR;
+  const plotH = VB_H - padT - padB;
+
+  const values = data.map((d) => d.value);
+  const minV = Math.min(...values);
+  const maxV = Math.max(...values);
+  const span = maxV - minV || 1;
+
+  const n = data.length;
+  const xAt = (i: number) => padL + (n === 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+  const yAt = (v: number) => padT + (1 - (v - minV) / span) * plotH;
+
+  const points = data.map((d, i) => ({ x: xAt(i), y: yAt(d.value), d }));
+  const polyline = points.map((p) => `${p.x},${p.y}`).join(' ');
+  const baselineY = padT + plotH;
+
+  const midIdx = Math.floor((n - 1) / 2);
+  const dateLabels: { i: number; anchor: 'start' | 'middle' | 'end' }[] = [
+    { i: 0, anchor: 'start' },
+  ];
+  if (midIdx > 0 && midIdx < n - 1) dateLabels.push({ i: midIdx, anchor: 'middle' });
+  if (n > 1) dateLabels.push({ i: n - 1, anchor: 'end' });
+
+  return (
+    <svg
+      width="100%"
+      height={height}
+      viewBox={`0 0 ${VB_W} ${VB_H}`}
+      role="img"
+      style={{ display: 'block' }}
+    >
+      {/* zero baseline */}
+      <line
+        x1={padL}
+        y1={baselineY}
+        x2={VB_W - padR}
+        y2={baselineY}
+        stroke={TOKENS.border}
+        strokeWidth={1}
+      />
+      {/* min / max Y labels */}
+      <text x={padL} y={padT - 2} fontSize={10} fill={TOKENS.textTertiary} textAnchor="start">
+        {valueFormat(maxV)}
+      </text>
+      <text
+        x={padL}
+        y={baselineY - 3}
+        fontSize={10}
+        fill={TOKENS.textTertiary}
+        textAnchor="start"
+      >
+        {valueFormat(minV)}
+      </text>
+      {/* trend line */}
+      <polyline
+        points={polyline}
+        fill="none"
+        stroke={accent}
+        strokeWidth={1.5}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      {/* points */}
+      {points.map((p, i) => {
+        const isToday = markLastAsToday && i === n - 1;
+        return (
+          <circle
+            key={i}
+            cx={p.x}
+            cy={p.y}
+            r={isToday ? 4 : 2}
+            fill={isToday ? accent : TOKENS.surface}
+            stroke={accent}
+            strokeWidth={isToday ? 0 : 1.2}
+          >
+            <title>
+              {formatIstDate(p.d.date)} · {valueFormat(p.d.value)}
+            </title>
+          </circle>
+        );
+      })}
+      {/* date labels */}
+      {dateLabels.map(({ i, anchor }) => (
+        <text
+          key={i}
+          x={anchor === 'start' ? padL : anchor === 'end' ? VB_W - padR : xAt(i)}
+          y={VB_H - 4}
+          fontSize={10}
+          fill={TOKENS.textTertiary}
+          textAnchor={anchor}
+        >
+          {formatIstDate(data[i].date)}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+// ----- proportional severity --------------------------------------------
+
+/**
+ * Color a value by its proportion of a base (ratios in 0..1) instead of a
+ * raw > 0 check. Returns "critical" / "caution" / null so callers can pick a
+ * TOKENS color (or a SeverityBadge severity) from a threshold.
+ */
+export function severityForRatio(
+  value: number,
+  base: number,
+  opts: { caution: number; critical: number },
+): 'critical' | 'caution' | null {
+  if (base <= 0) return null;
+  const ratio = value / base;
+  if (ratio >= opts.critical) return 'critical';
+  if (ratio >= opts.caution) return 'caution';
+  return null;
+}
+
+// ----- truncation footer ------------------------------------------------
+
+export function TruncationFooter({
+  shown,
+  total,
+  onShowAll,
+  allLabel,
+}: {
+  shown: number;
+  total: number;
+  onShowAll?: () => void;
+  allLabel?: string;
+}) {
+  if (total <= shown) return null;
+  return (
+    <div
+      className="flex items-center justify-between pt-2"
+      style={{ fontSize: 11, color: TOKENS.textTertiary }}
+    >
+      <span>
+        Showing {shown} of {total}
+      </span>
+      {onShowAll && (
+        <button
+          onClick={onShowAll}
+          style={{
+            color: TOKENS.info,
+            background: 'transparent',
+            border: 0,
+            fontSize: 11,
+            padding: 0,
+          }}
+        >
+          {allLabel || 'Show all'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ----- empty state ------------------------------------------------------
+
+export function EmptyState({
+  label,
+  hint,
+  icon: Icon,
+}: {
+  label: string;
+  hint?: string;
+  icon?: React.ElementType;
+}) {
+  return (
+    <div
+      className="flex flex-col items-center justify-center text-center"
+      style={{ padding: '24px 16px', color: TOKENS.textTertiary, gap: 4 }}
+    >
+      {Icon && <Icon className="h-5 w-5" style={{ color: TOKENS.textTertiary }} />}
+      <div style={{ fontSize: 13, color: TOKENS.textSecondary }}>{label}</div>
+      {hint && <div style={{ fontSize: 11, color: TOKENS.textTertiary }}>{hint}</div>}
+    </div>
   );
 }

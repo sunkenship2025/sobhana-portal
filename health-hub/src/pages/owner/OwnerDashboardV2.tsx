@@ -16,14 +16,26 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
-import { RefreshCw } from 'lucide-react';
+import { AlertTriangle, Clock, Info } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Skeleton } from '@/components/ui/skeleton';
 import { API_BASE } from '@/lib/api';
-import { formatRupees } from '@/lib/payoutFormatters';
-import { apiRequest, cn } from '@/lib/utils';
-import { useBranchStore } from '@/store/branchStore';
-import { TOKENS } from './_shared/ownerUi';
+import { apiRequest } from '@/lib/utils';
+import {
+  TOKENS,
+  SectionCard,
+  StatRow,
+  MiniBar,
+  DisplayNumber,
+  SectionLabel,
+  BranchFilter,
+  formatIstDateTime,
+  ErrorCard,
+  RefreshButton,
+  TrendChart,
+  severityForRatio,
+  formatRupees,
+} from './_shared/ownerUi';
 
 // ----- types ------------------------------------------------------------
 
@@ -55,14 +67,18 @@ interface DashboardV2 {
     discountInPaise: number;
     commissionInPaise: number;
     netInPaise: number;
+    discountRatePct: number;
     cashInPaise: number;
     onlineInPaise: number;
+    collectedTotalInPaise: number;
     outstandingInPaise: number;
     deltaPercent: number | null;
     baselineSamples: number;
   };
   payoutLiability: {
     totalInPaise: number;
+    toReviewInPaise: number;
+    approvedUnpaidInPaise: number;
     byType: {
       referralInPaise: number;
       clinicInPaise: number;
@@ -85,6 +101,7 @@ interface DashboardV2 {
       inConsultation: number;
       completedToday: number;
       revisitsToday: number;
+      revisitRatePct: number | null;
       avgWaitMinutes: number | null;
       onShiftDoctorName: string | null;
     };
@@ -116,35 +133,13 @@ interface DashboardV2 {
   }[];
 }
 
-// Design tokens are the single source of truth in ./_shared/ownerUi (imported above).
+// Design tokens + primitives are the single source of truth in
+// ./_shared/ownerUi (imported above).
 
-function formatIstDateTime(iso: string): string {
-  const d = new Date(iso);
-  const dateFmt = new Intl.DateTimeFormat('en-IN', {
-    timeZone: 'Asia/Kolkata',
-    weekday: 'long',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
-  const timeFmt = new Intl.DateTimeFormat('en-IN', {
-    timeZone: 'Asia/Kolkata',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
-  return `${dateFmt.format(d)} · ${timeFmt.format(d).toLowerCase()}`;
-}
-
-function formatTrendDateLabel(isoDate: string): string {
-  // isoDate is YYYY-MM-DD; show DD MMM
-  const [y, m, d] = isoDate.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  return new Intl.DateTimeFormat('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    timeZone: 'UTC',
-  }).format(dt);
+function severityRank(s: ActionChip['severity']): number {
+  if (s === 'high') return 3;
+  if (s === 'medium') return 2;
+  return 1;
 }
 
 function severityColor(s: ActionChip['severity']): string {
@@ -153,169 +148,10 @@ function severityColor(s: ActionChip['severity']): string {
   return TOKENS.textTertiary;
 }
 
-// ----- small primitives -------------------------------------------------
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      className="font-medium uppercase"
-      style={{
-        color: TOKENS.textSecondary,
-        fontSize: 11,
-        letterSpacing: '0.06em',
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function SectionCard({
-  label,
-  description,
-  rightSlot,
-  children,
-  className,
-}: {
-  label?: string;
-  description?: string;
-  rightSlot?: React.ReactNode;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn('p-4', className)}
-      style={{
-        background: TOKENS.surface,
-        border: `0.5px solid ${TOKENS.border}`,
-        borderRadius: 12,
-      }}
-    >
-      {(label || rightSlot) && (
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div>
-            {label && <SectionLabel>{label}</SectionLabel>}
-            {description && (
-              <div className="mt-1" style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
-                {description}
-              </div>
-            )}
-          </div>
-          {rightSlot}
-        </div>
-      )}
-      {children}
-    </div>
-  );
-}
-
-function DisplayNumber({
-  children,
-  size = 26,
-}: {
-  children: React.ReactNode;
-  size?: number;
-}) {
-  return (
-    <div
-      className="font-medium"
-      style={{ fontSize: size, color: TOKENS.textPrimary, lineHeight: 1.1 }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function StatRow({
-  label,
-  value,
-  emphasize,
-}: {
-  label: string;
-  value: React.ReactNode;
-  emphasize?: 'critical' | 'caution' | 'healthy';
-}) {
-  const valueColor =
-    emphasize === 'critical'
-      ? TOKENS.critical
-      : emphasize === 'caution'
-        ? TOKENS.caution
-        : emphasize === 'healthy'
-          ? TOKENS.healthy
-          : TOKENS.textPrimary;
-  return (
-    <div className="flex items-baseline justify-between py-1.5" style={{ fontSize: 13 }}>
-      <span style={{ color: TOKENS.textSecondary }}>{label}</span>
-      <span className="font-medium" style={{ color: valueColor }}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function MiniBar({
-  fillRatio,
-  color,
-  height = 6,
-}: {
-  fillRatio: number;
-  color: string;
-  height?: number;
-}) {
-  const ratio = Math.max(0, Math.min(1, fillRatio));
-  return (
-    <div
-      style={{
-        width: '100%',
-        height,
-        background: 'rgba(0,0,0,0.04)',
-        borderRadius: 3,
-        overflow: 'hidden',
-      }}
-    >
-      <div
-        style={{
-          width: `${ratio * 100}%`,
-          height: '100%',
-          background: color,
-          borderRadius: 3,
-        }}
-      />
-    </div>
-  );
-}
-
-// ----- branch filter ----------------------------------------------------
-
-function BranchFilter({
-  value,
-  onChange,
-  branches,
-}: {
-  value: string; // 'all' or branchId
-  onChange: (v: string) => void;
-  branches: { id: string; name: string; code: string }[];
-}) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="rounded-md border bg-white px-3 py-1.5"
-      style={{
-        fontSize: 13,
-        borderColor: TOKENS.border,
-        color: TOKENS.textPrimary,
-      }}
-    >
-      <option value="all">All branches</option>
-      {branches.map((b) => (
-        <option key={b.id} value={b.id}>
-          {b.name} ({b.code})
-        </option>
-      ))}
-    </select>
-  );
+function severityIcon(s: ActionChip['severity']) {
+  if (s === 'high') return AlertTriangle;
+  if (s === 'medium') return Clock;
+  return Info;
 }
 
 // ----- action queue -----------------------------------------------------
@@ -338,48 +174,63 @@ function ActionQueue({ chips }: { chips: ActionChip[] }) {
     );
   }
 
-  const visible = chips.slice(0, 6);
-  const overflow = chips.length - visible.length;
+  // Sort by severity (high > medium > low), then by amount desc. There are only
+  // 7 chip types, so the cap of 7 shows them all — no overflow chip.
+  const sorted = [...chips]
+    .sort((a, b) => {
+      const sev = severityRank(b.severity) - severityRank(a.severity);
+      if (sev !== 0) return sev;
+      return (b.amountInPaise ?? 0) - (a.amountInPaise ?? 0);
+    })
+    .slice(0, 7);
 
   return (
     <div className="flex flex-wrap gap-2">
-      {visible.map((chip) => (
-        <Link
-          key={chip.type}
-          to={chip.drillTo}
-          className="inline-flex max-w-[240px] items-center gap-2 truncate"
-          style={{
-            background: TOKENS.surface,
-            borderLeft: `2px solid ${severityColor(chip.severity)}`,
-            border: `0.5px solid ${TOKENS.border}`,
-            borderLeftWidth: 2,
-            borderLeftColor: severityColor(chip.severity),
-            borderRadius: 4,
-            padding: '8px 12px',
-            fontSize: 13,
-            color: TOKENS.textPrimary,
-            textDecoration: 'none',
-          }}
-        >
-          <span className="truncate">{chip.label}</span>
-        </Link>
-      ))}
-      {overflow > 0 && (
-        <Link
-          to="/ops/audit"
-          style={{
-            background: TOKENS.surface,
-            border: `0.5px solid ${TOKENS.border}`,
-            borderRadius: 4,
-            padding: '8px 12px',
-            fontSize: 13,
-            color: TOKENS.info,
-            textDecoration: 'none',
-          }}
-        >
-          +{overflow} more
-        </Link>
-      )}
+      {sorted.map((chip) => {
+        const Icon = severityIcon(chip.severity);
+        const color = severityColor(chip.severity);
+        const badge =
+          chip.amountInPaise !== undefined
+            ? formatRupees(chip.amountInPaise, { short: true })
+            : chip.count !== undefined
+              ? String(chip.count)
+              : null;
+        return (
+          <Link
+            key={chip.type}
+            to={chip.drillTo}
+            className="inline-flex items-center gap-2"
+            style={{
+              background: TOKENS.surface,
+              border: `0.5px solid ${TOKENS.border}`,
+              borderLeftWidth: 2,
+              borderLeftColor: color,
+              borderRadius: 4,
+              padding: '8px 12px',
+              fontSize: 13,
+              color: TOKENS.textPrimary,
+              textDecoration: 'none',
+            }}
+          >
+            <Icon className="h-3.5 w-3.5 shrink-0" style={{ color }} />
+            <span>{chip.label}</span>
+            {badge && (
+              <span
+                className="ml-1 font-medium"
+                style={{
+                  color,
+                  background: `${color}1A`,
+                  borderRadius: 3,
+                  padding: '1px 6px',
+                  fontSize: 12,
+                }}
+              >
+                {badge}
+              </span>
+            )}
+          </Link>
+        );
+      })}
     </div>
   );
 }
@@ -417,71 +268,95 @@ function MoneyTodayCard({ data }: { data: DashboardV2['moneyToday'] }) {
         )}
       </div>
 
-      <div className="mt-4 space-y-2">
-        <WaterfallRow
-          label="Gross billed"
-          value={data.grossInPaise}
-          ratio={widthFor(data.grossInPaise)}
-          color={TOKENS.gross}
-        />
-        <WaterfallRow
-          label="Discounts"
-          value={-data.discountInPaise}
-          ratio={widthFor(data.discountInPaise)}
-          color={TOKENS.discount}
-        />
-        <WaterfallRow
-          label="Commission accrued"
-          value={-data.commissionInPaise}
-          ratio={widthFor(data.commissionInPaise)}
-          color={TOKENS.commissionBar}
-        />
-        <WaterfallRow
-          label="Net to you"
-          value={data.netInPaise}
-          ratio={widthFor(data.netInPaise)}
-          color={TOKENS.net}
-          emphasize
-        />
+      <div className="mt-4">
+        <SectionLabel>Billed today (accrual)</SectionLabel>
+        <div className="mt-2 space-y-2">
+          <WaterfallRow
+            label="Gross billed"
+            value={data.grossInPaise}
+            ratio={widthFor(data.grossInPaise)}
+            color={TOKENS.gross}
+          />
+          <WaterfallRow
+            label="Discounts"
+            value={-data.discountInPaise}
+            ratio={widthFor(data.discountInPaise)}
+            color={TOKENS.discount}
+            note={`(${data.discountRatePct}% of gross)`}
+            noteCaution={data.discountRatePct > 15}
+          />
+          <WaterfallRow
+            label="Commission accrued"
+            value={-data.commissionInPaise}
+            ratio={widthFor(data.commissionInPaise)}
+            color={TOKENS.commissionBar}
+          />
+          <WaterfallRow
+            label="Net to you"
+            value={data.netInPaise}
+            ratio={widthFor(data.netInPaise)}
+            color={TOKENS.net}
+            emphasize
+          />
+        </div>
       </div>
 
-      <div
-        className="mt-4 grid grid-cols-3 gap-2 border-t pt-3"
-        style={{ borderColor: TOKENS.border, fontSize: 12 }}
-      >
-        <Link
-          to="/money/cash?date=today"
-          style={{ color: TOKENS.textSecondary, textDecoration: 'none' }}
-        >
-          <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>Cash collected</div>
-          <div className="font-medium" style={{ color: TOKENS.textPrimary }}>
-            {formatRupees(data.cashInPaise)}
-          </div>
-        </Link>
-        <Link
-          to="/money/cash?date=today&type=online"
-          style={{ color: TOKENS.textSecondary, textDecoration: 'none' }}
-        >
-          <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>Online</div>
-          <div className="font-medium" style={{ color: TOKENS.textPrimary }}>
-            {formatRupees(data.onlineInPaise)}
-          </div>
-        </Link>
-        <Link
-          to="/money/bills?aging=open"
-          style={{ color: TOKENS.textSecondary, textDecoration: 'none' }}
-        >
-          <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>Outstanding (all)</div>
-          <div
-            className="font-medium"
-            style={{
-              color:
-                data.outstandingInPaise > 0 ? TOKENS.caution : TOKENS.textPrimary,
-            }}
+      <div className="mt-4 border-t pt-3" style={{ borderColor: TOKENS.border }}>
+        <SectionLabel>Collected today</SectionLabel>
+        <div style={{ color: TOKENS.textTertiary, fontSize: 11 }} className="mt-0.5">
+          Collected may differ from billed — patients pay across days.
+        </div>
+        <div className="mt-2 grid grid-cols-3 gap-2" style={{ fontSize: 12 }}>
+          <Link
+            to="/money/cash?date=today"
+            style={{ color: TOKENS.textSecondary, textDecoration: 'none' }}
           >
-            {formatRupees(data.outstandingInPaise)}
+            <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>Cash</div>
+            <div className="font-medium" style={{ color: TOKENS.textPrimary }}>
+              {formatRupees(data.cashInPaise)}
+            </div>
+          </Link>
+          <Link
+            to="/money/cash?date=today&type=online"
+            style={{ color: TOKENS.textSecondary, textDecoration: 'none' }}
+          >
+            <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>Online</div>
+            <div className="font-medium" style={{ color: TOKENS.textPrimary }}>
+              {formatRupees(data.onlineInPaise)}
+            </div>
+          </Link>
+          <div>
+            <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>Total collected</div>
+            <div className="font-medium" style={{ color: TOKENS.textPrimary }}>
+              {formatRupees(data.collectedTotalInPaise)}
+            </div>
           </div>
-        </Link>
+        </div>
+      </div>
+    </SectionCard>
+  );
+}
+
+// ----- total open receivables (all-time) -------------------------------
+
+function OutstandingTile({ data }: { data: DashboardV2['moneyToday'] }) {
+  // Caution only when outstanding is meaningfully large vs today's gross (>10%),
+  // not merely > 0 — a small open balance is normal.
+  const sev = severityForRatio(data.outstandingInPaise, data.grossInPaise, {
+    caution: 0.1,
+    critical: 0.1,
+  });
+  return (
+    <SectionCard label="Total open receivables (all-time)">
+      <Link to="/money/bills?aging=open" style={{ textDecoration: 'none' }}>
+        <DisplayNumber>
+          <span style={{ color: sev ? TOKENS.caution : TOKENS.textPrimary }}>
+            {formatRupees(data.outstandingInPaise)}
+          </span>
+        </DisplayNumber>
+      </Link>
+      <div className="mt-1" style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
+        Unpaid balance across all bills · open ↗
       </div>
     </SectionCard>
   );
@@ -493,12 +368,16 @@ function WaterfallRow({
   ratio,
   color,
   emphasize,
+  note,
+  noteCaution,
 }: {
   label: string;
   value: number;
   ratio: number;
   color: string;
   emphasize?: boolean;
+  note?: string;
+  noteCaution?: boolean;
 }) {
   return (
     <div>
@@ -506,7 +385,17 @@ function WaterfallRow({
         className="mb-1 flex items-baseline justify-between"
         style={{ fontSize: 12 }}
       >
-        <span style={{ color: TOKENS.textSecondary }}>{label}</span>
+        <span style={{ color: TOKENS.textSecondary }}>
+          {label}
+          {note && (
+            <span
+              className="ml-1.5"
+              style={{ color: noteCaution ? TOKENS.caution : TOKENS.textTertiary }}
+            >
+              {note}
+            </span>
+          )}
+        </span>
         <span
           className={emphasize ? 'font-medium' : ''}
           style={{ color: TOKENS.textPrimary }}
@@ -541,10 +430,21 @@ function PayoutLiabilityCard({
     >
       <DisplayNumber>{formatRupees(data.totalInPaise)}</DisplayNumber>
       <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
-        Open derived payouts · awaiting review or payment
+        Total unsettled · awaiting review or payment
+      </div>
+      <div className="mt-4 space-y-1">
+        <StatRow
+          label="To review"
+          value={formatRupees(data.toReviewInPaise)}
+          emphasize={data.toReviewInPaise > 0 ? 'caution' : undefined}
+        />
+        <StatRow
+          label="Approved, awaiting payment"
+          value={formatRupees(data.approvedUnpaidInPaise)}
+        />
       </div>
       <div
-        className="mt-4 space-y-2 border-t pt-3"
+        className="mt-3 space-y-2 border-t pt-3"
         style={{ borderColor: TOKENS.border }}
       >
         <StatRow
@@ -569,7 +469,7 @@ function PayoutLiabilityCard({
 function OpsPulseRow({ data }: { data: DashboardV2['opsPulse'] }) {
   const { diagnostics, clinic, comms } = data;
   const tatNote = diagnostics.tatSampleCount >= 4
-    ? `TAT p50 ${Math.round(diagnostics.tatP50Minutes ?? 0)}m · p95 ${Math.round(diagnostics.tatP95Minutes ?? 0)}m · ${diagnostics.tatBreachCount} breach`
+    ? `Reg→report p50 ${Math.round(diagnostics.tatP50Minutes ?? 0)}m · p95 ${Math.round(diagnostics.tatP95Minutes ?? 0)}m · ${diagnostics.tatBreachCount} over 24h`
     : `TAT — baseline forming · ${diagnostics.tatSampleCount}/4 samples`;
 
   return (
@@ -627,6 +527,9 @@ function OpsPulseRow({ data }: { data: DashboardV2['opsPulse'] }) {
           {clinic.avgWaitMinutes !== null
             ? `Avg wait ${clinic.avgWaitMinutes}m`
             : 'Avg wait —'}
+          {` · Revisits ${clinic.revisitsToday}${
+            clinic.revisitRatePct !== null ? ` · ${clinic.revisitRatePct}% revisit rate` : ''
+          }`}
           {clinic.onShiftDoctorName ? ` · ${clinic.onShiftDoctorName} on shift` : ' · no doctor on shift'}
         </div>
       </SectionCard>
@@ -670,66 +573,18 @@ function OpsPulseRow({ data }: { data: DashboardV2['opsPulse'] }) {
 // ----- 30d trend (line, no chart lib for phase 1) -----------------------
 
 function RevenueTrendCard({ trend }: { trend: DashboardV2['revenueTrend'] }) {
-  const max = Math.max(1, ...trend.map((p) => p.netInPaise));
-  // pick top-2 outliers by absolute deviation from median
-  const sorted = [...trend.map((p) => p.netInPaise)].sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
-  const ranked = trend
-    .map((p, i) => ({ idx: i, dev: Math.abs(p.netInPaise - median), value: p.netInPaise }))
-    .sort((a, b) => b.dev - a.dev);
-  const outlierIdx = new Set(ranked.slice(0, 2).map((r) => r.idx));
-
+  const chartData = trend.map((p) => ({ date: p.date, value: p.netInPaise }));
   return (
     <SectionCard
       label="Revenue trend · 30 days"
-      description="Daily net revenue · ₹ values, two largest outliers marked"
+      description="Daily net revenue · last point is today"
     >
-      <div className="relative" style={{ height: 140 }}>
-        <svg
-          viewBox={`0 0 ${trend.length * 14} 140`}
-          width="100%"
-          height="100%"
-          preserveAspectRatio="none"
-        >
-          <polyline
-            fill="none"
-            stroke={TOKENS.info}
-            strokeWidth="1.5"
-            points={trend
-              .map((p, i) => {
-                const x = i * 14 + 7;
-                const y = 140 - (p.netInPaise / max) * 120 - 8;
-                return `${x},${y}`;
-              })
-              .join(' ')}
-          />
-          {trend.map((p, i) => {
-            const x = i * 14 + 7;
-            const y = 140 - (p.netInPaise / max) * 120 - 8;
-            const isOutlier = outlierIdx.has(i);
-            return (
-              <circle
-                key={p.date}
-                cx={x}
-                cy={y}
-                r={isOutlier ? 3 : 1.5}
-                fill={isOutlier ? TOKENS.critical : TOKENS.info}
-              />
-            );
-          })}
-        </svg>
-      </div>
-      <div
-        className="mt-2 flex justify-between"
-        style={{ color: TOKENS.textTertiary, fontSize: 11 }}
-      >
-        <span>{trend[0] && formatTrendDateLabel(trend[0].date)}</span>
-        <span>
-          {trend[Math.floor(trend.length / 2)] &&
-            formatTrendDateLabel(trend[Math.floor(trend.length / 2)].date)}
-        </span>
-        <span>{trend[trend.length - 1] && formatTrendDateLabel(trend[trend.length - 1].date)}</span>
-      </div>
+      <TrendChart
+        data={chartData}
+        valueFormat={(v) => formatRupees(v, { short: true })}
+        markLastAsToday
+        accent={TOKENS.net}
+      />
     </SectionCard>
   );
 }
@@ -747,12 +602,36 @@ function RevenueMixCard({ mix }: { mix: DashboardV2['revenueMix'] }) {
   return (
     <SectionCard
       label="Revenue mix · today"
-      description="Today's gross broken down by category"
+      description="Category split of today's gross — before discounts"
+      rightSlot={
+        <span
+          style={{
+            background: `${TOKENS.gross}33`,
+            color: TOKENS.textSecondary,
+            fontSize: 10,
+            padding: '2px 6px',
+            borderRadius: 3,
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+          }}
+        >
+          gross · pre-discount
+        </span>
+      }
     >
       {mix.totalInPaise === 0 ? (
         <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>No bills yet today.</div>
       ) : (
         <>
+          <div
+            className="mb-3 flex items-baseline justify-between border-b pb-3"
+            style={{ borderColor: TOKENS.border }}
+          >
+            <span style={{ color: TOKENS.textSecondary, fontSize: 12 }}>
+              Total gross today
+            </span>
+            <DisplayNumber size={18}>{formatRupees(mix.totalInPaise)}</DisplayNumber>
+          </div>
           <div
             className="flex w-full overflow-hidden"
             style={{ height: 18, borderRadius: 3 }}
@@ -806,13 +685,16 @@ function RevenueMixCard({ mix }: { mix: DashboardV2['revenueMix'] }) {
 function BranchTableCard({ rows }: { rows: DashboardV2['branchTable'] }) {
   if (rows.length === 0) {
     return (
-      <SectionCard label="Branch performance" description="Last 30 days · sorted by net">
-        <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>No branches yet.</div>
-      </SectionCard>
+      <div id="branch-performance">
+        <SectionCard label="Branch performance" description="Last 30 days · sorted by net">
+          <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>No branches yet.</div>
+        </SectionCard>
+      </div>
     );
   }
 
   return (
+    <div id="branch-performance">
     <SectionCard label="Branch performance" description="Last 30 days · sorted by net">
       <div className="overflow-x-auto">
         <table className="w-full" style={{ fontSize: 12 }}>
@@ -828,6 +710,7 @@ function BranchTableCard({ rows }: { rows: DashboardV2['branchTable'] }) {
               <th className="py-2 text-right">Net rev</th>
               <th className="py-2 text-right">Visits</th>
               <th className="py-2 text-right">Avg ticket</th>
+              <th className="py-2 text-right">Δ 30d</th>
               <th className="py-2 text-right">TAT p50</th>
               <th className="py-2 text-right">Status</th>
             </tr>
@@ -865,6 +748,20 @@ function BranchTableCard({ rows }: { rows: DashboardV2['branchTable'] }) {
                       ? formatRupees(r.avgTicketInPaise)
                       : '—'}
                   </td>
+                  <td className="py-3 text-right">
+                    {r.deltaPercent === null ? (
+                      <span style={{ color: TOKENS.textTertiary }}>—</span>
+                    ) : (
+                      <span
+                        style={{
+                          color: r.deltaPercent >= 0 ? TOKENS.healthy : TOKENS.critical,
+                        }}
+                      >
+                        {r.deltaPercent >= 0 ? '▲' : '▼'}
+                        {Math.abs(r.deltaPercent)}%
+                      </span>
+                    )}
+                  </td>
                   <td className="py-3 text-right" style={{ color: TOKENS.textPrimary }}>
                     {r.tatP50Minutes !== null ? `${Math.round(r.tatP50Minutes)}m` : '—'}
                   </td>
@@ -883,6 +780,7 @@ function BranchTableCard({ rows }: { rows: DashboardV2['branchTable'] }) {
         </table>
       </div>
     </SectionCard>
+    </div>
   );
 }
 
@@ -913,7 +811,6 @@ function DashboardSkeleton() {
 // ----- main page -------------------------------------------------------
 
 export default function OwnerDashboardV2() {
-  const branches = useBranchStore((s) => s.branches);
   const [searchParams, setSearchParams] = useSearchParams();
   const branchValue = searchParams.get('branch') || 'all';
 
@@ -967,26 +864,11 @@ export default function OwnerDashboardV2() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <BranchFilter
-              value={branchValue}
-              onChange={setBranchValue}
-              branches={branches.filter((b) => b.isActive)}
-            />
-            <button
+            <BranchFilter value={branchValue} onChange={setBranchValue} />
+            <RefreshButton
+              isFetching={query.isFetching}
               onClick={() => query.refetch()}
-              disabled={query.isFetching}
-              className="rounded-md border bg-white px-3 py-1.5"
-              style={{
-                fontSize: 12,
-                borderColor: TOKENS.border,
-                color: TOKENS.textSecondary,
-              }}
-              title="Refresh"
-            >
-              <RefreshCw
-                className={cn('inline h-3.5 w-3.5', query.isFetching && 'animate-spin')}
-              />
-            </button>
+            />
           </div>
         </div>
 
@@ -1007,31 +889,7 @@ export default function OwnerDashboardV2() {
 
         {query.isLoading && <DashboardSkeleton />}
 
-        {query.isError && (
-          <div
-            className="px-4 py-3"
-            style={{
-              background: TOKENS.surface,
-              border: `0.5px solid ${TOKENS.border}`,
-              borderRadius: 12,
-              color: TOKENS.critical,
-              fontSize: 13,
-            }}
-          >
-            Failed to load dashboard.{' '}
-            <button
-              onClick={() => query.refetch()}
-              style={{
-                color: TOKENS.info,
-                textDecoration: 'underline',
-                background: 'transparent',
-                border: 0,
-              }}
-            >
-              Retry
-            </button>
-          </div>
-        )}
+        {query.isError && <ErrorCard onRetry={() => query.refetch()} />}
 
         {data && (
           <div className="space-y-4">
@@ -1041,8 +899,9 @@ export default function OwnerDashboardV2() {
               <div className="lg:col-span-3">
                 <MoneyTodayCard data={data.moneyToday} />
               </div>
-              <div className="lg:col-span-2">
+              <div className="flex flex-col gap-4 lg:col-span-2">
                 <PayoutLiabilityCard data={data.payoutLiability} />
+                <OutstandingTile data={data.moneyToday} />
               </div>
             </div>
 
