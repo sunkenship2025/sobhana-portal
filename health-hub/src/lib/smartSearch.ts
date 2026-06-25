@@ -16,10 +16,11 @@
  */
 import type { SearchKind, Detection } from "@/types";
 
-// Bill number: optional leading '#', a D (diagnostics) or C (clinic) domain
-// letter, a 2–6 char alphanumeric branch code, then a numeric sequence.
-// e.g. D-MPR-2231, C-HYD-007, #MPR-2231 (legacy no-domain-letter form allowed).
-const BILL_REGEX = /^#?([DC]-)?[A-Z]{2,6}-\d{1,8}$/i;
+// Bill number: optional leading '#', a required D (diagnostics) or C (clinic)
+// domain letter, a 2–6 char branch code, then a numeric sequence.
+// e.g. D-MPR-2231, C-HYD-007, #D-MPR-2231. Format per numberService
+// (generateDiagnosticBillNumber 'D-{branchCode}', generateClinicBillNumber 'C-{branchCode}').
+const BILL_REGEX = /^#?[DC]-[A-Z]{2,6}-\d{1,8}$/i;
 
 // patientNumber: P-00001 / P00001 (optional dash, all digits after).
 const PATIENT_NUMBER_REGEX = /^P-?\d+$/i;

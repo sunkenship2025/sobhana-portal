@@ -621,7 +621,7 @@ export type VisitWorkflowMode =
 
 // Latest REPORT-context MessageLog progression (patientService.ts:869-896).
 export interface VisitDelivery {
-  status: string; // PENDING | SENT | DELIVERED | READ | FAILED (raw MessageLog status)
+  status: 'PENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED'; // raw MessageLog status (backend emits these literals)
   sentAt: Date | string | null;
   deliveredAt: Date | string | null;
   readAt: Date | string | null;
