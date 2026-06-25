@@ -27,7 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { FileText, Printer, ReceiptText, X } from "lucide-react";
+import { Eye, EyeOff, FileText, Printer, ReceiptText, X } from "lucide-react";
 import { toast } from "sonner";
 import { FinancialDetailPanel } from "./FinancialDetailPanel";
 import { ReportActions } from "./ReportActions";
@@ -76,9 +76,14 @@ function InspectorBody({
   patientPhone?: string | null;
   reportActions: UseReportActions;
 }) {
-  const { preview, busy, viewReport, printReport, sendWhatsApp } = reportActions;
+  const { preview, busy, viewReport, viewBill, printReport, sendWhatsApp, closePreview } =
+    reportActions;
   const isDiagnostic = visit.domain === "DIAGNOSTICS";
-  const showPreview = preview?.visitId === visit.visitId;
+  const activePreview = preview?.visitId === visit.visitId ? preview : null;
+  const reportActive = activePreview?.kind === "report";
+  const billActive = activePreview?.kind === "bill";
+  const billDomain = String(visit.domain).toUpperCase();
+  const hasBill = visit.hasBill ?? !!visit.billNumber;
 
   return (
     <div className="space-y-5">
@@ -107,6 +112,7 @@ function InspectorBody({
               variant="full"
               busy={busy?.visitId === visit.visitId}
               busyAction={busy?.visitId === visit.visitId ? busy.action : null}
+              reportActive={reportActive}
               onView={() => viewReport(visit.visitId)}
               onPrint={() => printReport(visit.visitId)}
               onWhatsApp={() => sendWhatsApp(visit.visitId)}
@@ -117,27 +123,69 @@ function InspectorBody({
 
       <Separator />
 
-      <div>
-        <Button variant="outline" size="sm" className="w-full" onClick={() => openPrintBill(visit)}>
-          {visit.hasBill ?? !!visit.billNumber ? (
-            <ReceiptText className="mr-2 h-4 w-4" aria-hidden="true" />
-          ) : (
-            <Printer className="mr-2 h-4 w-4" aria-hidden="true" />
+      <div className="space-y-2">
+        <h4 className="text-sm font-medium">Bill</h4>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {hasBill && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="justify-start"
+              onClick={() => viewBill(visit.visitId)}
+            >
+              {billActive ? (
+                <EyeOff className="mr-2 h-4 w-4" aria-hidden="true" />
+              ) : (
+                <Eye className="mr-2 h-4 w-4" aria-hidden="true" />
+              )}
+              {billActive ? "Hide bill" : "View bill"}
+            </Button>
           )}
-          {visit.hasBill ?? !!visit.billNumber ? "Print bill" : "Print visit slip"}
-        </Button>
-        {/* Collect-payment deep-link is intentionally omitted for v1: there is no
-            /clinic/billing route and /money/bills does not accept a visit filter
-            (06-frontend-plan.md §4 / Q5). Print-bill is the supported path. */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="justify-start"
+            onClick={() => openPrintBill(visit)}
+          >
+            {hasBill ? (
+              <ReceiptText className="mr-2 h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Printer className="mr-2 h-4 w-4" aria-hidden="true" />
+            )}
+            {hasBill ? "Print bill" : "Print visit slip"}
+          </Button>
+        </div>
+        {/* Collect-payment deep-link intentionally omitted for v1 (06-frontend-plan §4 / Q5);
+            print-bill is the supported path. */}
       </div>
 
-      {/* Inline iframe PDF preview — no separate modal. */}
-      {showPreview && preview && (
-        <div className="overflow-hidden rounded-lg border bg-muted">
+      {/* Inline preview — report (blob PDF, native toolbar hidden for a cleaner
+          look) or bill (the same-origin /bill/print route). No separate modal;
+          toggled off by the View button, the header ✕, or Escape. */}
+      {activePreview && (
+        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+          <div className="flex items-center justify-between border-b bg-muted/40 px-3 py-2">
+            <span className="text-xs font-medium text-muted-foreground">
+              {reportActive ? "Report preview" : "Bill preview"}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              aria-label="Hide preview"
+              onClick={closePreview}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
           <iframe
-            src={preview.url}
-            title="Report preview"
-            className="h-[60vh] w-full bg-white"
+            src={
+              reportActive
+                ? `${activePreview.reportUrl}#toolbar=0&navpanes=0&view=FitH`
+                : `/bill/print/${billDomain}/${visit.visitId}`
+            }
+            title={reportActive ? "Report preview" : "Bill preview"}
+            className="h-[68vh] w-full bg-white"
           />
         </div>
       )}

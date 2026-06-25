@@ -14,6 +14,7 @@
 import { Button } from "@/components/ui/button";
 import {
   Eye,
+  EyeOff,
   Loader2,
   MessageCircle,
   Printer,
@@ -40,6 +41,8 @@ interface ReportActionsProps {
   busy: boolean;
   /** The specific in-flight action on this visit, or null. */
   busyAction?: ReportAction | null;
+  /** True when the inline report preview for this visit is currently open. */
+  reportActive?: boolean;
   onView: () => void;
   onPrint?: () => void;
   onWhatsApp?: () => void;
@@ -51,6 +54,7 @@ export function ReportActions({
   variant,
   busy,
   busyAction,
+  reportActive = false,
   onView,
   onPrint,
   onWhatsApp,
@@ -58,6 +62,15 @@ export function ReportActions({
   if (!canViewReport(visit)) return null;
 
   const isAction = (a: ReportAction) => busy && busyAction === a;
+  const viewIcon = (cls: string) =>
+    isAction("view") ? (
+      <Loader2 className={`${cls} animate-spin`} aria-hidden="true" />
+    ) : reportActive ? (
+      <EyeOff className={cls} aria-hidden="true" />
+    ) : (
+      <Eye className={cls} aria-hidden="true" />
+    );
+  const viewLabel = isAction("view") ? "Loading…" : reportActive ? "Hide report" : "View report";
 
   if (variant === "compact") {
     return (
@@ -71,12 +84,8 @@ export function ReportActions({
           onView();
         }}
       >
-        {isAction("view") ? (
-          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-        ) : (
-          <Eye className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
-        )}
-        {isAction("view") ? "Loading…" : "View report"}
+        {viewIcon("mr-1.5 h-3.5 w-3.5")}
+        {viewLabel}
       </Button>
     );
   }
@@ -92,12 +101,8 @@ export function ReportActions({
           disabled={busy}
           onClick={onView}
         >
-          {isAction("view") ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <Eye className="mr-2 h-4 w-4" aria-hidden="true" />
-          )}
-          {isAction("view") ? "Loading…" : "View report"}
+          {viewIcon("mr-2 h-4 w-4")}
+          {viewLabel}
         </Button>
         <Button
           variant="outline"

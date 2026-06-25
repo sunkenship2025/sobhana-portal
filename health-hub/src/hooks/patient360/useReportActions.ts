@@ -31,7 +31,10 @@ export interface ReportBusy {
 
 export interface ReportPreview {
   visitId: string;
-  url: string;
+  /** 'report' = finalized-report blob PDF; 'bill' = the /bill/print app route. */
+  kind: "report" | "bill";
+  /** Blob URL — only set when kind === 'report'. */
+  reportUrl?: string;
 }
 
 export interface UseReportActions {
@@ -39,10 +42,12 @@ export interface UseReportActions {
   busy: ReportBusy | null;
   /** True if the given visit (optionally a specific action) is in flight. */
   isBusy: (visitId: string, action?: ReportAction) => boolean;
-  /** The open inline preview ({visitId, blob url}) or null. */
+  /** The open inline preview or null. */
   preview: ReportPreview | null;
-  /** Fetch the finalized PDF and open it inline (sets `preview`). */
+  /** Toggle the inline report preview: fetch + open, or collapse if already open. */
   viewReport: (visitId: string) => Promise<void>;
+  /** Toggle the inline bill preview (embeds the /bill/print route). */
+  viewBill: (visitId: string) => void;
   /** Open the finalized report in a new tab and auto-print. */
   printReport: (visitId: string) => Promise<void>;
   /** POST /messages/:visitId/send-report (branch-scoped). The ONE WhatsApp path. */
@@ -69,16 +74,6 @@ export function useReportActions(isMobile?: boolean): UseReportActions {
     }
   }, []);
 
-  /** Set the new preview blob, revoking the prior one first. */
-  const setPreviewUrl = useCallback(
-    (visitId: string, url: string) => {
-      revoke();
-      urlRef.current = url;
-      setPreview({ visitId, url });
-    },
-    [revoke],
-  );
-
   const closePreview = useCallback(() => {
     revoke();
     setPreview(null);
@@ -90,8 +85,14 @@ export function useReportActions(isMobile?: boolean): UseReportActions {
     [busy],
   );
 
+  // Toggle: if the report preview for this visit is already open, collapse it;
+  // otherwise fetch the PDF and open it inline.
   const viewReport = useCallback(
     async (visitId: string) => {
+      if (preview?.visitId === visitId && preview.kind === "report") {
+        closePreview();
+        return;
+      }
       setBusy({ visitId, action: "view" });
       try {
         const url = await fetchFinalizedReportPdfBlobUrl({
@@ -100,14 +101,30 @@ export function useReportActions(isMobile?: boolean): UseReportActions {
           branchId,
           mode: "digital",
         });
-        setPreviewUrl(visitId, url);
+        revoke(); // drop any prior preview blob before swapping in the new one
+        urlRef.current = url;
+        setPreview({ visitId, kind: "report", reportUrl: url });
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Failed to load report.");
       } finally {
         setBusy(null);
       }
     },
-    [token, branchId, setPreviewUrl],
+    [preview, token, branchId, revoke, closePreview],
+  );
+
+  // Toggle the inline bill preview (embeds the same-origin /bill/print route).
+  // No fetch/blob — the inspector builds the iframe src from the visit.
+  const viewBill = useCallback(
+    (visitId: string) => {
+      if (preview?.visitId === visitId && preview.kind === "bill") {
+        closePreview();
+        return;
+      }
+      revoke(); // switching away from a report preview frees its blob
+      setPreview({ visitId, kind: "bill" });
+    },
+    [preview, revoke, closePreview],
   );
 
   const printReport = useCallback(
@@ -158,6 +175,7 @@ export function useReportActions(isMobile?: boolean): UseReportActions {
     isBusy,
     preview,
     viewReport,
+    viewBill,
     printReport,
     sendWhatsApp,
     closePreview,
