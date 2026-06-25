@@ -1343,17 +1343,20 @@ const ClinicNewVisit = () => {
                 </div>
               </div>
 
-              {/* Email (optional) */}
-              <div className="space-y-2">
-                <Label htmlFor="email">Email (optional)</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="patient@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  autoComplete="off"
-                />
+              {/* Email (optional) — half-width so it reads as a normal field in
+                  the grid rhythm, not a lone full-width bar. */}
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email (optional)</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="patient@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="off"
+                  />
+                </div>
               </div>
 
               {validationErrors.phone && (
