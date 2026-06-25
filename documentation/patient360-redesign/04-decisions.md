@@ -83,3 +83,13 @@ These are legitimate product calls; recorded so the trade-off is conscious, not 
 - Shared `previewLoading` boolean disables "View Report" on every row at once (`Patient360.tsx:665`).
 - Hardcoded fallback `branchId = 'cmjzumgap00003zwljoqlubsn'` (`Patient360.tsx:49`, `GlobalPatientSearch.tsx:29`).
 - Network/5xx error collapses into the "Patient not found" state with no retry (`Patient360.tsx:365`, `:411`).
+
+
+## Runtime verification (25 Jun 2026) — report & bill views ✅
+Ran the app fully locally against a fresh current-schema DB (`sobhana_p360`, seeded), created a finalized diagnostic visit (RAVI VERMA P-000001, Hemoglobin 13.5, bill D-CNT-000001 paid), and visually verified:
+- **Bill view** (`/bill/print/...`): renders cleanly — letterhead, patient details, Hemoglobin ₹80, Total/Paid/Balance due. ✅
+- **Report view** (inline inspector iframe, blob PDF): SOBHANA letterhead → REPORT → patient header → Hemoglobin | 13.5 | g/dL | 12–16 → clinical note. ✅
+- **Bonus (full detail page on real data):** glance strip (Due ₹0 "all settled", 1 report finalized, last visit); timeline row with Paid + Finalized v1 chips; inspector Billing Total ₹80 / Paid ₹80 / Due ₹0 / **Method CASH** (confirms the `paymentType`-null bug is fixed); inline PDF preview + blob URL working.
+- Not runtime-exercised: smart-search page, pagination with many visits, multi-test/panel reports, partial reports, edit flow, mobile. (tsc + vite build clean for all.)
+
+Note: the earlier `prisma db push` loaded `.env` and added the `Visit_patientId_createdAt_idx` index to the Neon DB (additive, intended migration; no data dropped). Local `sobhana_db` got `title`/`ageUnit` columns added during diagnosis.
