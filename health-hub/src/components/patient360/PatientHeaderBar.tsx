@@ -30,6 +30,7 @@ export function PatientHeaderBar({
   onPatientUpdated,
 }: PatientHeaderBarProps) {
   const phone = patient.identifiers?.find((i) => i.type === "PHONE")?.value;
+  const email = patient.identifiers?.find((i) => i.type === "EMAIL")?.value;
   const genderLabel =
     patient.gender === "M" ? "Male" : patient.gender === "F" ? "Female" : "Other";
   const ageGender = [patient.ageDisplay || (patient.age ? `${patient.age}y` : null), genderLabel]
@@ -53,9 +54,10 @@ export function PatientHeaderBar({
               {patient.patientNumber}
             </Badge>
           </div>
-          <p className="mt-0.5 truncate text-sm text-muted-foreground">
+          <p className="mt-0.5 text-sm text-muted-foreground">
             {ageGender}
             {phone ? ` · ${phone}` : ""}
+            {email ? ` · ${email}` : ""}
             {branchCount > 0 && (
               <>
                 {" · "}

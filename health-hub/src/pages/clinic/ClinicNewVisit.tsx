@@ -141,6 +141,7 @@ const ClinicNewVisit = () => {
   const [billLogoLoaded, setBillLogoLoaded] = useState(false);
 
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   // Enter advances only when the current field is valid
   const flowGuard =
     (validate: () => boolean) => (e: ReactKeyboardEvent<HTMLElement>) => {
@@ -399,6 +400,7 @@ const ClinicNewVisit = () => {
   const handleCreateNewPatient = () => {
     setShowNewPatientForm(true);
     setSelectedPatient(null);
+    setEmail("");
     // Start the new-patient flow at Title (step 21).
     goToStep(21);
   };
@@ -529,6 +531,7 @@ const ClinicNewVisit = () => {
   const handleSelectPatient = (patient: Patient) => {
     setSelectedPatient(patient);
     setShowNewPatientForm(false);
+    setEmail("");
     setWhatsappOptIn((patient as any).whatsappOptIn ?? true);
     // Advance to Visit Details once that card has committed (step 30).
     goToStep(30);
@@ -540,6 +543,7 @@ const ClinicNewVisit = () => {
     // number is looked up again.
     queryClient.invalidateQueries({ queryKey: ["patientSearch"] });
     setPhone("");
+    setEmail("");
     setMatchingPatients([]);
     setSelectedPatient(null);
     // Re-apply the remembered/auto-selected doctor so "Create Another Visit"
@@ -619,7 +623,10 @@ const ClinicNewVisit = () => {
               ? newPatient.dateOfBirth.split("T")[0]
               : undefined,
             gender: newPatient.gender,
-            identifiers: [{ type: "PHONE", value: phone, isPrimary: true }],
+            identifiers: [
+              { type: "PHONE", value: phone, isPrimary: true },
+              ...(email.trim() ? [{ type: "EMAIL", value: email.trim(), isPrimary: false }] : []),
+            ],
             whatsappOptIn: newPatient.whatsappOptIn,
           }),
         });
@@ -673,7 +680,10 @@ const ClinicNewVisit = () => {
                 ageUnit: newPatient.ageUnit,
                 dateOfBirth: newPatient.dateOfBirth || undefined,
                 gender: newPatient.gender,
-                identifiers: [{ type: "PHONE", value: phone, isPrimary: true }],
+                identifiers: [
+                  { type: "PHONE", value: phone, isPrimary: true },
+                  ...(email.trim() ? [{ type: "EMAIL", value: email.trim(), isPrimary: false }] : []),
+                ],
                 whatsappOptIn: newPatient.whatsappOptIn,
                 forceDuplicate: true,
               }),
@@ -1265,6 +1275,19 @@ const ClinicNewVisit = () => {
                     If DOB is entered, age will be calculated automatically
                   </p>
                 </div>
+              </div>
+
+              {/* Email (optional) */}
+              <div className="space-y-2">
+                <Label htmlFor="email">Email (optional)</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="patient@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="off"
+                />
               </div>
 
               {validationErrors.phone && (

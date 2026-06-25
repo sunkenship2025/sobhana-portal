@@ -36,6 +36,8 @@ import {
   Printer,
   MessageCircle,
   Plus,
+  Phone,
+  Check,
 } from "lucide-react";
 import { BillReceipt } from "@/components/print/BillReceipt";
 import {
@@ -102,6 +104,7 @@ const DiagnosticsNewVisit = () => {
   const patientListRef = useRef<HTMLDivElement>(null);
 
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [matchingPatients, setMatchingPatients] = useState<
     PatientSearchResult[]
   >([]);
@@ -517,6 +520,7 @@ const DiagnosticsNewVisit = () => {
   const handleCreateNewPatient = () => {
     setShowNewPatientForm(true);
     setSelectedPatient(null);
+    setEmail("");
     // Focus the Title field once the new-patient form has committed (step 21).
     goToStep(21);
   };
@@ -524,6 +528,7 @@ const DiagnosticsNewVisit = () => {
   const handleSelectPatient = (result: PatientSearchResult) => {
     setSelectedPatient(result.patient);
     setShowNewPatientForm(false);
+    setEmail("");
     // Auto-check WhatsApp opt-in if patient already opted in
     setWhatsappOptIn((result.patient as any).whatsappOptIn ?? true);
     // Focus the test search input once the Select Tests card has committed (step 30).
@@ -730,7 +735,10 @@ const DiagnosticsNewVisit = () => {
               ? newPatient.dateOfBirth.split("T")[0]
               : undefined, // E2-09: Send date-only (YYYY-MM-DD)
             gender: newPatient.gender,
-            identifiers: [{ type: "PHONE", value: phone, isPrimary: true }],
+            identifiers: [
+              { type: "PHONE", value: phone, isPrimary: true },
+              ...(email.trim() ? [{ type: "EMAIL", value: email.trim(), isPrimary: false }] : []),
+            ],
             whatsappOptIn: newPatient.whatsappOptIn,
           }),
         });
@@ -797,7 +805,10 @@ const DiagnosticsNewVisit = () => {
                   ? newPatient.dateOfBirth.split("T")[0]
                   : undefined, // E2-09: Send date-only (YYYY-MM-DD)
                 gender: newPatient.gender,
-                identifiers: [{ type: "PHONE", value: phone, isPrimary: true }],
+                identifiers: [
+                  { type: "PHONE", value: phone, isPrimary: true },
+                  ...(email.trim() ? [{ type: "EMAIL", value: email.trim(), isPrimary: false }] : []),
+                ],
                 whatsappOptIn: newPatient.whatsappOptIn,
                 forceDuplicate: true, // E2-03: Explicit user confirmation
               }),
@@ -1201,6 +1212,7 @@ const DiagnosticsNewVisit = () => {
                         queryKey: ["patientSearch"],
                       });
                       setPhone("");
+                      setEmail("");
                       setMatchingPatients([]);
                       setSelectedPatient(null);
                       setSelectedProducts([]);
@@ -1276,67 +1288,135 @@ const DiagnosticsNewVisit = () => {
     <AppLayout context="diagnostics" subContext="Reception">
       {ConfirmDialog}
       <div className="max-w-[760px] mx-auto space-y-4 pb-24 animate-fade-in">
-        <div className="flex items-baseline justify-between gap-4">
-          <h1 className="text-lg font-semibold">New Diagnostic Visit</h1>
-          {selectedPatient && (
-            <span className="truncate text-sm text-muted-foreground">
-              {formatPatientName(selectedPatient.name, selectedPatient.title)}
-              {selectedPatient.age
-                ? ` · ${selectedPatient.ageDisplay || selectedPatient.age + "y"}`
-                : ""}
-              {selectedPatient.gender ? ` · ${selectedPatient.gender}` : ""}
-            </span>
-          )}
+        <div className="space-y-3">
+          <div className="flex items-baseline justify-between gap-4">
+            <h1 className="text-lg font-semibold">New Diagnostic Visit</h1>
+            {selectedPatient && (
+              <span className="truncate text-sm text-muted-foreground">
+                {formatPatientName(selectedPatient.name, selectedPatient.title)}
+                {selectedPatient.age
+                  ? ` · ${selectedPatient.ageDisplay || selectedPatient.age + "y"}`
+                  : ""}
+                {selectedPatient.gender ? ` · ${selectedPatient.gender}` : ""}
+              </span>
+            )}
+          </div>
+
+          {/* Flow steps — reflects real progress: pick/register patient → tests → bill */}
+          {(() => {
+            const patientDone =
+              !!selectedPatient ||
+              (showNewPatientForm && newPatient.name.trim() !== "");
+            const testsDone = selectedProducts.length > 0;
+            const steps = [
+              { label: "Patient", done: patientDone, active: !patientDone },
+              { label: "Tests", done: testsDone, active: patientDone && !testsDone },
+              { label: "Bill", done: false, active: testsDone },
+            ];
+            return (
+              <nav
+                aria-label="Visit progress"
+                className="flex items-center gap-2.5 text-xs"
+              >
+                {steps.map((s, i) => (
+                  <div key={s.label} className="flex items-center gap-2.5">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-semibold leading-none transition-colors ${
+                          s.done || s.active
+                            ? "bg-primary text-primary-foreground"
+                            : "border border-border text-muted-foreground"
+                        }`}
+                        aria-current={s.active ? "step" : undefined}
+                      >
+                        {s.done ? <Check className="h-3 w-3" /> : i + 1}
+                      </span>
+                      <span
+                        className={`font-medium ${
+                          s.done || s.active
+                            ? "text-foreground"
+                            : "text-muted-foreground"
+                        }`}
+                      >
+                        {s.label}
+                      </span>
+                    </div>
+                    {i < steps.length - 1 && (
+                      <span className="h-px w-6 bg-border" aria-hidden="true" />
+                    )}
+                  </div>
+                ))}
+              </nav>
+            );
+          })()}
         </div>
 
         {/* Patient Lookup */}
         <Card>
-          <CardHeader className="px-5 pt-4 pb-0">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Patient Lookup</CardTitle>
-          </CardHeader>
-          <CardContent className="px-5 pb-5 pt-3 space-y-3">
+          <CardContent className="space-y-4 p-5 sm:p-6">
+            <div className="space-y-1">
+              <h2 className="text-base font-semibold leading-none">
+                Select or register a patient
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Search the patient's 10-digit phone number to begin.
+              </p>
+            </div>
             <div className="space-y-2">
-              <Label htmlFor="phone">Phone Number *</Label>
+              <Label htmlFor="phone" className="sr-only">
+                Phone Number
+              </Label>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  ref={phoneInputRef}
-                  id="phone"
-                  placeholder="Enter 10-digit phone"
-                  value={phone}
-                  onChange={(e) =>
-                    handlePhoneChange(
-                      e.target.value.replace(/\D/g, "").slice(0, 10),
-                    )
-                  }
-                  onKeyDown={async (e) => {
-                    if (e.repeat || e.key !== 'Enter') return;
-                    e.preventDefault();
-                    if (phone.length < 10) return;
-                    // Search, then branch on the FRESH result (handleSearch
-                    // returns the matches) — no stale closure / setTimeout race.
-                    const matches = await handleSearch();
-                    if (matches.length === 1) {
-                      // Exactly one match: select it and skip the list step.
-                      handleSelectPatient(matches[0]);
-                    } else if (matches.length > 1) {
-                      // Several matches: land on the list to pick one.
-                      setHighlightedPatientIndex(0);
-                      goToStep(20);
-                    } else {
-                      // New patient: skip the (empty) list and start at Title.
-                      handleCreateNewPatient();
+                <div className="relative flex-1">
+                  <Phone className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    ref={phoneInputRef}
+                    id="phone"
+                    inputMode="numeric"
+                    placeholder="Enter 10-digit phone"
+                    value={phone}
+                    onChange={(e) =>
+                      handlePhoneChange(
+                        e.target.value.replace(/\D/g, "").slice(0, 10),
+                      )
                     }
-                  }}
-                  maxLength={10}
-                  autoComplete="off"
-                  data-focus-step={10}
-                />
+                    onKeyDown={async (e) => {
+                      if (e.repeat || e.key !== 'Enter') return;
+                      e.preventDefault();
+                      if (phone.length < 10) return;
+                      // Search, then branch on the FRESH result (handleSearch
+                      // returns the matches) — no stale closure / setTimeout race.
+                      const matches = await handleSearch();
+                      if (matches.length === 1) {
+                        // Exactly one match: select it and skip the list step.
+                        handleSelectPatient(matches[0]);
+                      } else if (matches.length > 1) {
+                        // Several matches: land on the list to pick one.
+                        setHighlightedPatientIndex(0);
+                        goToStep(20);
+                      } else {
+                        // New patient: skip the (empty) list and start at Title.
+                        handleCreateNewPatient();
+                      }
+                    }}
+                    maxLength={10}
+                    autoComplete="off"
+                    data-focus-step={10}
+                    className="h-12 pl-10 pr-14 text-base tracking-wide tabular-nums"
+                  />
+                  {phone.length > 0 && (
+                    <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-medium tabular-nums text-muted-foreground">
+                      {phone.length}/10
+                    </span>
+                  )}
+                </div>
                 <Button
-                  className="w-full sm:w-auto"
+                  className="h-12 w-full px-6 sm:w-auto"
                   onClick={handleSearch}
-                  variant="secondary"
+                  disabled={phone.length < 10}
                 >
-                  <Search className="h-4 w-4" />
+                  <Search className="mr-2 h-4 w-4" />
+                  Search
                 </Button>
               </div>
             </div>
@@ -1640,6 +1720,19 @@ const DiagnosticsNewVisit = () => {
                     If DOB is entered, age will be calculated automatically
                   </p>
                 </div>
+              </div>
+
+              {/* Row 3: Email (optional) */}
+              <div className="space-y-2">
+                <Label htmlFor="email">Email (optional)</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="patient@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="off"
+                />
               </div>
 
               {/* Phone validation error */}

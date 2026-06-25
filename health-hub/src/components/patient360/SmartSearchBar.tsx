@@ -34,13 +34,14 @@ const KIND_META: Record<
   bill: { label: "Bill", icon: Receipt },
 };
 
-// The pills a user can force. Order mirrors detection precedence.
+// The pills a user can force. Ordered by how often staff reach for them
+// (phone/name first, then bill; patient# and the rarely-collected email last).
 const OVERRIDE_KINDS: SearchKind[] = [
   "phone",
   "name",
+  "bill",
   "patientNumber",
   "email",
-  "bill",
 ];
 
 interface SmartSearchBarProps {
@@ -91,7 +92,7 @@ export function SmartSearchBar({
                 onSubmit();
               }
             }}
-            placeholder="Search by phone, name, patient #, email, or bill #"
+            placeholder="Search by phone, name, bill #, patient #, or email"
             aria-label="Search patients"
             className="pl-9 pr-28"
             autoFocus
