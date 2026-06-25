@@ -16,7 +16,7 @@
  * `closePreview()` in an effect keyed on the selected visitId so switching to a
  * visit that never opens a preview still revokes the prior blob (§3.3/§5).
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Drawer,
   DrawerContent,
@@ -27,7 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Eye, EyeOff, FileText, Printer, ReceiptText, X } from "lucide-react";
+import { Eye, EyeOff, FileText, Printer, ReceiptText, X, ZoomIn, ZoomOut } from "lucide-react";
 import { toast } from "sonner";
 import { FinancialDetailPanel } from "./FinancialDetailPanel";
 import { ReportActions } from "./ReportActions";
@@ -84,6 +84,14 @@ function InspectorBody({
   const billActive = activePreview?.kind === "bill";
   const billDomain = String(visit.domain).toUpperCase();
   const hasBill = visit.hasBill ?? !!visit.billNumber;
+
+  // Report-preview zoom (the bill preview is HTML and fits on its own). Driven
+  // through the PDF viewer's own #zoom= param so it stays crisp; the iframe
+  // remounts (via key) on change so the viewer re-applies the level.
+  const [zoom, setZoom] = useState(100);
+  useEffect(() => {
+    setZoom(100);
+  }, [reportActive, visit.visitId]);
 
   return (
     <div className="space-y-5">
@@ -168,25 +176,60 @@ function InspectorBody({
             <span className="text-xs font-medium text-muted-foreground">
               {reportActive ? "Report preview" : "Bill preview"}
             </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              aria-label="Hide preview"
-              onClick={closePreview}
-            >
-              <X className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-1">
+              {reportActive && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    aria-label="Zoom out"
+                    disabled={zoom <= 50}
+                    onClick={() => setZoom((z) => Math.max(50, z - 25))}
+                  >
+                    <ZoomOut className="h-4 w-4" />
+                  </Button>
+                  <span className="w-9 text-center text-xs tabular-nums text-muted-foreground">
+                    {zoom}%
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    aria-label="Zoom in"
+                    disabled={zoom >= 200}
+                    onClick={() => setZoom((z) => Math.min(200, z + 25))}
+                  >
+                    <ZoomIn className="h-4 w-4" />
+                  </Button>
+                  <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
+                </>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                aria-label="Hide preview"
+                onClick={closePreview}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
-          <iframe
-            src={
-              reportActive
-                ? `${activePreview.reportUrl}#toolbar=0&navpanes=0&view=FitH`
-                : `/bill/print/${billDomain}/${visit.visitId}`
-            }
-            title={reportActive ? "Report preview" : "Bill preview"}
-            className="h-[68vh] w-full bg-white"
-          />
+          {reportActive ? (
+            <iframe
+              key={`report-${zoom}`}
+              src={`${activePreview.reportUrl}#toolbar=0&navpanes=0&zoom=${zoom}`}
+              title="Report preview"
+              className="h-[68vh] w-full bg-white"
+            />
+          ) : (
+            <iframe
+              src={`/bill/print/${billDomain}/${visit.visitId}`}
+              title="Bill preview"
+              className="h-[68vh] w-full bg-white"
+            />
+          )}
         </div>
       )}
     </div>
