@@ -237,9 +237,45 @@ const DiagnosticsFinalizedReports = () => {
           </CardHeader>
           <CardContent>
             {filteredVisits.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                No finalized reports found.
-              </div>
+              (() => {
+                // Tell "no reports at all" apart from "filters hid them all".
+                const hasData = visitsWithDetails.length > 0;
+                return (
+                  <div className="flex flex-col items-center justify-center gap-3 py-14 text-center">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                      {hasData ? (
+                        <Search className="h-5 w-5" />
+                      ) : (
+                        <CheckCircle2 className="h-5 w-5" />
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-foreground">
+                        {hasData
+                          ? 'No reports match your filters'
+                          : 'No finalized reports yet'}
+                      </p>
+                      <p className="max-w-sm text-sm text-muted-foreground">
+                        {hasData
+                          ? 'Try a different date range, or clear the search to see every finalized report.'
+                          : 'Reports appear here once a diagnostic visit is completed and its report is finalized.'}
+                      </p>
+                    </div>
+                    {hasData && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setDateFilter('all');
+                          setSearch('');
+                        }}
+                      >
+                        Clear filters
+                      </Button>
+                    )}
+                  </div>
+                );
+              })()
             ) : (
               <div className="space-y-3">
                 {filteredVisits.map(({ visit, patient, testOrders }) => (

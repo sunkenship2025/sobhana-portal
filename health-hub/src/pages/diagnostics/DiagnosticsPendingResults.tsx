@@ -192,6 +192,21 @@ const DiagnosticsPendingResults = () => {
     });
   }, [visitsWithDetails, dateFilter, search]);
 
+  // Whether any case is actually result-entry-eligible (passes the domain gate
+  // above), independent of date/search. Lets the empty state tell "nothing to
+  // do" apart from "filters hid everything" — and guarantees that, when shown,
+  // "Clear filters" will surface at least one row.
+  const hasDisplayablePending = useMemo(
+    () =>
+      visitsWithDetails.some(({ visit }) => {
+        const hasInclusion =
+          visit.hasReportInclusionOrders ??
+          (visit.hasReportableOrders || visit.hasExternalUploadOrders);
+        return hasInclusion && visit.nextAction === "ENTER_RESULTS";
+      }),
+    [visitsWithDetails],
+  );
+
   const handleAction = (visit: any) => {
     navigate(`/diagnostics/results/${visit.id}`);
   };
@@ -324,8 +339,38 @@ const DiagnosticsPendingResults = () => {
           </CardHeader>
           <CardContent>
             {filteredVisits.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                No pending results found.
+              <div className="flex flex-col items-center justify-center gap-3 py-14 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                  {hasDisplayablePending ? (
+                    <Search className="h-5 w-5" />
+                  ) : (
+                    <Clock className="h-5 w-5" />
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-foreground">
+                    {hasDisplayablePending
+                      ? 'No pending results match your filters'
+                      : 'All caught up'}
+                  </p>
+                  <p className="max-w-sm text-sm text-muted-foreground">
+                    {hasDisplayablePending
+                      ? 'Try a different date range, or clear the search to see every pending case.'
+                      : 'No lab cases are waiting for results right now. New cases appear here once a diagnostic bill is created.'}
+                  </p>
+                </div>
+                {hasDisplayablePending && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setDateFilter('all');
+                      setSearch('');
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                )}
               </div>
             ) : (
               <div className="space-y-3">
