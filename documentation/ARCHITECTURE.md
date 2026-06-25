@@ -99,6 +99,7 @@ A **multi-branch, role-based** healthcare portal for diagnostics and clinic visi
 
 ## 3. Backend architecture
 
+
 ### 3.1 Entry point — [`src/index.ts`](../health-hub-backend/src/index.ts)
 
 In order:
@@ -187,6 +188,7 @@ In order:
 ---
 
 ## 4. Frontend architecture
+
 
 ### 4.1 Routing — [`App.tsx`](../health-hub/src/App.tsx)
 
