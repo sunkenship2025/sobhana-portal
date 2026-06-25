@@ -63,10 +63,39 @@ const formatTestList = (
   return labels.join(", ");
 };
 
+const matchesDateFilter = (filter: string, value: string) => {
+  if (filter === "all") return true;
+
+  const visitDate = new Date(value);
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrowStart = new Date(todayStart);
+  tomorrowStart.setDate(todayStart.getDate() + 1);
+  const yesterdayStart = new Date(todayStart);
+  yesterdayStart.setDate(todayStart.getDate() - 1);
+  const weekStart = new Date(todayStart);
+  weekStart.setDate(todayStart.getDate() - 6);
+
+  if (filter === "today") {
+    return visitDate >= todayStart && visitDate < tomorrowStart;
+  }
+
+  if (filter === "yesterday") {
+    return visitDate >= yesterdayStart && visitDate < todayStart;
+  }
+
+  if (filter === "week") {
+    return visitDate >= weekStart && visitDate < tomorrowStart;
+  }
+
+  return true;
+};
+
 const DiagnosticsPendingResults = () => {
   const navigate = useNavigate();
   const { activeBranchId } = useBranchStore();
   const { token } = useAuthStore();
+  const [dateFilter, setDateFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [pendingVisits, setPendingVisits] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -146,6 +175,10 @@ const DiagnosticsPendingResults = () => {
         return false;
       }
 
+      if (!matchesDateFilter(dateFilter, visit.createdAt)) {
+        return false;
+      }
+
       if (!search) return true;
       const searchLower = search.toLowerCase();
       const phone =
@@ -157,7 +190,7 @@ const DiagnosticsPendingResults = () => {
         visit.billNumber.toLowerCase().includes(searchLower)
       );
     });
-  }, [visitsWithDetails, search]);
+  }, [visitsWithDetails, dateFilter, search]);
 
   // Whether any case is actually result-entry-eligible (passes the domain gate
   // above), independent of date/search. Lets the empty state tell "nothing to
@@ -266,6 +299,20 @@ const DiagnosticsPendingResults = () => {
         <Card>
           <CardContent className="pt-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap">
+              <div className="space-y-2">
+                <Label>Date</Label>
+                <Select value={dateFilter} onValueChange={setDateFilter}>
+                  <SelectTrigger className="w-full sm:w-[180px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="today">Today</SelectItem>
+                    <SelectItem value="yesterday">Yesterday</SelectItem>
+                    <SelectItem value="week">This Week</SelectItem>
+                    <SelectItem value="all">All Time</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-2 w-full flex-1 sm:max-w-sm">
                 <Label>Search</Label>
                 <div className="relative">
@@ -303,12 +350,12 @@ const DiagnosticsPendingResults = () => {
                 <div className="space-y-1">
                   <p className="text-sm font-medium text-foreground">
                     {hasDisplayablePending
-                      ? 'No pending results match your search'
+                      ? 'No pending results match your filters'
                       : 'All caught up'}
                   </p>
                   <p className="max-w-sm text-sm text-muted-foreground">
                     {hasDisplayablePending
-                      ? 'Try a different term, or clear the search to see every pending case.'
+                      ? 'Try a different date range, or clear the search to see every pending case.'
                       : 'No lab cases are waiting for results right now. New cases appear here once a diagnostic bill is created.'}
                   </p>
                 </div>
@@ -316,9 +363,12 @@ const DiagnosticsPendingResults = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setSearch('')}
+                    onClick={() => {
+                      setDateFilter('all');
+                      setSearch('');
+                    }}
                   >
-                    Clear search
+                    Clear filters
                   </Button>
                 )}
               </div>
