@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { Search, Users, RotateCcw, Loader2 } from 'lucide-react';
+import { Search, Users, RotateCcw, Loader2, Plus } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
 import { toast } from 'sonner';
 import {
@@ -61,6 +62,7 @@ interface QueueVisit {
 }
 
 const ClinicVisitQueue = () => {
+  const navigate = useNavigate();
   const { token } = useAuthStore();
   const { activeBranchId } = useBranchStore();
   const [visits, setVisits] = useState<QueueVisit[]>([]);
@@ -279,9 +281,53 @@ const ClinicVisitQueue = () => {
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
             ) : filteredVisits.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                No visits found.
-              </div>
+              (() => {
+                const hasFilters =
+                  visitTypeFilter !== 'all' ||
+                  doctorFilter !== 'all' ||
+                  search.trim() !== '';
+                return (
+                  <div className="flex flex-col items-center justify-center gap-3 py-14 text-center">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                      {hasFilters ? (
+                        <Search className="h-5 w-5" />
+                      ) : (
+                        <Users className="h-5 w-5" />
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-foreground">
+                        {hasFilters
+                          ? 'No visits match your filters'
+                          : 'The queue is clear'}
+                      </p>
+                      <p className="max-w-sm text-sm text-muted-foreground">
+                        {hasFilters
+                          ? 'Try a different doctor, visit type, or search term.'
+                          : 'No one is waiting or active right now. New visits appear here as they are registered.'}
+                      </p>
+                    </div>
+                    {hasFilters ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setVisitTypeFilter('all');
+                          setDoctorFilter('all');
+                          setSearch('');
+                        }}
+                      >
+                        Clear filters
+                      </Button>
+                    ) : (
+                      <Button size="sm" onClick={() => navigate('/clinic/new')}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        New clinic visit
+                      </Button>
+                    )}
+                  </div>
+                );
+              })()
             ) : (
               <div className="space-y-3">
                 {filteredVisits.map((visit) => {

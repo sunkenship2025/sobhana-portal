@@ -1354,14 +1354,9 @@ const DiagnosticsNewVisit = () => {
         {/* Patient Lookup */}
         <Card>
           <CardContent className="space-y-4 p-5 sm:p-6">
-            <div className="space-y-1">
-              <h2 className="text-base font-semibold leading-none">
-                Select or register a patient
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Search the patient's 10-digit phone number to begin.
-              </p>
-            </div>
+            <h2 className="text-base font-semibold leading-none">
+              Select or register a patient
+            </h2>
             <div className="space-y-2">
               <Label htmlFor="phone" className="sr-only">
                 Phone Number
@@ -1404,11 +1399,13 @@ const DiagnosticsNewVisit = () => {
                     data-focus-step={10}
                     className="h-12 pl-10 pr-14 text-base tracking-wide tabular-nums"
                   />
-                  {phone.length > 0 && (
+                  {phone.length === 10 ? (
+                    <Check className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-success" />
+                  ) : phone.length > 0 ? (
                     <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-medium tabular-nums text-muted-foreground">
                       {phone.length}/10
                     </span>
-                  )}
+                  ) : null}
                 </div>
                 <Button
                   className="h-12 w-full px-6 sm:w-auto"
@@ -1427,7 +1424,7 @@ const DiagnosticsNewVisit = () => {
         {(matchingPatients.length > 0 || phone.length === 10) && (
           <Card>
             <CardHeader className="px-5 pt-4 pb-0">
-              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Matching Patients</CardTitle>
+              <CardTitle className="text-base font-semibold">Matching Patients</CardTitle>
             </CardHeader>
             <CardContent className="px-5 pb-5 pt-3 space-y-3">
               {/* Keyboard-navigable patient list: Arrow Up/Down to move, Enter to select */}
@@ -1544,7 +1541,7 @@ const DiagnosticsNewVisit = () => {
         {showNewPatientForm && (
           <Card>
             <CardHeader className="px-5 pt-4 pb-0">
-              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">New Patient</CardTitle>
+              <CardTitle className="text-base font-semibold">New Patient</CardTitle>
             </CardHeader>
             <CardContent className="px-5 pb-5 pt-3 space-y-3">
               {/* Row 1: Title + Name */}
@@ -1771,7 +1768,7 @@ const DiagnosticsNewVisit = () => {
         {(selectedPatient || showNewPatientForm) && (
           <Card>
             <CardHeader className="px-5 pt-4 pb-0">
-              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Select Tests</CardTitle>
+              <CardTitle className="text-base font-semibold">Select Tests</CardTitle>
             </CardHeader>
             <CardContent className="px-5 pb-5 pt-3">
               <div ref={testSelectorRef}>
@@ -1828,7 +1825,7 @@ const DiagnosticsNewVisit = () => {
         {selectedProducts.length > 0 && (
           <Card>
             <CardHeader className="px-5 pt-4 pb-0">
-              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Billing</CardTitle>
+              <CardTitle className="text-base font-semibold">Billing</CardTitle>
             </CardHeader>
             <CardContent className="px-5 pb-5 pt-3 space-y-3">
               {/* Referral Doctor */}

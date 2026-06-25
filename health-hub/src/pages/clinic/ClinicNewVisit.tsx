@@ -8,6 +8,8 @@ import {
   RotateCcw,
   Search,
   UserPlus,
+  Phone,
+  Check,
 } from "lucide-react";
 import { API_BASE } from "@/lib/api";
 import { ClinicPrescriptionPrint } from "@/components/print/ClinicPrescriptionPrint";
@@ -944,59 +946,123 @@ const ClinicNewVisit = () => {
     <AppLayout context="clinic" subContext="Reception">
       {ConfirmDialog}
       <div className="max-w-[760px] mx-auto space-y-4 pb-24 animate-fade-in">
-        <div className="flex items-baseline justify-between gap-4">
-          <h1 className="text-lg font-semibold">New Clinic Visit</h1>
-          {selectedPatient && (
-            <span className="truncate text-sm text-muted-foreground">
-              {formatPatientName(selectedPatient.name, selectedPatient.title)}
-              {selectedPatient.age
-                ? ` · ${selectedPatient.ageDisplay || selectedPatient.age + "y"}`
-                : ""}
-              {selectedPatient.gender ? ` · ${selectedPatient.gender}` : ""}
-            </span>
-          )}
+        <div className="space-y-3">
+          <div className="flex items-baseline justify-between gap-4">
+            <h1 className="text-lg font-semibold">New Clinic Visit</h1>
+            {selectedPatient && (
+              <span className="truncate text-sm text-muted-foreground">
+                {formatPatientName(selectedPatient.name, selectedPatient.title)}
+                {selectedPatient.age
+                  ? ` · ${selectedPatient.ageDisplay || selectedPatient.age + "y"}`
+                  : ""}
+                {selectedPatient.gender ? ` · ${selectedPatient.gender}` : ""}
+              </span>
+            )}
+          </div>
+
+          {/* Flow steps — reflects real progress: pick/register patient → visit → bill */}
+          {(() => {
+            const patientDone =
+              !!selectedPatient ||
+              (showNewPatientForm && newPatient.name.trim() !== "");
+            const visitDone = !!selectedDoctorId;
+            const steps = [
+              { label: "Patient", done: patientDone, active: !patientDone },
+              { label: "Visit", done: visitDone, active: patientDone && !visitDone },
+              { label: "Bill", done: false, active: visitDone },
+            ];
+            return (
+              <nav
+                aria-label="Visit progress"
+                className="flex items-center gap-2.5 text-xs"
+              >
+                {steps.map((s, i) => (
+                  <div key={s.label} className="flex items-center gap-2.5">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-semibold leading-none transition-colors ${
+                          s.done || s.active
+                            ? "bg-primary text-primary-foreground"
+                            : "border border-border text-muted-foreground"
+                        }`}
+                        aria-current={s.active ? "step" : undefined}
+                      >
+                        {s.done ? <Check className="h-3 w-3" /> : i + 1}
+                      </span>
+                      <span
+                        className={`font-medium ${
+                          s.done || s.active
+                            ? "text-foreground"
+                            : "text-muted-foreground"
+                        }`}
+                      >
+                        {s.label}
+                      </span>
+                    </div>
+                    {i < steps.length - 1 && (
+                      <span className="h-px w-6 bg-border" aria-hidden="true" />
+                    )}
+                  </div>
+                ))}
+              </nav>
+            );
+          })()}
         </div>
 
         <Card>
-          <CardHeader className="px-5 pt-4 pb-0">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Patient Lookup</CardTitle>
-          </CardHeader>
-          <CardContent className="px-5 pb-5 pt-3 space-y-3">
+          <CardContent className="space-y-4 p-5 sm:p-6">
+            <h2 className="text-base font-semibold leading-none">
+              Select or register a patient
+            </h2>
             <div className="space-y-2">
-              <Label htmlFor="phone">Phone Number *</Label>
+              <Label htmlFor="phone" className="sr-only">
+                Phone Number
+              </Label>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  id="phone"
-                  placeholder="Enter 10-digit phone"
-                  value={phone}
-                  onChange={(event) =>
-                    handlePhoneChange(
-                      event.target.value.replace(/\D/g, "").slice(0, 10),
-                    )
-                  }
-                  maxLength={10}
-                  autoComplete="off"
-                  className="w-full"
-                  onKeyDown={(e) => {
-                    if (e.repeat) return;
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handlePhoneEnter();
-                    } else if (e.key === "Escape") {
-                      e.preventDefault();
-                      goToPrev(10);
+                <div className="relative flex-1">
+                  <Phone className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="phone"
+                    inputMode="numeric"
+                    placeholder="Enter 10-digit phone"
+                    value={phone}
+                    onChange={(event) =>
+                      handlePhoneChange(
+                        event.target.value.replace(/\D/g, "").slice(0, 10),
+                      )
                     }
-                  }}
-                  data-focus-step={10}
-                  autoFocus
-                />
+                    maxLength={10}
+                    autoComplete="off"
+                    className="h-12 pl-10 pr-14 text-base tracking-wide tabular-nums"
+                    onKeyDown={(e) => {
+                      if (e.repeat) return;
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handlePhoneEnter();
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        goToPrev(10);
+                      }
+                    }}
+                    data-focus-step={10}
+                    autoFocus
+                  />
+                  {phone.length === 10 ? (
+                    <Check className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-success" />
+                  ) : phone.length > 0 ? (
+                    <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-medium tabular-nums text-muted-foreground">
+                      {phone.length}/10
+                    </span>
+                  ) : null}
+                </div>
                 <Button
-                  className="w-full sm:w-auto"
-                  variant="secondary"
+                  className="h-12 w-full px-6 sm:w-auto"
                   type="button"
                   onClick={() => handlePhoneChange(phone)}
+                  disabled={phone.length < 10}
                 >
-                  <Search className="h-4 w-4" />
+                  <Search className="mr-2 h-4 w-4" />
+                  Search
                 </Button>
               </div>
             </div>
@@ -1006,7 +1072,7 @@ const ClinicNewVisit = () => {
         {(matchingPatients.length > 0 || phone.length === 10) && (
           <Card>
             <CardHeader className="px-5 pt-4 pb-0">
-              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Matching Patients</CardTitle>
+              <CardTitle className="text-base font-semibold">Matching Patients</CardTitle>
             </CardHeader>
             <CardContent className="px-5 pb-5 pt-3 space-y-3">
               <div
@@ -1095,7 +1161,7 @@ const ClinicNewVisit = () => {
         {showNewPatientForm && (
           <Card>
             <CardHeader className="px-5 pt-4 pb-0">
-              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">New Patient</CardTitle>
+              <CardTitle className="text-base font-semibold">New Patient</CardTitle>
             </CardHeader>
             <CardContent className="px-5 pb-5 pt-3 space-y-3">
               {/* Row 1: Title + Name */}
@@ -1323,7 +1389,7 @@ const ClinicNewVisit = () => {
         {(selectedPatient || showNewPatientForm) && (
           <Card>
             <CardHeader className="px-5 pt-4 pb-0">
-              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Visit Details</CardTitle>
+              <CardTitle className="text-base font-semibold">Visit Details</CardTitle>
             </CardHeader>
             <CardContent className="px-5 pb-5 pt-3 space-y-3">
               <div className="space-y-2">
@@ -1419,7 +1485,7 @@ const ClinicNewVisit = () => {
         {(selectedPatient || showNewPatientForm) && selectedDoctorId && (
           <Card>
             <CardHeader className="px-5 pt-4 pb-0">
-              <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Billing</CardTitle>
+              <CardTitle className="text-base font-semibold">Billing</CardTitle>
             </CardHeader>
             <CardContent className="px-5 pb-5 pt-3 space-y-3">
               {checkingRevisit && (
