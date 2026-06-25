@@ -633,7 +633,11 @@ export default function OwnerOperationsPage() {
               <KpiCard
                 label="In queue right now"
                 value={data.kpis.inQueue}
-                sub={`incl. ${data.kpis.inQueueDiagnostics} diagnostics + ${data.kpis.inQueueClinic} clinic`}
+                sub={
+                  Number.isFinite(data.kpis.inQueueDiagnostics)
+                    ? `incl. ${data.kpis.inQueueDiagnostics} diagnostics + ${data.kpis.inQueueClinic} clinic`
+                    : undefined
+                }
               />
               <KpiCard
                 label="Message delivery"
@@ -642,7 +646,9 @@ export default function OwnerOperationsPage() {
                     ? `${data.kpis.deliveryRatePercent}%`
                     : '—'
                 }
-                sub={`${data.kpis.deliveryAttempted} settled · ${data.kpis.inFlight} in flight`}
+                sub={`${data.kpis.deliveryAttempted} settled${
+                  Number.isFinite(data.kpis.inFlight) ? ` · ${data.kpis.inFlight} in flight` : ''
+                }`}
               />
             </div>
 

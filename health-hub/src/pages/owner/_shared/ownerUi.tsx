@@ -242,7 +242,7 @@ export function KpiCard({
       </div>
       <DisplayNumber size={22}>{value}</DisplayNumber>
       {delta &&
-        (delta.percent !== null ? (
+        (Number.isFinite(delta.percent as number) ? (
           <div
             className="mt-1"
             style={{
@@ -516,6 +516,22 @@ export function TrendChart({
   markLastAsToday?: boolean;
   accent?: string;
 }) {
+  // Measure the container and render the svg at its true pixel width so the
+  // chart fills the card (no left/right letterboxing) while markers stay round
+  // and the slope is honest (viewBox === pixel size, no aspect distortion).
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const [containerW, setContainerW] = React.useState(0);
+  React.useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      if (w > 0) setContainerW(Math.round(w));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   if (!data || data.length === 0) {
     return (
       <div
@@ -527,8 +543,8 @@ export function TrendChart({
     );
   }
 
-  // viewBox coordinate space (sized to the data; svg scales to container width)
-  const VB_W = 600;
+  // viewBox coordinate space == measured pixel width (svg fills the container)
+  const VB_W = containerW;
   const VB_H = height;
   const padL = 8;
   const padR = 8;
@@ -558,8 +574,10 @@ export function TrendChart({
   if (n > 1) dateLabels.push({ i: n - 1, anchor: 'end' });
 
   return (
+    <div ref={containerRef} style={{ width: '100%', height }}>
+      {containerW > 0 && (
     <svg
-      width="100%"
+      width={VB_W}
       height={height}
       viewBox={`0 0 ${VB_W} ${VB_H}`}
       role="img"
@@ -629,6 +647,37 @@ export function TrendChart({
         </text>
       ))}
     </svg>
+      )}
+    </div>
+  );
+}
+
+// ----- signed delta percent (NaN/null-safe) -----------------------------
+
+/**
+ * Renders a period-over-period delta as ▲N% (healthy) / ▼N% (critical), or an
+ * em dash when the value is null/undefined/NaN — so a stale or missing field
+ * never shows "▼NaN%".
+ */
+export function DeltaPercent({
+  value,
+  className,
+}: {
+  value: number | null | undefined;
+  className?: string;
+}) {
+  const finite = Number.isFinite(value as number);
+  const n = finite ? (value as number) : 0;
+  return (
+    <span
+      className={className}
+      style={{
+        fontSize: 11,
+        color: !finite ? TOKENS.textTertiary : n >= 0 ? TOKENS.healthy : TOKENS.critical,
+      }}
+    >
+      {!finite ? '—' : `${n >= 0 ? '▲' : '▼'}${Math.abs(n)}%`}
+    </span>
   );
 }
 

@@ -641,7 +641,7 @@ export default function OwnerMoneyPage() {
                     {data.kpis.outstandingAgedBillCount > 0
                       ? `${data.kpis.outstandingAgedBillCount} aged >30d`
                       : '0 aged >30d'}
-                    {data.kpis.collectionRatePct !== null && (
+                    {Number.isFinite(data.kpis.collectionRatePct) && (
                       <> · collected {data.kpis.collectionRatePct}% of billed</>
                     )}
                   </>

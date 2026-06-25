@@ -33,6 +33,7 @@ import {
   ErrorCard,
   RefreshButton,
   TrendChart,
+  DeltaPercent,
   severityForRatio,
   formatRupees,
 } from './_shared/ownerUi';
@@ -282,8 +283,8 @@ function MoneyTodayCard({ data }: { data: DashboardV2['moneyToday'] }) {
             value={-data.discountInPaise}
             ratio={widthFor(data.discountInPaise)}
             color={TOKENS.discount}
-            note={`(${data.discountRatePct}% of gross)`}
-            noteCaution={data.discountRatePct > 15}
+            note={Number.isFinite(data.discountRatePct) ? `(${data.discountRatePct}% of gross)` : undefined}
+            noteCaution={Number.isFinite(data.discountRatePct) && data.discountRatePct > 15}
           />
           <WaterfallRow
             label="Commission accrued"
@@ -528,7 +529,7 @@ function OpsPulseRow({ data }: { data: DashboardV2['opsPulse'] }) {
             ? `Avg wait ${clinic.avgWaitMinutes}m`
             : 'Avg wait —'}
           {` · Revisits ${clinic.revisitsToday}${
-            clinic.revisitRatePct !== null ? ` · ${clinic.revisitRatePct}% revisit rate` : ''
+            Number.isFinite(clinic.revisitRatePct) ? ` · ${clinic.revisitRatePct}% revisit rate` : ''
           }`}
           {clinic.onShiftDoctorName ? ` · ${clinic.onShiftDoctorName} on shift` : ' · no doctor on shift'}
         </div>
@@ -749,18 +750,7 @@ function BranchTableCard({ rows }: { rows: DashboardV2['branchTable'] }) {
                       : '—'}
                   </td>
                   <td className="py-3 text-right">
-                    {r.deltaPercent === null ? (
-                      <span style={{ color: TOKENS.textTertiary }}>—</span>
-                    ) : (
-                      <span
-                        style={{
-                          color: r.deltaPercent >= 0 ? TOKENS.healthy : TOKENS.critical,
-                        }}
-                      >
-                        {r.deltaPercent >= 0 ? '▲' : '▼'}
-                        {Math.abs(r.deltaPercent)}%
-                      </span>
-                    )}
+                    <DeltaPercent value={r.deltaPercent} />
                   </td>
                   <td className="py-3 text-right" style={{ color: TOKENS.textPrimary }}>
                     {r.tatP50Minutes !== null ? `${Math.round(r.tatP50Minutes)}m` : '—'}

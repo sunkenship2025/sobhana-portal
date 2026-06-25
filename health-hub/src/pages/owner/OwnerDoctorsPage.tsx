@@ -30,6 +30,7 @@ import {
   RefreshButton,
   ErrorCard,
   FullPageSkeleton,
+  DeltaPercent,
 } from './_shared/ownerUi';
 
 interface DoctorsResponse {
@@ -201,22 +202,7 @@ function LeaderboardCard({ rows }: { rows: DoctorsResponse['leaderboard'] }) {
                   </td>
                   <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
                     <span>{r.visits}</span>
-                    <span
-                      className="ml-1"
-                      style={{
-                        fontSize: 11,
-                        color:
-                          r.visitsDeltaPercent === null
-                            ? TOKENS.textTertiary
-                            : r.visitsDeltaPercent >= 0
-                              ? TOKENS.healthy
-                              : TOKENS.critical,
-                      }}
-                    >
-                      {r.visitsDeltaPercent === null
-                        ? '—'
-                        : `${r.visitsDeltaPercent >= 0 ? '▲' : '▼'}${Math.abs(r.visitsDeltaPercent)}%`}
-                    </span>
+                    <DeltaPercent value={r.visitsDeltaPercent} className="ml-1" />
                   </td>
                   <td className="py-2 text-right" style={{ color: TOKENS.textPrimary }}>
                     {formatRupees(r.grossInPaise, { short: true })}
@@ -498,6 +484,16 @@ export default function OwnerDoctorsPage() {
         {data && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {/* Headline: what the centre actually kept from doctor-driven
+                  business after paying out commissions. */}
+              <KpiCard
+                label="Net we kept (after commissions)"
+                value={formatRupees(
+                  data.kpis.netReferralRevenueInPaise + data.kpis.netClinicRevenueInPaise,
+                  { short: true },
+                )}
+                sub="referral + clinic, after paying doctors"
+              />
               <KpiCard
                 label="Net from referral doctors"
                 value={formatRupees(data.kpis.netReferralRevenueInPaise, { short: true })}
@@ -526,8 +522,7 @@ export default function OwnerDoctorsPage() {
               />
             </div>
 
-            <LeaderboardCard rows={data.leaderboard} />
-
+            {/* Payout aging + external flow first, then the per-doctor detail. */}
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
               <div className="lg:col-span-2">
                 <PayoutAgingCard rows={data.payoutAging} />
@@ -536,6 +531,8 @@ export default function OwnerDoctorsPage() {
                 <ExternalFlowCard flow={data.externalFlow} />
               </div>
             </div>
+
+            <LeaderboardCard rows={data.leaderboard} />
 
             <RecentPayoutsCard rows={data.recentPayouts} />
           </div>

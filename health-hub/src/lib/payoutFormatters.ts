@@ -7,6 +7,9 @@ export function formatRupees(
   paise: number,
   options?: { short?: boolean },
 ): string {
+  // Defensive: a missing/NaN field (e.g. a stale API response that predates a
+  // new column) must never render "₹NaN" — show an em dash instead.
+  if (!Number.isFinite(paise)) return "—";
   const rupees = paise / 100;
 
   if (options?.short) {
