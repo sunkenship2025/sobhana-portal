@@ -156,7 +156,32 @@ const ClinicVisitQueue = () => {
   const updateVisitStatus = async (visit: QueueVisit, status: 'IN_PROGRESS' | 'COMPLETED') => {
     if (!activeBranchId) return;
 
+    const previousStatus = visit.status;
+    const optimisticUpdatedAt = new Date().toISOString();
+
+    // Optimistic: reflect the change instantly so the queue feels snappy.
+    // A COMPLETED visit drops straight out of the queue; we reconcile with
+    // the server below and roll back if the request fails.
     setUpdatingVisitId(visit.id);
+    setVisits((currentVisits) =>
+      currentVisits.map((currentVisit) =>
+        currentVisit.id === visit.id
+          ? { ...currentVisit, status, updatedAt: optimisticUpdatedAt }
+          : currentVisit,
+      ),
+    );
+    if (status === 'COMPLETED') {
+      setSelectedVisit((currentVisit) =>
+        currentVisit?.id === visit.id ? null : currentVisit,
+      );
+    } else {
+      setSelectedVisit((currentVisit) =>
+        currentVisit?.id === visit.id
+          ? { ...currentVisit, status, updatedAt: optimisticUpdatedAt }
+          : currentVisit,
+      );
+    }
+
     try {
       const res = await fetch(`${API_BASE}/visits/clinic/${visit.id}`, {
         method: 'PATCH',
@@ -174,26 +199,13 @@ const ClinicVisitQueue = () => {
         throw new Error(data.message || 'Failed to update visit status');
       }
 
+      // Reconcile with the server's authoritative status (usually identical).
       setVisits((currentVisits) =>
         currentVisits.map((currentVisit) =>
           currentVisit.id === visit.id
-            ? {
-                ...currentVisit,
-                status: data.status,
-                updatedAt: new Date().toISOString(),
-              }
+            ? { ...currentVisit, status: data.status }
             : currentVisit,
         ),
-      );
-
-      setSelectedVisit((currentVisit) =>
-        currentVisit?.id === visit.id
-          ? {
-              ...currentVisit,
-              status: data.status,
-              updatedAt: new Date().toISOString(),
-            }
-          : currentVisit,
       );
 
       toast.success(
@@ -201,12 +213,16 @@ const ClinicVisitQueue = () => {
           ? 'Visit moved to ongoing'
           : 'Visit marked as done',
       );
-
-      if (status === 'COMPLETED') {
-        setSelectedVisit(null);
-      }
     } catch (error: any) {
+      // Roll back the optimistic change so the queue stays truthful.
       console.error('Failed to update visit status:', error);
+      setVisits((currentVisits) =>
+        currentVisits.map((currentVisit) =>
+          currentVisit.id === visit.id
+            ? { ...currentVisit, status: previousStatus }
+            : currentVisit,
+        ),
+      );
       toast.error(error.message || 'Failed to update visit status');
     } finally {
       setUpdatingVisitId(null);
