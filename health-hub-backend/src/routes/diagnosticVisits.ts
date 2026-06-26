@@ -41,6 +41,8 @@ import {
   areReferralPayoutsEqual,
   distributeFixedAmountInPaise,
   normalizeReferralOverrideInput,
+  resolveLabCostSnapshot,
+  resolveReducedReferralSnapshot,
   type NormalizedReferralPayout,
 } from "../services/referralPayoutService";
 import { derivePayout } from "../services/payoutService";
@@ -1449,6 +1451,8 @@ router.post("/", async (req: AuthRequest, res) => {
       diagnosticCenterId,
       referralOverrides,
       diagnosticCenterOverrides,
+      externalLabByProductId,
+      externalLabByTestId,
       testIds,
       productIds,
       paymentType,
@@ -1565,6 +1569,42 @@ router.post("/", async (req: AuthRequest, res) => {
       }
     }
 
+    // ── Outside-lab outsourcing (optional): which products/tests go to a lab ──
+    const labByProduct: Record<string, string> =
+      externalLabByProductId && typeof externalLabByProductId === "object"
+        ? externalLabByProductId
+        : {};
+    const labByTest: Record<string, string> =
+      externalLabByTestId && typeof externalLabByTestId === "object"
+        ? externalLabByTestId
+        : {};
+    const labMap = new Map<
+      string,
+      {
+        lab: { rateType: any; ratePercent: number | null; rateAmountInPaise: number | null };
+        ruleByProductId: Map<string, any>;
+      }
+    >();
+    const labIds = Array.from(
+      new Set(
+        [...Object.values(labByProduct), ...Object.values(labByTest)].filter(
+          (id): id is string => typeof id === "string" && id.length > 0
+        )
+      )
+    );
+    if (labIds.length > 0) {
+      const labs = await prisma.externalLab.findMany({
+        where: { id: { in: labIds }, isActive: true },
+        include: { productRules: { where: { isActive: true } } },
+      });
+      for (const lab of labs) {
+        labMap.set(lab.id, {
+          lab,
+          ruleByProductId: new Map(lab.productRules.map((r) => [r.productId, r])),
+        });
+      }
+    }
+
     const overrides = new Map<string, NormalizedReferralPayout>();
     const diagnosticCenterOverrideMap = new Map<
       string,
@@ -1625,7 +1665,60 @@ router.post("/", async (req: AuthRequest, res) => {
       diagnosticCenterCommissionType: "PERCENTAGE" | "FIXED_AMOUNT" | null;
       diagnosticCenterCommissionPercentage: number | null;
       diagnosticCenterCommissionAmountInPaise: number | null;
+      externalLabId: string | null;
+      labCostType: "PERCENTAGE" | "FIXED_AMOUNT" | null;
+      labCostPercentage: number | null;
+      labCostAmountInPaise: number | null;
     }> = [];
+
+    // Resolve the outside-lab snapshot (+ optional reduced doctor commission)
+    // for one order. Returns the (possibly reduced) referral snapshot to use.
+    const resolveOrderLab = (
+      key: string | undefined,
+      referral: {
+        commissionType: "PERCENTAGE" | "FIXED_AMOUNT";
+        commissionPercentage: number | null;
+        commissionAmountInPaise: number | null;
+      },
+      productId?: string
+    ) => {
+      const labId = key ? (labByProduct[key] ?? labByTest[key]) : undefined;
+      const entry = labId ? labMap.get(labId) : undefined;
+      if (!labId || !entry) {
+        return {
+          externalLabId: null as string | null,
+          labCostType: null as "PERCENTAGE" | "FIXED_AMOUNT" | null,
+          labCostPercentage: null as number | null,
+          labCostAmountInPaise: null as number | null,
+          referral,
+        };
+      }
+      const rule = productId ? entry.ruleByProductId.get(productId) : undefined;
+      const cost = resolveLabCostSnapshot(entry.lab, rule);
+      let nextReferral = referral;
+      if (referralDoctorId && rule?.reducedReferralCommissionType != null) {
+        const reduced = resolveReducedReferralSnapshot(
+          {
+            referralCommissionType: referral.commissionType,
+            referralCommissionPercentage: referral.commissionPercentage,
+            referralCommissionAmountInPaise: referral.commissionAmountInPaise,
+          },
+          rule
+        );
+        nextReferral = {
+          commissionType: reduced.referralCommissionType,
+          commissionPercentage: reduced.referralCommissionPercentage,
+          commissionAmountInPaise: reduced.referralCommissionAmountInPaise,
+        };
+      }
+      return {
+        externalLabId: labId,
+        labCostType: cost.labCostType,
+        labCostPercentage: cost.labCostPercentage,
+        labCostAmountInPaise: cost.labCostAmountInPaise,
+        referral: nextReferral,
+      };
+    };
 
     if (hasProducts) {
       // ── New architecture: resolve BillableProducts ──
@@ -1651,6 +1744,15 @@ router.post("/", async (req: AuthRequest, res) => {
           );
 
           for (const [index, to] of rp.testOrders.entries()) {
+            const labResolved = resolveOrderLab(
+              rp.productId,
+              {
+                commissionType: referralSnapshots[index].commissionType,
+                commissionPercentage: referralSnapshots[index].commissionPercentage,
+                commissionAmountInPaise: referralSnapshots[index].commissionAmountInPaise,
+              },
+              to.productId
+            );
             testOrderData.push({
               testId: to.labTestId,
               testDefinitionId: to.testDefinitionId,
@@ -1662,17 +1764,19 @@ router.post("/", async (req: AuthRequest, res) => {
               referenceMinSnapshot: to.referenceMin,
               referenceMaxSnapshot: to.referenceMax,
               referenceUnitSnapshot: to.referenceUnit,
-              referralCommissionType: referralSnapshots[index].commissionType,
-              referralCommissionPercentage:
-                referralSnapshots[index].commissionPercentage,
-              referralCommissionAmountInPaise:
-                referralSnapshots[index].commissionAmountInPaise,
+              referralCommissionType: labResolved.referral.commissionType,
+              referralCommissionPercentage: labResolved.referral.commissionPercentage,
+              referralCommissionAmountInPaise: labResolved.referral.commissionAmountInPaise,
               diagnosticCenterCommissionType:
                 diagnosticCenterSnapshots[index].commissionType,
               diagnosticCenterCommissionPercentage:
                 diagnosticCenterSnapshots[index].commissionPercentage,
               diagnosticCenterCommissionAmountInPaise:
                 diagnosticCenterSnapshots[index].commissionAmountInPaise,
+              externalLabId: labResolved.externalLabId,
+              labCostType: labResolved.labCostType,
+              labCostPercentage: labResolved.labCostPercentage,
+              labCostAmountInPaise: labResolved.labCostAmountInPaise,
             });
           }
           totalAmountInPaise += rp.effectivePrice;
@@ -1717,6 +1821,15 @@ router.post("/", async (req: AuthRequest, res) => {
             defaultDiagnosticCenterRule,
         )[0];
 
+        const labResolved = resolveOrderLab(
+          test.id,
+          {
+            commissionType: referralSnapshot.commissionType,
+            commissionPercentage: referralSnapshot.commissionPercentage,
+            commissionAmountInPaise: referralSnapshot.commissionAmountInPaise,
+          },
+          undefined
+        );
         return {
           testId: test.id,
           workflowMode: DiagnosticWorkflowMode.REPORTABLE,
@@ -1726,16 +1839,20 @@ router.post("/", async (req: AuthRequest, res) => {
           referenceMinSnapshot: test.referenceMin,
           referenceMaxSnapshot: test.referenceMax,
           referenceUnitSnapshot: test.referenceUnit,
-          referralCommissionType: referralSnapshot.commissionType,
-          referralCommissionPercentage: referralSnapshot.commissionPercentage,
+          referralCommissionType: labResolved.referral.commissionType,
+          referralCommissionPercentage: labResolved.referral.commissionPercentage,
           referralCommissionAmountInPaise:
-            referralSnapshot.commissionAmountInPaise,
+            labResolved.referral.commissionAmountInPaise,
           diagnosticCenterCommissionType:
             diagnosticCenterSnapshot.commissionType,
           diagnosticCenterCommissionPercentage:
             diagnosticCenterSnapshot.commissionPercentage,
           diagnosticCenterCommissionAmountInPaise:
             diagnosticCenterSnapshot.commissionAmountInPaise,
+          externalLabId: labResolved.externalLabId,
+          labCostType: labResolved.labCostType,
+          labCostPercentage: labResolved.labCostPercentage,
+          labCostAmountInPaise: labResolved.labCostAmountInPaise,
         };
       });
     }
@@ -1965,6 +2082,10 @@ router.post("/", async (req: AuthRequest, res) => {
               tod.diagnosticCenterCommissionPercentage,
             diagnosticCenterCommissionAmountInPaise:
               tod.diagnosticCenterCommissionAmountInPaise,
+            externalLabId: tod.externalLabId ?? null,
+            labCostType: tod.labCostType,
+            labCostPercentage: tod.labCostPercentage,
+            labCostAmountInPaise: tod.labCostAmountInPaise,
             testNameSnapshot: tod.testNameSnapshot,
             testCodeSnapshot: tod.testCodeSnapshot,
             referenceMinSnapshot: tod.referenceMinSnapshot,
