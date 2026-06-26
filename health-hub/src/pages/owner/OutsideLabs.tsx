@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, X } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -44,6 +44,23 @@ import { OwnerPageHeader } from "./_shared/ownerUi";
 import { formatRupees } from "@/lib/payoutFormatters";
 import type { ExternalLab, ReferralPayoutType } from "@/types";
 
+interface ProductLite {
+  id: string;
+  name: string;
+  code: string;
+}
+
+interface OverrideRow {
+  productId: string;
+  rateType: ReferralPayoutType;
+  ratePercent: string;
+  rateAmount: string;
+  reduceDoctor: boolean;
+  reducedType: ReferralPayoutType;
+  reducedPercent: string;
+  reducedAmount: string;
+}
+
 const EMPTY_FORM = {
   name: "",
   contactPerson: "",
@@ -52,7 +69,8 @@ const EMPTY_FORM = {
   address: "",
   rateType: "PERCENTAGE" as ReferralPayoutType,
   ratePercent: "0",
-  rateAmount: "0", // rupees
+  rateAmount: "0",
+  overrides: [] as OverrideRow[],
 };
 
 function rateLabel(lab: ExternalLab): string {
@@ -74,6 +92,13 @@ export default function OutsideLabs() {
     queryFn: () =>
       branchRequest<ExternalLab[]>("/external-labs?includeInactive=true", branchId!),
   });
+
+  const { data: products = [] } = useApiQuery<ProductLite[]>({
+    branchScoped: true,
+    queryKey: [...qk.externalLabs(branchId), "products"],
+    queryFn: () => branchRequest<ProductLite[]>("/billable-products", branchId!),
+  });
+  const productName = (id: string) => products.find((p) => p.id === id)?.name ?? id;
 
   const saveMutation = useApiMutation<
     ExternalLab,
@@ -114,13 +139,13 @@ export default function OutsideLabs() {
   });
 
   const resetForm = () => {
-    setForm({ ...EMPTY_FORM });
+    setForm({ ...EMPTY_FORM, overrides: [] });
     setDialogOpen(false);
     setEditingId(null);
   };
 
   const handleAdd = () => {
-    setForm({ ...EMPTY_FORM });
+    setForm({ ...EMPTY_FORM, overrides: [] });
     setEditingId(null);
     setDialogOpen(true);
   };
@@ -135,10 +160,26 @@ export default function OutsideLabs() {
       rateType: lab.rateType,
       ratePercent: String(lab.ratePercent ?? 0),
       rateAmount: String((lab.rateAmountInPaise ?? 0) / 100),
+      overrides: (lab.productRules ?? []).map((r) => ({
+        productId: r.productId,
+        rateType: r.rateType,
+        ratePercent: String(r.ratePercent ?? 0),
+        rateAmount: String((r.rateAmountInPaise ?? 0) / 100),
+        reduceDoctor: r.reducedReferralCommissionType != null,
+        reducedType: r.reducedReferralCommissionType ?? "PERCENTAGE",
+        reducedPercent: String(r.reducedReferralCommissionPercent ?? 0),
+        reducedAmount: String((r.reducedReferralCommissionAmountInPaise ?? 0) / 100),
+      })),
     });
     setEditingId(lab.id);
     setDialogOpen(true);
   };
+
+  const setOverride = (idx: number, patch: Partial<OverrideRow>) =>
+    setForm((f) => ({
+      ...f,
+      overrides: f.overrides.map((o, i) => (i === idx ? { ...o, ...patch } : o)),
+    }));
 
   const handleSubmit = () => {
     if (!form.name.trim()) {
@@ -155,19 +196,35 @@ export default function OutsideLabs() {
     };
     if (form.rateType === "FIXED_AMOUNT") {
       const amt = parseFloat(form.rateAmount);
-      if (isNaN(amt) || amt < 0) {
-        toast.error("Fixed rate must be a non-negative number");
-        return;
-      }
+      if (isNaN(amt) || amt < 0) return toast.error("Fixed rate must be a non-negative number");
       payload.rateAmount = amt;
     } else {
       const pct = parseFloat(form.ratePercent);
-      if (isNaN(pct) || pct < 0 || pct > 100) {
-        toast.error("Rate percent must be between 0 and 100");
-        return;
-      }
+      if (isNaN(pct) || pct < 0 || pct > 100)
+        return toast.error("Rate percent must be between 0 and 100");
       payload.ratePercent = pct;
     }
+
+    // Per-product overrides (validate each has a product)
+    const seen = new Set<string>();
+    const productRules: Record<string, unknown>[] = [];
+    for (const o of form.overrides) {
+      if (!o.productId) return toast.error("Each override must pick a test/product");
+      if (seen.has(o.productId)) return toast.error("Duplicate product in overrides");
+      seen.add(o.productId);
+      const rule: Record<string, unknown> = { productId: o.productId, rateType: o.rateType };
+      if (o.rateType === "FIXED_AMOUNT") rule.rateAmount = parseFloat(o.rateAmount) || 0;
+      else rule.ratePercent = parseFloat(o.ratePercent) || 0;
+      if (o.reduceDoctor) {
+        rule.reducedReferralCommissionType = o.reducedType;
+        if (o.reducedType === "FIXED_AMOUNT")
+          rule.reducedReferralCommissionAmount = parseFloat(o.reducedAmount) || 0;
+        else rule.reducedReferralCommissionPercent = parseFloat(o.reducedPercent) || 0;
+      }
+      productRules.push(rule);
+    }
+    payload.productRules = productRules;
+
     saveMutation.mutate({ editingId, payload });
   };
 
@@ -195,6 +252,7 @@ export default function OutsideLabs() {
                 <TableHead>Lab #</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Default rate</TableHead>
+                <TableHead>Overrides</TableHead>
                 <TableHead>Contact</TableHead>
                 <TableHead className="text-center">Active</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -206,6 +264,9 @@ export default function OutsideLabs() {
                   <TableCell className="font-mono">{lab.labNumber}</TableCell>
                   <TableCell className="font-medium">{lab.name}</TableCell>
                   <TableCell>{rateLabel(lab)}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {lab.productRules?.length ? `${lab.productRules.length} test(s)` : "—"}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">
                     {lab.contactPerson || lab.phone || "---"}
                   </TableCell>
@@ -227,16 +288,11 @@ export default function OutsideLabs() {
             </TableBody>
           </Table>
         )}
-
-        <p className="mt-4 text-xs text-muted-foreground">
-          Per-test rate overrides and the reduced referring-doctor commission on outsourced tests
-          are configured per product (coming next); each lab uses its default rate until then.
-        </p>
       </div>
 
       {/* Create / Edit */}
       <Dialog open={dialogOpen} onOpenChange={(o) => { if (!o) resetForm(); }}>
-        <DialogContent>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{editingId ? "Edit outside lab" : "Add outside lab"}</DialogTitle>
           </DialogHeader>
@@ -269,6 +325,7 @@ export default function OutsideLabs() {
                 />
               </div>
             </div>
+
             <div className="space-y-2">
               <Label>Default rate (what we pay the lab)</Label>
               <div className="flex items-center gap-2">
@@ -310,6 +367,148 @@ export default function OutsideLabs() {
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* Per-product overrides */}
+            <div className="space-y-3 rounded-lg border p-3">
+              <div className="flex items-center justify-between">
+                <Label>Per-test overrides</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setForm((f) => ({
+                      ...f,
+                      overrides: [
+                        ...f.overrides,
+                        {
+                          productId: "",
+                          rateType: "PERCENTAGE",
+                          ratePercent: "0",
+                          rateAmount: "0",
+                          reduceDoctor: false,
+                          reducedType: "PERCENTAGE",
+                          reducedPercent: "0",
+                          reducedAmount: "0",
+                        },
+                      ],
+                    }))
+                  }
+                >
+                  <Plus className="mr-1 h-3.5 w-3.5" /> Add override
+                </Button>
+              </div>
+              {form.overrides.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Optional. Each lab uses its default rate unless a test is overridden here. Set a
+                  reduced referring-doctor commission per test if needed.
+                </p>
+              ) : (
+                form.overrides.map((o, idx) => (
+                  <div key={idx} className="space-y-2 rounded-md border bg-muted/20 p-2">
+                    <div className="flex items-center gap-2">
+                      <select
+                        className="h-9 flex-1 rounded-md border bg-white px-2 text-sm"
+                        value={o.productId}
+                        onChange={(e) => setOverride(idx, { productId: e.target.value })}
+                      >
+                        <option value="">Select test / product…</option>
+                        {products.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() =>
+                          setForm((f) => ({ ...f, overrides: f.overrides.filter((_, i) => i !== idx) }))
+                        }
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="text-muted-foreground">Lab rate</span>
+                      <select
+                        className="h-8 rounded-md border bg-white px-2"
+                        value={o.rateType}
+                        onChange={(e) => setOverride(idx, { rateType: e.target.value as ReferralPayoutType })}
+                      >
+                        <option value="PERCENTAGE">%</option>
+                        <option value="FIXED_AMOUNT">Flat ₹</option>
+                      </select>
+                      {o.rateType === "FIXED_AMOUNT" ? (
+                        <Input
+                          type="number"
+                          className="h-8 w-24"
+                          min={0}
+                          value={o.rateAmount}
+                          onChange={(e) => setOverride(idx, { rateAmount: e.target.value })}
+                        />
+                      ) : (
+                        <Input
+                          type="number"
+                          className="h-8 w-20"
+                          min={0}
+                          max={100}
+                          value={o.ratePercent}
+                          onChange={(e) => setOverride(idx, { ratePercent: e.target.value })}
+                        />
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <label className="flex items-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          checked={o.reduceDoctor}
+                          onChange={(e) => setOverride(idx, { reduceDoctor: e.target.checked })}
+                        />
+                        <span className="text-muted-foreground">Reduce doctor commission</span>
+                      </label>
+                      {o.reduceDoctor && (
+                        <>
+                          <select
+                            className="h-8 rounded-md border bg-white px-2"
+                            value={o.reducedType}
+                            onChange={(e) =>
+                              setOverride(idx, { reducedType: e.target.value as ReferralPayoutType })
+                            }
+                          >
+                            <option value="PERCENTAGE">%</option>
+                            <option value="FIXED_AMOUNT">Flat ₹</option>
+                          </select>
+                          {o.reducedType === "FIXED_AMOUNT" ? (
+                            <Input
+                              type="number"
+                              className="h-8 w-24"
+                              min={0}
+                              value={o.reducedAmount}
+                              onChange={(e) => setOverride(idx, { reducedAmount: e.target.value })}
+                            />
+                          ) : (
+                            <Input
+                              type="number"
+                              className="h-8 w-20"
+                              min={0}
+                              max={100}
+                              value={o.reducedPercent}
+                              onChange={(e) => setOverride(idx, { reducedPercent: e.target.value })}
+                            />
+                          )}
+                        </>
+                      )}
+                    </div>
+                    {o.productId && (
+                      <p className="text-xs text-muted-foreground">{productName(o.productId)}</p>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
           </div>
           <DialogFooter>
