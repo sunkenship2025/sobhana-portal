@@ -823,6 +823,7 @@ model DoctorPayoutLedger {
   diagnosticCenter DiagnosticReferralCenter? @relation(fields: [diagnosticCenterId], references: [id], onDelete: Restrict)
   externalLab      ExternalLab?              @relation(fields: [externalLabId], references: [id], onDelete: Restrict)
   branch           Branch                    @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  statementTokens  StatementAccessToken[]
 
   // Uniqueness on (doctor, period, branch) is enforced by a partial unique index
   // (WHERE deletedAt IS NULL) created in migration 20260511000000_add_payout_soft_delete.
@@ -910,7 +911,7 @@ enum PatientChangeType {
 /// Generic enough for reports, bills, reminders, campaigns — contextType + contextId
 model MessageLog {
   id             String             @id @default(cuid())
-  patientId      String
+  patientId      String? // null for non-patient recipients (e.g. payout statements to doctors/labs)
   phone          String
   channel        MessageChannel // WHATSAPP | SMS
   templateName   String // e.g., lab_report_ready, bill_receipt
@@ -927,7 +928,7 @@ model MessageLog {
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
-  patient Patient @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  patient Patient? @relation(fields: [patientId], references: [id], onDelete: Restrict)
   branch  Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   @@index([patientId])
@@ -1590,5 +1591,24 @@ model BillAccessToken {
   visit Visit @relation(fields: [visitId], references: [id], onDelete: Cascade)
 
   @@index([visitId])
+  @@index([expiresAt])
+}
+
+/// StatementAccessToken: token-gated public access to a payout statement (sent to
+/// referral doctors / clinics / diagnostic centers / outside labs on WhatsApp).
+/// Mirrors BillAccessToken — SHA-256 hash stored; raw token is the bearer link.
+model StatementAccessToken {
+  id             String    @id @default(cuid())
+  token          String    @unique // SHA-256 hash of the raw bearer token
+  payoutId       String
+  expiresAt      DateTime? // NULL = never expires
+  accessCount    Int       @default(0)
+  lastAccessedAt DateTime?
+  lastAccessedIp String?
+  createdAt      DateTime  @default(now())
+
+  payout DoctorPayoutLedger @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+
+  @@index([payoutId])
   @@index([expiresAt])
 }

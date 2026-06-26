@@ -52,6 +52,7 @@ import reportRoutes from './routes/reports';
 import reportDownloadRoutes from './routes/reportDownload';
 import billRoutes from './routes/bills';
 import billDownloadRoutes from './routes/billDownload';
+import statementDownloadRoutes from './routes/statementDownload';
 import webhookRoutes from './routes/webhooks';
 import messageRoutes from './routes/messages';
 import departmentRoutes from './routes/departments';
@@ -283,6 +284,8 @@ app.use('/reports', reportDownloadRoutes);
 // Bill PDF download (token-based, no auth required) - PUBLIC ROUTE
 // Patient-facing bill PDF for WhatsApp links: /bills/view/:token
 app.use('/bills/view', billDownloadRoutes);
+// Payee-facing payout statement (JSON) for WhatsApp links: /statements/view/:token
+app.use('/statements/view', statementDownloadRoutes);
 
 // WhatsApp webhook (public, no auth) - Meta delivery receipts
 app.use('/webhooks/whatsapp', webhookRoutes);

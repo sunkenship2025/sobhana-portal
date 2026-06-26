@@ -28,6 +28,8 @@ import prisma from '../lib/prisma';
 import { createAccessToken } from './reportAccessService';
 import { computeBillFinancialsFromPersisted } from './billFinancialService';
 import { createBillAccessToken } from './billAccessService';
+import { createStatementAccessToken } from './statementAccessService';
+import { getPayoutStatement, getPayoutPayeePhone } from './payoutService';
 import { logger as rootLogger } from '../lib/logger';
 
 const log = rootLogger.child({ component: 'notificationService' });
@@ -164,23 +166,25 @@ async function issueReportLinkForVisit(
 }
 
 async function createAndSendTemplateMessage(input: {
-  patientId: string;
+  patientId?: string | null;
   phone: string;
   templateName: string;
   templateParams: Prisma.InputJsonValue;
   contextId: string;
   contextType?: MessageContextType;
+  branchId?: string | null;
   components: TemplateComponent[];
 }) {
   const resolvedContextType = input.contextType ?? MessageContextType.REPORT;
 
-  // For REPORT/BILL contexts the contextId is a visitId, so we can derive the
-  // owning branch. Other context types don't carry a visitId, so leave branch null.
-  // Never throw on a missing visit — fall back to null.
-  let branchId: string | null = null;
+  // Branch attribution: prefer an explicit branchId (e.g. PAYMENT rows whose
+  // contextId is a payoutId, not a visitId). Otherwise derive it from the visit
+  // for REPORT/BILL. Never throw on a missing visit — fall back to null.
+  let branchId: string | null = input.branchId ?? null;
   if (
-    resolvedContextType === MessageContextType.REPORT ||
-    resolvedContextType === MessageContextType.BILL
+    branchId === null &&
+    (resolvedContextType === MessageContextType.REPORT ||
+      resolvedContextType === MessageContextType.BILL)
   ) {
     try {
       const visit = await prisma.visit.findUnique({
@@ -199,7 +203,7 @@ async function createAndSendTemplateMessage(input: {
 
   const messageLog = await prisma.messageLog.create({
     data: {
-      patientId: input.patientId,
+      patientId: input.patientId ?? null,
       phone: input.phone,
       channel: 'WHATSAPP',
       templateName: input.templateName,
@@ -580,6 +584,91 @@ export async function resendBillNotification(
     return { success: true };
   } catch (error: any) {
     log.error({ err: error, visitId }, 'staff bill resend failed');
+    return { success: false, error: error.message };
+  }
+}
+
+// ============================================================================
+// PAYOUT STATEMENT NOTIFICATION (to referral doctors / clinics / centers / labs)
+// ============================================================================
+
+function formatStatementPeriod(start: string | Date, end: string | Date): string {
+  const fmt = (d: Date) =>
+    new Intl.DateTimeFormat('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    }).format(d);
+  return `${fmt(new Date(start))} – ${fmt(new Date(end))}`;
+}
+
+/**
+ * Send a payout statement to its payee on WhatsApp: a summary + a tokenized
+ * link to a public read-only statement page. Owner-triggered (manual) — B2B
+ * recipient, so no patient opt-in applies. Mirrors resendBillNotification.
+ */
+export async function sendPayoutStatement(
+  payoutId: string,
+  branchId: string,
+  staffUserId?: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!isWhatsAppEnabled()) {
+      return { success: false, error: 'WhatsApp messaging is not enabled' };
+    }
+
+    const statement = await getPayoutStatement(payoutId, branchId);
+    if (!statement) {
+      return { success: false, error: 'Payout not found' };
+    }
+
+    const phone = await getPayoutPayeePhone(payoutId);
+    if (!phone) {
+      return { success: false, error: 'This payee has no phone number on file' };
+    }
+    const formattedPhone = formatPhoneForWhatsApp(phone);
+
+    const token = await createStatementAccessToken(payoutId);
+    const periodLabel = formatStatementPeriod(statement.periodStartDate, statement.periodEndDate);
+    const amountLabel = `₹${(statement.grandTotal.finAmtInPaise / 100).toLocaleString('en-IN')}`;
+
+    await createAndSendTemplateMessage({
+      patientId: null,
+      phone: formattedPhone,
+      templateName: 'payout_statement',
+      templateParams: {
+        payeeName: statement.payeeName,
+        period: periodLabel,
+        amount: amountLabel,
+        statementToken: token,
+        sentBy: staffUserId || null,
+      },
+      contextId: payoutId,
+      contextType: MessageContextType.PAYMENT,
+      branchId,
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: statement.payeeName },
+            { type: 'text', text: periodLabel },
+            { type: 'text', text: amountLabel },
+          ],
+        },
+        {
+          type: 'button',
+          sub_type: 'url',
+          index: 0,
+          parameters: [{ type: 'text', text: token }],
+        },
+      ],
+    });
+
+    log.info({ phone: formattedPhone, payoutId }, 'payout statement sent on WhatsApp');
+    return { success: true };
+  } catch (error: any) {
+    log.error({ err: error, payoutId }, 'failed to send payout statement');
     return { success: false, error: error.message };
   }
 }

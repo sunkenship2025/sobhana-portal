@@ -10,6 +10,8 @@ import {
   buildSinglePayoutWorkbook,
 } from '../services/payoutExportService';
 import * as externalLabService from '../services/externalLabService';
+import * as notificationService from '../services/notificationService';
+import { isWhatsAppEnabled } from '../services/whatsappCloudService';
 
 const router = Router();
 
@@ -598,6 +600,39 @@ router.get('/:id/statement', requireRole('owner', 'staff'), async (req: AuthRequ
   } catch (err: any) {
     console.error('Get payout statement error:', err);
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to get statement' });
+  }
+});
+
+// ============================================================================
+// POST /api/payouts/:id/send-statement — WhatsApp the statement to the payee (owner)
+// ============================================================================
+router.post('/:id/send-statement', requireRole('owner'), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const branchId = req.branchId!;
+
+    if (!isWhatsAppEnabled()) {
+      return res.status(400).json({ error: 'WHATSAPP_DISABLED', message: 'WhatsApp messaging is not enabled' });
+    }
+
+    // Ownership/branch guard (also yields a clean 404/403 before attempting a send).
+    const existing = await payoutService.getPayoutDetail(id);
+    if (!existing) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Payout not found' });
+    }
+    if (existing.branchId !== branchId) {
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'Wrong branch' });
+    }
+
+    const result = await notificationService.sendPayoutStatement(id, branchId, req.user?.id);
+    if (!result.success) {
+      return res.status(400).json({ error: 'SEND_FAILED', message: result.error ?? 'Failed to send statement' });
+    }
+    // The send is recorded in MessageLog (contextType=PAYMENT, contextId=payoutId).
+    return res.json({ data: { success: true } });
+  } catch (err: any) {
+    console.error('Send payout statement error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to send statement' });
   }
 });
 

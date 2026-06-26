@@ -1678,6 +1678,35 @@ export async function getPayoutStatement(
   return buildPayoutStatementDetail(detail);
 }
 
+/**
+ * Resolve the payee's phone for a payout (referral doctor / clinic / diagnostic
+ * center / outside lab), by doctorType. Returns null if not set.
+ */
+export async function getPayoutPayeePhone(payoutId: string): Promise<string | null> {
+  const p = await prisma.doctorPayoutLedger.findUnique({
+    where: { id: payoutId },
+    include: {
+      referralDoctor: { select: { phone: true } },
+      clinicDoctor: { select: { phone: true } },
+      diagnosticCenter: { select: { phone: true } },
+      externalLab: { select: { phone: true } },
+    },
+  });
+  if (!p) return null;
+  switch (p.doctorType) {
+    case 'REFERRAL':
+      return p.referralDoctor?.phone ?? null;
+    case 'CLINIC':
+      return p.clinicDoctor?.phone ?? null;
+    case 'DIAGNOSTIC_CENTER':
+      return p.diagnosticCenter?.phone ?? null;
+    case 'LAB':
+      return p.externalLab?.phone ?? null;
+    default:
+      return null;
+  }
+}
+
 // ===========================================================================
 // PAY-RUN WORKLIST (grouped who-I-owe view with two non-netting hero totals)
 // ===========================================================================
