@@ -126,5 +126,6 @@ export const qk = {
   // --- branch-scoped (branchId in key; flushed wholesale on branch switch) ---
   diagnosticCenters: (branchId: string | null) =>
     ["diagnostic-centers", branchId] as const,
+  externalLabs: (branchId: string | null) => ["external-labs", branchId] as const,
   departments: (branchId: string | null) => ["departments", branchId] as const,
 } as const;

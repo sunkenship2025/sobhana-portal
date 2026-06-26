@@ -29,6 +29,7 @@ import OwnerOperationsPage from "./pages/owner/OwnerOperationsPage";
 import AdminConfigCenter from "./pages/owner/AdminConfigCenter";
 import PayoutsList from "./pages/owner/PayoutsList";
 import PayoutDetail from "./pages/owner/PayoutDetail";
+import OutsideLabs from "./pages/owner/OutsideLabs";
 import BillPrintPage from "./pages/BillPrintPage";
 import ReportViewPage from "./pages/ReportViewPage";
 import PrivacyPolicy from "./pages/legal/PrivacyPolicy";
@@ -206,6 +207,11 @@ function AppRoutes() {
       <Route path="/owner/payouts" element={
         <ProtectedRoute allowedRoles={['owner', 'staff']}>
           <PayoutsList />
+        </ProtectedRoute>
+      } />
+      <Route path="/owner/payouts/labs" element={
+        <ProtectedRoute allowedRoles={['owner', 'staff']}>
+          <OutsideLabs />
         </ProtectedRoute>
       } />
       <Route path="/owner/payouts/:id" element={

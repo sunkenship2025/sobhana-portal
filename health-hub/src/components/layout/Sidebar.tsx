@@ -119,6 +119,11 @@ const ownerNavItems: NavItem[] = [
     icon: HandCoins,
     href: '/owner/payouts',
     roles: ['owner'],
+    matchPrefixes: ['/owner/payouts'],
+    subItems: [
+      { label: 'Pay-Run', href: '/owner/payouts', exact: true },
+      { label: 'Outside Labs', href: '/owner/payouts/labs' },
+    ],
   },
   {
     label: 'Admin',
