@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
-import { API_BASE } from "@/lib/api";
+import { API_BASE, API_BASE_URL } from "@/lib/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Printer, Search } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore";
 import { useBranchStore } from "@/store/branchStore";
@@ -310,7 +310,7 @@ export default function PayoutsList() {
 
   return (
     <AppLayout context="owner" subContext="payouts">
-      <div style={{ maxWidth: 1440 }} className="pb-24">
+      <div style={{ maxWidth: 1440 }} className="pb-24 print:hidden">
         <OwnerPageHeader
           title="Payouts · Pay-Run"
           subtitle={`Settle everyone for the period · ${monthLabel}`}
@@ -331,6 +331,9 @@ export default function PayoutsList() {
                 </button>
               </div>
               <RefreshButton isFetching={loading} onClick={fetchWorklist} />
+              <Button variant="outline" size="sm" onClick={() => window.print()}>
+                <Printer className="mr-1.5 h-4 w-4" /> Register
+              </Button>
             </>
           }
         />
@@ -575,6 +578,8 @@ export default function PayoutsList() {
         )}
       </div>
 
+      <RegisterPrint worklist={worklist} monthLabel={monthLabel} />
+
       <PayoutBulkActionBar
         count={selected.size}
         totalInPaise={selectedTotalInPaise}
@@ -609,3 +614,68 @@ export default function PayoutsList() {
 }
 
 export { PayoutsList };
+
+const LOGO_URL = `${API_BASE_URL}/images/sobhana-clinic-logo.png`;
+
+// All-payee register — print-only (global .print-content rule reveals it).
+function RegisterPrint({
+  worklist,
+  monthLabel,
+}: {
+  worklist: PayRunWorklist | null;
+  monthLabel: string;
+}) {
+  if (!worklist) return null;
+  const td: CSSProperties = { border: "1px solid #999", padding: "3px 6px", fontSize: 10 };
+  const th: CSSProperties = { ...td, background: "#eee", fontWeight: 600, textAlign: "left" };
+  const rt: CSSProperties = { textAlign: "right" };
+  const t = worklist.totals;
+  return (
+    <div className="hidden print:block print-content print-page">
+      <div style={{ textAlign: "center", borderBottom: "2px solid #111", paddingBottom: 8, marginBottom: 12 }}>
+        <img src={LOGO_URL} alt="Sobhana" style={{ height: 46 }} />
+        <div style={{ fontWeight: 700, letterSpacing: "0.12em", marginTop: 6, fontSize: 13 }}>
+          PAYOUTS REGISTER — {monthLabel.toUpperCase()}
+        </div>
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 10 }}>
+        <thead>
+          <tr>
+            <th style={th}>Payee</th>
+            <th style={th}>Type</th>
+            <th style={{ ...th, ...rt }}>Amount</th>
+            <th style={th}>Status</th>
+            <th style={th}>Paid on</th>
+          </tr>
+        </thead>
+        <tbody>
+          {worklist.rows.map((r) => (
+            <tr key={r.id}>
+              <td style={td}>{r.payeeName}</td>
+              <td style={td}>{TYPE_BADGE[r.payeeType]}</td>
+              <td style={{ ...td, ...rt }}>{formatRupees(r.amountInPaise)}</td>
+              <td style={td}>{r.status === "PAID" ? "Paid" : r.payeeType === "LAB" ? "Unpaid" : "Pending"}</td>
+              <td style={td}>{r.paidAt ? new Date(r.paidAt).toLocaleDateString("en-IN") : "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr style={{ fontWeight: 700 }}>
+            <td style={td} colSpan={2}>Commission payouts</td>
+            <td style={{ ...td, ...rt }}>{formatRupees(t.commissionsTotalInPaise)}</td>
+            <td style={td} colSpan={2}></td>
+          </tr>
+          <tr style={{ fontWeight: 700 }}>
+            <td style={td} colSpan={2}>Outside-lab payables</td>
+            <td style={{ ...td, ...rt }}>{formatRupees(t.labPayablesTotalInPaise)}</td>
+            <td style={td} colSpan={2}></td>
+          </tr>
+        </tfoot>
+      </table>
+      <div style={{ fontSize: 10, color: "#666" }}>
+        Commissions and lab payables are shown separately and never netted. Soft-deleted payouts are
+        excluded.
+      </div>
+    </div>
+  );
+}
