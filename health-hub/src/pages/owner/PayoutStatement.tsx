@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { API_BASE, API_BASE_URL } from "@/lib/api";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -158,15 +158,8 @@ export default function PayoutStatement() {
         ) : error || !stmt ? (
           <ErrorCard onRetry={fetchStatement} />
         ) : (
-          <div className="space-y-4">
-            {/* Print-only letterhead */}
-            <div className="hidden print:block" style={{ textAlign: "center", marginBottom: 12 }}>
-              <img src={LOGO_URL} alt="Sobhana" style={{ height: 48, margin: "0 auto" }} />
-              <div style={{ fontWeight: 700, letterSpacing: "0.12em", marginTop: 8, fontSize: 13 }}>
-                {docTitle(stmt)}
-              </div>
-            </div>
-
+          <>
+          <div className="space-y-4 print:hidden">
             {/* Header card */}
             <SectionCard>
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -308,6 +301,8 @@ export default function PayoutStatement() {
               </SectionCard>
             )}
           </div>
+          <StatementPrint stmt={stmt} />
+          </>
         )}
       </div>
 
@@ -338,5 +333,105 @@ export default function PayoutStatement() {
         />
       )}
     </AppLayout>
+  );
+}
+
+// Print-only document (visible only when printing, per the global .print-content rule).
+function StatementPrint({ stmt }: { stmt: Statement }) {
+  const isLab = stmt.isLab;
+  const period = `${formatIstDate(stmt.periodStartDate)} – ${formatIstDate(stmt.periodEndDate)}`;
+  const td: CSSProperties = { border: "1px solid #999", padding: "3px 5px", fontSize: 10 };
+  const th: CSSProperties = { ...td, background: "#eee", fontWeight: 600, textAlign: "center" };
+  const rt: CSSProperties = { textAlign: "right" };
+  return (
+    <div className="hidden print:block print-content print-page">
+      <div style={{ textAlign: "center", borderBottom: "2px solid #111", paddingBottom: 8, marginBottom: 12 }}>
+        <img src={LOGO_URL} alt="Sobhana" style={{ height: 46 }} />
+        <div style={{ fontWeight: 700, letterSpacing: "0.12em", marginTop: 6, fontSize: 13 }}>
+          {docTitle(stmt)}
+        </div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 10 }}>
+        <div>
+          <b>{stmt.payeeName}</b>
+          <br />
+          Period: {period}
+        </div>
+        <div style={{ textAlign: "right" }}>
+          Branch: {stmt.branchName || "—"}
+          <br />
+          Status: {stmt.status === "PAID" ? "Paid" : isLab ? "Unpaid" : "Pending"}
+          {stmt.status === "PAID" && stmt.paidAt
+            ? ` (${formatIstDate(stmt.paidAt)}${stmt.paymentMethod ? " · " + stmt.paymentMethod : ""})`
+            : ""}
+        </div>
+      </div>
+      {stmt.bands.map((band) => (
+        <table key={band.category} style={{ width: "100%", borderCollapse: "collapse", marginBottom: 10 }}>
+          <thead>
+            <tr>
+              <th style={{ ...th, textAlign: "left" }} colSpan={4}>
+                {band.label}
+              </th>
+              <th style={th}>T Amt</th>
+              <th style={th}>Disc</th>
+              <th style={th}>P Amt</th>
+              <th style={th}>{isLab ? "Payable" : "Fin"}</th>
+              {isLab && <th style={th}>Margin</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {band.rows.map((row, i) => (
+              <tr key={i}>
+                <td style={td}>{formatIstDate(row.date)}</td>
+                <td style={td}>{row.billNumber}</td>
+                <td style={td}>{row.patientName}</td>
+                <td style={td}>
+                  {row.testOrFee} <span style={{ color: "#666" }}>({row.basisLabel})</span>
+                </td>
+                <td style={{ ...td, ...rt }}>{formatRupees(row.tAmtInPaise)}</td>
+                <td style={{ ...td, ...rt }}>{formatRupees(row.discInPaise)}</td>
+                <td style={{ ...td, ...rt }}>{formatRupees(row.pAmtInPaise)}</td>
+                <td style={{ ...td, ...rt }}>{formatRupees(row.finAmtInPaise)}</td>
+                {isLab && <td style={{ ...td, ...rt }}>{formatRupees(row.centerMarginInPaise ?? 0)}</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ))}
+      <div
+        style={{
+          borderTop: "2px solid #111",
+          paddingTop: 6,
+          display: "flex",
+          justifyContent: "space-between",
+          fontSize: 11,
+          fontWeight: 700,
+        }}
+      >
+        <span>GRAND TOTAL</span>
+        <span>
+          T {formatRupees(stmt.grandTotal.tAmtInPaise)} · Disc {formatRupees(stmt.grandTotal.discInPaise)} · P{" "}
+          {formatRupees(stmt.grandTotal.pAmtInPaise)} · {isLab ? "Payable" : "Fin"}{" "}
+          {formatRupees(stmt.grandTotal.finAmtInPaise)}
+        </span>
+      </div>
+      {stmt.status === "PAID" ? (
+        <div style={{ marginTop: 10, fontSize: 11 }}>
+          Payment received: {formatRupees(stmt.grandTotal.finAmtInPaise)} · {stmt.paymentMethod ?? ""}
+          {stmt.paymentReferenceId ? " · ref " + stmt.paymentReferenceId : ""}
+          {stmt.paidAt ? " · " + formatIstDate(stmt.paidAt) : ""}
+          <div style={{ marginTop: 32, textAlign: "right" }}>
+            ____________________
+            <br />
+            Authorised signatory
+          </div>
+        </div>
+      ) : (
+        <div style={{ marginTop: 10, fontSize: 11 }}>
+          Amount payable: <b>{formatRupees(stmt.grandTotal.finAmtInPaise)}</b> · Status: Pending
+        </div>
+      )}
+    </div>
   );
 }
