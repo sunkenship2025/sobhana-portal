@@ -9,6 +9,7 @@ import {
   buildPayoutListWorkbook,
   buildSinglePayoutWorkbook,
 } from '../services/payoutExportService';
+import * as externalLabService from '../services/externalLabService';
 
 const router = Router();
 
@@ -19,7 +20,7 @@ router.use(branchContextMiddleware);
 // Helpers
 // ----------------------------------------------------------------------------
 
-const VALID_DOCTOR_TYPES: PayoutDoctorType[] = ['REFERRAL', 'CLINIC', 'DIAGNOSTIC_CENTER'];
+const VALID_DOCTOR_TYPES: PayoutDoctorType[] = ['REFERRAL', 'CLINIC', 'DIAGNOSTIC_CENTER', 'LAB'];
 const VALID_PAYMENT_METHODS: PaymentType[] = ['CASH', 'ONLINE', 'CHEQUE'];
 
 function parseDate(value: unknown): Date | undefined {
@@ -359,10 +360,19 @@ router.post('/mark-paid/bulk', requireRole('owner', 'staff'), async (req: AuthRe
       });
     }
 
+    const paidOn = parseDate(req.body.paidOn);
+    if (req.body.paidOn && !paidOn) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'paidOn must be a valid date' });
+    }
+    if (paidOn && paidOn.getTime() > Date.now()) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'paidOn cannot be in the future' });
+    }
+
     const result = await payoutService.markPayoutsPaidBulk(cleanIds, branchId, {
       paymentMethod: paymentMethod as PaymentType,
       paymentReferenceId,
       notes,
+      paidOn,
     });
 
     if (result.paidIds.length > 0) {
@@ -515,6 +525,42 @@ router.get('/doctors/diagnostic-centers', requireRole('owner', 'staff'), async (
 });
 
 // ============================================================================
+// GET /api/payouts/worklist — grouped pay-run worklist (two non-net hero totals)
+// ============================================================================
+router.get('/worklist', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+  try {
+    const branchId = req.branchId!;
+    const statusRaw = typeof req.query.status === 'string' ? req.query.status : 'all';
+    const status = (['all', 'pending', 'paid'] as const).includes(statusRaw as any)
+      ? (statusRaw as 'all' | 'pending' | 'paid')
+      : 'all';
+    const worklist = await payoutService.getPayRunWorklist(branchId, {
+      startDate: parseDate(req.query.startDate),
+      endDate: parseDate(req.query.endDate),
+      status,
+      payeeType: parseDoctorType(req.query.payeeType),
+      q: typeof req.query.q === 'string' ? req.query.q : undefined,
+      view: req.query.view === 'flat' ? 'flat' : 'grouped',
+    });
+    return res.json({ data: worklist });
+  } catch (err: any) {
+    console.error('Get pay-run worklist error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to get worklist' });
+  }
+});
+
+// GET /api/payouts/payees/external-labs — dropdown source (active labs)
+router.get('/payees/external-labs', requireRole('owner', 'staff'), async (_req: AuthRequest, res) => {
+  try {
+    const labs = await externalLabService.listExternalLabs(false);
+    return res.json({ data: labs });
+  } catch (err: any) {
+    console.error('Get external labs error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to get external labs' });
+  }
+});
+
+// ============================================================================
 // GET /api/payouts/:id — detail (owner + staff)
 // ============================================================================
 router.get('/:id', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
@@ -536,6 +582,22 @@ router.get('/:id', requireRole('owner', 'staff'), async (req: AuthRequest, res) 
   } catch (err: any) {
     console.error('Get payout detail error:', err);
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to get payout detail' });
+  }
+});
+
+// ============================================================================
+// GET /api/payouts/:id/statement — category-banded statement (owner + staff)
+// ============================================================================
+router.get('/:id/statement', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+  try {
+    const statement = await payoutService.getPayoutStatement(req.params.id, req.branchId!);
+    if (!statement) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Payout not found' });
+    }
+    return res.json({ data: statement });
+  } catch (err: any) {
+    console.error('Get payout statement error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to get statement' });
   }
 });
 
@@ -587,6 +649,14 @@ router.post('/:id/mark-paid', requireRole('owner', 'staff'), async (req: AuthReq
       });
     }
 
+    const paidOn = parseDate(req.body.paidOn);
+    if (req.body.paidOn && !paidOn) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'paidOn must be a valid date' });
+    }
+    if (paidOn && paidOn.getTime() > Date.now()) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'paidOn cannot be in the future' });
+    }
+
     const existing = await payoutService.getPayoutDetail(id);
     if (!existing) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Payout not found' });
@@ -599,7 +669,8 @@ router.post('/:id/mark-paid', requireRole('owner', 'staff'), async (req: AuthReq
       id,
       paymentMethod as PaymentType,
       paymentReferenceId,
-      notes
+      notes,
+      paidOn
     );
 
     await logAction({
