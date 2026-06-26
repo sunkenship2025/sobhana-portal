@@ -132,6 +132,7 @@ enum PayoutDoctorType {
   REFERRAL
   CLINIC
   DIAGNOSTIC_CENTER
+  LAB
 }
 
 enum ReferralSourceType {
@@ -615,6 +616,10 @@ model TestOrder {
   diagnosticCenterCommissionType          ReferralPayoutType?
   diagnosticCenterCommissionPercentage    Float?
   diagnosticCenterCommissionAmountInPaise Int?
+  externalLabId                           String? // non-null ⇒ this test is outsourced to this lab
+  labCostType                             ReferralPayoutType? // frozen vendor-cost basis (null ⇒ not outsourced)
+  labCostPercentage                       Float?
+  labCostAmountInPaise                    Int?
   displayOrder                            Int                    @default(0)
   createdAt                               DateTime               @default(now())
 
@@ -633,6 +638,7 @@ model TestOrder {
   test           LabTest          @relation(fields: [testId], references: [id], onDelete: Restrict)
   testDefinition TestDefinition?  @relation(fields: [testDefinitionId], references: [id], onDelete: Restrict)
   product        BillableProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  externalLab    ExternalLab?     @relation(fields: [externalLabId], references: [id], onDelete: Restrict)
 
   /// Results for this test
   testResults TestResult[]
@@ -646,6 +652,7 @@ model TestOrder {
   @@index([branchId])
   @@index([branchId, createdAt])
   @@index([workflowMode])
+  @@index([externalLabId])
 }
 
 /// DiagnosticReport: Container for report versions
@@ -797,6 +804,7 @@ model DoctorPayoutLedger {
   referralDoctorId     String? // Set when doctorType = REFERRAL
   clinicDoctorId       String? // Set when doctorType = CLINIC
   diagnosticCenterId   String? // Set when doctorType = DIAGNOSTIC_CENTER
+  externalLabId        String? // Set when doctorType = LAB
   branchId             String
   periodStartDate      DateTime
   periodEndDate        DateTime
@@ -813,17 +821,19 @@ model DoctorPayoutLedger {
   referralDoctor   ReferralDoctor?           @relation(fields: [referralDoctorId], references: [id], onDelete: Restrict)
   clinicDoctor     ClinicDoctor?             @relation(fields: [clinicDoctorId], references: [id], onDelete: Restrict)
   diagnosticCenter DiagnosticReferralCenter? @relation(fields: [diagnosticCenterId], references: [id], onDelete: Restrict)
+  externalLab      ExternalLab?              @relation(fields: [externalLabId], references: [id], onDelete: Restrict)
   branch           Branch                    @relation(fields: [branchId], references: [id], onDelete: Restrict)
 
   // Uniqueness on (doctor, period, branch) is enforced by a partial unique index
   // (WHERE deletedAt IS NULL) created in migration 20260511000000_add_payout_soft_delete.
   // Prisma cannot express partial uniques, so we declare a regular index here for
   // query performance only; the partial unique constraint lives in raw SQL.
-  @@index([doctorType, referralDoctorId, clinicDoctorId, diagnosticCenterId, branchId, periodStartDate, periodEndDate], name: "DoctorPayoutLedger_lookup_idx")
+  @@index([doctorType, referralDoctorId, clinicDoctorId, diagnosticCenterId, externalLabId, branchId, periodStartDate, periodEndDate], name: "DoctorPayoutLedger_lookup_idx")
   @@index([doctorType])
   @@index([referralDoctorId])
   @@index([clinicDoctorId])
   @@index([diagnosticCenterId])
+  @@index([externalLabId])
   @@index([branchId])
   @@index([paidAt])
   @@index([deletedAt])
@@ -1202,6 +1212,55 @@ model DiagnosticCenterProductRule {
   @@index([productId])
 }
 
+/// ExternalLab: A vendor lab we outsource tests to (we owe them their rate).
+/// Payouts to an ExternalLab ride DoctorPayoutLedger as doctorType = LAB.
+model ExternalLab {
+  id                String             @id @default(cuid())
+  name              String
+  labNumber         String             @unique
+  contactPerson     String?
+  phone             String?
+  email             String?
+  address           String?
+  rateType          ReferralPayoutType @default(PERCENTAGE)
+  ratePercent       Float              @default(0)
+  rateAmountInPaise Int?
+  isActive          Boolean            @default(true)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  productRules ExternalLabProductRule[]
+  testOrders   TestOrder[]
+  payoutLedger DoctorPayoutLedger[]
+
+  @@index([isActive])
+  @@index([createdAt])
+}
+
+/// ExternalLabProductRule: Per-product override of the lab rate, and (optionally)
+/// a reduced referring-doctor commission for tests outsourced to this lab.
+model ExternalLabProductRule {
+  id                                     String              @id @default(cuid())
+  externalLabId                          String
+  productId                              String
+  rateType                               ReferralPayoutType  @default(PERCENTAGE)
+  ratePercent                            Float?
+  rateAmountInPaise                      Int?
+  reducedReferralCommissionType          ReferralPayoutType? // null ⇒ doctor keeps normal commission
+  reducedReferralCommissionPercent       Float?
+  reducedReferralCommissionAmountInPaise Int?
+  isActive                               Boolean             @default(true)
+  createdAt                              DateTime            @default(now())
+  updatedAt                              DateTime            @updatedAt
+
+  externalLab ExternalLab     @relation(fields: [externalLabId], references: [id], onDelete: Cascade)
+  product     BillableProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([externalLabId, productId])
+  @@index([externalLabId])
+  @@index([productId])
+}
+
 // ─── Diagnostic Center ↔ Visit Join Table ────────────────────────
 model DiagnosticCenter_Visit {
   id                 String             @id @default(cuid())
@@ -1409,6 +1468,7 @@ model BillableProduct {
   testOrders            TestOrder[]
   referralDoctorRules   ReferralDoctorProductRule[]
   diagnosticCenterRules DiagnosticCenterProductRule[]
+  externalLabRules      ExternalLabProductRule[]
 
   @@index([code])
   @@index([isActive])
