@@ -1,9 +1,9 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState, Fragment, type CSSProperties } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { API_BASE, API_BASE_URL } from "@/lib/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, Printer, Download, MessageCircle } from "lucide-react";
+import { ChevronLeft, ChevronDown, Printer, Download, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore";
 import { useBranchStore } from "@/store/branchStore";
@@ -11,13 +11,78 @@ import { formatRupees } from "@/lib/payoutFormatters";
 import {
   OwnerPageHeader,
   SectionCard,
+  MiniBar,
   TOKENS,
   FullPageSkeleton,
   ErrorCard,
   formatIstDate,
 } from "./_shared/ownerUi";
-import { PayoutMarkPaidDialog } from "@/components/payouts/PayoutMarkPaidDialog";
-import type { PayoutStatement as Statement, PayoutSummary, PaymentType } from "@/types";
+import {
+  PayoutMarkPaidDialog,
+  type PayoutMarkPaidPayment,
+} from "@/components/payouts/PayoutMarkPaidDialog";
+import type {
+  PayoutStatement as Statement,
+  StatementBand,
+  PayoutCategory,
+  PayoutSummary,
+  PaymentType,
+} from "@/types";
+
+const CAT_COLOR: Record<PayoutCategory, string> = {
+  LAB: "#8a93a3",
+  XRAY: "#a8896f",
+  USG: "#6f86a8",
+  ECG: "#9a9a6f",
+  SPL: "#888780",
+};
+
+// Group statement line items by bill/patient (for the per-patient rows + chips).
+function groupRowsByBill(bands: StatementBand[]) {
+  const map = new Map<
+    string,
+    {
+      key: string;
+      billNumber: string;
+      patient: string;
+      date: string;
+      tAmt: number;
+      disc: number;
+      pAmt: number;
+      fin: number;
+      items: { testOrFee: string; category: PayoutCategory; basisLabel: string }[];
+    }
+  >();
+  for (const band of bands) {
+    for (const r of band.rows) {
+      const key = `${r.billNumber}|${r.patientName}`;
+      let g = map.get(key);
+      if (!g) {
+        g = {
+          key,
+          billNumber: r.billNumber,
+          patient: `${r.patientTitle ? r.patientTitle + " " : ""}${r.patientName}`,
+          date: r.date,
+          tAmt: 0,
+          disc: 0,
+          pAmt: 0,
+          fin: 0,
+          items: [],
+        };
+        map.set(key, g);
+      }
+      g.tAmt += r.tAmtInPaise;
+      g.disc += r.discInPaise;
+      g.pAmt += r.pAmtInPaise;
+      g.fin += r.finAmtInPaise;
+      g.items.push({ testOrFee: r.testOrFee, category: r.category, basisLabel: r.basisLabel });
+      if (new Date(r.date) < new Date(g.date)) g.date = r.date;
+    }
+  }
+  return Array.from(map.values()).sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+  );
+}
 
 const LOGO_URL = `${API_BASE_URL}/images/sobhana-clinic-logo.png`;
 
@@ -90,11 +155,9 @@ export default function PayoutStatement() {
     }
   };
 
-  const submitMarkPaid = async (payment: {
-    paymentMethod: PaymentType;
-    paymentReferenceId?: string;
-    notes?: string;
-  }) => {
+  const [catOpen, setCatOpen] = useState(true);
+
+  const submitMarkPaid = async (payment: PayoutMarkPaidPayment) => {
     if (!id) return;
     setMarkPaidBusy(true);
     try {
@@ -227,71 +290,163 @@ export default function PayoutStatement() {
               </div>
             </SectionCard>
 
-            {/* Category bands */}
-            {stmt.bands.map((band) => (
-              <SectionCard key={band.category} padding={0}>
-                <div
-                  className="flex items-center justify-between px-3 py-2"
-                  style={{ background: "#f6f5f2", borderTopLeftRadius: 12, borderTopRightRadius: 12 }}
-                >
-                  <span className="font-medium" style={{ fontSize: 12 }}>
-                    {band.label}
+            {/* Category breakdown band */}
+            {stmt.bands.length > 0 && (
+              <SectionCard>
+                <button className="mb-2 flex w-full items-center gap-2" onClick={() => setCatOpen((o) => !o)}>
+                  <ChevronDown
+                    className="h-4 w-4"
+                    style={{ transform: catOpen ? "none" : "rotate(-90deg)", color: TOKENS.textTertiary }}
+                  />
+                  <span
+                    className="font-medium uppercase"
+                    style={{ fontSize: 11, letterSpacing: "0.06em", color: TOKENS.textSecondary }}
+                  >
+                    Category breakdown
                   </span>
-                  <span style={{ fontSize: 12, color: TOKENS.textSecondary }}>
-                    {formatRupees(band.subtotal.finAmtInPaise)}
-                  </span>
-                </div>
-                <table className="w-full" style={{ fontSize: 12 }}>
-                  <thead>
-                    <tr style={{ color: TOKENS.textTertiary, textAlign: "left" }}>
-                      <th className="py-1.5 pl-3 font-normal">Date</th>
-                      <th className="py-1.5 font-normal">Bill #</th>
-                      <th className="py-1.5 font-normal">Patient</th>
-                      <th className="py-1.5 font-normal">Test / fee</th>
-                      <th className="py-1.5 font-normal">Basis</th>
-                      <th className="py-1.5 text-right font-normal">T Amt</th>
-                      <th className="py-1.5 text-right font-normal">Disc</th>
-                      <th className="py-1.5 text-right font-normal">P Amt</th>
-                      <th className="py-1.5 text-right font-normal">{isLab ? "Payable" : "Fin Amt"}</th>
-                      {isLab && <th className="py-1.5 pr-3 text-right font-normal">Margin</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {band.rows.map((r, i) => (
-                      <tr key={i} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
-                        <td className="py-1.5 pl-3" style={{ color: TOKENS.textTertiary }}>
-                          {formatIstDate(r.date)}
-                        </td>
-                        <td className="py-1.5" style={{ color: TOKENS.textTertiary }}>{r.billNumber}</td>
-                        <td className="py-1.5">
-                          {r.patientTitle ? `${r.patientTitle} ` : ""}
-                          {r.patientName}
-                        </td>
-                        <td className="py-1.5">{r.testOrFee}</td>
-                        <td className="py-1.5" style={{ color: TOKENS.textTertiary }}>{r.basisLabel}</td>
-                        <td className="py-1.5 text-right tabular-nums">{formatRupees(r.tAmtInPaise)}</td>
-                        <td className="py-1.5 text-right tabular-nums">{formatRupees(r.discInPaise)}</td>
-                        <td className="py-1.5 text-right tabular-nums">{formatRupees(r.pAmtInPaise)}</td>
-                        <td className="py-1.5 text-right font-medium tabular-nums">
-                          {formatRupees(r.finAmtInPaise)}
-                        </td>
-                        {isLab && (
-                          <td
-                            className="py-1.5 pr-3 text-right tabular-nums"
-                            style={{
-                              color:
-                                (r.centerMarginInPaise ?? 0) < 0 ? TOKENS.critical : TOKENS.textSecondary,
-                            }}
-                          >
-                            {formatRupees(r.centerMarginInPaise ?? 0)}
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                </button>
+                {catOpen && (
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-5">
+                    {stmt.bands.map((band) => {
+                      const max = Math.max(...stmt.bands.map((b) => b.subtotal.finAmtInPaise), 1);
+                      return (
+                        <div key={band.category}>
+                          <div style={{ fontSize: 11, color: TOKENS.textSecondary }}>{band.label}</div>
+                          <div style={{ fontSize: 13, fontWeight: 600, margin: "2px 0 5px" }}>
+                            {formatRupees(band.subtotal.finAmtInPaise)}
+                          </div>
+                          <MiniBar fillRatio={band.subtotal.finAmtInPaise / max} color={CAT_COLOR[band.category]} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </SectionCard>
-            ))}
+            )}
+
+            {/* Line items */}
+            {isLab ? (
+              stmt.bands.map((band) => (
+                <SectionCard key={band.category} padding={0}>
+                  <div
+                    className="flex items-center justify-between px-3 py-2"
+                    style={{ background: "#fbf7ee", borderTopLeftRadius: 12, borderTopRightRadius: 12 }}
+                  >
+                    <span className="font-medium" style={{ fontSize: 12 }}>{band.label}</span>
+                    <span style={{ fontSize: 12, color: TOKENS.caution }}>
+                      {formatRupees(band.subtotal.finAmtInPaise)}
+                    </span>
+                  </div>
+                  <div style={{ overflowX: "auto" }}>
+                    <table className="w-full" style={{ fontSize: 12, minWidth: 640 }}>
+                      <thead>
+                        <tr style={{ color: TOKENS.textTertiary, textAlign: "left" }}>
+                          <th className="py-1.5 pl-3 font-normal">Date</th>
+                          <th className="py-1.5 font-normal">Patient</th>
+                          <th className="py-1.5 font-normal">Test</th>
+                          <th className="py-1.5 font-normal">Rate</th>
+                          <th className="py-1.5 text-right font-normal">Price</th>
+                          <th className="py-1.5 text-right font-normal">Payable</th>
+                          <th className="py-1.5 pr-3 text-right font-normal">Margin</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {band.rows.map((r, i) => {
+                          const loss = (r.centerMarginInPaise ?? 0) < 0;
+                          return (
+                            <tr key={i} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
+                              <td className="py-1.5 pl-3" style={{ color: TOKENS.textTertiary }}>{formatIstDate(r.date)}</td>
+                              <td className="py-1.5">{r.patientTitle ? `${r.patientTitle} ` : ""}{r.patientName}</td>
+                              <td className="py-1.5">{r.testOrFee}</td>
+                              <td className="py-1.5" style={{ color: TOKENS.textTertiary }}>{r.basisLabel}</td>
+                              <td className="py-1.5 text-right tabular-nums">{formatRupees(r.pAmtInPaise)}</td>
+                              <td className="py-1.5 text-right font-medium tabular-nums">{formatRupees(r.finAmtInPaise)}</td>
+                              <td
+                                className="py-1.5 pr-3 text-right tabular-nums"
+                                style={{ color: loss ? TOKENS.critical : TOKENS.textSecondary }}
+                              >
+                                {formatRupees(r.centerMarginInPaise ?? 0)}{loss ? " ⚠" : ""}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </SectionCard>
+              ))
+            ) : (
+              <SectionCard padding={0}>
+                <div
+                  className="px-3 py-2"
+                  style={{ background: "#f6f5f2", borderTopLeftRadius: 12, borderTopRightRadius: 12, fontSize: 12, fontWeight: 600 }}
+                >
+                  Line items
+                </div>
+                <div style={{ overflowX: "auto" }}>
+                  <table className="w-full" style={{ fontSize: 12, minWidth: 620 }}>
+                    <thead>
+                      <tr style={{ color: TOKENS.textTertiary, textAlign: "left" }}>
+                        <th className="py-1.5 pl-3 font-normal">Date</th>
+                        <th className="py-1.5 font-normal">Bill #</th>
+                        <th className="py-1.5 font-normal">Patient</th>
+                        <th className="py-1.5 text-right font-normal">T Amt</th>
+                        <th className="py-1.5 text-right font-normal">Disc</th>
+                        <th className="py-1.5 text-right font-normal">P Amt</th>
+                        <th className="py-1.5 pr-3 text-right font-normal">Fin Amt</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groupRowsByBill(stmt.bands).map((g) => (
+                        <Fragment key={g.key}>
+                          <tr style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
+                            <td className="py-1.5 pl-3" style={{ color: TOKENS.textTertiary }}>{formatIstDate(g.date)}</td>
+                            <td className="py-1.5" style={{ color: TOKENS.textTertiary }}>{g.billNumber}</td>
+                            <td className="py-1.5">{g.patient}</td>
+                            <td className="py-1.5 text-right tabular-nums">{formatRupees(g.tAmt)}</td>
+                            <td className="py-1.5 text-right tabular-nums">{formatRupees(g.disc)}</td>
+                            <td className="py-1.5 text-right tabular-nums">{formatRupees(g.pAmt)}</td>
+                            <td className="py-1.5 pr-3 text-right font-medium tabular-nums">{formatRupees(g.fin)}</td>
+                          </tr>
+                          <tr>
+                            <td></td>
+                            <td colSpan={6} className="pb-2" style={{ fontSize: 11 }}>
+                              {g.items.map((it, i) => (
+                                <span
+                                  key={i}
+                                  style={{
+                                    display: "inline-block",
+                                    background: "#f0efe9",
+                                    border: `1px solid ${TOKENS.border}`,
+                                    borderRadius: 5,
+                                    padding: "1px 7px",
+                                    margin: "2px 5px 0 0",
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      display: "inline-block",
+                                      width: 7,
+                                      height: 7,
+                                      borderRadius: "50%",
+                                      background: CAT_COLOR[it.category],
+                                      marginRight: 5,
+                                      verticalAlign: "middle",
+                                    }}
+                                  />
+                                  {it.testOrFee}{" "}
+                                  <span style={{ color: TOKENS.textTertiary }}>({it.basisLabel})</span>
+                                </span>
+                              ))}
+                            </td>
+                          </tr>
+                        </Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </SectionCard>
+            )}
 
             {/* Grand total */}
             <div
