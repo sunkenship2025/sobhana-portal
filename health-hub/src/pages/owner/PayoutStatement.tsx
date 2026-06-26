@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { API_BASE, API_BASE_URL } from "@/lib/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, Printer, Download } from "lucide-react";
+import { ChevronLeft, Printer, Download, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore";
 import { useBranchStore } from "@/store/branchStore";
@@ -67,6 +67,28 @@ export default function PayoutStatement() {
 
   const [markPaidOpen, setMarkPaidOpen] = useState(false);
   const [markPaidBusy, setMarkPaidBusy] = useState(false);
+  const [sendingWa, setSendingWa] = useState(false);
+
+  const sendWhatsApp = async () => {
+    if (!id) return;
+    setSendingWa(true);
+    try {
+      const res = await fetch(`${API_BASE}/payouts/${id}/send-statement`, {
+        method: "POST",
+        headers: headers(),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        toast.error(body.message ?? "Failed to send on WhatsApp");
+      } else {
+        toast.success("Statement sent on WhatsApp");
+      }
+    } catch {
+      toast.error("Failed to send on WhatsApp");
+    } finally {
+      setSendingWa(false);
+    }
+  };
 
   const submitMarkPaid = async (payment: {
     paymentMethod: PaymentType;
@@ -142,6 +164,9 @@ export default function PayoutStatement() {
                 </Button>
                 <Button variant="outline" size="sm" onClick={exportExcel}>
                   <Download className="mr-1.5 h-4 w-4" /> Excel
+                </Button>
+                <Button variant="outline" size="sm" onClick={sendWhatsApp} disabled={sendingWa}>
+                  <MessageCircle className="mr-1.5 h-4 w-4" /> {sendingWa ? "Sending…" : "WhatsApp"}
                 </Button>
                 {stmt && stmt.status === "PENDING" && (
                   <Button size="sm" onClick={() => setMarkPaidOpen(true)}>
