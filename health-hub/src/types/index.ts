@@ -749,7 +749,10 @@ export interface PatientEditPayload {
 // ============================================
 // PAYOUT TYPES
 // ============================================
-export type PayoutDoctorType = "REFERRAL" | "CLINIC" | "DIAGNOSTIC_CENTER";
+export type PayoutDoctorType = "REFERRAL" | "CLINIC" | "DIAGNOSTIC_CENTER" | "LAB";
+export type PayoutCategory = "LAB" | "XRAY" | "USG" | "ECG" | "SPL";
+export type PayoutDirection = "INBOUND" | "OUTBOUND";
+export type PayoutKind = "COMMISSION" | "PAYABLE";
 // PaymentType is defined above in VISIT section
 
 export interface PayoutLineItem {
@@ -766,6 +769,13 @@ export interface PayoutLineItem {
   commissionAmountInPaise?: number;
   commissionLabel?: string;
   derivedCommissionInPaise: number;
+  category?: PayoutCategory;
+  basisLabel?: string;
+  discountInPaise?: number;
+  departmentName?: string | null;
+  productCode?: string | null;
+  labCostInPaise?: number;
+  centerMarginInPaise?: number;
 }
 
 export interface PayoutSummary {
@@ -866,6 +876,154 @@ export interface PayoutBulkMarkPaidResult {
   conflictIds: string[];
   notFoundIds: string[];
   totalPaidInPaise: number;
+  commissionsPaidInPaise?: number;
+  labPayablesPaidInPaise?: number;
+}
+
+// ============================================
+// PAYOUTS — pay-run worklist (grouped who-I-owe)
+// ============================================
+export interface PayoutWorklistRow {
+  id: string;
+  payeeType: PayoutDoctorType;
+  direction: PayoutDirection;
+  kind: PayoutKind;
+  payeeId: string;
+  payeeName: string;
+  periodStartDate: string;
+  periodEndDate: string;
+  amountInPaise: number;
+  status: "PENDING" | "PAID";
+  paidAt: string | null;
+  paymentMethod: PaymentType | null;
+}
+
+export interface PayoutTypeTotals {
+  pendingCount: number;
+  pendingAmountInPaise: number;
+  paidCount: number;
+  paidAmountInPaise: number;
+}
+
+export interface PayRunWorklistGroup {
+  payeeType: PayoutDoctorType;
+  direction: PayoutDirection;
+  subtotalInPaise: number;
+  pendingInPaise: number;
+  paidInPaise: number;
+  rows: PayoutWorklistRow[];
+}
+
+export interface PayRunWorklist {
+  period: { startDate: string | null; endDate: string | null };
+  view: "grouped" | "flat";
+  totals: {
+    commissionsTotalInPaise: number;
+    labPayablesTotalInPaise: number;
+    commissionsPendingInPaise: number;
+    commissionsPaidInPaise: number;
+    labPayablesPendingInPaise: number;
+    labPayablesPaidInPaise: number;
+    payeeCount: number;
+    byType: Record<PayoutDoctorType, PayoutTypeTotals>;
+  };
+  groups: PayRunWorklistGroup[];
+  rows: PayoutWorklistRow[];
+}
+
+// ============================================
+// PAYOUTS — category-banded statement
+// ============================================
+export interface StatementTotals {
+  tAmtInPaise: number;
+  discInPaise: number;
+  pAmtInPaise: number;
+  finAmtInPaise: number;
+  labCostInPaise?: number;
+  centerMarginInPaise?: number;
+}
+
+export interface StatementRow {
+  visitId: string;
+  date: string;
+  billNumber: string;
+  patientTitle?: string | null;
+  patientName: string;
+  testOrFee: string;
+  category: PayoutCategory;
+  basisLabel: string;
+  tAmtInPaise: number;
+  discInPaise: number;
+  pAmtInPaise: number;
+  finAmtInPaise: number;
+  labCostInPaise?: number;
+  centerMarginInPaise?: number;
+}
+
+export interface StatementBand {
+  category: PayoutCategory;
+  label: string;
+  rows: StatementRow[];
+  subtotal: StatementTotals;
+}
+
+export interface PayoutStatement {
+  id: string;
+  payeeType: PayoutDoctorType;
+  direction: PayoutDirection;
+  payeeId: string;
+  payeeName: string;
+  branchName: string;
+  periodStartDate: string;
+  periodEndDate: string;
+  status: "PENDING" | "PAID";
+  paidAt: string | null;
+  paymentMethod: PaymentType | null;
+  paymentReferenceId: string | null;
+  notes: string | null;
+  isLab: boolean;
+  bands: StatementBand[];
+  grandTotal: StatementTotals;
+  lab?: {
+    labId: string;
+    vendorCostInPaise: number;
+    billedToPatientInPaise: number;
+    marginInPaise: number;
+    marginPct: number;
+  };
+}
+
+// ============================================
+// OUTSIDE LABS (vendor master + per-product rules)
+// ============================================
+export interface ExternalLabProductRule {
+  id: string;
+  externalLabId: string;
+  productId: string;
+  rateType: ReferralPayoutType;
+  ratePercent: number | null;
+  rateAmountInPaise: number | null;
+  reducedReferralCommissionType: ReferralPayoutType | null;
+  reducedReferralCommissionPercent: number | null;
+  reducedReferralCommissionAmountInPaise: number | null;
+  isActive: boolean;
+  product?: { id: string; name: string; code: string };
+}
+
+export interface ExternalLab {
+  id: string;
+  labNumber: string;
+  name: string;
+  contactPerson: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  rateType: ReferralPayoutType;
+  ratePercent: number;
+  rateAmountInPaise: number | null;
+  isActive: boolean;
+  productRules: ExternalLabProductRule[];
+  _count?: { testOrders: number; payoutLedger: number };
 }
 
 // ============================================
