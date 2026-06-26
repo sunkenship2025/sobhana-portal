@@ -516,102 +516,243 @@ export default function PayoutStatement() {
   );
 }
 
+const PRINT_CATS: PayoutCategory[] = ["LAB", "XRAY", "USG", "ECG", "SPL"];
+
+// Group statement line items into the legacy per-bill rows with per-category fin buckets.
+function groupForPrint(bands: StatementBand[]) {
+  const map = new Map<
+    string,
+    {
+      key: string;
+      billNumber: string;
+      date: string;
+      patient: string;
+      tAmt: number;
+      disc: number;
+      pAmt: number;
+      fin: number;
+      cat: Record<PayoutCategory, number>;
+      tests: string[];
+    }
+  >();
+  for (const band of bands) {
+    for (const r of band.rows) {
+      const key = `${r.billNumber}|${r.patientName}`;
+      let g = map.get(key);
+      if (!g) {
+        g = {
+          key,
+          billNumber: r.billNumber,
+          date: r.date,
+          patient: `${r.patientTitle ? r.patientTitle + " " : ""}${r.patientName}`,
+          tAmt: 0,
+          disc: 0,
+          pAmt: 0,
+          fin: 0,
+          cat: { LAB: 0, XRAY: 0, USG: 0, ECG: 0, SPL: 0 },
+          tests: [],
+        };
+        map.set(key, g);
+      }
+      g.tAmt += r.tAmtInPaise;
+      g.disc += r.discInPaise;
+      g.pAmt += r.pAmtInPaise;
+      g.fin += r.finAmtInPaise;
+      g.cat[r.category] += r.finAmtInPaise;
+      g.tests.push(r.testOrFee);
+      if (new Date(r.date) < new Date(g.date)) g.date = r.date;
+    }
+  }
+  return Array.from(map.values()).sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+  );
+}
+
 // Print-only document (visible only when printing, per the global .print-content rule).
+// Legacy-style layout: per-bill rows with category columns + tests underneath.
 function StatementPrint({ stmt }: { stmt: Statement }) {
   const isLab = stmt.isLab;
   const period = `${formatIstDate(stmt.periodStartDate)} – ${formatIstDate(stmt.periodEndDate)}`;
-  const td: CSSProperties = { border: "1px solid #999", padding: "3px 5px", fontSize: 10 };
-  const th: CSSProperties = { ...td, background: "#eee", fontWeight: 600, textAlign: "center" };
-  const rt: CSSProperties = { textAlign: "right" };
+  const td: CSSProperties = { border: "1px solid #999", padding: "3px 4px", fontSize: 9, textAlign: "center" };
+  const th: CSSProperties = { ...td, background: "#eee", fontWeight: 600 };
+  const lt: CSSProperties = { textAlign: "left" };
+  const rt: CSSProperties = { textAlign: "right", fontVariantNumeric: "tabular-nums" };
+  const r0 = (p: number) => (p ? formatRupees(p) : "—");
+
+  const catTotals = Object.fromEntries(
+    PRINT_CATS.map((c) => [c, stmt.bands.find((b) => b.category === c)?.subtotal.finAmtInPaise ?? 0])
+  ) as Record<PayoutCategory, number>;
+  const patients = groupForPrint(stmt.bands);
+  const labRows = stmt.bands.flatMap((b) => b.rows);
+
   return (
     <div className="hidden print:block print-content print-page">
-      <div style={{ textAlign: "center", borderBottom: "2px solid #111", paddingBottom: 8, marginBottom: 12 }}>
+      {/* Letterhead */}
+      <div style={{ textAlign: "center", borderBottom: "2px solid #111", paddingBottom: 8, marginBottom: 10 }}>
         <img src={LOGO_URL} alt="Sobhana" style={{ height: 46 }} />
-        <div style={{ fontWeight: 700, letterSpacing: "0.12em", marginTop: 6, fontSize: 13 }}>
-          {docTitle(stmt)}
+        <div style={{ fontWeight: 700, letterSpacing: "0.14em", marginTop: 6, fontSize: 13 }}>
+          {docTitle(stmt).toUpperCase()}
         </div>
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 10 }}>
+
+      {/* Meta */}
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, marginBottom: 8 }}>
         <div>
-          <b>{stmt.payeeName}</b>
+          <b>{stmt.payeeName}</b> — {isLab ? "Outside Lab" : "Referral / Clinic"}
           <br />
           Period: {period}
         </div>
         <div style={{ textAlign: "right" }}>
-          Branch: {stmt.branchName || "—"}
+          Branch: {stmt.branchName || "—"} · #{stmt.id.slice(-6).toUpperCase()}
           <br />
-          Status: {stmt.status === "PAID" ? "Paid" : isLab ? "Unpaid" : "Pending"}
-          {stmt.status === "PAID" && stmt.paidAt
-            ? ` (${formatIstDate(stmt.paidAt)}${stmt.paymentMethod ? " · " + stmt.paymentMethod : ""})`
-            : ""}
+          Generated: {formatIstDate(new Date().toISOString())}
         </div>
       </div>
-      {stmt.bands.map((band) => (
-        <table key={band.category} style={{ width: "100%", borderCollapse: "collapse", marginBottom: 10 }}>
+
+      {/* Table */}
+      {isLab ? (
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={{ ...th, textAlign: "left" }} colSpan={4}>
-                {band.label}
-              </th>
-              <th style={th}>T Amt</th>
-              <th style={th}>Disc</th>
-              <th style={th}>P Amt</th>
-              <th style={th}>{isLab ? "Payable" : "Fin"}</th>
-              {isLab && <th style={th}>Margin</th>}
+              <th style={th}>Sln</th>
+              <th style={{ ...th, ...lt }}>Date</th>
+              <th style={{ ...th, ...lt }}>Patient</th>
+              <th style={{ ...th, ...lt }}>Test</th>
+              <th style={{ ...th, ...lt }}>Rate</th>
+              <th style={th}>Price</th>
+              <th style={th}>Payable</th>
+              <th style={th}>Margin</th>
             </tr>
           </thead>
           <tbody>
-            {band.rows.map((row, i) => (
+            {labRows.map((row, i) => (
               <tr key={i}>
-                <td style={td}>{formatIstDate(row.date)}</td>
-                <td style={td}>{row.billNumber}</td>
-                <td style={td}>{row.patientName}</td>
-                <td style={td}>
-                  {row.testOrFee} <span style={{ color: "#666" }}>({row.basisLabel})</span>
-                </td>
-                <td style={{ ...td, ...rt }}>{formatRupees(row.tAmtInPaise)}</td>
-                <td style={{ ...td, ...rt }}>{formatRupees(row.discInPaise)}</td>
+                <td style={td}>{i + 1}</td>
+                <td style={{ ...td, ...lt }}>{formatIstDate(row.date)}</td>
+                <td style={{ ...td, ...lt }}>{row.patientName}</td>
+                <td style={{ ...td, ...lt }}>{row.testOrFee}</td>
+                <td style={{ ...td, ...lt }}>{row.basisLabel}</td>
                 <td style={{ ...td, ...rt }}>{formatRupees(row.pAmtInPaise)}</td>
                 <td style={{ ...td, ...rt }}>{formatRupees(row.finAmtInPaise)}</td>
-                {isLab && <td style={{ ...td, ...rt }}>{formatRupees(row.centerMarginInPaise ?? 0)}</td>}
+                <td style={{ ...td, ...rt }}>{formatRupees(row.centerMarginInPaise ?? 0)}</td>
               </tr>
             ))}
           </tbody>
+          <tfoot>
+            <tr style={{ fontWeight: 700, background: "#f0f0f0" }}>
+              <td style={{ ...td, ...lt }} colSpan={5}>GRAND TOTAL — {labRows.length} tests</td>
+              <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.pAmtInPaise)}</td>
+              <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.finAmtInPaise)}</td>
+              <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.centerMarginInPaise ?? 0)}</td>
+            </tr>
+          </tfoot>
         </table>
-      ))}
-      <div
-        style={{
-          borderTop: "2px solid #111",
-          paddingTop: 6,
-          display: "flex",
-          justifyContent: "space-between",
-          fontSize: 11,
-          fontWeight: 700,
-        }}
-      >
-        <span>GRAND TOTAL</span>
-        <span>
-          T {formatRupees(stmt.grandTotal.tAmtInPaise)} · Disc {formatRupees(stmt.grandTotal.discInPaise)} · P{" "}
-          {formatRupees(stmt.grandTotal.pAmtInPaise)} · {isLab ? "Payable" : "Fin"}{" "}
-          {formatRupees(stmt.grandTotal.finAmtInPaise)}
-        </span>
-      </div>
+      ) : (
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={th}>Sln</th>
+              <th style={th}>Bill #</th>
+              <th style={{ ...th, ...lt }}>Date</th>
+              <th style={{ ...th, ...lt }}>Patient</th>
+              <th style={th}>T Amt</th>
+              <th style={th}>Disc</th>
+              <th style={th}>P Amt</th>
+              <th style={th}>LAB</th>
+              <th style={th}>XRAY</th>
+              <th style={th}>USG</th>
+              <th style={th}>ECG</th>
+              <th style={th}>SPL</th>
+              <th style={th}>Fin Amt</th>
+            </tr>
+          </thead>
+          <tbody>
+            {patients.map((p, idx) => (
+              <Fragment key={p.key}>
+                <tr>
+                  <td style={td}>{idx + 1}</td>
+                  <td style={td}>{p.billNumber}</td>
+                  <td style={{ ...td, ...lt }}>{formatIstDate(p.date)}</td>
+                  <td style={{ ...td, ...lt }}>{p.patient}</td>
+                  <td style={{ ...td, ...rt }}>{formatRupees(p.tAmt)}</td>
+                  <td style={{ ...td, ...rt }}>{r0(p.disc)}</td>
+                  <td style={{ ...td, ...rt }}>{formatRupees(p.pAmt)}</td>
+                  {PRINT_CATS.map((c) => (
+                    <td key={c} style={{ ...td, ...rt }}>{r0(p.cat[c])}</td>
+                  ))}
+                  <td style={{ ...td, ...rt, fontWeight: 700 }}>{formatRupees(p.fin)}</td>
+                </tr>
+                <tr>
+                  <td style={td}></td>
+                  <td style={{ ...td, ...lt, fontSize: 8, color: "#555" }} colSpan={12}>
+                    {p.tests.join(", ")}
+                  </td>
+                </tr>
+              </Fragment>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr style={{ fontWeight: 700, background: "#f0f0f0" }}>
+              <td style={{ ...td, ...lt }} colSpan={4}>GRAND TOTAL — {patients.length} bills</td>
+              <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.tAmtInPaise)}</td>
+              <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.discInPaise)}</td>
+              <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.pAmtInPaise)}</td>
+              {PRINT_CATS.map((c) => (
+                <td key={c} style={{ ...td, ...rt }}>{r0(catTotals[c])}</td>
+              ))}
+              <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.finAmtInPaise)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      )}
+
+      {/* Status / payment + signature */}
       {stmt.status === "PAID" ? (
-        <div style={{ marginTop: 10, fontSize: 11 }}>
-          Payment received: {formatRupees(stmt.grandTotal.finAmtInPaise)} · {stmt.paymentMethod ?? ""}
-          {stmt.paymentReferenceId ? " · ref " + stmt.paymentReferenceId : ""}
-          {stmt.paidAt ? " · " + formatIstDate(stmt.paidAt) : ""}
-          <div style={{ marginTop: 32, textAlign: "right" }}>
+        <>
+          <div
+            style={{
+              marginTop: 12,
+              border: "1px solid #999",
+              borderLeft: "4px solid #2c7a52",
+              padding: "8px 10px",
+              fontSize: 10.5,
+            }}
+          >
+            <b>Payment received — {formatRupees(stmt.grandTotal.finAmtInPaise)}</b>
+            {stmt.paidAt ? ` · ${formatIstDate(stmt.paidAt)}` : ""}
+            {stmt.paymentMethod ? ` · ${stmt.paymentMethod}` : ""}
+            {stmt.paymentReferenceId ? ` · ref ${stmt.paymentReferenceId}` : ""}
+          </div>
+          <div style={{ marginTop: 36, textAlign: "right", fontSize: 10.5 }}>
             ____________________
             <br />
             Authorised signatory
           </div>
-        </div>
+        </>
       ) : (
-        <div style={{ marginTop: 10, fontSize: 11 }}>
-          Amount payable: <b>{formatRupees(stmt.grandTotal.finAmtInPaise)}</b> · Status: Pending
+        <div
+          style={{
+            marginTop: 12,
+            border: "1px solid #999",
+            borderLeft: "4px solid #9a7b2c",
+            padding: "8px 10px",
+            fontSize: 10.5,
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
+          <span>
+            <b>Amount payable: {formatRupees(stmt.grandTotal.finAmtInPaise)}</b> · Status:{" "}
+            {isLab ? "Unpaid" : "Pending"}
+          </span>
+          <span style={{ color: "#666" }}>Discrepancies, if any, to be raised within 7 days.</span>
         </div>
       )}
+
+      <div style={{ textAlign: "center", marginTop: 14, fontSize: 9, color: "#666", borderTop: "1px solid #ccc", paddingTop: 6 }}>
+        Computer-generated {docTitle(stmt).toLowerCase()} · Sobhana Diagnostics
+      </div>
     </div>
   );
 }
