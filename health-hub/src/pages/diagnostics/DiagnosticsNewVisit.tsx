@@ -111,6 +111,8 @@ const DiagnosticsNewVisit = () => {
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [showNewPatientForm, setShowNewPatientForm] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
+  const [externalLabs, setExternalLabs] = useState<{ id: string; name: string }[]>([]);
+  const [externalLabByProduct, setExternalLabByProduct] = useState<Record<string, string>>({});
   const [paymentMode, setPaymentMode] = useState<"CASH" | "ONLINE" | "SPLIT">(
     () => useVisitDefaults.getState().lastDiagPaymentMode,
   );
@@ -203,10 +205,11 @@ const DiagnosticsNewVisit = () => {
           "X-Branch-Id": activeBranch.id,
         };
 
-        const [productsRes, doctorsRes, centersRes] = await Promise.all([
+        const [productsRes, doctorsRes, centersRes, labsRes] = await Promise.all([
           fetch(`${API_BASE}/billable-products`, { headers }),
           fetch(`${API_BASE}/referral-doctors`, { headers }),
           fetch(`${API_BASE}/diagnostic-centers`, { headers }),
+          fetch(`${API_BASE}/external-labs`, { headers }),
         ]);
 
         if (productsRes.ok) {
@@ -220,6 +223,10 @@ const DiagnosticsNewVisit = () => {
         if (centersRes.ok) {
           const centers = await centersRes.json();
           setDiagnosticCenters(centers);
+        }
+        if (labsRes.ok) {
+          const labs = await labsRes.json();
+          setExternalLabs((labs as { id: string; name: string }[]) ?? []);
         }
       } catch (error) {
         console.error("Failed to fetch data:", error);
@@ -901,6 +908,13 @@ const DiagnosticsNewVisit = () => {
               )
             : undefined,
           productIds: selectedProducts,
+          externalLabByProductId: Object.keys(externalLabByProduct).length
+            ? Object.fromEntries(
+                Object.entries(externalLabByProduct).filter(
+                  ([pid, labId]) => selectedProducts.includes(pid) && labId,
+                ),
+              )
+            : undefined,
           ...(paymentMode === "SPLIT"
             ? {
                 payments: [
@@ -1967,6 +1981,46 @@ const DiagnosticsNewVisit = () => {
                   </Button>
                 </div>
               </div>
+
+              {externalLabs.length > 0 && selectedProducts.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Outsource to outside lab (optional)</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Send a test to an outside lab — we'll owe them their rate, tracked under
+                    Outside-lab payables. The referring doctor still earns their commission.
+                  </p>
+                  <div className="space-y-2">
+                    {selectedProducts.map((pid) => {
+                      const product = products.find((p) => p.id === pid);
+                      if (!product) return null;
+                      return (
+                        <div key={pid} className="flex items-center gap-3">
+                          <span className="flex-1 text-sm">{product.name}</span>
+                          <select
+                            className="h-9 rounded-md border bg-white px-2 text-sm"
+                            value={externalLabByProduct[pid] ?? ""}
+                            onChange={(e) =>
+                              setExternalLabByProduct((prev) => {
+                                const next = { ...prev };
+                                if (e.target.value) next[pid] = e.target.value;
+                                else delete next[pid];
+                                return next;
+                              })
+                            }
+                          >
+                            <option value="">In-house</option>
+                            {externalLabs.map((lab) => (
+                              <option key={lab.id} value={lab.id}>
+                                {lab.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {selectedDoctorId && selectedProducts.length > 0 && (
                 <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
