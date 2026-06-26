@@ -32,7 +32,6 @@ import PayoutStatement from "./pages/owner/PayoutStatement";
 import OutsideLabs from "./pages/owner/OutsideLabs";
 import BillPrintPage from "./pages/BillPrintPage";
 import ReportViewPage from "./pages/ReportViewPage";
-import PayoutStatementViewPage from "./pages/PayoutStatementViewPage";
 import PrivacyPolicy from "./pages/legal/PrivacyPolicy";
 import TermsOfService from "./pages/legal/TermsOfService";
 import DataDeletion from "./pages/legal/DataDeletion";
@@ -223,7 +222,6 @@ function AppRoutes() {
       
       {/* Public routes for secure document access */}
       <Route path="/report/view" element={<ReportViewPage />} />
-      <Route path="/statement/view" element={<PayoutStatementViewPage />} />
       
       {/* Legal / compliance pages (public) */}
       <Route path="/privacy" element={<PrivacyPolicy />} />
