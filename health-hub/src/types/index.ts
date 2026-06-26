@@ -982,6 +982,8 @@ export interface PayoutStatement {
   paymentReferenceId: string | null;
   notes: string | null;
   isLab: boolean;
+  whatsappEnabled?: boolean;
+  payeeHasPhone?: boolean;
   bands: StatementBand[];
   grandTotal: StatementTotals;
   lab?: {

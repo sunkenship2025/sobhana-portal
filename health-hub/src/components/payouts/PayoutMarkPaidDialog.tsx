@@ -49,6 +49,9 @@ export interface PayoutMarkPaidDialogProps {
   // Optional review split (bulk): when set, shows commissions vs lab-payables.
   commissionsInPaise?: number;
   labPayablesInPaise?: number;
+  // Optional per-type review (bulk): when set, itemizes every payee type being
+  // paid so nothing collapsed/hidden is settled unannounced. Takes precedence.
+  breakdown?: { label: string; amountInPaise: number; count: number; outbound?: boolean }[];
   onConfirm: (payment: PayoutMarkPaidPayment) => Promise<void> | void;
 }
 
@@ -69,6 +72,7 @@ export function PayoutMarkPaidDialog({
   bulkTotalInPaise,
   commissionsInPaise,
   labPayablesInPaise,
+  breakdown,
   onConfirm,
 }: PayoutMarkPaidDialogProps) {
   const { lastPaymentMethod, setLastPaymentMethod } = usePayoutPrefs();
@@ -121,7 +125,21 @@ export function PayoutMarkPaidDialog({
                 <span className="text-muted-foreground">Payouts</span>
                 <span className="font-medium">{bulkCount}</span>
               </div>
-              {hasSplit && (
+              {breakdown && breakdown.length > 0 ? (
+                breakdown.map((b) => (
+                  <div key={b.label} className="mt-2 flex justify-between gap-3">
+                    <span
+                      className={b.outbound ? undefined : "text-muted-foreground"}
+                      style={b.outbound ? { color: "#854F0B" } : undefined}
+                    >
+                      {b.label} ({b.count})
+                    </span>
+                    <span className="font-medium" style={b.outbound ? { color: "#854F0B" } : undefined}>
+                      {formatRupees(b.amountInPaise)}
+                    </span>
+                  </div>
+                ))
+              ) : hasSplit ? (
                 <>
                   <div className="mt-2 flex justify-between gap-3">
                     <span className="text-muted-foreground">Commissions (Ref / Clinic / Consult)</span>
@@ -134,7 +152,7 @@ export function PayoutMarkPaidDialog({
                     </span>
                   </div>
                 </>
-              )}
+              ) : null}
               <div className="mt-2 flex justify-between gap-3 border-t pt-2">
                 <span className="text-muted-foreground">Total</span>
                 <span className="font-semibold">{formatRupees(bulkTotalInPaise ?? 0)}</span>

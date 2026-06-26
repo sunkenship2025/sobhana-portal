@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { API_BASE, API_BASE_URL } from "@/lib/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -13,9 +13,11 @@ import {
 } from "@/components/ui/select";
 import {
   CalendarRange,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Download,
   Printer,
   Search,
 } from "lucide-react";
@@ -108,28 +110,68 @@ export default function PayoutsList() {
   const { token, user } = useAuthStore();
   const { activeBranchId } = useBranchStore();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isOwner = user?.role === "owner";
 
+  // All filters are seeded from the URL so the view is shareable/bookmarkable and
+  // survives a round-trip into a statement and back (Back to Pay-Run uses history).
   // Period: a month stepper by default; "custom" overrides with a preset / range.
   const [monthDate, setMonthDate] = useState(() => {
+    const m = searchParams.get("month");
+    if (m && /^\d{4}-\d{2}$/.test(m)) {
+      const [y, mo] = m.split("-").map(Number);
+      return new Date(y, mo - 1, 1);
+    }
     const t = new Date();
     return new Date(t.getFullYear(), t.getMonth() - 1, 1); // last completed month
   });
-  const [custom, setCustom] = useState<CustomPeriod>(null);
+  const [custom, setCustom] = useState<CustomPeriod>(() => {
+    const from = searchParams.get("from");
+    const to = searchParams.get("to");
+    if (from && to) return { start: from, end: to, label: searchParams.get("plabel") || `${from} → ${to}` };
+    return null;
+  });
   const [periodOpen, setPeriodOpen] = useState(false);
   const [fromInput, setFromInput] = useState("");
   const [toInput, setToInput] = useState("");
 
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
-  const [status, setStatus] = useState<"all" | "pending" | "paid">("pending");
-  const [view, setView] = useState<"grouped" | "flat">("grouped");
-  const [collapsed, setCollapsed] = useState<Set<PayoutDoctorType>>(new Set(["CLINIC"]));
-  const [searchInput, setSearchInput] = useState("");
-  const [q, setQ] = useState("");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>(() => {
+    const t = searchParams.get("type");
+    if (t && (t === "all" || (TYPE_ORDER as string[]).includes(t))) return t as TypeFilter;
+    return "all";
+  });
+  const [status, setStatus] = useState<"all" | "pending" | "paid">(() => {
+    const s = searchParams.get("status");
+    return s === "all" || s === "paid" || s === "pending" ? s : "pending";
+  });
+  const [view, setView] = useState<"grouped" | "flat">(() =>
+    searchParams.get("view") === "flat" ? "flat" : "grouped"
+  );
+  const [collapsed, setCollapsed] = useState<Set<PayoutDoctorType>>(new Set());
+  const [searchInput, setSearchInput] = useState(() => searchParams.get("q") ?? "");
+  const [q, setQ] = useState(() => searchParams.get("q") ?? "");
   useEffect(() => {
     const t = setTimeout(() => setQ(searchInput), 300);
     return () => clearTimeout(t);
   }, [searchInput]);
+
+  // Mirror the active filters into the URL (replace, so it doesn't spam history).
+  useEffect(() => {
+    const p = new URLSearchParams();
+    if (status !== "pending") p.set("status", status);
+    if (typeFilter !== "all") p.set("type", typeFilter);
+    if (view !== "grouped") p.set("view", view);
+    if (custom) {
+      p.set("from", custom.start);
+      p.set("to", custom.end);
+      if (custom.label) p.set("plabel", custom.label);
+    } else {
+      p.set("month", `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, "0")}`);
+    }
+    if (q) p.set("q", q);
+    setSearchParams(p, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, typeFilter, view, custom, monthDate, q]);
 
   const range = useMemo(
     () => (custom ? { start: custom.start, end: custom.end } : monthRange(monthDate)),
@@ -196,6 +238,12 @@ export default function PayoutsList() {
     );
   }, [worklist]);
 
+  // On the Paid view, show most-recently-paid first.
+  const sortForDisplay = (rs: PayoutWorklistRow[]) =>
+    status === "paid"
+      ? [...rs].sort((a, b) => (b.paidAt ? +new Date(b.paidAt) : 0) - (a.paidAt ? +new Date(a.paidAt) : 0))
+      : rs;
+
   function toggleRow(id: string) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -248,11 +296,22 @@ export default function PayoutsList() {
     const list = markPaidRows ?? [];
     let commissions = 0;
     let lab = 0;
+    const byType = new Map<PayoutDoctorType, { amount: number; count: number }>();
     for (const r of list) {
       if (r.payeeType === "LAB") lab += r.amountInPaise;
       else commissions += r.amountInPaise;
+      const e = byType.get(r.payeeType) ?? { amount: 0, count: 0 };
+      e.amount += r.amountInPaise;
+      e.count += 1;
+      byType.set(r.payeeType, e);
     }
-    return { commissions, lab, total: commissions + lab };
+    const breakdown = TYPE_ORDER.filter((t) => byType.has(t)).map((t) => ({
+      label: TYPE_LABEL[t],
+      amountInPaise: byType.get(t)!.amount,
+      count: byType.get(t)!.count,
+      outbound: t === "LAB",
+    }));
+    return { commissions, lab, total: commissions + lab, breakdown };
   }, [markPaidRows]);
 
   const submitMarkPaid = async (payment: PayoutMarkPaidPayment) => {
@@ -273,10 +332,12 @@ export default function PayoutsList() {
           const parts = [`Marked ${r.paidIds.length} paid`];
           if (r.conflictIds.length) parts.push(`${r.conflictIds.length} already paid`);
           if (r.notFoundIds?.length) parts.push(`${r.notFoundIds.length} no longer exist`);
-          toast.success(parts.join(" · "));
           setMarkPaidOpen(false);
           setSelected(new Set());
           await fetchWorklist();
+          toast.success(parts.join(" · "), {
+            action: { label: "See paid", onClick: () => setStatus("paid") },
+          });
         }
       } else if (markPaidSingle) {
         const res = await fetch(`${API_BASE}/payouts/${markPaidSingle.id}/mark-paid`, {
@@ -287,9 +348,12 @@ export default function PayoutsList() {
         const body = await res.json();
         if (!res.ok) toast.error(body.message ?? "Failed to mark paid");
         else {
-          toast.success("Marked as paid");
+          const paidId = markPaidSingle.id;
           setMarkPaidOpen(false);
           await fetchWorklist();
+          toast.success("Marked as paid", {
+            action: { label: "View receipt", onClick: () => navigate(`/owner/payouts/${paidId}`) },
+          });
         }
       }
     } finally {
@@ -358,6 +422,9 @@ export default function PayoutsList() {
     totals?.labPayablesPendingInPaise ?? 0,
     1
   );
+  const paidTotal = (totals?.commissionsPaidInPaise ?? 0) + (totals?.labPayablesPaidInPaise ?? 0);
+  const paidCount = TYPE_ORDER.reduce((n, t) => n + (totals?.byType[t].paidCount ?? 0), 0);
+  const filtered = typeFilter !== "all" || !!q; // the row list is narrowed → "all" would be a lie
 
   return (
     <AppLayout context="owner" subContext="payouts">
@@ -400,6 +467,9 @@ export default function PayoutsList() {
                 Custom range ▾
               </button>
               <RefreshButton isFetching={loading} onClick={fetchWorklist} />
+              <Button variant="outline" size="sm" onClick={exportExcel}>
+                <Download className="mr-1.5 h-4 w-4" /> Excel
+              </Button>
               <Button variant="outline" size="sm" onClick={() => window.print()}>
                 <Printer className="mr-1.5 h-4 w-4" /> Register
               </Button>
@@ -463,11 +533,14 @@ export default function PayoutsList() {
                     className="mb-1.5 font-medium uppercase"
                     style={{ fontSize: 11, letterSpacing: "0.06em", color: TOKENS.textSecondary }}
                   >
-                    Commission payouts
+                    Commission payouts · pending
                   </div>
                   <DisplayNumber size={30}>
                     {formatRupees(totals?.commissionsPendingInPaise ?? 0)}
                   </DisplayNumber>
+                  <div style={{ fontSize: 11, color: TOKENS.textTertiary, marginTop: 2 }}>
+                    What you owe referrers &amp; clinics
+                  </div>
                   <div className="mt-2">
                     <MiniBar fillRatio={(totals?.commissionsPendingInPaise ?? 0) / heroMax} color="#9aa7b8" />
                   </div>
@@ -483,13 +556,16 @@ export default function PayoutsList() {
                     className="mb-1.5 font-medium uppercase"
                     style={{ fontSize: 11, letterSpacing: "0.06em", color: TOKENS.caution }}
                   >
-                    Outside-lab payables
+                    Outside-lab payables · pending
                   </div>
                   <DisplayNumber size={30}>
                     <span style={{ color: TOKENS.caution }}>
                       {formatRupees(totals?.labPayablesPendingInPaise ?? 0)}
                     </span>
                   </DisplayNumber>
+                  <div style={{ fontSize: 11, color: TOKENS.textTertiary, marginTop: 2 }}>
+                    What you owe outside labs for outsourced tests
+                  </div>
                   <div className="mt-2">
                     <MiniBar fillRatio={(totals?.labPayablesPendingInPaise ?? 0) / heroMax} color={TOKENS.caution} />
                   </div>
@@ -514,20 +590,36 @@ export default function PayoutsList() {
                     ({totals?.byType[t].pendingCount ?? 0})
                   </span>
                 ))}
-                <span style={{ marginLeft: "auto", color: TOKENS.textTertiary }}>
-                  Already paid: {formatRupees(
-                    (totals?.commissionsPaidInPaise ?? 0) + (totals?.labPayablesPaidInPaise ?? 0)
-                  )}
-                </span>
+                <button
+                  type="button"
+                  onClick={() => setStatus(status === "paid" ? "pending" : "paid")}
+                  style={{
+                    marginLeft: "auto",
+                    color: status === "paid" ? TOKENS.info : TOKENS.textTertiary,
+                    textDecoration: "underline",
+                    textUnderlineOffset: 2,
+                  }}
+                  title={status === "paid" ? "Back to pending" : "Show what's already been paid"}
+                >
+                  {status === "paid"
+                    ? "← Back to pending"
+                    : `Already paid: ${formatRupees(
+                        (totals?.commissionsPaidInPaise ?? 0) + (totals?.labPayablesPaidInPaise ?? 0)
+                      )}`}
+                </button>
               </div>
               {allPending.length > 0 && status !== "paid" && (
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap items-center gap-2">
                   <Button size="sm" onClick={() => openBulkMarkPaid(allPending)}>
-                    Review &amp; Pay all pending ({allPending.length}) → {formatRupees(allPendingTotal)}
+                    {filtered
+                      ? `Review & Pay ${allPending.length} shown → ${formatRupees(allPendingTotal)}`
+                      : `Review & Pay all pending (${allPending.length}) → ${formatRupees(allPendingTotal)}`}
                   </Button>
-                  <Button variant="outline" size="sm" onClick={exportExcel}>
-                    Export Excel
-                  </Button>
+                  {filtered && (
+                    <span style={{ fontSize: 11, color: TOKENS.caution }}>
+                      Filter active — only the rows below
+                    </span>
+                  )}
                 </div>
               )}
             </SectionCard>
@@ -560,7 +652,7 @@ export default function PayoutsList() {
                 <SelectContent>
                   <SelectItem value="all">All</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="paid">Paid</SelectItem>
+                  <SelectItem value="paid">{paidCount > 0 ? `Paid (${paidCount})` : "Paid"}</SelectItem>
                 </SelectContent>
               </Select>
               <div
@@ -596,18 +688,37 @@ export default function PayoutsList() {
             {/* Body */}
             {rows.length === 0 ? (
               <SectionCard>
-                <EmptyState
-                  label="No payouts for this period"
-                  hint="Try a different month or custom range."
-                />
+                {status === "pending" && paidTotal > 0 ? (
+                  <div className="flex flex-col items-center gap-2 py-6 text-center">
+                    <CheckCircle2 className="h-8 w-8" style={{ color: TOKENS.healthy }} />
+                    <div style={{ fontSize: 15, fontWeight: 600 }}>All settled for {periodLabel}</div>
+                    <div style={{ fontSize: 13, color: TOKENS.textTertiary }}>
+                      Everyone has been paid — {formatRupees(paidTotal)} across {paidCount}{" "}
+                      {paidCount === 1 ? "payout" : "payouts"}.
+                    </div>
+                    <Button variant="outline" size="sm" className="mt-1" onClick={() => setStatus("paid")}>
+                      View paid
+                    </Button>
+                  </div>
+                ) : (
+                  <EmptyState
+                    label={status === "paid" ? "Nothing paid yet for this period" : "No payouts for this period"}
+                    hint={
+                      status === "paid"
+                        ? "Mark payouts paid and they'll appear here."
+                        : "Try a different month or custom range."
+                    }
+                  />
+                )}
               </SectionCard>
             ) : view === "flat" ? (
               <SectionCard padding={0}>
                 <RowsTable
-                  rows={rows}
+                  rows={sortForDisplay(rows)}
                   selected={selected}
                   onToggle={toggleRow}
                   onStatement={(id) => navigate(`/owner/payouts/${id}`)}
+                  onReprint={(id) => navigate(`/owner/payouts/${id}?print=1`)}
                   onMarkPaid={openSingleMarkPaid}
                   showType
                 />
@@ -666,16 +777,17 @@ export default function PayoutsList() {
                               openBulkMarkPaid(sectionPending);
                             }}
                           >
-                            Mark all paid ({sectionPending.length})
+                            Review &amp; pay ({sectionPending.length}) · {formatRupees(g.pendingInPaise)}
                           </Button>
                         )}
                       </div>
                       {!isCollapsed && (
                         <RowsTable
-                          rows={g.rows}
+                          rows={sortForDisplay(g.rows)}
                           selected={selected}
                           onToggle={toggleRow}
                           onStatement={(id) => navigate(`/owner/payouts/${id}`)}
+                          onReprint={(id) => navigate(`/owner/payouts/${id}?print=1`)}
                           onMarkPaid={openSingleMarkPaid}
                         />
                       )}
@@ -727,6 +839,7 @@ export default function PayoutsList() {
         bulkTotalInPaise={bulkSplit.total}
         commissionsInPaise={markPaidRows ? bulkSplit.commissions : undefined}
         labPayablesInPaise={markPaidRows ? bulkSplit.lab : undefined}
+        breakdown={markPaidRows ? bulkSplit.breakdown : undefined}
         onConfirm={submitMarkPaid}
       />
 
@@ -748,6 +861,7 @@ function RowsTable({
   onToggle,
   onStatement,
   onMarkPaid,
+  onReprint,
   showType,
 }: {
   rows: PayoutWorklistRow[];
@@ -755,6 +869,7 @@ function RowsTable({
   onToggle: (id: string) => void;
   onStatement: (id: string) => void;
   onMarkPaid: (r: PayoutWorklistRow) => void;
+  onReprint: (id: string) => void;
   showType?: boolean;
 }) {
   return (
@@ -762,13 +877,22 @@ function RowsTable({
       <tbody>
         {rows.map((r) => {
           const outbound = r.payeeType === "LAB";
+          const paid = r.status === "PAID";
           return (
             <tr key={r.id} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
               <td className="py-2 pl-3" style={{ width: 28 }}>
                 <input type="checkbox" checked={selected.has(r.id)} onChange={() => onToggle(r.id)} />
               </td>
               <td className="py-2">
-                {r.payeeName}{" "}
+                {/* The payee name is the primary drill-in — opens the statement/receipt. */}
+                <button
+                  className="text-left hover:underline"
+                  style={{ color: TOKENS.textPrimary, fontWeight: 500 }}
+                  onClick={() => onStatement(r.id)}
+                  title="Open statement"
+                >
+                  {r.payeeName}
+                </button>{" "}
                 <span
                   style={{
                     fontSize: 10,
@@ -788,19 +912,37 @@ function RowsTable({
               >
                 {formatRupees(r.amountInPaise)}
               </td>
-              <td className="py-2 text-right" style={{ width: 80 }}>
+              <td className="py-2 text-right" style={{ width: 110 }}>
                 <span
                   className="font-medium"
-                  style={{ fontSize: 11, color: r.status === "PAID" ? TOKENS.healthy : TOKENS.caution }}
+                  style={{ fontSize: 11, color: paid ? TOKENS.healthy : TOKENS.caution }}
                 >
-                  {r.status === "PAID" ? "PAID" : outbound ? "UNPAID" : "PENDING"}
+                  {paid ? "PAID" : outbound ? "UNPAID" : "PENDING"}
                 </span>
+                {paid && r.paidAt && (
+                  <div style={{ fontSize: 10, color: TOKENS.textTertiary }}>
+                    {new Date(r.paidAt).toLocaleDateString("en-IN", {
+                      day: "numeric",
+                      month: "short",
+                    })}
+                  </div>
+                )}
               </td>
-              <td className="py-2 pr-3 text-right" style={{ width: 170 }}>
+              <td className="py-2 pr-3 text-right" style={{ width: 180 }}>
                 <button className="mr-2" style={{ color: TOKENS.info, fontSize: 12 }} onClick={() => onStatement(r.id)}>
-                  Statement
+                  {paid ? "Receipt" : "Statement"}
                 </button>
-                {r.status === "PENDING" && (
+                {paid ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2"
+                    onClick={() => onReprint(r.id)}
+                    title="Reprint receipt"
+                  >
+                    <Printer className="h-3.5 w-3.5" />
+                  </Button>
+                ) : (
                   <Button variant="outline" size="sm" className="h-7" onClick={() => onMarkPaid(r)}>
                     Mark Paid
                   </Button>

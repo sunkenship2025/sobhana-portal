@@ -1,5 +1,5 @@
 import { useEffect, useState, Fragment, type CSSProperties } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { API_BASE, API_BASE_URL } from "@/lib/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -94,6 +94,7 @@ function docTitle(s: Statement): string {
 export default function PayoutStatement() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { token } = useAuthStore();
   const { activeBranchId } = useBranchStore();
 
@@ -129,6 +130,20 @@ export default function PayoutStatement() {
     fetchStatement();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, activeBranchId, id]);
+
+  // Deep-link reprint: /owner/payouts/:id?print=1 opens straight to the print
+  // dialog (used by the "reprint" shortcut on PAID rows). Consume the param so a
+  // refresh doesn't re-trigger it.
+  useEffect(() => {
+    if (stmt && searchParams.get("print") === "1") {
+      const t = setTimeout(() => window.print(), 400);
+      const next = new URLSearchParams(searchParams);
+      next.delete("print");
+      setSearchParams(next, { replace: true });
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stmt]);
 
   const [markPaidOpen, setMarkPaidOpen] = useState(false);
   const [markPaidBusy, setMarkPaidBusy] = useState(false);
@@ -170,9 +185,12 @@ export default function PayoutStatement() {
       if (!res.ok) {
         toast.error(body.message ?? "Failed to mark paid");
       } else {
-        toast.success("Marked as paid");
         setMarkPaidOpen(false);
         await fetchStatement();
+        toast.success("Marked as paid", {
+          description: "This is now a receipt.",
+          action: { label: "Print receipt", onClick: () => window.print() },
+        });
       }
     } finally {
       setMarkPaidBusy(false);
@@ -213,7 +231,7 @@ export default function PayoutStatement() {
             title={stmt ? `${stmt.payeeName} — ${isLab ? "Lab payable" : "Statement"}` : "Statement"}
             subtitle={
               <button
-                onClick={() => navigate("/owner/payouts")}
+                onClick={() => navigate(-1)}
                 className="inline-flex items-center"
                 style={{ color: TOKENS.info }}
               >
@@ -228,9 +246,23 @@ export default function PayoutStatement() {
                 <Button variant="outline" size="sm" onClick={exportExcel}>
                   <Download className="mr-1.5 h-4 w-4" /> Excel
                 </Button>
-                <Button variant="outline" size="sm" onClick={sendWhatsApp} disabled={sendingWa}>
-                  <MessageCircle className="mr-1.5 h-4 w-4" /> {sendingWa ? "Sending…" : "WhatsApp"}
-                </Button>
+                {stmt && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={sendWhatsApp}
+                    disabled={sendingWa || !stmt.whatsappEnabled || !stmt.payeeHasPhone}
+                    title={
+                      !stmt.whatsappEnabled
+                        ? "WhatsApp isn't enabled for this branch yet"
+                        : !stmt.payeeHasPhone
+                          ? "No phone number on file for this payee"
+                          : "Send this statement to the payee on WhatsApp"
+                    }
+                  >
+                    <MessageCircle className="mr-1.5 h-4 w-4" /> {sendingWa ? "Sending…" : "WhatsApp"}
+                  </Button>
+                )}
                 {stmt && stmt.status === "PENDING" && (
                   <Button size="sm" onClick={() => setMarkPaidOpen(true)}>
                     Mark Paid
@@ -393,7 +425,7 @@ export default function PayoutStatement() {
                         <th className="py-1.5 text-right font-normal">T Amt</th>
                         <th className="py-1.5 text-right font-normal">Disc</th>
                         <th className="py-1.5 text-right font-normal">P Amt</th>
-                        <th className="py-1.5 pr-3 text-right font-normal">Fin Amt</th>
+                        <th className="py-1.5 pr-3 text-right font-normal">Payable</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -459,7 +491,7 @@ export default function PayoutStatement() {
               <span>Disc <b>{formatRupees(stmt.grandTotal.discInPaise)}</b></span>
               <span>P Amt <b>{formatRupees(stmt.grandTotal.pAmtInPaise)}</b></span>
               <span className="ml-auto" style={{ fontSize: 15 }}>
-                {isLab ? "Payable" : "Fin"} <b>{formatRupees(stmt.grandTotal.finAmtInPaise)}</b>
+                Payable <b>{formatRupees(stmt.grandTotal.finAmtInPaise)}</b>
               </span>
             </div>
 

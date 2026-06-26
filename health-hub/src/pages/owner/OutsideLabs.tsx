@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useApiQuery, useApiMutation, branchRequest, useBranchId, qk } from "@/lib/query";
 import { Button } from "@/components/ui/button";
@@ -12,9 +13,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, X } from "lucide-react";
+import { FlaskConical, Plus, Pencil, Trash2, X } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -40,7 +40,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { OwnerPageHeader } from "./_shared/ownerUi";
+import { OwnerPageHeader, SectionCard, EmptyState, FullPageSkeleton, TOKENS } from "./_shared/ownerUi";
 import { formatRupees } from "@/lib/payoutFormatters";
 import type { ExternalLab, ReferralPayoutType } from "@/types";
 
@@ -80,6 +80,7 @@ function rateLabel(lab: ExternalLab): string {
 }
 
 export default function OutsideLabs() {
+  const navigate = useNavigate();
   const branchId = useBranchId();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -235,17 +236,37 @@ export default function OutsideLabs() {
           title="Payouts · Outside Labs & rates"
           subtitle="Vendor labs we send tests to. Set the rate we pay each; these drive the lab payables."
           rightSlot={
-            <Button onClick={handleAdd}>
-              <Plus className="mr-2 h-4 w-4" /> Add lab
-            </Button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => navigate("/owner/payouts")}
+                style={{ color: TOKENS.info, fontSize: 13 }}
+              >
+                View lab payables →
+              </button>
+              <Button onClick={handleAdd}>
+                <Plus className="mr-2 h-4 w-4" /> Add lab
+              </Button>
+            </div>
           }
         />
 
         {isLoading ? (
-          <div className="py-8 text-center text-muted-foreground">Loading outside labs…</div>
+          <FullPageSkeleton rows={4} />
         ) : labs.length === 0 ? (
-          <EmptyState title="No outside labs yet" />
+          <SectionCard>
+            <EmptyState
+              icon={FlaskConical}
+              label="No outside labs yet"
+              hint="Vendor labs you send tests to. The rate you set here becomes a lab payable each time a biller outsources a test at billing."
+            />
+            <div className="mt-3 flex justify-center">
+              <Button onClick={handleAdd}>
+                <Plus className="mr-2 h-4 w-4" /> Add your first lab
+              </Button>
+            </div>
+          </SectionCard>
         ) : (
+          <SectionCard padding={0}>
           <Table>
             <TableHeader>
               <TableRow>
@@ -287,6 +308,7 @@ export default function OutsideLabs() {
               ))}
             </TableBody>
           </Table>
+          </SectionCard>
         )}
       </div>
 

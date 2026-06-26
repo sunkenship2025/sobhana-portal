@@ -1987,7 +1987,8 @@ const DiagnosticsNewVisit = () => {
                   <Label>Outsource to outside lab (optional)</Label>
                   <p className="text-sm text-muted-foreground">
                     Send a test to an outside lab — we'll owe them their rate, tracked under
-                    Outside-lab payables. The referring doctor still earns their commission.
+                    Outside-lab payables. The referring doctor still earns their commission
+                    (reduced if a lower rate is set for this lab).
                   </p>
                   <div className="space-y-2">
                     {selectedProducts.map((pid) => {

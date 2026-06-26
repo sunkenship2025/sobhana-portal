@@ -255,9 +255,9 @@ export function Sidebar() {
               <div
                 className={cn(
                   'flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium',
-                  isGroupActive ? 'text-white' : 'text-white/70',
+                  isGroupActive || isActive ? 'text-white' : 'text-white/70',
                 )}
-                style={isGroupActive ? { backgroundColor: 'var(--branch-sidebar-active)' } : undefined}
+                style={isGroupActive || isActive ? { backgroundColor: 'var(--branch-sidebar-active)' } : undefined}
               >
                 <Icon className="h-5 w-5 shrink-0" />
                 <span className="min-w-0 truncate">{item.label}</span>
