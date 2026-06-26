@@ -28,7 +28,7 @@ import OwnerOperationsPage from "./pages/owner/OwnerOperationsPage";
 
 import AdminConfigCenter from "./pages/owner/AdminConfigCenter";
 import PayoutsList from "./pages/owner/PayoutsList";
-import PayoutDetail from "./pages/owner/PayoutDetail";
+import PayoutStatement from "./pages/owner/PayoutStatement";
 import OutsideLabs from "./pages/owner/OutsideLabs";
 import BillPrintPage from "./pages/BillPrintPage";
 import ReportViewPage from "./pages/ReportViewPage";
@@ -216,7 +216,7 @@ function AppRoutes() {
       } />
       <Route path="/owner/payouts/:id" element={
         <ProtectedRoute allowedRoles={['owner', 'staff']}>
-          <PayoutDetail />
+          <PayoutStatement />
         </ProtectedRoute>
       } />
       
