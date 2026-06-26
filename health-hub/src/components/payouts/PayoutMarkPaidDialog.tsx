@@ -52,6 +52,8 @@ export interface PayoutMarkPaidDialogProps {
   // Optional per-type review (bulk): when set, itemizes every payee type being
   // paid so nothing collapsed/hidden is settled unannounced. Takes precedence.
   breakdown?: { label: string; amountInPaise: number; count: number; outbound?: boolean }[];
+  // Single mode: lets the owner open the full statement to verify before paying.
+  onViewStatement?: () => void;
   onConfirm: (payment: PayoutMarkPaidPayment) => Promise<void> | void;
 }
 
@@ -60,6 +62,10 @@ function todayStr(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
     d.getDate()
   ).padStart(2, "0")}`;
+}
+
+function fmtPeriod(s: string): string {
+  return new Date(s).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
 export function PayoutMarkPaidDialog({
@@ -73,6 +79,7 @@ export function PayoutMarkPaidDialog({
   commissionsInPaise,
   labPayablesInPaise,
   breakdown,
+  onViewStatement,
   onConfirm,
 }: PayoutMarkPaidDialogProps) {
   const { lastPaymentMethod, setLastPaymentMethod } = usePayoutPrefs();
@@ -164,10 +171,28 @@ export function PayoutMarkPaidDialog({
                 <span className="text-muted-foreground">Payee</span>
                 <span className="font-medium text-right">{payout.doctorName}</span>
               </div>
-              <div className="mt-2 flex justify-between gap-3">
+              {payout.periodStartDate && payout.periodEndDate && (
+                <div className="mt-2 flex justify-between gap-3">
+                  <span className="text-muted-foreground">Period</span>
+                  <span className="text-right">
+                    {fmtPeriod(payout.periodStartDate)} – {fmtPeriod(payout.periodEndDate)}
+                  </span>
+                </div>
+              )}
+              <div className="mt-2 flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">Amount</span>
                 <span className="font-semibold">{formatRupees(payout.derivedAmountInPaise)}</span>
               </div>
+              {onViewStatement && (
+                <button
+                  type="button"
+                  onClick={onViewStatement}
+                  className="mt-2 text-xs underline"
+                  style={{ color: "#2563eb" }}
+                >
+                  View statement to verify
+                </button>
+              )}
             </div>
           ) : null}
 

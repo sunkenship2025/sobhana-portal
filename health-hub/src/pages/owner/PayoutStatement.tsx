@@ -288,6 +288,14 @@ export default function PayoutStatement() {
                   <div style={{ fontSize: 12, color: TOKENS.textTertiary, marginTop: 2 }}>
                     Period {period} · Branch {stmt.branchName || "—"}
                   </div>
+                  <button
+                    onClick={() =>
+                      navigate(isLab ? "/owner/payouts/labs" : "/owner/config?tab=referrals")
+                    }
+                    style={{ fontSize: 12, color: TOKENS.info, marginTop: 4 }}
+                  >
+                    {isLab ? "Manage this lab's rates →" : "Manage referral settings →"}
+                  </button>
                 </div>
                 <div style={{ textAlign: "right" }}>
                   <div

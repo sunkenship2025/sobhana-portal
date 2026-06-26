@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { FlaskConical, Plus, Pencil, Trash2, X } from "lucide-react";
+import { Archive, FlaskConical, Plus, Pencil, X } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -299,9 +299,17 @@ export default function OutsideLabs() {
                       <Button variant="ghost" size="icon" onClick={() => handleEdit(lab)} aria-label="Edit lab">
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => setDeleteId(lab.id)} aria-label="Delete lab">
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      {lab.isActive && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setDeleteId(lab.id)}
+                          aria-label="Deactivate lab"
+                          title="Deactivate lab"
+                        >
+                          <Archive className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -559,7 +567,6 @@ export default function OutsideLabs() {
             <AlertDialogAction
               onClick={() => deleteId && deleteMutation.mutate(deleteId)}
               disabled={deleteMutation.isPending}
-              className="bg-destructive text-destructive-foreground"
             >
               {deleteMutation.isPending ? "Deactivating…" : "Deactivate"}
             </AlertDialogAction>

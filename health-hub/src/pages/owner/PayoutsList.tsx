@@ -251,6 +251,16 @@ export default function PayoutsList() {
       return next;
     });
   }
+  function toggleSelectGroup(groupRows: PayoutWorklistRow[]) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const ids = groupRows.map((r) => r.id);
+      const allIn = ids.length > 0 && ids.every((id) => next.has(id));
+      if (allIn) ids.forEach((id) => next.delete(id));
+      else ids.forEach((id) => next.add(id));
+      return next;
+    });
+  }
   function toggleCollapsed(t: PayoutDoctorType) {
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -751,6 +761,13 @@ export default function PayoutsList() {
                         }}
                         onClick={() => toggleCollapsed(g.payeeType)}
                       >
+                        <input
+                          type="checkbox"
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={() => toggleSelectGroup(g.rows)}
+                          checked={g.rows.length > 0 && g.rows.every((r) => selected.has(r.id))}
+                          title="Select all in this section"
+                        />
                         <ChevronDown
                           className="h-4 w-4 transition-transform"
                           style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", color: TOKENS.textTertiary }}
@@ -767,6 +784,21 @@ export default function PayoutsList() {
                             {formatRupees(g.pendingInPaise)}
                           </span>
                         </span>
+                        {outbound && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate("/owner/payouts/labs");
+                            }}
+                            style={{
+                              fontSize: 12,
+                              color: TOKENS.info,
+                              marginLeft: sectionPending.length > 0 ? undefined : "auto",
+                            }}
+                          >
+                            Manage rates →
+                          </button>
+                        )}
                         {sectionPending.length > 0 && (
                           <Button
                             variant="outline"
@@ -840,6 +872,9 @@ export default function PayoutsList() {
         commissionsInPaise={markPaidRows ? bulkSplit.commissions : undefined}
         labPayablesInPaise={markPaidRows ? bulkSplit.lab : undefined}
         breakdown={markPaidRows ? bulkSplit.breakdown : undefined}
+        onViewStatement={
+          markPaidSingle ? () => navigate(`/owner/payouts/${markPaidSingle.id}`) : undefined
+        }
         onConfirm={submitMarkPaid}
       />
 
@@ -874,6 +909,15 @@ function RowsTable({
 }) {
   return (
     <table className="w-full" style={{ fontSize: 12 }}>
+      <thead>
+        <tr style={{ color: TOKENS.textTertiary, fontSize: 11, textAlign: "left" }}>
+          <th className="py-1 pl-3 font-normal" style={{ width: 28 }} />
+          <th className="py-1 font-normal">Payee</th>
+          <th className="py-1 text-right font-normal">Amount</th>
+          <th className="py-1 text-right font-normal">Status</th>
+          <th className="py-1 pr-3 text-right font-normal">Actions</th>
+        </tr>
+      </thead>
       <tbody>
         {rows.map((r) => {
           const outbound = r.payeeType === "LAB";
