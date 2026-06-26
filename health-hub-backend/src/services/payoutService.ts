@@ -5,7 +5,7 @@ import {
   allocateBillDiscountAcrossOrders,
   computeBillFinancialsFromPersisted,
 } from './billFinancialService';
-import { categorize, type PayoutCategory } from './payoutCategorize';
+import { categorize, categoryLabel, CATEGORY_ORDER, type PayoutCategory } from './payoutCategorize';
 
 
 // ===========================================================================
@@ -233,7 +233,7 @@ async function deriveReferralPayout(
       patient: { select: { name: true, title: true } },
       testOrders: {
         include: {
-          test: { select: { name: true } },
+          test: { select: { name: true, code: true, department: { select: { name: true } } } },
           product: { select: { id: true, name: true, code: true } },
         },
       },
@@ -309,6 +309,22 @@ async function deriveReferralPayout(
             ? testOrder.referralCommissionAmountInPaise ?? undefined
             : undefined,
         derivedCommissionInPaise: commissionInPaise,
+        category: categorize({
+          departmentName: testOrder.test?.department?.name,
+          productCode: testOrder.product?.code,
+          testCode: testOrder.testCodeSnapshot || testOrder.test?.code,
+          workflowMode: testOrder.workflowMode,
+        }),
+        basisLabel:
+          testOrder.referralCommissionType === 'FIXED_AMOUNT'
+            ? `Flat ${rupeesShort(commissionInPaise)}`
+            : `${testOrder.referralCommissionPercentage ?? 0}% → ${rupeesShort(commissionInPaise)}`,
+        discountInPaise:
+          testOrder.referralCommissionType === 'PERCENTAGE'
+            ? discountAllocations.get(testOrder.id) ?? 0
+            : 0,
+        departmentName: testOrder.test?.department?.name ?? null,
+        productCode: testOrder.product?.code ?? testOrder.testCodeSnapshot ?? null,
       });
     }
   }
@@ -464,7 +480,7 @@ async function deriveDiagnosticCenterPayout(
           patient: { select: { name: true, title: true } },
           testOrders: {
             include: {
-              test: { select: { name: true } },
+              test: { select: { name: true, code: true, department: { select: { name: true } } } },
               product: { select: { id: true, name: true, code: true } },
             },
           },
@@ -527,6 +543,19 @@ async function deriveDiagnosticCenterPayout(
             ? testOrder.diagnosticCenterCommissionAmountInPaise ?? undefined
             : undefined,
         derivedCommissionInPaise: commissionInPaise,
+        category: categorize({
+          departmentName: testOrder.test?.department?.name,
+          productCode: testOrder.product?.code,
+          testCode: testOrder.testCodeSnapshot || testOrder.test?.code,
+          workflowMode: testOrder.workflowMode,
+        }),
+        basisLabel:
+          hasSnapshot && testOrder.diagnosticCenterCommissionType === 'FIXED_AMOUNT'
+            ? `Flat ${rupeesShort(commissionInPaise)}`
+            : `${(hasSnapshot ? testOrder.diagnosticCenterCommissionPercentage : center.commissionPercent) ?? 0}% → ${rupeesShort(commissionInPaise)}`,
+        discountInPaise: 0,
+        departmentName: testOrder.test?.department?.name ?? null,
+        productCode: testOrder.product?.code ?? testOrder.testCodeSnapshot ?? null,
       });
     }
   }
@@ -1464,6 +1493,386 @@ export async function getPayoutDetail(payoutId: string): Promise<PayoutDetail | 
     notes: payout.notes,
     reviewedAt: payout.reviewedAt,
     lineItems: derivation.lineItems,
+  };
+}
+
+// ===========================================================================
+// STATEMENT DETAIL (category-banded, for the per-payee statement page/print)
+// ===========================================================================
+
+export interface StatementTotals {
+  tAmtInPaise: number;
+  discInPaise: number;
+  pAmtInPaise: number;
+  finAmtInPaise: number;
+  labCostInPaise?: number;
+  centerMarginInPaise?: number;
+}
+
+export interface StatementRow {
+  visitId: string;
+  date: Date;
+  billNumber: string;
+  patientTitle?: string | null;
+  patientName: string;
+  testOrFee: string;
+  category: PayoutCategory;
+  basisLabel: string;
+  tAmtInPaise: number;
+  discInPaise: number;
+  pAmtInPaise: number;
+  finAmtInPaise: number;
+  labCostInPaise?: number;
+  centerMarginInPaise?: number;
+}
+
+export interface StatementBand {
+  category: PayoutCategory;
+  label: string;
+  rows: StatementRow[];
+  subtotal: StatementTotals;
+}
+
+export interface PayoutStatement {
+  id: string;
+  payeeType: PayoutDoctorType;
+  direction: 'INBOUND' | 'OUTBOUND';
+  payeeId: string;
+  payeeName: string;
+  branchName: string;
+  periodStartDate: Date;
+  periodEndDate: Date;
+  status: 'PENDING' | 'PAID';
+  paidAt: Date | null;
+  paymentMethod: PaymentType | null;
+  paymentReferenceId: string | null;
+  notes: string | null;
+  isLab: boolean;
+  bands: StatementBand[];
+  grandTotal: StatementTotals;
+  lab?: {
+    labId: string;
+    vendorCostInPaise: number;
+    billedToPatientInPaise: number;
+    marginInPaise: number;
+    marginPct: number;
+  };
+}
+
+function emptyStatementTotals(isLab: boolean): StatementTotals {
+  return isLab
+    ? { tAmtInPaise: 0, discInPaise: 0, pAmtInPaise: 0, finAmtInPaise: 0, labCostInPaise: 0, centerMarginInPaise: 0 }
+    : { tAmtInPaise: 0, discInPaise: 0, pAmtInPaise: 0, finAmtInPaise: 0 };
+}
+
+/**
+ * Reshape a derived PayoutDetail into a category-banded statement
+ * (LAB/XRAY/USG/ECG/SPL) with per-band subtotals + a grand total. Column
+ * identity holds per row: tAmt − disc = pAmt; finAmt = commission (or lab cost).
+ */
+export function buildPayoutStatementDetail(detail: PayoutDetail): PayoutStatement {
+  const isLab = detail.doctorType === 'LAB';
+  const bandsByCategory = new Map<PayoutCategory, StatementBand>();
+  const grandTotal = emptyStatementTotals(isLab);
+
+  for (const item of detail.lineItems) {
+    const category: PayoutCategory = item.category ?? 'SPL';
+    const pAmt = item.amountInPaise;
+    const disc = item.discountInPaise ?? 0;
+    const tAmt = pAmt + disc;
+    const fin = item.derivedCommissionInPaise;
+
+    let band = bandsByCategory.get(category);
+    if (!band) {
+      band = { category, label: categoryLabel(category), rows: [], subtotal: emptyStatementTotals(isLab) };
+      bandsByCategory.set(category, band);
+    }
+
+    band.rows.push({
+      visitId: item.visitId,
+      date: item.date,
+      billNumber: item.billNumber,
+      patientTitle: item.patientTitle,
+      patientName: item.patientName,
+      testOrFee: item.testOrFee,
+      category,
+      basisLabel: item.basisLabel ?? '',
+      tAmtInPaise: tAmt,
+      discInPaise: disc,
+      pAmtInPaise: pAmt,
+      finAmtInPaise: fin,
+      ...(isLab && {
+        labCostInPaise: item.labCostInPaise ?? fin,
+        centerMarginInPaise: item.centerMarginInPaise ?? 0,
+      }),
+    });
+
+    band.subtotal.tAmtInPaise += tAmt;
+    band.subtotal.discInPaise += disc;
+    band.subtotal.pAmtInPaise += pAmt;
+    band.subtotal.finAmtInPaise += fin;
+    grandTotal.tAmtInPaise += tAmt;
+    grandTotal.discInPaise += disc;
+    grandTotal.pAmtInPaise += pAmt;
+    grandTotal.finAmtInPaise += fin;
+    if (isLab) {
+      const lc = item.labCostInPaise ?? fin;
+      const cm = item.centerMarginInPaise ?? 0;
+      band.subtotal.labCostInPaise = (band.subtotal.labCostInPaise ?? 0) + lc;
+      band.subtotal.centerMarginInPaise = (band.subtotal.centerMarginInPaise ?? 0) + cm;
+      grandTotal.labCostInPaise = (grandTotal.labCostInPaise ?? 0) + lc;
+      grandTotal.centerMarginInPaise = (grandTotal.centerMarginInPaise ?? 0) + cm;
+    }
+  }
+
+  const bands = CATEGORY_ORDER.map((c) => bandsByCategory.get(c)).filter(
+    (b): b is StatementBand => Boolean(b)
+  );
+
+  const statement: PayoutStatement = {
+    id: detail.id,
+    payeeType: detail.doctorType,
+    direction: isLab ? 'OUTBOUND' : 'INBOUND',
+    payeeId: detail.doctorId,
+    payeeName: detail.doctorName,
+    branchName: detail.branchName,
+    periodStartDate: detail.periodStartDate,
+    periodEndDate: detail.periodEndDate,
+    status: detail.paidAt ? 'PAID' : 'PENDING',
+    paidAt: detail.paidAt,
+    paymentMethod: detail.paymentMethod,
+    paymentReferenceId: detail.paymentReferenceId,
+    notes: detail.notes,
+    isLab,
+    bands,
+    grandTotal,
+  };
+
+  if (isLab) {
+    const billedToPatientInPaise = grandTotal.pAmtInPaise;
+    const vendorCostInPaise = grandTotal.labCostInPaise ?? grandTotal.finAmtInPaise;
+    const marginInPaise = grandTotal.centerMarginInPaise ?? billedToPatientInPaise - vendorCostInPaise;
+    statement.lab = {
+      labId: detail.doctorId,
+      vendorCostInPaise,
+      billedToPatientInPaise,
+      marginInPaise,
+      marginPct:
+        billedToPatientInPaise > 0 ? Math.round((marginInPaise / billedToPatientInPaise) * 100) : 0,
+    };
+  }
+
+  return statement;
+}
+
+/**
+ * Load a payout and return its category-banded statement. Returns null if the
+ * payout is missing, soft-deleted, or belongs to a different branch.
+ */
+export async function getPayoutStatement(
+  payoutId: string,
+  branchId: string
+): Promise<PayoutStatement | null> {
+  const detail = await getPayoutDetail(payoutId);
+  if (!detail || detail.branchId !== branchId) return null;
+  return buildPayoutStatementDetail(detail);
+}
+
+// ===========================================================================
+// PAY-RUN WORKLIST (grouped who-I-owe view with two non-netting hero totals)
+// ===========================================================================
+
+export type PayoutDirection = 'INBOUND' | 'OUTBOUND';
+export type PayoutKind = 'COMMISSION' | 'PAYABLE';
+
+export interface PayoutWorklistRow {
+  id: string;
+  payeeType: PayoutDoctorType;
+  direction: PayoutDirection;
+  kind: PayoutKind;
+  payeeId: string;
+  payeeName: string;
+  periodStartDate: Date;
+  periodEndDate: Date;
+  amountInPaise: number;
+  status: 'PENDING' | 'PAID';
+  paidAt: Date | null;
+  paymentMethod: PaymentType | null;
+}
+
+export interface PayoutTypeTotals {
+  pendingCount: number;
+  pendingAmountInPaise: number;
+  paidCount: number;
+  paidAmountInPaise: number;
+}
+
+export interface PayRunWorklistFilters {
+  startDate?: Date;
+  endDate?: Date;
+  status?: 'all' | 'pending' | 'paid';
+  payeeType?: PayoutDoctorType;
+  q?: string;
+  view?: 'grouped' | 'flat';
+}
+
+export interface PayRunWorklistGroup {
+  payeeType: PayoutDoctorType;
+  direction: PayoutDirection;
+  subtotalInPaise: number;
+  pendingInPaise: number;
+  paidInPaise: number;
+  rows: PayoutWorklistRow[];
+}
+
+export interface PayRunWorklist {
+  period: { startDate: Date | null; endDate: Date | null };
+  view: 'grouped' | 'flat';
+  totals: {
+    commissionsTotalInPaise: number;
+    labPayablesTotalInPaise: number;
+    commissionsPendingInPaise: number;
+    commissionsPaidInPaise: number;
+    labPayablesPendingInPaise: number;
+    labPayablesPaidInPaise: number;
+    payeeCount: number;
+    byType: Record<PayoutDoctorType, PayoutTypeTotals>;
+  };
+  groups: PayRunWorklistGroup[];
+  rows: PayoutWorklistRow[];
+}
+
+const PAYOUT_TYPES_ORDER: PayoutDoctorType[] = ['REFERRAL', 'CLINIC', 'DIAGNOSTIC_CENTER', 'LAB'];
+
+export async function getPayRunWorklist(
+  branchId: string,
+  filters?: PayRunWorklistFilters
+): Promise<PayRunWorklist> {
+  const view = filters?.view ?? 'grouped';
+  const status = filters?.status ?? 'all';
+
+  // Keep the ledger fresh (same auto-sync as listPayouts).
+  const syncFilters = {
+    doctorType: filters?.payeeType,
+    startDate: filters?.startDate,
+    endDate: filters?.endDate,
+  };
+  await syncReferralPayoutsForBranch(branchId, syncFilters);
+  await syncDiagnosticCenterPayoutsForBranch(branchId, syncFilters);
+  await syncExternalLabPayoutsForBranch(branchId, syncFilters);
+
+  const q = filters?.q?.trim();
+  const where: Prisma.DoctorPayoutLedgerWhereInput = {
+    branchId,
+    deletedAt: null,
+    ...(filters?.payeeType && { doctorType: filters.payeeType }),
+    ...(status === 'pending' && { paidAt: null }),
+    ...(status === 'paid' && { paidAt: { not: null } }),
+    ...(filters?.startDate && { periodStartDate: { gte: filters.startDate } }),
+    ...(filters?.endDate && { periodEndDate: { lte: filters.endDate } }),
+    ...(q && {
+      OR: [
+        { referralDoctor: { name: { contains: q, mode: 'insensitive' as const } } },
+        { clinicDoctor: { name: { contains: q, mode: 'insensitive' as const } } },
+        { diagnosticCenter: { name: { contains: q, mode: 'insensitive' as const } } },
+        { externalLab: { name: { contains: q, mode: 'insensitive' as const } } },
+        { paymentReferenceId: { contains: q, mode: 'insensitive' as const } },
+      ],
+    }),
+  };
+
+  const payouts = await prisma.doctorPayoutLedger.findMany({
+    where,
+    include: {
+      referralDoctor: { select: { name: true } },
+      clinicDoctor: { select: { name: true } },
+      diagnosticCenter: { select: { name: true } },
+      externalLab: { select: { name: true } },
+      branch: { select: { name: true } },
+    },
+    orderBy: [{ derivedAmountInPaise: 'desc' }],
+  });
+
+  const rows: PayoutWorklistRow[] = payouts.map((p) => {
+    const isLab = p.doctorType === 'LAB';
+    return {
+      id: p.id,
+      payeeType: p.doctorType,
+      direction: isLab ? 'OUTBOUND' : 'INBOUND',
+      kind: isLab ? 'PAYABLE' : 'COMMISSION',
+      payeeId: extractDoctorId(p),
+      payeeName: extractDoctorName(p),
+      periodStartDate: p.periodStartDate,
+      periodEndDate: p.periodEndDate,
+      amountInPaise: p.derivedAmountInPaise,
+      status: p.paidAt ? 'PAID' : 'PENDING',
+      paidAt: p.paidAt,
+      paymentMethod: p.paymentMethod,
+    };
+  });
+
+  const byType = Object.fromEntries(
+    PAYOUT_TYPES_ORDER.map((t) => [
+      t,
+      { pendingCount: 0, pendingAmountInPaise: 0, paidCount: 0, paidAmountInPaise: 0 },
+    ])
+  ) as Record<PayoutDoctorType, PayoutTypeTotals>;
+
+  let commissionsPending = 0;
+  let commissionsPaid = 0;
+  let labPending = 0;
+  let labPaid = 0;
+  for (const r of rows) {
+    const bt = byType[r.payeeType];
+    if (r.status === 'PAID') {
+      bt.paidCount += 1;
+      bt.paidAmountInPaise += r.amountInPaise;
+    } else {
+      bt.pendingCount += 1;
+      bt.pendingAmountInPaise += r.amountInPaise;
+    }
+    if (r.payeeType === 'LAB') {
+      if (r.status === 'PAID') labPaid += r.amountInPaise;
+      else labPending += r.amountInPaise;
+    } else {
+      if (r.status === 'PAID') commissionsPaid += r.amountInPaise;
+      else commissionsPending += r.amountInPaise;
+    }
+  }
+
+  const groups: PayRunWorklistGroup[] = PAYOUT_TYPES_ORDER.map((t) => {
+    const groupRows = rows.filter((r) => r.payeeType === t);
+    const pendingInPaise = groupRows
+      .filter((r) => r.status === 'PENDING')
+      .reduce((s, r) => s + r.amountInPaise, 0);
+    const paidInPaise = groupRows
+      .filter((r) => r.status === 'PAID')
+      .reduce((s, r) => s + r.amountInPaise, 0);
+    return {
+      payeeType: t,
+      direction: (t === 'LAB' ? 'OUTBOUND' : 'INBOUND') as PayoutDirection,
+      subtotalInPaise: pendingInPaise + paidInPaise,
+      pendingInPaise,
+      paidInPaise,
+      rows: groupRows,
+    };
+  }).filter((g) => g.rows.length > 0);
+
+  return {
+    period: { startDate: filters?.startDate ?? null, endDate: filters?.endDate ?? null },
+    view,
+    totals: {
+      commissionsTotalInPaise: commissionsPending + commissionsPaid,
+      labPayablesTotalInPaise: labPending + labPaid,
+      commissionsPendingInPaise: commissionsPending,
+      commissionsPaidInPaise: commissionsPaid,
+      labPayablesPendingInPaise: labPending,
+      labPayablesPaidInPaise: labPaid,
+      payeeCount: rows.length,
+      byType,
+    },
+    groups,
+    rows,
   };
 }
 
