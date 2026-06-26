@@ -631,8 +631,9 @@ export async function sendPayoutStatement(
 
     const token = await createStatementAccessToken(payoutId);
     const periodLabel = formatStatementPeriod(statement.periodStartDate, statement.periodEndDate);
-    const amountLabel = `₹${(statement.grandTotal.finAmtInPaise / 100).toLocaleString('en-IN')}`;
 
+    // Message intentionally carries NO amount — just a notice + the secure link;
+    // the payee taps through to see the full statement (incl. the amount due).
     await createAndSendTemplateMessage({
       patientId: null,
       phone: formattedPhone,
@@ -640,7 +641,6 @@ export async function sendPayoutStatement(
       templateParams: {
         payeeName: statement.payeeName,
         period: periodLabel,
-        amount: amountLabel,
         statementToken: token,
         sentBy: staffUserId || null,
       },
@@ -653,7 +653,6 @@ export async function sendPayoutStatement(
           parameters: [
             { type: 'text', text: statement.payeeName },
             { type: 'text', text: periodLabel },
-            { type: 'text', text: amountLabel },
           ],
         },
         {
