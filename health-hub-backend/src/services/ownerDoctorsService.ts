@@ -73,7 +73,7 @@ export interface ExternalFlowSide {
 export interface RecentPayoutRow {
   id: string;
   doctorName: string;
-  doctorType: 'REFERRAL' | 'CLINIC' | 'DIAGNOSTIC_CENTER';
+  doctorType: 'REFERRAL' | 'CLINIC' | 'DIAGNOSTIC_CENTER' | 'LAB';
   periodStart: string;
   periodEnd: string;
   amountInPaise: number;

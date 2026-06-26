@@ -131,6 +131,110 @@ export function areReferralPayoutsEqual(
   );
 }
 
+// ─── Outside-lab vendor cost (LAB payout) ───────────────────────────────────
+
+/**
+ * Vendor cost owed to an outside lab for one outsourced test.
+ * PERCENTAGE is of the POST-DISCOUNT price (caller passes it in, mirroring
+ * deriveReferralPayout); FIXED_AMOUNT is the flat snapshot amount.
+ */
+export function computeLabCostInPaise(input: {
+  postDiscountPriceInPaise: number;
+  costType?: ReferralPayoutType | null;
+  costPercent?: number | null;
+  costAmountInPaise?: number | null;
+}): number {
+  if (input.costType === 'FIXED_AMOUNT') {
+    return Math.max(0, Math.round(input.costAmountInPaise ?? 0));
+  }
+  return Math.max(0, Math.round((input.postDiscountPriceInPaise * (input.costPercent ?? 0)) / 100));
+}
+
+export interface LabRateSource {
+  rateType: ReferralPayoutType;
+  ratePercent: number | null;
+  rateAmountInPaise: number | null;
+}
+
+export interface LabRateOverride {
+  rateType?: ReferralPayoutType | null;
+  ratePercent?: number | null;
+  rateAmountInPaise?: number | null;
+}
+
+export interface LabCostSnapshot {
+  labCostType: ReferralPayoutType;
+  labCostPercentage: number | null;
+  labCostAmountInPaise: number | null;
+}
+
+/**
+ * Resolve the frozen vendor-cost snapshot for an outsourced order: a per-product
+ * override on the lab wins when it specifies a rate, otherwise the lab default.
+ */
+export function resolveLabCostSnapshot(
+  lab: LabRateSource,
+  rule?: LabRateOverride | null
+): LabCostSnapshot {
+  const hasOverride =
+    rule != null &&
+    rule.rateType != null &&
+    ((rule.rateType === 'FIXED_AMOUNT' && rule.rateAmountInPaise != null) ||
+      (rule.rateType === 'PERCENTAGE' && rule.ratePercent != null));
+
+  const type: ReferralPayoutType = hasOverride ? (rule!.rateType as ReferralPayoutType) : lab.rateType;
+  if (type === 'FIXED_AMOUNT') {
+    return {
+      labCostType: 'FIXED_AMOUNT',
+      labCostPercentage: null,
+      labCostAmountInPaise: hasOverride ? rule!.rateAmountInPaise ?? 0 : lab.rateAmountInPaise ?? 0,
+    };
+  }
+  return {
+    labCostType: 'PERCENTAGE',
+    labCostPercentage: hasOverride ? rule!.ratePercent ?? 0 : lab.ratePercent ?? 0,
+    labCostAmountInPaise: null,
+  };
+}
+
+export interface ReferralCommissionSnapshot {
+  referralCommissionType: ReferralPayoutType;
+  referralCommissionPercentage: number | null;
+  referralCommissionAmountInPaise: number | null;
+}
+
+export interface ReducedReferralOverride {
+  reducedReferralCommissionType?: ReferralPayoutType | null;
+  reducedReferralCommissionPercent?: number | null;
+  reducedReferralCommissionAmountInPaise?: number | null;
+}
+
+/**
+ * When a test is outsourced and the lab's per-product rule defines a reduced
+ * referring-doctor commission, that reduced value overrides the doctor's normal
+ * commission snapshot frozen onto the TestOrder. Null override => keep normal.
+ */
+export function resolveReducedReferralSnapshot(
+  normal: ReferralCommissionSnapshot,
+  rule?: ReducedReferralOverride | null
+): ReferralCommissionSnapshot {
+  if (!rule || rule.reducedReferralCommissionType == null) {
+    return normal;
+  }
+  if (rule.reducedReferralCommissionType === 'FIXED_AMOUNT') {
+    return {
+      referralCommissionType: 'FIXED_AMOUNT',
+      referralCommissionPercentage: null,
+      referralCommissionAmountInPaise: rule.reducedReferralCommissionAmountInPaise ?? 0,
+    };
+  }
+  return {
+    referralCommissionType: 'PERCENTAGE',
+    referralCommissionPercentage: rule.reducedReferralCommissionPercent ?? 0,
+    referralCommissionAmountInPaise: null,
+  };
+}
+
 export function distributeFixedAmountInPaise(
   totalAmountInPaise: number,
   weights: number[]

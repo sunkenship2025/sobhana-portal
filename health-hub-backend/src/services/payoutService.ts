@@ -567,6 +567,10 @@ function doctorIdWhereClause(doctorType: PayoutDoctorType, doctorId: string) {
       return { clinicDoctorId: doctorId };
     case 'DIAGNOSTIC_CENTER':
       return { diagnosticCenterId: doctorId };
+    case 'LAB':
+      return { externalLabId: doctorId };
+    default:
+      throw new Error(`Unsupported doctor type: ${doctorType}`);
   }
 }
 
@@ -576,6 +580,7 @@ function doctorIdWhereClause(doctorType: PayoutDoctorType, doctorId: string) {
 function extractDoctorId(payout: any): string {
   if (payout.doctorType === 'REFERRAL') return payout.referralDoctorId!;
   if (payout.doctorType === 'CLINIC') return payout.clinicDoctorId!;
+  if (payout.doctorType === 'LAB') return payout.externalLabId!;
   return payout.diagnosticCenterId!;
 }
 
@@ -587,6 +592,7 @@ function extractDoctorName(payout: any): string {
     payout.referralDoctor?.name ||
     payout.clinicDoctor?.name ||
     payout.diagnosticCenter?.name ||
+    payout.externalLab?.name ||
     'Unknown'
   );
 }
