@@ -723,9 +723,7 @@ function StatementPrint({ stmt }: { stmt: Statement }) {
             {stmt.paymentMethod ? ` · ${stmt.paymentMethod}` : ""}
             {stmt.paymentReferenceId ? ` · ref ${stmt.paymentReferenceId}` : ""}
           </div>
-          <div style={{ marginTop: 36, textAlign: "right", fontSize: 10.5 }}>
-            ____________________
-            <br />
+          <div style={{ marginTop: 48, textAlign: "right", fontSize: 10.5 }}>
             Authorised signatory
           </div>
         </>
