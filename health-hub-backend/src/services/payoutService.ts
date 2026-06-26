@@ -6,6 +6,7 @@ import {
   computeBillFinancialsFromPersisted,
 } from './billFinancialService';
 import { categorize, categoryLabel, CATEGORY_ORDER, type PayoutCategory } from './payoutCategorize';
+import { isWhatsAppEnabled } from './whatsappCloudService';
 
 
 // ===========================================================================
@@ -1548,6 +1549,8 @@ export interface PayoutStatement {
   paymentReferenceId: string | null;
   notes: string | null;
   isLab: boolean;
+  whatsappEnabled?: boolean;
+  payeeHasPhone?: boolean;
   bands: StatementBand[];
   grandTotal: StatementTotals;
   lab?: {
@@ -1675,7 +1678,10 @@ export async function getPayoutStatement(
 ): Promise<PayoutStatement | null> {
   const detail = await getPayoutDetail(payoutId);
   if (!detail || detail.branchId !== branchId) return null;
-  return buildPayoutStatementDetail(detail);
+  const statement = buildPayoutStatementDetail(detail);
+  statement.whatsappEnabled = isWhatsAppEnabled();
+  statement.payeeHasPhone = Boolean(await getPayoutPayeePhone(payoutId));
+  return statement;
 }
 
 /**
@@ -1795,8 +1801,6 @@ export async function getPayRunWorklist(
     branchId,
     deletedAt: null,
     ...(filters?.payeeType && { doctorType: filters.payeeType }),
-    ...(status === 'pending' && { paidAt: null }),
-    ...(status === 'paid' && { paidAt: { not: null } }),
     ...(filters?.startDate && { periodStartDate: { gte: filters.startDate } }),
     ...(filters?.endDate && { periodEndDate: { lte: filters.endDate } }),
     ...(q && {
@@ -1822,24 +1826,26 @@ export async function getPayRunWorklist(
     orderBy: [{ derivedAmountInPaise: 'desc' }],
   });
 
-  const rows: PayoutWorklistRow[] = payouts.map((p) => {
+  const allRows: PayoutWorklistRow[] = payouts.map((p) => {
     const isLab = p.doctorType === 'LAB';
     return {
       id: p.id,
       payeeType: p.doctorType,
-      direction: isLab ? 'OUTBOUND' : 'INBOUND',
-      kind: isLab ? 'PAYABLE' : 'COMMISSION',
+      direction: (isLab ? 'OUTBOUND' : 'INBOUND') as PayoutDirection,
+      kind: (isLab ? 'PAYABLE' : 'COMMISSION') as PayoutKind,
       payeeId: extractDoctorId(p),
       payeeName: extractDoctorName(p),
       periodStartDate: p.periodStartDate,
       periodEndDate: p.periodEndDate,
       amountInPaise: p.derivedAmountInPaise,
-      status: p.paidAt ? 'PAID' : 'PENDING',
+      status: (p.paidAt ? 'PAID' : 'PENDING') as 'PAID' | 'PENDING',
       paidAt: p.paidAt,
       paymentMethod: p.paymentMethod,
     };
   });
 
+  // Totals are status-INDEPENDENT (over the full period set) so the hero numbers
+  // and "already paid" stay truthful even while the list is filtered to Pending.
   const byType = Object.fromEntries(
     PAYOUT_TYPES_ORDER.map((t) => [
       t,
@@ -1851,7 +1857,7 @@ export async function getPayRunWorklist(
   let commissionsPaid = 0;
   let labPending = 0;
   let labPaid = 0;
-  for (const r of rows) {
+  for (const r of allRows) {
     const bt = byType[r.payeeType];
     if (r.status === 'PAID') {
       bt.paidCount += 1;
@@ -1869,8 +1875,14 @@ export async function getPayRunWorklist(
     }
   }
 
+  // Rows/groups respect the status filter; the totals above do not.
+  const displayed =
+    status === 'all'
+      ? allRows
+      : allRows.filter((r) => (status === 'paid' ? r.status === 'PAID' : r.status === 'PENDING'));
+
   const groups: PayRunWorklistGroup[] = PAYOUT_TYPES_ORDER.map((t) => {
-    const groupRows = rows.filter((r) => r.payeeType === t);
+    const groupRows = displayed.filter((r) => r.payeeType === t);
     const pendingInPaise = groupRows
       .filter((r) => r.status === 'PENDING')
       .reduce((s, r) => s + r.amountInPaise, 0);
@@ -1897,11 +1909,11 @@ export async function getPayRunWorklist(
       commissionsPaidInPaise: commissionsPaid,
       labPayablesPendingInPaise: labPending,
       labPayablesPaidInPaise: labPaid,
-      payeeCount: rows.length,
+      payeeCount: displayed.length,
       byType,
     },
     groups,
-    rows,
+    rows: displayed,
   };
 }
 
