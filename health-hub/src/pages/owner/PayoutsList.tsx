@@ -2,12 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE } from "@/lib/api";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -15,56 +11,65 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-} from "@/components/ui/tabs";
-import { SearchableSelect } from "@/components/ui/searchable-select";
-import {
-  Calculator,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  IndianRupee,
-  PlayCircle,
-  Search,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore";
 import { useBranchStore } from "@/store/branchStore";
-import { usePayoutPrefs } from "@/store/payoutPrefsStore";
-import {
-  usePayoutFiltersFromUrl,
-  resolveDatePreset,
-} from "@/lib/usePayoutFiltersFromUrl";
-import { usePayoutSelection } from "@/lib/usePayoutSelection";
 import { formatRupees } from "@/lib/payoutFormatters";
 import {
+  OwnerPageHeader,
+  SectionCard,
+  DisplayNumber,
+  TOKENS,
+  EmptyState,
+  FullPageSkeleton,
+  RefreshButton,
+} from "./_shared/ownerUi";
+import {
+  PayRunWorklist,
+  PayoutWorklistRow,
   PayoutSummary,
-  PayoutListResponse,
   PaymentType,
   PayoutDoctorType,
 } from "@/types";
-import { PayoutsTable } from "@/components/payouts/PayoutsTable";
 import { PayoutBulkActionBar } from "@/components/payouts/PayoutBulkActionBar";
 import { PayoutMarkPaidDialog } from "@/components/payouts/PayoutMarkPaidDialog";
 import { PayoutDeleteDialog } from "@/components/payouts/PayoutDeleteDialog";
-import { DatePresetChips } from "@/components/payouts/DatePresetChips";
-import { PayoutsByDoctor } from "./PayoutsByDoctor";
-import { PayoutRunCycle } from "./PayoutRunCycle";
-import { DerivePayoutDialog } from "./DerivePayoutDialog";
 
-// Default derive date range = last completed calendar month.
-function lastCompletedMonth(): { startDate: string; endDate: string } {
-  const today = new Date();
-  const startDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-  const endDate = new Date(today.getFullYear(), today.getMonth(), 0);
-  const ymd = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  return { startDate: ymd(startDate), endDate: ymd(endDate) };
+type TypeFilter = "all" | PayoutDoctorType;
+
+// Display order + labels for the four payee types.
+const TYPE_ORDER: PayoutDoctorType[] = ["REFERRAL", "DIAGNOSTIC_CENTER", "CLINIC", "LAB"];
+const TYPE_LABEL: Record<PayoutDoctorType, string> = {
+  REFERRAL: "Referral Doctors",
+  DIAGNOSTIC_CENTER: "Clinic Referrals",
+  CLINIC: "Consulting Doctors",
+  LAB: "Outside Labs",
+};
+const TYPE_BADGE: Record<PayoutDoctorType, string> = {
+  REFERRAL: "REF",
+  DIAGNOSTIC_CENTER: "CLINIC",
+  CLINIC: "CONSULT",
+  LAB: "LAB",
+};
+const TYPE_FILTERS: { key: TypeFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "REFERRAL", label: "Ref Dr" },
+  { key: "DIAGNOSTIC_CENTER", label: "Clinic" },
+  { key: "CLINIC", label: "Consult" },
+  { key: "LAB", label: "Lab" },
+];
+
+function ymd(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
+}
+function monthRange(d: Date) {
+  return {
+    startDate: ymd(new Date(d.getFullYear(), d.getMonth(), 1)),
+    endDate: ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0)),
+  };
 }
 
 export default function PayoutsList() {
@@ -73,41 +78,23 @@ export default function PayoutsList() {
   const navigate = useNavigate();
   const isOwner = user?.role === "owner";
 
-  const { state, update } = usePayoutFiltersFromUrl();
-  const { pageSize: prefPageSize, setPageSize: setPrefPageSize } = usePayoutPrefs();
-
-  // Effective date range — preset wins unless preset === "custom"
-  const effectiveRange = useMemo(() => {
-    if (state.preset === "custom") {
-      return { startDate: state.startDate, endDate: state.endDate };
-    }
-    return resolveDatePreset(state.preset);
-  }, [state.preset, state.startDate, state.endDate]);
-
-  const effectivePageSize = state.pageSize > 0 ? state.pageSize : prefPageSize;
-
-  // Local search input — debounced into URL state
-  const [searchInput, setSearchInput] = useState(state.q);
-  useEffect(() => setSearchInput(state.q), [state.q]);
-  useEffect(() => {
-    const t = setTimeout(() => {
-      if (searchInput !== state.q) update({ q: searchInput });
-    }, 300);
-    return () => clearTimeout(t);
-  }, [searchInput, state.q, update]);
-
-  // ---------------- Data fetching ----------------
-  const [list, setList] = useState<PayoutListResponse>({
-    data: [],
-    total: 0,
-    page: 1,
-    pageSize: effectivePageSize,
+  // Default to the last completed calendar month (the pay-run default).
+  const [monthDate, setMonthDate] = useState(() => {
+    const t = new Date();
+    return new Date(t.getFullYear(), t.getMonth() - 1, 1);
   });
-  const [loading, setLoading] = useState(true);
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [status, setStatus] = useState<"all" | "pending" | "paid">("pending");
+  const [view] = useState<"grouped" | "flat">("grouped");
+  const [searchInput, setSearchInput] = useState("");
+  const [q, setQ] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setQ(searchInput), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
-  const [referralDoctors, setReferralDoctors] = useState<{ id: string; name: string }[]>([]);
-  const [clinicDoctors, setClinicDoctors] = useState<{ id: string; name: string }[]>([]);
-  const [diagnosticCenters, setDiagnosticCenters] = useState<{ id: string; name: string }[]>([]);
+  const range = useMemo(() => monthRange(monthDate), [monthDate]);
+  const monthLabel = monthDate.toLocaleString("en-IN", { month: "long", year: "numeric" });
 
   const headers = (): Record<string, string> => ({
     Authorization: `Bearer ${token}`,
@@ -115,7 +102,11 @@ export default function PayoutsList() {
     "Content-Type": "application/json",
   });
 
-  const fetchList = async () => {
+  const [worklist, setWorklist] = useState<PayRunWorklist | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const fetchWorklist = async () => {
     if (!token || !activeBranchId) {
       setLoading(false);
       return;
@@ -123,27 +114,21 @@ export default function PayoutsList() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (state.doctorType !== "all") params.set("doctorType", state.doctorType);
-      if (state.doctorId !== "all") params.set("doctorId", state.doctorId);
-      if (state.status !== "all") params.set("isPaid", state.status === "paid" ? "true" : "false");
-      if (effectiveRange.startDate) params.set("startDate", effectiveRange.startDate);
-      if (effectiveRange.endDate) params.set("endDate", effectiveRange.endDate + "T23:59:59.999Z");
-      if (state.q) params.set("q", state.q);
-      params.set("page", String(state.page));
-      params.set("pageSize", String(effectivePageSize));
-      params.set("sortBy", state.sortBy);
-      params.set("sortDir", state.sortDir);
-      params.set("includeTotals", "true");
-
-      const res = await fetch(`${API_BASE}/payouts?${params.toString()}`, {
+      params.set("startDate", range.startDate);
+      params.set("endDate", range.endDate + "T23:59:59.999Z");
+      if (status !== "all") params.set("status", status);
+      if (typeFilter !== "all") params.set("payeeType", typeFilter);
+      if (q) params.set("q", q);
+      params.set("view", view);
+      const res = await fetch(`${API_BASE}/payouts/worklist?${params.toString()}`, {
         headers: headers(),
       });
       if (!res.ok) {
         toast.error("Failed to load payouts");
         return;
       }
-      const data = (await res.json()) as PayoutListResponse;
-      setList(data);
+      const body = await res.json();
+      setWorklist(body.data as PayRunWorklist);
     } catch (err) {
       console.error(err);
       toast.error("Error loading payouts");
@@ -152,81 +137,67 @@ export default function PayoutsList() {
     }
   };
 
-  const fetchDoctors = async () => {
-    if (!token || !activeBranchId) return;
-    try {
-      const opts = { headers: headers() };
-      const [r, c, d] = await Promise.all([
-        fetch(`${API_BASE}/payouts/doctors/referral`, opts),
-        fetch(`${API_BASE}/payouts/doctors/clinic`, opts),
-        fetch(`${API_BASE}/payouts/doctors/diagnostic-centers`, opts),
-      ]);
-      if (r.ok) setReferralDoctors(((await r.json()).data ?? []) as { id: string; name: string }[]);
-      if (c.ok) setClinicDoctors(((await c.json()).data ?? []) as { id: string; name: string }[]);
-      if (d.ok) setDiagnosticCenters(((await d.json()).data ?? []) as { id: string; name: string }[]);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
   useEffect(() => {
-    fetchDoctors();
+    fetchWorklist();
+    setSelected(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, activeBranchId]);
+  }, [token, activeBranchId, range.startDate, range.endDate, status, typeFilter, q, view]);
 
-  useEffect(() => {
-    fetchList();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    token,
-    activeBranchId,
-    state.doctorType,
-    state.doctorId,
-    state.status,
-    state.preset,
-    state.startDate,
-    state.endDate,
-    state.q,
-    state.page,
-    state.pageSize,
-    state.sortBy,
-    state.sortDir,
-  ]);
-
-  // ---------------- Selection ----------------
-  const selection = usePayoutSelection({ rows: list.data });
-
-  // Selection clears when filters change (selection meaning becomes ambiguous).
-  useEffect(() => {
-    selection.clear();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.doctorType, state.doctorId, state.status, state.preset, state.q]);
-
+  const rows = worklist?.rows ?? [];
+  const rowById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
   const selectedRows = useMemo(
-    () => list.data.filter((r) => selection.isSelected(r.id)),
-    [list.data, selection]
+    () => rows.filter((r) => selected.has(r.id)),
+    [rows, selected]
   );
-  const selectedTotalInPaise = useMemo(
-    () => selectedRows.reduce((sum, r) => sum + r.derivedAmountInPaise, 0),
-    [selectedRows]
-  );
-  const selectedAllPending = selectedRows.every((r) => !r.paidAt);
+  const selectedPending = selectedRows.filter((r) => r.status === "PENDING");
+  const selectedTotalInPaise = selectedRows.reduce((s, r) => s + r.amountInPaise, 0);
+
+  const groups = useMemo(() => {
+    const g = worklist?.groups ?? [];
+    return [...g].sort(
+      (a, b) => TYPE_ORDER.indexOf(a.payeeType) - TYPE_ORDER.indexOf(b.payeeType)
+    );
+  }, [worklist]);
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
 
   // ---------------- Mark paid (single + bulk) ----------------
   const [markPaidOpen, setMarkPaidOpen] = useState(false);
   const [markPaidTarget, setMarkPaidTarget] = useState<PayoutSummary | null>(null);
-  const [markPaidBusy, setMarkPaidBusy] = useState(false);
   const [markPaidIsBulk, setMarkPaidIsBulk] = useState(false);
+  const [markPaidBusy, setMarkPaidBusy] = useState(false);
 
-  const openSingleMarkPaid = (row: PayoutSummary) => {
-    setMarkPaidTarget(row);
+  function rowToSummary(r: PayoutWorklistRow): PayoutSummary {
+    return {
+      id: r.id,
+      doctorType: r.payeeType,
+      doctorId: r.payeeId,
+      doctorName: r.payeeName,
+      branchId: activeBranchId ?? "",
+      branchName: "",
+      periodStartDate: r.periodStartDate,
+      periodEndDate: r.periodEndDate,
+      derivedAmountInPaise: r.amountInPaise,
+      derivedAt: "",
+      paidAt: r.paidAt,
+      paymentMethod: r.paymentMethod,
+    };
+  }
+
+  const openSingleMarkPaid = (r: PayoutWorklistRow) => {
+    setMarkPaidTarget(rowToSummary(r));
     setMarkPaidIsBulk(false);
     setMarkPaidOpen(true);
   };
   const openBulkMarkPaid = () => {
-    if (selectedRows.length === 0) return;
-    if (!selectedAllPending) {
-      toast.error("Selection includes already-paid payouts. Filter to Pending first.");
+    if (selectedPending.length === 0) {
+      toast.error("Select at least one pending payout.");
       return;
     }
     setMarkPaidIsBulk(true);
@@ -242,7 +213,7 @@ export default function PayoutsList() {
     setMarkPaidBusy(true);
     try {
       if (markPaidIsBulk) {
-        const ids = selectedRows.filter((r) => !r.paidAt).map((r) => r.id);
+        const ids = selectedPending.map((r) => r.id);
         const res = await fetch(`${API_BASE}/payouts/mark-paid/bulk`, {
           method: "POST",
           headers: headers(),
@@ -252,20 +223,14 @@ export default function PayoutsList() {
         if (!res.ok) {
           toast.error(body.message ?? "Failed to mark paid");
         } else {
-          const r = body.data as {
-            paidIds: string[];
-            conflictIds: string[];
-            notFoundIds: string[];
-          };
-          // notFoundIds = rows deleted by another session between selection and request.
-          const parts: string[] = [`Marked ${r.paidIds.length} paid`];
+          const r = body.data as { paidIds: string[]; conflictIds: string[]; notFoundIds: string[] };
+          const parts = [`Marked ${r.paidIds.length} paid`];
           if (r.conflictIds.length) parts.push(`${r.conflictIds.length} already paid`);
-          if (r.notFoundIds?.length)
-            parts.push(`${r.notFoundIds.length} no longer exist`);
+          if (r.notFoundIds?.length) parts.push(`${r.notFoundIds.length} no longer exist`);
           toast.success(parts.join(" · "));
           setMarkPaidOpen(false);
-          selection.clear();
-          await fetchList();
+          setSelected(new Set());
+          await fetchWorklist();
         }
       } else if (markPaidTarget) {
         const res = await fetch(`${API_BASE}/payouts/${markPaidTarget.id}/mark-paid`, {
@@ -279,7 +244,7 @@ export default function PayoutsList() {
         } else {
           toast.success("Marked as paid");
           setMarkPaidOpen(false);
-          await fetchList();
+          await fetchWorklist();
         }
       }
     } finally {
@@ -287,18 +252,11 @@ export default function PayoutsList() {
     }
   };
 
-  // ---------------- Delete (owner-only, bulk) ----------------
+  // ---------------- Delete (owner only, soft) ----------------
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
-
-  const openBulkDelete = () => {
-    if (!isOwner) return;
-    if (selectedRows.length === 0) return;
-    setDeleteOpen(true);
-  };
-
-  const submitBulkDelete = async () => {
-    if (!isOwner) return;
+  const submitDelete = async () => {
+    if (!isOwner || selectedRows.length === 0) return;
     setDeleteBusy(true);
     try {
       const ids = selectedRows.map((r) => r.id);
@@ -311,18 +269,10 @@ export default function PayoutsList() {
       if (!res.ok) {
         toast.error(body.message ?? "Failed to delete");
       } else {
-        const r = body.data as { deletedCount: number };
-        // If deletedCount < what we selected, the remainder were already deleted
-        // by another session (or out-of-branch — silently filtered server-side).
-        const stale = selectedRows.length - r.deletedCount;
-        toast.success(
-          stale > 0
-            ? `Deleted ${r.deletedCount} · ${stale} were already gone`
-            : `Deleted ${r.deletedCount} ${r.deletedCount === 1 ? "payout" : "payouts"}`
-        );
+        toast.success(`Deleted ${body.data?.deletedCount ?? ids.length}`);
         setDeleteOpen(false);
-        selection.clear();
-        await fetchList();
+        setSelected(new Set());
+        await fetchWorklist();
       }
     } finally {
       setDeleteBusy(false);
@@ -330,20 +280,14 @@ export default function PayoutsList() {
   };
 
   // ---------------- Export ----------------
-  const exportFiltered = async () => {
+  const exportExcel = async () => {
     if (!token || !activeBranchId) return;
     const params = new URLSearchParams();
-    if (state.doctorType !== "all") params.set("doctorType", state.doctorType);
-    if (state.doctorId !== "all") params.set("doctorId", state.doctorId);
-    if (state.status !== "all")
-      params.set("isPaid", state.status === "paid" ? "true" : "false");
-    if (effectiveRange.startDate) params.set("startDate", effectiveRange.startDate);
-    if (effectiveRange.endDate)
-      params.set("endDate", effectiveRange.endDate + "T23:59:59.999Z");
-    if (state.q) params.set("q", state.q);
-    params.set("sortBy", state.sortBy);
-    params.set("sortDir", state.sortDir);
-
+    params.set("startDate", range.startDate);
+    params.set("endDate", range.endDate + "T23:59:59.999Z");
+    if (status !== "all") params.set("isPaid", status === "paid" ? "true" : "false");
+    if (typeFilter !== "all") params.set("doctorType", typeFilter);
+    if (q) params.set("q", q);
     const res = await fetch(`${API_BASE}/payouts/export?${params.toString()}`, {
       headers: { Authorization: `Bearer ${token}`, "X-Branch-Id": activeBranchId },
     });
@@ -355,334 +299,290 @@ export default function PayoutsList() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `payouts-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    a.download = `payouts-${range.startDate}.xlsx`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
   };
 
-  // ---------------- Filter dropdown options ----------------
-  const filterDoctorOptions = useMemo(() => {
-    if (state.doctorType === "REFERRAL") return referralDoctors;
-    if (state.doctorType === "CLINIC") return clinicDoctors;
-    if (state.doctorType === "DIAGNOSTIC_CENTER") return diagnosticCenters;
-    return [
-      ...referralDoctors.map((d) => ({ id: d.id, name: `${d.name} (Referral)` })),
-      ...clinicDoctors.map((d) => ({ id: d.id, name: `${d.name} (Clinic)` })),
-      ...diagnosticCenters.map((d) => ({ id: d.id, name: `${d.name} (Center)` })),
-    ];
-  }, [state.doctorType, referralDoctors, clinicDoctors, diagnosticCenters]);
+  const totals = worklist?.totals;
 
-  // ---------------- Run Cycle / Single Derive ----------------
-  const [runCycleOpen, setRunCycleOpen] = useState(false);
-  const [singleDeriveOpen, setSingleDeriveOpen] = useState(false);
-
-  const openRunCycle = () => {
-    if (!isOwner && user?.role !== "staff") return;
-    setRunCycleOpen(true);
-  };
-
-  // ---------------- Pagination ----------------
-  const totalPages = Math.max(1, Math.ceil(list.total / effectivePageSize));
-
-  // If a refetch returned fewer pages than the URL says we're on (e.g. after a
-  // bulk delete shrunk the result set), snap to the last valid page so the
-  // user doesn't stare at "Page 5 of 4" + an empty table until they reload.
-  useEffect(() => {
-    if (loading) return;
-    if (list.total === 0) return;
-    if (state.page > totalPages) {
-      update({ page: totalPages });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, list.total, totalPages, state.page]);
-
-  // ---------------- Render ----------------
   return (
     <AppLayout context="owner" subContext="payouts">
-      <div className="space-y-6 pb-24">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Payouts</h1>
-            <p className="text-muted-foreground">
-              Commissions for referral doctors, clinic doctors, and diagnostic centers
-            </p>
-          </div>
-          {(isOwner || user?.role === "staff") && (
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => setSingleDeriveOpen(true)}>
-                <Calculator className="h-4 w-4 mr-2" />
-                Single Payout
-              </Button>
-              <Button onClick={openRunCycle}>
-                <PlayCircle className="h-4 w-4 mr-2" />
-                Run Monthly Cycle
-              </Button>
-            </div>
-          )}
-        </div>
-
-        {/* Search */}
-        <div className="relative max-w-xl">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search by doctor name or payment reference"
-            className="pl-9"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-          />
-        </div>
-
-        {/* Date presets */}
-        <div className="flex flex-wrap items-center gap-3">
-          <DatePresetChips
-            value={state.preset}
-            onChange={(p) => update({ preset: p })}
-          />
-          {state.preset === "custom" && (
-            <div className="flex items-center gap-2">
-              <Input
-                type="date"
-                value={state.startDate}
-                onChange={(e) => update({ startDate: e.target.value })}
-                className="w-40"
-              />
-              <span className="text-muted-foreground">–</span>
-              <Input
-                type="date"
-                value={state.endDate}
-                onChange={(e) => update({ endDate: e.target.value })}
-                className="w-40"
-              />
-            </div>
-          )}
-        </div>
-
-        {/* Filters row */}
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="w-44">
-            <Label className="text-xs text-muted-foreground">Type</Label>
-            <Select
-              value={state.doctorType}
-              onValueChange={(v) =>
-                update({
-                  doctorType: v as PayoutDoctorType | "all",
-                  doctorId: "all",
-                })
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                <SelectItem value="REFERRAL">Referral Doctors</SelectItem>
-                <SelectItem value="CLINIC">Clinic Doctors</SelectItem>
-                <SelectItem value="DIAGNOSTIC_CENTER">Diagnostic Centers</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="w-72">
-            <Label className="text-xs text-muted-foreground">Doctor / Center</Label>
-            <SearchableSelect
-              value={state.doctorId === "all" ? "" : state.doctorId}
-              onValueChange={(v) => update({ doctorId: v || "all" })}
-              options={[
-                { value: "all", label: "All doctors / centers" },
-                ...filterDoctorOptions.map((d) => ({ value: d.id, label: d.name })),
-              ]}
-              placeholder="All doctors / centers"
-              searchPlaceholder="Type to search…"
-              emptyText="No matches"
-            />
-          </div>
-
-          <div className="w-36">
-            <Label className="text-xs text-muted-foreground">Status</Label>
-            <Select
-              value={state.status}
-              onValueChange={(v) =>
-                update({ status: v as "all" | "pending" | "paid" })
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="paid">Paid</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <Button variant="outline" onClick={exportFiltered} className="ml-auto">
-            Export Excel
-          </Button>
-        </div>
-
-        {/* Summary Cards (server-side totals — match the filtered set) */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <SummaryCard
-            label="Pending Payouts"
-            value={list.totals?.pendingCount ?? 0}
-            icon={<Clock className="h-5 w-5 text-yellow-600" />}
-            tint="bg-yellow-100"
-            loading={loading}
-          />
-          <SummaryCard
-            label="Pending Amount"
-            value={formatRupees(list.totals?.pendingAmountInPaise ?? 0)}
-            icon={<IndianRupee className="h-5 w-5 text-destructive" />}
-            tint="bg-destructive/15"
-            loading={loading}
-          />
-          <SummaryCard
-            label="Paid Payouts"
-            value={list.totals?.paidCount ?? 0}
-            icon={<Check className="h-5 w-5 text-green-600" />}
-            tint="bg-green-100"
-            loading={loading}
-          />
-          <SummaryCard
-            label="Total Paid"
-            value={formatRupees(list.totals?.paidAmountInPaise ?? 0)}
-            icon={<IndianRupee className="h-5 w-5 text-blue-600" />}
-            tint="bg-blue-100"
-            loading={loading}
-          />
-        </div>
-
-        {/* Tabs */}
-        <Tabs
-          value={state.tab}
-          onValueChange={(v) =>
-            update({ tab: v as "by-period" | "by-doctor" })
+      <div style={{ maxWidth: 1440 }} className="pb-24">
+        <OwnerPageHeader
+          title="Payouts · Pay-Run"
+          subtitle={`Settle everyone for the period · ${monthLabel}`}
+          rightSlot={
+            <>
+              <div
+                className="inline-flex items-center gap-2 rounded-md border bg-white px-2.5 py-1.5"
+                style={{ fontSize: 12, borderColor: TOKENS.border }}
+              >
+                <button onClick={() => setMonthDate((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))}>
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <span className="font-medium" style={{ minWidth: 92, textAlign: "center" }}>
+                  {monthLabel}
+                </span>
+                <button onClick={() => setMonthDate((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))}>
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+              <RefreshButton isFetching={loading} onClick={fetchWorklist} />
+            </>
           }
-        >
-          <TabsList>
-            <TabsTrigger value="by-period">By Period</TabsTrigger>
-            <TabsTrigger value="by-doctor">By Doctor</TabsTrigger>
-          </TabsList>
+        />
 
-          <TabsContent value="by-period" className="mt-4">
-            <Card>
-              <CardContent className="pt-6">
-                {!loading && list.data.length === 0 ? (
-                  <EmptyState hasFilters={hasActiveFilters(state)} />
-                ) : (
-                  <>
-                    <PayoutsTable
-                      rows={list.data}
-                      loading={loading}
-                      selection={selection}
-                      sortBy={state.sortBy}
-                      sortDir={state.sortDir}
-                      onSortChange={(field) =>
-                        update({
-                          sortBy: field,
-                          sortDir:
-                            state.sortBy === field && state.sortDir === "desc"
-                              ? "asc"
-                              : "desc",
-                        })
-                      }
-                      onRowClick={(r) => navigate(`/owner/payouts/${r.id}`)}
-                      onMarkPaid={openSingleMarkPaid}
-                    />
+        {loading && !worklist ? (
+          <FullPageSkeleton rows={3} />
+        ) : (
+          <div className="space-y-4">
+            {/* Two non-netting hero numbers */}
+            <SectionCard>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <div
+                    className="mb-1.5 font-medium uppercase"
+                    style={{ fontSize: 11, letterSpacing: "0.06em", color: TOKENS.textSecondary }}
+                  >
+                    Commission payouts
+                  </div>
+                  <DisplayNumber size={30}>
+                    {formatRupees(totals?.commissionsPendingInPaise ?? 0)}
+                  </DisplayNumber>
+                  <div className="mt-1" style={{ fontSize: 12, color: TOKENS.textTertiary }}>
+                    {(totals?.byType.REFERRAL.pendingCount ?? 0) +
+                      (totals?.byType.CLINIC.pendingCount ?? 0) +
+                      (totals?.byType.DIAGNOSTIC_CENTER.pendingCount ?? 0)}{" "}
+                    pending
+                  </div>
+                </div>
+                <div
+                  className="md:border-l md:pl-4"
+                  style={{ borderColor: TOKENS.border }}
+                >
+                  <div
+                    className="mb-1.5 font-medium uppercase"
+                    style={{ fontSize: 11, letterSpacing: "0.06em", color: TOKENS.caution }}
+                  >
+                    Outside-lab payables
+                  </div>
+                  <DisplayNumber size={30}>
+                    <span style={{ color: TOKENS.caution }}>
+                      {formatRupees(totals?.labPayablesPendingInPaise ?? 0)}
+                    </span>
+                  </DisplayNumber>
+                  <div className="mt-1" style={{ fontSize: 12, color: TOKENS.textTertiary }}>
+                    {totals?.byType.LAB.pendingCount ?? 0} pending
+                  </div>
+                </div>
+              </div>
+              <div
+                className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t pt-3"
+                style={{ borderColor: TOKENS.border, fontSize: 12, color: TOKENS.textSecondary }}
+              >
+                {TYPE_ORDER.map((t) => (
+                  <span key={t}>
+                    {TYPE_LABEL[t]}{" "}
+                    <span
+                      className="font-medium"
+                      style={{ color: t === "LAB" ? TOKENS.caution : TOKENS.textPrimary }}
+                    >
+                      {formatRupees(
+                        (totals?.byType[t].pendingAmountInPaise ?? 0)
+                      )}
+                    </span>{" "}
+                    ({totals?.byType[t].pendingCount ?? 0})
+                  </span>
+                ))}
+              </div>
+            </SectionCard>
 
-                    {/* Pagination + page-size selector */}
-                    {list.total > 0 && (
-                      <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                        <div className="flex items-center gap-3">
-                          <p className="text-sm text-muted-foreground">
-                            {(list.page - 1) * list.pageSize + 1}–
-                            {Math.min(list.page * list.pageSize, list.total)} of{" "}
-                            {list.total}
-                          </p>
-                          <Select
-                            value={String(effectivePageSize)}
-                            onValueChange={(v) => {
-                              const n = Number(v);
-                              setPrefPageSize(n);
-                              update({ pageSize: n, page: 1 });
-                            }}
-                          >
-                            <SelectTrigger className="h-8 w-24">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="25">25</SelectItem>
-                              <SelectItem value="50">50</SelectItem>
-                              <SelectItem value="100">100</SelectItem>
-                              <SelectItem value="200">200</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
+            {/* Filters */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div
+                className="inline-flex overflow-hidden rounded-md border"
+                style={{ borderColor: TOKENS.border, fontSize: 12 }}
+              >
+                {TYPE_FILTERS.map((f, i) => (
+                  <button
+                    key={f.key}
+                    onClick={() => setTypeFilter(f.key)}
+                    className="px-3 py-1.5"
+                    style={{
+                      background: f.key === typeFilter ? TOKENS.textPrimary : "white",
+                      color: f.key === typeFilter ? "white" : TOKENS.textSecondary,
+                      borderLeft: i === 0 ? "none" : `0.5px solid ${TOKENS.border}`,
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+              <Select value={status} onValueChange={(v) => setStatus(v as typeof status)}>
+                <SelectTrigger className="h-9 w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="paid">Paid</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="relative min-w-[180px] flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search payee…"
+                  className="h-9 pl-9"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                />
+              </div>
+              <Button variant="outline" size="sm" onClick={exportExcel}>
+                Export Excel
+              </Button>
+            </div>
 
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={list.page <= 1}
-                            onClick={() => update({ page: list.page - 1 })}
-                          >
-                            <ChevronLeft className="h-4 w-4" />
-                          </Button>
-                          <span className="text-sm">
-                            Page {list.page} of {totalPages}
-                          </span>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={list.page >= totalPages}
-                            onClick={() => update({ page: list.page + 1 })}
-                          >
-                            <ChevronRight className="h-4 w-4" />
-                          </Button>
-                        </div>
+            {/* Grouped sections */}
+            {groups.length === 0 ? (
+              <SectionCard>
+                <EmptyState
+                  label="No payouts for this period"
+                  hint="Try a different month, or use Run cycle to derive payouts."
+                />
+              </SectionCard>
+            ) : (
+              groups.map((g) => {
+                const outbound = g.payeeType === "LAB";
+                return (
+                  <div key={g.payeeType}>
+                    {outbound && (
+                      <div
+                        className="mb-1.5 mt-2 flex items-center gap-2 font-medium uppercase"
+                        style={{ fontSize: 11, letterSpacing: "0.05em", color: TOKENS.caution }}
+                      >
+                        <span style={{ flex: 1, height: 1, background: "#e0cfa3" }} />
+                        Outside-lab payables
+                        <span style={{ flex: 1, height: 1, background: "#e0cfa3" }} />
                       </div>
                     )}
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="by-doctor" className="mt-4">
-            <PayoutsByDoctor
-              filters={{
-                doctorType: state.doctorType,
-                startDate: effectiveRange.startDate,
-                endDate: effectiveRange.endDate,
-                q: state.q,
-              }}
-              isOwner={isOwner}
-              onOpenDoctor={(doctorId, doctorType) =>
-                update({
-                  tab: "by-period",
-                  doctorId,
-                  doctorType,
-                })
-              }
-              refreshKey={list.total}
-            />
-          </TabsContent>
-        </Tabs>
+                    <SectionCard
+                      padding={0}
+                      className=""
+                      label={undefined}
+                    >
+                      <div
+                        className="flex items-center gap-3 px-3 py-2"
+                        style={{
+                          background: outbound ? "#fbf7ee" : "#f6f5f2",
+                          borderTopLeftRadius: 12,
+                          borderTopRightRadius: 12,
+                        }}
+                      >
+                        <span className="font-medium" style={{ fontSize: 12 }}>
+                          {TYPE_LABEL[g.payeeType]}
+                        </span>
+                        <span className="ml-auto" style={{ fontSize: 12, color: TOKENS.textTertiary }}>
+                          {g.rows.filter((r) => r.status === "PENDING").length} pending ·{" "}
+                          <span
+                            className="font-medium"
+                            style={{ color: outbound ? TOKENS.caution : TOKENS.textPrimary }}
+                          >
+                            {formatRupees(g.pendingInPaise)}
+                          </span>
+                        </span>
+                      </div>
+                      <table className="w-full" style={{ fontSize: 12 }}>
+                        <tbody>
+                          {g.rows.map((r) => (
+                            <tr key={r.id} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
+                              <td className="py-2 pl-3" style={{ width: 28 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={selected.has(r.id)}
+                                  onChange={() => toggle(r.id)}
+                                />
+                              </td>
+                              <td className="py-2">
+                                {r.payeeName}{" "}
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    border: `1px solid ${TOKENS.border}`,
+                                    borderRadius: 4,
+                                    padding: "1px 5px",
+                                    color: TOKENS.textSecondary,
+                                    marginLeft: 4,
+                                  }}
+                                >
+                                  {TYPE_BADGE[r.payeeType]}
+                                </span>
+                              </td>
+                              <td
+                                className="py-2 text-right font-medium tabular-nums"
+                                style={{ color: outbound ? TOKENS.caution : TOKENS.textPrimary }}
+                              >
+                                {formatRupees(r.amountInPaise)}
+                              </td>
+                              <td className="py-2 text-right" style={{ width: 90 }}>
+                                <span
+                                  className="font-medium"
+                                  style={{
+                                    fontSize: 11,
+                                    color: r.status === "PAID" ? TOKENS.healthy : TOKENS.caution,
+                                  }}
+                                >
+                                  {r.status === "PAID"
+                                    ? r.paidAt
+                                      ? `PAID`
+                                      : "PAID"
+                                    : outbound
+                                      ? "UNPAID"
+                                      : "PENDING"}
+                                </span>
+                              </td>
+                              <td className="py-2 pr-3 text-right" style={{ width: 170 }}>
+                                <button
+                                  className="mr-2"
+                                  style={{ color: TOKENS.info, fontSize: 12 }}
+                                  onClick={() => navigate(`/owner/payouts/${r.id}`)}
+                                >
+                                  Statement
+                                </button>
+                                {r.status === "PENDING" && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7"
+                                    onClick={() => openSingleMarkPaid(r)}
+                                  >
+                                    Mark Paid
+                                  </Button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </SectionCard>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Bulk action bar */}
       <PayoutBulkActionBar
-        count={selection.selectedCount}
+        count={selected.size}
         totalInPaise={selectedTotalInPaise}
         isOwner={isOwner}
         onMarkPaid={openBulkMarkPaid}
-        onDelete={openBulkDelete}
-        onExport={exportFiltered}
-        onClear={selection.clear}
+        onDelete={() => isOwner && selected.size > 0 && setDeleteOpen(true)}
+        onExport={exportExcel}
+        onClear={() => setSelected(new Set())}
       />
 
       <PayoutMarkPaidDialog
@@ -690,13 +590,9 @@ export default function PayoutsList() {
         onOpenChange={setMarkPaidOpen}
         busy={markPaidBusy}
         payout={markPaidTarget}
-        bulkCount={markPaidIsBulk ? selectedRows.filter((r) => !r.paidAt).length : 0}
+        bulkCount={markPaidIsBulk ? selectedPending.length : 0}
         bulkTotalInPaise={
-          markPaidIsBulk
-            ? selectedRows
-                .filter((r) => !r.paidAt)
-                .reduce((s, r) => s + r.derivedAmountInPaise, 0)
-            : 0
+          markPaidIsBulk ? selectedPending.reduce((s, r) => s + r.amountInPaise, 0) : 0
         }
         onConfirm={submitMarkPaid}
       />
@@ -706,96 +602,10 @@ export default function PayoutsList() {
         onOpenChange={setDeleteOpen}
         count={selectedRows.length}
         busy={deleteBusy}
-        onConfirm={submitBulkDelete}
+        onConfirm={submitDelete}
       />
-
-      {(isOwner || user?.role === "staff") && (
-        <DerivePayoutDialog
-          open={singleDeriveOpen}
-          onOpenChange={setSingleDeriveOpen}
-          referralDoctors={referralDoctors}
-          clinicDoctors={clinicDoctors}
-          diagnosticCenters={diagnosticCenters}
-          defaultRange={lastCompletedMonth()}
-          onDerived={async () => {
-            setSingleDeriveOpen(false);
-            await fetchList();
-          }}
-        />
-      )}
-
-      {(isOwner || user?.role === "staff") && (
-        <PayoutRunCycle
-          open={runCycleOpen}
-          onOpenChange={setRunCycleOpen}
-          onCompleted={async () => {
-            setRunCycleOpen(false);
-            await fetchList();
-          }}
-        />
-      )}
     </AppLayout>
   );
 }
 
-// ---------------- Helpers ----------------
-
-function hasActiveFilters(state: ReturnType<typeof usePayoutFiltersFromUrl>["state"]) {
-  return (
-    state.doctorType !== "all" ||
-    state.doctorId !== "all" ||
-    state.status !== "all" ||
-    state.q !== "" ||
-    state.preset !== "this-month"
-  );
-}
-
-function SummaryCard(props: {
-  label: string;
-  value: string | number;
-  icon: React.ReactNode;
-  tint: string;
-  loading?: boolean;
-}) {
-  return (
-    <Card>
-      <CardContent className="pt-6">
-        <div className="flex items-center gap-3">
-          <div className={`p-2 ${props.tint} rounded-lg`}>{props.icon}</div>
-          <div className="min-w-0">
-            <p className="text-sm text-muted-foreground">{props.label}</p>
-            {props.loading ? (
-              <Skeleton className="h-7 w-20" />
-            ) : (
-              <p className="text-xl font-semibold truncate">{props.value}</p>
-            )}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function EmptyState({ hasFilters }: { hasFilters: boolean }) {
-  if (hasFilters) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-muted-foreground">No payouts match your filters.</p>
-        <p className="text-sm text-muted-foreground mt-1">
-          Try widening the date range or clearing filters.
-        </p>
-      </div>
-    );
-  }
-  return (
-    <div className="text-center py-12">
-      <p className="text-muted-foreground">No payouts yet.</p>
-      <p className="text-sm text-muted-foreground mt-1">
-        Use <strong>Run Monthly Cycle</strong> to derive payouts for an entire month at once.
-      </p>
-    </div>
-  );
-}
-
-// Eager imports above for siblings; kept named so PayoutsList stays the default.
 export { PayoutsList };
