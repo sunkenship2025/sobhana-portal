@@ -599,9 +599,9 @@ router.get('/:id/statement', requireRole('owner', 'staff'), async (req: AuthRequ
 });
 
 // ============================================================================
-// POST /api/payouts/:id/send-statement — WhatsApp the statement to the payee (owner)
+// POST /api/payouts/:id/send-statement — WhatsApp the statement to the payee (owner + staff)
 // ============================================================================
-router.post('/:id/send-statement', requireRole('owner'), async (req: AuthRequest, res) => {
+router.post('/:id/send-statement', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const branchId = req.branchId!;

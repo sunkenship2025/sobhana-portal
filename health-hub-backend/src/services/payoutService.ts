@@ -5,7 +5,7 @@ import {
   allocateBillDiscountAcrossOrders,
   computeBillFinancialsFromPersisted,
 } from './billFinancialService';
-import { categorize, categoryLabel, UNCATEGORIZED, type PayoutCategory } from './payoutCategorize';
+import { categorize, categoryLabel, CATEGORY_ORDER, CAT_LAB, type PayoutCategory } from './payoutCategorize';
 import { isWhatsAppEnabled } from './whatsappCloudService';
 
 
@@ -312,7 +312,8 @@ async function deriveReferralPayout(
         derivedCommissionInPaise: commissionInPaise,
         category: categorize({
           productPayoutCategory: testOrder.product?.payoutCategory,
-          departmentName: testOrder.test?.department?.name,
+          productName: testOrder.product?.name,
+          testName: testOrder.testNameSnapshot || testOrder.test?.name,
         }),
         basisLabel:
           testOrder.referralCommissionType === 'FIXED_AMOUNT'
@@ -544,7 +545,8 @@ async function deriveDiagnosticCenterPayout(
         derivedCommissionInPaise: commissionInPaise,
         category: categorize({
           productPayoutCategory: testOrder.product?.payoutCategory,
-          departmentName: testOrder.test?.department?.name,
+          productName: testOrder.product?.name,
+          testName: testOrder.testNameSnapshot || testOrder.test?.name,
         }),
         basisLabel:
           hasSnapshot && testOrder.diagnosticCenterCommissionType === 'FIXED_AMOUNT'
@@ -659,7 +661,8 @@ async function deriveExternalLabPayout(
 
       const category = categorize({
           productPayoutCategory: testOrder.product?.payoutCategory,
-          departmentName: testOrder.test?.department?.name,
+          productName: testOrder.product?.name,
+          testName: testOrder.testNameSnapshot || testOrder.test?.name,
         });
       const basisLabel =
         testOrder.labCostType === 'FIXED_AMOUNT'
@@ -1568,7 +1571,7 @@ export function buildPayoutStatementDetail(detail: PayoutDetail): PayoutStatemen
   const grandTotal = emptyStatementTotals(isLab);
 
   for (const item of detail.lineItems) {
-    const category: PayoutCategory = item.category ?? UNCATEGORIZED;
+    const category: PayoutCategory = item.category ?? CAT_LAB;
     const pAmt = item.amountInPaise;
     const disc = item.discountInPaise ?? 0;
     const tAmt = pAmt + disc;
@@ -1617,10 +1620,14 @@ export function buildPayoutStatementDetail(detail: PayoutDetail): PayoutStatemen
     }
   }
 
-  // Categories are dynamic now — order alphabetically, with "Uncategorised" last.
+  // Order by the preferred category list (Lab, X-Ray, USG, ECG, CT/MRI), then
+  // any custom categories alphabetically.
   const bands = Array.from(bandsByCategory.values()).sort((a, b) => {
-    if (a.category === UNCATEGORIZED) return 1;
-    if (b.category === UNCATEGORIZED) return -1;
+    const ia = CATEGORY_ORDER.indexOf(a.category);
+    const ib = CATEGORY_ORDER.indexOf(b.category);
+    if (ia !== -1 || ib !== -1) {
+      return (ia === -1 ? Infinity : ia) - (ib === -1 ? Infinity : ib);
+    }
     return a.category.localeCompare(b.category);
   });
 
