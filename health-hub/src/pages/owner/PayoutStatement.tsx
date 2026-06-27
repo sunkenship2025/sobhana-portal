@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { API_BASE, API_BASE_URL } from "@/lib/api";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronDown, Printer, Download, MessageCircle } from "lucide-react";
+import { ChevronLeft, Printer, Download, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore";
 import { useBranchStore } from "@/store/branchStore";
@@ -11,7 +11,6 @@ import { formatRupees } from "@/lib/payoutFormatters";
 import {
   OwnerPageHeader,
   SectionCard,
-  MiniBar,
   TOKENS,
   FullPageSkeleton,
   ErrorCard,
@@ -23,16 +22,7 @@ import type {
   PayoutCategory,
 } from "@/types";
 
-// Categories are centre-defined, so colours are derived deterministically from
-// the label (stable across renders) rather than a fixed map.
-const CAT_PALETTE = ["#6f86a8", "#a8896f", "#8a93a3", "#9a9a6f", "#7f9c8b", "#a07f9c", "#888780"];
-function catColor(category: PayoutCategory): string {
-  let h = 0;
-  for (let i = 0; i < category.length; i++) h = (h * 31 + category.charCodeAt(i)) >>> 0;
-  return CAT_PALETTE[h % CAT_PALETTE.length];
-}
-
-// Group statement line items by bill/patient (for the per-patient rows + chips).
+// Group statement line items by bill/patient (one combined row per bill).
 function groupRowsByBill(bands: StatementBand[]) {
   const map = new Map<
     string,
@@ -162,8 +152,6 @@ export default function PayoutStatement() {
     }
   };
 
-  const [catOpen, setCatOpen] = useState(true);
-
   const exportExcel = async () => {
     if (!id || !token || !activeBranchId) return;
     const res = await fetch(`${API_BASE}/payouts/${id}/export`, {
@@ -272,91 +260,52 @@ export default function PayoutStatement() {
               </div>
             </SectionCard>
 
-            {/* Category breakdown band */}
-            {stmt.bands.length > 0 && (
-              <SectionCard>
-                <button className="mb-2 flex w-full items-center gap-2" onClick={() => setCatOpen((o) => !o)}>
-                  <ChevronDown
-                    className="h-4 w-4"
-                    style={{ transform: catOpen ? "none" : "rotate(-90deg)", color: TOKENS.textTertiary }}
-                  />
-                  <span
-                    className="font-medium uppercase"
-                    style={{ fontSize: 11, letterSpacing: "0.06em", color: TOKENS.textSecondary }}
-                  >
-                    Category breakdown
-                  </span>
-                </button>
-                {catOpen && (
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-5">
-                    {stmt.bands.map((band) => {
-                      const max = Math.max(...stmt.bands.map((b) => b.subtotal.finAmtInPaise), 1);
-                      return (
-                        <div key={band.category}>
-                          <div style={{ fontSize: 11, color: TOKENS.textSecondary }}>{band.label}</div>
-                          <div style={{ fontSize: 13, fontWeight: 600, margin: "2px 0 5px" }}>
-                            {formatRupees(band.subtotal.finAmtInPaise)}
-                          </div>
-                          <MiniBar fillRatio={band.subtotal.finAmtInPaise / max} color={catColor(band.category)} />
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </SectionCard>
-            )}
-
             {/* Line items */}
             {isLab ? (
-              stmt.bands.map((band) => (
-                <SectionCard key={band.category} padding={0}>
-                  <div
-                    className="flex items-center justify-between px-3 py-2"
-                    style={{ background: "#fbf7ee", borderTopLeftRadius: 12, borderTopRightRadius: 12 }}
-                  >
-                    <span className="font-medium" style={{ fontSize: 12 }}>{band.label}</span>
-                    <span style={{ fontSize: 12, color: TOKENS.caution }}>
-                      {formatRupees(band.subtotal.finAmtInPaise)}
-                    </span>
-                  </div>
-                  <div style={{ overflowX: "auto" }}>
-                    <table className="w-full" style={{ fontSize: 12, minWidth: 640 }}>
-                      <thead>
-                        <tr style={{ color: TOKENS.textTertiary, textAlign: "left" }}>
-                          <th className="py-1.5 pl-3 font-normal">Date</th>
-                          <th className="py-1.5 font-normal">Patient</th>
-                          <th className="py-1.5 font-normal">Test</th>
-                          <th className="py-1.5 font-normal">Rate</th>
-                          <th className="py-1.5 text-right font-normal">Price</th>
-                          <th className="py-1.5 text-right font-normal">Payable</th>
-                          <th className="py-1.5 pr-3 text-right font-normal">Margin</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {band.rows.map((r, i) => {
-                          const loss = (r.centerMarginInPaise ?? 0) < 0;
-                          return (
-                            <tr key={i} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
-                              <td className="py-1.5 pl-3" style={{ color: TOKENS.textTertiary }}>{formatIstDate(r.date)}</td>
-                              <td className="py-1.5">{r.patientTitle ? `${r.patientTitle} ` : ""}{r.patientName}</td>
-                              <td className="py-1.5">{r.testOrFee}</td>
-                              <td className="py-1.5" style={{ color: TOKENS.textTertiary }}>{r.basisLabel}</td>
-                              <td className="py-1.5 text-right tabular-nums">{formatRupees(r.pAmtInPaise)}</td>
-                              <td className="py-1.5 text-right font-medium tabular-nums">{formatRupees(r.finAmtInPaise)}</td>
-                              <td
-                                className="py-1.5 pr-3 text-right tabular-nums"
-                                style={{ color: loss ? TOKENS.critical : TOKENS.textSecondary }}
-                              >
-                                {formatRupees(r.centerMarginInPaise ?? 0)}{loss ? " ⚠" : ""}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </SectionCard>
-              ))
+              <SectionCard padding={0}>
+                <div
+                  className="px-3 py-2"
+                  style={{ background: "#fbf7ee", borderTopLeftRadius: 12, borderTopRightRadius: 12, fontSize: 12, fontWeight: 600 }}
+                >
+                  Outsourced tests
+                </div>
+                <div style={{ overflowX: "auto" }}>
+                  <table className="w-full" style={{ fontSize: 12, minWidth: 640 }}>
+                    <thead>
+                      <tr style={{ color: TOKENS.textTertiary, textAlign: "left" }}>
+                        <th className="py-1.5 pl-3 font-normal">Date</th>
+                        <th className="py-1.5 font-normal">Patient</th>
+                        <th className="py-1.5 font-normal">Test</th>
+                        <th className="py-1.5 font-normal">Rate</th>
+                        <th className="py-1.5 text-right font-normal">Price</th>
+                        <th className="py-1.5 text-right font-normal">Payable</th>
+                        <th className="py-1.5 pr-3 text-right font-normal">Margin</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stmt.bands.flatMap((b) => b.rows).map((r, i) => {
+                        const loss = (r.centerMarginInPaise ?? 0) < 0;
+                        return (
+                          <tr key={i} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
+                            <td className="py-1.5 pl-3" style={{ color: TOKENS.textTertiary }}>{formatIstDate(r.date)}</td>
+                            <td className="py-1.5">{r.patientTitle ? `${r.patientTitle} ` : ""}{r.patientName}</td>
+                            <td className="py-1.5">{r.testOrFee}</td>
+                            <td className="py-1.5" style={{ color: TOKENS.textTertiary }}>{r.basisLabel}</td>
+                            <td className="py-1.5 text-right tabular-nums">{formatRupees(r.pAmtInPaise)}</td>
+                            <td className="py-1.5 text-right font-medium tabular-nums">{formatRupees(r.finAmtInPaise)}</td>
+                            <td
+                              className="py-1.5 pr-3 text-right tabular-nums"
+                              style={{ color: loss ? TOKENS.critical : TOKENS.textSecondary }}
+                            >
+                              {formatRupees(r.centerMarginInPaise ?? 0)}{loss ? " ⚠" : ""}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </SectionCard>
             ) : (
               <SectionCard padding={0}>
                 <div
@@ -372,6 +321,7 @@ export default function PayoutStatement() {
                         <th className="py-1.5 pl-3 font-normal">Date</th>
                         <th className="py-1.5 font-normal">Bill #</th>
                         <th className="py-1.5 font-normal">Patient</th>
+                        <th className="py-1.5 font-normal">Tests</th>
                         <th className="py-1.5 text-right font-normal">T Amt</th>
                         <th className="py-1.5 text-right font-normal">Disc</th>
                         <th className="py-1.5 text-right font-normal">P Amt</th>
@@ -380,49 +330,18 @@ export default function PayoutStatement() {
                     </thead>
                     <tbody>
                       {groupRowsByBill(stmt.bands).map((g) => (
-                        <Fragment key={g.key}>
-                          <tr style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
-                            <td className="py-1.5 pl-3" style={{ color: TOKENS.textTertiary }}>{formatIstDate(g.date)}</td>
-                            <td className="py-1.5" style={{ color: TOKENS.textTertiary }}>{g.billNumber}</td>
-                            <td className="py-1.5">{g.patient}</td>
-                            <td className="py-1.5 text-right tabular-nums">{formatRupees(g.tAmt)}</td>
-                            <td className="py-1.5 text-right tabular-nums">{formatRupees(g.disc)}</td>
-                            <td className="py-1.5 text-right tabular-nums">{formatRupees(g.pAmt)}</td>
-                            <td className="py-1.5 pr-3 text-right font-medium tabular-nums">{formatRupees(g.fin)}</td>
-                          </tr>
-                          <tr>
-                            <td></td>
-                            <td colSpan={6} className="pb-2" style={{ fontSize: 11 }}>
-                              {g.items.map((it, i) => (
-                                <span
-                                  key={i}
-                                  style={{
-                                    display: "inline-block",
-                                    background: "#f0efe9",
-                                    border: `1px solid ${TOKENS.border}`,
-                                    borderRadius: 5,
-                                    padding: "1px 7px",
-                                    margin: "2px 5px 0 0",
-                                  }}
-                                >
-                                  <span
-                                    style={{
-                                      display: "inline-block",
-                                      width: 7,
-                                      height: 7,
-                                      borderRadius: "50%",
-                                      background: catColor(it.category),
-                                      marginRight: 5,
-                                      verticalAlign: "middle",
-                                    }}
-                                  />
-                                  {it.testOrFee}{" "}
-                                  <span style={{ color: TOKENS.textTertiary }}>({it.basisLabel})</span>
-                                </span>
-                              ))}
-                            </td>
-                          </tr>
-                        </Fragment>
+                        <tr key={g.key} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
+                          <td className="py-1.5 pl-3" style={{ color: TOKENS.textTertiary, whiteSpace: "nowrap" }}>{formatIstDate(g.date)}</td>
+                          <td className="py-1.5" style={{ color: TOKENS.textTertiary, whiteSpace: "nowrap" }}>{g.billNumber}</td>
+                          <td className="py-1.5">{g.patient}</td>
+                          <td className="py-1.5" style={{ color: TOKENS.textSecondary }}>
+                            {g.items.map((it) => `${it.testOrFee} (${it.basisLabel})`).join(", ")}
+                          </td>
+                          <td className="py-1.5 text-right tabular-nums">{formatRupees(g.tAmt)}</td>
+                          <td className="py-1.5 text-right tabular-nums">{formatRupees(g.disc)}</td>
+                          <td className="py-1.5 text-right tabular-nums">{formatRupees(g.pAmt)}</td>
+                          <td className="py-1.5 pr-3 text-right font-medium tabular-nums">{formatRupees(g.fin)}</td>
+                        </tr>
                       ))}
                     </tbody>
                   </table>
@@ -471,8 +390,7 @@ export default function PayoutStatement() {
   );
 }
 
-// Group line items across all bands into per-bill rows, bucketing the payable
-// (fin) amount by category so the print can show one column per category.
+// Group line items across all bands into one combined row per bill.
 function groupBillsAcrossBands(bands: StatementBand[]) {
   const map = new Map<
     string,
@@ -485,7 +403,6 @@ function groupBillsAcrossBands(bands: StatementBand[]) {
       disc: number;
       pAmt: number;
       fin: number;
-      catFin: Record<string, number>;
       tests: string[];
     }
   >();
@@ -503,7 +420,6 @@ function groupBillsAcrossBands(bands: StatementBand[]) {
           disc: 0,
           pAmt: 0,
           fin: 0,
-          catFin: {},
           tests: [],
         };
         map.set(key, g);
@@ -512,8 +428,7 @@ function groupBillsAcrossBands(bands: StatementBand[]) {
       g.disc += r.discInPaise;
       g.pAmt += r.pAmtInPaise;
       g.fin += r.finAmtInPaise;
-      g.catFin[r.category] = (g.catFin[r.category] ?? 0) + r.finAmtInPaise;
-      g.tests.push(r.testOrFee);
+      g.tests.push(`${r.testOrFee} (${r.basisLabel})`);
       if (new Date(r.date) < new Date(g.date)) g.date = r.date;
     }
   }
@@ -534,14 +449,6 @@ function StatementPrint({ stmt }: { stmt: Statement }) {
   const r0 = (p: number) => (p ? formatRupees(p) : "—");
 
   const labRows = stmt.bands.flatMap((b) => b.rows);
-  // Non-lab: dynamic category columns (the categories present, in band order).
-  const cats = stmt.bands.map((b) => b.category);
-  const catLabel: Record<string, string> = Object.fromEntries(
-    stmt.bands.map((b) => [b.category, b.label])
-  );
-  const catTotals: Record<string, number> = Object.fromEntries(
-    stmt.bands.map((b) => [b.category, b.subtotal.finAmtInPaise])
-  );
   const bills = groupBillsAcrossBands(stmt.bands);
 
   return (
@@ -614,49 +521,34 @@ function StatementPrint({ stmt }: { stmt: Statement }) {
               <th style={th}>Bill #</th>
               <th style={{ ...th, ...lt }}>Date</th>
               <th style={{ ...th, ...lt }}>Patient</th>
+              <th style={{ ...th, ...lt }}>Tests</th>
               <th style={th}>T Amt</th>
               <th style={th}>Disc</th>
               <th style={th}>P Amt</th>
-              {cats.map((c) => (
-                <th key={c} style={th}>{catLabel[c]}</th>
-              ))}
-              <th style={th}>Fin Amt</th>
+              <th style={th}>Payable</th>
             </tr>
           </thead>
           <tbody>
             {bills.map((p, idx) => (
-              <Fragment key={p.key}>
-                <tr>
-                  <td style={td}>{idx + 1}</td>
-                  <td style={td}>{p.billNumber}</td>
-                  <td style={{ ...td, ...lt }}>{formatIstDate(p.date)}</td>
-                  <td style={{ ...td, ...lt }}>{p.patient}</td>
-                  <td style={{ ...td, ...rt }}>{formatRupees(p.tAmt)}</td>
-                  <td style={{ ...td, ...rt }}>{r0(p.disc)}</td>
-                  <td style={{ ...td, ...rt }}>{formatRupees(p.pAmt)}</td>
-                  {cats.map((c) => (
-                    <td key={c} style={{ ...td, ...rt }}>{r0(p.catFin[c] ?? 0)}</td>
-                  ))}
-                  <td style={{ ...td, ...rt, fontWeight: 700 }}>{formatRupees(p.fin)}</td>
-                </tr>
-                <tr>
-                  <td style={td}></td>
-                  <td style={{ ...td, ...lt, fontSize: 8, color: "#555" }} colSpan={7 + cats.length}>
-                    {p.tests.join(", ")}
-                  </td>
-                </tr>
-              </Fragment>
+              <tr key={p.key}>
+                <td style={td}>{idx + 1}</td>
+                <td style={td}>{p.billNumber}</td>
+                <td style={{ ...td, ...lt }}>{formatIstDate(p.date)}</td>
+                <td style={{ ...td, ...lt }}>{p.patient}</td>
+                <td style={{ ...td, ...lt, fontSize: 8, color: "#555" }}>{p.tests.join(", ")}</td>
+                <td style={{ ...td, ...rt }}>{formatRupees(p.tAmt)}</td>
+                <td style={{ ...td, ...rt }}>{r0(p.disc)}</td>
+                <td style={{ ...td, ...rt }}>{formatRupees(p.pAmt)}</td>
+                <td style={{ ...td, ...rt, fontWeight: 700 }}>{formatRupees(p.fin)}</td>
+              </tr>
             ))}
           </tbody>
           <tfoot>
             <tr style={{ fontWeight: 700, background: "#f0f0f0" }}>
-              <td style={{ ...td, ...lt }} colSpan={4}>GRAND TOTAL — {bills.length} bills</td>
+              <td style={{ ...td, ...lt }} colSpan={5}>GRAND TOTAL — {bills.length} bills</td>
               <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.tAmtInPaise)}</td>
               <td style={{ ...td, ...rt }}>{r0(stmt.grandTotal.discInPaise)}</td>
               <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.pAmtInPaise)}</td>
-              {cats.map((c) => (
-                <td key={c} style={{ ...td, ...rt }}>{r0(catTotals[c] ?? 0)}</td>
-              ))}
               <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.finAmtInPaise)}</td>
             </tr>
           </tfoot>

@@ -68,6 +68,51 @@ function docTitle(s: PayoutStatement): string {
   return s.isLab ? 'Outside Lab Statement' : 'Payout Statement';
 }
 
+// Combine all line items into one row per bill (no category split).
+function combineByBill(bands: StatementBand[]) {
+  const map = new Map<
+    string,
+    {
+      billNumber: string;
+      date: string | Date;
+      patient: string;
+      tAmt: number;
+      disc: number;
+      pAmt: number;
+      fin: number;
+      tests: string[];
+    }
+  >();
+  for (const band of bands) {
+    for (const r of band.rows) {
+      const key = `${r.billNumber}|${r.patientName}`;
+      let g = map.get(key);
+      if (!g) {
+        g = {
+          billNumber: r.billNumber,
+          date: r.date,
+          patient: `${r.patientTitle ? r.patientTitle + ' ' : ''}${r.patientName}`,
+          tAmt: 0,
+          disc: 0,
+          pAmt: 0,
+          fin: 0,
+          tests: [],
+        };
+        map.set(key, g);
+      }
+      g.tAmt += r.tAmtInPaise;
+      g.disc += r.discInPaise;
+      g.pAmt += r.pAmtInPaise;
+      g.fin += r.finAmtInPaise;
+      g.tests.push(`${r.testOrFee} (${r.basisLabel})`);
+      if (new Date(r.date) < new Date(g.date)) g.date = r.date;
+    }
+  }
+  return Array.from(map.values()).sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+  );
+}
+
 function bandRows(band: StatementBand, isLab: boolean): string {
   return band.rows
     .map((r) => {
@@ -99,19 +144,37 @@ function bandRows(band: StatementBand, isLab: boolean): string {
 
 function renderStatementHtml(s: PayoutStatement): string {
   const isLab = s.isLab;
-  const head = isLab
-    ? `<th>Date</th><th>Patient</th><th>Test</th><th>Rate</th><th class="r">Price</th><th class="r">Payable</th><th class="r">Margin</th>`
-    : `<th>Date</th><th>Bill #</th><th>Patient</th><th>Test / fee</th><th class="r">T Amt</th><th class="r">Disc</th><th class="r">P Amt</th><th class="r">Payable</th>`;
 
-  const bands = s.bands
-    .map(
-      (band) => `
-      <div class="band">
-        <div class="band-h"><span>${esc(band.label)}</span><span>${rupees(band.subtotal.finAmtInPaise)}</span></div>
-        <div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>${bandRows(band, isLab)}</tbody></table></div>
-      </div>`
-    )
-    .join('');
+  let content: string;
+  if (isLab) {
+    // Outside-lab payable: per-test rows with margin (kept granular, no categories).
+    const head = `<th>Date</th><th>Patient</th><th>Test</th><th>Rate</th><th class="r">Price</th><th class="r">Payable</th><th class="r">Margin</th>`;
+    const flatBand = {
+      category: '',
+      label: '',
+      rows: s.bands.flatMap((b) => b.rows),
+      subtotal: s.grandTotal,
+    } as StatementBand;
+    content = `<div class="band"><div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>${bandRows(flatBand, true)}</tbody></table></div></div>`;
+  } else {
+    // Commission statement: one combined row per bill, no categories.
+    const head = `<th>Date</th><th>Bill #</th><th>Patient</th><th>Tests</th><th class="r">T Amt</th><th class="r">Disc</th><th class="r">P Amt</th><th class="r">Payable</th>`;
+    const rows = combineByBill(s.bands)
+      .map(
+        (g) => `<tr>
+        <td>${fmtDate(g.date)}</td>
+        <td>${esc(g.billNumber)}</td>
+        <td>${esc(g.patient)}</td>
+        <td class="mut">${esc(g.tests.join(', '))}</td>
+        <td class="r">${rupees(g.tAmt)}</td>
+        <td class="r">${rupees(g.disc)}</td>
+        <td class="r">${rupees(g.pAmt)}</td>
+        <td class="r b">${rupees(g.fin)}</td>
+      </tr>`
+      )
+      .join('');
+    content = `<div class="band"><div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  }
 
   const margin =
     isLab && s.lab
@@ -165,7 +228,7 @@ function renderStatementHtml(s: PayoutStatement): string {
       <div><div class="sub">${isLab ? 'Payable' : 'Total payout'}</div><div class="amt ${isLab ? 'lab' : ''}">${rupees(s.grandTotal.finAmtInPaise)}</div></div>
     </div>
   </div>
-  ${bands}
+  ${content}
   <div class="gt"><span class="b">GRAND TOTAL</span><span class="x">|</span><span>T Amt <b>${rupees(s.grandTotal.tAmtInPaise)}</b></span><span>Disc <b>${rupees(s.grandTotal.discInPaise)}</b></span><span>P Amt <b>${rupees(s.grandTotal.pAmtInPaise)}</b></span><span class="tot">Payable <b>${rupees(s.grandTotal.finAmtInPaise)}</b></span></div>
   ${margin}
   <div class="foot">Sobhana Diagnostics · This statement was shared with you securely.</div>
