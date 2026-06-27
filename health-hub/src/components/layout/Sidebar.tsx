@@ -222,7 +222,7 @@ export function Sidebar() {
     || false;
 
   const renderNavContent = (onNavigate?: () => void) => (
-    <nav className="mt-6 flex-1 px-3">
+    <nav className="mt-6 flex-1 min-h-0 overflow-y-auto px-3">
       <div className="space-y-2">
         {navItems.map((item) => {
           const Icon = item.icon;
@@ -325,7 +325,7 @@ export function Sidebar() {
               <SheetTitle>Navigation Menu</SheetTitle>
             </SheetHeader>
 
-            <div className="flex h-full flex-col">
+            <div className="flex h-full flex-col overflow-hidden">
               <div className="flex h-16 items-center border-b border-white/10 px-6">
                 <Microscope className="h-8 w-8 text-white" />
                 <span className="ml-3 text-xl font-bold text-white">SOBHANA</span>
@@ -355,7 +355,7 @@ export function Sidebar() {
       </div>
 
       <aside
-        className="fixed left-0 top-0 z-40 hidden h-screen w-64 flex-col border-r border-white/10 text-white md:flex"
+        className="fixed left-0 top-0 z-40 hidden h-screen w-64 flex-col overflow-hidden border-r border-white/10 text-white md:flex"
         style={{ backgroundColor: 'var(--branch-sidebar-bg)' }}
       >
         <div className="flex h-16 items-center border-b border-white/10 px-6">
