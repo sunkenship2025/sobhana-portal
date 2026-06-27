@@ -1543,11 +1543,6 @@ export interface PayoutStatement {
   branchName: string;
   periodStartDate: Date;
   periodEndDate: Date;
-  status: 'PENDING' | 'PAID';
-  paidAt: Date | null;
-  paymentMethod: PaymentType | null;
-  paymentReferenceId: string | null;
-  notes: string | null;
   isLab: boolean;
   whatsappEnabled?: boolean;
   payeeHasPhone?: boolean;
@@ -1641,11 +1636,6 @@ export function buildPayoutStatementDetail(detail: PayoutDetail): PayoutStatemen
     branchName: detail.branchName,
     periodStartDate: detail.periodStartDate,
     periodEndDate: detail.periodEndDate,
-    status: detail.paidAt ? 'PAID' : 'PENDING',
-    paidAt: detail.paidAt,
-    paymentMethod: detail.paymentMethod,
-    paymentReferenceId: detail.paymentReferenceId,
-    notes: detail.notes,
     isLab,
     bands,
     grandTotal,
@@ -1730,22 +1720,16 @@ export interface PayoutWorklistRow {
   periodStartDate: Date;
   periodEndDate: Date;
   amountInPaise: number;
-  status: 'PENDING' | 'PAID';
-  paidAt: Date | null;
-  paymentMethod: PaymentType | null;
 }
 
 export interface PayoutTypeTotals {
-  pendingCount: number;
-  pendingAmountInPaise: number;
-  paidCount: number;
-  paidAmountInPaise: number;
+  count: number;
+  amountInPaise: number;
 }
 
 export interface PayRunWorklistFilters {
   startDate?: Date;
   endDate?: Date;
-  status?: 'all' | 'pending' | 'paid';
   payeeType?: PayoutDoctorType;
   q?: string;
   view?: 'grouped' | 'flat';
@@ -1755,8 +1739,6 @@ export interface PayRunWorklistGroup {
   payeeType: PayoutDoctorType;
   direction: PayoutDirection;
   subtotalInPaise: number;
-  pendingInPaise: number;
-  paidInPaise: number;
   rows: PayoutWorklistRow[];
 }
 
@@ -1766,10 +1748,6 @@ export interface PayRunWorklist {
   totals: {
     commissionsTotalInPaise: number;
     labPayablesTotalInPaise: number;
-    commissionsPendingInPaise: number;
-    commissionsPaidInPaise: number;
-    labPayablesPendingInPaise: number;
-    labPayablesPaidInPaise: number;
     payeeCount: number;
     byType: Record<PayoutDoctorType, PayoutTypeTotals>;
   };
@@ -1784,7 +1762,6 @@ export async function getPayRunWorklist(
   filters?: PayRunWorklistFilters
 ): Promise<PayRunWorklist> {
   const view = filters?.view ?? 'grouped';
-  const status = filters?.status ?? 'all';
 
   // Keep the ledger fresh (same auto-sync as listPayouts).
   const syncFilters = {
@@ -1826,7 +1803,7 @@ export async function getPayRunWorklist(
     orderBy: [{ derivedAmountInPaise: 'desc' }],
   });
 
-  const allRows: PayoutWorklistRow[] = payouts.map((p) => {
+  const rows: PayoutWorklistRow[] = payouts.map((p) => {
     const isLab = p.doctorType === 'LAB';
     return {
       id: p.id,
@@ -1838,63 +1815,30 @@ export async function getPayRunWorklist(
       periodStartDate: p.periodStartDate,
       periodEndDate: p.periodEndDate,
       amountInPaise: p.derivedAmountInPaise,
-      status: (p.paidAt ? 'PAID' : 'PENDING') as 'PAID' | 'PENDING',
-      paidAt: p.paidAt,
-      paymentMethod: p.paymentMethod,
     };
   });
 
-  // Totals are status-INDEPENDENT (over the full period set) so the hero numbers
-  // and "already paid" stay truthful even while the list is filtered to Pending.
+  // Totals are simply what's owed for the period (no paid/unpaid concept).
   const byType = Object.fromEntries(
-    PAYOUT_TYPES_ORDER.map((t) => [
-      t,
-      { pendingCount: 0, pendingAmountInPaise: 0, paidCount: 0, paidAmountInPaise: 0 },
-    ])
+    PAYOUT_TYPES_ORDER.map((t) => [t, { count: 0, amountInPaise: 0 }])
   ) as Record<PayoutDoctorType, PayoutTypeTotals>;
 
-  let commissionsPending = 0;
-  let commissionsPaid = 0;
-  let labPending = 0;
-  let labPaid = 0;
-  for (const r of allRows) {
+  let commissionsTotal = 0;
+  let labTotal = 0;
+  for (const r of rows) {
     const bt = byType[r.payeeType];
-    if (r.status === 'PAID') {
-      bt.paidCount += 1;
-      bt.paidAmountInPaise += r.amountInPaise;
-    } else {
-      bt.pendingCount += 1;
-      bt.pendingAmountInPaise += r.amountInPaise;
-    }
-    if (r.payeeType === 'LAB') {
-      if (r.status === 'PAID') labPaid += r.amountInPaise;
-      else labPending += r.amountInPaise;
-    } else {
-      if (r.status === 'PAID') commissionsPaid += r.amountInPaise;
-      else commissionsPending += r.amountInPaise;
-    }
+    bt.count += 1;
+    bt.amountInPaise += r.amountInPaise;
+    if (r.payeeType === 'LAB') labTotal += r.amountInPaise;
+    else commissionsTotal += r.amountInPaise;
   }
 
-  // Rows/groups respect the status filter; the totals above do not.
-  const displayed =
-    status === 'all'
-      ? allRows
-      : allRows.filter((r) => (status === 'paid' ? r.status === 'PAID' : r.status === 'PENDING'));
-
   const groups: PayRunWorklistGroup[] = PAYOUT_TYPES_ORDER.map((t) => {
-    const groupRows = displayed.filter((r) => r.payeeType === t);
-    const pendingInPaise = groupRows
-      .filter((r) => r.status === 'PENDING')
-      .reduce((s, r) => s + r.amountInPaise, 0);
-    const paidInPaise = groupRows
-      .filter((r) => r.status === 'PAID')
-      .reduce((s, r) => s + r.amountInPaise, 0);
+    const groupRows = rows.filter((r) => r.payeeType === t);
     return {
       payeeType: t,
       direction: (t === 'LAB' ? 'OUTBOUND' : 'INBOUND') as PayoutDirection,
-      subtotalInPaise: pendingInPaise + paidInPaise,
-      pendingInPaise,
-      paidInPaise,
+      subtotalInPaise: groupRows.reduce((s, r) => s + r.amountInPaise, 0),
       rows: groupRows,
     };
   }).filter((g) => g.rows.length > 0);
@@ -1903,17 +1847,13 @@ export async function getPayRunWorklist(
     period: { startDate: filters?.startDate ?? null, endDate: filters?.endDate ?? null },
     view,
     totals: {
-      commissionsTotalInPaise: commissionsPending + commissionsPaid,
-      labPayablesTotalInPaise: labPending + labPaid,
-      commissionsPendingInPaise: commissionsPending,
-      commissionsPaidInPaise: commissionsPaid,
-      labPayablesPendingInPaise: labPending,
-      labPayablesPaidInPaise: labPaid,
-      payeeCount: displayed.length,
+      commissionsTotalInPaise: commissionsTotal,
+      labPayablesTotalInPaise: labTotal,
+      payeeCount: rows.length,
       byType,
     },
     groups,
-    rows: displayed,
+    rows,
   };
 }
 

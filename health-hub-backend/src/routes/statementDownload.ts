@@ -65,8 +65,7 @@ function fmtDate(iso: string | Date): string {
 }
 
 function docTitle(s: PayoutStatement): string {
-  if (s.isLab) return s.status === 'PAID' ? 'Outside Lab — Payment Voucher' : 'Outside Lab Payable';
-  return s.status === 'PAID' ? 'Payout Receipt' : 'Payout Statement';
+  return s.isLab ? 'Outside Lab Statement' : 'Payout Statement';
 }
 
 function bandRows(band: StatementBand, isLab: boolean): string {
@@ -102,7 +101,7 @@ function renderStatementHtml(s: PayoutStatement): string {
   const isLab = s.isLab;
   const head = isLab
     ? `<th>Date</th><th>Patient</th><th>Test</th><th>Rate</th><th class="r">Price</th><th class="r">Payable</th><th class="r">Margin</th>`
-    : `<th>Date</th><th>Bill #</th><th>Patient</th><th>Test / fee</th><th class="r">T Amt</th><th class="r">Disc</th><th class="r">P Amt</th><th class="r">${isLab ? 'Payable' : 'Fin Amt'}</th>`;
+    : `<th>Date</th><th>Bill #</th><th>Patient</th><th>Test / fee</th><th class="r">T Amt</th><th class="r">Disc</th><th class="r">P Amt</th><th class="r">Payable</th>`;
 
   const bands = s.bands
     .map(
@@ -113,11 +112,6 @@ function renderStatementHtml(s: PayoutStatement): string {
       </div>`
     )
     .join('');
-
-  const paymentLine =
-    s.status === 'PAID'
-      ? `<div class="paid">Paid ${s.paidAt ? fmtDate(s.paidAt) : ''}${s.paymentMethod ? ' · ' + esc(s.paymentMethod) : ''}${s.paymentReferenceId ? ' · ref ' + esc(s.paymentReferenceId) : ''}</div>`
-      : '';
 
   const margin =
     isLab && s.lab
@@ -170,10 +164,9 @@ function renderStatementHtml(s: PayoutStatement): string {
       <div><div class="name">${esc(s.payeeName)}</div><div class="sub">Period ${fmtDate(s.periodStartDate)} – ${fmtDate(s.periodEndDate)} · Branch ${esc(s.branchName) || '—'}</div></div>
       <div><div class="sub">${isLab ? 'Payable' : 'Total payout'}</div><div class="amt ${isLab ? 'lab' : ''}">${rupees(s.grandTotal.finAmtInPaise)}</div></div>
     </div>
-    <div class="statusline">Status: <span class="${s.status === 'PAID' ? 'st-paid' : 'st-pend'}">${s.status === 'PAID' ? 'Paid' : isLab ? 'Unpaid' : 'Pending'}</span>${paymentLine}</div>
   </div>
   ${bands}
-  <div class="gt"><span class="b">GRAND TOTAL</span><span class="x">|</span><span>T Amt <b>${rupees(s.grandTotal.tAmtInPaise)}</b></span><span>Disc <b>${rupees(s.grandTotal.discInPaise)}</b></span><span>P Amt <b>${rupees(s.grandTotal.pAmtInPaise)}</b></span><span class="tot">${isLab ? 'Payable' : 'Fin'} <b>${rupees(s.grandTotal.finAmtInPaise)}</b></span></div>
+  <div class="gt"><span class="b">GRAND TOTAL</span><span class="x">|</span><span>T Amt <b>${rupees(s.grandTotal.tAmtInPaise)}</b></span><span>Disc <b>${rupees(s.grandTotal.discInPaise)}</b></span><span>P Amt <b>${rupees(s.grandTotal.pAmtInPaise)}</b></span><span class="tot">Payable <b>${rupees(s.grandTotal.finAmtInPaise)}</b></span></div>
   ${margin}
   <div class="foot">Sobhana Diagnostics · This statement was shared with you securely.</div>
 </div></body></html>`;

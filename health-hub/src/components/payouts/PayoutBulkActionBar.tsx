@@ -2,8 +2,7 @@
  * Sticky action bar that appears when N>0 payouts are selected.
  *
  * Shown at the bottom of the page (sticky, above any footer). Hides itself
- * when count === 0. Owner-only actions (Delete) are gated by `isOwner`;
- * staff users see Mark Paid + Export + Clear only.
+ * when count === 0. Owner-only actions (Delete) are gated by `isOwner`.
  */
 import { CheckCircle2, Download, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,7 +12,6 @@ export interface PayoutBulkActionBarProps {
   count: number;
   totalInPaise?: number;          // optional: sum of selected amounts
   isOwner: boolean;
-  onMarkPaid: () => void;
   onDelete: () => void;
   onExport: () => void;
   onClear: () => void;
@@ -23,7 +21,6 @@ export function PayoutBulkActionBar({
   count,
   totalInPaise,
   isOwner,
-  onMarkPaid,
   onDelete,
   onExport,
   onClear,
@@ -49,9 +46,6 @@ export function PayoutBulkActionBar({
           </span>
         </div>
         <div className="h-5 w-px bg-border" />
-        <Button size="sm" onClick={onMarkPaid}>
-          Mark Paid
-        </Button>
         <Button size="sm" variant="outline" onClick={onExport}>
           <Download className="h-4 w-4 mr-1.5" />
           Export

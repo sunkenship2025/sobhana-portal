@@ -532,14 +532,9 @@ router.get('/doctors/diagnostic-centers', requireRole('owner', 'staff'), async (
 router.get('/worklist', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
   try {
     const branchId = req.branchId!;
-    const statusRaw = typeof req.query.status === 'string' ? req.query.status : 'all';
-    const status = (['all', 'pending', 'paid'] as const).includes(statusRaw as any)
-      ? (statusRaw as 'all' | 'pending' | 'paid')
-      : 'all';
     const worklist = await payoutService.getPayRunWorklist(branchId, {
       startDate: parseDate(req.query.startDate),
       endDate: parseDate(req.query.endDate),
-      status,
       payeeType: parseDoctorType(req.query.payeeType),
       q: typeof req.query.q === 'string' ? req.query.q : undefined,
       view: req.query.view === 'flat' ? 'flat' : 'grouped',

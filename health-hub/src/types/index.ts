@@ -893,24 +893,17 @@ export interface PayoutWorklistRow {
   periodStartDate: string;
   periodEndDate: string;
   amountInPaise: number;
-  status: "PENDING" | "PAID";
-  paidAt: string | null;
-  paymentMethod: PaymentType | null;
 }
 
 export interface PayoutTypeTotals {
-  pendingCount: number;
-  pendingAmountInPaise: number;
-  paidCount: number;
-  paidAmountInPaise: number;
+  count: number;
+  amountInPaise: number;
 }
 
 export interface PayRunWorklistGroup {
   payeeType: PayoutDoctorType;
   direction: PayoutDirection;
   subtotalInPaise: number;
-  pendingInPaise: number;
-  paidInPaise: number;
   rows: PayoutWorklistRow[];
 }
 
@@ -920,10 +913,6 @@ export interface PayRunWorklist {
   totals: {
     commissionsTotalInPaise: number;
     labPayablesTotalInPaise: number;
-    commissionsPendingInPaise: number;
-    commissionsPaidInPaise: number;
-    labPayablesPendingInPaise: number;
-    labPayablesPaidInPaise: number;
     payeeCount: number;
     byType: Record<PayoutDoctorType, PayoutTypeTotals>;
   };
@@ -976,11 +965,6 @@ export interface PayoutStatement {
   branchName: string;
   periodStartDate: string;
   periodEndDate: string;
-  status: "PENDING" | "PAID";
-  paidAt: string | null;
-  paymentMethod: PaymentType | null;
-  paymentReferenceId: string | null;
-  notes: string | null;
   isLab: boolean;
   whatsappEnabled?: boolean;
   payeeHasPhone?: boolean;

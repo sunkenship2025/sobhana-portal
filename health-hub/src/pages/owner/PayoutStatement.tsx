@@ -17,16 +17,10 @@ import {
   ErrorCard,
   formatIstDate,
 } from "./_shared/ownerUi";
-import {
-  PayoutMarkPaidDialog,
-  type PayoutMarkPaidPayment,
-} from "@/components/payouts/PayoutMarkPaidDialog";
 import type {
   PayoutStatement as Statement,
   StatementBand,
   PayoutCategory,
-  PayoutSummary,
-  PaymentType,
 } from "@/types";
 
 const CAT_COLOR: Record<PayoutCategory, string> = {
@@ -87,8 +81,7 @@ function groupRowsByBill(bands: StatementBand[]) {
 const LOGO_URL = `${API_BASE_URL}/images/sobhana-clinic-logo.png`;
 
 function docTitle(s: Statement): string {
-  if (s.isLab) return s.status === "PAID" ? "OUTSIDE LAB — PAYMENT VOUCHER" : "OUTSIDE LAB PAYABLE";
-  return s.status === "PAID" ? "PAYOUT RECEIPT" : "PAYOUT STATEMENT";
+  return s.isLab ? "OUTSIDE LAB STATEMENT" : "PAYOUT STATEMENT";
 }
 
 export default function PayoutStatement() {
@@ -145,8 +138,6 @@ export default function PayoutStatement() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stmt]);
 
-  const [markPaidOpen, setMarkPaidOpen] = useState(false);
-  const [markPaidBusy, setMarkPaidBusy] = useState(false);
   const [sendingWa, setSendingWa] = useState(false);
 
   const sendWhatsApp = async () => {
@@ -171,31 +162,6 @@ export default function PayoutStatement() {
   };
 
   const [catOpen, setCatOpen] = useState(true);
-
-  const submitMarkPaid = async (payment: PayoutMarkPaidPayment) => {
-    if (!id) return;
-    setMarkPaidBusy(true);
-    try {
-      const res = await fetch(`${API_BASE}/payouts/${id}/mark-paid`, {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify(payment),
-      });
-      const body = await res.json();
-      if (!res.ok) {
-        toast.error(body.message ?? "Failed to mark paid");
-      } else {
-        setMarkPaidOpen(false);
-        await fetchStatement();
-        toast.success("Marked as paid", {
-          description: "This is now a receipt.",
-          action: { label: "Print receipt", onClick: () => window.print() },
-        });
-      }
-    } finally {
-      setMarkPaidBusy(false);
-    }
-  };
 
   const exportExcel = async () => {
     if (!id || !token || !activeBranchId) return;
@@ -263,11 +229,6 @@ export default function PayoutStatement() {
                     <MessageCircle className="mr-1.5 h-4 w-4" /> {sendingWa ? "Sending…" : "WhatsApp"}
                   </Button>
                 )}
-                {stmt && stmt.status === "PENDING" && (
-                  <Button size="sm" onClick={() => setMarkPaidOpen(true)}>
-                    Mark Paid
-                  </Button>
-                )}
               </>
             }
           />
@@ -307,26 +268,6 @@ export default function PayoutStatement() {
                     {formatRupees(stmt.grandTotal.finAmtInPaise)}
                   </div>
                 </div>
-              </div>
-              <div
-                className="mt-3 border-t pt-3"
-                style={{ borderColor: TOKENS.border, fontSize: 13 }}
-              >
-                <span style={{ color: TOKENS.textSecondary }}>Status: </span>
-                <span
-                  className="font-medium"
-                  style={{ color: stmt.status === "PAID" ? TOKENS.healthy : TOKENS.caution }}
-                >
-                  {stmt.status === "PAID" ? "Paid" : isLab ? "Unpaid" : "Pending"}
-                </span>
-                {stmt.status === "PAID" && (
-                  <span style={{ color: TOKENS.textTertiary, marginLeft: 8 }}>
-                    {stmt.paidAt ? formatIstDate(stmt.paidAt) : ""}
-                    {stmt.paymentMethod ? ` · ${stmt.paymentMethod}` : ""}
-                    {stmt.paymentReferenceId ? ` · ref ${stmt.paymentReferenceId}` : ""}
-                    {stmt.notes ? ` · ${stmt.notes}` : ""}
-                  </span>
-                )}
               </div>
             </SectionCard>
 
@@ -525,33 +466,6 @@ export default function PayoutStatement() {
           </>
         )}
       </div>
-
-      {stmt && (
-        <PayoutMarkPaidDialog
-          open={markPaidOpen}
-          onOpenChange={setMarkPaidOpen}
-          busy={markPaidBusy}
-          payout={
-            {
-              id: stmt.id,
-              doctorType: stmt.payeeType,
-              doctorId: stmt.payeeId,
-              doctorName: stmt.payeeName,
-              branchId: activeBranchId ?? "",
-              branchName: stmt.branchName,
-              periodStartDate: stmt.periodStartDate,
-              periodEndDate: stmt.periodEndDate,
-              derivedAmountInPaise: stmt.grandTotal.finAmtInPaise,
-              derivedAt: "",
-              paidAt: stmt.paidAt,
-              paymentMethod: stmt.paymentMethod,
-            } as PayoutSummary
-          }
-          bulkCount={0}
-          bulkTotalInPaise={0}
-          onConfirm={submitMarkPaid}
-        />
-      )}
     </AppLayout>
   );
 }
@@ -746,47 +660,27 @@ function StatementPrint({ stmt }: { stmt: Statement }) {
         </table>
       )}
 
-      {/* Status / payment + signature */}
-      {stmt.status === "PAID" ? (
-        <>
-          <div
-            style={{
-              marginTop: 12,
-              border: "1px solid #999",
-              borderLeft: "4px solid #2c7a52",
-              padding: "8px 10px",
-              fontSize: 10.5,
-            }}
-          >
-            <b>Payment received — {formatRupees(stmt.grandTotal.finAmtInPaise)}</b>
-            {stmt.paidAt ? ` · ${formatIstDate(stmt.paidAt)}` : ""}
-            {stmt.paymentMethod ? ` · ${stmt.paymentMethod}` : ""}
-            {stmt.paymentReferenceId ? ` · ref ${stmt.paymentReferenceId}` : ""}
-          </div>
-          <div style={{ marginTop: 48, textAlign: "right", fontSize: 10.5 }}>
-            Authorised signatory
-          </div>
-        </>
-      ) : (
-        <div
-          style={{
-            marginTop: 12,
-            border: "1px solid #999",
-            borderLeft: "4px solid #9a7b2c",
-            padding: "8px 10px",
-            fontSize: 10.5,
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 12,
-          }}
-        >
-          <span>
-            <b>Amount payable: {formatRupees(stmt.grandTotal.finAmtInPaise)}</b> · Status:{" "}
-            {isLab ? "Unpaid" : "Pending"}
-          </span>
-          <span style={{ color: "#666" }}>Discrepancies, if any, to be raised within 7 days.</span>
-        </div>
-      )}
+      {/* Payable + signature */}
+      <div
+        style={{
+          marginTop: 12,
+          border: "1px solid #999",
+          borderLeft: "4px solid #1F1F1E",
+          padding: "8px 10px",
+          fontSize: 10.5,
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <span>
+          <b>Amount payable: {formatRupees(stmt.grandTotal.finAmtInPaise)}</b>
+        </span>
+        <span style={{ color: "#666" }}>Discrepancies, if any, to be raised within 7 days.</span>
+      </div>
+      <div style={{ marginTop: 48, textAlign: "right", fontSize: 10.5 }}>
+        Authorised signatory
+      </div>
 
       <div style={{ textAlign: "center", marginTop: 14, fontSize: 9, color: "#666", borderTop: "1px solid #ccc", paddingTop: 6 }}>
         Computer-generated {docTitle(stmt).toLowerCase()} · Sobhana Diagnostics
