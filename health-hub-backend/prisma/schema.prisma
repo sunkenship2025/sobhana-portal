@@ -1458,6 +1458,10 @@ model BillableProduct {
   basePriceInPaise Int // Default price (can be overridden per branch)
   isBundle         Boolean                @default(false) // true = package of multiple panels
   workflowMode     DiagnosticWorkflowMode @default(REPORTABLE)
+  // Grouping bucket for the payout statement (e.g. "X-Ray", "Laboratory").
+  // Owner-set per product; when null the statement falls back to the test's
+  // department name. No fixed enum — the centre defines its own categories.
+  payoutCategory   String?
   displayOrder     Int                    @default(0)
   isActive         Boolean                @default(true)
   createdAt        DateTime               @default(now())

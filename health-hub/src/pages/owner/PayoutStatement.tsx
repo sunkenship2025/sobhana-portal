@@ -23,13 +23,14 @@ import type {
   PayoutCategory,
 } from "@/types";
 
-const CAT_COLOR: Record<PayoutCategory, string> = {
-  LAB: "#8a93a3",
-  XRAY: "#a8896f",
-  USG: "#6f86a8",
-  ECG: "#9a9a6f",
-  SPL: "#888780",
-};
+// Categories are centre-defined, so colours are derived deterministically from
+// the label (stable across renders) rather than a fixed map.
+const CAT_PALETTE = ["#6f86a8", "#a8896f", "#8a93a3", "#9a9a6f", "#7f9c8b", "#a07f9c", "#888780"];
+function catColor(category: PayoutCategory): string {
+  let h = 0;
+  for (let i = 0; i < category.length; i++) h = (h * 31 + category.charCodeAt(i)) >>> 0;
+  return CAT_PALETTE[h % CAT_PALETTE.length];
+}
 
 // Group statement line items by bill/patient (for the per-patient rows + chips).
 function groupRowsByBill(bands: StatementBand[]) {
@@ -296,7 +297,7 @@ export default function PayoutStatement() {
                           <div style={{ fontSize: 13, fontWeight: 600, margin: "2px 0 5px" }}>
                             {formatRupees(band.subtotal.finAmtInPaise)}
                           </div>
-                          <MiniBar fillRatio={band.subtotal.finAmtInPaise / max} color={CAT_COLOR[band.category]} />
+                          <MiniBar fillRatio={band.subtotal.finAmtInPaise / max} color={catColor(band.category)} />
                         </div>
                       );
                     })}
@@ -410,7 +411,7 @@ export default function PayoutStatement() {
                                       width: 7,
                                       height: 7,
                                       borderRadius: "50%",
-                                      background: CAT_COLOR[it.category],
+                                      background: catColor(it.category),
                                       marginRight: 5,
                                       verticalAlign: "middle",
                                     }}
@@ -470,10 +471,8 @@ export default function PayoutStatement() {
   );
 }
 
-const PRINT_CATS: PayoutCategory[] = ["LAB", "XRAY", "USG", "ECG", "SPL"];
-
-// Group statement line items into the legacy per-bill rows with per-category fin buckets.
-function groupForPrint(bands: StatementBand[]) {
+// Group one band's (category's) line items into per-bill rows for the print.
+function groupBillsInBand(band: StatementBand) {
   const map = new Map<
     string,
     {
@@ -485,37 +484,32 @@ function groupForPrint(bands: StatementBand[]) {
       disc: number;
       pAmt: number;
       fin: number;
-      cat: Record<PayoutCategory, number>;
       tests: string[];
     }
   >();
-  for (const band of bands) {
-    for (const r of band.rows) {
-      const key = `${r.billNumber}|${r.patientName}`;
-      let g = map.get(key);
-      if (!g) {
-        g = {
-          key,
-          billNumber: r.billNumber,
-          date: r.date,
-          patient: `${r.patientTitle ? r.patientTitle + " " : ""}${r.patientName}`,
-          tAmt: 0,
-          disc: 0,
-          pAmt: 0,
-          fin: 0,
-          cat: { LAB: 0, XRAY: 0, USG: 0, ECG: 0, SPL: 0 },
-          tests: [],
-        };
-        map.set(key, g);
-      }
-      g.tAmt += r.tAmtInPaise;
-      g.disc += r.discInPaise;
-      g.pAmt += r.pAmtInPaise;
-      g.fin += r.finAmtInPaise;
-      g.cat[r.category] += r.finAmtInPaise;
-      g.tests.push(r.testOrFee);
-      if (new Date(r.date) < new Date(g.date)) g.date = r.date;
+  for (const r of band.rows) {
+    const key = `${r.billNumber}|${r.patientName}`;
+    let g = map.get(key);
+    if (!g) {
+      g = {
+        key,
+        billNumber: r.billNumber,
+        date: r.date,
+        patient: `${r.patientTitle ? r.patientTitle + " " : ""}${r.patientName}`,
+        tAmt: 0,
+        disc: 0,
+        pAmt: 0,
+        fin: 0,
+        tests: [],
+      };
+      map.set(key, g);
     }
+    g.tAmt += r.tAmtInPaise;
+    g.disc += r.discInPaise;
+    g.pAmt += r.pAmtInPaise;
+    g.fin += r.finAmtInPaise;
+    g.tests.push(r.testOrFee);
+    if (new Date(r.date) < new Date(g.date)) g.date = r.date;
   }
   return Array.from(map.values()).sort(
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
@@ -533,11 +527,10 @@ function StatementPrint({ stmt }: { stmt: Statement }) {
   const rt: CSSProperties = { textAlign: "right", fontVariantNumeric: "tabular-nums" };
   const r0 = (p: number) => (p ? formatRupees(p) : "—");
 
-  const catTotals = Object.fromEntries(
-    PRINT_CATS.map((c) => [c, stmt.bands.find((b) => b.category === c)?.subtotal.finAmtInPaise ?? 0])
-  ) as Record<PayoutCategory, number>;
-  const patients = groupForPrint(stmt.bands);
   const labRows = stmt.bands.flatMap((b) => b.rows);
+  const billCount = new Set(
+    stmt.bands.flatMap((b) => b.rows.map((r) => `${r.billNumber}|${r.patientName}`))
+  ).size;
 
   return (
     <div className="hidden print:block print-content print-page">
@@ -605,55 +598,68 @@ function StatementPrint({ stmt }: { stmt: Statement }) {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>Sln</th>
+              <th style={{ ...th, width: 26 }}>Sln</th>
               <th style={th}>Bill #</th>
               <th style={{ ...th, ...lt }}>Date</th>
               <th style={{ ...th, ...lt }}>Patient</th>
               <th style={th}>T Amt</th>
               <th style={th}>Disc</th>
               <th style={th}>P Amt</th>
-              <th style={th}>LAB</th>
-              <th style={th}>XRAY</th>
-              <th style={th}>USG</th>
-              <th style={th}>ECG</th>
-              <th style={th}>SPL</th>
-              <th style={th}>Fin Amt</th>
+              <th style={th}>Payable</th>
             </tr>
           </thead>
-          <tbody>
-            {patients.map((p, idx) => (
-              <Fragment key={p.key}>
+          {stmt.bands.map((band) => {
+            const bills = groupBillsInBand(band);
+            let n = 0;
+            return (
+              <tbody key={band.category}>
                 <tr>
-                  <td style={td}>{idx + 1}</td>
-                  <td style={td}>{p.billNumber}</td>
-                  <td style={{ ...td, ...lt }}>{formatIstDate(p.date)}</td>
-                  <td style={{ ...td, ...lt }}>{p.patient}</td>
-                  <td style={{ ...td, ...rt }}>{formatRupees(p.tAmt)}</td>
-                  <td style={{ ...td, ...rt }}>{r0(p.disc)}</td>
-                  <td style={{ ...td, ...rt }}>{formatRupees(p.pAmt)}</td>
-                  {PRINT_CATS.map((c) => (
-                    <td key={c} style={{ ...td, ...rt }}>{r0(p.cat[c])}</td>
-                  ))}
-                  <td style={{ ...td, ...rt, fontWeight: 700 }}>{formatRupees(p.fin)}</td>
-                </tr>
-                <tr>
-                  <td style={td}></td>
-                  <td style={{ ...td, ...lt, fontSize: 8, color: "#555" }} colSpan={12}>
-                    {p.tests.join(", ")}
+                  <td
+                    style={{ ...td, ...lt, fontWeight: 700, background: "#f0f0f0" }}
+                    colSpan={8}
+                  >
+                    {band.label}
                   </td>
                 </tr>
-              </Fragment>
-            ))}
-          </tbody>
+                {bills.map((p) => {
+                  n += 1;
+                  return (
+                    <Fragment key={p.key}>
+                      <tr>
+                        <td style={td}>{n}</td>
+                        <td style={td}>{p.billNumber}</td>
+                        <td style={{ ...td, ...lt }}>{formatIstDate(p.date)}</td>
+                        <td style={{ ...td, ...lt }}>{p.patient}</td>
+                        <td style={{ ...td, ...rt }}>{formatRupees(p.tAmt)}</td>
+                        <td style={{ ...td, ...rt }}>{r0(p.disc)}</td>
+                        <td style={{ ...td, ...rt }}>{formatRupees(p.pAmt)}</td>
+                        <td style={{ ...td, ...rt, fontWeight: 700 }}>{formatRupees(p.fin)}</td>
+                      </tr>
+                      <tr>
+                        <td style={td}></td>
+                        <td style={{ ...td, ...lt, fontSize: 8, color: "#555" }} colSpan={7}>
+                          {p.tests.join(", ")}
+                        </td>
+                      </tr>
+                    </Fragment>
+                  );
+                })}
+                <tr style={{ fontWeight: 600, background: "#f8f8f6" }}>
+                  <td style={{ ...td, ...lt }} colSpan={4}>{band.label} subtotal</td>
+                  <td style={{ ...td, ...rt }}>{formatRupees(band.subtotal.tAmtInPaise)}</td>
+                  <td style={{ ...td, ...rt }}>{r0(band.subtotal.discInPaise)}</td>
+                  <td style={{ ...td, ...rt }}>{formatRupees(band.subtotal.pAmtInPaise)}</td>
+                  <td style={{ ...td, ...rt }}>{formatRupees(band.subtotal.finAmtInPaise)}</td>
+                </tr>
+              </tbody>
+            );
+          })}
           <tfoot>
             <tr style={{ fontWeight: 700, background: "#f0f0f0" }}>
-              <td style={{ ...td, ...lt }} colSpan={4}>GRAND TOTAL — {patients.length} bills</td>
+              <td style={{ ...td, ...lt }} colSpan={4}>GRAND TOTAL — {billCount} bills</td>
               <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.tAmtInPaise)}</td>
               <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.discInPaise)}</td>
               <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.pAmtInPaise)}</td>
-              {PRINT_CATS.map((c) => (
-                <td key={c} style={{ ...td, ...rt }}>{r0(catTotals[c])}</td>
-              ))}
               <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.finAmtInPaise)}</td>
             </tr>
           </tfoot>

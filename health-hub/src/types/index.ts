@@ -750,7 +750,8 @@ export interface PatientEditPayload {
 // PAYOUT TYPES
 // ============================================
 export type PayoutDoctorType = "REFERRAL" | "CLINIC" | "DIAGNOSTIC_CENTER" | "LAB";
-export type PayoutCategory = "LAB" | "XRAY" | "USG" | "ECG" | "SPL";
+// Categories are centre-defined (BillableProduct.payoutCategory), no fixed enum.
+export type PayoutCategory = string;
 export type PayoutDirection = "INBOUND" | "OUTBOUND";
 export type PayoutKind = "COMMISSION" | "PAYABLE";
 // PaymentType is defined above in VISIT section

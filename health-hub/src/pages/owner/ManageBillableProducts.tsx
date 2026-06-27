@@ -81,6 +81,7 @@ interface BillableProduct {
   panelCount: number;
   branchPricing: ProductBranchPricing[];
   effectivePrice?: number;
+  payoutCategory?: string | null;
 }
 
 interface Branch { id: string; name: string }
@@ -150,7 +151,18 @@ export default function ManageBillableProducts() {
   const [formBasePrice, setFormBasePrice] = useState('');
   const [formActive, setFormActive] = useState(true);
   const [formDescription, setFormDescription] = useState('');
+  const [formPayoutCategory, setFormPayoutCategory] = useState('');
   const [formPanels, setFormPanels] = useState<ProductPanel[]>([]);
+
+  // Payout-category suggestions: the centre's departments + any category labels
+  // already in use across products (so the owner reuses consistent names).
+  const [departmentNames, setDepartmentNames] = useState<string[]>([]);
+  const categorySuggestions = Array.from(
+    new Set([
+      ...departmentNames,
+      ...products.map((p) => p.payoutCategory).filter((c): c is string => !!c),
+    ])
+  ).sort((a, b) => a.localeCompare(b));
 
   // Code validation
   const [codeAvailable, setCodeAvailable] = useState<boolean | null>(null);
@@ -177,13 +189,18 @@ export default function ManageBillableProducts() {
 
   const fetchDependencies = useCallback(async () => {
     try {
-      const [panelsRes, branchRes, billOnlyRes] = await Promise.all([
+      const [panelsRes, branchRes, billOnlyRes, deptRes] = await Promise.all([
         fetch(`${API_BASE}/clinical-panels`, { headers }),
         fetch(`${API_BASE}/branches`, { headers }),
         fetch(`${API_BASE}/billable-products?workflowMode=BILL_ONLY`, { headers }),
+        fetch(`${API_BASE}/departments`, { headers }),
       ]);
       if (panelsRes.ok) setAvailablePanels(await panelsRes.json());
       if (branchRes.ok) setBranchOptions(await branchRes.json());
+      if (deptRes.ok) {
+        const depts: any[] = await deptRes.json();
+        setDepartmentNames(depts.map((d) => d.name).filter(Boolean));
+      }
       if (billOnlyRes.ok) {
         const items: any[] = await billOnlyRes.json();
         setAvailableSubProducts(items.map((p) => ({
@@ -228,6 +245,7 @@ export default function ManageBillableProducts() {
     setFormName(''); setFormCode(''); setFormType('INDIVIDUAL_TEST');
     setFormWorkflowMode('REPORTABLE');
     setFormBasePrice(''); setFormActive(true); setFormDescription('');
+    setFormPayoutCategory('');
     setFormPanels([]); setEditingProduct(null);
     setCodeAvailable(null); setCodeChecking(false);
   };
@@ -240,6 +258,7 @@ export default function ManageBillableProducts() {
     setFormBasePrice(p.basePrice.toString());
     setFormActive(p.isActive);
     setFormDescription(p.description || '');
+    setFormPayoutCategory(p.payoutCategory || '');
     setFormPanels((p.panels || []).map(pp => ({
       panelId: pp.panelId ?? pp.panel?.id ?? null,
       childProductId: pp.childProductId ?? pp.childProduct?.id ?? null,
@@ -344,6 +363,7 @@ export default function ManageBillableProducts() {
         basePrice: parseFloat(formBasePrice),
         isActive: formActive,
         description: formDescription || null,
+        payoutCategory: formPayoutCategory.trim() || null,
         panels: formPanels
           .filter(p => p.panelId || p.childProductId)
           .map((p, i) => ({
@@ -658,6 +678,18 @@ export default function ManageBillableProducts() {
             <div>
               <Label>Base Price (₹) *</Label>
               <Input type="number" value={formBasePrice} onChange={e => setFormBasePrice(e.target.value)} />
+            </div>
+            <div>
+              <Label>Payout category</Label>
+              <Input
+                value={formPayoutCategory}
+                onChange={e => setFormPayoutCategory(e.target.value)}
+                list="payout-category-options"
+                placeholder="e.g. X-Ray, Laboratory"
+              />
+              <datalist id="payout-category-options">
+                {categorySuggestions.map(c => <option key={c} value={c} />)}
+              </datalist>
             </div>
             <div className="flex items-center gap-2 col-span-2">
               <Switch checked={formActive} onCheckedChange={setFormActive} />

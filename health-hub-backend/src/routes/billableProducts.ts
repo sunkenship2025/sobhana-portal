@@ -64,6 +64,12 @@ function validateLineShape(p: any, idx: number): string | null {
 }
 
 // ─── Helper ──────────────────────────────────────────────────────────
+function normalizePayoutCategory(v: any): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  return t.length ? t : null;
+}
+
 function transformProduct(product: any) {
   return {
     ...product,
@@ -295,6 +301,7 @@ router.post('/', async (req: AuthRequest, res) => {
       basePriceInPaise: rawPriceInPaise, basePrice,
       isBundle: rawIsBundle, productType,
       workflowMode,
+      payoutCategory,
       displayOrder, panels,
     } = req.body;
 
@@ -404,6 +411,7 @@ router.post('/', async (req: AuthRequest, res) => {
         basePriceInPaise: resolvedPriceInPaise,
         isBundle: resolvedIsBundle,
         workflowMode: resolvedWorkflowMode,
+        payoutCategory: normalizePayoutCategory(payoutCategory),
         displayOrder: displayOrder ?? 0,
         panels: panels?.length ? {
           create: panels.map((p: any, idx: number) => ({
@@ -450,6 +458,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
       basePriceInPaise: rawPriceInPaise, basePrice,
       isBundle: rawIsBundle, productType,
       workflowMode,
+      payoutCategory,
       displayOrder, panels,
     } = req.body;
 
@@ -585,6 +594,10 @@ router.put('/:id', async (req: AuthRequest, res) => {
           basePriceInPaise: resolvedPriceInPaise ?? existing.basePriceInPaise,
           isBundle: resolvedIsBundle ?? existing.isBundle,
           workflowMode: resolvedWorkflowMode,
+          payoutCategory:
+            payoutCategory !== undefined
+              ? normalizePayoutCategory(payoutCategory)
+              : existing.payoutCategory,
           displayOrder: displayOrder ?? existing.displayOrder,
           panels: panels ? {
             create: panels.map((p: any, idx: number) => ({

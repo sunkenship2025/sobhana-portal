@@ -5,7 +5,7 @@ import {
   allocateBillDiscountAcrossOrders,
   computeBillFinancialsFromPersisted,
 } from './billFinancialService';
-import { categorize, categoryLabel, CATEGORY_ORDER, type PayoutCategory } from './payoutCategorize';
+import { categorize, categoryLabel, UNCATEGORIZED, type PayoutCategory } from './payoutCategorize';
 import { isWhatsAppEnabled } from './whatsappCloudService';
 
 
@@ -28,7 +28,7 @@ export interface PayoutLineItem {
   commissionLabel?: string;
   derivedCommissionInPaise: number;
   // Statement enrichment (optional; populated by diagnostic derivations)
-  category?: PayoutCategory;        // LAB | XRAY | USG | ECG | SPL
+  category?: PayoutCategory;        // centre-defined label (product category or department)
   basisLabel?: string;              // e.g. "50% → ₹300" or "Flat ₹200"
   discountInPaise?: number;         // this order's allocated share of the bill discount
   departmentName?: string | null;
@@ -235,7 +235,7 @@ async function deriveReferralPayout(
       testOrders: {
         include: {
           test: { select: { name: true, code: true, department: { select: { name: true } } } },
-          product: { select: { id: true, name: true, code: true } },
+          product: { select: { id: true, name: true, code: true, payoutCategory: true } },
         },
       },
       bill: true,
@@ -311,10 +311,8 @@ async function deriveReferralPayout(
             : undefined,
         derivedCommissionInPaise: commissionInPaise,
         category: categorize({
+          productPayoutCategory: testOrder.product?.payoutCategory,
           departmentName: testOrder.test?.department?.name,
-          productCode: testOrder.product?.code,
-          testCode: testOrder.testCodeSnapshot || testOrder.test?.code,
-          workflowMode: testOrder.workflowMode,
         }),
         basisLabel:
           testOrder.referralCommissionType === 'FIXED_AMOUNT'
@@ -482,7 +480,7 @@ async function deriveDiagnosticCenterPayout(
           testOrders: {
             include: {
               test: { select: { name: true, code: true, department: { select: { name: true } } } },
-              product: { select: { id: true, name: true, code: true } },
+              product: { select: { id: true, name: true, code: true, payoutCategory: true } },
             },
           },
           report: {
@@ -545,10 +543,8 @@ async function deriveDiagnosticCenterPayout(
             : undefined,
         derivedCommissionInPaise: commissionInPaise,
         category: categorize({
+          productPayoutCategory: testOrder.product?.payoutCategory,
           departmentName: testOrder.test?.department?.name,
-          productCode: testOrder.product?.code,
-          testCode: testOrder.testCodeSnapshot || testOrder.test?.code,
-          workflowMode: testOrder.workflowMode,
         }),
         basisLabel:
           hasSnapshot && testOrder.diagnosticCenterCommissionType === 'FIXED_AMOUNT'
@@ -617,7 +613,7 @@ async function deriveExternalLabPayout(
       testOrders: {
         include: {
           test: { select: { name: true, code: true, department: { select: { name: true } } } },
-          product: { select: { id: true, name: true, code: true } },
+          product: { select: { id: true, name: true, code: true, payoutCategory: true } },
         },
       },
       bill: true,
@@ -662,11 +658,9 @@ async function deriveExternalLabPayout(
       totalDerivedInPaise += labCostInPaise;
 
       const category = categorize({
-        departmentName: testOrder.test?.department?.name,
-        productCode: testOrder.product?.code,
-        testCode: testOrder.testCodeSnapshot || testOrder.test?.code,
-        workflowMode: testOrder.workflowMode,
-      });
+          productPayoutCategory: testOrder.product?.payoutCategory,
+          departmentName: testOrder.test?.department?.name,
+        });
       const basisLabel =
         testOrder.labCostType === 'FIXED_AMOUNT'
           ? `Flat ${rupeesShort(labCostInPaise)}`
@@ -1574,7 +1568,7 @@ export function buildPayoutStatementDetail(detail: PayoutDetail): PayoutStatemen
   const grandTotal = emptyStatementTotals(isLab);
 
   for (const item of detail.lineItems) {
-    const category: PayoutCategory = item.category ?? 'SPL';
+    const category: PayoutCategory = item.category ?? UNCATEGORIZED;
     const pAmt = item.amountInPaise;
     const disc = item.discountInPaise ?? 0;
     const tAmt = pAmt + disc;
@@ -1623,9 +1617,12 @@ export function buildPayoutStatementDetail(detail: PayoutDetail): PayoutStatemen
     }
   }
 
-  const bands = CATEGORY_ORDER.map((c) => bandsByCategory.get(c)).filter(
-    (b): b is StatementBand => Boolean(b)
-  );
+  // Categories are dynamic now — order alphabetically, with "Uncategorised" last.
+  const bands = Array.from(bandsByCategory.values()).sort((a, b) => {
+    if (a.category === UNCATEGORIZED) return 1;
+    if (b.category === UNCATEGORIZED) return -1;
+    return a.category.localeCompare(b.category);
+  });
 
   const statement: PayoutStatement = {
     id: detail.id,
