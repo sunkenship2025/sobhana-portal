@@ -49,6 +49,8 @@ Source: [`auth.ts`](../health-hub-backend/src/routes/auth.ts) → service: `auth
 | GET | `/:id` | Get patient + identifiers + visit summary |
 | PATCH | `/:id` | Update demographics; writes `PatientChangeLog` for IDENTITY changes (name/age/gender) |
 | GET | `/:id/visits` | All visits across branches (Patient 360) |
+| GET | `/:id/timeline` | Paginated timeline of visits for Patient 360 |
+| GET | `/:id/360-summary` | Summary dashboard data for Patient 360 |
 
 Source: [`patients.ts`](../health-hub-backend/src/routes/patients.ts) → service: `patientService`, `patientMatchingService`.
 
@@ -215,16 +217,33 @@ Source: [`departments.ts`](../health-hub-backend/src/routes/departments.ts).
 
 Source: [`branches.ts`](../health-hub-backend/src/routes/branches.ts).
 
+### External Labs — `/api/external-labs`
+
+CRUD for outside labs. Includes standard list/create/update endpoints and configuration for lab payout rates.
+
+Source: [`externalLabs.ts`](../health-hub-backend/src/routes/externalLabs.ts) → service: `externalLabService`.
+
 ### Payouts — `/api/payouts`
 
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/` | List payout ledger entries (filter by doctor, period) |
+| GET | `/worklist` | Payout worklist with non-netting subtotals |
 | GET | `/:id` | Detail with derivation breakdown |
+| GET | `/:id/statement` | Payout statement grouped into category bands |
 | POST | `/derive` | Re-derive payouts for a period (idempotent — refreshes `DoctorPayoutLedger`) |
 | POST | `/:id/mark-paid` | Mark as paid (immutable thereafter) |
+| POST | `/:id/send-statement` | Sends the statement link to the payee via WhatsApp |
 
 Source: [`payouts.ts`](../health-hub-backend/src/routes/payouts.ts) → service: `payoutService`.
+
+### Public Statements — `/statements`
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/view/:token` | Public tokenized access to a payee's payout statement |
+
+Source: [`statementDownload.ts`](../health-hub-backend/src/routes/statementDownload.ts).
 
 ### Audit Logs — `/api/audit-logs`
 
