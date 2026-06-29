@@ -315,32 +315,42 @@ export default function PayoutStatement() {
                   Line items
                 </div>
                 <div style={{ overflowX: "auto" }}>
-                  <table className="w-full" style={{ fontSize: 12, minWidth: 620 }}>
+                  <table className="w-full table-fixed" style={{ fontSize: 12, minWidth: 900 }}>
+                    <colgroup>
+                      <col style={{ width: 112 }} />
+                      <col style={{ width: 122 }} />
+                      <col style={{ width: 150 }} />
+                      <col />
+                      <col style={{ width: 90 }} />
+                      <col style={{ width: 78 }} />
+                      <col style={{ width: 90 }} />
+                      <col style={{ width: 98 }} />
+                    </colgroup>
                     <thead>
                       <tr style={{ color: TOKENS.textTertiary, textAlign: "left" }}>
-                        <th className="py-1.5 pl-3 font-normal">Date</th>
-                        <th className="py-1.5 font-normal">Bill #</th>
-                        <th className="py-1.5 font-normal">Patient</th>
-                        <th className="py-1.5 font-normal">Tests</th>
-                        <th className="py-1.5 text-right font-normal">T Amt</th>
-                        <th className="py-1.5 text-right font-normal">Disc</th>
-                        <th className="py-1.5 text-right font-normal">P Amt</th>
-                        <th className="py-1.5 pr-3 text-right font-normal">Payable</th>
+                        <th className="py-2 pl-3 pr-3 font-normal whitespace-nowrap">Date</th>
+                        <th className="py-2 pr-3 font-normal whitespace-nowrap">Bill #</th>
+                        <th className="py-2 pr-3 font-normal">Patient</th>
+                        <th className="py-2 pr-3 font-normal">Tests</th>
+                        <th className="py-2 pr-3 text-right font-normal whitespace-nowrap">T Amt</th>
+                        <th className="py-2 pr-3 text-right font-normal whitespace-nowrap">Disc</th>
+                        <th className="py-2 pr-3 text-right font-normal whitespace-nowrap">P Amt</th>
+                        <th className="py-2 pr-3 text-right font-normal whitespace-nowrap">Payable</th>
                       </tr>
                     </thead>
                     <tbody>
                       {groupRowsByBill(stmt.bands).map((g) => (
                         <tr key={g.key} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
-                          <td className="py-1.5 pl-3" style={{ color: TOKENS.textTertiary, whiteSpace: "nowrap" }}>{formatIstDate(g.date)}</td>
-                          <td className="py-1.5" style={{ color: TOKENS.textTertiary, whiteSpace: "nowrap" }}>{g.billNumber}</td>
-                          <td className="py-1.5">{g.patient}</td>
-                          <td className="py-1.5" style={{ color: TOKENS.textSecondary }}>
+                          <td className="py-2 pl-3 pr-3 align-top whitespace-nowrap" style={{ color: TOKENS.textTertiary }}>{formatIstDate(g.date)}</td>
+                          <td className="py-2 pr-3 align-top whitespace-nowrap" style={{ color: TOKENS.textTertiary }}>{g.billNumber}</td>
+                          <td className="py-2 pr-3 align-top">{g.patient}</td>
+                          <td className="py-2 pr-3 align-top" style={{ color: TOKENS.textSecondary }}>
                             {g.items.map((it) => `${it.testOrFee} (${it.basisLabel})`).join(", ")}
                           </td>
-                          <td className="py-1.5 text-right tabular-nums">{formatRupees(g.tAmt)}</td>
-                          <td className="py-1.5 text-right tabular-nums">{formatRupees(g.disc)}</td>
-                          <td className="py-1.5 text-right tabular-nums">{formatRupees(g.pAmt)}</td>
-                          <td className="py-1.5 pr-3 text-right font-medium tabular-nums">{formatRupees(g.fin)}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">{formatRupees(g.tAmt)}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">{formatRupees(g.disc)}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">{formatRupees(g.pAmt)}</td>
+                          <td className="py-2 pr-3 text-right font-medium tabular-nums whitespace-nowrap">{formatRupees(g.fin)}</td>
                         </tr>
                       ))}
                     </tbody>
