@@ -320,8 +320,10 @@ Repeated ~150 times across pages. Centralizing it in a `lib/apiClient.ts` + reac
 | Model | Purpose |
 |---|---|
 | `AuditLog` | Append-only — login, finalize, payout, edit. Insert-only by convention (no UPDATE/DELETE in code). |
-| `MessageLog` | WhatsApp / SMS delivery log |
+| `MessageLog` | WhatsApp / SMS delivery log. `patientId` is nullable for B2B statements (like Payouts). |
 | `DoctorPayoutLedger` | Payout snapshots per period |
+| `ExternalLab` / `ExternalLabProductRule` | Vendor labs we outsource tests to, plus per-product rate overrides. Payouts ride `DoctorPayoutLedger` as doctorType = LAB. |
+| `StatementAccessToken` | Token-gated public access to payout statements for WhatsApp links. |
 | `ExternalReportUpload` | PDFs uploaded for `EXTERNAL_UPLOAD` workflow, stored in R2, soft-deleted via `deletedAt` |
 
 ### Key constraints
@@ -505,7 +507,7 @@ These exist; they're tracked here so newcomers don't think they're invisible.
 
 1. **`diagnosticVisits.ts` is ~3,800 LOC** — needs to be split per endpoint into a feature folder. Most "fix the bill" commits in git history land here.
 2. **Dual FK migration in flight** — `TestOrder.testId` (legacy `LabTest`) and `TestOrder.testDefinitionId` (new) both populated. Code branches on which is present. Finishing the migration is a tracked refactor.
-3. **`@tanstack/react-query` partial adoption** — while newer flows (patient search, doctor lookups) use React Query, many older pages still reconstruct `fetch()` calls inline (~150 sites). Migrating one page at a time is incremental.
+3. **`@tanstack/react-query` partial adoption** — incremental migration is underway, with shared infrastructure (`useApiQuery`, `useApiMutation`, `queryClient` singleton) supporting branch-scoped cache flushing. Some older pages still reconstruct `fetch()` calls inline. See `react-query-migration-playbook.md` for progress.
 4. **`react-hook-form` + `zod` installed, unused** — forms hand-rolled with `useState`. Same incremental migration plan.
 5. **No automated test suite** — see [`TESTING.md`](TESTING.md) for the strategy.
 6. **CSP disabled** in Helmet config — `contentSecurityPolicy: false`. Should be re-enabled with a tested policy.

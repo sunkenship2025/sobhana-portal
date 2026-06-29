@@ -9,6 +9,9 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 ## [Unreleased]
 
 ### Added
+- **Payouts Redesign:** Added external lab management (`ExternalLab`) and per-product payout overrides. Payout statements have been redesigned with category-banded views. Owner dashboard UI revamped to support the "who I owe" view. B2B payouts can now be shared via WhatsApp token-gated links using `StatementAccessToken`.
+- **Patient 360 Rewrite:** Splitted Patient 360 endpoints into a glance summary endpoint (`/360/summary`) and a cursor-paginated timeline endpoint (`/360/timeline`) to eliminate heavy N+1 database queries. Integrated a unified smart-search for patient ID and bill lookup.
+- **Owner Audit Fields:** Bills now track `discountedByUserId`, `refundReason`, and `refundedAt`. `MessageLog` tracks `branchId` for better accountability and troubleshooting.
 - **New Visit Flow UI/UX Improvements:** Redesigned the diagnostics and clinic new visit pages with a cleaner single-column layout, improved "sticky" bottom bar, focused keyboard navigation, and portalled `Radix Popover` drop-downs to prevent collision and cut-offs.
 - **Shared UI Components:** Extracted repeated structural and state-representing elements into new shared components: `PageHeader`, `LoadingState`, and `EmptyState`.
 - **Visit Defaults Persistence:** Added `visitDefaultsStore` Zustand store to automatically persist the front-desk operator's last choices (e.g., payment mode, consulting doctor) for seamless repetitive data entry.
