@@ -113,7 +113,7 @@ export default function PayoutsList() {
       return new Date(y, mo - 1, 1);
     }
     const t = new Date();
-    return new Date(t.getFullYear(), t.getMonth() - 1, 1); // last completed month
+    return new Date(t.getFullYear(), t.getMonth(), 1); // current month by default
   });
   const [custom, setCustom] = useState<CustomPeriod>(() => {
     const from = searchParams.get("from");
