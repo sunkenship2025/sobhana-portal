@@ -583,7 +583,8 @@ model Bill {
   paymentStatus         PaymentStatus     @default(PENDING)
   refundReason          String? // Latest refund reason (bill-level rollup; per-order reasons live on OrderRefund)
   refundedAt            DateTime? // When the most recent refund was processed; null until a refund exists
-  refundedAmountInPaise Int               @default(0) // Sum of all OrderRefund amounts on this bill
+  refundedAmountInPaise Int               @default(0) // Sum of MONEY returned to the patient (drives refund status + stats)
+  reversedChargeInPaise Int               @default(0) // Sum of CHARGE voided off orders (reduces net owed; gross stays intact)
   refundedByUserId      String? // User who processed the most recent refund (audit; mirrors discountedByUserId)
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
@@ -649,10 +650,12 @@ model TestOrder {
   displayOrder                            Int                    @default(0)
   createdAt                               DateTime               @default(now())
 
-  // Cancel/refund (per-order). cancelledAt set when the order is voided; a paid
-  // order is refunded via OrderRefund rows instead of being cancelled.
-  cancelledAt  DateTime?
-  cancelReason String?
+  // Cancel/refund (per-order). reversedChargeInPaise accumulates the charge voided
+  // off this order (caps partial reversals at priceInPaise); cancelledAt is set once
+  // the whole order is reversed. cancelReason mirrors the latest reason.
+  cancelledAt           DateTime?
+  cancelReason          String?
+  reversedChargeInPaise Int       @default(0)
 
   // E3-03: Test metadata snapshot (frozen at order time)
   testNameSnapshot      String // Test name at time of order
@@ -694,18 +697,19 @@ model TestOrder {
 /// from these rows; the refund is also written to the PaymentTransaction ledger
 /// as a REFUND row so due/paid math stays correct.
 model OrderRefund {
-  id              String          @id @default(cuid())
-  billId          String
-  visitId         String
-  testOrderId     String? // null for a bill-level refund not tied to one order
-  branchId        String
-  kind            OrderRefundKind
-  amountInPaise   Int             @default(0) // money returned (0 for a pure CANCEL of an unpaid order)
-  reason          String // required (preset reason label)
-  note            String? // optional free-text detail
-  paymentType     PaymentType? // how the money was returned (for REFUND)
-  createdByUserId String
-  createdAt       DateTime        @default(now())
+  id                    String          @id @default(cuid())
+  billId                String
+  visitId               String
+  testOrderId           String? // null for a bill-level refund not tied to one order
+  branchId              String
+  kind                  OrderRefundKind
+  amountInPaise         Int             @default(0) // MONEY returned this event (0 for a pure CANCEL of an unpaid order)
+  chargeReversedInPaise Int             @default(0) // CHARGE voided off the order this event
+  reason                String // required (preset reason label)
+  note                  String? // optional free-text detail
+  paymentType           PaymentType? // how the money was returned (for REFUND)
+  createdByUserId       String
+  createdAt             DateTime        @default(now())
 
   bill      Bill       @relation(fields: [billId], references: [id], onDelete: Cascade)
   visit     Visit      @relation(fields: [visitId], references: [id], onDelete: Cascade)

@@ -34,8 +34,10 @@ export interface PersistedBillFinancials {
   discountPercentage?: number | null;
   discountAmountInPaise?: number | null;
   paidAmountInPaise?: number | null;
-  /// Sum of money refunded on this bill (reduces net payable so no phantom due appears).
+  /// Money returned to the patient — drives refund status; does NOT change net.
   refundedAmountInPaise?: number | null;
+  /// Charge voided off orders — reduces net payable so no phantom due appears.
+  reversedChargeInPaise?: number | null;
 
   /// transactionType 'REFUND' rows are subtracted from paid; default/absent = 'PAYMENT'.
   transactions?: { amountInPaise: number; transactionType?: string | null }[] | null;
@@ -79,12 +81,15 @@ export function computeBillFinancialsFromPersisted(
     subtotal,
     Math.max(0, Math.round(bill.discountAmountInPaise ?? 0)),
   );
-  // Refunds reduce the net payable: the refunded portion of an order is no
-  // longer owed, so returning the money keeps `due` at 0 instead of showing a
-  // phantom balance. 0 for all pre-refund bills, so existing math is unchanged.
+  // Charge voided off orders reduces the net payable: the reversed portion is no
+  // longer owed, so returning any money keeps `due` at 0 instead of showing a
+  // phantom balance. Gross (subtotal) is preserved. `refundedAmountInPaise` is
+  // MONEY returned (status/stats only) and must NOT reduce net again. Both are 0
+  // for pre-refund bills, so existing math is unchanged.
   const refundedAmountInPaise = Math.max(0, Math.round(bill.refundedAmountInPaise ?? 0));
-  const netBeforeRefund = Math.max(0, subtotal - discountAmountInPaise);
-  const netAmountInPaise = Math.max(0, netBeforeRefund - refundedAmountInPaise);
+  const reversedChargeInPaise = Math.max(0, Math.round(bill.reversedChargeInPaise ?? 0));
+  const netBeforeReversal = Math.max(0, subtotal - discountAmountInPaise);
+  const netAmountInPaise = Math.max(0, netBeforeReversal - reversedChargeInPaise);
   // Source of truth for paid: prefer the transactions list when it actually
   // contains entries; otherwise use the cached paidAmountInPaise field on the
   // Bill row. Empty array does NOT override the cached field — that prevents a
