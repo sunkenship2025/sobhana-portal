@@ -79,6 +79,15 @@ function getBranchAddress(branchName: string): string {
   return '#4-8-261/3 & 14/NR, Beside Ridge Towers, IDPL, Surya Nagar, Chintal, Hyd - 500037.';
 }
 
+function getBranchPhone(branchName: string): string {
+  const lower = branchName.toLowerCase();
+  if (lower.includes('balanagar')) {
+    return '040 23772929, 040 40163301.';
+  }
+  // Default
+  return '040-23089999, 9490539006.';
+}
+
 function formatPatientName(title: string | null | undefined, name: string): string {
   const safeName = name ?? 'Unknown';
   const displayName = safeName.toUpperCase();
@@ -331,6 +340,7 @@ export function renderBillHtml(data: BillData): string {
 
   // ── Address ──
   const branchAddress = escapeHtml(getBranchAddress(data.branch.name));
+  const branchPhone = escapeHtml(getBranchPhone(data.branch.name));
   const branchNameDisplay = escapeHtml(data.branch.name.toUpperCase());
 
   // ── Items rows ──
@@ -431,7 +441,7 @@ export function renderBillHtml(data: BillData): string {
       ${logoUri ? `<img src="${logoUri}" alt="Sobhana" />` : ''}
       <div class="branch-name">${branchNameDisplay}</div>
       <div class="address">${branchAddress}</div>
-      <div class="phone">Phone : 040-23089999, 9490539006.</div>
+      <div class="phone">Phone : ${branchPhone}</div>
       <div class="receipt-title">Requisition cum Receipt</div>
     </div>
 

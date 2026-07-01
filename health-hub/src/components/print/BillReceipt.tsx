@@ -221,7 +221,10 @@ export const BillReceipt = ({
             })()}
           </div>
           <div style={{ fontSize: "10px" }}>
-            Phone : 040-23089999, 9490539006.
+            Phone :{" "}
+            {(data.branchName || "").toLowerCase().includes("balanagar")
+              ? "040 23772929, 040 40163301."
+              : "040-23089999, 9490539006."}
           </div>
           <div className="mt-0.5 font-semibold" style={{ fontSize: "11px" }}>
             Requisition cum Receipt
