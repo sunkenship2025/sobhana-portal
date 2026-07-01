@@ -135,6 +135,7 @@ export interface BillData {
     originalBillNumber?: string | null;
     originalVisitDate?: Date | null;
     paymentStatus?: string | null;
+    transactions?: Array<{ paymentType?: string | null }>;
   };
   patient: {
     name: string;
@@ -229,6 +230,7 @@ export async function fetchBillData(visitId: string, domain: 'CLINIC' | 'DIAGNOS
       visitRef: visit.billNumber,
       hasBill: Boolean(visit.bill),
       paymentStatus: visit.bill?.paymentStatus || (visit as any).paymentStatus || null,
+      transactions: visit.bill?.transactions || [],
       domain,
       createdAt: visit.createdAt,
       totalAmount: visit.totalAmountInPaise / 100,
@@ -295,15 +297,6 @@ export function renderBillHtml(data: BillData): string {
       : data.visit.visitRef || data.visit.billNumber || '—',
   );
 
-  // ── Payment ──
-  const rawStatus = ((data.visit.paymentStatus as string) || '').toUpperCase();
-  const normalizedStatus = rawStatus.includes('PAID')
-    ? 'PAID'
-    : rawStatus.includes('PENDING')
-    ? 'PENDING'
-    : 'PENDING';
-  const paymentSummary = hasBill ? normalizedStatus : 'Not billed';
-
   // ── Financial ──
   const subtotalAmount = data.visit.totalAmount ?? 0;
   const discountAmountInPaise = (data.visit.discountAmountInPaise ?? 0);
@@ -322,6 +315,29 @@ export function renderBillHtml(data: BillData): string {
     data.visit.dueAmountInPaise !== undefined
       ? data.visit.dueAmountInPaise / 100
       : Math.max(0, netAmount - paidAmount);
+
+  // ── Payment (status + method) ──
+  // Distinct methods actually used across the payment ledger (CASH / ONLINE / CHEQUE).
+  const paymentMethodLabel = Array.from(
+    new Set(
+      (data.visit.transactions || [])
+        .map((t) => (t.paymentType || '').toString().toUpperCase())
+        .filter(Boolean),
+    ),
+  ).join(' + ');
+  const paymentStatusWord = (() => {
+    const raw = ((data.visit.paymentStatus as string) || '').toUpperCase();
+    if (raw.includes('REFUND')) return 'REFUNDED';
+    if (paidAmount > 0 && dueAmount > 0) return 'PARTIAL'; // partly paid, balance due
+    if (raw.includes('PAID') || (paidAmount > 0 && dueAmount <= 0)) return 'PAID';
+    return 'PENDING';
+  })();
+  // e.g. "PAID | CASH", "PARTIAL | CASH + ONLINE", or just "PENDING" when nothing paid.
+  const paymentSummary = !hasBill
+    ? 'Not billed'
+    : paymentMethodLabel
+      ? `${paymentStatusWord} | ${paymentMethodLabel}`
+      : paymentStatusWord;
 
   const discountLabel =
     data.visit.discountType === 'PERCENTAGE' && data.visit.discountPercentage != null

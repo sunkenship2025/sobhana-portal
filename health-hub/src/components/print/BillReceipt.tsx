@@ -87,15 +87,30 @@ export const BillReceipt = ({
     ? data.billNumber || data.visitRef || "—"
     : data.visitRef || data.billNumber || "—";
 
-  // ── Payment status ──
+  // ── Payment status + method ──
+  // Distinct methods actually used across the payment ledger (CASH / ONLINE / CHEQUE).
+  const paymentMethodLabel = Array.from(
+    new Set(
+      (data.transactions || [])
+        .map((t) => (t.paymentType || "").toString().toUpperCase())
+        .filter(Boolean),
+    ),
+  ).join(" + ");
   const normalizedPaymentStatus = (() => {
     const rawStatus = (data.paymentStatus || "").toString().toUpperCase();
-    if (rawStatus.includes("PAID")) return "PAID";
+    if (rawStatus.includes("REFUND")) return "REFUNDED";
+    if (paidAmount > 0 && dueAmount > 0) return "PARTIAL"; // partly paid, balance due
+    if (rawStatus.includes("PAID") || (paidAmount > 0 && dueAmount <= 0)) return "PAID";
     if (rawStatus.includes("PENDING")) return "PENDING";
     return data.paymentStatus || "—";
   })();
+  // e.g. "PAID | CASH", "PARTIAL | CASH + ONLINE", or just "PENDING" when nothing paid.
   const paymentSummary =
-    data.hasBill !== false ? normalizedPaymentStatus : "Not billed";
+    data.hasBill === false
+      ? "Not billed"
+      : paymentMethodLabel
+        ? `${normalizedPaymentStatus} | ${paymentMethodLabel}`
+        : normalizedPaymentStatus;
 
   // ── Revisit info ──
   const revisitSummaryParts = [
