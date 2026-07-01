@@ -117,6 +117,21 @@ function fmtMinutes(mins: number): string {
   return Number.isInteger(hrs) ? `${hrs}h` : `${hrs.toFixed(1)}h`;
 }
 
+// Human-readable duration that adapts to magnitude:
+//   < 60 min  → "45m"
+//   < 24 h    → "6h 18m" (drops 0m → "6h")
+//   >= 24 h   → "2d 4h"  (drops 0h → "2d")
+function fmtDuration(mins: number): string {
+  const m = Math.max(0, Math.round(mins));
+  if (m < 60) return `${m}m`;
+  const totalH = Math.floor(m / 60);
+  const rem = m % 60;
+  if (totalH < 24) return rem === 0 ? `${totalH}h` : `${totalH}h ${rem}m`;
+  const d = Math.floor(totalH / 24);
+  const h = totalH % 24;
+  return h === 0 ? `${d}d` : `${d}d ${h}h`;
+}
+
 function TatHistogramCard({ histogram }: { histogram: OperationsResponse['tatHistogram'] }) {
   if (histogram.sampleCount === 0) {
     return (
@@ -309,7 +324,7 @@ function DiagnosticsQueueCard({ rows }: { rows: OperationsResponse['diagnosticsQ
                     {r.stage}
                   </td>
                   <td className="py-2 text-right" style={{ color: ageColor }}>
-                    {r.ageMinutes}m
+                    {fmtDuration(r.ageMinutes)}
                   </td>
                 </tr>
               );
@@ -392,7 +407,7 @@ function ClinicQueueCard({ groups }: { groups: OperationsResponse['clinicQueue']
               </div>
               <div style={{ fontSize: 12, color: TOKENS.textSecondary }}>
                 {g.waitingCount} waiting · {g.inProgressCount} in consultation
-                {g.avgWaitMinutes !== null && ` · avg wait ${g.avgWaitMinutes}m`}
+                {g.avgWaitMinutes !== null && ` · avg wait ${fmtDuration(g.avgWaitMinutes)}`}
               </div>
             </div>
             {g.patients.length > 0 && (
@@ -423,7 +438,7 @@ function ClinicQueueCard({ groups }: { groups: OperationsResponse['clinicQueue']
                         color: p.waitMinutes > 30 ? TOKENS.critical : TOKENS.textTertiary,
                       }}
                     >
-                      {p.waitMinutes}m
+                      {fmtDuration(p.waitMinutes)}
                     </span>
                   </div>
                 ))}
@@ -616,7 +631,7 @@ export default function OwnerOperationsPage() {
                 label="Registration→Report (median)"
                 value={
                   data.kpis.tatMedianMinutes !== null
-                    ? fmtMinutes(data.kpis.tatMedianMinutes)
+                    ? fmtDuration(data.kpis.tatMedianMinutes)
                     : '—'
                 }
                 sub={
@@ -644,11 +659,17 @@ export default function OwnerOperationsPage() {
                 value={
                   data.kpis.deliveryRatePercent !== null
                     ? `${data.kpis.deliveryRatePercent}%`
-                    : '—'
+                    : data.kpis.inFlight > 0
+                      ? 'in flight'
+                      : '—'
                 }
-                sub={`${data.kpis.deliveryAttempted} settled${
-                  Number.isFinite(data.kpis.inFlight) ? ` · ${data.kpis.inFlight} in flight` : ''
-                }`}
+                sub={
+                  data.kpis.deliveryRatePercent === null && data.kpis.inFlight > 0
+                    ? `${data.kpis.inFlight} awaiting delivery receipts · 0 settled`
+                    : `${data.kpis.deliveryAttempted} settled${
+                        Number.isFinite(data.kpis.inFlight) ? ` · ${data.kpis.inFlight} in flight` : ''
+                      }`
+                }
               />
             </div>
 

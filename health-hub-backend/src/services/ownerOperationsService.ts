@@ -9,7 +9,8 @@
  *   - tatHistogram      Last 100 finalized reports bucketed in 3-min bins
  *   - diagnosticsQueue  Live, age-tinted list of unfinalized orders
  *   - clinicQueue       Grouped by clinic doctor on shift
- *   - audit             Latest 20 anomalies (identity / discount / multi-patient phone / off-hours)
+ *   - audit             Latest 20 anomalies (identity / discount / deletions), scored
+ *                       high/medium/low via a base-tier + context-modifier model
  *   - commsFailures     Failed MessageLog rows in last 24h, grouped by reason
  */
 
@@ -25,11 +26,33 @@ const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SLA_TAT_MINUTES = 1440; // 24 hours from registration (owner decision)
 
-// Discount-audit thresholds (P1-E)
+// Discount-audit thresholds (P1-E): control which discounts ENTER the feed.
 const DISCOUNT_AUDIT_PERCENT = 10; // fire audit at >= 10%
 const DISCOUNT_AUDIT_PAISE = 50_000; // ...or >= ₹500 absolute
-const DISCOUNT_HIGH_PERCENT = 30; // "high" severity tier
-const DISCOUNT_HIGH_PAISE = 200_000; // ...or >= ₹2,000 absolute
+
+// ── Severity scoring model ────────────────────────────────────────────────
+// Every audit event gets a base score by type, plus context modifiers, then
+// the total maps to a band. This replaces the old per-source hardcoded tiers
+// (which never produced "low" and ignored discount-as-%-of-bill). Each factor
+// records a human reason so the detail line can explain WHY it scored.
+const SEV_LARGE_AMOUNT_PAISE = 200_000; // >= ₹2,000 absolute → +1
+const SEV_PCT_HIGH = 50; // >= 50% of bill → +2
+const SEV_PCT_MED = 20; // 20–50% of bill → +1
+const IDENTITY_REPEAT_THRESHOLD = 2; // > this many identity edits to one patient → +1
+
+type Severity = 'high' | 'medium' | 'low';
+
+function bandFromScore(score: number): Severity {
+  if (score >= 4) return 'high';
+  if (score >= 2) return 'medium';
+  return 'low';
+}
+
+// Fold the scoring reasons into the detail line so the frontend needs no change
+// and the owner can see why a row is flagged (e.g. "· 83% of bill · off-hours").
+function withReasons(detail: string, reasons: string[]): string {
+  return reasons.length ? `${detail} · ${reasons.join(' · ')}` : detail;
+}
 
 export interface OperationsKpi {
   tatMedianMinutes: number | null;
@@ -428,6 +451,7 @@ export async function getOwnerOperations(
         discountPercentage: true,
         discountAmountInPaise: true,
         discountReason: true,
+        totalAmountInPaise: true,
         billNumber: true,
         billedAt: true,
         discountedByUser: { select: { name: true } },
@@ -659,54 +683,124 @@ export async function getOwnerOperations(
   // Resolve who made each identity change: PatientChangeLog stores changedBy
   // (a User id, no FK relation), so look the names up in one batched query and
   // fall back to the role string when the user no longer exists.
-  const changedByIds = [...new Set(auditIdentity.map((c) => c.changedBy).filter(Boolean))];
-  const changedByUsers = changedByIds.length
-    ? await prisma.user.findMany({ where: { id: { in: changedByIds } }, select: { id: true, name: true } })
+  const actorIds = [
+    ...new Set(
+      [
+        ...auditIdentity.map((c) => c.changedBy),
+        ...auditOffHours.map((a) => a.userId),
+      ].filter((v): v is string => Boolean(v)),
+    ),
+  ];
+  const actorUsers = actorIds.length
+    ? await prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
     : [];
-  const userNameById = new Map(changedByUsers.map((u) => [u.id, u.name]));
+  const userNameById = new Map(actorUsers.map((u) => [u.id, u.name]));
 
   const audit: AuditRow[] = [];
+
+  // Identity changes: base 2 (no reason) / 1 (with reason); +1 if the same
+  // patient was edited repeatedly in the window; +1 if off-hours.
+  const identityCountByPatient = new Map<string, number>();
   for (const c of auditIdentity) {
+    identityCountByPatient.set(c.patientId, (identityCountByPatient.get(c.patientId) ?? 0) + 1);
+  }
+  for (const c of auditIdentity) {
+    const reasons: string[] = [];
+    let score = c.changeReason ? 1 : 2;
+    if (!c.changeReason) reasons.push('no reason');
+    if ((identityCountByPatient.get(c.patientId) ?? 0) > IDENTITY_REPEAT_THRESHOLD) {
+      score += 1;
+      reasons.push('repeated edits to this patient');
+    }
+    if (isOffHoursIst(c.createdAt)) {
+      score += 1;
+      reasons.push('off-hours');
+    }
     audit.push({
       id: `id-${c.id}`,
-      severity: c.changeReason ? 'medium' : 'high',
+      severity: bandFromScore(score),
       event: 'Identity field changed',
       who: userNameById.get(c.changedBy) ?? c.changedRole,
-      detail: `${c.patient.name}: ${c.fieldName} ${c.oldValue ?? '∅'} → ${c.newValue ?? '∅'}${c.changeReason ? '' : ' (no reason)'}`,
+      detail: withReasons(
+        `${c.patient.name}: ${c.fieldName} ${c.oldValue ?? '∅'} → ${c.newValue ?? '∅'}`,
+        reasons,
+      ),
       whenIso: c.createdAt.toISOString(),
       drillTo: `/clinic/patient-360/${c.patientId}`,
     });
   }
+
+  // Discounts: base 1; scaled by the discount as a % OF THE BILL (works for both
+  // percentage and amount discounts), a large-absolute bump, no-reason, off-hours.
   for (const b of auditDiscounts) {
-    // P1-E: reserve "high" for the top tier; the query already enforced the
-    // audit threshold (>= 10% or >= ₹500), so everything here is at least medium.
-    const pct = b.discountPercentage ?? 0;
-    const isHigh =
-      pct >= DISCOUNT_HIGH_PERCENT || b.discountAmountInPaise >= DISCOUNT_HIGH_PAISE;
+    const reasons: string[] = [];
+    let score = 1;
+    // Effective % of bill — the real signal. Amount discounts report 0% in
+    // discountPercentage, so derive it from the amount vs the bill total.
+    const effectivePct =
+      b.totalAmountInPaise > 0
+        ? (b.discountAmountInPaise / b.totalAmountInPaise) * 100
+        : (b.discountPercentage ?? 0);
+    if (effectivePct >= SEV_PCT_HIGH) {
+      score += 2;
+      reasons.push(`${Math.round(effectivePct)}% of bill`);
+    } else if (effectivePct >= SEV_PCT_MED) {
+      score += 1;
+      reasons.push(`${Math.round(effectivePct)}% of bill`);
+    }
+    if (b.discountAmountInPaise >= SEV_LARGE_AMOUNT_PAISE) {
+      score += 1;
+      reasons.push('large amount');
+    }
+    if (!b.discountReason) {
+      score += 1;
+      reasons.push('no reason');
+    }
+    if (isOffHoursIst(b.billedAt)) {
+      score += 1;
+      reasons.push('off-hours');
+    }
     // Amount-based discounts have no percentage — show the rupee amount instead
     // of a misleading "Discount 0%".
+    const pct = b.discountPercentage ?? 0;
     const discountLabel =
       pct > 0
         ? `Discount ${Math.round(pct)}%`
         : `Discount ₹${Math.round(b.discountAmountInPaise / 100).toLocaleString('en-IN')}`;
     audit.push({
       id: `disc-${b.id}`,
-      severity: isHigh ? 'high' : 'medium',
+      severity: bandFromScore(score),
       event: discountLabel,
       who: b.discountedByUser?.name ?? null,
-      detail: `${b.visit.patient.name} · ${b.billNumber} · ₹${Math.round(b.discountAmountInPaise / 100).toLocaleString('en-IN')} off`,
+      detail: withReasons(
+        `${b.visit.patient.name} · ${b.billNumber} · ₹${Math.round(b.discountAmountInPaise / 100).toLocaleString('en-IN')} off`,
+        reasons,
+      ),
       whenIso: b.billedAt.toISOString(),
       drillTo: null,
     });
   }
+
+  // Deletions & payout removals are the highest-value signals for an owner:
+  // base 3 (already "high"), +1 off-hours. Generic off-hours CREATE/UPDATE rows
+  // are intentionally NOT surfaced as standalone events any more — off-hours is
+  // now a modifier on the events that matter, which cuts noise.
   for (const a of auditOffHours) {
-    if (!isOffHoursIst(a.createdAt)) continue;
+    const isDelete = a.actionType === 'DELETE' || a.actionType === 'PAYOUT_DELETE';
+    if (!isDelete) continue;
+    const reasons: string[] = [];
+    let score = 3;
+    if (isOffHoursIst(a.createdAt)) {
+      score += 1;
+      reasons.push('off-hours');
+    }
+    const label = a.actionType === 'PAYOUT_DELETE' ? 'Payout deleted' : `${a.entityType} deleted`;
     audit.push({
       id: `audit-${a.id}`,
-      severity: 'medium',
-      event: `Off-hours ${a.actionType}`,
-      who: a.userId ? `user ${a.userId.slice(0, 6)}` : null,
-      detail: `${a.entityType} ${a.entityId.slice(0, 8)}`,
+      severity: bandFromScore(score),
+      event: label,
+      who: a.userId ? userNameById.get(a.userId) ?? `user ${a.userId.slice(0, 6)}` : null,
+      detail: withReasons(`${a.entityType} ${a.entityId.slice(0, 8)}`, reasons),
       whenIso: a.createdAt.toISOString(),
       drillTo: null,
     });
