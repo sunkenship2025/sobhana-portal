@@ -528,6 +528,7 @@ router.get("/", async (req: AuthRequest, res) => {
         testOrders: {
           include: {
             test: true,
+            product: { select: { name: true } },
           },
         },
         bill: { include: { transactions: true } },
@@ -658,6 +659,7 @@ router.get("/", async (req: AuthRequest, res) => {
               visitId: to.visitId,
               testId: to.testId,
               productId: to.productId,
+              productName: to.product?.name ?? null,
               testDefinitionId: to.testDefinitionId,
               workflowMode: to.workflowMode,
               // E3-03: Use snapshotted metadata (fallback to live data for backward compatibility)
