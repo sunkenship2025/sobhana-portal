@@ -51,6 +51,20 @@ enum PaymentStatus {
   PAID
   FAILED
   REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+/// Distinguishes a normal collection from a money-out refund on the payment ledger.
+enum TransactionType {
+  PAYMENT
+  REFUND
+}
+
+/// CANCEL = void an order with nothing paid on it (removed from the bill subtotal).
+/// REFUND = return money already collected against an order (full or partial).
+enum OrderRefundKind {
+  CANCEL
+  REFUND
 }
 
 enum PaymentType {
@@ -469,6 +483,8 @@ model User {
   ExternalReportUpload ExternalReportUpload[]
   TestResultEntered    TestResult[]           @relation("TestResultEnteredBy")
   discountedBills      Bill[]                 @relation("BillDiscountedBy")
+  refundedBills        Bill[]                 @relation("BillRefundedBy")
+  orderRefunds         OrderRefund[]          @relation("OrderRefundCreatedBy")
 
   @@index([role])
   @@index([activeBranchId])
@@ -519,6 +535,9 @@ model Visit {
   /// Bill access tokens for WhatsApp bill PDF links
   billAccessTokens BillAccessToken[]
 
+  /// Per-order cancel/refund records
+  orderRefunds OrderRefund[]
+
   @@unique([branchId, billNumber])
   @@index([branchId])
   @@index([patientId])
@@ -562,15 +581,19 @@ model Bill {
   paidAmountInPaise     Int               @default(0)
   billedAt              DateTime          @default(now()) // Explicit billing timestamp; remains stable after payment updates
   paymentStatus         PaymentStatus     @default(PENDING)
-  refundReason          String? // Reason captured when a bill is refunded (forward-compatible; no refund flow writes this yet)
-  refundedAt            DateTime? // When the refund was processed; null until a refund flow exists
+  refundReason          String? // Latest refund reason (bill-level rollup; per-order reasons live on OrderRefund)
+  refundedAt            DateTime? // When the most recent refund was processed; null until a refund exists
+  refundedAmountInPaise Int               @default(0) // Sum of all OrderRefund amounts on this bill
+  refundedByUserId      String? // User who processed the most recent refund (audit; mirrors discountedByUserId)
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
 
   visit            Visit                @relation(fields: [visitId], references: [id], onDelete: Cascade)
   branch           Branch               @relation(fields: [branchId], references: [id], onDelete: Restrict)
   discountedByUser User?                @relation("BillDiscountedBy", fields: [discountedByUserId], references: [id], onDelete: SetNull)
+  refundedByUser   User?                @relation("BillRefundedBy", fields: [refundedByUserId], references: [id], onDelete: SetNull)
   transactions     PaymentTransaction[]
+  orderRefunds     OrderRefund[]
 
   @@unique([branchId, billNumber])
   @@index([billNumber])
@@ -581,15 +604,18 @@ model Bill {
 
 /// PaymentTransaction: Individual transaction ledger for a Bill
 model PaymentTransaction {
-  id                String      @id @default(cuid())
+  id                String          @id @default(cuid())
   billId            String
   amountInPaise     Int
   paymentType       PaymentType
-  transactionDate   DateTime    @default(now())
+  /// PAYMENT (collection) or REFUND (money out). computeBillFinancialsFromPersisted
+  /// subtracts REFUND rows from paid, so due/status stay correct.
+  transactionType   TransactionType @default(PAYMENT)
+  transactionDate   DateTime        @default(now())
   referenceData     String? // Optional field for UPI reference, transaction ID, etc.
   collectedByUserId String // ID of the user who recorded this transaction
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
   bill            Bill @relation(fields: [billId], references: [id], onDelete: Cascade)
   collectedByUser User @relation(fields: [collectedByUserId], references: [id], onDelete: Restrict)
@@ -623,6 +649,11 @@ model TestOrder {
   displayOrder                            Int                    @default(0)
   createdAt                               DateTime               @default(now())
 
+  // Cancel/refund (per-order). cancelledAt set when the order is voided; a paid
+  // order is refunded via OrderRefund rows instead of being cancelled.
+  cancelledAt  DateTime?
+  cancelReason String?
+
   // E3-03: Test metadata snapshot (frozen at order time)
   testNameSnapshot      String // Test name at time of order
   testCodeSnapshot      String // Test code at time of order
@@ -646,6 +677,9 @@ model TestOrder {
   /// External PDF uploads attached to this order (only for EXTERNAL_UPLOAD workflow)
   externalUploads ExternalReportUpload[]
 
+  /// Cancel/refund records referencing this specific order
+  orderRefunds OrderRefund[]
+
   @@index([visitId])
   @@index([testId])
   @@index([testDefinitionId])
@@ -653,6 +687,35 @@ model TestOrder {
   @@index([branchId, createdAt])
   @@index([workflowMode])
   @@index([externalLabId])
+}
+
+/// OrderRefund: a per-order cancel or refund event (supports partial amounts).
+/// Bill-level rollups (Bill.refundedAmountInPaise / paymentStatus) are derived
+/// from these rows; the refund is also written to the PaymentTransaction ledger
+/// as a REFUND row so due/paid math stays correct.
+model OrderRefund {
+  id              String          @id @default(cuid())
+  billId          String
+  visitId         String
+  testOrderId     String? // null for a bill-level refund not tied to one order
+  branchId        String
+  kind            OrderRefundKind
+  amountInPaise   Int             @default(0) // money returned (0 for a pure CANCEL of an unpaid order)
+  reason          String // required (preset reason label)
+  note            String? // optional free-text detail
+  paymentType     PaymentType? // how the money was returned (for REFUND)
+  createdByUserId String
+  createdAt       DateTime        @default(now())
+
+  bill      Bill       @relation(fields: [billId], references: [id], onDelete: Cascade)
+  visit     Visit      @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  testOrder TestOrder? @relation(fields: [testOrderId], references: [id], onDelete: SetNull)
+  createdBy User       @relation("OrderRefundCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([billId])
+  @@index([visitId])
+  @@index([testOrderId])
+  @@index([branchId, createdAt])
 }
 
 /// DiagnosticReport: Container for report versions
@@ -741,12 +804,12 @@ model TestResult {
   reportVersion  ReportVersion   @relation(fields: [reportVersionId], references: [id], onDelete: Cascade)
   enteredBy      User?           @relation("TestResultEnteredBy", fields: [enteredByUserId], references: [id], onDelete: SetNull)
 
+  @@unique([reportVersionId, testOrderId, testId])
   @@index([testOrderId])
   @@index([testId])
   @@index([testDefinitionId])
   @@index([reportVersionId])
   @@index([enteredByUserId])
-  @@unique([reportVersionId, testOrderId, testId])
 }
 
 /// ClinicVisit: Clinic-specific data (references Visit)
@@ -929,7 +992,7 @@ model MessageLog {
   updatedAt      DateTime           @updatedAt
 
   patient Patient? @relation(fields: [patientId], references: [id], onDelete: Restrict)
-  branch  Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  branch  Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   @@index([patientId])
   @@index([waMessageId])
@@ -1054,8 +1117,8 @@ model SigningLabIncharge {
   id                   String   @id @default(cuid())
   name                 String
   designation          String   @default("Lab Incharge")
-  signatureImagePath   String?  // Path to signature PNG in storage (set after upload)
-  signatureImageBase64 String?  // Base64 data URI — persists across deploys (Render safe)
+  signatureImagePath   String? // Path to signature PNG in storage (set after upload)
+  signatureImageBase64 String? // Base64 data URI — persists across deploys (Render safe)
   isActive             Boolean  @default(true)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
@@ -1070,13 +1133,13 @@ model SigningLabIncharge {
 model LabInchargeRule {
   id                   String   @id @default(cuid())
   signingLabInchargeId String
-  branchId             String?  // NULL = All Branches
+  branchId             String? // NULL = All Branches
   displayOrder         Int      @default(0)
   isActive             Boolean  @default(true)
   createdAt            DateTime @default(now())
 
   signingLabIncharge SigningLabIncharge @relation(fields: [signingLabInchargeId], references: [id], onDelete: Restrict)
-  branch               Branch?            @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch             Branch?            @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   @@unique([branchId])
   @@index([signingLabInchargeId])
@@ -1402,10 +1465,10 @@ model ClinicalPanel {
   narrativeTemplateHtml String?
 
   // Config flags for STANDARD_TABLE rendering variants
-  showSubgroups      Boolean @default(false) // true = render subGroup sections (e.g., CBP: MAIN/DIFFERENTIAL/SMEAR)
-  showInterpretation Boolean @default(false) // true = render interpretation block below results
-  valueDisplayPrefix String? // e.g., "1:" for Widal dilution format
-  spacedDefinitionsGap Int @default(0)
+  showSubgroups        Boolean @default(false) // true = render subGroup sections (e.g., CBP: MAIN/DIFFERENTIAL/SMEAR)
+  showInterpretation   Boolean @default(false) // true = render interpretation block below results
+  valueDisplayPrefix   String? // e.g., "1:" for Widal dilution format
+  spacedDefinitionsGap Int     @default(0)
 
   summaryInterpretationTemplate String? // Template for panel-level interpretation
   subgroupMethods               Json? // Map<subgroupName, methodString> e.g. {"PHYSICAL EXAMINATION": "Transmission refractometry"}

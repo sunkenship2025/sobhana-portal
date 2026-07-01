@@ -34,8 +34,11 @@ export interface PersistedBillFinancials {
   discountPercentage?: number | null;
   discountAmountInPaise?: number | null;
   paidAmountInPaise?: number | null;
+  /// Sum of money refunded on this bill (reduces net payable so no phantom due appears).
+  refundedAmountInPaise?: number | null;
 
-  transactions?: { amountInPaise: number }[] | null;
+  /// transactionType 'REFUND' rows are subtracted from paid; default/absent = 'PAYMENT'.
+  transactions?: { amountInPaise: number; transactionType?: string | null }[] | null;
 }
 
 function toFiniteNumber(value: unknown): number | null {
@@ -76,21 +79,43 @@ export function computeBillFinancialsFromPersisted(
     subtotal,
     Math.max(0, Math.round(bill.discountAmountInPaise ?? 0)),
   );
-  const netAmountInPaise = Math.max(0, subtotal - discountAmountInPaise);
+  // Refunds reduce the net payable: the refunded portion of an order is no
+  // longer owed, so returning the money keeps `due` at 0 instead of showing a
+  // phantom balance. 0 for all pre-refund bills, so existing math is unchanged.
+  const refundedAmountInPaise = Math.max(0, Math.round(bill.refundedAmountInPaise ?? 0));
+  const netBeforeRefund = Math.max(0, subtotal - discountAmountInPaise);
+  const netAmountInPaise = Math.max(0, netBeforeRefund - refundedAmountInPaise);
   // Source of truth for paid: prefer the transactions list when it actually
   // contains entries; otherwise use the cached paidAmountInPaise field on the
   // Bill row. Empty array does NOT override the cached field — that prevents a
   // foot-gun where a caller passes `{transactions: []}` thinking "I haven't
-  // loaded any" and silently zeros out paid.
+  // loaded any" and silently zeros out paid. REFUND rows subtract from paid.
   let rawPaidAmount = Math.max(0, Math.round(bill.paidAmountInPaise ?? 0));
   if (Array.isArray(bill.transactions) && bill.transactions.length > 0) {
     rawPaidAmount = bill.transactions.reduce(
-      (sum, tx) => sum + (tx.amountInPaise || 0),
+      (sum, tx) =>
+        sum +
+        (tx.transactionType === "REFUND"
+          ? -(tx.amountInPaise || 0)
+          : tx.amountInPaise || 0),
       0,
     );
   }
-  const paidAmountInPaise = Math.min(netAmountInPaise, rawPaidAmount);
+  const paidAmountInPaise = Math.min(netAmountInPaise, Math.max(0, rawPaidAmount));
   const dueAmountInPaise = Math.max(0, netAmountInPaise - paidAmountInPaise);
+
+  // Refund status: fully refunded (nothing left billable/paid) → REFUNDED;
+  // any other bill carrying a refund → PARTIALLY_REFUNDED; otherwise the normal
+  // paid/pending split.
+  let paymentStatus: PaymentStatus;
+  if (refundedAmountInPaise > 0 && netAmountInPaise === 0 && paidAmountInPaise === 0) {
+    paymentStatus = PaymentStatus.REFUNDED;
+  } else if (refundedAmountInPaise > 0) {
+    paymentStatus = PaymentStatus.PARTIALLY_REFUNDED;
+  } else {
+    paymentStatus =
+      dueAmountInPaise === 0 ? PaymentStatus.PAID : PaymentStatus.PENDING;
+  }
 
   return {
     discountReason: bill.discountReason ?? null,
@@ -100,8 +125,7 @@ export function computeBillFinancialsFromPersisted(
     paidAmountInPaise,
     netAmountInPaise,
     dueAmountInPaise,
-    paymentStatus:
-      dueAmountInPaise === 0 ? PaymentStatus.PAID : PaymentStatus.PENDING,
+    paymentStatus,
   };
 }
 
