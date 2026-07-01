@@ -405,6 +405,7 @@ export async function getOwnerOperations(
         newValue: true,
         changeReason: true,
         changedRole: true,
+        changedBy: true,
         createdAt: true,
         patient: { select: { name: true, title: true } },
       },
@@ -655,13 +656,22 @@ export async function getOwnerOperations(
   });
 
   // --- audit feed ----------------------------------------------------------
+  // Resolve who made each identity change: PatientChangeLog stores changedBy
+  // (a User id, no FK relation), so look the names up in one batched query and
+  // fall back to the role string when the user no longer exists.
+  const changedByIds = [...new Set(auditIdentity.map((c) => c.changedBy).filter(Boolean))];
+  const changedByUsers = changedByIds.length
+    ? await prisma.user.findMany({ where: { id: { in: changedByIds } }, select: { id: true, name: true } })
+    : [];
+  const userNameById = new Map(changedByUsers.map((u) => [u.id, u.name]));
+
   const audit: AuditRow[] = [];
   for (const c of auditIdentity) {
     audit.push({
       id: `id-${c.id}`,
       severity: c.changeReason ? 'medium' : 'high',
       event: 'Identity field changed',
-      who: c.changedRole,
+      who: userNameById.get(c.changedBy) ?? c.changedRole,
       detail: `${c.patient.name}: ${c.fieldName} ${c.oldValue ?? '∅'} → ${c.newValue ?? '∅'}${c.changeReason ? '' : ' (no reason)'}`,
       whenIso: c.createdAt.toISOString(),
       drillTo: `/clinic/patient-360/${c.patientId}`,
@@ -673,10 +683,16 @@ export async function getOwnerOperations(
     const pct = b.discountPercentage ?? 0;
     const isHigh =
       pct >= DISCOUNT_HIGH_PERCENT || b.discountAmountInPaise >= DISCOUNT_HIGH_PAISE;
+    // Amount-based discounts have no percentage — show the rupee amount instead
+    // of a misleading "Discount 0%".
+    const discountLabel =
+      pct > 0
+        ? `Discount ${Math.round(pct)}%`
+        : `Discount ₹${Math.round(b.discountAmountInPaise / 100).toLocaleString('en-IN')}`;
     audit.push({
       id: `disc-${b.id}`,
       severity: isHigh ? 'high' : 'medium',
-      event: `Discount ${Math.round(pct)}%`,
+      event: discountLabel,
       who: b.discountedByUser?.name ?? null,
       detail: `${b.visit.patient.name} · ${b.billNumber} · ₹${Math.round(b.discountAmountInPaise / 100).toLocaleString('en-IN')} off`,
       whenIso: b.billedAt.toISOString(),

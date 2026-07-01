@@ -72,10 +72,7 @@ const ownerNavItems: NavItem[] = [
     icon: Activity,
     href: '/ops/queue',
     roles: ['owner'],
-    subItems: [
-      { label: 'Live queue', href: '/ops/queue' },
-      { label: 'Audit & alerts', href: '/ops/audit' },
-    ],
+    matchPrefixes: ['/ops'],
   },
   {
     label: 'Workflows',
