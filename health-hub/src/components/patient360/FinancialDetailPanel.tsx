@@ -76,7 +76,23 @@ export function FinancialDetailPanel({ visit }: FinancialDetailPanelProps) {
           </KvRow>
         )}
 
+        {hasBill && (visit.reversedChargeInPaise ?? 0) > 0 && (
+          <KvRow label="Cancelled charge">
+            − {formatCurrency(visit.reversedChargeInPaise ?? 0)}
+          </KvRow>
+        )}
+
         {hasBill && <KvRow label="Paid">{formatCurrency(paid)}</KvRow>}
+
+        {hasBill && (visit.refundedAmountInPaise ?? 0) > 0 && (
+          <KvRow
+            label={
+              visit.refundReason ? `Refunded (${visit.refundReason})` : "Refunded"
+            }
+          >
+            {formatCurrency(visit.refundedAmountInPaise ?? 0)}
+          </KvRow>
+        )}
 
         {hasBill && (
           <KvRow label="Due" emphasize>

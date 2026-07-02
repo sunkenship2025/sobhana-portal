@@ -292,6 +292,8 @@ export function buildBillFinancialResponse(
       paidAmountInPaise: 0,
       netAmountInPaise: 0,
       dueAmountInPaise: 0,
+      refundedAmountInPaise: 0,
+      reversedChargeInPaise: 0,
     };
   }
 
@@ -304,6 +306,8 @@ export function buildBillFinancialResponse(
     paidAmountInPaise: computed.paidAmountInPaise,
     netAmountInPaise: computed.netAmountInPaise,
     dueAmountInPaise: computed.dueAmountInPaise,
+    refundedAmountInPaise: Math.max(0, Math.round(bill.refundedAmountInPaise ?? 0)),
+    reversedChargeInPaise: Math.max(0, Math.round(bill.reversedChargeInPaise ?? 0)),
   };
 }
 

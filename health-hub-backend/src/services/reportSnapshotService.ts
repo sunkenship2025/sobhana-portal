@@ -411,9 +411,16 @@ async function backfillStoredSignatureAssets(signatures: SignatureSnapshot[]): P
   });
 }
 
-function filterReportableOrders<T extends { workflowMode?: DiagnosticWorkflowMode | null }>(orders: T[]): T[] {
+function filterReportableOrders<
+  T extends {
+    workflowMode?: DiagnosticWorkflowMode | null;
+    cancelledAt?: Date | string | null;
+  },
+>(orders: T[]): T[] {
   return orders.filter(
-    (order) => (order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) === DiagnosticWorkflowMode.REPORTABLE
+    (order) =>
+      !order.cancelledAt &&
+      (order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) === DiagnosticWorkflowMode.REPORTABLE
   );
 }
 
@@ -1421,8 +1428,12 @@ export async function createReportSnapshot(
     : (reportVersion.testResults as any[]);
 
   const externalUploads = await buildExternalUploadSnapshots(filteredTestOrders);
+  // Results entered against since-cancelled orders must not render.
+  const activeTestResults = (filteredTestResults as any[]).filter(
+    (r: any) => !r.testOrder?.cancelledAt,
+  );
   const augmentedTestResults = dedupeResultsForSnapshot(await backfillDerivedResults(
-    filteredTestResults as any[],
+    activeTestResults,
     reportableOrders as any[],
     reportVersion.id
   ));
@@ -1612,13 +1623,18 @@ export async function buildEphemeralSnapshot(
 
   const externalUploads = await buildExternalUploadSnapshots(filteredTestOrders);
 
+  // Results entered against since-cancelled orders must not render.
+  const activeTestResults = (filteredTestResults as any[]).filter(
+    (r: any) => !r.testOrder?.cancelledAt,
+  );
+
   // External-upload visits have no test results — the report content is the
   // appended PDFs themselves. Only block when there's neither values nor uploads.
-  if (filteredTestResults.length === 0 && externalUploads.length === 0) {
+  if (activeTestResults.length === 0 && externalUploads.length === 0) {
     throw new Error('No test results entered yet');
   }
   const augmentedTestResults = dedupeResultsForSnapshot(await backfillDerivedResults(
-    filteredTestResults as any[],
+    activeTestResults,
     reportableOrders as any[],
     reportVersion.id
   ));

@@ -270,6 +270,8 @@ async function deriveReferralPayout(
       : new Map<string, number>();
 
     for (const testOrder of visit.testOrders) {
+      // Cancelled orders earn no payout — their charge was voided off the bill.
+      if (testOrder.cancelledAt) continue;
       const referralAmountInPaise =
         testOrder.referralCommissionType === 'PERCENTAGE'
           ? Math.max(
@@ -505,6 +507,7 @@ async function deriveDiagnosticCenterPayout(
     const visit = cv.visit;
     const finalizedAt = visit.report?.versions[0]?.finalizedAt;
     for (const testOrder of visit.testOrders) {
+      if (testOrder.cancelledAt) continue;
       const hasSnapshot = testOrder.diagnosticCenterCommissionType !== null;
       const commissionInPaise = hasSnapshot
         ? computeCommissionInPaise({
@@ -647,6 +650,7 @@ async function deriveExternalLabPayout(
 
     for (const testOrder of visit.testOrders) {
       if (testOrder.externalLabId !== externalLabId) continue;
+      if (testOrder.cancelledAt) continue;
 
       const discountInPaise = discountAllocations.get(testOrder.id) ?? 0;
       const postDiscountPriceInPaise = Math.max(0, testOrder.priceInPaise - discountInPaise);

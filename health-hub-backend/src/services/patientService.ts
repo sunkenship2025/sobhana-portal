@@ -524,7 +524,11 @@ export interface MappedBillFinancials {
   discountPercentage: number | null;
   discountReason: string | null;
   discount: VisitDiscount;
-  transactions: { amountInPaise: number; paymentType: PaymentType; transactionDate: Date }[];
+  refundedAmountInPaise: number;
+  reversedChargeInPaise: number;
+  refundReason: string | null;
+  refundedAt: Date | null;
+  transactions: { amountInPaise: number; paymentType: PaymentType; transactionDate: Date; transactionType?: string }[];
 }
 
 type BillForMapping = {
@@ -535,7 +539,11 @@ type BillForMapping = {
   discountAmountInPaise: number;
   discountReason: string | null;
   paidAmountInPaise: number;
-  transactions?: { amountInPaise: number; paymentType: PaymentType; transactionDate: Date }[];
+  refundedAmountInPaise?: number | null;
+  reversedChargeInPaise?: number | null;
+  refundReason?: string | null;
+  refundedAt?: Date | null;
+  transactions?: { amountInPaise: number; paymentType: PaymentType; transactionDate: Date; transactionType?: string }[];
 } | null | undefined;
 
 /**
@@ -561,6 +569,10 @@ export function mapBillFinancials(
       discountPercentage: null,
       discountReason: null,
       discount: { amount: 0, type: null, reason: null },
+      refundedAmountInPaise: 0,
+      reversedChargeInPaise: 0,
+      refundReason: null,
+      refundedAt: null,
       transactions: [],
     };
   }
@@ -572,6 +584,8 @@ export function mapBillFinancials(
     discountPercentage: bill.discountPercentage,
     discountAmountInPaise: bill.discountAmountInPaise,
     paidAmountInPaise: bill.paidAmountInPaise,
+    refundedAmountInPaise: bill.refundedAmountInPaise,
+    reversedChargeInPaise: bill.reversedChargeInPaise,
     transactions: bill.transactions,
   });
 
@@ -598,6 +612,10 @@ export function mapBillFinancials(
       type: computed.discountType,
       reason: computed.discountReason,
     },
+    refundedAmountInPaise: Math.max(0, bill.refundedAmountInPaise ?? 0),
+    reversedChargeInPaise: Math.max(0, bill.reversedChargeInPaise ?? 0),
+    refundReason: bill.refundReason ?? null,
+    refundedAt: bill.refundedAt ?? null,
     transactions,
   };
 }
@@ -805,8 +823,12 @@ const TIMELINE_INCLUDE = {
       discountAmountInPaise: true,
       discountReason: true,
       paidAmountInPaise: true,
+      refundedAmountInPaise: true,
+      reversedChargeInPaise: true,
+      refundReason: true,
+      refundedAt: true,
       transactions: {
-        select: { amountInPaise: true, paymentType: true, transactionDate: true },
+        select: { amountInPaise: true, paymentType: true, transactionDate: true, transactionType: true },
         orderBy: { transactionDate: 'desc' as const },
       },
     },
@@ -819,7 +841,18 @@ const TIMELINE_INCLUDE = {
       },
     },
   },
-  testOrders: { select: { workflowMode: true } },
+  testOrders: {
+    select: {
+      id: true,
+      workflowMode: true,
+      testNameSnapshot: true,
+      priceInPaise: true,
+      cancelledAt: true,
+      cancelReason: true,
+      reversedChargeInPaise: true,
+    },
+    orderBy: { createdAt: 'asc' as const },
+  },
   clinicVisit: {
     include: { clinicDoctor: { select: { name: true } } },
   },
@@ -951,7 +984,24 @@ export async function getPatient360Timeline(patientId: string, filters: Timeline
       discountPercentage: financials.discountPercentage,
       discountReason: financials.discountReason,
       discount: financials.discount,
+      refundedAmountInPaise: financials.refundedAmountInPaise,
+      reversedChargeInPaise: financials.reversedChargeInPaise,
+      refundReason: financials.refundReason,
+      refundedAt: financials.refundedAt,
       transactions: financials.transactions,
+      // Test line items so the inspector can offer per-test cancel/refund.
+      testOrders:
+        visit.domain === 'DIAGNOSTICS'
+          ? visit.testOrders.map((order) => ({
+              id: order.id,
+              testName: order.testNameSnapshot,
+              priceInPaise: order.priceInPaise,
+              workflowMode: order.workflowMode,
+              cancelledAt: order.cancelledAt,
+              cancelReason: order.cancelReason,
+              reversedChargeInPaise: order.reversedChargeInPaise,
+            }))
+          : undefined,
       // Report state + workflow + abnormal flag + delivery
       reportState: deriveReportState(visit),
       workflowMode: deriveWorkflowMode(visit),

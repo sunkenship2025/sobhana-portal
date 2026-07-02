@@ -25,11 +25,11 @@ import {
 } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Eye, EyeOff, FileText, Loader2, MessageCircle, Printer, ReceiptText, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Ban, Eye, EyeOff, FileText, Loader2, MessageCircle, Printer, ReceiptText, X, ZoomIn, ZoomOut } from "lucide-react";
 import { toast } from "sonner";
 import { FinancialDetailPanel } from "./FinancialDetailPanel";
+import { RefundDialog } from "./RefundDialog";
 import { ReportActions } from "./ReportActions";
 import type { UseReportActions } from "@/hooks/patient360/useReportActions";
 import type { VisitTimelineItem } from "@/types";
@@ -92,6 +92,14 @@ function InspectorBody({
   useEffect(() => {
     setZoom(100);
   }, [reportActive, visit.visitId]);
+
+  const [refundOpen, setRefundOpen] = useState(false);
+  const hasActiveOrders = (visit.testOrders ?? []).some((order) => !order.cancelledAt);
+  const canRefund =
+    isDiagnostic &&
+    hasBill &&
+    hasActiveOrders &&
+    String(visit.status).toUpperCase() !== "CANCELLED";
 
   return (
     <div className="space-y-5">
@@ -180,10 +188,25 @@ function InspectorBody({
                 : "Send on WhatsApp"}
             </Button>
           )}
+          {canRefund && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="justify-start text-destructive hover:bg-destructive/10 hover:text-destructive sm:col-span-2"
+              onClick={() => setRefundOpen(true)}
+            >
+              <Ban className="mr-2 h-4 w-4" aria-hidden="true" />
+              Cancel / Refund tests
+            </Button>
+          )}
         </div>
         {/* Collect-payment deep-link intentionally omitted for v1 (06-frontend-plan §4 / Q5);
             print-bill is the supported path. */}
       </div>
+
+      {canRefund && (
+        <RefundDialog visit={visit} open={refundOpen} onOpenChange={setRefundOpen} />
+      )}
 
       {/* Inline preview — report (blob PDF, native toolbar hidden for a cleaner
           look) or bill (the same-origin /bill/print route). No separate modal;
@@ -297,12 +320,7 @@ export function VisitInspector({
       <Drawer open={open} onOpenChange={(o) => (!o ? onClose() : undefined)}>
         <DrawerContent className="max-h-[90vh]">
           <DrawerHeader className="flex items-center justify-between text-left">
-            <DrawerTitle className="flex items-center gap-2">
-              Visit details
-              <Badge variant="outline" className="text-xs font-normal">
-                Read-only
-              </Badge>
-            </DrawerTitle>
+            <DrawerTitle>Visit details</DrawerTitle>
           </DrawerHeader>
           <div className="overflow-y-auto px-4 pb-8">
             {visit && (
@@ -332,9 +350,6 @@ export function VisitInspector({
           className="flex items-center gap-2 font-semibold focus-visible:outline-none"
         >
           Visit details
-          <Badge variant="outline" className="text-xs font-normal">
-            Read-only
-          </Badge>
         </h3>
         {open && (
           <Button variant="ghost" size="icon" aria-label="Close visit details" onClick={onClose}>

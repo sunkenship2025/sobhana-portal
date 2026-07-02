@@ -117,6 +117,13 @@ function mapPaymentToChip(
   if (value === "REFUNDED") {
     return { label: "Refunded", icon: RotateCcw, tone: "draft" };
   }
+  if (value === "PARTIALLY_REFUNDED") {
+    return {
+      label: due > 0 ? `Part refund · Due ${formatCurrency(due)}` : "Part refund",
+      icon: RotateCcw,
+      tone: "draft",
+    };
+  }
   if (value === "PAID") {
     return { label: "Paid", icon: CheckCircle2, tone: "paid" };
   }

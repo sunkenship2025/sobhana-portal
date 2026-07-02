@@ -47,6 +47,7 @@ import {
 } from "../services/referralPayoutService";
 import { derivePayout } from "../services/payoutService";
 import {
+  allocateBillDiscountAcrossOrders,
   buildBillFinancialResponse,
   collectBillDue,
   computeBillFinancialsFromPersisted,
@@ -467,24 +468,32 @@ function getVisitComposition<
 }
 
 function getReportableOrders<
-  T extends { workflowMode?: DiagnosticWorkflowMode | null },
+  T extends {
+    workflowMode?: DiagnosticWorkflowMode | null;
+    cancelledAt?: Date | string | null;
+  },
 >(orders: T[]): T[] {
   return orders.filter(
     (order) =>
+      !order.cancelledAt &&
       (order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) ===
-      DiagnosticWorkflowMode.REPORTABLE,
+        DiagnosticWorkflowMode.REPORTABLE,
   );
 }
 
 /** Orders that contribute to the patient-facing report (REPORTABLE or EXTERNAL_UPLOAD). */
 function getReportInclusionOrders<
-  T extends { workflowMode?: DiagnosticWorkflowMode | null },
+  T extends {
+    workflowMode?: DiagnosticWorkflowMode | null;
+    cancelledAt?: Date | string | null;
+  },
 >(orders: T[]): T[] {
   return orders.filter(
     (order) =>
-      (order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) ===
+      !order.cancelledAt &&
+      ((order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) ===
         DiagnosticWorkflowMode.REPORTABLE ||
-      order.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD,
+        order.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD),
   );
 }
 
@@ -840,6 +849,9 @@ router.get("/:id", async (req: AuthRequest, res) => {
         referenceUnitSnapshot: true,
         testNameSnapshot: true,
         testCodeSnapshot: true,
+        cancelledAt: true,
+        cancelReason: true,
+        reversedChargeInPaise: true,
         test: {
           select: {
             id: true,
@@ -1299,6 +1311,9 @@ router.get("/:id", async (req: AuthRequest, res) => {
             testCode: to.testCodeSnapshot || to.test.code,
             price: to.priceInPaise / 100,
             priceInPaise: to.priceInPaise,
+            cancelledAt: to.cancelledAt,
+            cancelReason: to.cancelReason,
+            reversedChargeInPaise: to.reversedChargeInPaise,
             referralCommissionType: to.referralCommissionType,
             referralCommissionPercent: to.referralCommissionPercentage,
             referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
@@ -2569,6 +2584,277 @@ router.post("/:id/collect-due", async (req: AuthRequest, res) => {
     return res.status(500).json({
       error: "INTERNAL_ERROR",
       message: "Failed to collect due payment",
+    });
+  }
+});
+
+// POST /api/visits/diagnostic/:id/refund - Cancel test orders and refund overpayment
+// Whole-order cancellation: voids each selected order's remaining charge (net of
+// its proportional discount share) off the bill, and returns any money the
+// patient has now overpaid as a REFUND ledger row. With `preview: true` the
+// amounts are computed and returned without writing anything.
+router.post("/:id/refund", async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { testOrderIds, reason, note, paymentType, preview } = req.body;
+
+    if (
+      !Array.isArray(testOrderIds) ||
+      testOrderIds.length === 0 ||
+      testOrderIds.some((orderId) => typeof orderId !== "string")
+    ) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "At least one test order ID is required",
+      });
+    }
+    if (!preview && (typeof reason !== "string" || !reason.trim())) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "A cancellation reason is required",
+      });
+    }
+
+    const visit = await prisma.visit.findFirst({
+      where: {
+        id,
+        branchId: req.branchId,
+        domain: "DIAGNOSTICS",
+      },
+      include: {
+        bill: { include: { transactions: true } },
+        testOrders: true,
+      },
+    });
+
+    if (!visit) {
+      return res.status(404).json({
+        error: "NOT_FOUND",
+        message: "Diagnostic visit not found",
+      });
+    }
+    if (!visit.bill) {
+      return res.status(400).json({
+        error: "BILL_NOT_FOUND",
+        message: "No bill found for this diagnostic visit",
+      });
+    }
+
+    const bill = visit.bill;
+    const targetIdSet = new Set<string>(testOrderIds);
+    const targets = visit.testOrders.filter((order) =>
+      targetIdSet.has(order.id),
+    );
+    if (targets.length !== targetIdSet.size) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "Some test orders do not belong to this visit",
+      });
+    }
+    if (targets.some((order) => order.cancelledAt)) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "Some of the selected tests are already cancelled",
+      });
+    }
+
+    const current = computeBillFinancialsFromPersisted(bill);
+
+    // Each order's cancellable charge is its price minus its proportional
+    // share of the bill discount (so a discounted bill never over-refunds),
+    // minus any charge already reversed on it.
+    const discountAllocations = allocateBillDiscountAcrossOrders(
+      visit.testOrders,
+      current.discountAmountInPaise,
+    );
+    const perOrder = targets.map((order) => ({
+      testOrderId: order.id,
+      testName: order.testNameSnapshot,
+      reversalInPaise: Math.max(
+        0,
+        order.priceInPaise -
+          (discountAllocations.get(order.id) ?? 0) -
+          order.reversedChargeInPaise,
+      ),
+    }));
+    const totalReversalInPaise = perOrder.reduce(
+      (sum, entry) => sum + entry.reversalInPaise,
+      0,
+    );
+    if (totalReversalInPaise <= 0) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "Nothing left to cancel on the selected tests",
+      });
+    }
+
+    const nextReversedChargeInPaise =
+      Math.max(0, bill.reversedChargeInPaise ?? 0) + totalReversalInPaise;
+    const afterReversal = computeBillFinancialsFromPersisted({
+      ...bill,
+      reversedChargeInPaise: nextReversedChargeInPaise,
+    });
+    // Money to hand back = whatever the patient has paid beyond the new net.
+    const refundInPaise = Math.max(
+      0,
+      current.paidAmountInPaise - afterReversal.netAmountInPaise,
+    );
+
+    const nextRefundedAmountInPaise =
+      Math.max(0, bill.refundedAmountInPaise ?? 0) + refundInPaise;
+    const nextPaidAmountInPaise = Math.max(
+      0,
+      Math.round(bill.paidAmountInPaise ?? 0) - refundInPaise,
+    );
+    const finalFinancials = computeBillFinancialsFromPersisted({
+      ...bill,
+      transactions: undefined,
+      reversedChargeInPaise: nextReversedChargeInPaise,
+      refundedAmountInPaise: nextRefundedAmountInPaise,
+      paidAmountInPaise: nextPaidAmountInPaise,
+    });
+
+    const remainingActiveOrders = visit.testOrders.filter(
+      (order) => !order.cancelledAt && !targetIdSet.has(order.id),
+    );
+
+    if (preview) {
+      return res.json({
+        preview: true,
+        perOrder,
+        totalReversalInPaise,
+        refundInPaise,
+        nextNetAmountInPaise: finalFinancials.netAmountInPaise,
+        nextDueAmountInPaise: finalFinancials.dueAmountInPaise,
+        nextPaymentStatus: finalFinancials.paymentStatus,
+        cancelsWholeVisit: remainingActiveOrders.length === 0,
+      });
+    }
+
+    const trimmedReason = String(reason).trim();
+    const trimmedNote =
+      typeof note === "string" && note.trim() ? note.trim() : null;
+    const normalizedPaymentType = paymentType === "ONLINE" ? "ONLINE" : "CASH";
+    const now = new Date();
+
+    await prisma.$transaction(async (tx) => {
+      for (const entry of perOrder) {
+        const order = targets.find((o) => o.id === entry.testOrderId)!;
+        await tx.testOrder.update({
+          where: { id: order.id },
+          data: {
+            reversedChargeInPaise:
+              order.reversedChargeInPaise + entry.reversalInPaise,
+            cancelledAt: now,
+            cancelReason: trimmedReason,
+          },
+        });
+      }
+
+      await tx.orderRefund.createMany({
+        data: perOrder.map((entry) => ({
+          billId: bill.id,
+          visitId: visit.id,
+          testOrderId: entry.testOrderId,
+          branchId: visit.branchId,
+          kind: "CANCEL" as const,
+          amountInPaise: 0,
+          chargeReversedInPaise: entry.reversalInPaise,
+          reason: trimmedReason,
+          note: trimmedNote,
+          createdByUserId: req.user!.id,
+        })),
+      });
+
+      if (refundInPaise > 0) {
+        // Bill-level money-out event (overpayment across the cancelled orders).
+        await tx.orderRefund.create({
+          data: {
+            billId: bill.id,
+            visitId: visit.id,
+            testOrderId: null,
+            branchId: visit.branchId,
+            kind: "REFUND",
+            amountInPaise: refundInPaise,
+            chargeReversedInPaise: 0,
+            reason: trimmedReason,
+            note: trimmedNote,
+            paymentType: normalizedPaymentType,
+            createdByUserId: req.user!.id,
+          },
+        });
+        await tx.paymentTransaction.create({
+          data: {
+            billId: bill.id,
+            amountInPaise: refundInPaise,
+            paymentType: normalizedPaymentType,
+            transactionType: "REFUND",
+            collectedByUserId: req.user!.id,
+          },
+        });
+      }
+
+      await tx.bill.update({
+        where: { id: bill.id },
+        data: {
+          reversedChargeInPaise: nextReversedChargeInPaise,
+          paidAmountInPaise: nextPaidAmountInPaise,
+          paymentStatus: finalFinancials.paymentStatus,
+          ...(refundInPaise > 0
+            ? {
+                refundedAmountInPaise: nextRefundedAmountInPaise,
+                refundReason: trimmedReason,
+                refundedAt: now,
+                refundedByUserId: req.user!.id,
+              }
+            : {}),
+        },
+      });
+
+      if (remainingActiveOrders.length === 0) {
+        await tx.visit.update({
+          where: { id: visit.id },
+          data: { status: "CANCELLED" },
+        });
+      }
+    });
+
+    await logAction({
+      branchId: visit.branchId,
+      actionType: "UPDATE",
+      entityType: "Bill",
+      entityId: bill.id,
+      userId: req.user?.id,
+      newValues: {
+        action: refundInPaise > 0 ? "ORDER_REFUND" : "ORDER_CANCEL",
+        billNumber: visit.billNumber,
+        testOrderIds: perOrder.map((entry) => entry.testOrderId),
+        chargeReversedInPaise: totalReversalInPaise,
+        refundedInPaise: refundInPaise,
+        reason: trimmedReason,
+        note: trimmedNote,
+      },
+    });
+
+    const updatedBill = await prisma.bill.findUnique({
+      where: { id: bill.id },
+      include: { transactions: true },
+    });
+    const billFinancials = buildBillFinancialResponse(updatedBill);
+
+    return res.json({
+      id: visit.id,
+      status: remainingActiveOrders.length === 0 ? "CANCELLED" : visit.status,
+      paymentStatus: updatedBill?.paymentStatus,
+      refundInPaise,
+      totalReversalInPaise,
+      ...billFinancials,
+    });
+  } catch (err: any) {
+    console.error("Refund diagnostic visit error:", err);
+    return res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: "Failed to process cancellation/refund",
     });
   }
 });

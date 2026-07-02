@@ -8,6 +8,7 @@ export type DiagnosticNextAction = 'ENTER_RESULTS' | 'NONE';
 
 type WorkflowOrderLike = {
   workflowMode?: DiagnosticWorkflowMode | null;
+  cancelledAt?: Date | string | null;
 };
 
 type ReportVersionLike = {
@@ -53,9 +54,12 @@ export function deriveDiagnosticVisitComposition(
   visitStatus: VisitStatus | string,
   reportVersions: ReportVersionLike[] = []
 ): DiagnosticVisitComposition {
-  const hasReportableOrders = orders.some(isReportableOrder);
-  const hasBillOnlyOrders = orders.some(isBillOnlyOrder);
-  const hasExternalUploadOrders = orders.some(isExternalUploadOrder);
+  // Cancelled orders no longer participate in the visit's workflow: they
+  // shouldn't demand result entry or appear on the report.
+  const activeOrders = orders.filter((order) => !order.cancelledAt);
+  const hasReportableOrders = activeOrders.some(isReportableOrder);
+  const hasBillOnlyOrders = activeOrders.some(isBillOnlyOrder);
+  const hasExternalUploadOrders = activeOrders.some(isExternalUploadOrder);
   const hasReportInclusionOrders = hasReportableOrders || hasExternalUploadOrders;
   const hasEntryScreenOrders = hasReportInclusionOrders;
   // A partial release finalizes the current version (v_n) and creates a fresh

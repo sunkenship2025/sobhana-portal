@@ -568,6 +568,24 @@ export interface VisitTimelineItem {
   delivery?: VisitDelivery | null;
   // Nested discount object (mirrors the flat discount* fields above).
   discount?: VisitDiscount;
+  // Refund rollups (per-order cancellation feature). Absent on legacy shapes.
+  refundedAmountInPaise?: number;
+  reversedChargeInPaise?: number;
+  refundReason?: string | null;
+  refundedAt?: Date | string | null;
+  // Diagnostics test line items so the inspector can offer per-test cancel/refund.
+  testOrders?: Patient360TestOrder[];
+}
+
+// Minimal test-order line for the Patient360 inspector (cancel/refund dialog).
+export interface Patient360TestOrder {
+  id: string;
+  testName: string;
+  priceInPaise: number;
+  workflowMode?: DiagnosticWorkflowMode | null;
+  cancelledAt?: Date | string | null;
+  cancelReason?: string | null;
+  reversedChargeInPaise?: number;
 }
 
 // Complete Patient 360 view (backend-assembled)
@@ -600,7 +618,10 @@ export interface PatientSearchResult {
 // Backend `paymentStatus` on the timeline/bill can be REFUNDED too (the FE
 // PaymentStatus union is only PAID|PENDING and is kept for back-compat). This
 // widened alias is what the v2 financial/chip code reasons over.
-export type VisitPaymentStatus = PaymentStatus | "REFUNDED";
+export type VisitPaymentStatus =
+  | PaymentStatus
+  | "REFUNDED"
+  | "PARTIALLY_REFUNDED";
 
 // Discriminated report state (patientService.ts:605-611). Diagnostics only;
 // CLINIC visits → null. `version` is the MAX finalized versionNum.
