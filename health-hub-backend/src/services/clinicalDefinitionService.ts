@@ -272,6 +272,19 @@ export async function createNewVersion(
       },
     });
 
+    // Re-point panel items and product pins from the locked version to the
+    // new one, so panels/products always reference a single (latest) version.
+    // Safe under @@unique([panelId, testDefinitionId]): the new version was
+    // created in this transaction, so nothing can already point at it.
+    await tx.clinicalPanelItem.updateMany({
+      where: { testDefinitionId: current.id },
+      data: { testDefinitionId: newVersion.id },
+    });
+    await tx.billableProductPanel.updateMany({
+      where: { testDefinitionId: current.id },
+      data: { testDefinitionId: newVersion.id },
+    });
+
     // Clone or update ranges
     const ranges = updates.ranges ?? current.ranges.map(r => ({
       minAgeDays: r.minAgeDays,
@@ -402,22 +415,27 @@ export async function getImpact(rootDefinitionId: string) {
     },
   });
 
+  // Dedupe by panel/product: legacy drift can leave one panel holding items
+  // pinned at several versions of the same root
+  const panelsById = new Map(panelItems.map(pi => [pi.panel.id, {
+    panelId: pi.panel.id,
+    panelName: pi.panel.name,
+    panelDisplayName: pi.panel.displayName,
+    panelActive: pi.panel.isActive,
+    pinnedVersionId: pi.testDefinitionId,
+  }]));
+  const productsById = new Map(productPanels.map((pc: any) => [pc.product.id, {
+    productId: pc.product.id,
+    productName: pc.product.name,
+    productCode: pc.product.code,
+    productActive: pc.product.isActive,
+    pinnedVersionId: pc.testDefinitionId,
+  }]));
+
   return {
     versions,
-    referencedByPanels: panelItems.map(pi => ({
-      panelId: pi.panel.id,
-      panelName: pi.panel.name,
-      panelDisplayName: pi.panel.displayName,
-      panelActive: pi.panel.isActive,
-      pinnedVersionId: pi.testDefinitionId,
-    })),
-    referencedByProducts: productPanels.map((pc: any) => ({
-      productId: pc.product.id,
-      productName: pc.product.name,
-      productCode: pc.product.code,
-      productActive: pc.product.isActive,
-      pinnedVersionId: pc.testDefinitionId,
-    })),
+    referencedByPanels: [...panelsById.values()],
+    referencedByProducts: [...productsById.values()],
   };
 }
 

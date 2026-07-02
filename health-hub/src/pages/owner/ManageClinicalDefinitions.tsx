@@ -1382,19 +1382,21 @@ export default function ManageClinicalDefinitions() {
             <div className="space-y-4 text-sm">
               <div>
                 <p className="font-semibold mb-1">Panels using this definition:</p>
-                {impactData.panels?.length > 0 ? (
+                {impactData.referencedByPanels?.length > 0 ? (
                   <ul className="list-disc pl-5 space-y-0.5">
-                    {impactData.panels.map((p: any) => <li key={p.id}>{p.name}</li>)}
+                    {impactData.referencedByPanels.map((p: any) => (
+                      <li key={p.panelId}>{p.panelDisplayName || p.panelName}</li>
+                    ))}
                   </ul>
                 ) : <p className="text-muted-foreground">None</p>}
               </div>
               <Separator />
               <div>
                 <p className="font-semibold mb-1">Products using this definition:</p>
-                {impactData.products?.length > 0 ? (
+                {impactData.referencedByProducts?.length > 0 ? (
                   <ul className="list-disc pl-5 space-y-0.5">
-                    {impactData.products.map((p: any) => (
-                      <li key={p.id}>{p.name} <Badge variant="outline" className="text-xs ml-1">{p.code}</Badge></li>
+                    {impactData.referencedByProducts.map((p: any) => (
+                      <li key={p.productId}>{p.productName} <Badge variant="outline" className="text-xs ml-1">{p.productCode}</Badge></li>
                     ))}
                   </ul>
                 ) : <p className="text-muted-foreground">None</p>}

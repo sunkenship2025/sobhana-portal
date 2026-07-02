@@ -68,6 +68,59 @@ function validateLayoutConstraints(layoutType: string, items: any[]): string | n
   return null;
 }
 
+/**
+ * Panel items must always reference the latest ACTIVE version of a definition.
+ * A save may submit a superseded version id (panel stored before the
+ * definition was edited) — re-point it to the latest version of its root
+ * instead of rejecting, then validate the resolved version is ACTIVE.
+ */
+async function resolveItemsToLatestActive(
+  items: any[]
+): Promise<{ items?: any[]; error?: string }> {
+  const defIds = items.map((i: any) => i.testDefinitionId);
+  const defs = await prisma.testDefinition.findMany({
+    where: { id: { in: defIds } },
+    select: { id: true, status: true, name: true, rootDefinitionId: true, isLatest: true },
+  });
+
+  const byId = new Map(defs.map(d => [d.id, d]));
+  const missing = defIds.filter((id: string) => !byId.has(id));
+  if (missing.length > 0) {
+    return { error: `Test definitions not found: ${missing.join(', ')}` };
+  }
+
+  const staleRoots = [...new Set(defs.filter(d => !d.isLatest).map(d => d.rootDefinitionId))];
+  const latestByRoot = new Map<string, typeof defs[number]>();
+  if (staleRoots.length > 0) {
+    const latest = await prisma.testDefinition.findMany({
+      where: { rootDefinitionId: { in: staleRoots }, isLatest: true },
+      select: { id: true, status: true, name: true, rootDefinitionId: true, isLatest: true },
+    });
+    for (const d of latest) latestByRoot.set(d.rootDefinitionId, d);
+  }
+
+  const resolved: any[] = [];
+  const seen = new Set<string>();
+  const inactive: string[] = [];
+  for (const item of items) {
+    const def = byId.get(item.testDefinitionId)!;
+    const target = def.isLatest ? def : (latestByRoot.get(def.rootDefinitionId) ?? def);
+    if (target.status !== 'ACTIVE') {
+      inactive.push(target.name);
+      continue;
+    }
+    // Two stale versions of the same root collapse into one item after re-pointing
+    if (seen.has(target.id)) continue;
+    seen.add(target.id);
+    resolved.push({ ...item, testDefinitionId: target.id });
+  }
+
+  if (inactive.length > 0) {
+    return { error: `Test definitions not ACTIVE: ${inactive.join(', ')}` };
+  }
+  return { items: resolved };
+}
+
 // ─── GET /check-code — Real-time code uniqueness check ───────────────
 router.get('/check-code', async (req: AuthRequest, res) => {
   try {
@@ -204,36 +257,20 @@ router.post('/', async (req: AuthRequest, res) => {
       });
     }
 
-    // Validate layout type constraints
-    const layoutError = validateLayoutConstraints(layoutType, items ?? []);
-    if (layoutError) {
-      return res.status(400).json({ error: 'VALIDATION_ERROR', message: layoutError });
+    // Resolve items to the latest ACTIVE definition versions
+    let resolvedItems = items;
+    if (items?.length) {
+      const resolution = await resolveItemsToLatestActive(items);
+      if (resolution.error) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: resolution.error });
+      }
+      resolvedItems = resolution.items;
     }
 
-    // Validate that all referenced test definitions exist and are ACTIVE
-    if (items?.length) {
-      const defIds = items.map((i: any) => i.testDefinitionId);
-      const defs = await prisma.testDefinition.findMany({
-        where: { id: { in: defIds } },
-        select: { id: true, status: true, name: true },
-      });
-
-      const foundIds = new Set(defs.map(d => d.id));
-      const missing = defIds.filter((id: string) => !foundIds.has(id));
-      if (missing.length > 0) {
-        return res.status(400).json({
-          error: 'VALIDATION_ERROR',
-          message: `Test definitions not found: ${missing.join(', ')}`,
-        });
-      }
-
-      const inactive = defs.filter(d => d.status !== 'ACTIVE');
-      if (inactive.length > 0) {
-        return res.status(400).json({
-          error: 'VALIDATION_ERROR',
-          message: `Test definitions not ACTIVE: ${inactive.map(d => d.name).join(', ')}`,
-        });
-      }
+    // Validate layout type constraints
+    const layoutError = validateLayoutConstraints(layoutType, resolvedItems ?? []);
+    if (layoutError) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: layoutError });
     }
 
     const panel = await prisma.clinicalPanel.create({
@@ -255,8 +292,8 @@ router.post('/', async (req: AuthRequest, res) => {
         panelMethodText: panelMethodText ?? null,
         panelMethodItalic: panelMethodItalic ?? false,
         narrativeTemplateHtml: narrativeTemplateHtml ?? null,
-        items: items?.length ? {
-          create: items.map((item: any, idx: number) => ({
+        items: resolvedItems?.length ? {
+          create: resolvedItems.map((item: any, idx: number) => ({
             testDefinitionId: item.testDefinitionId,
             displayOrder: item.displayOrder ?? idx,
             showMethod: item.showMethod ?? false,
@@ -315,9 +352,19 @@ router.put('/:id', async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Panel not found' });
     }
 
+    // Resolve items to the latest ACTIVE definition versions
+    let resolvedItems = items;
+    if (items?.length) {
+      const resolution = await resolveItemsToLatestActive(items);
+      if (resolution.error) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', message: resolution.error });
+      }
+      resolvedItems = resolution.items;
+    }
+
     // Validate layout constraints
     const nextLayoutType = layoutType ?? existing.layoutType;
-    const nextItems = items ?? existing.items;
+    const nextItems = resolvedItems ?? existing.items;
     const layoutError = validateLayoutConstraints(nextLayoutType, nextItems);
     if (layoutError) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: layoutError });
@@ -328,7 +375,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
 
     const panel = await prisma.$transaction(async (tx) => {
       // Delete existing items and recreate
-      if (items) {
+      if (resolvedItems) {
         await tx.clinicalPanelItem.deleteMany({ where: { panelId: req.params.id } });
       }
 
@@ -354,8 +401,8 @@ router.put('/:id', async (req: AuthRequest, res) => {
           panelMethodText: panelMethodText !== undefined ? panelMethodText : existing.panelMethodText,
           panelMethodItalic: panelMethodItalic !== undefined ? panelMethodItalic : existing.panelMethodItalic,
           narrativeTemplateHtml: narrativeTemplateHtml !== undefined ? narrativeTemplateHtml : existing.narrativeTemplateHtml,
-          items: items ? {
-            create: items.map((item: any, idx: number) => ({
+          items: resolvedItems ? {
+            create: resolvedItems.map((item: any, idx: number) => ({
               testDefinitionId: item.testDefinitionId,
               displayOrder: item.displayOrder ?? idx,
               showMethod: item.showMethod ?? false,
