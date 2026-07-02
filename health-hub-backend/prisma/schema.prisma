@@ -315,7 +315,7 @@ model ReferralDoctor {
   phone                   String?
   email                   String?
   commissionType          ReferralPayoutType @default(PERCENTAGE)
-  commissionPercent       Float              @default(10.0) // 0-100, can be overridden per test
+  commissionPercent       Float              @default(50.0) // 0-100, can be overridden per test
   commissionAmountInPaise Int?
   clinicDoctorId          String? // Link if this person is also a clinic doctor
   isActive                Boolean            @default(true)

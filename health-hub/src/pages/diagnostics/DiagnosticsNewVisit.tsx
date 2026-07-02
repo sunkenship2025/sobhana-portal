@@ -317,7 +317,7 @@ const DiagnosticsNewVisit = () => {
           name: newDoctorName.trim(),
           phone: newDoctorPhone.trim() || undefined,
           commissionType: "PERCENTAGE",
-          commissionPercent: 10,
+          commissionPercent: 50,
         }),
       });
 
