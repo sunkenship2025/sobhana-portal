@@ -586,6 +586,60 @@ async function loadLatestDefinitionFormulasByCode(
   return new Map(definitions.map((definition) => [definition.code, definition]));
 }
 
+/**
+ * Panel membership is looked up by exact testDefinitionId, but TestDefinitions
+ * are versioned: re-saving a ClinicalPanel re-points its ClinicalPanelItems at
+ * the LATEST definition versions, which orphans in-flight TestOrders/TestResults
+ * that still reference an older version (their testDefinition.panelItems comes
+ * back empty and the result falls into the "General" orphan panel). Backfill
+ * empty panelItems from any sibling version of the same rootDefinitionId so
+ * historical orders keep rendering inside their panel.
+ */
+async function backfillPanelItemsByRoot(testResults: any[]): Promise<void> {
+  const orphanDefsByRoot = new Map<string, any[]>();
+  for (const result of testResults) {
+    const testDef = result.testDefinition;
+    if (
+      testDef?.rootDefinitionId &&
+      (!testDef.panelItems || testDef.panelItems.length === 0)
+    ) {
+      const list = orphanDefsByRoot.get(testDef.rootDefinitionId) || [];
+      list.push(testDef);
+      orphanDefsByRoot.set(testDef.rootDefinitionId, list);
+    }
+  }
+  if (orphanDefsByRoot.size === 0) return;
+
+  const siblingItems = await prisma.clinicalPanelItem.findMany({
+    where: {
+      testDefinition: {
+        rootDefinitionId: { in: [...orphanDefsByRoot.keys()] },
+      },
+    },
+    orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
+    include: {
+      panel: { include: { department: true } },
+      testDefinition: { select: { rootDefinitionId: true } },
+    },
+  });
+
+  const itemsByRoot = new Map<string, any[]>();
+  for (const item of siblingItems) {
+    const root = item.testDefinition.rootDefinitionId;
+    const list = itemsByRoot.get(root) || [];
+    list.push(item);
+    itemsByRoot.set(root, list);
+  }
+
+  for (const [root, defs] of orphanDefsByRoot) {
+    const items = itemsByRoot.get(root);
+    if (!items || items.length === 0) continue;
+    for (const def of defs) {
+      def.panelItems = items;
+    }
+  }
+}
+
 // ============================================================================
 // SHARED PANEL-BUILDING LOGIC
 // ============================================================================
@@ -1372,6 +1426,7 @@ export async function createReportSnapshot(
     reportableOrders as any[],
     reportVersion.id
   ));
+  await backfillPanelItemsByRoot(augmentedTestResults);
 
   // ============================================================================
   // RESOLVE AGE-AWARE REFERENCE RANGES (dual architecture)
@@ -1567,6 +1622,7 @@ export async function buildEphemeralSnapshot(
     reportableOrders as any[],
     reportVersion.id
   ));
+  await backfillPanelItemsByRoot(augmentedTestResults);
 
   // Resolve age-aware reference ranges (dual architecture)
   const allTestIds = augmentedTestResults.map((r: any) => r.test.id);

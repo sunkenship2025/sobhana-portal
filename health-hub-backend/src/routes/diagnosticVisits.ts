@@ -580,28 +580,54 @@ router.get("/", async (req: AuthRequest, res) => {
       }
     }
 
-    const clinicalPanelItems = allTestDefinitionIds.size
+    // Match panel membership by rootDefinitionId so orders referencing an
+    // older TestDefinition version (panel re-saves re-point items at the
+    // latest version) still resolve their panel name.
+    const orderedDefinitions = allTestDefinitionIds.size
+      ? await prisma.testDefinition.findMany({
+          where: { id: { in: Array.from(allTestDefinitionIds) } },
+          select: { id: true, rootDefinitionId: true },
+        })
+      : [];
+    const rootIdByDefinitionId = new Map(
+      orderedDefinitions.map((def) => [def.id, def.rootDefinitionId]),
+    );
+    const clinicalPanelItems = orderedDefinitions.length
       ? await prisma.clinicalPanelItem.findMany({
           where: {
-            testDefinitionId: { in: Array.from(allTestDefinitionIds) },
+            testDefinition: {
+              rootDefinitionId: {
+                in: [...new Set(orderedDefinitions.map((def) => def.rootDefinitionId))],
+              },
+            },
           },
           orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
           select: {
             testDefinitionId: true,
+            testDefinition: { select: { rootDefinitionId: true } },
             panel: {
               select: { id: true, name: true, displayName: true },
             },
           },
         })
       : [];
-    const clinicalPanelByDefinitionId = new Map<
+    const clinicalPanelByRootId = new Map<
       string,
       { id: string; name: string; displayName: string }
     >();
     for (const item of clinicalPanelItems) {
-      if (!clinicalPanelByDefinitionId.has(item.testDefinitionId)) {
-        clinicalPanelByDefinitionId.set(item.testDefinitionId, item.panel);
+      const rootId = item.testDefinition.rootDefinitionId;
+      if (!clinicalPanelByRootId.has(rootId)) {
+        clinicalPanelByRootId.set(rootId, item.panel);
       }
+    }
+    const clinicalPanelByDefinitionId = new Map<
+      string,
+      { id: string; name: string; displayName: string }
+    >();
+    for (const [defId, rootId] of rootIdByDefinitionId) {
+      const panel = clinicalPanelByRootId.get(rootId);
+      if (panel) clinicalPanelByDefinitionId.set(defId, panel);
     }
 
     // Transform to frontend format
@@ -999,26 +1025,29 @@ router.get("/:id", async (req: AuthRequest, res) => {
       labPanelItemsByTestId.set(panelItem.testId, list);
     }
 
-    const testDefinitionIds = [
+    // Panel membership is matched via rootDefinitionId (not exact
+    // testDefinitionId): panel re-saves re-point ClinicalPanelItems at the
+    // latest definition versions, and orders referencing an older version
+    // would otherwise lose their panel grouping.
+    const testDefinitionRootIds = [
       ...new Set(
         rawTestOrders
-          .map((order) => order.testDefinitionId)
-          .filter((definitionId): definitionId is string =>
-            Boolean(definitionId),
-          ),
+          .map((order) => order.testDefinition?.rootDefinitionId)
+          .filter((rootId): rootId is string => Boolean(rootId)),
       ),
     ];
 
-    const definitionPanelItems = testDefinitionIds.length
+    const definitionPanelItems = testDefinitionRootIds.length
       ? await prisma.clinicalPanelItem.findMany({
           where: {
-            testDefinitionId: {
-              in: testDefinitionIds,
+            testDefinition: {
+              rootDefinitionId: { in: testDefinitionRootIds },
             },
           },
           orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
           select: {
             testDefinitionId: true,
+            testDefinition: { select: { rootDefinitionId: true } },
             panel: {
               select: {
                 id: true,
@@ -1040,19 +1069,15 @@ router.get("/:id", async (req: AuthRequest, res) => {
         })
       : [];
 
-    const definitionPanelItemsByDefinitionId = new Map<
+    const definitionPanelItemsByRootId = new Map<
       string,
       typeof definitionPanelItems
     >();
     for (const panelItem of definitionPanelItems) {
-      const list =
-        definitionPanelItemsByDefinitionId.get(panelItem.testDefinitionId) ||
-        [];
+      const rootId = panelItem.testDefinition.rootDefinitionId;
+      const list = definitionPanelItemsByRootId.get(rootId) || [];
       list.push(panelItem);
-      definitionPanelItemsByDefinitionId.set(
-        panelItem.testDefinitionId,
-        list,
-      );
+      definitionPanelItemsByRootId.set(rootId, list);
     }
 
     const testOrders = rawTestOrders.map((order) => {
@@ -1074,9 +1099,9 @@ router.get("/:id", async (req: AuthRequest, res) => {
       }
 
       let definitionPanelItem = undefined;
-      if (order.testDefinitionId) {
-        const defItems = definitionPanelItemsByDefinitionId.get(
-          order.testDefinitionId,
+      if (order.testDefinition?.rootDefinitionId) {
+        const defItems = definitionPanelItemsByRootId.get(
+          order.testDefinition.rootDefinitionId,
         );
         if (defItems && defItems.length > 0) {
           if (orderProductPanels) {
@@ -1085,7 +1110,10 @@ router.get("/:id", async (req: AuthRequest, res) => {
             );
           }
           if (!definitionPanelItem) {
-            definitionPanelItem = defItems[0];
+            definitionPanelItem =
+              defItems.find(
+                (item) => item.testDefinitionId === order.testDefinitionId,
+              ) || defItems[0];
           }
         }
       }
