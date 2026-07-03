@@ -360,6 +360,28 @@ body.report-body {
   font-weight: bold;
 }
 
+/* Critical (panic) values — must stand out far more than a routine abnormal. */
+.results-table .col-value.critical,
+.result-grid-cell .grid-cell-value.critical {
+  font-weight: 800;
+  color: #fff;
+  background: var(--color-abnormal, #b91c1c);
+  padding: 0 3px;
+  border-radius: 2px;
+}
+.crit-flag {
+  display: inline-block;
+  font-weight: 800;
+  font-size: 8pt;
+  letter-spacing: 0.03em;
+  color: var(--color-abnormal, #b91c1c);
+  border: 1px solid var(--color-abnormal, #b91c1c);
+  border-radius: 2px;
+  padding: 0 3px;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
 .results-table td.col-unit { color: #777; }
 .results-table td.col-ref { color: #6b7280; font-size: 8.5pt; }
 .results-table td.col-test,

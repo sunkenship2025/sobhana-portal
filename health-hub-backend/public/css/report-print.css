@@ -279,6 +279,25 @@ body.report-body {
   font-weight: bold;
 }
 
+/* Critical (panic) values — B&W-safe: no colour reliance, boxed + bold so a
+   panic value is unmistakable on a pre-printed monochrome letterhead. */
+.results-table .col-value.critical,
+.result-grid-cell .grid-cell-value.critical {
+  font-weight: bold;
+  text-decoration: underline;
+}
+.crit-flag {
+  display: inline-block;
+  font-weight: bold;
+  font-size: 8pt;
+  letter-spacing: 0.03em;
+  border: 1.5px solid var(--color-text, #000);
+  border-radius: 2px;
+  padding: 0 3px;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
 /* Indentation for sub-tests */
 .results-table tr.indent-1 .col-test { padding-left: var(--spacing-md); }
 
