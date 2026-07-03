@@ -21,8 +21,13 @@ import { logger } from '../lib/logger';
 import type { Prisma } from '@prisma/client';
 
 const CACHE_TTL_SEC = 60;
-const cacheKey = (period: PeriodKey, branchId: string | null, range: CustomRange | null) =>
-  `owner-money:v2:${period}:${branchId ?? 'all'}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
+const cacheKey = (
+  period: PeriodKey,
+  branchId: string | null,
+  range: CustomRange | null,
+  domain: DaySheetDomain | null,
+) =>
+  `owner-money:v3:${period}:${branchId ?? 'all'}:${domain ?? 'all'}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -242,11 +247,12 @@ export async function getOwnerMoney(
   period: PeriodKey,
   branchId: string | null,
   range: CustomRange | null = null,
+  domain: DaySheetDomain | null = null,
 ): Promise<MoneyResponse> {
   const redis = getRedisClient();
   if (redis) {
     try {
-      const hit = await redis.get(cacheKey(period, branchId, range));
+      const hit = await redis.get(cacheKey(period, branchId, range, domain));
       if (hit) return JSON.parse(hit) as MoneyResponse;
     } catch (err) {
       logger.warn({ err, period, branchId }, 'owner-money: cache read failed');
@@ -257,6 +263,19 @@ export async function getOwnerMoney(
   const win = period === 'custom' && range ? customWindow(range) : periodWindow(period, now);
   const prior = priorWindow(win);
   const billBranchWhere: Prisma.BillWhereInput = branchId ? { branchId } : {};
+  // Diagnostic/OP register filter. A bill's register lives on its visit
+  // (visit.domain). testOrders/clinicVisits reach it through their own visit
+  // relation; payments through bill.visit. Null ⇒ both registers (the "All" toggle).
+  const domainBillWhere: Prisma.BillWhereInput = domain ? { visit: { domain } } : {};
+  const domainVisitWhere = domain ? { visit: { domain } } : {};
+  const clinicVisitScope =
+    branchId || domain
+      ? { visit: { ...(branchId ? { branchId } : {}), ...(domain ? { domain } : {}) } }
+      : {};
+  const paymentBillScope =
+    branchId || domain
+      ? { bill: { ...(branchId ? { branchId } : {}), ...(domain ? { visit: { domain } } : {}) } }
+      : {};
 
   const [
     scopedBranch,
@@ -279,7 +298,7 @@ export async function getOwnerMoney(
         })
       : Promise.resolve(null),
     prisma.bill.findMany({
-      where: { billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere },
+      where: { billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere, ...domainBillWhere },
       select: {
         id: true,
         billNumber: true,
@@ -300,6 +319,7 @@ export async function getOwnerMoney(
       where: {
         createdAt: { gte: win.start, lt: win.end },
         ...(branchId ? { branchId } : {}),
+        ...domainVisitWhere,
       },
       select: {
         priceInPaise: true,
@@ -315,7 +335,7 @@ export async function getOwnerMoney(
     prisma.clinicVisit.findMany({
       where: {
         createdAt: { gte: win.start, lt: win.end },
-        ...(branchId ? { visit: { branchId } } : {}),
+        ...clinicVisitScope,
       },
       select: {
         consultationFeeInPaise: true,
@@ -330,7 +350,7 @@ export async function getOwnerMoney(
       },
     }),
     prisma.bill.aggregate({
-      where: { billedAt: { gte: prior.start, lt: prior.end }, ...billBranchWhere },
+      where: { billedAt: { gte: prior.start, lt: prior.end }, ...billBranchWhere, ...domainBillWhere },
       _sum: { totalAmountInPaise: true, discountAmountInPaise: true },
       _count: true,
     }),
@@ -338,6 +358,7 @@ export async function getOwnerMoney(
       where: {
         createdAt: { gte: prior.start, lt: prior.end },
         ...(branchId ? { branchId } : {}),
+        ...domainVisitWhere,
       },
       select: {
         priceInPaise: true,
@@ -352,7 +373,7 @@ export async function getOwnerMoney(
     prisma.clinicVisit.findMany({
       where: {
         createdAt: { gte: prior.start, lt: prior.end },
-        ...(branchId ? { visit: { branchId } } : {}),
+        ...clinicVisitScope,
       },
       select: {
         consultationFeeInPaise: true,
@@ -366,7 +387,7 @@ export async function getOwnerMoney(
       },
     }),
     prisma.bill.findMany({
-      where: { paymentStatus: { not: 'PAID' }, ...billBranchWhere },
+      where: { paymentStatus: { not: 'PAID' }, ...billBranchWhere, ...domainBillWhere },
       select: {
         id: true,
         billNumber: true,
@@ -380,7 +401,7 @@ export async function getOwnerMoney(
       },
     }),
     prisma.bill.aggregate({
-      where: { paymentStatus: 'REFUNDED', billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere },
+      where: { paymentStatus: 'REFUNDED', billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere, ...domainBillWhere },
       // Cash actually returned to the patient = what was paid in. Face value
       // (total - discount) overstates refunds for partially-paid bills.
       _sum: { paidAmountInPaise: true },
@@ -389,7 +410,7 @@ export async function getOwnerMoney(
     prisma.paymentTransaction.findMany({
       where: {
         transactionDate: { gte: win.start, lt: win.end },
-        ...(branchId ? { bill: { branchId } } : {}),
+        ...paymentBillScope,
       },
       select: {
         amountInPaise: true,
@@ -407,7 +428,7 @@ export async function getOwnerMoney(
       select: { id: true, name: true, code: true },
     }),
     prisma.bill.findMany({
-      where: { paymentStatus: 'REFUNDED', billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere },
+      where: { paymentStatus: 'REFUNDED', billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere, ...domainBillWhere },
       orderBy: { updatedAt: 'desc' },
       take: 5,
       select: {
@@ -719,7 +740,7 @@ export async function getOwnerMoney(
 
   if (redis) {
     redis
-      .set(cacheKey(period, branchId, range), JSON.stringify(response), 'EX', CACHE_TTL_SEC)
+      .set(cacheKey(period, branchId, range, domain), JSON.stringify(response), 'EX', CACHE_TTL_SEC)
       .catch((err) => logger.warn({ err }, 'owner-money: cache write failed'));
   }
 

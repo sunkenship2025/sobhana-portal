@@ -596,6 +596,19 @@ export default function OwnerMoneyPage() {
   const customStart = searchParams.get('start') || '';
   const customEnd = searchParams.get('end') || '';
   const customReady = period === 'custom' && Boolean(customStart) && Boolean(customEnd);
+  // Register slicer: 'all' | 'diagnostics' | 'clinic'. Drives the whole page
+  // (and the day sheet), like a PowerBI slicer. URL-backed so it's shareable.
+  const rawDomain = searchParams.get('domain');
+  const domain: 'all' | 'diagnostics' | 'clinic' =
+    rawDomain === 'diagnostics' || rawDomain === 'clinic' ? rawDomain : 'all';
+
+  const setDomain = (next: 'all' | 'diagnostics' | 'clinic') => {
+    setSearchParams(prev => {
+      if (next === 'all') prev.delete('domain');
+      else prev.set('domain', next);
+      return prev;
+    });
+  };
 
   const setBranchValue = (newBranch: string) => {
     setSearchParams(prev => {
@@ -628,14 +641,16 @@ export default function OwnerMoneyPage() {
     });
   };
 
-  // Shared query string for every money endpoint (dashboard + day sheet).
+  // Shared query string for every money endpoint (dashboard + day sheet). The
+  // register slicer is folded in here so it drives every card, chart and table.
+  const domainParam = domain === 'all' ? '' : `&domain=${domain}`;
   const moneyParams =
     period === 'custom'
-      ? `period=custom&start=${customStart}&end=${customEnd}&branch=${encodeURIComponent(branchValue)}`
-      : `period=${period}&branch=${encodeURIComponent(branchValue)}`;
+      ? `period=custom&start=${customStart}&end=${customEnd}&branch=${encodeURIComponent(branchValue)}${domainParam}`
+      : `period=${period}&branch=${encodeURIComponent(branchValue)}${domainParam}`;
 
   const query = useQuery<MoneyResponse>({
-    queryKey: ['owner-money', period, branchValue, customStart, customEnd],
+    queryKey: ['owner-money', period, branchValue, customStart, customEnd, domain],
     queryFn: () => apiRequest<MoneyResponse>(`${API_BASE}/owner/money?${moneyParams}`),
     enabled: period !== 'custom' || customReady,
     refetchInterval: 5 * 60 * 1000,
@@ -644,10 +659,8 @@ export default function OwnerMoneyPage() {
 
   const [agingFilter, setAgingFilter] = useState<AgingKey | null>(null);
   const [daySheetBusy, setDaySheetBusy] = useState<null | 'print' | 'excel'>(null);
-  // Which register the day sheet covers: everything, diagnostics only, or OP (clinic) only.
-  const [daySheetDomain, setDaySheetDomain] = useState<'all' | 'diagnostics' | 'clinic'>('all');
-  const daySheetParams =
-    daySheetDomain === 'all' ? moneyParams : `${moneyParams}&domain=${daySheetDomain}`;
+  // Day sheet reuses the page's params — the register slicer already lives in them.
+  const daySheetParams = moneyParams;
 
   const printDaySheet = async () => {
     if (daySheetBusy) return;
@@ -686,7 +699,7 @@ export default function OwnerMoneyPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const tag = daySheetDomain === 'diagnostics' ? 'diagnostic-' : daySheetDomain === 'clinic' ? 'op-' : '';
+      const tag = domain === 'diagnostics' ? 'diagnostic-' : domain === 'clinic' ? 'op-' : '';
       a.download = `${tag}day-sheet-${new Date().toISOString().slice(0, 10)}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
@@ -729,7 +742,7 @@ export default function OwnerMoneyPage() {
               <div
                 className="inline-flex overflow-hidden rounded-md border"
                 style={{ borderColor: TOKENS.border, fontSize: 12 }}
-                title="Which register the day sheet covers"
+                title="Filter the whole page by register"
               >
                 {([
                   ['all', 'All'],
@@ -738,11 +751,11 @@ export default function OwnerMoneyPage() {
                 ] as const).map(([k, label], i) => (
                   <button
                     key={k}
-                    onClick={() => setDaySheetDomain(k)}
+                    onClick={() => setDomain(k)}
                     className="px-2.5 py-1.5"
                     style={{
-                      background: k === daySheetDomain ? TOKENS.info : 'white',
-                      color: k === daySheetDomain ? 'white' : TOKENS.textSecondary,
+                      background: k === domain ? TOKENS.info : 'white',
+                      color: k === domain ? 'white' : TOKENS.textSecondary,
                       borderLeft: i === 0 ? 'none' : `0.5px solid ${TOKENS.border}`,
                     }}
                   >

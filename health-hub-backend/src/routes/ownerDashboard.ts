@@ -72,7 +72,10 @@ function parseMoneyQuery(req: AuthRequest): {
 router.get('/money', async (req: AuthRequest, res) => {
   try {
     const { period, branchId, range } = parseMoneyQuery(req);
-    const data = await getOwnerMoney(period, branchId, range);
+    const rawDomain = (req.query.domain as string) || 'all';
+    const domain: MoneyDaySheetDomain | null =
+      rawDomain === 'diagnostics' ? 'DIAGNOSTICS' : rawDomain === 'clinic' ? 'CLINIC' : null;
+    const data = await getOwnerMoney(period, branchId, range, domain);
     return res.json(data);
   } catch (err: any) {
     req.log.error({ err }, 'owner money load failed');
