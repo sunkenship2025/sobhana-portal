@@ -226,7 +226,10 @@ const ClinicNewVisit = () => {
     age: "",
     ageUnit: "YEARS" as "DAYS" | "MONTHS" | "YEARS",
     dateOfBirth: "",
-    gender: "M" as "M" | "F" | "O",
+    // Unset by default: derived from a gendered title or picked manually; must
+    // NOT pre-default to Male (else "Baby" silently submits as Male). Empty is
+    // caught by validatePatientForm.
+    gender: "" as "" | "M" | "F" | "O",
     whatsappOptIn: true,
   });
   const [whatsappOptIn, setWhatsappOptIn] = useState(true);
@@ -572,7 +575,7 @@ const ClinicNewVisit = () => {
       age: "",
       ageUnit: "YEARS",
       dateOfBirth: "",
-      gender: "M",
+      gender: "",
       whatsappOptIn: true,
     });
     setValidationErrors({});
@@ -1172,12 +1175,14 @@ const ClinicNewVisit = () => {
                     value={newPatient.title}
                     onValueChange={(v) => {
                       const autoGender = TITLE_TO_GENDER[v];
+                      // Gendered titles set gender; titles without an implied
+                      // gender (e.g. Baby) CLEAR it so the user must pick M/F.
                       setNewPatient({
                         ...newPatient,
                         title: v,
-                        ...(autoGender ? { gender: autoGender } : {}),
+                        gender: autoGender ?? "",
                       });
-                      if (validationErrors.gender) {
+                      if (autoGender && validationErrors.gender) {
                         setValidationErrors({
                           ...validationErrors,
                           gender: undefined,
@@ -1232,7 +1237,7 @@ const ClinicNewVisit = () => {
                     onValueChange={(value) => {
                       setNewPatient({
                         ...newPatient,
-                        gender: value as "M" | "F" | "O",
+                        gender: value as "" | "M" | "F" | "O",
                       });
                       if (validationErrors.gender) {
                         setValidationErrors({

@@ -142,7 +142,10 @@ const DiagnosticsNewVisit = () => {
     age: "",
     ageUnit: "YEARS" as "DAYS" | "MONTHS" | "YEARS",
     dateOfBirth: "", // E2-09: Optional DOB field
-    gender: "M" as "M" | "F" | "O",
+    // Unset by default: gender is derived from a gendered title (Mr/Mrs/...) or
+    // picked manually. It must NOT pre-default to Male, else "Baby" (no implied
+    // gender) silently submits as Male. Empty is caught by validatePatientForm.
+    gender: "" as "" | "M" | "F" | "O",
     whatsappOptIn: true, // Default: opted in for WhatsApp notifications
   });
 
@@ -1249,7 +1252,7 @@ const DiagnosticsNewVisit = () => {
                         age: "",
                         ageUnit: "YEARS",
                         dateOfBirth: "",
-                        gender: "M",
+                        gender: "",
                         whatsappOptIn: true,
                       }); // E2-09: Reset form
                       setValidationErrors({});
@@ -1566,12 +1569,14 @@ const DiagnosticsNewVisit = () => {
                     value={newPatient.title}
                     onValueChange={(v) => {
                       const autoGender = TITLE_TO_GENDER[v];
+                      // Gendered titles set the gender; titles without an implied
+                      // gender (e.g. Baby) CLEAR it so the user must pick M/F.
                       setNewPatient({
                         ...newPatient,
                         title: v,
-                        ...(autoGender ? { gender: autoGender } : {}),
+                        gender: autoGender ?? "",
                       });
-                      if (validationErrors.gender) {
+                      if (autoGender && validationErrors.gender) {
                         setValidationErrors({
                           ...validationErrors,
                           gender: undefined,
@@ -1624,7 +1629,7 @@ const DiagnosticsNewVisit = () => {
                     onValueChange={(v) => {
                       setNewPatient({
                         ...newPatient,
-                        gender: v as "M" | "F" | "O",
+                        gender: v as "" | "M" | "F" | "O",
                       });
                       if (validationErrors.gender) {
                         setValidationErrors({
