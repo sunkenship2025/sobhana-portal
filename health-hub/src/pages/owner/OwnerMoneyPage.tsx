@@ -51,6 +51,7 @@ interface MoneyResponse {
     outstandingInPaise: number;
     outstandingAgedInPaise: number;
     outstandingAgedBillCount: number;
+    dueInPaise: number;
     discountInPaise: number;
     discountBillCount: number;
     commissionInPaise: number;
@@ -365,7 +366,8 @@ function CashByBranchCard({ rows }: { rows: MoneyResponse['cashByBranch'] }) {
               />
             </div>
             <div className="mt-1" style={{ fontSize: 11, color: TOKENS.textSecondary }}>
-              cash {b.cashSharePct}% · online {100 - b.cashSharePct}%
+              cash {formatRupees(b.cashInPaise, { short: true })} ({b.cashSharePct}%) · online{' '}
+              {formatRupees(b.onlineInPaise, { short: true })} ({100 - b.cashSharePct}%)
             </div>
           </div>
         ))
@@ -749,7 +751,7 @@ export default function OwnerMoneyPage() {
 
         {data && (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
               <KpiCard
                 label="Gross billed"
                 value={formatRupees(data.kpis.grossInPaise, { short: true })}
@@ -765,17 +767,21 @@ export default function OwnerMoneyPage() {
                 )} commission`}
               />
               <KpiCard
+                label="Due (this period)"
+                value={formatRupees(data.kpis.dueInPaise, { short: true })}
+                sub={
+                  Number.isFinite(data.kpis.collectionRatePct)
+                    ? `collected ${data.kpis.collectionRatePct}% of this period's bills`
+                    : 'uncollected on this period’s bills'
+                }
+              />
+              <KpiCard
                 label="Open receivables (all-time)"
                 value={formatRupees(data.kpis.outstandingInPaise, { short: true })}
                 sub={
-                  <>
-                    {data.kpis.outstandingAgedBillCount > 0
-                      ? `${data.kpis.outstandingAgedBillCount} aged >30d`
-                      : '0 aged >30d'}
-                    {Number.isFinite(data.kpis.collectionRatePct) && (
-                      <> · collected {data.kpis.collectionRatePct}% of billed</>
-                    )}
-                  </>
+                  data.kpis.outstandingAgedBillCount > 0
+                    ? `${data.kpis.outstandingAgedBillCount} aged >30d`
+                    : '0 aged >30d'
                 }
               />
               <KpiCard

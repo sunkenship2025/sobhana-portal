@@ -45,6 +45,7 @@ export interface MoneyKpi {
   outstandingInPaise: number;
   outstandingAgedInPaise: number; // > 30 days portion of outstanding
   outstandingAgedBillCount: number; // # of open bills aged > 30 days
+  dueInPaise: number; // uncollected on bills billed IN this period (period-scoped due)
   discountInPaise: number;
   discountBillCount: number;
   commissionInPaise: number; // referral + clinic commission accrued in period (Net-to-you composition)
@@ -496,6 +497,7 @@ export async function getOwnerMoney(
     outstandingInPaise: outstandingTotal,
     outstandingAgedInPaise: outstandingAged,
     outstandingAgedBillCount,
+    dueInPaise: unpaidFromThisPeriod,
     discountInPaise: discountInWindow,
     discountBillCount,
     commissionInPaise: commissionInWindow,
@@ -734,6 +736,8 @@ export interface DaySheetRow {
   grossInPaise: number;
   discountInPaise: number;
   paidInPaise: number;
+  cashInPaise: number; // CASH payment transactions on this bill
+  onlineInPaise: number; // ONLINE payment transactions on this bill
   dueInPaise: number;
   paymentMethod: 'CASH' | 'ONLINE' | 'MIXED' | 'NONE';
   paymentStatus: string;
@@ -749,6 +753,8 @@ export interface DaySheetResponse {
     grossInPaise: number;
     discountInPaise: number;
     paidInPaise: number;
+    cashInPaise: number;
+    onlineInPaise: number;
     dueInPaise: number;
   };
 }
@@ -798,7 +804,7 @@ export async function getMoneyDaySheet(
         },
         transactions: {
           where: { transactionType: 'PAYMENT' },
-          select: { paymentType: true },
+          select: { paymentType: true, amountInPaise: true },
         },
       },
     }),
@@ -813,9 +819,22 @@ export async function getMoneyDaySheet(
       0,
       b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
     );
-    const kinds = new Set(b.transactions.map((t) => t.paymentType));
+    // Cash/online split from PAYMENT transactions — same classification the
+    // dashboard's cash-vs-online section uses (CASH vs ONLINE; cheque excluded).
+    let cashInPaise = 0;
+    let onlineInPaise = 0;
+    const kinds = new Set<string>();
+    for (const t of b.transactions) {
+      if (t.paymentType === 'CASH') cashInPaise += t.amountInPaise;
+      else if (t.paymentType === 'ONLINE') onlineInPaise += t.amountInPaise;
+      if (t.amountInPaise > 0) kinds.add(t.paymentType);
+    }
     const paymentMethod: DaySheetRow['paymentMethod'] =
-      kinds.size === 0 ? 'NONE' : kinds.size > 1 ? 'MIXED' : (b.transactions[0].paymentType as 'CASH' | 'ONLINE');
+      kinds.size === 0
+        ? 'NONE'
+        : kinds.size > 1
+          ? 'MIXED'
+          : ([...kinds][0] as 'CASH' | 'ONLINE');
     return {
       billNumber: b.billNumber,
       billedAtIso: b.billedAt.toISOString(),
@@ -828,6 +847,8 @@ export async function getMoneyDaySheet(
       grossInPaise: b.totalAmountInPaise,
       discountInPaise: b.discountAmountInPaise,
       paidInPaise: b.paidAmountInPaise,
+      cashInPaise,
+      onlineInPaise,
       dueInPaise: due,
       paymentMethod,
       paymentStatus: b.paymentStatus,
@@ -840,10 +861,20 @@ export async function getMoneyDaySheet(
       acc.grossInPaise += r.grossInPaise;
       acc.discountInPaise += r.discountInPaise;
       acc.paidInPaise += r.paidInPaise;
+      acc.cashInPaise += r.cashInPaise;
+      acc.onlineInPaise += r.onlineInPaise;
       acc.dueInPaise += r.dueInPaise;
       return acc;
     },
-    { count: 0, grossInPaise: 0, discountInPaise: 0, paidInPaise: 0, dueInPaise: 0 },
+    {
+      count: 0,
+      grossInPaise: 0,
+      discountInPaise: 0,
+      paidInPaise: 0,
+      cashInPaise: 0,
+      onlineInPaise: 0,
+      dueInPaise: 0,
+    },
   );
 
   return {

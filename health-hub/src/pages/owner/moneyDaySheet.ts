@@ -18,6 +18,8 @@ export interface DaySheetRow {
   grossInPaise: number;
   discountInPaise: number;
   paidInPaise: number;
+  cashInPaise: number;
+  onlineInPaise: number;
   dueInPaise: number;
   paymentMethod: 'CASH' | 'ONLINE' | 'MIXED' | 'NONE';
   paymentStatus: string;
@@ -33,16 +35,11 @@ export interface DaySheetResponse {
     grossInPaise: number;
     discountInPaise: number;
     paidInPaise: number;
+    cashInPaise: number;
+    onlineInPaise: number;
     dueInPaise: number;
   };
 }
-
-const PAYMENT_LABEL: Record<DaySheetRow['paymentMethod'], string> = {
-  CASH: 'Cash',
-  ONLINE: 'Online',
-  MIXED: 'Mixed',
-  NONE: '—',
-};
 
 function rupees(paise: number): string {
   return `₹${(Math.round(paise) / 100).toLocaleString('en-IN', {
@@ -91,7 +88,7 @@ export function buildDaySheetHtml(data: DaySheetResponse): string {
   const rowsHtml = data.rows
     .map((r, i) => {
       const patient = r.patientTitle ? `${r.patientTitle} ${r.patientName}` : r.patientName;
-      const dueClass = r.dueInPaise > 0 ? ' class="due"' : '';
+      const dueClass = r.dueInPaise > 0 ? ' class="amt due"' : ' class="amt"';
       return `<tr>
         <td class="num">${i + 1}</td>
         <td>${esc(istDateTime(r.billedAtIso))}</td>
@@ -101,16 +98,17 @@ export function buildDaySheetHtml(data: DaySheetResponse): string {
         <td class="tests">${esc(r.tests)}</td>
         <td class="amt">${rupees(r.grossInPaise)}</td>
         <td class="amt">${r.discountInPaise ? rupees(r.discountInPaise) : '—'}</td>
+        <td class="amt">${r.cashInPaise ? rupees(r.cashInPaise) : '—'}</td>
+        <td class="amt">${r.onlineInPaise ? rupees(r.onlineInPaise) : '—'}</td>
         <td class="amt">${rupees(r.paidInPaise)}</td>
-        <td class="amt"${dueClass}>${r.dueInPaise ? rupees(r.dueInPaise) : '—'}</td>
-        <td>${PAYMENT_LABEL[r.paymentMethod]}</td>
+        <td${dueClass}>${r.dueInPaise ? rupees(r.dueInPaise) : '—'}</td>
       </tr>`;
     })
     .join('');
 
   const t = data.totals;
   const empty = data.rows.length === 0
-    ? '<tr><td colspan="11" class="empty">No bills in this period.</td></tr>'
+    ? '<tr><td colspan="12" class="empty">No bills in this period.</td></tr>'
     : '';
 
   return `<!doctype html>
@@ -149,9 +147,10 @@ export function buildDaySheetHtml(data: DaySheetResponse): string {
         <th>Tests / service</th>
         <th class="amt">Gross</th>
         <th class="amt">Discount</th>
+        <th class="amt">Cash</th>
+        <th class="amt">Online</th>
         <th class="amt">Paid</th>
         <th class="amt">Due</th>
-        <th>Method</th>
       </tr>
     </thead>
     <tbody>
@@ -162,9 +161,10 @@ export function buildDaySheetHtml(data: DaySheetResponse): string {
         <td colspan="6" class="amt">Total</td>
         <td class="amt">${rupees(t.grossInPaise)}</td>
         <td class="amt">${rupees(t.discountInPaise)}</td>
+        <td class="amt">${rupees(t.cashInPaise)}</td>
+        <td class="amt">${rupees(t.onlineInPaise)}</td>
         <td class="amt">${rupees(t.paidInPaise)}</td>
         <td class="amt">${rupees(t.dueInPaise)}</td>
-        <td></td>
       </tr>
     </tfoot>
   </table>

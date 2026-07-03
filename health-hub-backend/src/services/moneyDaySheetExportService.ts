@@ -11,13 +11,6 @@ import type { DaySheetResponse, DaySheetRow } from './ownerMoneyService';
 
 const RUPEE_FMT = '#,##,##0.00';
 
-const PAYMENT_LABEL: Record<DaySheetRow['paymentMethod'], string> = {
-  CASH: 'Cash',
-  ONLINE: 'Online',
-  MIXED: 'Mixed',
-  NONE: '—',
-};
-
 function istDateTime(iso: string): string {
   return new Date(iso).toLocaleString('en-IN', {
     timeZone: 'Asia/Kolkata',
@@ -61,9 +54,10 @@ export async function buildDaySheetWorkbook(data: DaySheetResponse): Promise<Buf
     { header: 'Tests / service', key: 'tests', width: 44 },
     { header: 'Gross (₹)', key: 'gross', width: 13, style: { numFmt: RUPEE_FMT } },
     { header: 'Discount (₹)', key: 'discount', width: 13, style: { numFmt: RUPEE_FMT } },
+    { header: 'Cash (₹)', key: 'cash', width: 13, style: { numFmt: RUPEE_FMT } },
+    { header: 'Online (₹)', key: 'online', width: 13, style: { numFmt: RUPEE_FMT } },
     { header: 'Paid (₹)', key: 'paid', width: 13, style: { numFmt: RUPEE_FMT } },
     { header: 'Due (₹)', key: 'due', width: 13, style: { numFmt: RUPEE_FMT } },
-    { header: 'Method', key: 'method', width: 10 },
     { header: 'Status', key: 'status', width: 12 },
   ];
 
@@ -80,9 +74,10 @@ export async function buildDaySheetWorkbook(data: DaySheetResponse): Promise<Buf
       tests: r.tests,
       gross: Math.round(r.grossInPaise) / 100,
       discount: Math.round(r.discountInPaise) / 100,
+      cash: Math.round(r.cashInPaise) / 100,
+      online: Math.round(r.onlineInPaise) / 100,
       paid: Math.round(r.paidInPaise) / 100,
       due: Math.round(r.dueInPaise) / 100,
-      method: PAYMENT_LABEL[r.paymentMethod],
       status: r.paymentStatus,
     });
   });
@@ -92,6 +87,8 @@ export async function buildDaySheetWorkbook(data: DaySheetResponse): Promise<Buf
     tests: `Total — ${data.totals.count} bill${data.totals.count === 1 ? '' : 's'}`,
     gross: Math.round(data.totals.grossInPaise) / 100,
     discount: Math.round(data.totals.discountInPaise) / 100,
+    cash: Math.round(data.totals.cashInPaise) / 100,
+    online: Math.round(data.totals.onlineInPaise) / 100,
     paid: Math.round(data.totals.paidInPaise) / 100,
     due: Math.round(data.totals.dueInPaise) / 100,
   });
