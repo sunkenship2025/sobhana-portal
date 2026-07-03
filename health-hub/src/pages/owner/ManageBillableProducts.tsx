@@ -5,7 +5,7 @@ import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import {
   Plus, Pencil, Search, Package, IndianRupee, Trash2,
-  CheckCircle2, AlertCircle, Loader2, Printer, FileSpreadsheet,
+  CheckCircle2, AlertCircle, Loader2, Printer, FileSpreadsheet, ListChecks,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -136,9 +136,16 @@ export default function ManageBillableProducts() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
-  // Print / Excel selection — empty selection means "all active shown"
+  // Print / Excel selection — checkboxes only appear in select mode;
+  // otherwise Print/Excel take all active products shown
+  const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
+
+  const toggleSelectMode = () => {
+    if (selectMode) setSelected(new Set());
+    setSelectMode(!selectMode);
+  };
 
   // Main dialog
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -544,6 +551,14 @@ export default function ManageBillableProducts() {
         </div>
         <div className="flex items-center gap-2">
           <Button
+            variant={selectMode ? 'secondary' : 'outline'}
+            size="sm"
+            onClick={toggleSelectMode}
+            title={selectMode ? 'Exit selection' : 'Pick specific tests for print / Excel'}
+          >
+            <ListChecks className="h-4 w-4 mr-1" /> Select
+          </Button>
+          <Button
             variant="outline"
             size="sm"
             disabled={exportTargets.length === 0}
@@ -592,13 +607,15 @@ export default function ManageBillableProducts() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40">
-                <TableHead className="w-10">
-                  <Checkbox
-                    checked={allShownSelected ? true : selected.size > 0 ? 'indeterminate' : false}
-                    onCheckedChange={toggleSelectAll}
-                    aria-label="Select all"
-                  />
-                </TableHead>
+                {selectMode && (
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={allShownSelected ? true : selected.size > 0 ? 'indeterminate' : false}
+                      onCheckedChange={toggleSelectAll}
+                      aria-label="Select all"
+                    />
+                  </TableHead>
+                )}
                 <TableHead>Code</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Type</TableHead>
@@ -613,13 +630,15 @@ export default function ManageBillableProducts() {
             <TableBody>
               {products.map(product => (
                 <TableRow key={product.id} className="hover:bg-muted/50">
-                  <TableCell>
-                    <Checkbox
-                      checked={selected.has(product.id)}
-                      onCheckedChange={() => toggleSelect(product.id)}
-                      aria-label={`Select ${product.name}`}
-                    />
-                  </TableCell>
+                  {selectMode && (
+                    <TableCell>
+                      <Checkbox
+                        checked={selected.has(product.id)}
+                        onCheckedChange={() => toggleSelect(product.id)}
+                        aria-label={`Select ${product.name}`}
+                      />
+                    </TableCell>
+                  )}
                   <TableCell>
                     <Badge variant="secondary" className="font-mono text-xs">{product.code}</Badge>
                   </TableCell>
@@ -935,10 +954,10 @@ function PriceListPrint({ rows, branchName }: { rows: BillableProduct[]; branchN
   const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
   return (
-    <div className="hidden print:block print-content print-page">
-      {/* Letterhead */}
+    <div className="hidden print:block print-content print-page" style={{ paddingTop: '8mm' }}>
+      {/* Letterhead — img needs explicit centering (Tailwind resets img to display:block) */}
       <div style={{ textAlign: 'center', borderBottom: '2px solid #111', paddingBottom: 8, marginBottom: 10 }}>
-        <img src={LOGO_URL} alt="Sobhana" style={{ height: 46 }} />
+        <img src={LOGO_URL} alt="Sobhana" style={{ height: 46, display: 'block', margin: '0 auto' }} />
         <div style={{ fontWeight: 700, letterSpacing: '0.14em', marginTop: 6, fontSize: 13 }}>
           PRICE LIST
         </div>
