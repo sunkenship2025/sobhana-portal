@@ -5,6 +5,7 @@
  * Products are decoupled from clinical definitions — purely commercial.
  * 
  * GET    /api/billable-products              — List products
+ * POST   /api/billable-products/export       — Price-list Excel (all or selected ids)
  * GET    /api/billable-products/:id          — Get product detail
  * POST   /api/billable-products              — Create product
  * PUT    /api/billable-products/:id          — Update product
@@ -18,6 +19,7 @@ import { DiagnosticWorkflowMode } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import prisma from '../lib/prisma';
+import { buildPriceListWorkbook } from '../services/productExportService';
 const router = Router();
 
 router.use(authMiddleware);
@@ -167,6 +169,51 @@ router.get('/', async (req: AuthRequest, res) => {
   } catch (error: any) {
     console.error('Error listing billable products:', error);
     return res.status(500).json({ error: 'FETCH_FAILED', message: error.message });
+  }
+});
+
+// ─── POST /export — price-list Excel (all active, or the selected ids) ─────
+router.post('/export', async (req: AuthRequest, res) => {
+  try {
+    const branchId = (req as any).branchId;
+    const idsRaw = req.body?.ids;
+    const ids = Array.isArray(idsRaw)
+      ? idsRaw.filter((x: any) => typeof x === 'string').slice(0, 5000)
+      : [];
+
+    const products = await prisma.billableProduct.findMany({
+      where: ids.length ? { id: { in: ids } } : { isActive: true },
+      include: {
+        branchPricing: branchId ? {
+          where: { branchId, isActive: true },
+          select: { priceInPaise: true },
+        } : false,
+      },
+      orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
+    });
+
+    const rows = products.map(p => ({
+      code: p.code,
+      name: p.name,
+      isBundle: p.isBundle,
+      priceInPaise: p.branchPricing?.[0]?.priceInPaise ?? p.basePriceInPaise ?? 0,
+    }));
+
+    const branch = branchId
+      ? await prisma.branch.findUnique({ where: { id: branchId }, select: { name: true } })
+      : null;
+
+    const buffer = await buildPriceListWorkbook(rows, branch?.name);
+    const filename = `price-list-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(buffer);
+  } catch (error: any) {
+    console.error('Error exporting price list:', error);
+    return res.status(500).json({ error: 'EXPORT_FAILED', message: error.message });
   }
 });
 

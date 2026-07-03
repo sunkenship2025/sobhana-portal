@@ -1,13 +1,14 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { API_BASE } from '@/lib/api';
+import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from 'react';
+import { API_BASE, API_BASE_URL } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import {
   Plus, Pencil, Search, Package, IndianRupee, Trash2,
-  CheckCircle2, AlertCircle, Loader2,
+  CheckCircle2, AlertCircle, Loader2, Printer, FileSpreadsheet,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { LoadingState } from '@/components/ui/loading-state';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
@@ -116,6 +117,8 @@ function workflowBadgeColor(workflowMode: string) {
 
 const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
 
+const LOGO_URL = `${API_BASE_URL}/images/sobhana-clinic-logo.png`;
+
 /* ───────── Component ───────── */
 
 export default function ManageBillableProducts() {
@@ -132,6 +135,10 @@ export default function ManageBillableProducts() {
   const [branchOptions, setBranchOptions] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+
+  // Print / Excel selection — empty selection means "all active shown"
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
 
   // Main dialog
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -472,6 +479,55 @@ export default function ManageBillableProducts() {
     }
   };
 
+  // ─── Print / Excel export ──────────────────────────────────────────────
+
+  const selectedProducts = useMemo(
+    () => products.filter(p => selected.has(p.id)),
+    [products, selected],
+  );
+  // Explicit selection wins; otherwise everything shown that is active
+  // (an inactive product doesn't belong on a customer price list).
+  const exportTargets = selectedProducts.length
+    ? selectedProducts
+    : products.filter(p => p.isActive);
+
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const allShownSelected = products.length > 0 && products.every(p => selected.has(p.id));
+  const toggleSelectAll = () => {
+    setSelected(allShownSelected ? new Set() : new Set(products.map(p => p.id)));
+  };
+
+  const exportExcel = async () => {
+    if (exportTargets.length === 0) return;
+    setExporting(true);
+    try {
+      const res = await fetch(`${API_BASE}/billable-products/export`, {
+        method: 'POST',
+        headers: selectedBranch?.id ? { ...headers, 'X-Branch-Id': selectedBranch.id } : headers,
+        body: JSON.stringify({ ids: exportTargets.map(p => p.id) }),
+      });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `price-list-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Failed to export the price list');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   // ─── Render ─────────────────────────────────────────────────────────────
 
   const formatPrice = (p: number) => `₹${p.toLocaleString('en-IN')}`;
@@ -486,9 +542,33 @@ export default function ManageBillableProducts() {
           </h2>
           <p className="text-sm text-muted-foreground">Manage tests, bundles and packages with branch-specific pricing</p>
         </div>
-        <Button onClick={openCreate} size="sm">
-          <Plus className="h-4 w-4 mr-1" /> New Product
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={exportTargets.length === 0}
+            onClick={() => window.print()}
+            title={selectedProducts.length ? `Print ${selectedProducts.length} selected` : 'Print all active products'}
+          >
+            <Printer className="h-4 w-4 mr-1" />
+            Print{selectedProducts.length ? ` (${selectedProducts.length})` : ''}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={exporting || exportTargets.length === 0}
+            onClick={exportExcel}
+            title={selectedProducts.length ? `Export ${selectedProducts.length} selected` : 'Export all active products'}
+          >
+            {exporting
+              ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              : <FileSpreadsheet className="h-4 w-4 mr-1" />}
+            Excel{selectedProducts.length ? ` (${selectedProducts.length})` : ''}
+          </Button>
+          <Button onClick={openCreate} size="sm">
+            <Plus className="h-4 w-4 mr-1" /> New Product
+          </Button>
+        </div>
       </div>
 
       {/* Search */}
@@ -512,6 +592,13 @@ export default function ManageBillableProducts() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40">
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allShownSelected ? true : selected.size > 0 ? 'indeterminate' : false}
+                    onCheckedChange={toggleSelectAll}
+                    aria-label="Select all"
+                  />
+                </TableHead>
                 <TableHead>Code</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Type</TableHead>
@@ -526,6 +613,13 @@ export default function ManageBillableProducts() {
             <TableBody>
               {products.map(product => (
                 <TableRow key={product.id} className="hover:bg-muted/50">
+                  <TableCell>
+                    <Checkbox
+                      checked={selected.has(product.id)}
+                      onCheckedChange={() => toggleSelect(product.id)}
+                      aria-label={`Select ${product.name}`}
+                    />
+                  </TableCell>
                   <TableCell>
                     <Badge variant="secondary" className="font-mono text-xs">{product.code}</Badge>
                   </TableCell>
@@ -586,7 +680,11 @@ export default function ManageBillableProducts() {
 
       <p className="text-xs text-muted-foreground text-right">
         Showing {products.length} product{products.length !== 1 ? 's' : ''}
+        {selected.size > 0 && ` · ${selected.size} selected`}
       </p>
+
+      {/* Print-only price list (visible only via @media print) */}
+      <PriceListPrint rows={exportTargets} branchName={selectedBranch?.name} />
 
       {/* ─── Create/Edit Dialog ───────────────────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -823,6 +921,68 @@ export default function ManageBillableProducts() {
         </DialogContent>
       </Dialog>
 
+    </div>
+  );
+}
+
+/* ───────── Print document ─────────
+ * Hidden on screen; the global @media print rules show only `.print-content`.
+ * Black-and-white letterhead, same conventions as the payout statement print.
+ */
+function PriceListPrint({ rows, branchName }: { rows: BillableProduct[]; branchName?: string }) {
+  const td: CSSProperties = { border: '1px solid #999', padding: '3px 6px', fontSize: 10 };
+  const th: CSSProperties = { ...td, background: '#eee', fontWeight: 600, textAlign: 'left' };
+  const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+
+  return (
+    <div className="hidden print:block print-content print-page">
+      {/* Letterhead */}
+      <div style={{ textAlign: 'center', borderBottom: '2px solid #111', paddingBottom: 8, marginBottom: 10 }}>
+        <img src={LOGO_URL} alt="Sobhana" style={{ height: 46 }} />
+        <div style={{ fontWeight: 700, letterSpacing: '0.14em', marginTop: 6, fontSize: 13 }}>
+          PRICE LIST
+        </div>
+      </div>
+
+      {/* Meta */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, marginBottom: 8 }}>
+        <div>
+          {branchName && <><b>{branchName}</b><br /></>}
+          Effective: {today}
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          {rows.length} item{rows.length === 1 ? '' : 's'}
+        </div>
+      </div>
+
+      {/* Table */}
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>
+            <th style={{ ...th, width: 34, textAlign: 'center' }}>S.No</th>
+            <th style={{ ...th, width: 90 }}>Code</th>
+            <th style={th}>Test / Investigation</th>
+            <th style={{ ...th, width: 90, textAlign: 'right' }}>Price (₹)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((p, i) => (
+            <tr key={p.id}>
+              <td style={{ ...td, textAlign: 'center' }}>{i + 1}</td>
+              <td style={{ ...td, fontFamily: 'ui-monospace, monospace', fontSize: 9 }}>{p.code}</td>
+              <td style={td}>{p.name}</td>
+              <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                {(p.effectivePrice ?? p.basePrice).toLocaleString('en-IN')}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* Footer */}
+      <div style={{ marginTop: 10, fontSize: 9, color: '#444', textAlign: 'center' }}>
+        Prices are subject to change without notice.
+      </div>
     </div>
   );
 }
