@@ -89,13 +89,25 @@ export const BillReceipt = ({
 
   // ── Payment status + method ──
   // Distinct methods actually used across the payment ledger (CASH / ONLINE / CHEQUE).
-  const paymentMethodLabel = Array.from(
-    new Set(
-      (data.transactions || [])
-        .map((t) => (t.paymentType || "").toString().toUpperCase())
-        .filter(Boolean),
-    ),
-  ).join(" + ");
+  const paymentMethodLabel =
+    Array.from(
+      new Set(
+        (data.transactions || [])
+          .map((t) => (t.paymentType || "").toString().toUpperCase())
+          .filter(Boolean),
+      ),
+    ).join(" + ") ||
+    // Fallback to the single joined paymentType string (e.g. from a creation
+    // response) when the transaction ledger isn't present on `data`.
+    (data.paymentType
+      ? data.paymentType
+          .toString()
+          .toUpperCase()
+          .split(/[,+]/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .join(" + ")
+      : "");
   const normalizedPaymentStatus = (() => {
     const rawStatus = (data.paymentStatus || "").toString().toUpperCase();
     if (rawStatus.includes("REFUND")) return "REFUNDED";

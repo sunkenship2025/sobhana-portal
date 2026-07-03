@@ -2368,6 +2368,18 @@ router.post("/", async (req: AuthRequest, res) => {
             ).join(", ")
           : null,
       paymentStatus: completeVisit!.bill?.paymentStatus || "PENDING",
+      // Ledger entries so the at-creation printed receipt can show the method
+      // (e.g. "PAID | ONLINE"). Without this the bill printed straight after
+      // creation had no transactions to derive the method from and showed a
+      // bare "PAID". Mirrors the shape returned by GET /bills/:domain/:id.
+      transactions:
+        ((completeVisit as any)!.bill?.transactions as
+          | Array<{ paymentType: string; amountInPaise: number }>
+          | undefined
+        )?.map((t) => ({
+          paymentType: t.paymentType,
+          amountInPaise: t.amountInPaise,
+        })) || [],
       ...completeBillFinancials,
       billedAt:
         completeVisit!.bill?.billedAt || completeVisit!.bill?.createdAt || null,
