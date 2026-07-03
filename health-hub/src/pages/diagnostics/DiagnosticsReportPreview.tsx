@@ -145,10 +145,17 @@ interface ReportSnapshotData {
   externalUploads?: Array<{ testOrderId: string }>;
 }
 
-function normalizeFlagForBadge(flag: string | null): 'HIGH' | 'LOW' | 'NORMAL' | null {
-  if (flag === 'CRITICAL_HIGH') return 'HIGH';
-  if (flag === 'CRITICAL_LOW') return 'LOW';
-  if (flag === 'HIGH' || flag === 'LOW' || flag === 'NORMAL') return flag;
+function normalizeFlagForBadge(
+  flag: string | null,
+): 'HIGH' | 'LOW' | 'NORMAL' | 'CRITICAL_HIGH' | 'CRITICAL_LOW' | null {
+  if (
+    flag === 'CRITICAL_HIGH' ||
+    flag === 'CRITICAL_LOW' ||
+    flag === 'HIGH' ||
+    flag === 'LOW' ||
+    flag === 'NORMAL'
+  )
+    return flag;
   return null;
 }
 
