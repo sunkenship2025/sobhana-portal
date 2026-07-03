@@ -325,41 +325,81 @@ export function BranchFilter({
   );
 }
 
-export type PeriodKey = '7d' | '30d' | 'mtd' | 'ytd';
+export type PeriodKey = 'today' | 'yesterday' | '7d' | '30d' | 'mtd' | 'ytd' | 'custom';
 export const PERIOD_LABEL: Record<PeriodKey, string> = {
+  today: 'Today',
+  yesterday: 'Yesterday',
   '7d': '7 days',
   '30d': '30 days',
   mtd: 'MTD',
   ytd: 'YTD',
+  custom: 'Custom',
 };
+
+const DEFAULT_PERIOD_OPTS: PeriodKey[] = ['7d', '30d', 'mtd', 'ytd'];
 
 export function PeriodFilter({
   value,
   onChange,
+  options = DEFAULT_PERIOD_OPTS,
+  customRange,
+  onCustomRangeChange,
 }: {
   value: PeriodKey;
   onChange: (v: PeriodKey) => void;
+  options?: PeriodKey[];
+  // Only needed when 'custom' is one of the options.
+  customRange?: { start: string; end: string };
+  onCustomRangeChange?: (r: { start: string; end: string }) => void;
 }) {
-  const opts: PeriodKey[] = ['7d', '30d', 'mtd', 'ytd'];
+  const dateInputStyle: React.CSSProperties = {
+    border: `0.5px solid ${TOKENS.border}`,
+    borderRadius: 6,
+    padding: '5px 7px',
+    fontSize: 12,
+    color: TOKENS.textSecondary,
+    background: 'white',
+  };
   return (
-    <div
-      className="inline-flex overflow-hidden rounded-md border"
-      style={{ borderColor: TOKENS.border, fontSize: 12 }}
-    >
-      {opts.map((k) => (
-        <button
-          key={k}
-          onClick={() => onChange(k)}
-          className="px-2.5 py-1.5"
-          style={{
-            background: k === value ? TOKENS.info : 'white',
-            color: k === value ? 'white' : TOKENS.textSecondary,
-            borderLeft: k === opts[0] ? 'none' : `0.5px solid ${TOKENS.border}`,
-          }}
-        >
-          {PERIOD_LABEL[k]}
-        </button>
-      ))}
+    <div className="inline-flex flex-wrap items-center gap-2">
+      <div
+        className="inline-flex overflow-hidden rounded-md border"
+        style={{ borderColor: TOKENS.border, fontSize: 12 }}
+      >
+        {options.map((k, i) => (
+          <button
+            key={k}
+            onClick={() => onChange(k)}
+            className="px-2.5 py-1.5"
+            style={{
+              background: k === value ? TOKENS.info : 'white',
+              color: k === value ? 'white' : TOKENS.textSecondary,
+              borderLeft: i === 0 ? 'none' : `0.5px solid ${TOKENS.border}`,
+            }}
+          >
+            {PERIOD_LABEL[k]}
+          </button>
+        ))}
+      </div>
+      {value === 'custom' && customRange && onCustomRangeChange && (
+        <div className="inline-flex items-center gap-1.5">
+          <input
+            type="date"
+            value={customRange.start}
+            max={customRange.end || undefined}
+            onChange={(e) => onCustomRangeChange({ ...customRange, start: e.target.value })}
+            style={dateInputStyle}
+          />
+          <span style={{ fontSize: 12, color: TOKENS.textSecondary }}>to</span>
+          <input
+            type="date"
+            value={customRange.end}
+            min={customRange.start || undefined}
+            onChange={(e) => onCustomRangeChange({ ...customRange, end: e.target.value })}
+            style={dateInputStyle}
+          />
+        </div>
+      )}
     </div>
   );
 }

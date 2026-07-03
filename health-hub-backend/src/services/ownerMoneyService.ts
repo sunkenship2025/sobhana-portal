@@ -21,8 +21,8 @@ import { logger } from '../lib/logger';
 import type { Prisma } from '@prisma/client';
 
 const CACHE_TTL_SEC = 60;
-const cacheKey = (period: PeriodKey, branchId: string | null) =>
-  `owner-money:v2:${period}:${branchId ?? 'all'}`;
+const cacheKey = (period: PeriodKey, branchId: string | null, range: CustomRange | null) =>
+  `owner-money:v2:${period}:${branchId ?? 'all'}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -31,7 +31,13 @@ const HIGH_DISCOUNT_PAISE = 100_000; // ₹1,000 in paise
 const HEAVY_CASH_PCT = 70;
 const SOLO_USER_CASH_PCT = 80;
 
-export type PeriodKey = '7d' | '30d' | 'mtd' | 'ytd';
+export type PeriodKey = 'today' | 'yesterday' | '7d' | '30d' | 'mtd' | 'ytd' | 'custom';
+
+/** IST calendar-day range for a custom filter, inclusive of both endpoints. */
+export interface CustomRange {
+  startKey: string; // YYYY-MM-DD (IST)
+  endKey: string; // YYYY-MM-DD (IST)
+}
 
 export interface MoneyKpi {
   grossInPaise: number;
@@ -143,9 +149,24 @@ function startOfDaysAgoIst(now: Date, daysAgo: number): Date {
   return new Date(startOfTodayIst(now).getTime() - daysAgo * DAY_MS);
 }
 
+/** Parse a YYYY-MM-DD IST calendar day into the UTC Date at its IST midnight. */
+function istDateKeyToStart(key: string): Date {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0) - IST_OFFSET_MS);
+}
+
+/** Inclusive [startKey, endKey] IST calendar range → half-open [start, end) UTC window. */
+function customWindow(range: CustomRange): { start: Date; end: Date } {
+  const start = istDateKeyToStart(range.startKey);
+  const end = new Date(istDateKeyToStart(range.endKey).getTime() + DAY_MS);
+  return { start, end };
+}
+
 function periodWindow(period: PeriodKey, now: Date): { start: Date; end: Date } {
   const todayStart = startOfTodayIst(now);
   const tomorrowStart = new Date(todayStart.getTime() + DAY_MS);
+  if (period === 'today') return { start: todayStart, end: tomorrowStart };
+  if (period === 'yesterday') return { start: startOfDaysAgoIst(now, 1), end: todayStart };
   if (period === '7d') return { start: startOfDaysAgoIst(now, 6), end: tomorrowStart };
   if (period === '30d') return { start: startOfDaysAgoIst(now, 29), end: tomorrowStart };
   if (period === 'mtd') {
@@ -219,11 +240,12 @@ function clinicCommissionInPaise(visits: Array<{
 export async function getOwnerMoney(
   period: PeriodKey,
   branchId: string | null,
+  range: CustomRange | null = null,
 ): Promise<MoneyResponse> {
   const redis = getRedisClient();
   if (redis) {
     try {
-      const hit = await redis.get(cacheKey(period, branchId));
+      const hit = await redis.get(cacheKey(period, branchId, range));
       if (hit) return JSON.parse(hit) as MoneyResponse;
     } catch (err) {
       logger.warn({ err, period, branchId }, 'owner-money: cache read failed');
@@ -231,7 +253,7 @@ export async function getOwnerMoney(
   }
 
   const now = new Date();
-  const win = periodWindow(period, now);
+  const win = period === 'custom' && range ? customWindow(range) : periodWindow(period, now);
   const prior = priorWindow(win);
   const billBranchWhere: Prisma.BillWhereInput = branchId ? { branchId } : {};
 
@@ -485,12 +507,12 @@ export async function getOwnerMoney(
   // ---- revenue trend ----
   const dayKeys: string[] = [];
   const dayMap = new Map<string, number>();
-  const spanDays = Math.max(
-    1,
-    Math.round((win.end.getTime() - win.start.getTime()) / DAY_MS) - 1,
-  );
-  for (let i = spanDays; i >= 0; i -= 1) {
-    const k = toIstDateKey(startOfDaysAgoIst(now, i));
+  // Build one bucket per calendar day in the window itself (not anchored to
+  // "now"), so windows that don't end today — yesterday, custom ranges — line
+  // up with the days their bills actually fall in.
+  const dayCount = Math.max(1, Math.round((win.end.getTime() - win.start.getTime()) / DAY_MS));
+  for (let i = 0; i < dayCount; i += 1) {
+    const k = toIstDateKey(new Date(win.start.getTime() + i * DAY_MS));
     dayKeys.push(k);
     dayMap.set(k, 0);
   }
@@ -691,9 +713,144 @@ export async function getOwnerMoney(
 
   if (redis) {
     redis
-      .set(cacheKey(period, branchId), JSON.stringify(response), 'EX', CACHE_TTL_SEC)
+      .set(cacheKey(period, branchId, range), JSON.stringify(response), 'EX', CACHE_TTL_SEC)
       .catch((err) => logger.warn({ err }, 'owner-money: cache write failed'));
   }
 
   return response;
+}
+
+// --- day sheet (per-bill register) --------------------------------------
+
+export interface DaySheetRow {
+  billNumber: string;
+  billedAtIso: string;
+  patientName: string;
+  patientTitle: string | null;
+  branchCode: string;
+  domain: 'DIAGNOSTICS' | 'CLINIC';
+  tests: string; // comma-joined test/consultation names
+  testCount: number;
+  grossInPaise: number;
+  discountInPaise: number;
+  paidInPaise: number;
+  dueInPaise: number;
+  paymentMethod: 'CASH' | 'ONLINE' | 'MIXED' | 'NONE';
+  paymentStatus: string;
+}
+
+export interface DaySheetResponse {
+  generatedAt: string;
+  period: { key: PeriodKey; startIso: string; endIso: string };
+  branchScope: { branchId: string | null; branchName: string | null };
+  rows: DaySheetRow[];
+  totals: {
+    count: number;
+    grossInPaise: number;
+    discountInPaise: number;
+    paidInPaise: number;
+    dueInPaise: number;
+  };
+}
+
+/**
+ * Per-bill register for the selected window — one row per bill with patient,
+ * tests, gross/discount/paid/due and how it was collected. Backs the printable
+ * day sheet and its Excel export. Not cached: it's an on-demand report and the
+ * result set is bounded by the window.
+ */
+export async function getMoneyDaySheet(
+  period: PeriodKey,
+  branchId: string | null,
+  range: CustomRange | null = null,
+): Promise<DaySheetResponse> {
+  const now = new Date();
+  const win = period === 'custom' && range ? customWindow(range) : periodWindow(period, now);
+  const billBranchWhere: Prisma.BillWhereInput = branchId ? { branchId } : {};
+
+  const [scopedBranch, bills] = await Promise.all([
+    branchId
+      ? prisma.branch.findUnique({ where: { id: branchId }, select: { id: true, name: true } })
+      : Promise.resolve(null),
+    prisma.bill.findMany({
+      where: { billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere },
+      orderBy: { billedAt: 'asc' },
+      select: {
+        billNumber: true,
+        billedAt: true,
+        totalAmountInPaise: true,
+        discountAmountInPaise: true,
+        paidAmountInPaise: true,
+        reversedChargeInPaise: true,
+        paymentStatus: true,
+        branch: { select: { code: true } },
+        visit: {
+          select: {
+            domain: true,
+            patient: { select: { name: true, title: true } },
+            testOrders: {
+              where: { cancelledAt: null },
+              orderBy: { displayOrder: 'asc' },
+              select: { testNameSnapshot: true },
+            },
+            clinicVisit: { select: { clinicDoctor: { select: { name: true } } } },
+          },
+        },
+        transactions: {
+          where: { transactionType: 'PAYMENT' },
+          select: { paymentType: true },
+        },
+      },
+    }),
+  ]);
+
+  const rows: DaySheetRow[] = bills.map((b) => {
+    const testNames =
+      b.visit.domain === 'CLINIC'
+        ? [`Consultation${b.visit.clinicVisit?.clinicDoctor?.name ? ` — Dr. ${b.visit.clinicVisit.clinicDoctor.name}` : ''}`]
+        : b.visit.testOrders.map((t) => t.testNameSnapshot);
+    const due = Math.max(
+      0,
+      b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
+    );
+    const kinds = new Set(b.transactions.map((t) => t.paymentType));
+    const paymentMethod: DaySheetRow['paymentMethod'] =
+      kinds.size === 0 ? 'NONE' : kinds.size > 1 ? 'MIXED' : (b.transactions[0].paymentType as 'CASH' | 'ONLINE');
+    return {
+      billNumber: b.billNumber,
+      billedAtIso: b.billedAt.toISOString(),
+      patientName: b.visit.patient.name,
+      patientTitle: b.visit.patient.title,
+      branchCode: b.branch.code,
+      domain: b.visit.domain as DaySheetRow['domain'],
+      tests: testNames.join(', '),
+      testCount: b.visit.domain === 'CLINIC' ? 1 : b.visit.testOrders.length,
+      grossInPaise: b.totalAmountInPaise,
+      discountInPaise: b.discountAmountInPaise,
+      paidInPaise: b.paidAmountInPaise,
+      dueInPaise: due,
+      paymentMethod,
+      paymentStatus: b.paymentStatus,
+    };
+  });
+
+  const totals = rows.reduce(
+    (acc, r) => {
+      acc.count += 1;
+      acc.grossInPaise += r.grossInPaise;
+      acc.discountInPaise += r.discountInPaise;
+      acc.paidInPaise += r.paidInPaise;
+      acc.dueInPaise += r.dueInPaise;
+      return acc;
+    },
+    { count: 0, grossInPaise: 0, discountInPaise: 0, paidInPaise: 0, dueInPaise: 0 },
+  );
+
+  return {
+    generatedAt: now.toISOString(),
+    period: { key: period, startIso: win.start.toISOString(), endIso: win.end.toISOString() },
+    branchScope: { branchId, branchName: scopedBranch?.name ?? null },
+    rows,
+    totals,
+  };
 }

@@ -13,10 +13,14 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
+import { toast } from 'sonner';
+import { Printer, Download } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { API_BASE } from '@/lib/api';
 import { apiRequest } from '@/lib/utils';
+import { useAuthStore } from '@/store/authStore';
 import { formatPatientName } from '@/lib/patientDisplay';
+import { buildDaySheetHtml, DaySheetResponse } from './moneyDaySheet';
 import {
   TOKENS,
   formatRupees,
@@ -561,10 +565,35 @@ function RefundsCard({ refunds }: { refunds: MoneyResponse['refunds'] }) {
 
 // ----- main page --------------------------------------------------------
 
+const MONEY_PERIOD_OPTS: PeriodKey[] = [
+  'today',
+  'yesterday',
+  '7d',
+  '30d',
+  'mtd',
+  'ytd',
+  'custom',
+];
+
+/** Local calendar day as YYYY-MM-DD (browser TZ == IST for our users). */
+function todayKey(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export default function OwnerMoneyPage() {
-  const [period, setPeriod] = useState<PeriodKey>('30d');
   const [searchParams, setSearchParams] = useSearchParams();
   const branchValue = searchParams.get('branch') || 'all';
+  const rawPeriod = searchParams.get('period');
+  const period: PeriodKey = MONEY_PERIOD_OPTS.includes(rawPeriod as PeriodKey)
+    ? (rawPeriod as PeriodKey)
+    : '30d';
+  const customStart = searchParams.get('start') || '';
+  const customEnd = searchParams.get('end') || '';
+  const customReady = period === 'custom' && Boolean(customStart) && Boolean(customEnd);
 
   const setBranchValue = (newBranch: string) => {
     setSearchParams(prev => {
@@ -573,17 +602,93 @@ export default function OwnerMoneyPage() {
     });
   };
 
+  const setPeriod = (next: PeriodKey) => {
+    setSearchParams(prev => {
+      prev.set('period', next);
+      if (next === 'custom') {
+        // Seed both ends to today so the picker opens on a valid range.
+        if (!prev.get('start')) prev.set('start', todayKey());
+        if (!prev.get('end')) prev.set('end', todayKey());
+      } else {
+        prev.delete('start');
+        prev.delete('end');
+      }
+      return prev;
+    });
+  };
+
+  const setCustomRange = (r: { start: string; end: string }) => {
+    setSearchParams(prev => {
+      prev.set('period', 'custom');
+      if (r.start) prev.set('start', r.start);
+      if (r.end) prev.set('end', r.end);
+      return prev;
+    });
+  };
+
+  // Shared query string for every money endpoint (dashboard + day sheet).
+  const moneyParams =
+    period === 'custom'
+      ? `period=custom&start=${customStart}&end=${customEnd}&branch=${encodeURIComponent(branchValue)}`
+      : `period=${period}&branch=${encodeURIComponent(branchValue)}`;
+
   const query = useQuery<MoneyResponse>({
-    queryKey: ['owner-money', period, branchValue],
-    queryFn: () =>
-      apiRequest<MoneyResponse>(
-        `${API_BASE}/owner/money?period=${period}&branch=${encodeURIComponent(branchValue)}`,
-      ),
+    queryKey: ['owner-money', period, branchValue, customStart, customEnd],
+    queryFn: () => apiRequest<MoneyResponse>(`${API_BASE}/owner/money?${moneyParams}`),
+    enabled: period !== 'custom' || customReady,
     refetchInterval: 5 * 60 * 1000,
     staleTime: 60 * 1000,
   });
 
   const [agingFilter, setAgingFilter] = useState<AgingKey | null>(null);
+  const [daySheetBusy, setDaySheetBusy] = useState<null | 'print' | 'excel'>(null);
+
+  const printDaySheet = async () => {
+    if (daySheetBusy) return;
+    // Open the window synchronously (inside the click) so the popup blocker
+    // allows it; fill it once the data arrives.
+    const win = window.open('', '_blank');
+    if (!win) {
+      toast.error('Allow pop-ups to print the day sheet');
+      return;
+    }
+    win.document.write('<p style="font-family:sans-serif;padding:24px;color:#666">Preparing day sheet…</p>');
+    setDaySheetBusy('print');
+    try {
+      const data = await apiRequest<DaySheetResponse>(`${API_BASE}/owner/money/day-sheet?${moneyParams}`);
+      win.document.open();
+      win.document.write(buildDaySheetHtml(data));
+      win.document.close();
+    } catch {
+      win.close();
+      toast.error('Failed to build the day sheet');
+    } finally {
+      setDaySheetBusy(null);
+    }
+  };
+
+  const exportDaySheetExcel = async () => {
+    if (daySheetBusy) return;
+    setDaySheetBusy('excel');
+    try {
+      const { token } = useAuthStore.getState();
+      const res = await fetch(`${API_BASE}/owner/money/day-sheet?${moneyParams}&format=xlsx`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `day-sheet-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Failed to export the day sheet');
+    } finally {
+      setDaySheetBusy(null);
+    }
+  };
 
   const data = query.data;
   const totalAging = data?.aging.reduce((s, b) => s + b.amountInPaise, 0) ?? 0;
@@ -606,8 +711,34 @@ export default function OwnerMoneyPage() {
           }
           rightSlot={
             <>
-              <PeriodFilter value={period} onChange={setPeriod} />
+              <PeriodFilter
+                value={period}
+                onChange={setPeriod}
+                options={MONEY_PERIOD_OPTS}
+                customRange={{ start: customStart || todayKey(), end: customEnd || todayKey() }}
+                onCustomRangeChange={setCustomRange}
+              />
               <BranchFilter value={branchValue} onChange={setBranchValue} />
+              <button
+                onClick={printDaySheet}
+                disabled={daySheetBusy !== null}
+                className="inline-flex items-center gap-1.5 rounded-md border bg-white px-3 py-1.5"
+                style={{ fontSize: 12, borderColor: TOKENS.border, color: TOKENS.textSecondary }}
+                title="Print day sheet for the selected period"
+              >
+                <Printer className="h-3.5 w-3.5" />
+                {daySheetBusy === 'print' ? 'Preparing…' : 'Day sheet'}
+              </button>
+              <button
+                onClick={exportDaySheetExcel}
+                disabled={daySheetBusy !== null}
+                className="inline-flex items-center gap-1.5 rounded-md border bg-white px-3 py-1.5"
+                style={{ fontSize: 12, borderColor: TOKENS.border, color: TOKENS.textSecondary }}
+                title="Export day sheet to Excel"
+              >
+                <Download className="h-3.5 w-3.5" />
+                {daySheetBusy === 'excel' ? 'Exporting…' : 'Excel'}
+              </button>
               <RefreshButton isFetching={query.isFetching} onClick={() => query.refetch()} />
             </>
           }
