@@ -88,8 +88,10 @@ router.get(
 
       const domain = visit.domain as 'CLINIC' | 'DIAGNOSTICS';
 
-      // 3. Generate PDF
-      const result = await generateBillPdf(visitId, domain);
+      // 3. Generate PDF — reuse this same token for the report QR (it already
+      //    identifies the visit), so no extra token is minted.
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const result = await generateBillPdf(visitId, domain, { baseUrl, token });
 
       if (!result) {
         res.setHeader('Cache-Control', 'no-store');

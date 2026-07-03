@@ -59,6 +59,7 @@ export interface ApiBillData {
     referralCommissionPercent?: number;
     referralCommissionAmountInPaise?: number;
   }>;
+  reportQr?: { show: boolean; url?: string; dataUrl?: string } | null;
 }
 
 export function mapApiBillToReceiptData(api: ApiBillData): BillReceiptData {
@@ -102,6 +103,7 @@ export function mapApiBillToReceiptData(api: ApiBillData): BillReceiptData {
       referralPercent: item.referralCommissionPercent,
       referralAmountInPaise: item.referralCommissionAmountInPaise,
     })),
+    reportQrDataUrl: api.reportQr?.show ? api.reportQr.dataUrl : null,
   };
 }
 

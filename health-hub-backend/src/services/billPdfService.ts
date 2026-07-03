@@ -25,6 +25,8 @@ import { buildBillFinancialResponse } from './billFinancialService';
 import { buildDiagnosticBillItems } from './billItemService';
 import { generatePdfFromHtml } from './pdfGenerationService';
 import { getPatientAgeDisplay } from '../utils/validation';
+import { shouldShowReportQr, reportGatewayQrDataUrl } from './reportQrService';
+import { createBillAccessToken } from './billAccessService';
 
 // ============================================================================
 // LOGO — loaded once, embedded as base64 data URI
@@ -32,7 +34,7 @@ import { getPatientAgeDisplay } from '../utils/validation';
 
 let _logoDataUri: string | null = null;
 
-function getLogoDataUri(): string {
+export function getLogoDataUri(): string {
   if (_logoDataUri) return _logoDataUri;
 
   // Path: <project-root>/public/images/sobhana-clinic-logo.png
@@ -148,6 +150,8 @@ export interface BillData {
   doctor?: { name: string } | null;
   referralDoctor?: { name: string } | null;
   items: Array<{ id: string; name: string; price: number }>;
+  /** True when this visit produces a patient-facing report (→ show the report QR). */
+  showReportQr: boolean;
 }
 
 export async function fetchBillData(visitId: string, domain: 'CLINIC' | 'DIAGNOSTICS'): Promise<BillData | null> {
@@ -255,6 +259,8 @@ export async function fetchBillData(visitId: string, domain: 'CLINIC' | 'DIAGNOS
       ? { name: visit.referrals[0].referralDoctor.name }
       : null,
     items,
+    // Only diagnostics visits produce a report; clinic consultations never do.
+    showReportQr: domain === 'DIAGNOSTICS' && shouldShowReportQr(visit.testOrders),
   };
 }
 
@@ -262,9 +268,13 @@ export async function fetchBillData(visitId: string, domain: 'CLINIC' | 'DIAGNOS
 // HTML RENDERER
 // ============================================================================
 
-export function renderBillHtml(data: BillData): string {
+export function renderBillHtml(
+  data: BillData,
+  opts?: { reportQrDataUrl?: string },
+): string {
   const logoUri = getLogoDataUri();
   const isDiagnostic = data.visit.domain === 'DIAGNOSTICS';
+  const reportQrDataUrl = data.showReportQr ? opts?.reportQrDataUrl : undefined;
 
   // ── Date & Time ──
   const dateObj = new Date(data.visit.createdAt);
@@ -406,7 +416,17 @@ export function renderBillHtml(data: BillData): string {
       margin: 8px auto 0;
       border: 1px solid black;
       background: #fff;
+      position: relative;
     }
+    .report-qr {
+      position: absolute;
+      top: 6px;
+      right: 12px;
+      text-align: center;
+      width: 62px;
+    }
+    .report-qr img { width: 58px; height: 58px; display: block; }
+    .report-qr .qr-caption { font-size: 8px; line-height: 1.1; margin-top: 2px; }
     .section { border-bottom: 1px solid black; }
     .header { padding: 6px 16px 4px; text-align: center; }
     .header img { height: 40px; object-fit: contain; display: block; margin: 0 auto 4px; }
@@ -454,6 +474,11 @@ export function renderBillHtml(data: BillData): string {
 
     <!-- 1. HEADER -->
     <div class="section header">
+      ${
+        reportQrDataUrl
+          ? `<div class="report-qr"><img src="${reportQrDataUrl}" alt="Scan for your report" /><div class="qr-caption">Scan for your report</div></div>`
+          : ''
+      }
       ${logoUri ? `<img src="${logoUri}" alt="Sobhana" />` : ''}
       <div class="branch-name">${branchNameDisplay}</div>
       <div class="address">${branchAddress}</div>
@@ -567,15 +592,28 @@ export function renderBillHtml(data: BillData): string {
 /**
  * Generates a PDF buffer for a bill identified by visitId + domain.
  * Returns null if the visit/bill is not found.
+ *
+ * When `opts.baseUrl` is provided and the visit produces a patient-facing
+ * report, a "Scan for your report" QR is embedded in the header. Pass
+ * `opts.token` (e.g. the bill access token from /bills/view/:token) to reuse an
+ * existing token instead of minting a new one — the same token resolves both
+ * the bill PDF and the report gateway.
  */
 export async function generateBillPdf(
   visitId: string,
   domain: 'CLINIC' | 'DIAGNOSTICS',
+  opts?: { baseUrl?: string; token?: string },
 ): Promise<{ pdfBuffer: Buffer; billData: BillData } | null> {
   const billData = await fetchBillData(visitId, domain);
   if (!billData) return null;
 
-  const html = renderBillHtml(billData);
+  let reportQrDataUrl: string | undefined;
+  if (billData.showReportQr && opts?.baseUrl) {
+    const token = opts.token || (await createBillAccessToken(visitId));
+    reportQrDataUrl = await reportGatewayQrDataUrl(opts.baseUrl, token);
+  }
+
+  const html = renderBillHtml(billData, { reportQrDataUrl });
   const pdfBuffer = await generatePdfFromHtml(html, { mode: 'bill' });
 
   return { pdfBuffer, billData };

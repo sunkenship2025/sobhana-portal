@@ -202,7 +202,7 @@ export const BillReceipt = ({
     <div className={containerClass}>
       {/* Master container: solid black border, dynamic height */}
       <div
-        className="mx-auto w-full border border-black bg-white text-black mt-2"
+        className="relative mx-auto w-full border border-black bg-white text-black mt-2"
         style={{
           maxWidth: "90%",
           fontFamily:
@@ -211,6 +211,23 @@ export const BillReceipt = ({
           lineHeight: "1.3",
         }}
       >
+        {/* ─── Report QR (diagnostics with a report only) ─── */}
+        {data.reportQrDataUrl && (
+          <div
+            className="absolute text-center"
+            style={{ top: "6px", right: "12px", width: "62px" }}
+          >
+            <img
+              src={data.reportQrDataUrl}
+              alt="Scan for your report"
+              style={{ width: "58px", height: "58px", display: "block" }}
+            />
+            <div style={{ fontSize: "8px", lineHeight: "1.1", marginTop: "2px" }}>
+              Scan for your report
+            </div>
+          </div>
+        )}
+
         {/* ─── 1. HEADER ─── */}
         <div className="border-b border-black px-4 py-1.5 text-center">
           <div className="flex justify-center mb-1">

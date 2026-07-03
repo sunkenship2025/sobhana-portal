@@ -131,6 +131,10 @@ const DiagnosticsNewVisit = () => {
   const [successData, setSuccessData] = useState<{
     visitView: DiagnosticVisitView;
   } | null>(null);
+  // Report QR for the just-billed visit's printed receipt. Fetched from the
+  // bills endpoint (which decides eligibility + mints the gateway token) so the
+  // fresh print carries the same "Scan for your report" QR as reprints.
+  const [reportQrDataUrl, setReportQrDataUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [billLogoLoaded, setBillLogoLoaded] = useState(false);
   const [whatsappOptIn, setWhatsappOptIn] = useState(true); // For existing patients
@@ -240,6 +244,33 @@ const DiagnosticsNewVisit = () => {
 
     fetchData();
   }, [token, activeBranch]);
+
+  // After a visit is billed, fetch the report QR for its printed receipt.
+  useEffect(() => {
+    const visitId = successData?.visitView.visit.id;
+    if (!visitId || !token) {
+      setReportQrDataUrl(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/bills/DIAGNOSTICS/${visitId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) {
+          setReportQrDataUrl(data?.reportQr?.show ? data.reportQr.dataUrl : null);
+        }
+      } catch {
+        // Non-fatal: the receipt just prints without a QR.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [successData, token]);
 
   // Auto-focus phone input on page load
   useEffect(() => {
@@ -1291,10 +1322,13 @@ const DiagnosticsNewVisit = () => {
         <div ref={printRef} className="hidden print:block">
           <BillReceipt
             onLogoLoadedChange={setBillLogoLoaded}
-            data={mapDiagnosticsVisitViewToReceiptData(
-              successData.visitView,
-              activeBranch?.name,
-            )}
+            data={{
+              ...mapDiagnosticsVisitViewToReceiptData(
+                successData.visitView,
+                activeBranch?.name,
+              ),
+              reportQrDataUrl,
+            }}
           />
         </div>
       </AppLayout>

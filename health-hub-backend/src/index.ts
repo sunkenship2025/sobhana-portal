@@ -53,6 +53,7 @@ import reportDownloadRoutes from './routes/reportDownload';
 import billRoutes from './routes/bills';
 import billDownloadRoutes from './routes/billDownload';
 import statementDownloadRoutes from './routes/statementDownload';
+import reportGatewayRoutes from './routes/reportGateway';
 import webhookRoutes from './routes/webhooks';
 import messageRoutes from './routes/messages';
 import departmentRoutes from './routes/departments';
@@ -192,7 +193,7 @@ app.options('*', cors(corsOptions));
 // `/fonts` mounted below are immutable assets used in report HTML — letting
 // browsers + the Puppeteer pool cache them is a real perf win.
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api') || req.path.startsWith('/reports') || req.path.startsWith('/webhooks')) {
+  if (req.path.startsWith('/api') || req.path.startsWith('/reports') || req.path.startsWith('/webhooks') || req.path.startsWith('/r/')) {
     res.set({
       'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
       'Pragma': 'no-cache',
@@ -285,6 +286,9 @@ app.use('/reports', reportDownloadRoutes);
 // Bill PDF download (token-based, no auth required) - PUBLIC ROUTE
 // Patient-facing bill PDF for WhatsApp links: /bills/view/:token
 app.use('/bills/view', billDownloadRoutes);
+// Report gateway (token-based, no auth) — QR on the bill lands here and resolves
+// to the finalized report / partial interstitial / "being processed" page: /r/:token
+app.use('/r', reportGatewayRoutes);
 // Payee-facing payout statement (JSON) for WhatsApp links: /statements/view/:token
 app.use('/statements/view', statementDownloadRoutes);
 

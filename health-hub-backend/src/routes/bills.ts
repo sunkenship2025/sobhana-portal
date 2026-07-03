@@ -4,6 +4,7 @@ import prisma from "../lib/prisma";
 import { buildDiagnosticBillItems } from "../services/billItemService";
 import { buildBillFinancialResponse } from "../services/billFinancialService";
 import { getPatientAge, getPatientAgeDisplay } from "../utils/validation";
+import { buildReportGatewayQr } from "../services/reportQrService";
 
 const router = Router();
 
@@ -109,6 +110,7 @@ router.get("/:domain/:visitId", async (req: AuthRequest, res) => {
         referralCommissionType?: "PERCENTAGE" | "FIXED_AMOUNT";
         referralCommissionAmountInPaise?: number;
       }>;
+      reportQr?: { show: boolean; url?: string; dataUrl?: string };
     } = {
       visit: {
         id: visit.id,
@@ -210,6 +212,16 @@ router.get("/:domain/:visitId", async (req: AuthRequest, res) => {
         ];
       }
     }
+
+    // Report QR — only for diagnostics visits that produce a patient-facing
+    // report (suppressed for bill-only / all-cancelled / films-only visits).
+    // Encodes the token-gated /r/:token gateway that resolves at scan time.
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    billData.reportQr = await buildReportGatewayQr({
+      visitId: visit.id,
+      orders: visit.testOrders,
+      baseUrl,
+    });
 
     return res.json(billData);
   } catch (error) {
