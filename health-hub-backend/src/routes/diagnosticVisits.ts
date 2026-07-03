@@ -7,6 +7,7 @@ import {
 } from "@prisma/client";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { branchContextMiddleware } from "../middleware/branch";
+import { requireRole } from "../middleware/rbac";
 import { generateDiagnosticBillNumber } from "../services/numberService";
 import { logAction } from "../services/auditService";
 import {
@@ -4597,7 +4598,8 @@ router.post("/:id/confirm-ready", async (req: AuthRequest, res) => {
 });
 
 // POST /api/visits/diagnostic/:id/finalize - Finalize report
-router.post("/:id/finalize", async (req: AuthRequest, res) => {
+// Only the owner and lab incharge may finalize; staff/sales are read/entry only.
+router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
 
@@ -4878,7 +4880,7 @@ router.post("/:id/finalize", async (req: AuthRequest, res) => {
 // (carrying forward existing results), and sends the partial WhatsApp template.
 // Visit stays in IN_PROGRESS/WAITING (NOT COMPLETED) and payout is NOT refreshed —
 // both happen on the final /finalize call.
-router.post("/:id/release-partial", async (req: AuthRequest, res) => {
+router.post("/:id/release-partial", requireRole("owner", "lab_incharge"), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
 

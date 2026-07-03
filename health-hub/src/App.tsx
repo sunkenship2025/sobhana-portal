@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { useAuthStore } from "./store/authStore";
+import { useAuthStore, defaultRouteForRole } from "./store/authStore";
 import { useEffect } from "react";
 import { ProtectedRoute } from "./components/layout/ProtectedRoute";
 import { BranchConfirmModal } from "./components/layout/BranchConfirmModal";
@@ -85,59 +85,59 @@ function AppRoutes() {
         path="/login" 
         element={
           isAuthenticated
-            ? <Navigate to={user?.role === 'owner' ? '/owner' : '/'} replace />
+            ? <Navigate to={defaultRouteForRole(user?.role)} replace />
             : <Login />
         } 
       />
       
       {/* Staff routes */}
       <Route path="/" element={
-        <ProtectedRoute allowedRoles={['staff', 'owner']}>
+        <ProtectedRoute allowedRoles={['staff', 'owner', 'lab_incharge']}>
           <Dashboard />
         </ProtectedRoute>
       } />
       <Route path="/diagnostics/new" element={
-        <ProtectedRoute allowedRoles={['staff', 'owner']}>
+        <ProtectedRoute allowedRoles={['staff', 'owner', 'lab_incharge']}>
           <DiagnosticsNewVisit />
         </ProtectedRoute>
       } />
       <Route path="/diagnostics/pending" element={
-        <ProtectedRoute allowedRoles={['staff', 'owner']}>
+        <ProtectedRoute allowedRoles={['staff', 'owner', 'lab_incharge']}>
           <DiagnosticsPendingResults />
         </ProtectedRoute>
       } />
       <Route path="/diagnostics/finalized" element={
-        <ProtectedRoute allowedRoles={['staff', 'owner']}>
+        <ProtectedRoute allowedRoles={['staff', 'owner', 'lab_incharge']}>
           <DiagnosticsFinalizedReports />
         </ProtectedRoute>
       } />
       <Route path="/diagnostics/results/:visitId" element={
-        <ProtectedRoute allowedRoles={['staff', 'owner']}>
+        <ProtectedRoute allowedRoles={['staff', 'owner', 'lab_incharge']}>
           <DiagnosticsResultEntry />
         </ProtectedRoute>
       } />
       <Route path="/diagnostics/preview/:visitId" element={
-        <ProtectedRoute allowedRoles={['staff', 'owner']}>
+        <ProtectedRoute allowedRoles={['staff', 'owner', 'lab_incharge']}>
           <DiagnosticsReportPreview />
         </ProtectedRoute>
       } />
       <Route path="/clinic/new" element={
-        <ProtectedRoute allowedRoles={['staff', 'owner']}>
+        <ProtectedRoute allowedRoles={['staff', 'owner', 'lab_incharge']}>
           <ClinicNewVisit />
         </ProtectedRoute>
       } />
       <Route path="/clinic/queue" element={
-        <ProtectedRoute allowedRoles={['staff', 'owner']}>
+        <ProtectedRoute allowedRoles={['staff', 'owner', 'lab_incharge']}>
           <ClinicVisitQueue />
         </ProtectedRoute>
       } />
       <Route path="/clinic/patient-search" element={
-        <ProtectedRoute allowedRoles={['staff', 'owner']}>
+        <ProtectedRoute allowedRoles={['staff', 'owner', 'lab_incharge']}>
           <GlobalPatientSearch />
         </ProtectedRoute>
       } />
       <Route path="/clinic/patient-360/:patientId" element={
-        <ProtectedRoute allowedRoles={['staff', 'owner']}>
+        <ProtectedRoute allowedRoles={['staff', 'owner', 'lab_incharge']}>
           <Patient360 />
         </ProtectedRoute>
       } />
@@ -191,23 +191,23 @@ function AppRoutes() {
       <Route path="/owner/doctors" element={<Navigate to="/owner/config?tab=referrals" replace />} />
       <Route path="/owner/clinic-doctors" element={<Navigate to="/owner/config?tab=referrals" replace />} />
       <Route path="/owner/config" element={
-        <ProtectedRoute allowedRoles={['staff', 'owner']}>
+        <ProtectedRoute allowedRoles={['staff', 'owner', 'lab_incharge', 'sales']}>
           <AdminConfigCenter />
         </ProtectedRoute>
       } />
       <Route path="/owner/tests" element={<Navigate to="/owner/config?tab=clinical-defs" replace />} />
       <Route path="/owner/payouts" element={
-        <ProtectedRoute allowedRoles={['owner', 'staff']}>
+        <ProtectedRoute allowedRoles={['owner', 'staff', 'lab_incharge', 'sales']}>
           <PayoutsList />
         </ProtectedRoute>
       } />
       <Route path="/owner/payouts/labs" element={
-        <ProtectedRoute allowedRoles={['owner', 'staff']}>
+        <ProtectedRoute allowedRoles={['owner', 'staff', 'lab_incharge', 'sales']}>
           <OutsideLabs />
         </ProtectedRoute>
       } />
       <Route path="/owner/payouts/:id" element={
-        <ProtectedRoute allowedRoles={['owner', 'staff']}>
+        <ProtectedRoute allowedRoles={['owner', 'staff', 'lab_incharge', 'sales']}>
           <PayoutStatement />
         </ProtectedRoute>
       } />
@@ -220,7 +220,7 @@ function AppRoutes() {
       <Route path="/terms" element={<TermsOfService />} />
       <Route path="/data-deletion" element={<DataDeletion />} />
       <Route path="/bill/print/:domain/:visitId" element={
-        <ProtectedRoute allowedRoles={['staff', 'owner']}>
+        <ProtectedRoute allowedRoles={['staff', 'owner', 'lab_incharge']}>
           <BillPrintPage />
         </ProtectedRoute>
       } />

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuthStore } from '@/store/authStore';
+import { useAuthStore, defaultRouteForRole } from '@/store/authStore';
 import { toast } from 'sonner';
 import { Mail, Lock, LogIn } from 'lucide-react';
 
@@ -25,8 +25,7 @@ const Login = () => {
     if (result.success) {
       const role = useAuthStore.getState().user?.role;
       toast.success('Welcome back');
-      const target = role === 'owner' ? '/owner' : '/';
-      navigate(target);
+      navigate(defaultRouteForRole(role));
     } else {
       toast.error(result.error || 'Login failed');
     }

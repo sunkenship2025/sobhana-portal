@@ -31,6 +31,8 @@ enum UserRole {
   doctor
   owner
   admin
+  lab_incharge
+  sales
 }
 
 enum VisitDomain {

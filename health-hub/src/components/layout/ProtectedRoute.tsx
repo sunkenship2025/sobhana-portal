@@ -1,6 +1,6 @@
 import { Navigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
-import { useAuthStore, UserRole } from '@/store/authStore';
+import { useAuthStore, UserRole, defaultRouteForRole } from '@/store/authStore';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -29,8 +29,7 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
 
   if (!allowedRoles.includes(user.role)) {
     // Redirect to their default page based on role
-    if (user.role === 'owner') return <Navigate to="/owner" replace />;
-    return <Navigate to="/" replace />;
+    return <Navigate to={defaultRouteForRole(user.role)} replace />;
   }
 
   // isHydrating only matters during the brief window above (when token is

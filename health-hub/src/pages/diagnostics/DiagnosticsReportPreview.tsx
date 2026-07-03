@@ -206,8 +206,11 @@ const DiagnosticsReportPreview = () => {
       : null,
   );
   const { activeBranchId } = useBranchStore();
-  const { token } = useAuthStore();
-  
+  const { token, user } = useAuthStore();
+  // Only the owner and lab incharge may finalize / release a report. Staff and
+  // sales can view the preview but see no finalize action (backend enforces too).
+  const canFinalize = user?.role === 'owner' || user?.role === 'lab_incharge';
+
   const [visit, setVisit] = useState<Visit | null>(null);
   const [reportSnapshot, setReportSnapshot] = useState<ReportSnapshotData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1051,7 +1054,7 @@ const DiagnosticsReportPreview = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {canReleasePartial ? (
+              {canFinalize && canReleasePartial ? (
                 <Button
                   variant="default"
                   size="sm"
@@ -1063,7 +1066,7 @@ const DiagnosticsReportPreview = () => {
                     ? 'Collect Due Before Releasing'
                     : `Looks Good — Release ${readyReportInclusionCount} of ${totalReportInclusionCount}`}
                 </Button>
-              ) : canFinalizeAll ? (
+              ) : canFinalize && canFinalizeAll ? (
                 <Button
                   variant="default"
                   size="sm"

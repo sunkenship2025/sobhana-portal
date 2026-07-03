@@ -79,7 +79,9 @@ export default function PayoutStatement() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { token } = useAuthStore();
+  const { token, user } = useAuthStore();
+  // Sales can view/manage payouts but must never send WhatsApp.
+  const canSendWhatsApp = user?.role !== 'sales';
   const { activeBranchId } = useBranchStore();
 
   const [stmt, setStmt] = useState<Statement | null>(null);
@@ -201,7 +203,7 @@ export default function PayoutStatement() {
                 <Button variant="outline" size="sm" onClick={exportExcel}>
                   <Download className="mr-1.5 h-4 w-4" /> Excel
                 </Button>
-                {stmt && (
+                {stmt && canSendWhatsApp && (
                   <Button
                     variant="outline"
                     size="sm"

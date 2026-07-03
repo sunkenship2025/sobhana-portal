@@ -41,7 +41,7 @@ function parseDoctorType(value: unknown): PayoutDoctorType | undefined {
 // GET /api/payouts — list (server-side: q, page, sort, totals)
 // Access: owner + staff
 // ============================================================================
-router.get('/', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+router.get('/', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
   try {
     const branchId = req.branchId!;
     const {
@@ -97,7 +97,7 @@ router.get('/', requireRole('owner', 'staff'), async (req: AuthRequest, res) => 
 // GET /api/payouts/summary-by-doctor — pivot: one row per doctor
 // Access: owner + staff
 // ============================================================================
-router.get('/summary-by-doctor', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+router.get('/summary-by-doctor', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
   try {
     const branchId = req.branchId!;
     const { doctorType, startDate, endDate, q } = req.query;
@@ -127,7 +127,7 @@ router.get('/summary-by-doctor', requireRole('owner', 'staff'), async (req: Auth
 // ============================================================================
 // POST /api/payouts/derive — derive a single payout (owner + staff)
 // ============================================================================
-router.post('/derive', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+router.post('/derive', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
   try {
     const branchId = req.branchId!;
     const { doctorType, doctorId, periodStartDate, periodEndDate } = req.body;
@@ -206,7 +206,7 @@ router.post('/derive', requireRole('owner', 'staff'), async (req: AuthRequest, r
 // GET /api/payouts/derive/preview — preview bulk-derive buckets
 // Access: owner + staff
 // ============================================================================
-router.get('/derive/preview', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+router.get('/derive/preview', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
   try {
     const branchId = req.branchId!;
     const { doctorType, doctorIds, periodStartDate, periodEndDate } = req.query;
@@ -254,7 +254,7 @@ router.get('/derive/preview', requireRole('owner', 'staff'), async (req: AuthReq
 // Access: owner + staff
 // Body: { doctorType, doctorIds: string[] | 'all', periodStartDate, periodEndDate }
 // ============================================================================
-router.post('/derive/bulk', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+router.post('/derive/bulk', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
   try {
     const branchId = req.branchId!;
     const { doctorType, doctorIds, periodStartDate, periodEndDate } = req.body;
@@ -339,7 +339,7 @@ router.post('/derive/bulk', requireRole('owner', 'staff'), async (req: AuthReque
 // Access: owner + staff
 // Body: { ids: string[], paymentMethod, paymentReferenceId?, notes? }
 // ============================================================================
-router.post('/mark-paid/bulk', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+router.post('/mark-paid/bulk', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
   try {
     const branchId = req.branchId!;
     const { ids, paymentMethod, paymentReferenceId, notes } = req.body;
@@ -450,7 +450,7 @@ router.delete('/bulk', requireRole('owner'), async (req: AuthRequest, res) => {
 // GET /api/payouts/export — Excel export of the filtered list
 // Access: owner + staff
 // ============================================================================
-router.get('/export', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+router.get('/export', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
   try {
     const branchId = req.branchId!;
     const { doctorType, doctorId, isPaid, startDate, endDate, q, sortBy, sortDir } = req.query;
@@ -493,7 +493,7 @@ router.get('/export', requireRole('owner', 'staff'), async (req: AuthRequest, re
 // ============================================================================
 // Doctor dropdown endpoints (unchanged, but moved here so /:id matches last)
 // ============================================================================
-router.get('/doctors/referral', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+router.get('/doctors/referral', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
   try {
     const branchScope = req.query.scope === 'branch' ? req.branchId : undefined;
     const doctors = await payoutService.getReferralDoctors(true, branchScope);
@@ -504,7 +504,7 @@ router.get('/doctors/referral', requireRole('owner', 'staff'), async (req: AuthR
   }
 });
 
-router.get('/doctors/clinic', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+router.get('/doctors/clinic', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
   try {
     const branchScope = req.query.scope === 'branch' ? req.branchId : undefined;
     const doctors = await payoutService.getClinicDoctors(true, branchScope);
@@ -515,7 +515,7 @@ router.get('/doctors/clinic', requireRole('owner', 'staff'), async (req: AuthReq
   }
 });
 
-router.get('/doctors/diagnostic-centers', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+router.get('/doctors/diagnostic-centers', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
   try {
     const branchScope = req.query.scope === 'branch' ? req.branchId : undefined;
     const centers = await payoutService.getDiagnosticCenters(true, branchScope);
@@ -529,7 +529,7 @@ router.get('/doctors/diagnostic-centers', requireRole('owner', 'staff'), async (
 // ============================================================================
 // GET /api/payouts/worklist — grouped pay-run worklist (two non-net hero totals)
 // ============================================================================
-router.get('/worklist', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+router.get('/worklist', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
   try {
     const branchId = req.branchId!;
     const worklist = await payoutService.getPayRunWorklist(branchId, {
@@ -547,7 +547,7 @@ router.get('/worklist', requireRole('owner', 'staff'), async (req: AuthRequest, 
 });
 
 // GET /api/payouts/payees/external-labs — dropdown source (active labs)
-router.get('/payees/external-labs', requireRole('owner', 'staff'), async (_req: AuthRequest, res) => {
+router.get('/payees/external-labs', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (_req: AuthRequest, res) => {
   try {
     const labs = await externalLabService.listExternalLabs(false);
     return res.json({ data: labs });
@@ -560,7 +560,7 @@ router.get('/payees/external-labs', requireRole('owner', 'staff'), async (_req: 
 // ============================================================================
 // GET /api/payouts/:id — detail (owner + staff)
 // ============================================================================
-router.get('/:id', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+router.get('/:id', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const branchId = req.branchId!;
@@ -585,7 +585,7 @@ router.get('/:id', requireRole('owner', 'staff'), async (req: AuthRequest, res) 
 // ============================================================================
 // GET /api/payouts/:id/statement — category-banded statement (owner + staff)
 // ============================================================================
-router.get('/:id/statement', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+router.get('/:id/statement', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
   try {
     const statement = await payoutService.getPayoutStatement(req.params.id, req.branchId!);
     if (!statement) {
@@ -599,9 +599,10 @@ router.get('/:id/statement', requireRole('owner', 'staff'), async (req: AuthRequ
 });
 
 // ============================================================================
-// POST /api/payouts/:id/send-statement — WhatsApp the statement to the payee (owner + staff)
+// POST /api/payouts/:id/send-statement — WhatsApp the statement to the payee
+// (owner + staff + lab incharge; sales is excluded — sales cannot send WhatsApp)
 // ============================================================================
-router.post('/:id/send-statement', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+router.post('/:id/send-statement', requireRole('owner', 'staff', 'lab_incharge'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const branchId = req.branchId!;
@@ -635,7 +636,7 @@ router.post('/:id/send-statement', requireRole('owner', 'staff'), async (req: Au
 // GET /api/payouts/:id/export — single payout xlsx
 // Access: owner + staff
 // ============================================================================
-router.get('/:id/export', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+router.get('/:id/export', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const branchId = req.branchId!;
@@ -666,7 +667,7 @@ router.get('/:id/export', requireRole('owner', 'staff'), async (req: AuthRequest
 // ============================================================================
 // POST /api/payouts/:id/mark-paid — single mark-paid (owner + staff)
 // ============================================================================
-router.post('/:id/mark-paid', requireRole('owner', 'staff'), async (req: AuthRequest, res) => {
+router.post('/:id/mark-paid', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const branchId = req.branchId!;

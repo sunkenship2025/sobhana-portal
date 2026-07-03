@@ -17,7 +17,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useAuthStore, UserRole } from '@/store/authStore';
+import { useAuthStore, UserRole, ROLE_LABELS } from '@/store/authStore';
 import {
   Sheet,
   SheetContent,
@@ -130,26 +130,29 @@ const ownerNavItems: NavItem[] = [
   },
 ];
 
+// Staff and Lab Incharge share the same operational nav. The only difference
+// between them is enforced elsewhere: Lab Incharge can finalize reports (and
+// sees more Admin config tabs) while Staff cannot.
 const staffNavItems: NavItem[] = [
   {
     label: 'Dashboard',
     icon: LayoutDashboard,
     href: '/',
-    roles: ['staff'],
+    roles: ['staff', 'lab_incharge'],
     exact: true,
   },
   {
     label: 'Patient 360',
     icon: Users,
     href: '/clinic/patient-search',
-    roles: ['staff'],
+    roles: ['staff', 'lab_incharge'],
     matchPrefixes: ['/clinic/patient-search', '/clinic/patient-360/'],
   },
   {
     label: 'Diagnostics',
     icon: FlaskConical,
     href: '/diagnostics',
-    roles: ['staff'],
+    roles: ['staff', 'lab_incharge'],
     subItems: [
       { label: 'New visit', href: '/diagnostics/new' },
       {
@@ -168,7 +171,7 @@ const staffNavItems: NavItem[] = [
     label: 'Clinic',
     icon: Stethoscope,
     href: '/clinic',
-    roles: ['staff'],
+    roles: ['staff', 'lab_incharge'],
     subItems: [
       { label: 'New visit', href: '/clinic/new' },
       { label: 'OP / IP queue', href: '/clinic/queue' },
@@ -178,10 +181,33 @@ const staffNavItems: NavItem[] = [
     label: 'Admin',
     icon: Building2,
     href: '/owner/config',
-    roles: ['staff'],
+    roles: ['staff', 'lab_incharge'],
     subItems: [
       { label: 'Config center', href: '/owner/config' },
       { label: 'Payouts', href: '/owner/payouts', matchPrefixes: ['/owner/payouts'] },
+    ],
+  },
+];
+
+// Sales is a deliberately minimal portal: Referrals and Payouts only, nothing
+// else. Referrals lives as a single tab inside the Admin Config Center.
+const salesNavItems: NavItem[] = [
+  {
+    label: 'Referrals',
+    icon: Users,
+    href: '/owner/config?tab=referrals',
+    roles: ['sales'],
+    matchPrefixes: ['/owner/config'],
+  },
+  {
+    label: 'Payouts',
+    icon: HandCoins,
+    href: '/owner/payouts',
+    roles: ['sales'],
+    matchPrefixes: ['/owner/payouts'],
+    subItems: [
+      { label: 'Pay-Run', href: '/owner/payouts', exact: true },
+      { label: 'Outside Labs', href: '/owner/payouts/labs' },
     ],
   },
 ];
@@ -198,9 +224,13 @@ export function Sidebar() {
     navigate('/login');
   };
 
-  const navItems = (user?.role === 'owner' ? ownerNavItems : staffNavItems).filter((item) =>
-    user ? item.roles.includes(user.role) : false,
-  );
+  const navSet =
+    user?.role === 'owner'
+      ? ownerNavItems
+      : user?.role === 'sales'
+        ? salesNavItems
+        : staffNavItems;
+  const navItems = navSet.filter((item) => (user ? item.roles.includes(user.role) : false));
 
   const isItemActive = (item: NavItem) =>
     item.exact
@@ -334,7 +364,7 @@ export function Sidebar() {
                 {user && (
                   <div className="mb-2 px-4 py-2">
                     <p className="truncate text-sm font-medium text-white">{user.name}</p>
-                    <p className="text-xs capitalize text-white/60">{user.role}</p>
+                    <p className="text-xs text-white/60">{ROLE_LABELS[user.role]}</p>
                   </div>
                 )}
                 <Button
