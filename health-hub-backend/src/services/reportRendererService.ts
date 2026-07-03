@@ -190,35 +190,17 @@ function computeFlag(
   value: number | null,
   min: number | null,
   max: number | null,
-  criticalMin: number | null = null,
-  criticalMax: number | null = null,
 ): string {
   if (value === null) return '';
-  // Critical (panic) thresholds take precedence so a life-threatening value
-  // never renders as a routine High/Low. Patient-safety: NABL/ISO 15189
-  // panic-value visibility.
-  if (criticalMax !== null && value > criticalMax) return 'CH';
-  if (criticalMin !== null && value < criticalMin) return 'CL';
   if (min === null && max === null) return '';
   if (max !== null && value > max) return 'H';
   if (min !== null && value < min) return 'L';
   return '';
 }
 
-/** Derive the CSS classes and an inline panic marker from a computed flag.
- *  The marker is print-safe text (not colour-only) so critical values stay
- *  unmistakable on a black-and-white pre-printed letterhead. */
-function flagPresentation(flag: string): {
-  isAbnormal: boolean;
-  isCritical: boolean;
-  marker: string;
-} {
-  const isCritical = flag === 'CH' || flag === 'CL';
-  const isAbnormal = isCritical || flag === 'H' || flag === 'L';
-  const marker = isCritical
-    ? ` <span class="crit-flag">CRITICAL ${flag === 'CH' ? 'HIGH' : 'LOW'}</span>`
-    : '';
-  return { isAbnormal, isCritical, marker };
+/** Derive the CSS classes from a computed flag. */
+function flagPresentation(flag: string): { isAbnormal: boolean } {
+  return { isAbnormal: flag === 'H' || flag === 'L' };
 }
 
 function formatGender(gender: string): string {
@@ -265,8 +247,8 @@ function renderTestLabel(test: TestResultSnapshot): string {
 }
 
 function renderTestRow(test: TestResultSnapshot, indent: boolean = false, valuePrefix: string | null = null): string {
-  const flag = computeFlag(test.value, test.referenceMin, test.referenceMax, test.criticalMin, test.criticalMax);
-  const { isAbnormal, isCritical, marker } = flagPresentation(flag);
+  const flag = computeFlag(test.value, test.referenceMin, test.referenceMax);
+  const { isAbnormal } = flagPresentation(flag);
   let valueDisplay = test.textValue || formatNumericValue(test.value);
   if (valuePrefix && valueDisplay && valueDisplay !== '\u2014') {
     valueDisplay = `${valuePrefix}${valueDisplay}`;
@@ -276,7 +258,7 @@ function renderTestRow(test: TestResultSnapshot, indent: boolean = false, valueP
   return `
       <tr class="data-row${indentClass}">
         <td class="col-test">${renderTestLabel(test)}</td>
-        <td class="col-value${isAbnormal ? ' abnormal' : ''}${isCritical ? ' critical' : ''}">${escapeHtml(valueDisplay)}${marker}</td>
+        <td class="col-value${isAbnormal ? ' abnormal' : ''}">${escapeHtml(valueDisplay)}</td>
         <td class="col-unit">${escapeHtml(test.referenceUnit) || ''}</td>
         <td class="col-ref">${formatReference(test.referenceMin, test.referenceMax, test.referenceText)}</td>
       </tr>`;
@@ -298,8 +280,8 @@ function partitionGridRuns(tests: TestResultSnapshot[]): TestResultSnapshot[][] 
 /** Render a multi-item run as one table row containing a flex grid of label:value cells */
 function renderGridRow(run: TestResultSnapshot[], valuePrefix: string | null = null): string {
   const cells = run.map((test) => {
-    const flag = computeFlag(test.value, test.referenceMin, test.referenceMax, test.criticalMin, test.criticalMax);
-    const { isAbnormal, isCritical, marker } = flagPresentation(flag);
+    const flag = computeFlag(test.value, test.referenceMin, test.referenceMax);
+    const { isAbnormal } = flagPresentation(flag);
     let valueDisplay = test.textValue || formatNumericValue(test.value);
     if (valuePrefix && valueDisplay && valueDisplay !== '\u2014') {
       valueDisplay = `${valuePrefix}${valueDisplay}`;
@@ -311,7 +293,7 @@ function renderGridRow(run: TestResultSnapshot[], valuePrefix: string | null = n
         <div class="result-grid-cell" style="${flexStyle}">
           <span class="grid-cell-label${test.isBold ? ' is-bold' : ''}">${escapeHtml(test.testName)}</span>
           <span class="grid-cell-sep">:</span>
-          <span class="grid-cell-value${isAbnormal ? ' abnormal' : ''}${isCritical ? ' critical' : ''}">${escapeHtml(valueDisplay)}${marker}</span>
+          <span class="grid-cell-value${isAbnormal ? ' abnormal' : ''}">${escapeHtml(valueDisplay)}</span>
         </div>`;
   }).join('');
 
@@ -451,13 +433,13 @@ function renderCBPTable(panel: PanelSnapshot): string {
   let diffSection = '';
   if (diffTests.length > 0) {
     const diffRows = diffTests.map(t => {
-      const flag = computeFlag(t.value, t.referenceMin, t.referenceMax, t.criticalMin, t.criticalMax);
-      const { isAbnormal, isCritical, marker } = flagPresentation(flag);
+      const flag = computeFlag(t.value, t.referenceMin, t.referenceMax);
+      const { isAbnormal } = flagPresentation(flag);
       const valueDisplay = t.textValue || formatNumericValue(t.value);
       return `
       <tr class="data-row indent-1">
         <td class="col-test">${escapeHtml(t.testName)}</td>
-        <td class="col-value${isAbnormal ? ' abnormal' : ''}${isCritical ? ' critical' : ''}">${escapeHtml(valueDisplay)}${marker}</td>
+        <td class="col-value${isAbnormal ? ' abnormal' : ''}">${escapeHtml(valueDisplay)}</td>
         <td class="col-unit">${escapeHtml(t.referenceUnit) || '%'}</td>
         <td class="col-ref">${formatReference(t.referenceMin, t.referenceMax, t.referenceText)}</td>
       </tr>`;

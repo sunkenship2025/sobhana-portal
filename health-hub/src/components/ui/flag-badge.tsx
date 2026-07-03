@@ -9,14 +9,14 @@ const flagStyles: Record<string, string> = {
   NORMAL: 'flag-normal',
   HIGH: 'flag-high',
   LOW: 'flag-low',
-  // Critical (panic) values must be unmistakable, not grey fall-through text.
-  CRITICAL_HIGH: 'rounded bg-red-600 px-1.5 py-0.5 font-bold text-white',
-  CRITICAL_LOW: 'rounded bg-red-600 px-1.5 py-0.5 font-bold text-white',
+  // Critical values render as ordinary High/Low — no distinct panic badge.
+  CRITICAL_HIGH: 'flag-high',
+  CRITICAL_LOW: 'flag-low',
 };
 
 const flagLabels: Record<string, string> = {
-  CRITICAL_HIGH: 'CRITICAL HIGH',
-  CRITICAL_LOW: 'CRITICAL LOW',
+  CRITICAL_HIGH: 'HIGH',
+  CRITICAL_LOW: 'LOW',
 };
 
 export function FlagBadge({ flag, className }: FlagBadgeProps) {
