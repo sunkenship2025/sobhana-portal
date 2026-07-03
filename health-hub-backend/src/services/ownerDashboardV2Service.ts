@@ -399,11 +399,19 @@ export async function getOwnerDashboardV2(
     priorBranchTestOrders,
     priorBranchClinicVisits,
   ] = await Promise.all([
-    prisma.reportVersion.count({
+    // Overdue result entry — count DIAGNOSTIC VISITS (one row per visit) still
+    // in the entry queue and older than 24h, mirroring the Result Queue page.
+    // Counting reportVersion rows over-counted: it swept in cancelled visits,
+    // finalized partial-report leftovers (a fresh versionNum+1 DRAFT lingers),
+    // and multiple version rows per report. Gate on the visit's own workflow
+    // status (DRAFT/WAITING excludes CANCELLED & COMPLETED) plus an open draft.
+    prisma.visit.count({
       where: {
-        status: 'DRAFT',
+        domain: 'DIAGNOSTICS',
+        status: { in: ['DRAFT', 'WAITING'] },
         createdAt: { lt: new Date(now.getTime() - DAY_MS) },
-        ...(branchId ? { report: { branchId } } : {}),
+        report: { versions: { some: { status: 'DRAFT' } } },
+        ...(branchId ? { branchId } : {}),
       },
     }),
     prisma.bill.findMany({
