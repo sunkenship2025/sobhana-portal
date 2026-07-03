@@ -1,10 +1,11 @@
 /**
  * Owner Doctors & payouts page — GET /api/owner/doctors
  *
- * Answers: who is profitable, what do I owe, where is referral money flowing.
+ * Answers: who is profitable, what commission is accruing, where referral
+ * money is flowing.
  *
  * Layout:
- *   - 4 KPI: net referral / commission paid / liability / outsourced
+ *   - 6 KPI: net kept / net referral / net clinic / total commission / commission rate / outsourced
  *   - Doctor leaderboard (table) — sorted by net descending
  *   - Payout aging (40%) + External flow in/out (60%)
  *   - Recent payout activity (full width)
@@ -40,9 +41,8 @@ interface DoctorsResponse {
   kpis: {
     netReferralRevenueInPaise: number;
     netClinicRevenueInPaise: number;
-    commissionPaidInPaise: number;
-    liabilityOpenInPaise: number;
-    liabilityToReviewInPaise: number;
+    commissionTotalInPaise: number;
+    commissionRatePct: number | null;
     outsourcedSpendInPaise: number;
   };
   leaderboard: Array<{
@@ -56,7 +56,6 @@ interface DoctorsResponse {
     commissionInPaise: number;
     ratePercent: number;
     netInPaise: number;
-    owedInPaise: number;
     flagHighRate: boolean;
     visitsDeltaPercent: number | null;
   }>;
@@ -149,7 +148,6 @@ function LeaderboardCard({ rows }: { rows: DoctorsResponse['leaderboard'] }) {
                 <th className="pb-2 text-right">Commission</th>
                 <th className="pb-2 text-right">Rate</th>
                 <th className="pb-2 text-right">Net</th>
-                <th className="pb-2 text-right">Owed</th>
               </tr>
             </thead>
             <tbody>
@@ -223,14 +221,6 @@ function LeaderboardCard({ rows }: { rows: DoctorsResponse['leaderboard'] }) {
                     style={{ color: TOKENS.textPrimary }}
                   >
                     {formatRupees(r.netInPaise, { short: true })}
-                  </td>
-                  <td
-                    className="py-2 text-right"
-                    style={{
-                      color: r.owedInPaise > 0 ? TOKENS.caution : TOKENS.textTertiary,
-                    }}
-                  >
-                    {r.owedInPaise > 0 ? formatRupees(r.owedInPaise, { short: true }) : '—'}
                   </td>
                 </tr>
               ))}
@@ -431,10 +421,35 @@ function RecentPayoutsCard({ rows }: { rows: DoctorsResponse['recentPayouts'] })
 
 // ----- main page --------------------------------------------------------
 
+// Full date-filter set, matching the Money page.
+const DOCTOR_PERIOD_OPTS: PeriodKey[] = [
+  'today',
+  'yesterday',
+  '7d',
+  '30d',
+  'mtd',
+  'ytd',
+  'custom',
+];
+
+function todayKey(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export default function OwnerDoctorsPage() {
-  const [period, setPeriod] = useState<PeriodKey>('30d');
   const [searchParams, setSearchParams] = useSearchParams();
   const branchValue = searchParams.get('branch') || 'all';
+  const rawPeriod = searchParams.get('period');
+  const period: PeriodKey = DOCTOR_PERIOD_OPTS.includes(rawPeriod as PeriodKey)
+    ? (rawPeriod as PeriodKey)
+    : '30d';
+  const customStart = searchParams.get('start') || '';
+  const customEnd = searchParams.get('end') || '';
+  const customReady = period === 'custom' && Boolean(customStart) && Boolean(customEnd);
 
   const setBranchValue = (newBranch: string) => {
     setSearchParams(prev => {
@@ -443,12 +458,38 @@ export default function OwnerDoctorsPage() {
     });
   };
 
+  const setPeriod = (next: PeriodKey) => {
+    setSearchParams(prev => {
+      prev.set('period', next);
+      if (next === 'custom') {
+        if (!prev.get('start')) prev.set('start', todayKey());
+        if (!prev.get('end')) prev.set('end', todayKey());
+      } else {
+        prev.delete('start');
+        prev.delete('end');
+      }
+      return prev;
+    });
+  };
+
+  const setCustomRange = (r: { start: string; end: string }) => {
+    setSearchParams(prev => {
+      prev.set('period', 'custom');
+      if (r.start) prev.set('start', r.start);
+      if (r.end) prev.set('end', r.end);
+      return prev;
+    });
+  };
+
+  const doctorsParams =
+    period === 'custom'
+      ? `period=custom&start=${customStart}&end=${customEnd}&branch=${encodeURIComponent(branchValue)}`
+      : `period=${period}&branch=${encodeURIComponent(branchValue)}`;
+
   const query = useQuery<DoctorsResponse>({
-    queryKey: ['owner-doctors', period, branchValue],
-    queryFn: () =>
-      apiRequest<DoctorsResponse>(
-        `${API_BASE}/owner/doctors?period=${period}&branch=${encodeURIComponent(branchValue)}`,
-      ),
+    queryKey: ['owner-doctors', period, branchValue, customStart, customEnd],
+    queryFn: () => apiRequest<DoctorsResponse>(`${API_BASE}/owner/doctors?${doctorsParams}`),
+    enabled: period !== 'custom' || customReady,
     refetchInterval: 5 * 60 * 1000,
     staleTime: 60 * 1000,
   });
@@ -471,7 +512,13 @@ export default function OwnerDoctorsPage() {
           }
           rightSlot={
             <>
-              <PeriodFilter value={period} onChange={setPeriod} />
+              <PeriodFilter
+                value={period}
+                onChange={setPeriod}
+                options={DOCTOR_PERIOD_OPTS}
+                customRange={{ start: customStart || todayKey(), end: customEnd || todayKey() }}
+                onCustomRangeChange={setCustomRange}
+              />
               <BranchFilter value={branchValue} onChange={setBranchValue} />
               <RefreshButton isFetching={query.isFetching} onClick={() => query.refetch()} />
             </>
@@ -506,14 +553,14 @@ export default function OwnerDoctorsPage() {
                 sub="consultation − accrued commission"
               />
               <KpiCard
-                label="Commission paid"
-                value={formatRupees(data.kpis.commissionPaidInPaise, { short: true })}
-                sub="paid in window"
+                label="Total commission"
+                value={formatRupees(data.kpis.commissionTotalInPaise, { short: true })}
+                sub="what doctors earned · this period"
               />
               <KpiCard
-                label="Liability open"
-                value={formatRupees(data.kpis.liabilityOpenInPaise, { short: true })}
-                sub={`${formatRupees(data.kpis.liabilityToReviewInPaise, { short: true })} to review`}
+                label="Commission rate"
+                value={data.kpis.commissionRatePct === null ? '—' : `${data.kpis.commissionRatePct}%`}
+                sub="of doctor-driven revenue"
               />
               <KpiCard
                 label="Outsourced spend"

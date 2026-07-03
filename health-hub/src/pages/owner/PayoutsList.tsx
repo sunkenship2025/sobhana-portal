@@ -322,7 +322,7 @@ export default function PayoutsList() {
       <div style={{ maxWidth: 1440 }} className="pb-24 print:hidden">
         <OwnerPageHeader
           title="Payouts · Pay-Run"
-          subtitle={`What you owe for the period · ${periodLabel}`}
+          subtitle={`Commission for the period · ${periodLabel}`}
           rightSlot={
             <>
               {custom ? (

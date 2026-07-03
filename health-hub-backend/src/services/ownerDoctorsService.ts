@@ -18,23 +18,29 @@ import { logger } from '../lib/logger';
 import type { Prisma } from '@prisma/client';
 
 const CACHE_TTL_SEC = 60;
-const cacheKey = (period: PeriodKey, branchId: string | null) =>
-  `owner-doctors:v2:${period}:${branchId ?? 'all'}`;
+const cacheKey = (period: PeriodKey, branchId: string | null, range: CustomRange | null) =>
+  `owner-doctors:v3:${period}:${branchId ?? 'all'}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HIGH_RATE_PCT = 25;
 
-export type PeriodKey = '7d' | '30d' | 'mtd' | 'ytd';
+export type PeriodKey = 'today' | 'yesterday' | '7d' | '30d' | 'mtd' | 'ytd' | 'custom';
+
+/** IST calendar-day range for a custom filter, inclusive of both endpoints. */
+export interface CustomRange {
+  startKey: string; // YYYY-MM-DD (IST)
+  endKey: string; // YYYY-MM-DD (IST)
+}
 
 export interface DoctorsKpi {
   netReferralRevenueInPaise: number;
   netClinicRevenueInPaise: number;
-  commissionPaidInPaise: number;
-  liabilityOpenInPaise: number;
-  // Slice of liabilityOpen still needing review (reviewedAt == null && paidAt == null);
-  // same definition the dashboard's payouts_to_review chip uses.
-  liabilityToReviewInPaise: number;
+  // Total commission accrued to all doctors (referral + clinic) in the window.
+  commissionTotalInPaise: number;
+  // Blended commission rate: commission as a % of doctor-driven gross. The
+  // leakage signal — how much of doctor revenue goes back out as commission.
+  commissionRatePct: number | null;
   outsourcedSpendInPaise: number;
 }
 
@@ -49,7 +55,6 @@ export interface LeaderboardRow {
   commissionInPaise: number;
   ratePercent: number; // blended commission %
   netInPaise: number;
-  owedInPaise: number;
   flagHighRate: boolean;
   // Period-over-period visit delta vs the immediately preceding equal-length
   // window; null when there were no prior-window visits to compare against.
@@ -102,8 +107,22 @@ function startOfTodayIst(now: Date): Date {
 function startOfDaysAgoIst(now: Date, daysAgo: number): Date {
   return new Date(startOfTodayIst(now).getTime() - daysAgo * DAY_MS);
 }
+/** Parse a YYYY-MM-DD IST calendar day into the UTC Date at its IST midnight. */
+function istDateKeyToStart(key: string): Date {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0) - IST_OFFSET_MS);
+}
+/** Inclusive [startKey, endKey] IST calendar range → half-open [start, end) UTC window. */
+function customWindow(range: CustomRange): { start: Date; end: Date } {
+  const start = istDateKeyToStart(range.startKey);
+  const end = new Date(istDateKeyToStart(range.endKey).getTime() + DAY_MS);
+  return { start, end };
+}
 function periodWindow(period: PeriodKey, now: Date): { start: Date; end: Date } {
-  const tomorrowStart = new Date(startOfTodayIst(now).getTime() + DAY_MS);
+  const todayStart = startOfTodayIst(now);
+  const tomorrowStart = new Date(todayStart.getTime() + DAY_MS);
+  if (period === 'today') return { start: todayStart, end: tomorrowStart };
+  if (period === 'yesterday') return { start: startOfDaysAgoIst(now, 1), end: todayStart };
   if (period === '7d') return { start: startOfDaysAgoIst(now, 6), end: tomorrowStart };
   if (period === '30d') return { start: startOfDaysAgoIst(now, 29), end: tomorrowStart };
   if (period === 'mtd') {
@@ -166,11 +185,12 @@ function clinicCommissionInPaise(visit: {
 export async function getOwnerDoctors(
   period: PeriodKey,
   branchId: string | null,
+  range: CustomRange | null = null,
 ): Promise<DoctorsResponse> {
   const redis = getRedisClient();
   if (redis) {
     try {
-      const hit = await redis.get(cacheKey(period, branchId));
+      const hit = await redis.get(cacheKey(period, branchId, range));
       if (hit) return JSON.parse(hit) as DoctorsResponse;
     } catch (err) {
       logger.warn({ err, period, branchId }, 'owner-doctors: cache read failed');
@@ -178,7 +198,7 @@ export async function getOwnerDoctors(
   }
 
   const now = new Date();
-  const win = periodWindow(period, now);
+  const win = period === 'custom' && range ? customWindow(range) : periodWindow(period, now);
   // Prior equal-length window: immediately preceding the selected one.
   const priorWin = {
     start: new Date(win.start.getTime() - (win.end.getTime() - win.start.getTime())),
@@ -190,7 +210,6 @@ export async function getOwnerDoctors(
     referralLinks, // visits per referral doctor (window-scoped)
     priorReferralLinks, // referral-doctor visits in the prior equal-length window
     clinicVisitsInWindow,
-    payoutsInWindow,
     payoutsOpen,
     payoutsRecent,
     externalLinks,
@@ -256,27 +275,12 @@ export async function getOwnerDoctors(
       },
     }),
 
-    // payouts inside window — for "commission paid"
-    prisma.doctorPayoutLedger.findMany({
-      where: {
-        paidAt: { gte: win.start, lt: win.end },
-        ...(branchId ? { branchId } : {}),
-      },
-      select: { derivedAmountInPaise: true },
-    }),
-
-    // all currently-open payouts — used for liability + per-doctor "owed" + aging
+    // all currently-open payouts — used for the payout-aging card
     prisma.doctorPayoutLedger.findMany({
       where: { paidAt: null, ...(branchId ? { branchId } : {}) },
       select: {
-        id: true,
         derivedAmountInPaise: true,
         derivedAt: true,
-        reviewedAt: true,
-        doctorType: true,
-        referralDoctorId: true,
-        clinicDoctorId: true,
-        diagnosticCenterId: true,
       },
     }),
 
@@ -396,20 +400,12 @@ export async function getOwnerDoctors(
     clinicCommission += cc;
   }
 
-  const commissionPaid = payoutsInWindow.reduce(
-    (s, r) => s + r.derivedAmountInPaise,
-    0,
-  );
-  const liabilityOpen = payoutsOpen.reduce(
-    (s, r) => s + r.derivedAmountInPaise,
-    0,
-  );
-  // Subset of open liability still awaiting review — matches the dashboard's
-  // payouts_to_review definition (reviewedAt == null && paidAt == null).
-  const liabilityToReview = payoutsOpen.reduce(
-    (s, r) => (r.reviewedAt === null ? s + r.derivedAmountInPaise : s),
-    0,
-  );
+  // Total commission accrued in the window and the blended rate against the
+  // doctor-driven gross that produced it.
+  const commissionTotal = referralCommission + clinicCommission;
+  const grossTotal = referralGross + clinicGross;
+  const commissionRatePct =
+    grossTotal > 0 ? Math.round((commissionTotal / grossTotal) * 100) : null;
 
   let outgoingTotal = 0;
   const outgoingCenters = new Set<string>();
@@ -448,20 +444,12 @@ export async function getOwnerDoctors(
   const kpis: DoctorsKpi = {
     netReferralRevenueInPaise: referralGross - referralCommission,
     netClinicRevenueInPaise: clinicGross - clinicCommission,
-    commissionPaidInPaise: commissionPaid,
-    liabilityOpenInPaise: liabilityOpen,
-    liabilityToReviewInPaise: liabilityToReview,
+    commissionTotalInPaise: commissionTotal,
+    commissionRatePct,
     outsourcedSpendInPaise: outgoingTotal,
   };
 
   // --- leaderboard ---------------------------------------------------------
-  const owedByDoctor = new Map<string, number>(); // keyed by doctorId
-  for (const p of payoutsOpen) {
-    const id = p.referralDoctorId ?? p.clinicDoctorId ?? p.diagnosticCenterId;
-    if (!id) continue;
-    owedByDoctor.set(id, (owedByDoctor.get(id) ?? 0) + p.derivedAmountInPaise);
-  }
-
   const refMap = new Map(referralDoctors.map((d) => [d.id, d]));
   const cliMap = new Map(clinicDoctors.map((d) => [d.id, d]));
 
@@ -483,7 +471,6 @@ export async function getOwnerDoctors(
       commissionInPaise: agg.commission,
       ratePercent: rate,
       netInPaise: net,
-      owedInPaise: owedByDoctor.get(doctorId) ?? 0,
       flagHighRate: rate > HIGH_RATE_PCT,
       visitsDeltaPercent:
         priorVisits > 0 ? Math.round(((agg.visits - priorVisits) / priorVisits) * 100) : null,
@@ -505,7 +492,6 @@ export async function getOwnerDoctors(
       commissionInPaise: agg.commission,
       ratePercent: rate,
       netInPaise: net,
-      owedInPaise: owedByDoctor.get(doctorId) ?? 0,
       flagHighRate: rate > HIGH_RATE_PCT,
       // Clinic doctors have no referral-visit prior-window data to compare.
       visitsDeltaPercent: null,
@@ -597,7 +583,7 @@ export async function getOwnerDoctors(
 
   if (redis) {
     redis
-      .set(cacheKey(period, branchId), JSON.stringify(response), 'EX', CACHE_TTL_SEC)
+      .set(cacheKey(period, branchId, range), JSON.stringify(response), 'EX', CACHE_TTL_SEC)
       .catch((err) => logger.warn({ err }, 'owner-doctors: cache write failed'));
   }
 

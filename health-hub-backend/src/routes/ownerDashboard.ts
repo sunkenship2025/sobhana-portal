@@ -114,17 +114,12 @@ router.get('/money/day-sheet', async (req: AuthRequest, res) => {
   }
 });
 
-// GET /api/owner/doctors?period=7d|30d|mtd|ytd&branch=<id|all>
+// GET /api/owner/doctors?period=today|yesterday|7d|30d|mtd|ytd|custom&branch=<id|all>
+//   custom also takes &start=YYYY-MM-DD&end=YYYY-MM-DD (IST calendar days, inclusive)
 router.get('/doctors', async (req: AuthRequest, res) => {
   try {
-    const rawPeriod = (req.query.period as string) || '30d';
-    const period: DoctorsPeriod =
-      rawPeriod === '7d' || rawPeriod === '30d' || rawPeriod === 'mtd' || rawPeriod === 'ytd'
-        ? rawPeriod
-        : '30d';
-    const rawBranch = (req.query.branch as string) || 'all';
-    const branchId = rawBranch === 'all' ? null : rawBranch;
-    const data = await getOwnerDoctors(period, branchId);
+    const { period, branchId, range } = parseMoneyQuery(req);
+    const data = await getOwnerDoctors(period as DoctorsPeriod, branchId, range);
     return res.json(data);
   } catch (err: any) {
     req.log.error({ err }, 'owner doctors load failed');
