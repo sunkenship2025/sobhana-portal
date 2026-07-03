@@ -850,8 +850,17 @@ const TIMELINE_INCLUDE = {
       cancelledAt: true,
       cancelReason: true,
       reversedChargeInPaise: true,
+      productId: true,
+      product: { select: { name: true } },
+      externalLabId: true,
     },
     orderBy: { createdAt: 'asc' as const },
+  },
+  referrals: {
+    select: {
+      referralDoctor: { select: { id: true, name: true } },
+    },
+    take: 1,
   },
   clinicVisit: {
     include: { clinicDoctor: { select: { name: true } } },
@@ -989,7 +998,9 @@ export async function getPatient360Timeline(patientId: string, filters: Timeline
       refundReason: financials.refundReason,
       refundedAt: financials.refundedAt,
       transactions: financials.transactions,
-      // Test line items so the inspector can offer per-test cancel/refund.
+      // Referring doctor (null ⇒ SELF) so the inspector can offer correction.
+      referralDoctor: visit.referrals?.[0]?.referralDoctor ?? null,
+      // Test line items so the inspector can offer per-test cancel/refund/swap.
       testOrders:
         visit.domain === 'DIAGNOSTICS'
           ? visit.testOrders.map((order) => ({
@@ -1000,6 +1011,9 @@ export async function getPatient360Timeline(patientId: string, filters: Timeline
               cancelledAt: order.cancelledAt,
               cancelReason: order.cancelReason,
               reversedChargeInPaise: order.reversedChargeInPaise,
+              productId: order.productId,
+              productName: order.product?.name ?? null,
+              isOutsourced: Boolean(order.externalLabId),
             }))
           : undefined,
       // Report state + workflow + abnormal flag + delivery

@@ -32,6 +32,11 @@ import {
 import { renderReportHtml } from "../services/reportRendererService";
 import { generateMergedReportPdf } from "../services/mergedReportPdfService";
 import prisma from "../lib/prisma";
+import {
+  changeVisitReferral,
+  swapVisitProduct,
+  CorrectionError,
+} from "../services/visitCorrectionService";
 import { buildDiagnosticBillItems } from "../services/billItemService";
 import {
   deriveDiagnosticVisitComposition,
@@ -2855,6 +2860,88 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
     return res.status(500).json({
       error: "INTERNAL_ERROR",
       message: "Failed to process cancellation/refund",
+    });
+  }
+});
+
+// POST /api/visits/diagnostic/:id/correct-referral - Fix a wrongly-entered
+// referring doctor (or set back to SELF). Re-freezes commission snapshots,
+// audited with mandatory reason, blocked once a payout run covers the visit.
+router.post("/:id/correct-referral", async (req: AuthRequest, res) => {
+  try {
+    const { referralDoctorId, reason, note } = req.body;
+    if (typeof reason !== "string" || !reason.trim()) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "A reason is required",
+      });
+    }
+    const result = await changeVisitReferral({
+      visitId: req.params.id,
+      branchId: req.branchId!,
+      referralDoctorId:
+        typeof referralDoctorId === "string" && referralDoctorId
+          ? referralDoctorId
+          : null,
+      reason: reason.trim(),
+      note: typeof note === "string" && note.trim() ? note.trim() : null,
+      userId: req.user!.id,
+    });
+    return res.json(result);
+  } catch (err: any) {
+    if (err instanceof CorrectionError) {
+      return res.status(err.statusCode).json({
+        error: err.errorCode,
+        message: err.message,
+      });
+    }
+    console.error("Correct referral error:", err);
+    return res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: "Failed to update referral",
+    });
+  }
+});
+
+// POST /api/visits/diagnostic/:id/swap-product - Replace a mistakenly billed
+// product with a SAME-PRICE one (typo fixes). Money-neutral by construction;
+// price changes must go through cancel/refund + add tests.
+router.post("/:id/swap-product", async (req: AuthRequest, res) => {
+  try {
+    const { oldProductId, newProductId, reason, note } = req.body;
+    if (typeof reason !== "string" || !reason.trim()) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "A reason is required",
+      });
+    }
+    if (typeof oldProductId !== "string" || typeof newProductId !== "string") {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "Both the billed product and its replacement are required",
+      });
+    }
+    const result = await swapVisitProduct({
+      visitId: req.params.id,
+      branchId: req.branchId!,
+      oldProductId,
+      newProductId,
+      reason: reason.trim(),
+      note: typeof note === "string" && note.trim() ? note.trim() : null,
+      userId: req.user!.id,
+    });
+    return res.json(result);
+  } catch (err: any) {
+    if (err instanceof CorrectionError) {
+      return res.status(err.statusCode).json({
+        error: err.errorCode,
+        message: err.message,
+      });
+    }
+    console.error("Swap product error:", err);
+    return res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: "Failed to swap the billed test",
     });
   }
 });

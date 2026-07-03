@@ -28,9 +28,11 @@ import { Separator } from "@/components/ui/separator";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Ban, Eye, EyeOff, FileText, Loader2, MessageCircle, Printer, ReceiptText, X, ZoomIn, ZoomOut } from "lucide-react";
 import { toast } from "sonner";
+import { EditReferralDialog } from "./EditReferralDialog";
 import { FinancialDetailPanel } from "./FinancialDetailPanel";
 import { RefundDialog } from "./RefundDialog";
 import { ReportActions } from "./ReportActions";
+import { SwapTestDialog } from "./SwapTestDialog";
 import type { UseReportActions } from "@/hooks/patient360/useReportActions";
 import type { VisitTimelineItem } from "@/types";
 
@@ -94,12 +96,12 @@ function InspectorBody({
   }, [reportActive, visit.visitId]);
 
   const [refundOpen, setRefundOpen] = useState(false);
+  const [referralEditOpen, setReferralEditOpen] = useState(false);
+  const [swapOpen, setSwapOpen] = useState(false);
   const hasActiveOrders = (visit.testOrders ?? []).some((order) => !order.cancelledAt);
-  const canRefund =
-    isDiagnostic &&
-    hasBill &&
-    hasActiveOrders &&
-    String(visit.status).toUpperCase() !== "CANCELLED";
+  const isCancelledVisit = String(visit.status).toUpperCase() === "CANCELLED";
+  const canRefund = isDiagnostic && hasBill && hasActiveOrders && !isCancelledVisit;
+  const canCorrect = isDiagnostic && hasBill && !isCancelledVisit;
 
   return (
     <div className="space-y-5">
@@ -115,7 +117,13 @@ function InspectorBody({
 
       <Separator />
 
-      <FinancialDetailPanel visit={visit} />
+      <FinancialDetailPanel
+        visit={visit}
+        onEditReferral={canCorrect ? () => setReferralEditOpen(true) : undefined}
+        onEditTests={
+          canCorrect && hasActiveOrders ? () => setSwapOpen(true) : undefined
+        }
+      />
 
       {isDiagnostic && (
         <>
@@ -206,6 +214,16 @@ function InspectorBody({
 
       {canRefund && (
         <RefundDialog visit={visit} open={refundOpen} onOpenChange={setRefundOpen} />
+      )}
+      {canCorrect && (
+        <EditReferralDialog
+          visit={visit}
+          open={referralEditOpen}
+          onOpenChange={setReferralEditOpen}
+        />
+      )}
+      {canCorrect && hasActiveOrders && (
+        <SwapTestDialog visit={visit} open={swapOpen} onOpenChange={setSwapOpen} />
       )}
 
       {/* Inline preview — report (blob PDF, native toolbar hidden for a cleaner

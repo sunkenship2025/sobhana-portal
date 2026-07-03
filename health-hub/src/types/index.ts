@@ -575,6 +575,8 @@ export interface VisitTimelineItem {
   refundedAt?: Date | string | null;
   // Diagnostics test line items so the inspector can offer per-test cancel/refund.
   testOrders?: Patient360TestOrder[];
+  // Referring doctor (null/absent ⇒ SELF); editable via the inspector correction flow.
+  referralDoctor?: { id: string; name: string } | null;
 }
 
 // Minimal test-order line for the Patient360 inspector (cancel/refund dialog).
@@ -586,6 +588,9 @@ export interface Patient360TestOrder {
   cancelledAt?: Date | string | null;
   cancelReason?: string | null;
   reversedChargeInPaise?: number;
+  productId?: string | null;
+  productName?: string | null;
+  isOutsourced?: boolean;
 }
 
 // Complete Patient 360 view (backend-assembled)

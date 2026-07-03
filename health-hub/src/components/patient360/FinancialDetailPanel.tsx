@@ -6,6 +6,7 @@
  * elsewhere. Trusts `dueAmountInPaise` from the backend (it already forces ₹0 on
  * cancelled / refunded visits — never re-derives due here).
  */
+import { Pencil } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { StatusChip } from "./StatusChip";
 import { formatCurrency } from "@/lib/patientDisplay";
@@ -15,14 +16,29 @@ interface KvRowProps {
   label: string;
   children: React.ReactNode;
   emphasize?: boolean;
+  /** Renders a quiet inline pencil after the value (correction affordance). */
+  onEdit?: () => void;
+  editLabel?: string;
 }
 
-function KvRow({ label, children, emphasize }: KvRowProps) {
+function KvRow({ label, children, emphasize, onEdit, editLabel }: KvRowProps) {
   return (
-    <div className="flex items-baseline justify-between gap-4 text-sm">
+    <div className="group flex items-baseline justify-between gap-4 text-sm">
       <span className="text-muted-foreground">{label}</span>
-      <span className={emphasize ? "font-semibold text-foreground" : "text-foreground"}>
+      <span
+        className={`inline-flex items-center gap-1.5 ${emphasize ? "font-semibold text-foreground" : "text-foreground"}`}
+      >
         {children}
+        {onEdit && (
+          <button
+            type="button"
+            aria-label={editLabel || `Edit ${label}`}
+            className="text-muted-foreground/50 transition-colors hover:text-foreground group-hover:text-muted-foreground"
+            onClick={onEdit}
+          >
+            <Pencil className="h-3 w-3" aria-hidden="true" />
+          </button>
+        )}
       </span>
     </div>
   );
@@ -30,9 +46,17 @@ function KvRow({ label, children, emphasize }: KvRowProps) {
 
 interface FinancialDetailPanelProps {
   visit: VisitTimelineItem;
+  /** When set, a quiet pencil next to "Referred by" opens the correction dialog. */
+  onEditReferral?: () => void;
+  /** When set, a quiet pencil next to "Billed tests" opens the swap dialog. */
+  onEditTests?: () => void;
 }
 
-export function FinancialDetailPanel({ visit }: FinancialDetailPanelProps) {
+export function FinancialDetailPanel({
+  visit,
+  onEditReferral,
+  onEditTests,
+}: FinancialDetailPanelProps) {
   const hasBill = visit.hasBill ?? !!visit.billNumber;
   const discountAmount = visit.discount?.amount ?? visit.discountAmountInPaise ?? 0;
   const discountReason = visit.discount?.reason ?? visit.discountReason ?? null;
@@ -65,6 +89,34 @@ export function FinancialDetailPanel({ visit }: FinancialDetailPanelProps) {
             <span className="font-mono">{visit.visitRef}</span>
           </KvRow>
         )}
+
+        {visit.domain === "DIAGNOSTICS" && (
+          <KvRow
+            label="Referred by"
+            onEdit={onEditReferral}
+            editLabel="Correct referred-by"
+          >
+            {visit.referralDoctor?.name ?? "Self"}
+          </KvRow>
+        )}
+
+        {visit.domain === "DIAGNOSTICS" &&
+          (visit.testOrders?.filter((o) => !o.cancelledAt).length ?? 0) > 0 && (
+            <KvRow
+              label="Billed tests"
+              onEdit={onEditTests}
+              editLabel="Replace a billed test"
+            >
+              {
+                new Set(
+                  visit.testOrders
+                    ?.filter((o) => !o.cancelledAt)
+                    .map((o) => o.productId ?? o.id),
+                ).size
+              }{" "}
+              item(s)
+            </KvRow>
+          )}
 
         <Separator className="my-2" />
 
