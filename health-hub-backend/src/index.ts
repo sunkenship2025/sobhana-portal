@@ -382,23 +382,6 @@ async function startServer(): Promise<void> {
     console.log('Redis connection verified for production startup.');
   }
 
-  // --- TEMPORARY DB UPDATE SCRIPT ---
-  try {
-    console.log('Running temporary DB code updates for X-ray codes...');
-    // Update XRAYCP
-    await prisma.billableProduct.updateMany({ where: { code: 'CXRPA' }, data: { code: 'XRAYCP' } });
-    await prisma.clinicalPanel.updateMany({ where: { name: 'CXRPA' }, data: { name: 'XRAYCP' } });
-    await prisma.testDefinition.updateMany({ where: { code: 'CXRPA' }, data: { code: 'XRAYCP' } });
-    // Update XRAYCA
-    await prisma.billableProduct.updateMany({ where: { code: 'CXAP' }, data: { code: 'XRAYCA' } });
-    await prisma.clinicalPanel.updateMany({ where: { name: 'CXAP' }, data: { name: 'XRAYCA' } });
-    await prisma.testDefinition.updateMany({ where: { code: 'CXAP' }, data: { code: 'XRAYCA' } });
-    console.log('DB code updates completed.');
-  } catch (err) {
-    console.error('DB code updates failed:', err);
-  }
-  // ----------------------------------
-
   app.listen(Number(PORT), '0.0.0.0', async () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
     console.log(`Health check: http://0.0.0.0:${PORT}/health`);

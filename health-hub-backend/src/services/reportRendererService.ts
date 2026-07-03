@@ -61,6 +61,11 @@ function inlineSignatureImage(signatureImagePath: string | null): string {
   if (!signatureImagePath) return '';
   try {
     const fullPath = path.join(PUBLIC_DIR, signatureImagePath);
+    // Path-traversal guard: signatureImagePath is attacker-influenceable (set
+    // via the signing-doctor / lab-incharge API). path.join normalises `..`, so
+    // reject anything that resolves outside PUBLIC_DIR — otherwise a value like
+    // "../../.env" would be read and base64-embedded into the rendered report.
+    if (fullPath !== PUBLIC_DIR && !fullPath.startsWith(PUBLIC_DIR + path.sep)) return '';
     if (!fs.existsSync(fullPath)) return '';
     const buffer = fs.readFileSync(fullPath);
     const ext = path.extname(signatureImagePath).toLowerCase();
