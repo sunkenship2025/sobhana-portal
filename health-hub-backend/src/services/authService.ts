@@ -231,7 +231,7 @@ export async function login(email: string, password: string, ipAddress?: string,
  * @param data.password       - Plaintext; will be hashed with bcrypt (10 rounds)
  * @param data.name           - Display name shown in the UI and on reports
  * @param data.phone          - Optional; stored but not used for auth
- * @param data.role           - One of: 'staff' | 'doctor' | 'owner'
+ * @param data.role           - One of: 'staff' | 'owner'
  * @param data.activeBranchId - The branch this user belongs to by default
  * @returns                   The new user's public profile (no password hash)
  * @throws ValidationError    If the email is already registered

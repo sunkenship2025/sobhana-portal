@@ -13,7 +13,7 @@ const NotFound = () => {
   }, [location.pathname]);
 
   // Send each role to its own home, via SPA navigation (no full reload).
-  const home = user?.role === "owner" ? "/owner" : user?.role === "doctor" ? "/doctor" : "/";
+  const home = user?.role === "owner" ? "/owner" : "/";
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-5 bg-background px-6 text-center">

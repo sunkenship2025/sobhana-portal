@@ -23,7 +23,7 @@ export interface AuthUser {
   /** The User.id (UUID) from the database */
   id: string;
   email: string;
-  /** One of: 'staff' | 'doctor' | 'owner' */
+  /** One of: 'staff' | 'owner' (also 'admin' internally) */
   role: string;
 }
 

@@ -25,7 +25,7 @@ const Login = () => {
     if (result.success) {
       const role = useAuthStore.getState().user?.role;
       toast.success('Welcome back');
-      const target = role === 'doctor' ? '/doctor' : role === 'owner' ? '/owner' : '/';
+      const target = role === 'owner' ? '/owner' : '/';
       navigate(target);
     } else {
       toast.error(result.error || 'Login failed');

@@ -20,7 +20,6 @@ import ClinicNewVisit from "./pages/clinic/ClinicNewVisit";
 import ClinicVisitQueue from "./pages/clinic/ClinicVisitQueue";
 import GlobalPatientSearch from "./pages/clinic/GlobalPatientSearch";
 import Patient360 from "./pages/clinic/Patient360";
-import DoctorDashboard from "./pages/doctor/DoctorDashboard";
 import OwnerDashboardV2 from "./pages/owner/OwnerDashboardV2";
 import OwnerMoneyPage from "./pages/owner/OwnerMoneyPage";
 import OwnerDoctorsPage from "./pages/owner/OwnerDoctorsPage";
@@ -86,7 +85,7 @@ function AppRoutes() {
         path="/login" 
         element={
           isAuthenticated
-            ? <Navigate to={user?.role === 'owner' ? '/owner' : user?.role === 'doctor' ? '/doctor' : '/'} replace />
+            ? <Navigate to={user?.role === 'owner' ? '/owner' : '/'} replace />
             : <Login />
         } 
       />
@@ -140,13 +139,6 @@ function AppRoutes() {
       <Route path="/clinic/patient-360/:patientId" element={
         <ProtectedRoute allowedRoles={['staff', 'owner']}>
           <Patient360 />
-        </ProtectedRoute>
-      } />
-      
-      {/* Doctor & Owner routes */}
-      <Route path="/doctor" element={
-        <ProtectedRoute allowedRoles={['doctor', 'owner']}>
-          <DoctorDashboard />
         </ProtectedRoute>
       } />
       

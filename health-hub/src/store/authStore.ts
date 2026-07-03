@@ -26,7 +26,7 @@ import { useBranchStore } from './branchStore';
 import { API_BASE } from '@/lib/api';
 
 /** Available roles in the system. Mirrors the backend `UserRole` enum. */
-export type UserRole = 'doctor' | 'owner' | 'staff';
+export type UserRole = 'owner' | 'staff';
 
 /** Public user profile attached to every authenticated session */
 interface User {
@@ -134,10 +134,9 @@ export const useAuthStore = create<AuthState>()(
               branchStore.setActiveBranch(data.user.activeBranch.id);
             }
 
-            // Doctors are read-only on branch — skip the confirmation step.
             // Owners operate across all branches (admin views are global) so
-            // they also skip. Only branch-bound staff need to pick.
-            if (data.user.role !== 'doctor' && data.user.role !== 'owner') {
+            // they skip the confirmation step. Only branch-bound staff pick.
+            if (data.user.role !== 'owner') {
               branchStore.setAwaitingBranchConfirm(true);
             }
 
