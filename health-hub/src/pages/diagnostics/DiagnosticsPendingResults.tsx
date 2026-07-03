@@ -19,7 +19,7 @@ import { useBranchStore } from "@/store/branchStore";
 import { useAuthStore } from "@/store/authStore";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toast } from "sonner";
-import { Check, CheckCheck, Clock, Search } from "lucide-react";
+import { CheckCheck, Clock, Search } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -457,24 +457,20 @@ const DiagnosticsPendingResults = () => {
                           <span className="font-mono">{visit.billNumber}</span>
                         </span>
                         {(visit.readyReportInclusionCount ?? 0) > 0 ? (
-                          <span className="flex flex-wrap items-center gap-1.5">
-                            <span className="text-muted-foreground">Tests:</span>
-                            {buildTestTokens(testOrders).map((t) => (
-                              <span
-                                key={t.label}
-                                className={
-                                  "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium " +
-                                  (t.ready
-                                    ? "bg-emerald-50 text-emerald-700"
-                                    : "bg-amber-50 text-amber-700")
-                                }
-                              >
-                                {t.ready ? (
-                                  <Check className="h-3 w-3" />
-                                ) : (
-                                  <Clock className="h-3 w-3" />
-                                )}
-                                {t.label}
+                          <span className="text-muted-foreground">
+                            Tests:{" "}
+                            {buildTestTokens(testOrders).map((t, i, arr) => (
+                              <span key={t.label}>
+                                <span
+                                  className={
+                                    t.ready
+                                      ? "text-emerald-700"
+                                      : "font-medium text-amber-700"
+                                  }
+                                >
+                                  {t.label}
+                                </span>
+                                {i < arr.length - 1 ? ", " : ""}
                               </span>
                             ))}
                           </span>
