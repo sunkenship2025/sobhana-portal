@@ -48,7 +48,9 @@ Source: [`auth.ts`](../health-hub-backend/src/routes/auth.ts) → service: `auth
 | POST | `/` | Create a patient (auto-generates `patientNumber`); writes `PatientChangeLog` |
 | GET | `/:id` | Get patient + identifiers + visit summary |
 | PATCH | `/:id` | Update demographics; writes `PatientChangeLog` for IDENTITY changes (name/age/gender) |
-| GET | `/:id/visits` | All visits across branches (Patient 360) |
+| GET | `/:id/visits` | All visits across branches (legacy Patient 360) |
+| GET | `/:id/360/summary` | Patient 360 glance summary (split query architecture) |
+| GET | `/:id/360/timeline` | Patient 360 cursor-paginated timeline |
 
 Source: [`patients.ts`](../health-hub-backend/src/routes/patients.ts) → service: `patientService`, `patientMatchingService`.
 
@@ -96,6 +98,7 @@ Source: [`clinicVisits.ts`](../health-hub-backend/src/routes/clinicVisits.ts).
 | GET | `/` | List bills with filters |
 | GET | `/:id` | Bill detail with payment transactions |
 | POST | `/:id/payments` | Add a payment transaction |
+| POST | `/:id/refund` | Cancel/refund action (Order Refund Phase 3) |
 | GET | `/view/:token` | Public, token-gated inline PDF download (WhatsApp in-app browser compatible) |
 
 Source: [`bills.ts`](../health-hub-backend/src/routes/bills.ts) → service: `billFinancialService`.
@@ -223,8 +226,19 @@ Source: [`branches.ts`](../health-hub-backend/src/routes/branches.ts).
 | GET | `/:id` | Detail with derivation breakdown |
 | POST | `/derive` | Re-derive payouts for a period (idempotent — refreshes `DoctorPayoutLedger`) |
 | POST | `/:id/mark-paid` | Mark as paid (immutable thereafter) |
+| POST | `/whatsapp` | Send payout statement via WhatsApp with tokenized public link |
 
 Source: [`payouts.ts`](../health-hub-backend/src/routes/payouts.ts) → service: `payoutService`.
+
+### External Labs — `/api/external-labs`
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/` | List external labs for outsourced test payouts |
+| POST | `/` | Create new external lab |
+| PATCH| `/:id` | Update external lab |
+
+Source: [`externalLabs.ts`](../health-hub-backend/src/routes/externalLabs.ts) → service: `externalLabService`.
 
 ### Audit Logs — `/api/audit-logs`
 
