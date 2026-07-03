@@ -305,14 +305,10 @@ router.post('/:id/upload-signature', uploadSignature.single('signature'), async 
       });
     }
 
-    // Delete old signature file if it exists
-    if (doctor.signatureImagePath) {
-      const oldPath = path.join(__dirname, '../../public', doctor.signatureImagePath);
-      if (fs.existsSync(oldPath)) {
-        try { fs.unlinkSync(oldPath); } catch { /* ignore */ }
-      }
-    }
-
+    // Append-only: KEEP the previous signature file. Each upload gets a unique
+    // filename, so finalized reports that froze the old path in their snapshot
+    // still resolve to the exact signature they were signed with. Deleting it
+    // would retroactively blank the signature on historical reports.
     // Store relative path from public/
     const relativePath = `/images/signatures/${req.file.filename}`;
 
