@@ -9,6 +9,7 @@ export type DiagnosticNextAction = 'ENTER_RESULTS' | 'NONE';
 type WorkflowOrderLike = {
   workflowMode?: DiagnosticWorkflowMode | null;
   cancelledAt?: Date | string | null;
+  noReportAt?: Date | string | null;
 };
 
 type ReportVersionLike = {
@@ -54,9 +55,10 @@ export function deriveDiagnosticVisitComposition(
   visitStatus: VisitStatus | string,
   reportVersions: ReportVersionLike[] = []
 ): DiagnosticVisitComposition {
-  // Cancelled orders no longer participate in the visit's workflow: they
-  // shouldn't demand result entry or appear on the report.
-  const activeOrders = orders.filter((order) => !order.cancelledAt);
+  // Cancelled orders — and orders closed as "no written report needed" (films
+  // only) — no longer participate in the visit's workflow: they shouldn't
+  // demand result entry or appear on the report.
+  const activeOrders = orders.filter((order) => !order.cancelledAt && !order.noReportAt);
   const hasReportableOrders = activeOrders.some(isReportableOrder);
   const hasBillOnlyOrders = activeOrders.some(isBillOnlyOrder);
   const hasExternalUploadOrders = activeOrders.some(isExternalUploadOrder);

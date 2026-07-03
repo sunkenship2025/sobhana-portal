@@ -143,6 +143,9 @@ interface TestOrder {
     panelMethodItalic?: boolean;
     narrativeTemplateHtml?: string | null;
   } | null;
+  noReportAt?: string | null;
+  noReportReason?: string | null;
+  noReportBy?: string | null;
 }
 
 interface ExternalUpload {
@@ -303,6 +306,9 @@ const DiagnosticsResultEntry = () => {
   // and mutated locally as the user uploads / deletes files.
   const [uploadsByOrder, setUploadsByOrder] = useState<Record<string, ExternalUpload[]>>({});
   const [uploadingOrderId, setUploadingOrderId] = useState<string | null>(null);
+  const [noReportTarget, setNoReportTarget] = useState<{ orderId: string; testName: string } | null>(null);
+  const [noReportReasonText, setNoReportReasonText] = useState('');
+  const [noReportBusy, setNoReportBusy] = useState(false);
 
   // Auto-save: debounced background persistence so techs never have to think
   // about saving. Status drives the inline indicator above the explicit button.
@@ -1154,6 +1160,8 @@ const DiagnosticsResultEntry = () => {
   }
 
   const { patient, testOrders } = visit;
+  const activeTestOrders = testOrders.filter((o) => !o.noReportAt);
+  const waivedOrders = testOrders.filter((o) => o.noReportAt);
   const currentYear = new Date().getFullYear();
   const age = patient.yearOfBirth ? currentYear - patient.yearOfBirth : null;
 
@@ -1679,9 +1687,22 @@ const DiagnosticsResultEntry = () => {
     const lockedReason = locked
       ? `A signing rule is configured for ${departmentName || 'this department'}. Remove the rule in Settings → Signing Doctors to enter a name here.`
       : undefined;
+    const order = testOrders.find((o) => o.id === testOrderId);
+    const isWholeOrderRow = !!order && order.testId === testId;
 
     return (
       <div key={resultKey} className="py-3">
+        {isWholeOrderRow && (
+          <div className="flex justify-end mb-1">
+            <button
+              type="button"
+              onClick={() => { setNoReportReasonText(''); setNoReportTarget({ orderId: testOrderId, testName: panelDisplayName || testName }); }}
+              className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              No report needed
+            </button>
+          </div>
+        )}
         <ReportFramedNarrativeEditor
           value={valueStr}
           onChange={(nextValue) => handleValueChange(resultKey, nextValue)}
@@ -1755,7 +1776,7 @@ const DiagnosticsResultEntry = () => {
   type OrderGroup = PanelGroup | SingleOrder;
 
   const departmentGroups = Array.from(
-    testOrders.reduce((groups, order) => {
+    activeTestOrders.reduce((groups, order) => {
       const groupKey = order.department?.id || order.department?.name || 'other-tests';
       const groupName = order.department?.name || 'Other Tests';
 
@@ -1833,7 +1854,7 @@ const DiagnosticsResultEntry = () => {
   };
 
   // True if anything renders an editable surface — value-input rows OR an upload zone.
-  const hasReportableInputs = testOrders.some((order) => {
+  const hasReportableInputs = activeTestOrders.some((order) => {
     if (order.workflowMode === 'EXTERNAL_UPLOAD') return true;
     if (!order.isPanel) return true;
     return order.childTests.length > 0;
@@ -1915,27 +1936,27 @@ const DiagnosticsResultEntry = () => {
   };
 
   const orderStatuses = new Map<string, TestOrderStatus>(
-    testOrders.map((o) => [o.id, computeOrderStatus(o)] as const),
+    activeTestOrders.map((o) => [o.id, computeOrderStatus(o)] as const),
   );
   // Visit is "fully done" when every reportable order is `complete` — no
   // template-only narratives, no empty slots, no missing external uploads.
   const fullyDone =
     !hasMissingExternalUploads &&
-    testOrders.length > 0 &&
-    testOrders.every((o) => orderStatuses.get(o.id) === 'complete');
+    activeTestOrders.length > 0 &&
+    activeTestOrders.every((o) => orderStatuses.get(o.id) === 'complete');
   // Orders that could appear in a partial release. Empty orders are excluded
   // entirely (nothing to ship). Template-only narratives are eligible but
   // pre-unchecked. Per-order pre-tick rules live with the dialog data builder
   // below — there's no global "default selection" set anymore because the
   // narrative path now defers to the per-editor touched signal.
-  const partialEligibleOrderIds = testOrders
+  const partialEligibleOrderIds = activeTestOrders
     .filter((o) => orderStatuses.get(o.id) !== 'empty')
     .map((o) => o.id);
 
   // True if any test in this visit uses the WYSIWYG framed narrative editor.
   // Used to decide whether to show the sticky shared rich-text toolbar at the
   // top of the page.
-  const hasNarrativeTests = testOrders.some((order) => {
+  const hasNarrativeTests = activeTestOrders.some((order) => {
     if (isRichTextPanelLayout(textLayoutByResultKey.get(makeResultKey(order.id, order.testId)))) return true;
     if (order.isPanel && order.childTests) {
       return order.childTests.some((child) =>
@@ -1949,7 +1970,7 @@ const DiagnosticsResultEntry = () => {
   // column header. Narrative tests don't, so the header is hidden when every
   // test is narrative — it would just confuse the user (radiology has no
   // numeric "value" or "reference range").
-  const hasNonNarrativeTests = testOrders.some((order) => {
+  const hasNonNarrativeTests = activeTestOrders.some((order) => {
     if (order.workflowMode === 'EXTERNAL_UPLOAD') return false;
     if (order.isPanel && order.childTests && order.childTests.length > 0) {
       return order.childTests.some(
@@ -1958,6 +1979,48 @@ const DiagnosticsResultEntry = () => {
     }
     return !isRichTextPanelLayout(textLayoutByResultKey.get(makeResultKey(order.id, order.testId)));
   });
+
+  const submitNoReport = async () => {
+    if (!noReportTarget || !visitId) return;
+    const reason = noReportReasonText.trim();
+    if (!reason) { toast.error('Please enter a reason.'); return; }
+    setNoReportBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/visits/diagnostic/${visitId}/orders/${noReportTarget.orderId}/no-report`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'X-Branch-Id': activeBranchId, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(data?.message || 'Could not close this test.'); return; }
+      setVisit((prev) => prev ? { ...prev, testOrders: prev.testOrders.map((o) => o.id === noReportTarget.orderId ? { ...o, noReportAt: data?.noReportAt || new Date().toISOString(), noReportReason: reason } : o) } : prev);
+      toast.success('Test closed — no report will be issued.');
+      setNoReportTarget(null);
+      setNoReportReasonText('');
+    } catch (e) {
+      console.error('no-report failed:', e);
+      toast.error('Could not close this test.');
+    } finally {
+      setNoReportBusy(false);
+    }
+  };
+
+  const reopenNoReport = async (orderId: string) => {
+    if (!visitId) return;
+    try {
+      const res = await fetch(`${API_BASE}/visits/diagnostic/${visitId}/orders/${orderId}/reopen-report`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'X-Branch-Id': activeBranchId, 'Content-Type': 'application/json' },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(data?.message || 'Could not reopen this test.'); return; }
+      setVisit((prev) => prev ? { ...prev, testOrders: prev.testOrders.map((o) => o.id === orderId ? { ...o, noReportAt: null, noReportReason: null, noReportBy: null } : o) } : prev);
+      toast.success('Test reopened for result entry.');
+    } catch (e) {
+      console.error('reopen failed:', e);
+      toast.error('Could not reopen this test.');
+    }
+  };
 
   return (
     <AppLayout context="diagnostics">
@@ -2031,11 +2094,31 @@ const DiagnosticsResultEntry = () => {
             )}
           </CardHeader>
           <CardContent className="space-y-6 pt-0" onBlur={handleFormBlur}>
+            {waivedOrders.length > 0 && (
+              <div className="space-y-2">
+                {waivedOrders.map((o) => (
+                  <div key={o.id} className="flex items-center justify-between rounded-md border bg-muted/40 px-4 py-2.5">
+                    <div className="text-sm">
+                      <span className="font-medium">{o.testName}</span>
+                      {o.testCode ? <span className="ml-1 text-muted-foreground">({o.testCode})</span> : null}
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        No written report{o.noReportReason ? ` — ${o.noReportReason}` : ''}{o.noReportBy ? ` · ${o.noReportBy}` : ''}
+                      </div>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => reopenNoReport(o.id)}>Reopen</Button>
+                  </div>
+                ))}
+              </div>
+            )}
             {!hasReportableInputs ? (
+              waivedOrders.length > 0 ? null : (
               <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
                 No reportable test items are linked to this visit yet. Add the required backing test item to the panel definition, then reopen this visit.
               </div>
-            ) : departmentGroups.map((department) => (
+              )
+            ) : (
+              <>
+                {departmentGroups.map((department) => (
               <div key={department.id} className="space-y-3">
                 <div className="flex items-center gap-3 pt-2">
                   <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -2398,6 +2481,8 @@ const DiagnosticsResultEntry = () => {
                 </div>
               </div>
             ))}
+              </>
+            )}
 
             {hasMissingExternalUploads && (
               <p className="mt-4 text-sm text-amber-700">
@@ -2660,6 +2745,37 @@ const DiagnosticsResultEntry = () => {
           />
         );
       })()}
+
+      {/* No Report (films only) confirmation */}
+      <AlertDialog open={!!noReportTarget} onOpenChange={(open) => { if (!open) { setNoReportTarget(null); setNoReportReasonText(''); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Close this test without a report?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {noReportTarget?.testName} will be finalized as films only — no written report and no report message to the patient. The rest of the bill is unaffected. You can reopen it until the report is finalized.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-1">
+            <label className="text-sm font-medium">Reason</label>
+            <Input
+              autoFocus
+              value={noReportReasonText}
+              onChange={(e) => setNoReportReasonText(e.target.value)}
+              placeholder="Films sufficient / patient declined report"
+              className="mt-1.5"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={noReportBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={noReportBusy || !noReportReasonText.trim()}
+              onClick={(e) => { e.preventDefault(); submitNoReport(); }}
+            >
+              {noReportBusy ? 'Closing…' : 'Close, no report'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Extreme Value Warning */}
       <AlertDialog open={showWarning} onOpenChange={setShowWarning}>
