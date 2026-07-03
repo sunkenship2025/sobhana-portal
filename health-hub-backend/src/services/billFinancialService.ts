@@ -245,8 +245,15 @@ export function recomputeBillFinancialsForSubtotal(
   // Bill row.
   let rawPaidAmount = Math.max(0, Math.round(bill.paidAmountInPaise ?? 0));
   if (Array.isArray(bill.transactions) && bill.transactions.length > 0) {
+    // REFUND rows are money returned — they subtract from paid, matching
+    // computeBillFinancialsFromPersisted. Summing them as positive corrupts
+    // paidAmountInPaise on any add/remove-test action against a refunded bill.
     rawPaidAmount = bill.transactions.reduce(
-      (sum, tx) => sum + (tx.amountInPaise || 0),
+      (sum, tx) =>
+        sum +
+        (tx.transactionType === "REFUND"
+          ? -(tx.amountInPaise || 0)
+          : tx.amountInPaise || 0),
       0,
     );
   }

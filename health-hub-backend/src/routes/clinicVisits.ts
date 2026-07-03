@@ -692,7 +692,7 @@ router.patch("/:id", async (req: AuthRequest, res) => {
         domain: "CLINIC",
       },
       include: {
-        clinicVisit: true,
+        clinicVisit: { include: { clinicDoctor: true } },
         bill: { include: { transactions: true } },
       },
     });
@@ -796,6 +796,19 @@ router.patch("/:id", async (req: AuthRequest, res) => {
               existing.clinicVisit.consultationFeeInPaise ||
               existing.totalAmountInPaise ||
               0;
+            // The payout is the doctor's COMMISSION of the fee, not the full
+            // fee. Mirror deriveClinicPayout (payoutService.ts): FIXED_AMOUNT →
+            // fixed amount, else percentage of fee (default 100%).
+            const payoutDoctor = existing.clinicVisit.clinicDoctor;
+            const commissionAmountInPaise =
+              payoutDoctor?.commissionType === "FIXED_AMOUNT" &&
+              payoutDoctor.commissionAmountInPaise != null
+                ? payoutDoctor.commissionAmountInPaise
+                : Math.round(
+                    (consultationAmountInPaise *
+                      (payoutDoctor?.commissionPercent ?? 100)) /
+                      100,
+                  );
 
             const existingDayLedger = await tx.doctorPayoutLedger.findFirst({
               where: {
@@ -830,7 +843,7 @@ router.patch("/:id", async (req: AuthRequest, res) => {
                 data: {
                   derivedAmountInPaise:
                     existingDayLedger.derivedAmountInPaise +
-                    consultationAmountInPaise,
+                    commissionAmountInPaise,
                   derivedAt: new Date(),
                   notes: `Clinic consultations - ${startOfDay.toISOString().slice(0, 10)}`,
                   ...(!existingDayLedger.paidAt &&
@@ -849,7 +862,7 @@ router.patch("/:id", async (req: AuthRequest, res) => {
                   clinicDoctorId: existing.clinicVisit.clinicDoctorId,
                   periodStartDate: startOfDay,
                   periodEndDate: endOfDay,
-                  derivedAmountInPaise: consultationAmountInPaise,
+                  derivedAmountInPaise: commissionAmountInPaise,
                   derivedAt: new Date(),
                   notes:
                     coveringPaidLedger?.notes ||

@@ -268,6 +268,7 @@ export async function getOwnerMoney(
         discountReason: true,
         discountedByUser: { select: { name: true } },
         paidAmountInPaise: true,
+        reversedChargeInPaise: true,
         paymentStatus: true,
         visit: { select: { patient: { select: { id: true, name: true, title: true } } } },
       },
@@ -351,6 +352,7 @@ export async function getOwnerMoney(
         totalAmountInPaise: true,
         discountAmountInPaise: true,
         paidAmountInPaise: true,
+        reversedChargeInPaise: true,
         visit: { select: { patient: { select: { id: true, name: true, title: true } } } },
       },
     }),
@@ -424,7 +426,7 @@ export async function getOwnerMoney(
       s +
       Math.max(
         0,
-        b.totalAmountInPaise - b.discountAmountInPaise - b.paidAmountInPaise,
+        b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
       ),
     0,
   );
@@ -433,14 +435,14 @@ export async function getOwnerMoney(
   const agedOpenBills = openBills.filter(
     (b) =>
       b.billedAt < cutoff30 &&
-      b.totalAmountInPaise - b.discountAmountInPaise - b.paidAmountInPaise > 0,
+      b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise > 0,
   );
   const outstandingAged = agedOpenBills.reduce(
     (s, b) =>
       s +
       Math.max(
         0,
-        b.totalAmountInPaise - b.discountAmountInPaise - b.paidAmountInPaise,
+        b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
       ),
     0,
   );
@@ -457,7 +459,7 @@ export async function getOwnerMoney(
       s +
       Math.max(
         0,
-        b.totalAmountInPaise - b.discountAmountInPaise - b.paidAmountInPaise,
+        b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
       ),
     0,
   );
@@ -523,7 +525,7 @@ export async function getOwnerMoney(
   for (const b of openBills) {
     const owed = Math.max(
       0,
-      b.totalAmountInPaise - b.discountAmountInPaise - b.paidAmountInPaise,
+      b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
     );
     if (owed === 0) continue;
     let bucket: AgingBucket;
@@ -541,7 +543,7 @@ export async function getOwnerMoney(
     .map((b) => {
       const owed = Math.max(
         0,
-        b.totalAmountInPaise - b.discountAmountInPaise - b.paidAmountInPaise,
+        b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
       );
       const days = Math.floor((now.getTime() - b.billedAt.getTime()) / DAY_MS);
       return {

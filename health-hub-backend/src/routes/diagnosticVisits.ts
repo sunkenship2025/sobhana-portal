@@ -2745,8 +2745,13 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
     await prisma.$transaction(async (tx) => {
       for (const entry of perOrder) {
         const order = targets.find((o) => o.id === entry.testOrderId)!;
-        await tx.testOrder.update({
-          where: { id: order.id },
+        // Atomic claim: only cancel if still uncancelled. A concurrent refund
+        // that already claimed this order (e.g. a double-tapped button) matches
+        // 0 rows here, which aborts the whole transaction and prevents a
+        // duplicate refund + double commission reversal. The row lock makes the
+        // second request wait for the first to commit, then see cancelledAt set.
+        const claimed = await tx.testOrder.updateMany({
+          where: { id: order.id, cancelledAt: null },
           data: {
             reversedChargeInPaise:
               order.reversedChargeInPaise + entry.reversalInPaise,
@@ -2754,6 +2759,13 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
             cancelReason: trimmedReason,
           },
         });
+        if (claimed.count !== 1) {
+          const e: any = new Error(
+            "Some of the selected tests were just cancelled by another action. Refresh and try again.",
+          );
+          e.code = "ORDER_ALREADY_CANCELLED";
+          throw e;
+        }
       }
 
       await tx.orderRefund.createMany({
@@ -2856,6 +2868,12 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
       ...billFinancials,
     });
   } catch (err: any) {
+    if (err?.code === "ORDER_ALREADY_CANCELLED") {
+      return res.status(409).json({
+        error: "ORDER_ALREADY_CANCELLED",
+        message: err.message,
+      });
+    }
     console.error("Refund diagnostic visit error:", err);
     return res.status(500).json({
       error: "INTERNAL_ERROR",
