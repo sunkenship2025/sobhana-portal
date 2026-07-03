@@ -857,6 +857,7 @@ const TIMELINE_INCLUDE = {
     orderBy: { createdAt: 'asc' as const },
   },
   referrals: {
+    where: { deletedAt: null },
     select: {
       referralDoctor: { select: { id: true, name: true } },
     },

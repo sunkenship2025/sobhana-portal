@@ -476,7 +476,18 @@ router.get('/export', requireRole('owner', 'staff', 'lab_incharge', 'sales'), as
       pageSize: 5000, // export caps at 5k rows; adjust if your branch ever exceeds
     });
 
-    const buffer = await buildPayoutListWorkbook(result.rows);
+    // Optional selection: restrict the export to the ticked payout rows.
+    const rawIds = req.query.ids;
+    const idList =
+      typeof rawIds === 'string' && rawIds.trim()
+        ? rawIds.split(',').map((s) => s.trim()).filter(Boolean)
+        : [];
+    const rows =
+      idList.length > 0
+        ? result.rows.filter((r) => idList.includes(r.id))
+        : result.rows;
+
+    const buffer = await buildPayoutListWorkbook(rows);
     const filename = `payouts-${new Date().toISOString().slice(0, 10)}.xlsx`;
     res.setHeader(
       'Content-Type',
@@ -648,7 +659,29 @@ router.get('/:id/export', requireRole('owner', 'staff', 'lab_incharge', 'sales')
       return res.status(403).json({ error: 'FORBIDDEN', message: 'Wrong branch' });
     }
 
-    const buffer = await buildSinglePayoutWorkbook(payout);
+    // Optional selection: export only the chosen patients' visits. Total is
+    // recomputed from the filtered rows so the workbook stays internally
+    // consistent (a partial export won't match the full period, by design).
+    const rawVisitIds = req.query.visitIds;
+    const visitIdList =
+      typeof rawVisitIds === 'string' && rawVisitIds.trim()
+        ? rawVisitIds.split(',').map((s) => s.trim()).filter(Boolean)
+        : [];
+    let exportPayout = payout;
+    if (visitIdList.length > 0) {
+      const wanted = new Set(visitIdList);
+      const lineItems = payout.lineItems.filter((li) => wanted.has(li.visitId));
+      exportPayout = {
+        ...payout,
+        lineItems,
+        derivedAmountInPaise: lineItems.reduce(
+          (s, li) => s + li.derivedCommissionInPaise,
+          0
+        ),
+      };
+    }
+
+    const buffer = await buildSinglePayoutWorkbook(exportPayout);
     const filename = `payout-${payout.doctorName.replace(/\s+/g, '_')}-${new Date(payout.periodStartDate)
       .toISOString()
       .slice(0, 10)}.xlsx`;

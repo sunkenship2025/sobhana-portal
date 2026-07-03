@@ -21,6 +21,8 @@ import type {
   StatementBand,
   PayoutCategory,
 } from "@/types";
+import { PayoutBulkActionBar } from "@/components/payouts/PayoutBulkActionBar";
+import { MakeSelfDialog } from "@/components/payouts/MakeSelfDialog";
 
 // Group statement line items by bill/patient (one combined row per bill).
 function groupRowsByBill(bands: StatementBand[]) {
@@ -28,6 +30,7 @@ function groupRowsByBill(bands: StatementBand[]) {
     string,
     {
       key: string;
+      visitId: string;
       billNumber: string;
       patient: string;
       date: string;
@@ -45,6 +48,7 @@ function groupRowsByBill(bands: StatementBand[]) {
       if (!g) {
         g = {
           key,
+          visitId: r.visitId,
           billNumber: r.billNumber,
           patient: `${r.patientTitle ? r.patientTitle + " " : ""}${r.patientName}`,
           date: r.date,
@@ -87,6 +91,16 @@ export default function PayoutStatement() {
   const [stmt, setStmt] = useState<Statement | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+
+  // Row selection (off by default; a "Select" toggle reveals the checkboxes).
+  // Keyed by visitId so a selected patient row maps straight to a Visit for the
+  // Make-self / selected-export / selected-print actions.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // When true, the print-only statement renders just the selected visits.
+  const [printSelectionOn, setPrintSelectionOn] = useState(false);
+  const [makeSelfOpen, setMakeSelfOpen] = useState(false);
+  const [makeSelfBusy, setMakeSelfBusy] = useState(false);
 
   const headers = (): Record<string, string> => ({
     Authorization: `Bearer ${token}`,
@@ -154,9 +168,12 @@ export default function PayoutStatement() {
     }
   };
 
-  const exportExcel = async () => {
+  // Pass the selected visitIds to scope the export to those patients; omit for
+  // the whole statement (top-of-page Excel button).
+  const exportExcel = async (visitIds?: string[]) => {
     if (!id || !token || !activeBranchId) return;
-    const res = await fetch(`${API_BASE}/payouts/${id}/export`, {
+    const qs = visitIds && visitIds.length ? `?visitIds=${visitIds.join(",")}` : "";
+    const res = await fetch(`${API_BASE}/payouts/${id}/export${qs}`, {
       headers: { Authorization: `Bearer ${token}`, "X-Branch-Id": activeBranchId },
     });
     if (!res.ok) {
@@ -174,6 +191,74 @@ export default function PayoutStatement() {
     URL.revokeObjectURL(url);
   };
 
+  // ── Selection ──
+  const isReferralPayee = stmt?.payeeType === "REFERRAL";
+  const selectedVisitIds = Array.from(selected);
+  function toggleSelectMode() {
+    setSelectMode((on) => {
+      if (on) setSelected(new Set());
+      return !on;
+    });
+  }
+  function toggleRow(visitId: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(visitId) ? next.delete(visitId) : next.add(visitId);
+      return next;
+    });
+  }
+
+  // Print just the selected patients: flip the print-only doc to selection mode,
+  // print, then reset.
+  const printSelected = () => {
+    if (selected.size === 0) return;
+    setPrintSelectionOn(true);
+  };
+  useEffect(() => {
+    if (!printSelectionOn) return;
+    const t = setTimeout(() => {
+      window.print();
+      setPrintSelectionOn(false);
+    }, 60);
+    return () => clearTimeout(t);
+  }, [printSelectionOn]);
+
+  const submitMakeSelf = async (reason: string, note: string | null) => {
+    if (!id || selected.size === 0) return;
+    setMakeSelfBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/visits/diagnostic/bulk-correct-referral`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({
+          visitIds: selectedVisitIds,
+          referralDoctorId: null,
+          reason,
+          note,
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        toast.error(body.message ?? "Failed to update");
+        return;
+      }
+      const { succeededCount = 0, failedCount = 0 } = body.data ?? {};
+      if (failedCount > 0) {
+        toast.warning(`${succeededCount} made self · ${failedCount} could not be changed`);
+      } else {
+        toast.success(`${succeededCount} ${succeededCount === 1 ? "patient" : "patients"} made self`);
+      }
+      setMakeSelfOpen(false);
+      setSelected(new Set());
+      setSelectMode(false);
+      await fetchStatement(); // total re-derives down; made-self rows disappear
+    } catch {
+      toast.error("Failed to update");
+    } finally {
+      setMakeSelfBusy(false);
+    }
+  };
+
   const period = stmt
     ? `${formatIstDate(stmt.periodStartDate)} – ${formatIstDate(stmt.periodEndDate)}`
     : "";
@@ -182,7 +267,7 @@ export default function PayoutStatement() {
 
   return (
     <AppLayout context="owner" subContext="payouts">
-      <div style={{ maxWidth: 980 }} className="pb-16">
+      <div style={{ maxWidth: 1280 }} className="pb-24">
         <div className="print:hidden">
           <OwnerPageHeader
             title={stmt ? `${stmt.payeeName} — ${isLab ? "Lab payable" : "Statement"}` : "Statement"}
@@ -197,10 +282,24 @@ export default function PayoutStatement() {
             }
             rightSlot={
               <>
-                <Button variant="outline" size="sm" onClick={() => window.print()}>
+                {stmt && !isLab && (
+                  <Button
+                    variant={selectMode ? "default" : "outline"}
+                    size="sm"
+                    onClick={toggleSelectMode}
+                    title="Select patients to make self, print, or export"
+                  >
+                    {selectMode ? "Done" : "Select"}
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setPrintSelectionOn(false); window.print(); }}
+                >
                   <Printer className="mr-1.5 h-4 w-4" /> Print
                 </Button>
-                <Button variant="outline" size="sm" onClick={exportExcel}>
+                <Button variant="outline" size="sm" onClick={() => exportExcel()}>
                   <Download className="mr-1.5 h-4 w-4" /> Excel
                 </Button>
                 {stmt && canSendWhatsApp && (
@@ -319,6 +418,7 @@ export default function PayoutStatement() {
                 <div style={{ overflowX: "auto" }}>
                   <table className="w-full table-fixed" style={{ fontSize: 12, minWidth: 900 }}>
                     <colgroup>
+                      {selectMode && <col style={{ width: 40 }} />}
                       <col style={{ width: 112 }} />
                       <col style={{ width: 122 }} />
                       <col style={{ width: 150 }} />
@@ -330,6 +430,7 @@ export default function PayoutStatement() {
                     </colgroup>
                     <thead>
                       <tr style={{ color: TOKENS.textTertiary, textAlign: "left" }}>
+                        {selectMode && <th className="py-2 pl-3 font-normal" style={{ width: 40 }} />}
                         <th className="py-2 pl-3 pr-3 font-normal whitespace-nowrap">Date</th>
                         <th className="py-2 pr-3 font-normal whitespace-nowrap">Bill #</th>
                         <th className="py-2 pr-3 font-normal">Patient</th>
@@ -343,6 +444,15 @@ export default function PayoutStatement() {
                     <tbody>
                       {groupRowsByBill(stmt.bands).map((g) => (
                         <tr key={g.key} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
+                          {selectMode && (
+                            <td className="py-2 pl-3 align-top" style={{ width: 40 }}>
+                              <input
+                                type="checkbox"
+                                checked={selected.has(g.visitId)}
+                                onChange={() => toggleRow(g.visitId)}
+                              />
+                            </td>
+                          )}
                           <td className="py-2 pl-3 pr-3 align-top whitespace-nowrap" style={{ color: TOKENS.textTertiary }}>{formatIstDate(g.date)}</td>
                           <td className="py-2 pr-3 align-top whitespace-nowrap" style={{ color: TOKENS.textTertiary }}>{g.billNumber}</td>
                           <td className="py-2 pr-3 align-top">{g.patient}</td>
@@ -394,10 +504,35 @@ export default function PayoutStatement() {
               </SectionCard>
             )}
           </div>
-          <StatementPrint stmt={stmt} />
+          <StatementPrint
+            stmt={stmt}
+            onlyVisitIds={printSelectionOn ? selectedVisitIds : null}
+          />
           </>
         )}
       </div>
+
+      {stmt && (
+        <PayoutBulkActionBar
+          count={selected.size}
+          selectionNoun={selected.size === 1 ? "patient" : "patients"}
+          onMakeSelf={isReferralPayee ? () => setMakeSelfOpen(true) : undefined}
+          onPrint={printSelected}
+          onExport={() => exportExcel(selectedVisitIds)}
+          onClear={() => setSelected(new Set())}
+        />
+      )}
+
+      {stmt && (
+        <MakeSelfDialog
+          open={makeSelfOpen}
+          onOpenChange={setMakeSelfOpen}
+          count={selected.size}
+          doctorName={stmt.payeeName}
+          busy={makeSelfBusy}
+          onConfirm={submitMakeSelf}
+        />
+      )}
     </AppLayout>
   );
 }
@@ -451,7 +586,13 @@ function groupBillsAcrossBands(bands: StatementBand[]) {
 
 // Print-only document (visible only when printing, per the global .print-content rule).
 // Legacy-style layout: per-bill rows with category columns + tests underneath.
-function StatementPrint({ stmt }: { stmt: Statement }) {
+function StatementPrint({
+  stmt,
+  onlyVisitIds,
+}: {
+  stmt: Statement;
+  onlyVisitIds?: string[] | null;
+}) {
   const isLab = stmt.isLab;
   const period = `${formatIstDate(stmt.periodStartDate)} – ${formatIstDate(stmt.periodEndDate)}`;
   const td: CSSProperties = { border: "1px solid #999", padding: "3px 4px", fontSize: 9, textAlign: "center" };
@@ -460,8 +601,26 @@ function StatementPrint({ stmt }: { stmt: Statement }) {
   const rt: CSSProperties = { textAlign: "right", fontVariantNumeric: "tabular-nums" };
   const r0 = (p: number) => (p ? formatRupees(p) : "—");
 
-  const labRows = stmt.bands.flatMap((b) => b.rows);
-  const bills = groupBillsAcrossBands(stmt.bands);
+  // When printing a selection, restrict rows to the chosen visits and recompute
+  // the grand total from them so the printed footer stays consistent.
+  const idSet = onlyVisitIds && onlyVisitIds.length ? new Set(onlyVisitIds) : null;
+  const bands = idSet
+    ? stmt.bands.map((b) => ({ ...b, rows: b.rows.filter((r) => idSet.has(r.visitId)) }))
+    : stmt.bands;
+  const labRows = bands.flatMap((b) => b.rows);
+  const bills = groupBillsAcrossBands(bands);
+  const total = idSet
+    ? labRows.reduce(
+        (acc, r) => ({
+          tAmtInPaise: acc.tAmtInPaise + r.tAmtInPaise,
+          discInPaise: acc.discInPaise + r.discInPaise,
+          pAmtInPaise: acc.pAmtInPaise + r.pAmtInPaise,
+          finAmtInPaise: acc.finAmtInPaise + r.finAmtInPaise,
+          centerMarginInPaise: acc.centerMarginInPaise + (r.centerMarginInPaise ?? 0),
+        }),
+        { tAmtInPaise: 0, discInPaise: 0, pAmtInPaise: 0, finAmtInPaise: 0, centerMarginInPaise: 0 }
+      )
+    : stmt.grandTotal;
 
   return (
     <div className="hidden print:block print-content print-page">
@@ -519,9 +678,9 @@ function StatementPrint({ stmt }: { stmt: Statement }) {
           <tfoot>
             <tr style={{ fontWeight: 700, background: "#f0f0f0" }}>
               <td style={{ ...td, ...lt }} colSpan={5}>GRAND TOTAL — {labRows.length} tests</td>
-              <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.pAmtInPaise)}</td>
-              <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.finAmtInPaise)}</td>
-              <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.centerMarginInPaise ?? 0)}</td>
+              <td style={{ ...td, ...rt }}>{formatRupees(total.pAmtInPaise)}</td>
+              <td style={{ ...td, ...rt }}>{formatRupees(total.finAmtInPaise)}</td>
+              <td style={{ ...td, ...rt }}>{formatRupees(total.centerMarginInPaise ?? 0)}</td>
             </tr>
           </tfoot>
         </table>
@@ -558,10 +717,10 @@ function StatementPrint({ stmt }: { stmt: Statement }) {
           <tfoot>
             <tr style={{ fontWeight: 700, background: "#f0f0f0" }}>
               <td style={{ ...td, ...lt }} colSpan={5}>GRAND TOTAL — {bills.length} bills</td>
-              <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.tAmtInPaise)}</td>
-              <td style={{ ...td, ...rt }}>{r0(stmt.grandTotal.discInPaise)}</td>
-              <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.pAmtInPaise)}</td>
-              <td style={{ ...td, ...rt }}>{formatRupees(stmt.grandTotal.finAmtInPaise)}</td>
+              <td style={{ ...td, ...rt }}>{formatRupees(total.tAmtInPaise)}</td>
+              <td style={{ ...td, ...rt }}>{r0(total.discInPaise)}</td>
+              <td style={{ ...td, ...rt }}>{formatRupees(total.pAmtInPaise)}</td>
+              <td style={{ ...td, ...rt }}>{formatRupees(total.finAmtInPaise)}</td>
             </tr>
           </tfoot>
         </table>

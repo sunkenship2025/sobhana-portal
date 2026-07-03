@@ -73,7 +73,8 @@ export const checkDoctorAccess = async (
   const referral = await prisma.referralDoctor_Visit.findFirst({
     where: {
       visitId,
-      referralDoctorId
+      referralDoctorId,
+      deletedAt: null
     }
   });
 

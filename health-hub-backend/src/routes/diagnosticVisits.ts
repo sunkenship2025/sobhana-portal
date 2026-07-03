@@ -477,11 +477,13 @@ function getReportableOrders<
   T extends {
     workflowMode?: DiagnosticWorkflowMode | null;
     cancelledAt?: Date | string | null;
+    noReportAt?: Date | string | null;
   },
 >(orders: T[]): T[] {
   return orders.filter(
     (order) =>
       !order.cancelledAt &&
+      !order.noReportAt &&
       (order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) ===
         DiagnosticWorkflowMode.REPORTABLE,
   );
@@ -492,11 +494,13 @@ function getReportInclusionOrders<
   T extends {
     workflowMode?: DiagnosticWorkflowMode | null;
     cancelledAt?: Date | string | null;
+    noReportAt?: Date | string | null;
   },
 >(orders: T[]): T[] {
   return orders.filter(
     (order) =>
       !order.cancelledAt &&
+      !order.noReportAt &&
       ((order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) ===
         DiagnosticWorkflowMode.REPORTABLE ||
         order.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD),
@@ -536,6 +540,7 @@ router.get("/", async (req: AuthRequest, res) => {
           },
         },
         referrals: {
+          where: { deletedAt: null },
           include: {
             referralDoctor: true,
           },
@@ -830,6 +835,7 @@ router.get("/:id", async (req: AuthRequest, res) => {
           },
         },
         referrals: {
+          where: { deletedAt: null },
           include: {
             referralDoctor: true,
           },
@@ -928,6 +934,9 @@ router.get("/:id", async (req: AuthRequest, res) => {
         cancelledAt: true,
         cancelReason: true,
         reversedChargeInPaise: true,
+        noReportAt: true,
+        noReportReason: true,
+        noReportByUser: { select: { name: true } },
         test: {
           select: {
             id: true,
@@ -1390,6 +1399,9 @@ router.get("/:id", async (req: AuthRequest, res) => {
             cancelledAt: to.cancelledAt,
             cancelReason: to.cancelReason,
             reversedChargeInPaise: to.reversedChargeInPaise,
+            noReportAt: to.noReportAt,
+            noReportReason: to.noReportReason,
+            noReportBy: to.noReportByUser?.name ?? null,
             referralCommissionType: to.referralCommissionType,
             referralCommissionPercent: to.referralCommissionPercentage,
             referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
@@ -2315,7 +2327,7 @@ router.post("/", async (req: AuthRequest, res) => {
       where: { id: result.id },
       include: {
         patient: { include: { identifiers: true } },
-        referrals: { include: { referralDoctor: true } },
+        referrals: { where: { deletedAt: null }, include: { referralDoctor: true } },
         testOrders: {
           include: {
             test: true,
@@ -2967,7 +2979,8 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
 
 // POST /api/visits/diagnostic/:id/correct-referral - Fix a wrongly-entered
 // referring doctor (or set back to SELF). Re-freezes commission snapshots,
-// audited with mandatory reason, blocked once a payout run covers the visit.
+// audited with mandatory reason. The old link is soft-deleted (kept for
+// history); any covering payout run is re-derived so its total matches.
 router.post("/:id/correct-referral", async (req: AuthRequest, res) => {
   try {
     const { referralDoctorId, reason, note } = req.body;
@@ -3000,6 +3013,79 @@ router.post("/:id/correct-referral", async (req: AuthRequest, res) => {
     return res.status(500).json({
       error: "INTERNAL_ERROR",
       message: "Failed to update referral",
+    });
+  }
+});
+
+// POST /api/visits/diagnostic/bulk-correct-referral - Convert many visits to
+// SELF (or re-point them) in one call. Backs the "Make self" bulk action on a
+// doctor's payout statement. Each visit runs through changeVisitReferral so the
+// per-visit soft-delete, snapshot re-freeze, audit, and payout re-derive all
+// apply; per-visit failures are collected, not fatal for the batch.
+router.post("/bulk-correct-referral", async (req: AuthRequest, res) => {
+  try {
+    const { visitIds, referralDoctorId, reason, note } = req.body;
+    if (!Array.isArray(visitIds) || visitIds.length === 0) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "At least one visit is required",
+      });
+    }
+    if (typeof reason !== "string" || !reason.trim()) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "A reason is required",
+      });
+    }
+    const resolvedDoctorId =
+      typeof referralDoctorId === "string" && referralDoctorId
+        ? referralDoctorId
+        : null;
+    const trimmedReason = reason.trim();
+    const trimmedNote =
+      typeof note === "string" && note.trim() ? note.trim() : null;
+
+    const succeeded: string[] = [];
+    const failed: { visitId: string; message: string }[] = [];
+    // Sequential: each change re-derives payouts, so avoid racing on the same
+    // ledger rows when several selected visits share a doctor+period.
+    for (const visitId of visitIds) {
+      if (typeof visitId !== "string" || !visitId) continue;
+      try {
+        await changeVisitReferral({
+          visitId,
+          branchId: req.branchId!,
+          referralDoctorId: resolvedDoctorId,
+          reason: trimmedReason,
+          note: trimmedNote,
+          userId: req.user!.id,
+        });
+        succeeded.push(visitId);
+      } catch (err: any) {
+        // NO_CHANGE (already Self / already this doctor) is a benign no-op.
+        if (err instanceof CorrectionError && err.errorCode === "NO_CHANGE") {
+          succeeded.push(visitId);
+          continue;
+        }
+        const message =
+          err instanceof CorrectionError ? err.message : "Failed to update";
+        failed.push({ visitId, message });
+      }
+    }
+
+    return res.json({
+      data: {
+        succeededCount: succeeded.length,
+        failedCount: failed.length,
+        succeeded,
+        failed,
+      },
+    });
+  } catch (err: any) {
+    console.error("Bulk correct referral error:", err);
+    return res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: "Failed to update referrals",
     });
   }
 });
@@ -3071,6 +3157,7 @@ router.post("/:id/tests", async (req: AuthRequest, res) => {
       },
       include: {
         referrals: {
+          where: { deletedAt: null },
           include: {
             referralDoctor: true,
           },
@@ -4460,6 +4547,7 @@ router.post("/:id/confirm-ready", async (req: AuthRequest, res) => {
       },
       include: {
         referrals: {
+          where: { deletedAt: null },
           select: {
             referralDoctorId: true,
           },
@@ -4599,6 +4687,221 @@ router.post("/:id/confirm-ready", async (req: AuthRequest, res) => {
 
 // POST /api/visits/diagnostic/:id/finalize - Finalize report
 // Only the owner and lab incharge may finalize; staff/sales are read/entry only.
+// POST /:id/orders/:orderId/no-report
+// Close a single REPORTABLE test as "no written report needed" (films only):
+// the patient decided the films are enough and doesn't want the narrative
+// report. This is per-test (the rest of the bill is untouched) and MONEY-NEUTRAL
+// — no refund, no cancel. The order then drops out of the entry screen, the
+// report, and the finalize-completeness check (see getReportInclusionOrders /
+// filterReportableOrders / the finalize incompleteOrders guard).
+//
+// IMPORTANT: this endpoint deliberately does NOT call sendReportReady(). Closing
+// a test as film-only must never fire a "partial" or "final" WhatsApp/SMS —
+// those only come from /finalize and /release-partial. Reversible via
+// /reopen-report until the visit's report is finalized.
+router.post("/:id/orders/:orderId/no-report", async (req: AuthRequest, res) => {
+  try {
+    const { id, orderId } = req.params;
+    const reason =
+      typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+
+    if (!reason) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message:
+          'A short reason is required (e.g. "Films sufficient / patient declined report").',
+      });
+    }
+
+    const visit = await prisma.visit.findFirst({
+      where: { id, branchId: req.branchId, domain: "DIAGNOSTICS" },
+      select: {
+        id: true,
+        report: {
+          select: {
+            versions: {
+              where: { status: "FINALIZED" },
+              select: { id: true },
+              take: 1,
+            },
+          },
+        },
+        testOrders: {
+          where: { id: orderId },
+          select: {
+            id: true,
+            workflowMode: true,
+            cancelledAt: true,
+            noReportAt: true,
+            testNameSnapshot: true,
+          },
+        },
+      },
+    });
+
+    if (!visit) {
+      return res
+        .status(404)
+        .json({ error: "NOT_FOUND", message: "Diagnostic visit not found" });
+    }
+
+    const order = visit.testOrders[0];
+    if (!order) {
+      return res
+        .status(404)
+        .json({ error: "NOT_FOUND", message: "Test not found on this visit" });
+    }
+
+    if (order.cancelledAt) {
+      return res.status(400).json({
+        error: "ORDER_CANCELLED",
+        message: "This test was already cancelled.",
+      });
+    }
+
+    if (order.workflowMode !== DiagnosticWorkflowMode.REPORTABLE) {
+      return res.status(400).json({
+        error: "NOT_REPORTABLE",
+        message: 'Only reportable tests can be closed as "no report needed".',
+      });
+    }
+
+    if ((visit.report?.versions?.length ?? 0) > 0) {
+      return res.status(400).json({
+        error: "ALREADY_FINALIZED",
+        message: "The report for this visit is already finalized.",
+      });
+    }
+
+    if (order.noReportAt) {
+      // Idempotent — already closed as no-report.
+      return res.json({ success: true, alreadyNoReport: true, orderId: order.id });
+    }
+
+    const now = new Date();
+    await prisma.testOrder.update({
+      where: { id: order.id },
+      data: {
+        noReportAt: now,
+        noReportReason: reason,
+        noReportByUserId: req.user?.id ?? null,
+      },
+    });
+
+    await logAction({
+      branchId: req.branchId!,
+      actionType: "UPDATE",
+      entityType: "TestOrder",
+      entityId: order.id,
+      userId: req.user?.id!,
+      newValues: {
+        noReport: true,
+        reason,
+        testName: order.testNameSnapshot,
+        closedAt: now.toISOString(),
+      },
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+    });
+
+    return res.json({
+      success: true,
+      orderId: order.id,
+      noReportAt: now.toISOString(),
+      noReportReason: reason,
+    });
+  } catch (error) {
+    console.error("Error closing test as no-report:", error);
+    return res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: "Failed to close test as no report needed",
+    });
+  }
+});
+
+// POST /:id/orders/:orderId/reopen-report
+// Undo a "no report needed" closure while the visit is still open (no finalized
+// report yet). The test returns to the entry screen / report / finalize check.
+router.post("/:id/orders/:orderId/reopen-report", async (req: AuthRequest, res) => {
+  try {
+    const { id, orderId } = req.params;
+
+    const visit = await prisma.visit.findFirst({
+      where: { id, branchId: req.branchId, domain: "DIAGNOSTICS" },
+      select: {
+        id: true,
+        report: {
+          select: {
+            versions: {
+              where: { status: "FINALIZED" },
+              select: { id: true },
+              take: 1,
+            },
+          },
+        },
+        testOrders: {
+          where: { id: orderId },
+          select: { id: true, noReportAt: true, testNameSnapshot: true },
+        },
+      },
+    });
+
+    if (!visit) {
+      return res
+        .status(404)
+        .json({ error: "NOT_FOUND", message: "Diagnostic visit not found" });
+    }
+
+    const order = visit.testOrders[0];
+    if (!order) {
+      return res
+        .status(404)
+        .json({ error: "NOT_FOUND", message: "Test not found on this visit" });
+    }
+
+    if (!order.noReportAt) {
+      // Idempotent — already open.
+      return res.json({ success: true, alreadyOpen: true, orderId: order.id });
+    }
+
+    if ((visit.report?.versions?.length ?? 0) > 0) {
+      return res.status(400).json({
+        error: "ALREADY_FINALIZED",
+        message:
+          "The report is already finalized; this test can no longer be reopened.",
+      });
+    }
+
+    await prisma.testOrder.update({
+      where: { id: order.id },
+      data: { noReportAt: null, noReportReason: null, noReportByUserId: null },
+    });
+
+    await logAction({
+      branchId: req.branchId!,
+      actionType: "UPDATE",
+      entityType: "TestOrder",
+      entityId: order.id,
+      userId: req.user?.id!,
+      newValues: {
+        noReport: false,
+        reopened: true,
+        testName: order.testNameSnapshot,
+      },
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+    });
+
+    return res.json({ success: true, orderId: order.id });
+  } catch (error) {
+    console.error("Error reopening no-report test:", error);
+    return res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: "Failed to reopen test",
+    });
+  }
+});
+
 router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
@@ -4611,6 +4914,7 @@ router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: A
       },
       include: {
         referrals: {
+          where: { deletedAt: null },
           select: {
             referralDoctorId: true,
           },
@@ -4627,6 +4931,7 @@ router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: A
             testNameSnapshot: true,
             testCodeSnapshot: true,
             workflowMode: true,
+            noReportAt: true,
             test: {
               select: {
                 isPanel: true,
@@ -4704,6 +5009,12 @@ router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: A
     );
     const incompleteOrders = visit.testOrders.filter((order) => {
       const mode = order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE;
+
+      // Orders closed as "no written report needed" (films only) don't block
+      // finalize — same as cancelled orders, they're not part of the report.
+      if (order.noReportAt) {
+        return false;
+      }
 
       if (mode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD) {
         return order.externalUploads.length === 0;

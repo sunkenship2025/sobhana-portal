@@ -154,7 +154,7 @@ export async function getOwnerMetrics(window: MetricsWindow): Promise<OwnerMetri
     }),
     prisma.referralDoctor_Visit.groupBy({
       by: ['referralDoctorId'],
-      where: { createdAt: { gte: since } },
+      where: { deletedAt: null, createdAt: { gte: since } },
       _count: { _all: true },
       orderBy: { _count: { referralDoctorId: 'desc' } },
       take: 5,

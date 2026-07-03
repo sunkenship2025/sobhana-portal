@@ -226,7 +226,7 @@ async function deriveReferralPayout(
       branchId,
       domain: 'DIAGNOSTICS',
       referrals: {
-        some: { referralDoctorId },
+        some: { referralDoctorId, deletedAt: null },
       },
       ...buildDiagnosticPayoutVisitWindow(periodStartDate, periodEndDate),
     },
@@ -834,9 +834,10 @@ async function syncReferralPayoutsForBranch(
       branchId,
       domain: 'DIAGNOSTICS',
       referrals: {
-        some: filters?.doctorId
-          ? { referralDoctorId: filters.doctorId }
-          : {},
+        some: {
+          deletedAt: null,
+          ...(filters?.doctorId ? { referralDoctorId: filters.doctorId } : {}),
+        },
       },
       ...buildDiagnosticPayoutVisitWindow(
         filters?.startDate ?? new Date(0),
@@ -846,6 +847,7 @@ async function syncReferralPayoutsForBranch(
     select: {
       updatedAt: true,
       referrals: {
+        where: { deletedAt: null },
         select: {
           referralDoctorId: true,
         },

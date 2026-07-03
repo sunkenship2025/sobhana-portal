@@ -227,6 +227,7 @@ export async function getOwnerDoctors(
     // ReferralDoctor_Visit + TestOrders for the visit, scoped to window+branch
     prisma.referralDoctor_Visit.findMany({
       where: {
+        deletedAt: null,
         createdAt: { gte: win.start, lt: win.end },
         ...(branchId ? { branchId } : {}),
       },
@@ -251,6 +252,7 @@ export async function getOwnerDoctors(
     // Same shape as above, shifted back one period length — for the visit delta.
     prisma.referralDoctor_Visit.findMany({
       where: {
+        deletedAt: null,
         createdAt: { gte: priorWin.start, lt: priorWin.end },
         ...(branchId ? { branchId } : {}),
       },

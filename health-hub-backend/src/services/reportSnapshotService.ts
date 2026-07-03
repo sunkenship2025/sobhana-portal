@@ -436,11 +436,13 @@ function filterReportableOrders<
   T extends {
     workflowMode?: DiagnosticWorkflowMode | null;
     cancelledAt?: Date | string | null;
+    noReportAt?: Date | string | null;
   },
 >(orders: T[]): T[] {
   return orders.filter(
     (order) =>
       !order.cancelledAt &&
+      !order.noReportAt &&
       (order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) === DiagnosticWorkflowMode.REPORTABLE
   );
 }
@@ -1404,6 +1406,7 @@ export async function createReportSnapshot(
               },
               branch: true,
               referrals: {
+                where: { deletedAt: null },
                 include: {
                   referralDoctor: true,
                 },
@@ -1449,9 +1452,10 @@ export async function createReportSnapshot(
     : (reportVersion.testResults as any[]);
 
   const externalUploads = await buildExternalUploadSnapshots(filteredTestOrders);
-  // Results entered against since-cancelled orders must not render.
+  // Results entered against since-cancelled orders — or orders closed as "no
+  // written report needed" (films only) — must not render.
   const activeTestResults = (filteredTestResults as any[]).filter(
-    (r: any) => !r.testOrder?.cancelledAt,
+    (r: any) => !r.testOrder?.cancelledAt && !r.testOrder?.noReportAt,
   );
   const augmentedTestResults = dedupeResultsForSnapshot(await backfillDerivedResults(
     activeTestResults,
@@ -1588,6 +1592,7 @@ export async function buildEphemeralSnapshot(
       },
       branch: true,
       referrals: {
+        where: { deletedAt: null },
         include: { referralDoctor: true },
         take: 1,
       },
@@ -1644,9 +1649,10 @@ export async function buildEphemeralSnapshot(
 
   const externalUploads = await buildExternalUploadSnapshots(filteredTestOrders);
 
-  // Results entered against since-cancelled orders must not render.
+  // Results entered against since-cancelled orders — or orders closed as "no
+  // written report needed" (films only) — must not render.
   const activeTestResults = (filteredTestResults as any[]).filter(
-    (r: any) => !r.testOrder?.cancelledAt,
+    (r: any) => !r.testOrder?.cancelledAt && !r.testOrder?.noReportAt,
   );
 
   // External-upload visits have no test results — the report content is the

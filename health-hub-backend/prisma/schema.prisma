@@ -487,6 +487,7 @@ model User {
   discountedBills      Bill[]                 @relation("BillDiscountedBy")
   refundedBills        Bill[]                 @relation("BillRefundedBy")
   orderRefunds         OrderRefund[]          @relation("OrderRefundCreatedBy")
+  noReportTestOrders   TestOrder[]            @relation("TestOrderNoReportBy")
 
   @@index([role])
   @@index([activeBranchId])
@@ -553,19 +554,32 @@ model Visit {
 /// Links referral doctor to visit (many-to-one for future multi-referral support).
 /// MUST exist for doctor to see visit.
 model ReferralDoctor_Visit {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   visitId          String
   referralDoctorId String
   branchId         String
-  createdAt        DateTime @default(now())
+  createdAt        DateTime  @default(now())
+  // Soft delete: when a visit is converted to SELF (or re-referred), the old
+  // link is kept for history and marked here instead of being deleted. Every
+  // referral-attribution read filters `deletedAt IS NULL`, so the visit looks
+  // Self on the UI, in payouts, and on the doctors dashboard.
+  deletedAt        DateTime?
+  deletedReason    String?
+  deletedBy        String? // userId who converted it
 
   visit          Visit          @relation(fields: [visitId], references: [id], onDelete: Cascade)
   referralDoctor ReferralDoctor @relation(fields: [referralDoctorId], references: [id], onDelete: Cascade)
   branch         Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
-  @@unique([visitId, referralDoctorId])
+  // Uniqueness on (visitId, referralDoctorId) is enforced by a partial unique
+  // index (WHERE deletedAt IS NULL) created in migration
+  // 20260705000000_referral_visit_soft_delete, so a visit can be re-referred to
+  // the same doctor after a link is soft-deleted. Prisma can't express partial
+  // uniques, so the plain index below is for query performance only.
+  @@index([visitId, referralDoctorId])
   @@index([referralDoctorId])
   @@index([branchId])
+  @@index([deletedAt])
 }
 
 /// Bill: Single bill per visit (financial anchor)
@@ -659,6 +673,15 @@ model TestOrder {
   cancelReason          String?
   reversedChargeInPaise Int       @default(0)
 
+  // "No written report needed" (films only). Set when a REPORTABLE order is
+  // closed because the patient declined the narrative report — money is
+  // untouched (NOT a refund/cancel). The order is then excluded from the
+  // report, the entry screen, and the finalize-completeness check, exactly like
+  // a cancel. Reversible until the visit's report is finalized.
+  noReportAt       DateTime?
+  noReportReason   String?
+  noReportByUserId String? // User who closed this order as film-only (audit; mirrors Bill.discountedByUserId)
+
   // E3-03: Test metadata snapshot (frozen at order time)
   testNameSnapshot      String // Test name at time of order
   testCodeSnapshot      String // Test code at time of order
@@ -675,6 +698,7 @@ model TestOrder {
   testDefinition TestDefinition?  @relation(fields: [testDefinitionId], references: [id], onDelete: Restrict)
   product        BillableProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
   externalLab    ExternalLab?     @relation(fields: [externalLabId], references: [id], onDelete: Restrict)
+  noReportByUser User?            @relation("TestOrderNoReportBy", fields: [noReportByUserId], references: [id], onDelete: SetNull)
 
   /// Results for this test
   testResults TestResult[]

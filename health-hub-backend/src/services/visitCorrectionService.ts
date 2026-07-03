@@ -4,8 +4,12 @@
  *
  *  - changeVisitReferral: repoint the visit's referring doctor (or back to
  *    SELF) and re-freeze every active order's commission snapshot with the
- *    same rules billing uses. Blocked once a payout has been derived for the
- *    affected doctor's period — the owner must delete that payout run first.
+ *    same rules billing uses. The old referral link is soft-deleted (kept in
+ *    the DB for history, marked with deletedAt/deletedReason/deletedBy) rather
+ *    than hard-deleted, so the visit looks Self everywhere while the history
+ *    survives. Payouts carry no paid/unpaid concept — they are always "what's
+ *    owed for the period" — so instead of blocking when a payout run covers the
+ *    visit, we re-derive that run so its amount drops to match.
  *  - swapVisitProduct: replace one billed product with another of the SAME
  *    effective price (typo fixes like CREATININE → URIC ACID). Bill totals,
  *    paid and due are untouched by construction; anything money-changing must
@@ -76,17 +80,19 @@ function snapshotsForRule(
 }
 
 /**
- * Payout-derivation guard: once a payout run covering this visit exists for
- * the doctor, editing the referral would silently diverge from what was (or
- * will be) paid out. The owner must delete that payout run and re-derive.
+ * After a referral change, any derived payout run covering this visit for the
+ * affected doctor is now stale (a made-Self visit must leave that doctor's
+ * total; a newly-referred visit must join it). Re-derive each covering run so
+ * its stored amount matches the new reality. Best-effort — a refresh failure
+ * must not roll back the committed referral change (the worklist/statement also
+ * re-derive live on view), so failures are logged and swallowed.
  */
-async function assertNoPayoutRunCoversVisit(
+async function refreshCoveringReferralPayouts(
   referralDoctorId: string,
   branchId: string,
   anchorDate: Date,
-  doctorLabel: string,
 ) {
-  const run = await prisma.doctorPayoutLedger.findFirst({
+  const runs = await prisma.doctorPayoutLedger.findMany({
     where: {
       doctorType: "REFERRAL",
       referralDoctorId,
@@ -95,14 +101,26 @@ async function assertNoPayoutRunCoversVisit(
       periodStartDate: { lte: anchorDate },
       periodEndDate: { gte: anchorDate },
     },
-    select: { id: true, paidAt: true, periodStartDate: true, periodEndDate: true },
+    select: { periodStartDate: true, periodEndDate: true },
   });
-  if (run) {
-    throw new CorrectionError(
-      409,
-      "PAYOUT_RUN_EXISTS",
-      `A payout for ${doctorLabel} already ${run.paidAt ? "was PAID" : "is derived"} for the period covering this visit. ${run.paidAt ? "Paid payouts are immutable — record an adjustment in the next period instead." : "Delete that payout run (it can be re-derived) before changing the referral."}`,
-    );
+  if (runs.length === 0) return;
+  // Lazy import avoids a load-time cycle with payoutService.
+  const { derivePayout } = await import("./payoutService");
+  for (const run of runs) {
+    try {
+      await derivePayout(
+        "REFERRAL",
+        referralDoctorId,
+        branchId,
+        run.periodStartDate,
+        run.periodEndDate,
+      );
+    } catch (err) {
+      console.error(
+        `refreshCoveringReferralPayouts: failed to re-derive payout for doctor ${referralDoctorId}`,
+        err,
+      );
+    }
   }
 }
 
@@ -123,7 +141,10 @@ async function loadVisitForCorrection(visitId: string, branchId: string) {
     where: { id: visitId, branchId, domain: "DIAGNOSTICS" },
     include: {
       bill: true,
-      referrals: { include: { referralDoctor: { select: { id: true, name: true } } } },
+      referrals: {
+        where: { deletedAt: null },
+        include: { referralDoctor: { select: { id: true, name: true } } },
+      },
       testOrders: true,
       report: {
         select: { versions: { select: { finalizedAt: true, status: true } } },
@@ -158,14 +179,6 @@ export async function changeVisitReferral(params: {
   }
 
   const anchorDate = payoutAnchorDate(visit);
-  if (oldDoctorId) {
-    await assertNoPayoutRunCoversVisit(
-      oldDoctorId,
-      branchId,
-      anchorDate,
-      currentReferral?.referralDoctor?.name ?? "the current doctor",
-    );
-  }
 
   let newDoctor: {
     id: string;
@@ -189,12 +202,6 @@ export async function changeVisitReferral(params: {
     if (!newDoctor) {
       throw new CorrectionError(400, "VALIDATION_ERROR", "Referral doctor not found");
     }
-    await assertNoPayoutRunCoversVisit(
-      referralDoctorId,
-      branchId,
-      anchorDate,
-      newDoctor.name,
-    );
   }
 
   // Re-freeze commission snapshots exactly like billing: per product group,
@@ -288,7 +295,13 @@ export async function changeVisitReferral(params: {
 
   await prisma.$transaction(
     async (tx) => {
-      await tx.referralDoctor_Visit.deleteMany({ where: { visitId } });
+      // Soft-delete the active link(s): keep the row in the DB as history,
+      // marked changed. Every referral-attribution read filters deletedAt IS
+      // NULL, so the visit now looks Self / re-referred everywhere.
+      await tx.referralDoctor_Visit.updateMany({
+        where: { visitId, deletedAt: null },
+        data: { deletedAt: new Date(), deletedReason: reason, deletedBy: userId },
+      });
       if (referralDoctorId) {
         await tx.referralDoctor_Visit.create({
           data: { visitId, referralDoctorId, branchId },
@@ -303,6 +316,15 @@ export async function changeVisitReferral(params: {
     },
     { timeout: 30_000 },
   );
+
+  // Re-derive any payout run that covered this visit so its total drops (Self)
+  // or grows (re-referred) to match. Best-effort; runs after commit.
+  const affectedDoctorIds = [oldDoctorId, referralDoctorId].filter(
+    (id): id is string => Boolean(id),
+  );
+  for (const doctorId of affectedDoctorIds) {
+    await refreshCoveringReferralPayouts(doctorId, branchId, anchorDate);
+  }
 
   await logAction({
     branchId,
@@ -399,12 +421,6 @@ export async function swapVisitProduct(params: {
   const anchorDate = payoutAnchorDate(visit);
   let rule: CommissionRule | null = null;
   if (currentReferral?.referralDoctorId) {
-    await assertNoPayoutRunCoversVisit(
-      currentReferral.referralDoctorId,
-      branchId,
-      anchorDate,
-      currentReferral.referralDoctor?.name ?? "the referring doctor",
-    );
     const doctor = await prisma.referralDoctor.findUnique({
       where: { id: currentReferral.referralDoctorId },
       include: {
@@ -487,6 +503,16 @@ export async function swapVisitProduct(params: {
       note: note ?? null,
     },
   });
+
+  // A swap is money-neutral for the bill, but a product-specific commission rule
+  // can change what the referrer earns, so refresh any covering payout run.
+  if (currentReferral?.referralDoctorId) {
+    await refreshCoveringReferralPayouts(
+      currentReferral.referralDoctorId,
+      branchId,
+      anchorDate,
+    );
+  }
 
   return {
     oldTestNames: targetOrders.map((order) => order.testNameSnapshot),

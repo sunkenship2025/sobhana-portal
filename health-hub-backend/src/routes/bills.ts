@@ -43,6 +43,7 @@ router.get("/:domain/:visitId", async (req: AuthRequest, res) => {
           },
         },
         referrals: {
+          where: { deletedAt: null },
           include: {
             referralDoctor: true,
           },

@@ -163,7 +163,7 @@ export async function fetchBillData(visitId: string, domain: 'CLINIC' | 'DIAGNOS
         orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
         include: { test: true, product: true },
       },
-      referrals: { include: { referralDoctor: true } },
+      referrals: { where: { deletedAt: null }, include: { referralDoctor: true } },
       clinicVisit: { include: { clinicDoctor: true } },
     },
   });

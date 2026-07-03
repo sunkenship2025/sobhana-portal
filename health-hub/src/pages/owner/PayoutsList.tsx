@@ -174,6 +174,11 @@ export default function PayoutsList() {
   const [worklist, setWorklist] = useState<PayRunWorklist | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Selection is off by default; a "Select" toggle reveals the row checkboxes.
+  const [selectMode, setSelectMode] = useState(false);
+  // When set, the print-only register renders just these payout ids (bulk Print
+  // of the selected rows); null ⇒ the full-period register (top "Register" btn).
+  const [printIds, setPrintIds] = useState<string[] | null>(null);
 
   const fetchWorklist = async () => {
     if (!token || !activeBranchId) {
@@ -284,14 +289,41 @@ export default function PayoutsList() {
     }
   };
 
+  // ── Select mode ──
+  function toggleSelectMode() {
+    setSelectMode((on) => {
+      if (on) setSelected(new Set()); // leaving select mode clears the ticks
+      return !on;
+    });
+  }
+
+  // ── Print selected (bulk) ──
+  // Stage the selected ids, let the print-only register re-render filtered, then
+  // fire the browser print dialog and reset.
+  const printSelected = () => {
+    if (selectedRows.length === 0) return;
+    setPrintIds(selectedRows.map((r) => r.id));
+  };
+  useEffect(() => {
+    if (!printIds) return;
+    const t = setTimeout(() => {
+      window.print();
+      setPrintIds(null);
+    }, 60);
+    return () => clearTimeout(t);
+  }, [printIds]);
+
   // ── Export ──
-  const exportExcel = async () => {
+  // Pass `ids` to scope the export to the selected payouts; omit for the whole
+  // period (top-of-page Excel button).
+  const exportExcel = async (ids?: string[]) => {
     if (!token || !activeBranchId) return;
     const params = new URLSearchParams();
     params.set("startDate", range.start);
     params.set("endDate", range.end + "T23:59:59.999Z");
     if (typeFilter !== "all") params.set("doctorType", typeFilter);
     if (q) params.set("q", q);
+    if (ids && ids.length) params.set("ids", ids.join(","));
     const res = await fetch(`${API_BASE}/payouts/export?${params.toString()}`, {
       headers: { Authorization: `Bearer ${token}`, "X-Branch-Id": activeBranchId },
     });
@@ -358,10 +390,10 @@ export default function PayoutsList() {
                 Custom range ▾
               </button>
               <RefreshButton isFetching={loading} onClick={fetchWorklist} />
-              <Button variant="outline" size="sm" onClick={exportExcel}>
+              <Button variant="outline" size="sm" onClick={() => exportExcel()}>
                 <Download className="mr-1.5 h-4 w-4" /> Excel
               </Button>
-              <Button variant="outline" size="sm" onClick={() => window.print()}>
+              <Button variant="outline" size="sm" onClick={() => { setPrintIds(null); window.print(); }}>
                 <Printer className="mr-1.5 h-4 w-4" /> Register
               </Button>
             </>
@@ -518,6 +550,19 @@ export default function PayoutsList() {
                   </button>
                 ))}
               </div>
+              <button
+                onClick={toggleSelectMode}
+                className="rounded-md border px-3 py-1.5"
+                style={{
+                  fontSize: 12,
+                  borderColor: TOKENS.border,
+                  background: selectMode ? TOKENS.textPrimary : "white",
+                  color: selectMode ? "white" : TOKENS.textSecondary,
+                }}
+                title="Show checkboxes to select payouts"
+              >
+                {selectMode ? "Done" : "Select"}
+              </button>
               <div className="relative min-w-[180px] flex-1">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -542,6 +587,7 @@ export default function PayoutsList() {
                 <RowsTable
                   rows={rows}
                   selected={selected}
+                  selectMode={selectMode}
                   onToggle={toggleRow}
                   onStatement={(id) => navigate(`/owner/payouts/${id}`)}
                   onPrint={(id) => navigate(`/owner/payouts/${id}?print=1`)}
@@ -575,13 +621,15 @@ export default function PayoutsList() {
                         }}
                         onClick={() => toggleCollapsed(g.payeeType)}
                       >
-                        <input
-                          type="checkbox"
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={() => toggleSelectGroup(g.rows)}
-                          checked={g.rows.length > 0 && g.rows.every((r) => selected.has(r.id))}
-                          title="Select all in this section"
-                        />
+                        {selectMode && (
+                          <input
+                            type="checkbox"
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={() => toggleSelectGroup(g.rows)}
+                            checked={g.rows.length > 0 && g.rows.every((r) => selected.has(r.id))}
+                            title="Select all in this section"
+                          />
+                        )}
                         <ChevronDown
                           className="h-4 w-4 transition-transform"
                           style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", color: TOKENS.textTertiary }}
@@ -614,6 +662,7 @@ export default function PayoutsList() {
                         <RowsTable
                           rows={g.rows}
                           selected={selected}
+                          selectMode={selectMode}
                           onToggle={toggleRow}
                           onStatement={(id) => navigate(`/owner/payouts/${id}`)}
                           onPrint={(id) => navigate(`/owner/payouts/${id}?print=1`)}
@@ -628,14 +677,16 @@ export default function PayoutsList() {
         )}
       </div>
 
-      <RegisterPrint worklist={worklist} periodLabel={periodLabel} />
+      <RegisterPrint worklist={worklist} periodLabel={periodLabel} onlyIds={printIds} />
 
       <PayoutBulkActionBar
         count={selected.size}
         totalInPaise={selectedTotalInPaise}
+        selectionNoun="payouts"
         isOwner={isOwner}
         onDelete={() => isOwner && selected.size > 0 && setDeleteOpen(true)}
-        onExport={exportExcel}
+        onPrint={printSelected}
+        onExport={() => exportExcel(selectedRows.map((r) => r.id))}
         onClear={() => setSelected(new Set())}
       />
 
@@ -654,6 +705,7 @@ export default function PayoutsList() {
 function RowsTable({
   rows,
   selected,
+  selectMode,
   onToggle,
   onStatement,
   onPrint,
@@ -661,6 +713,7 @@ function RowsTable({
 }: {
   rows: PayoutWorklistRow[];
   selected: Set<string>;
+  selectMode?: boolean;
   onToggle: (id: string) => void;
   onStatement: (id: string) => void;
   onPrint: (id: string) => void;
@@ -670,7 +723,7 @@ function RowsTable({
     <table className="w-full" style={{ fontSize: 12 }}>
       <thead>
         <tr style={{ color: TOKENS.textTertiary, fontSize: 11, textAlign: "left" }}>
-          <th className="py-1 pl-3 font-normal" style={{ width: 28 }} />
+          {selectMode && <th className="py-1 pl-3 font-normal" style={{ width: 28 }} />}
           <th className="py-1 font-normal">Payee</th>
           <th className="py-1 text-right font-normal">Amount</th>
           <th className="py-1 pr-3 text-right font-normal">Actions</th>
@@ -681,9 +734,11 @@ function RowsTable({
           const outbound = r.payeeType === "LAB";
           return (
             <tr key={r.id} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
-              <td className="py-2 pl-3" style={{ width: 28 }}>
-                <input type="checkbox" checked={selected.has(r.id)} onChange={() => onToggle(r.id)} />
-              </td>
+              {selectMode && (
+                <td className="py-2 pl-3" style={{ width: 28 }}>
+                  <input type="checkbox" checked={selected.has(r.id)} onChange={() => onToggle(r.id)} />
+                </td>
+              )}
               <td className="py-2">
                 {/* The payee name is the primary drill-in — opens the statement. */}
                 <button
@@ -743,21 +798,37 @@ const LOGO_URL = `${API_BASE_URL}/images/sobhana-clinic-logo.png`;
 function RegisterPrint({
   worklist,
   periodLabel,
+  onlyIds,
 }: {
   worklist: PayRunWorklist | null;
   periodLabel: string;
+  onlyIds?: string[] | null;
 }) {
   if (!worklist) return null;
   const td: CSSProperties = { border: "1px solid #999", padding: "3px 6px", fontSize: 10 };
   const th: CSSProperties = { ...td, background: "#eee", fontWeight: 600, textAlign: "left" };
   const rt: CSSProperties = { textAlign: "right" };
-  const t = worklist.totals;
+  // When a selection is being printed, restrict rows to it and recompute the
+  // two footers from the filtered set so the printed totals stay consistent.
+  const idSet = onlyIds && onlyIds.length ? new Set(onlyIds) : null;
+  const printRows = idSet ? worklist.rows.filter((r) => idSet.has(r.id)) : worklist.rows;
+  const t = idSet
+    ? printRows.reduce(
+        (acc, r) => {
+          if (r.payeeType === "LAB") acc.labPayablesTotalInPaise += r.amountInPaise;
+          else acc.commissionsTotalInPaise += r.amountInPaise;
+          return acc;
+        },
+        { commissionsTotalInPaise: 0, labPayablesTotalInPaise: 0 }
+      )
+    : worklist.totals;
   return (
     <div className="hidden print:block print-content print-page">
       <div style={{ textAlign: "center", borderBottom: "2px solid #111", paddingBottom: 8, marginBottom: 12 }}>
         <img src={LOGO_URL} alt="Sobhana" style={{ height: 46 }} />
         <div style={{ fontWeight: 700, letterSpacing: "0.12em", marginTop: 6, fontSize: 13 }}>
           PAYOUTS REGISTER — {periodLabel.toUpperCase()}
+          {idSet ? ` · ${printRows.length} SELECTED` : ""}
         </div>
       </div>
       <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 10 }}>
@@ -769,7 +840,7 @@ function RegisterPrint({
           </tr>
         </thead>
         <tbody>
-          {worklist.rows.map((r) => (
+          {printRows.map((r) => (
             <tr key={r.id}>
               <td style={td}>{r.payeeName}</td>
               <td style={td}>{TYPE_BADGE[r.payeeType]}</td>
