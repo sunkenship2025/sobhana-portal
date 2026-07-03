@@ -1827,12 +1827,22 @@ export async function getReportSnapshot(reportVersionId: string): Promise<Report
       },
     });
     if (currentLabIncharge) {
+      // Immutability: prefer the values frozen into the snapshot at
+      // finalization — the identity AND the actual signature bytes
+      // (signatureImageBase64). Fall back to the live record only for a field
+      // an older snapshot never captured (null); never overwrite a frozen
+      // value, so replacing or editing the lab incharge later cannot rewrite
+      // historical reports. Mirrors backfillStoredSignatureAssets for doctors.
       labIncharge = {
-        signerId: currentLabIncharge.id,
-        signerName: currentLabIncharge.name,
-        designation: currentLabIncharge.designation,
-        signatureImagePath: currentLabIncharge.signatureImagePath,
-        signatureImageBase64: currentLabIncharge.signatureImageBase64 || null,
+        signerId: labIncharge.signerId,
+        signerName: labIncharge.signerName || currentLabIncharge.name,
+        designation: labIncharge.designation || currentLabIncharge.designation,
+        signatureImagePath:
+          labIncharge.signatureImagePath || currentLabIncharge.signatureImagePath,
+        signatureImageBase64:
+          labIncharge.signatureImageBase64 ||
+          currentLabIncharge.signatureImageBase64 ||
+          null,
       };
     }
   }
