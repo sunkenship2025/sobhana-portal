@@ -125,10 +125,6 @@ export const ClinicPrescriptionPrint = ({
                 <div className="clinic-rx-symbol">℞</div>
                 <div className="clinic-rx-writing-area" aria-hidden="true"></div>
               </div>
-
-              <div className="clinic-rx-signature">
-                <p className="clinic-rx-signature-label">Doctor&apos;s Signature</p>
-              </div>
             </div>
 
             <div className="clinic-rx-footer-space" aria-hidden="true"></div>

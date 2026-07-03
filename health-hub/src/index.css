@@ -289,19 +289,6 @@
   min-height: 0;
 }
 
-.clinic-rx-signature {
-  align-self: flex-end;
-  width: 58mm;
-  margin-top: 8mm;
-  text-align: center;
-  padding-top: 7mm;
-}
-
-.clinic-rx-signature-label {
-  margin: 0;
-  font-size: 10pt;
-}
-
 .clinic-rx-footer-space {
   height: 25mm;
   flex-shrink: 0;
