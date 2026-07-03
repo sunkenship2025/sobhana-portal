@@ -731,7 +731,7 @@ const DiagnosticsReportPreview = () => {
           <CardContent className="pt-6">
             {!reportSnapshot?.departments.length && !results.length && visit.hasExternalUploadOrders ? (
               <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                This visit's report is an external PDF upload. Click <strong>Preview Report Before Finalization</strong> below to see the merged PDF with the Sobhana letterhead applied to your uploaded file(s).
+                This visit's report is an external PDF upload. Click <strong>{canFinalize ? 'Preview Report Before Finalization' : 'Preview Report'}</strong> below to see the merged PDF with the Sobhana letterhead applied to your uploaded file(s).
               </div>
             ) : reportSnapshot?.departments.length ? (
               <div className="space-y-6">
@@ -990,7 +990,7 @@ const DiagnosticsReportPreview = () => {
               ) : (
                 <Eye className="mr-2 h-4 w-4" />
               )}
-              {previewLoading ? 'Generating...' : 'Preview Report Before Finalization'}
+              {previewLoading ? 'Generating...' : canFinalize ? 'Preview Report Before Finalization' : 'Preview Report'}
             </Button>
           </div>
         )}

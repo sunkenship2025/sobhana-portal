@@ -280,7 +280,10 @@ const DiagnosticsResultEntry = () => {
   const { visitId } = useParams();
   const navigate = useNavigate();
   const { activeBranchId } = useBranchStore();
-  const { token } = useAuthStore();
+  const { token, user } = useAuthStore();
+  // Staff/sales can enter and save results but never finalize, so the CTA must
+  // not promise finalization to them — they hand off to owner / lab incharge.
+  const canFinalize = user?.role === 'owner' || user?.role === 'lab_incharge';
 
   const [visit, setVisit] = useState<Visit | null>(null);
   const [loading, setLoading] = useState(true);
@@ -2408,7 +2411,7 @@ const DiagnosticsResultEntry = () => {
               // incomplete here so the staff sees the "partial" path and gets
               // the selector dialog.
               const buttonLabel = fullyDone
-                ? 'Review & Finalize'
+                ? (canFinalize ? 'Review & Finalize' : 'Review Report')
                 : 'Continue with Partial Report';
 
               // Narrative AND external-upload tests both look "complete" the
