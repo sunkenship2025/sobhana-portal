@@ -64,3 +64,8 @@ bun.lockb
 # AI agent config
 .agent/
 .agents/
+
+# Secrets & local data dumps — never commit (P0-15/P0-16)
+go-proxy.js
+extras/*.sql
+*.dump
