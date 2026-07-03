@@ -644,6 +644,10 @@ export default function OwnerMoneyPage() {
 
   const [agingFilter, setAgingFilter] = useState<AgingKey | null>(null);
   const [daySheetBusy, setDaySheetBusy] = useState<null | 'print' | 'excel'>(null);
+  // Which register the day sheet covers: everything, diagnostics only, or OP (clinic) only.
+  const [daySheetDomain, setDaySheetDomain] = useState<'all' | 'diagnostics' | 'clinic'>('all');
+  const daySheetParams =
+    daySheetDomain === 'all' ? moneyParams : `${moneyParams}&domain=${daySheetDomain}`;
 
   const printDaySheet = async () => {
     if (daySheetBusy) return;
@@ -657,7 +661,7 @@ export default function OwnerMoneyPage() {
     win.document.write('<p style="font-family:sans-serif;padding:24px;color:#666">Preparing day sheet…</p>');
     setDaySheetBusy('print');
     try {
-      const data = await apiRequest<DaySheetResponse>(`${API_BASE}/owner/money/day-sheet?${moneyParams}`);
+      const data = await apiRequest<DaySheetResponse>(`${API_BASE}/owner/money/day-sheet?${daySheetParams}`);
       win.document.open();
       win.document.write(buildDaySheetHtml(data));
       win.document.close();
@@ -674,7 +678,7 @@ export default function OwnerMoneyPage() {
     setDaySheetBusy('excel');
     try {
       const { token } = useAuthStore.getState();
-      const res = await fetch(`${API_BASE}/owner/money/day-sheet?${moneyParams}&format=xlsx`, {
+      const res = await fetch(`${API_BASE}/owner/money/day-sheet?${daySheetParams}&format=xlsx`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
       if (!res.ok) throw new Error('Export failed');
@@ -682,7 +686,8 @@ export default function OwnerMoneyPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `day-sheet-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      const tag = daySheetDomain === 'diagnostics' ? 'diagnostic-' : daySheetDomain === 'clinic' ? 'op-' : '';
+      a.download = `${tag}day-sheet-${new Date().toISOString().slice(0, 10)}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {
@@ -721,6 +726,30 @@ export default function OwnerMoneyPage() {
                 onCustomRangeChange={setCustomRange}
               />
               <BranchFilter value={branchValue} onChange={setBranchValue} />
+              <div
+                className="inline-flex overflow-hidden rounded-md border"
+                style={{ borderColor: TOKENS.border, fontSize: 12 }}
+                title="Which register the day sheet covers"
+              >
+                {([
+                  ['all', 'All'],
+                  ['diagnostics', 'Diagnostic'],
+                  ['clinic', 'OP'],
+                ] as const).map(([k, label], i) => (
+                  <button
+                    key={k}
+                    onClick={() => setDaySheetDomain(k)}
+                    className="px-2.5 py-1.5"
+                    style={{
+                      background: k === daySheetDomain ? TOKENS.info : 'white',
+                      color: k === daySheetDomain ? 'white' : TOKENS.textSecondary,
+                      borderLeft: i === 0 ? 'none' : `0.5px solid ${TOKENS.border}`,
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               <button
                 onClick={printDaySheet}
                 disabled={daySheetBusy !== null}

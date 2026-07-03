@@ -394,6 +394,7 @@ export async function getOwnerMoney(
       select: {
         amountInPaise: true,
         paymentType: true,
+        transactionType: true,
         collectedByUserId: true,
         bill: { select: { branchId: true } },
         collectedByUser: {
@@ -591,8 +592,10 @@ export async function getOwnerMoney(
     const bid = p.bill.branchId;
     if (!bid) continue;
     const cur = branchCash.get(bid) ?? { cash: 0, online: 0 };
-    if (p.paymentType === 'CASH') cur.cash += p.amountInPaise;
-    else if (p.paymentType === 'ONLINE') cur.online += p.amountInPaise;
+    // Net of refunds: REFUND rows carry a positive amount but move money out.
+    const signed = p.transactionType === 'REFUND' ? -p.amountInPaise : p.amountInPaise;
+    if (p.paymentType === 'CASH') cur.cash += signed;
+    else if (p.paymentType === 'ONLINE') cur.online += signed;
     branchCash.set(bid, cur);
   }
   const cashByBranch: CashByBranchRow[] = (branchId
@@ -631,8 +634,9 @@ export async function getOwnerMoney(
       online: 0,
       count: 0,
     };
-    if (p.paymentType === 'CASH') cur.cash += p.amountInPaise;
-    else if (p.paymentType === 'ONLINE') cur.online += p.amountInPaise;
+    const signed = p.transactionType === 'REFUND' ? -p.amountInPaise : p.amountInPaise;
+    if (p.paymentType === 'CASH') cur.cash += signed;
+    else if (p.paymentType === 'ONLINE') cur.online += signed;
     cur.count += 1;
     userMap.set(u, cur);
   }
@@ -747,6 +751,7 @@ export interface DaySheetResponse {
   generatedAt: string;
   period: { key: PeriodKey; startIso: string; endIso: string };
   branchScope: { branchId: string | null; branchName: string | null };
+  domain: 'ALL' | 'DIAGNOSTICS' | 'CLINIC';
   rows: DaySheetRow[];
   totals: {
     count: number;
@@ -765,21 +770,25 @@ export interface DaySheetResponse {
  * day sheet and its Excel export. Not cached: it's an on-demand report and the
  * result set is bounded by the window.
  */
+export type DaySheetDomain = 'DIAGNOSTICS' | 'CLINIC';
+
 export async function getMoneyDaySheet(
   period: PeriodKey,
   branchId: string | null,
   range: CustomRange | null = null,
+  domain: DaySheetDomain | null = null,
 ): Promise<DaySheetResponse> {
   const now = new Date();
   const win = period === 'custom' && range ? customWindow(range) : periodWindow(period, now);
   const billBranchWhere: Prisma.BillWhereInput = branchId ? { branchId } : {};
+  const domainWhere: Prisma.BillWhereInput = domain ? { visit: { domain } } : {};
 
   const [scopedBranch, bills] = await Promise.all([
     branchId
       ? prisma.branch.findUnique({ where: { id: branchId }, select: { id: true, name: true } })
       : Promise.resolve(null),
     prisma.bill.findMany({
-      where: { billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere },
+      where: { billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere, ...domainWhere },
       orderBy: { billedAt: 'asc' },
       select: {
         billNumber: true,
@@ -803,8 +812,7 @@ export async function getMoneyDaySheet(
           },
         },
         transactions: {
-          where: { transactionType: 'PAYMENT' },
-          select: { paymentType: true, amountInPaise: true },
+          select: { paymentType: true, amountInPaise: true, transactionType: true },
         },
       },
     }),
@@ -815,20 +823,26 @@ export async function getMoneyDaySheet(
       b.visit.domain === 'CLINIC'
         ? [`Consultation${b.visit.clinicVisit?.clinicDoctor?.name ? ` — Dr. ${b.visit.clinicVisit.clinicDoctor.name}` : ''}`]
         : b.visit.testOrders.map((t) => t.testNameSnapshot);
-    const due = Math.max(
-      0,
-      b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0) - b.paidAmountInPaise,
-    );
-    // Cash/online split from PAYMENT transactions — same classification the
-    // dashboard's cash-vs-online section uses (CASH vs ONLINE; cheque excluded).
+    // Cash/online split NET of refunds, from the transaction ledger. A REFUND
+    // row carries a positive amount but returns money, so it subtracts — this
+    // matches how paidAmountInPaise is derived (sum PAYMENT − sum REFUND), so
+    // Cash + Online tallies to Paid for every txn-backed bill.
     let cashInPaise = 0;
     let onlineInPaise = 0;
     const kinds = new Set<string>();
     for (const t of b.transactions) {
-      if (t.paymentType === 'CASH') cashInPaise += t.amountInPaise;
-      else if (t.paymentType === 'ONLINE') onlineInPaise += t.amountInPaise;
-      if (t.amountInPaise > 0) kinds.add(t.paymentType);
+      const signed = t.transactionType === 'REFUND' ? -t.amountInPaise : t.amountInPaise;
+      if (t.paymentType === 'CASH') cashInPaise += signed;
+      else if (t.paymentType === 'ONLINE') onlineInPaise += signed;
+      if (t.transactionType !== 'REFUND' && t.amountInPaise > 0) kinds.add(t.paymentType);
     }
+    // Ledger is the source of truth when transactions exist; fall back to the
+    // stored field only for legacy bills backfilled without a ledger.
+    const paidInPaise = b.transactions.length > 0 ? cashInPaise + onlineInPaise : b.paidAmountInPaise;
+    const due = Math.max(
+      0,
+      b.totalAmountInPaise - b.discountAmountInPaise - (b.reversedChargeInPaise ?? 0) - paidInPaise,
+    );
     const paymentMethod: DaySheetRow['paymentMethod'] =
       kinds.size === 0
         ? 'NONE'
@@ -846,7 +860,7 @@ export async function getMoneyDaySheet(
       testCount: b.visit.domain === 'CLINIC' ? 1 : b.visit.testOrders.length,
       grossInPaise: b.totalAmountInPaise,
       discountInPaise: b.discountAmountInPaise,
-      paidInPaise: b.paidAmountInPaise,
+      paidInPaise,
       cashInPaise,
       onlineInPaise,
       dueInPaise: due,
@@ -881,6 +895,7 @@ export async function getMoneyDaySheet(
     generatedAt: now.toISOString(),
     period: { key: period, startIso: win.start.toISOString(), endIso: win.end.toISOString() },
     branchScope: { branchId, branchName: scopedBranch?.name ?? null },
+    domain: domain ?? 'ALL',
     rows,
     totals,
   };

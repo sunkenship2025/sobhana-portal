@@ -41,7 +41,9 @@ export async function buildDaySheetWorkbook(data: DaySheetResponse): Promise<Buf
   wb.creator = 'Sobhana Diagnostics';
   wb.created = new Date();
 
-  const ws = wb.addWorksheet('Day Sheet', {
+  const domainLabel =
+    data.domain === 'DIAGNOSTICS' ? 'Diagnostic' : data.domain === 'CLINIC' ? 'OP' : 'All';
+  const ws = wb.addWorksheet(`${domainLabel} Day Sheet`.slice(0, 31), {
     views: [{ state: 'frozen', ySplit: 1 }],
   });
 
@@ -103,7 +105,7 @@ export async function buildDaySheetWorkbook(data: DaySheetResponse): Promise<Buf
   const rangeLabel = startLabel === endLabel ? startLabel : `${startLabel} – ${endLabel}`;
   const scope = data.branchScope.branchName ?? 'All branches';
   const meta = ws.addRow({});
-  meta.getCell('tests').value = `${scope} · ${rangeLabel} · generated ${istDateTime(data.generatedAt)}`;
+  meta.getCell('tests').value = `${domainLabel} · ${scope} · ${rangeLabel} · generated ${istDateTime(data.generatedAt)}`;
   meta.font = { italic: true, size: 9, color: { argb: 'FF666666' } };
 
   const buf = await wb.xlsx.writeBuffer();

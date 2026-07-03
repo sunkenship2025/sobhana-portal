@@ -29,6 +29,7 @@ export interface DaySheetResponse {
   generatedAt: string;
   period: { key: string; startIso: string; endIso: string };
   branchScope: { branchId: string | null; branchName: string | null };
+  domain: 'ALL' | 'DIAGNOSTICS' | 'CLINIC';
   rows: DaySheetRow[];
   totals: {
     count: number;
@@ -82,9 +83,16 @@ function rangeLabel(data: DaySheetResponse): string {
   return start === end ? start : `${start} – ${end}`;
 }
 
+const DOMAIN_LABEL: Record<DaySheetResponse['domain'], string> = {
+  ALL: 'Day sheet',
+  DIAGNOSTICS: 'Diagnostic day sheet',
+  CLINIC: 'OP day sheet',
+};
+
 /** Build a self-contained printable HTML document for the day sheet. */
 export function buildDaySheetHtml(data: DaySheetResponse): string {
   const scope = data.branchScope.branchName ?? 'All branches';
+  const heading = DOMAIN_LABEL[data.domain];
   const rowsHtml = data.rows
     .map((r, i) => {
       const patient = r.patientTitle ? `${r.patientTitle} ${r.patientName}` : r.patientName;
@@ -115,7 +123,7 @@ export function buildDaySheetHtml(data: DaySheetResponse): string {
 <html>
 <head>
 <meta charset="utf-8" />
-<title>Day sheet — ${esc(rangeLabel(data))}</title>
+<title>${esc(heading)} — ${esc(rangeLabel(data))}</title>
 <style>
   * { box-sizing: border-box; }
   body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #1a1a1a; margin: 24px; }
@@ -134,7 +142,7 @@ export function buildDaySheetHtml(data: DaySheetResponse): string {
 </style>
 </head>
 <body>
-  <h1>Day sheet — ${esc(scope)}</h1>
+  <h1>${esc(heading)} — ${esc(scope)}</h1>
   <div class="sub">${esc(rangeLabel(data))} · ${t.count} bill${t.count === 1 ? '' : 's'} · generated ${esc(istDateTime(data.generatedAt))}</div>
   <table>
     <thead>

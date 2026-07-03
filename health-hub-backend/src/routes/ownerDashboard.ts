@@ -8,6 +8,7 @@ import {
   getMoneyDaySheet,
   PeriodKey as MoneyPeriod,
   CustomRange as MoneyCustomRange,
+  DaySheetDomain as MoneyDaySheetDomain,
 } from '../services/ownerMoneyService';
 import { buildDaySheetWorkbook } from '../services/moneyDaySheetExportService';
 import { getOwnerDoctors, PeriodKey as DoctorsPeriod } from '../services/ownerDoctorsService';
@@ -85,12 +86,16 @@ router.get('/money', async (req: AuthRequest, res) => {
 router.get('/money/day-sheet', async (req: AuthRequest, res) => {
   try {
     const { period, branchId, range } = parseMoneyQuery(req);
-    const data = await getMoneyDaySheet(period, branchId, range);
+    const rawDomain = (req.query.domain as string) || 'all';
+    const domain: MoneyDaySheetDomain | null =
+      rawDomain === 'diagnostics' ? 'DIAGNOSTICS' : rawDomain === 'clinic' ? 'CLINIC' : null;
+    const data = await getMoneyDaySheet(period, branchId, range, domain);
 
     if ((req.query.format as string) === 'xlsx') {
       const buffer = await buildDaySheetWorkbook(data);
       const stamp = new Date().toISOString().slice(0, 10);
-      const filename = `day-sheet-${stamp}.xlsx`;
+      const tag = domain === 'DIAGNOSTICS' ? 'diagnostic-' : domain === 'CLINIC' ? 'op-' : '';
+      const filename = `${tag}day-sheet-${stamp}.xlsx`;
       res.setHeader(
         'Content-Type',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
