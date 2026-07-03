@@ -127,6 +127,25 @@ export async function resolveReferenceRange(
 ): Promise<ResolvedRange> {
   const patientAgeDays = calculateAgeDays(yearOfBirth, dateOfBirth);
 
+  // Legacy LabTest/TestAgeRange have no critical-threshold columns. Borrow the
+  // panic thresholds from the matching new-architecture TestDefinition (same
+  // code) — where critical values are configured — so legacy tests still flag
+  // critical results. (P0-6)
+  const legacyTest = await prisma.labTest.findUnique({
+    where: { id: testId },
+    select: { code: true },
+  });
+  let criticalMin: number | null = null;
+  let criticalMax: number | null = null;
+  if (legacyTest?.code) {
+    const td = await prisma.testDefinition.findFirst({
+      where: { code: legacyTest.code, isLatest: true },
+      select: { criticalMin: true, criticalMax: true },
+    });
+    criticalMin = td?.criticalMin ?? null;
+    criticalMax = td?.criticalMax ?? null;
+  }
+
   const ageRanges = await prisma.testAgeRange.findMany({
     where: {
       testId,
@@ -161,8 +180,8 @@ export async function resolveReferenceRange(
         referenceMax: range.referenceMax,
         referenceUnit: unit,
         referenceText: range.referenceText,
-        criticalMin: null,
-        criticalMax: null,
+        criticalMin,
+        criticalMax,
         source: 'age-range',
       };
     }
@@ -183,8 +202,8 @@ export async function resolveReferenceRange(
     referenceMax: test?.referenceMax ?? null,
     referenceUnit: test?.referenceUnit ?? null,
     referenceText: test?.referenceText ?? null,
-    criticalMin: null,
-    criticalMax: null,
+    criticalMin,
+    criticalMax,
     source: 'default',
   };
 }

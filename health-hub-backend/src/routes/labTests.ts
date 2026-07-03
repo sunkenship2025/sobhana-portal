@@ -190,6 +190,25 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Lab test not found' });
     }
 
+    // FREEZE legacy reference ranges: editing them in place retroactively
+    // changes historical finalized reports (legacy ranges aren't snapshotted).
+    // Reject an actual range change — ranges must be managed via versioned
+    // Clinical Definitions. Other fields (name, price, active) still update.
+    if (referenceRange) {
+      const rangeChanged =
+        (referenceRange.min !== undefined && referenceRange.min !== existing.referenceMin) ||
+        (referenceRange.max !== undefined && referenceRange.max !== existing.referenceMax) ||
+        (referenceRange.unit !== undefined && (referenceRange.unit || null) !== existing.referenceUnit) ||
+        (referenceRange.text !== undefined && (referenceRange.text || null) !== existing.referenceText);
+      if (rangeChanged) {
+        return res.status(409).json({
+          error: 'RANGE_FROZEN',
+          message:
+            'Reference ranges on legacy tests are frozen to protect historical reports. Edit ranges via Clinical Definitions (versioned) instead.',
+        });
+      }
+    }
+
     // Duplicate code check
     if (code && code.toUpperCase() !== existing.code) {
       const duplicate = await prisma.labTest.findUnique({ where: { code: code.toUpperCase() } });
@@ -321,6 +340,20 @@ router.patch('/:id/age-ranges/:rangeId', async (req: AuthRequest, res) => {
     const existing = await prisma.testAgeRange.findUnique({ where: { id: rangeId } });
     if (!existing || existing.testId !== req.params.id) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Age range not found for this test' });
+    }
+
+    // FREEZE legacy reference values (see PATCH /:id) — reject an actual change.
+    const rangeChanged =
+      (referenceMin !== undefined && referenceMin !== existing.referenceMin) ||
+      (referenceMax !== undefined && referenceMax !== existing.referenceMax) ||
+      (referenceUnit !== undefined && (referenceUnit || null) !== existing.referenceUnit) ||
+      (referenceText !== undefined && (referenceText || null) !== existing.referenceText);
+    if (rangeChanged) {
+      return res.status(409).json({
+        error: 'RANGE_FROZEN',
+        message:
+          'Reference ranges on legacy tests are frozen to protect historical reports. Edit ranges via Clinical Definitions (versioned) instead.',
+      });
     }
 
     const updateData: any = {};
