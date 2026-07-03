@@ -133,7 +133,12 @@ export function PatientEditDialog({ patient, onSuccess }: PatientEditDialogProps
     const payload: PatientEditPayload = {};
     if (formData.name !== initialData.name) payload.name = formData.name;
     if (formData.title !== initialData.title) payload.title = (formData.title || undefined) as Title | undefined;
-    if (formData.age !== initialData.age) payload.age = parseInt(formData.age, 10);
+    if (formData.age !== initialData.age) {
+      payload.age = parseInt(formData.age, 10);
+      // Always send the unit with an age change so the backend never falls back
+      // to YEARS (e.g. bumping a MONTHS infant 1 → 16 must stay months).
+      payload.ageUnit = formData.ageUnit;
+    }
     if (formData.ageUnit !== initialData.ageUnit) payload.ageUnit = formData.ageUnit;
     if (formData.gender !== initialData.gender) payload.gender = formData.gender as Gender;
     if (formData.address !== initialData.address) payload.address = formData.address;

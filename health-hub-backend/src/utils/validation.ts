@@ -213,9 +213,31 @@ export function getPatientAge(dateOfBirth: Date | null, yearOfBirth: number): nu
 export function getPatientAgeDisplay(dateOfBirth: Date | null, yearOfBirth: number, ageUnit?: string | null): string {
   if (dateOfBirth) {
     const now = new Date();
-    const diffMs = now.getTime() - new Date(dateOfBirth).getTime();
+    const dob = new Date(dateOfBirth);
+    const diffMs = now.getTime() - dob.getTime();
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
     if (diffDays < 30) return `${diffDays} Day${diffDays !== 1 ? 's' : ''}`;
+
+    // Infants entered in MONTHS: once past a year, show "Y Year Z Months"
+    // rather than collapsing to a bare "1 Year" (e.g. 16 months → "1 Year
+    // 4 Months"). Uses calendar-month math so the remainder is exact.
+    if (ageUnit === 'MONTHS') {
+      let totalMonths =
+        (now.getFullYear() - dob.getFullYear()) * 12 +
+        (now.getMonth() - dob.getMonth());
+      if (now.getDate() < dob.getDate()) totalMonths -= 1;
+      totalMonths = Math.max(0, totalMonths);
+      if (totalMonths < 12) {
+        return `${totalMonths} Month${totalMonths !== 1 ? 's' : ''}`;
+      }
+      const years = Math.floor(totalMonths / 12);
+      const months = totalMonths % 12;
+      const yearPart = `${years} Year${years !== 1 ? 's' : ''}`;
+      return months > 0
+        ? `${yearPart} ${months} Month${months !== 1 ? 's' : ''}`
+        : yearPart;
+    }
+
     if (diffDays < 365) {
       const months = Math.floor(diffDays / 30.44);
       return `${months} Month${months !== 1 ? 's' : ''}`;

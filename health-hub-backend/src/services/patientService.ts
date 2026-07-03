@@ -1279,7 +1279,10 @@ export async function updatePatient(input: UpdatePatientInput) {
     
     // E2-09: Handle age update - convert to YOB, with unit-aware DOB computation
     if (updates.age !== undefined) {
-      const unit = updates.ageUnit || 'YEARS';
+      // Preserve the patient's existing unit when age is edited without an
+      // explicit unit — otherwise editing a MONTHS infant's age (e.g. 1 → 16,
+      // unit unchanged so not resent) would be misread as 16 YEARS.
+      const unit = updates.ageUnit || existingPatient.ageUnit || 'YEARS';
       if (unit === 'DAYS') {
         const approxDob = new Date(Date.now() - updates.age * 24 * 60 * 60 * 1000);
         patientUpdates.dateOfBirth = approxDob;
