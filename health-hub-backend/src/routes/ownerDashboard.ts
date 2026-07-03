@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
 import { getOwnerMetrics, MetricsWindow } from '../services/ownerMetricsService';
-import { getOwnerDashboardV2 } from '../services/ownerDashboardV2Service';
+import { getOwnerDashboardV2, PeriodKey as DashboardV2Period } from '../services/ownerDashboardV2Service';
 import {
   getOwnerMoney,
   getMoneyDaySheet,
@@ -19,14 +19,15 @@ const router = Router();
 router.use(authMiddleware);
 router.use(requireRole('owner'));
 
-// GET /api/owner/dashboard-v2?branch=<id>
-// Decision-first aggregations for the rebuilt owner home page.
+// GET /api/owner/dashboard-v2?period=today|yesterday|7d|30d|mtd|ytd|custom&branch=<id>
+//   custom also takes &start=YYYY-MM-DD&end=YYYY-MM-DD (IST calendar days, inclusive).
+// The period slicer scopes the money summary, revenue trend/mix and branch table;
+// the action queue, receivables, payout liability and ops pulse stay live.
 // branch=all (or omitted) returns cross-branch totals.
 router.get('/dashboard-v2', async (req: AuthRequest, res) => {
   try {
-    const raw = (req.query.branch as string) || 'all';
-    const branchId = raw === 'all' ? null : raw;
-    const data = await getOwnerDashboardV2(branchId);
+    const { period, branchId, range } = parseMoneyQuery(req);
+    const data = await getOwnerDashboardV2(branchId, period as DashboardV2Period, range);
     return res.json(data);
   } catch (err: any) {
     req.log.error({ err }, 'owner dashboard v2 load failed');

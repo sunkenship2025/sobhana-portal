@@ -1,17 +1,19 @@
 /**
  * Owner dashboard — decision-first redesign.
  *
- * Backed by GET /api/owner/dashboard-v2. The page answers exactly one question:
- * "what needs my decision today?" Every section either fires (with a value)
- * or hides itself; nothing is rendered when there is nothing to act on.
+ * Backed by GET /api/owner/dashboard-v2. A global period slicer scopes the
+ * "period zone" (money summary, revenue trend/mix, branch table). The action
+ * queue, payout liability, open receivables and ops pulse are current-state
+ * ("live") and deliberately ignore the slicer — they answer "what needs my
+ * decision right now?" regardless of the reporting window.
  *
  * Sections, top to bottom:
- *   - Header strip                 — title, IST timestamp, branch filter
- *   - Action queue                 — chips, conditional, max 6
- *   - Money today + payout liability  (60/40 split)
- *   - Diagnostics / clinic / comms 3-tile pulse
- *   - 30-day net revenue trend + today's mix
- *   - Branch performance table
+ *   - Header strip                 — title, IST timestamp, period + branch filters
+ *   - Action queue                 — live chips, conditional
+ *   - Money (period) + payout liability (live)  (60/40 split)
+ *   - Diagnostics / clinic / comms 3-tile pulse (live/today)
+ *   - Net revenue trend + revenue mix (period)
+ *   - Branch performance table (period, Δ vs prior window)
  */
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -29,6 +31,9 @@ import {
   DisplayNumber,
   SectionLabel,
   BranchFilter,
+  PeriodFilter,
+  PeriodKey,
+  PERIOD_LABEL,
   formatIstDateTime,
   ErrorCard,
   RefreshButton,
@@ -60,6 +65,7 @@ interface ActionChip {
 
 interface DashboardV2 {
   generatedAt: string;
+  period: { key: PeriodKey; startIso: string; endIso: string };
   branchScope: { branchId: string | null; branchName: string | null };
   dataAge: { firstVisitAt: string | null; daysSinceLaunch: number };
   actionQueue: ActionChip[];
@@ -74,7 +80,6 @@ interface DashboardV2 {
     collectedTotalInPaise: number;
     outstandingInPaise: number;
     deltaPercent: number | null;
-    baselineSamples: number;
   };
   payoutLiability: {
     totalInPaise: number;
@@ -238,12 +243,18 @@ function ActionQueue({ chips }: { chips: ActionChip[] }) {
 
 // ----- money today waterfall -------------------------------------------
 
-function MoneyTodayCard({ data }: { data: DashboardV2['moneyToday'] }) {
+function MoneyTodayCard({
+  data,
+  periodLabel,
+}: {
+  data: DashboardV2['moneyToday'];
+  periodLabel: string;
+}) {
   const gross = Math.max(0, data.grossInPaise);
   // proportional widths against gross; if gross = 0, fall back to flat zero bars
   const widthFor = (v: number) => (gross > 0 ? Math.max(0, v / gross) : 0);
 
-  const showDelta = data.baselineSamples >= 4 && data.deltaPercent !== null;
+  const showDelta = data.deltaPercent !== null;
   const deltaColor =
     data.deltaPercent !== null && data.deltaPercent >= 0
       ? TOKENS.healthy
@@ -251,7 +262,7 @@ function MoneyTodayCard({ data }: { data: DashboardV2['moneyToday'] }) {
 
   return (
     <SectionCard
-      label="Money today"
+      label={`Money · ${periodLabel}`}
       description="Net revenue · take-home after discounts & commission"
     >
       <div className="flex items-baseline gap-3">
@@ -259,18 +270,18 @@ function MoneyTodayCard({ data }: { data: DashboardV2['moneyToday'] }) {
         {showDelta && (
           <span style={{ color: deltaColor, fontSize: 13 }}>
             {data.deltaPercent! >= 0 ? '+' : ''}
-            {data.deltaPercent}% vs same-day 4-week avg
+            {data.deltaPercent}% vs prior period
           </span>
         )}
         {!showDelta && (
           <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
-            baseline forming · {data.baselineSamples} of 4 prior samples
+            no prior-period revenue to compare
           </span>
         )}
       </div>
 
       <div className="mt-4">
-        <SectionLabel>Billed today (accrual)</SectionLabel>
+        <SectionLabel>Billed ({periodLabel}, accrual)</SectionLabel>
         <div className="mt-2 space-y-2">
           <WaterfallRow
             label="Gross billed"
@@ -303,7 +314,7 @@ function MoneyTodayCard({ data }: { data: DashboardV2['moneyToday'] }) {
       </div>
 
       <div className="mt-4 border-t pt-3" style={{ borderColor: TOKENS.border }}>
-        <SectionLabel>Collected today</SectionLabel>
+        <SectionLabel>Collected ({periodLabel})</SectionLabel>
         <div style={{ color: TOKENS.textTertiary, fontSize: 11 }} className="mt-0.5">
           Collected may differ from billed — patients pay across days.
         </div>
@@ -573,12 +584,18 @@ function OpsPulseRow({ data }: { data: DashboardV2['opsPulse'] }) {
 
 // ----- 30d trend (line, no chart lib for phase 1) -----------------------
 
-function RevenueTrendCard({ trend }: { trend: DashboardV2['revenueTrend'] }) {
+function RevenueTrendCard({
+  trend,
+  periodLabel,
+}: {
+  trend: DashboardV2['revenueTrend'];
+  periodLabel: string;
+}) {
   const chartData = trend.map((p) => ({ date: p.date, value: p.netInPaise }));
   return (
     <SectionCard
-      label="Revenue trend · 30 days"
-      description="Daily net revenue · last point is today"
+      label={`Revenue trend · ${periodLabel}`}
+      description="Daily net revenue across the selected window"
     >
       <TrendChart
         data={chartData}
@@ -592,7 +609,13 @@ function RevenueTrendCard({ trend }: { trend: DashboardV2['revenueTrend'] }) {
 
 // ----- revenue mix today ------------------------------------------------
 
-function RevenueMixCard({ mix }: { mix: DashboardV2['revenueMix'] }) {
+function RevenueMixCard({
+  mix,
+  periodLabel,
+}: {
+  mix: DashboardV2['revenueMix'];
+  periodLabel: string;
+}) {
   const total = Math.max(1, mix.totalInPaise);
   const segs = [
     { label: 'Reportable diagnostics', value: mix.reportableInPaise, color: TOKENS.reportable },
@@ -602,8 +625,8 @@ function RevenueMixCard({ mix }: { mix: DashboardV2['revenueMix'] }) {
 
   return (
     <SectionCard
-      label="Revenue mix · today"
-      description="Category split of today's gross — before discounts"
+      label={`Revenue mix · ${periodLabel}`}
+      description="Category split of gross for the selected window — before discounts"
       rightSlot={
         <span
           style={{
@@ -621,7 +644,7 @@ function RevenueMixCard({ mix }: { mix: DashboardV2['revenueMix'] }) {
       }
     >
       {mix.totalInPaise === 0 ? (
-        <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>No bills yet today.</div>
+        <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>No bills in this window.</div>
       ) : (
         <>
           <div
@@ -629,7 +652,7 @@ function RevenueMixCard({ mix }: { mix: DashboardV2['revenueMix'] }) {
             style={{ borderColor: TOKENS.border }}
           >
             <span style={{ color: TOKENS.textSecondary, fontSize: 12 }}>
-              Total gross today
+              Total gross · {periodLabel}
             </span>
             <DisplayNumber size={18}>{formatRupees(mix.totalInPaise)}</DisplayNumber>
           </div>
@@ -683,11 +706,17 @@ function RevenueMixCard({ mix }: { mix: DashboardV2['revenueMix'] }) {
 
 // ----- branch table -----------------------------------------------------
 
-function BranchTableCard({ rows }: { rows: DashboardV2['branchTable'] }) {
+function BranchTableCard({
+  rows,
+  periodLabel,
+}: {
+  rows: DashboardV2['branchTable'];
+  periodLabel: string;
+}) {
   if (rows.length === 0) {
     return (
       <div id="branch-performance">
-        <SectionCard label="Branch performance" description="Last 30 days · sorted by net">
+        <SectionCard label="Branch performance" description={`${periodLabel} · sorted by net`}>
           <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>No branches yet.</div>
         </SectionCard>
       </div>
@@ -696,7 +725,7 @@ function BranchTableCard({ rows }: { rows: DashboardV2['branchTable'] }) {
 
   return (
     <div id="branch-performance">
-    <SectionCard label="Branch performance" description="Last 30 days · sorted by net">
+    <SectionCard label="Branch performance" description={`${periodLabel} · sorted by net`}>
       <div className="overflow-x-auto">
         <table className="w-full" style={{ fontSize: 12 }}>
           <thead>
@@ -711,7 +740,7 @@ function BranchTableCard({ rows }: { rows: DashboardV2['branchTable'] }) {
               <th className="py-2 text-right">Net rev</th>
               <th className="py-2 text-right">Visits</th>
               <th className="py-2 text-right">Avg ticket</th>
-              <th className="py-2 text-right">Δ 30d</th>
+              <th className="py-2 text-right">Δ prior</th>
               <th className="py-2 text-right">TAT p50</th>
               <th className="py-2 text-right">Status</th>
             </tr>
@@ -800,9 +829,37 @@ function DashboardSkeleton() {
 
 // ----- main page -------------------------------------------------------
 
+// Full date-filter set, matching the Money and Payouts pages. Scopes the
+// period zone (money summary, revenue trend/mix, branch table).
+const DASH_PERIOD_OPTS: PeriodKey[] = [
+  'today',
+  'yesterday',
+  '7d',
+  '30d',
+  'mtd',
+  'ytd',
+  'custom',
+];
+
+function todayKey(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export default function OwnerDashboardV2() {
   const [searchParams, setSearchParams] = useSearchParams();
   const branchValue = searchParams.get('branch') || 'all';
+  const rawPeriod = searchParams.get('period');
+  const period: PeriodKey = DASH_PERIOD_OPTS.includes(rawPeriod as PeriodKey)
+    ? (rawPeriod as PeriodKey)
+    : '30d';
+  const customStart = searchParams.get('start') || '';
+  const customEnd = searchParams.get('end') || '';
+  const customReady = period === 'custom' && Boolean(customStart) && Boolean(customEnd);
+  const periodLabel = period === 'custom' ? `${customStart} – ${customEnd}` : PERIOD_LABEL[period];
 
   const setBranchValue = (newBranch: string) => {
     setSearchParams(prev => {
@@ -811,12 +868,38 @@ export default function OwnerDashboardV2() {
     });
   };
 
+  const setPeriod = (next: PeriodKey) => {
+    setSearchParams(prev => {
+      prev.set('period', next);
+      if (next === 'custom') {
+        if (!prev.get('start')) prev.set('start', todayKey());
+        if (!prev.get('end')) prev.set('end', todayKey());
+      } else {
+        prev.delete('start');
+        prev.delete('end');
+      }
+      return prev;
+    });
+  };
+
+  const setCustomRange = (r: { start: string; end: string }) => {
+    setSearchParams(prev => {
+      prev.set('period', 'custom');
+      if (r.start) prev.set('start', r.start);
+      if (r.end) prev.set('end', r.end);
+      return prev;
+    });
+  };
+
+  const dashParams =
+    period === 'custom'
+      ? `period=custom&start=${customStart}&end=${customEnd}&branch=${encodeURIComponent(branchValue)}`
+      : `period=${period}&branch=${encodeURIComponent(branchValue)}`;
+
   const query = useQuery<DashboardV2>({
-    queryKey: ['owner-dashboard-v2', branchValue],
-    queryFn: () =>
-      apiRequest<DashboardV2>(
-        `${API_BASE}/owner/dashboard-v2?branch=${encodeURIComponent(branchValue)}`,
-      ),
+    queryKey: ['owner-dashboard-v2', period, branchValue, customStart, customEnd],
+    queryFn: () => apiRequest<DashboardV2>(`${API_BASE}/owner/dashboard-v2?${dashParams}`),
+    enabled: period !== 'custom' || customReady,
     refetchInterval: 5 * 60 * 1000,
     staleTime: 60 * 1000,
   });
@@ -853,7 +936,14 @@ export default function OwnerDashboardV2() {
                 : 'Loading…'}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <PeriodFilter
+              value={period}
+              onChange={setPeriod}
+              options={DASH_PERIOD_OPTS}
+              customRange={{ start: customStart || todayKey(), end: customEnd || todayKey() }}
+              onCustomRangeChange={setCustomRange}
+            />
             <BranchFilter value={branchValue} onChange={setBranchValue} />
             <RefreshButton
               isFetching={query.isFetching}
@@ -883,11 +973,19 @@ export default function OwnerDashboardV2() {
 
         {data && (
           <div className="space-y-4">
-            <ActionQueue chips={data.actionQueue} />
+            <div>
+              <div
+                className="mb-1.5"
+                style={{ color: TOKENS.textTertiary, fontSize: 11, letterSpacing: 0.3, textTransform: 'uppercase' }}
+              >
+                Needs attention · live (not affected by the date filter)
+              </div>
+              <ActionQueue chips={data.actionQueue} />
+            </div>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
               <div className="lg:col-span-3">
-                <MoneyTodayCard data={data.moneyToday} />
+                <MoneyTodayCard data={data.moneyToday} periodLabel={periodLabel} />
               </div>
               <div className="flex flex-col gap-4 lg:col-span-2">
                 <PayoutLiabilityCard data={data.payoutLiability} />
@@ -898,11 +996,11 @@ export default function OwnerDashboardV2() {
             <OpsPulseRow data={data.opsPulse} />
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <RevenueTrendCard trend={data.revenueTrend} />
-              <RevenueMixCard mix={data.revenueMix} />
+              <RevenueTrendCard trend={data.revenueTrend} periodLabel={periodLabel} />
+              <RevenueMixCard mix={data.revenueMix} periodLabel={periodLabel} />
             </div>
 
-            <BranchTableCard rows={data.branchTable} />
+            <BranchTableCard rows={data.branchTable} periodLabel={periodLabel} />
           </div>
         )}
       </div>

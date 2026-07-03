@@ -29,14 +29,22 @@ import { logger } from '../lib/logger';
 import type { Prisma } from '@prisma/client';
 
 const CACHE_TTL_SEC = 60;
-const cacheKey = (branchId: string | null) =>
-  `owner-dashboard-v2:v2:${branchId ?? 'all'}`;
+const cacheKey = (branchId: string | null, period: PeriodKey, range: CustomRange | null) =>
+  `owner-dashboard-v2:v3:${branchId ?? 'all'}:${period}:${range ? `${range.startKey}_${range.endKey}` : ''}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const TREND_DAYS = 30;
+const MAX_TREND_DAYS = 120; // cap daily trend points so long windows (YTD) stay readable
 const SLA_TAT_MINUTES = 1440; // 24h from registration (owner-set SLA)
 const DORMANT_DAYS = 7;
+
+export type PeriodKey = 'today' | 'yesterday' | '7d' | '30d' | 'mtd' | 'ytd' | 'custom';
+
+/** IST calendar-day range for a custom filter, inclusive of both endpoints. */
+export interface CustomRange {
+  startKey: string; // YYYY-MM-DD (IST)
+  endKey: string; // YYYY-MM-DD (IST)
+}
 
 // --- types ---------------------------------------------------------------
 
@@ -68,15 +76,13 @@ export interface MoneyToday {
   discountRatePct: number;
   cashInPaise: number;
   onlineInPaise: number;
-  // Cash + online collected today. Collected differs from billed because
-  // patients pay across days; the UI labels this "Collected today".
+  // Cash + online collected in the window. Collected differs from billed
+  // because patients pay across days; the UI labels this "Collected".
   collectedTotalInPaise: number;
   outstandingInPaise: number;
-  // Comparison vs same-day-of-week average over the last 4 weeks. Null when
-  // < 4 prior samples exist (baseline forming) so the UI can suppress the
-  // delta — see brief §3.6.
+  // Net vs the prior equal-length window. Null when the prior window had no
+  // net revenue to compare against (so the UI suppresses the delta).
   deltaPercent: number | null;
-  baselineSamples: number;
 }
 
 export interface PayoutLiability {
@@ -154,6 +160,7 @@ export interface BranchRow {
 
 export interface DashboardV2Response {
   generatedAt: string;
+  period: { key: PeriodKey; startIso: string; endIso: string };
   branchScope: {
     branchId: string | null;
     branchName: string | null;
@@ -183,6 +190,40 @@ function startOfTodayIst(now: Date): Date {
 function startOfDaysAgoIst(now: Date, daysAgo: number): Date {
   const today = startOfTodayIst(now);
   return new Date(today.getTime() - daysAgo * DAY_MS);
+}
+
+/** Parse a YYYY-MM-DD IST calendar day into the UTC Date at its IST midnight. */
+function istDateKeyToStart(key: string): Date {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0) - IST_OFFSET_MS);
+}
+
+/** Inclusive [startKey, endKey] IST calendar range → half-open [start, end) UTC window. */
+function customWindow(range: CustomRange): { start: Date; end: Date } {
+  const start = istDateKeyToStart(range.startKey);
+  const end = new Date(istDateKeyToStart(range.endKey).getTime() + DAY_MS);
+  return { start, end };
+}
+
+/** The selected reporting window as a half-open [start, end) UTC range. */
+function periodWindow(period: PeriodKey, now: Date): { start: Date; end: Date } {
+  const todayStart = startOfTodayIst(now);
+  const tomorrowStart = new Date(todayStart.getTime() + DAY_MS);
+  if (period === 'today') return { start: todayStart, end: tomorrowStart };
+  if (period === 'yesterday') return { start: startOfDaysAgoIst(now, 1), end: todayStart };
+  if (period === '7d') return { start: startOfDaysAgoIst(now, 6), end: tomorrowStart };
+  if (period === '30d') return { start: startOfDaysAgoIst(now, 29), end: tomorrowStart };
+  if (period === 'mtd') {
+    const ist = new Date(now.getTime() + IST_OFFSET_MS);
+    ist.setUTCDate(1);
+    ist.setUTCHours(0, 0, 0, 0);
+    return { start: new Date(ist.getTime() - IST_OFFSET_MS), end: tomorrowStart };
+  }
+  // ytd
+  const ist = new Date(now.getTime() + IST_OFFSET_MS);
+  ist.setUTCMonth(0, 1);
+  ist.setUTCHours(0, 0, 0, 0);
+  return { start: new Date(ist.getTime() - IST_OFFSET_MS), end: tomorrowStart };
 }
 
 /** Format a UTC instant as YYYY-MM-DD in IST. */
@@ -253,11 +294,13 @@ function clinicCommissionInPaise(visits: Array<{
 
 export async function getOwnerDashboardV2(
   branchId: string | null,
+  period: PeriodKey = '30d',
+  range: CustomRange | null = null,
 ): Promise<DashboardV2Response> {
   const redis = getRedisClient();
   if (redis) {
     try {
-      const hit = await redis.get(cacheKey(branchId));
+      const hit = await redis.get(cacheKey(branchId, period, range));
       if (hit) return JSON.parse(hit) as DashboardV2Response;
     } catch (err) {
       logger.warn({ err, branchId }, 'dashboard-v2: cache read failed');
@@ -265,22 +308,21 @@ export async function getOwnerDashboardV2(
   }
 
   const now = new Date();
+  // Now-anchored boundaries drive the "live / as of now" zone: action queue,
+  // open receivables, payout liability and ops pulse. These never move with the
+  // period slicer — they are current-state alerts, not period metrics.
   const todayStart = startOfTodayIst(now);
   const tomorrowStart = new Date(todayStart.getTime() + DAY_MS);
   const yesterdayStart = startOfDaysAgoIst(now, 1);
   const sevenDaysAgo = startOfDaysAgoIst(now, 7);
-  const thirtyDaysAgo = startOfDaysAgoIst(now, TREND_DAYS - 1);
-  const trendRangeStart = startOfDaysAgoIst(now, TREND_DAYS - 1);
-  // Baseline window must cover the full 30-day TREND window so the branch table
-  // (which filters >= thirtyDaysAgo) and the trend series both see every day —
-  // previously this started 28 days back and silently zeroed the two oldest
-  // trend days for every branch. It also feeds the 4-week same-day DoW delta.
-  const baselineStart = startOfDaysAgoIst(now, TREND_DAYS - 1);
-  // Prior 30-day window for branch period-over-period delta: the 30 days
-  // immediately before the current window, i.e. days [60..30) ago. The current
-  // branch net aggregates rows >= thirtyDaysAgo; the prior window aggregates
-  // rows in [priorWindowStart, thirtyDaysAgo). Same shape, same perf profile.
-  const priorWindowStart = startOfDaysAgoIst(now, 2 * TREND_DAYS - 1);
+
+  // The selected reporting window drives the period zone: money summary,
+  // revenue trend, revenue mix and the branch table. `priorWin` is the equal-
+  // length window immediately before it, for period-over-period deltas.
+  const win = period === 'custom' && range ? customWindow(range) : periodWindow(period, now);
+  const winSpanMs = win.end.getTime() - win.start.getTime();
+  const winDays = Math.max(1, Math.round(winSpanMs / DAY_MS));
+  const priorWin = { start: new Date(win.start.getTime() - winSpanMs), end: win.start };
 
   // ----- branch resolution & data age ------------------------------------
   const branchScopeWhere: Prisma.VisitWhereInput = branchId ? { branchId } : {};
@@ -384,6 +426,7 @@ export async function getOwnerDashboardV2(
       where: {
         status: 'FAILED',
         updatedAt: { gte: yesterdayStart },
+        ...(branchId ? { branchId } : {}),
       },
     }),
     prisma.bill.count({
@@ -405,10 +448,10 @@ export async function getOwnerDashboardV2(
       select: { id: true, name: true, code: true, createdAt: true },
     }),
 
-    // money today
+    // money summary (selected window)
     prisma.bill.aggregate({
       where: {
-        billedAt: { gte: todayStart, lt: tomorrowStart },
+        billedAt: { gte: win.start, lt: win.end },
         ...billBranchWhere,
       },
       _sum: {
@@ -420,7 +463,7 @@ export async function getOwnerDashboardV2(
     }),
     prisma.testOrder.findMany({
       where: {
-        createdAt: { gte: todayStart, lt: tomorrowStart },
+        createdAt: { gte: win.start, lt: win.end },
         ...(branchId ? { branchId } : {}),
       },
       select: {
@@ -436,7 +479,7 @@ export async function getOwnerDashboardV2(
     }),
     prisma.clinicVisit.findMany({
       where: {
-        createdAt: { gte: todayStart, lt: tomorrowStart },
+        createdAt: { gte: win.start, lt: win.end },
         ...(branchId ? { visit: { branchId } } : {}),
       },
       select: {
@@ -453,7 +496,7 @@ export async function getOwnerDashboardV2(
     prisma.paymentTransaction.groupBy({
       by: ['paymentType'],
       where: {
-        transactionDate: { gte: todayStart, lt: tomorrowStart },
+        transactionDate: { gte: win.start, lt: win.end },
         ...(branchId ? { bill: { branchId } } : {}),
       },
       _sum: { amountInPaise: true },
@@ -466,9 +509,9 @@ export async function getOwnerDashboardV2(
       _sum: { totalAmountInPaise: true, paidAmountInPaise: true, discountAmountInPaise: true },
     }),
 
-    // baseline 28d (trend + dow comparison)
+    // window dataset (feeds revenue trend + branch table, scoped to the slicer)
     prisma.bill.findMany({
-      where: { billedAt: { gte: baselineStart }, ...billBranchWhere },
+      where: { billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere },
       select: {
         billedAt: true,
         totalAmountInPaise: true,
@@ -478,7 +521,7 @@ export async function getOwnerDashboardV2(
     }),
     prisma.testOrder.findMany({
       where: {
-        createdAt: { gte: baselineStart },
+        createdAt: { gte: win.start, lt: win.end },
         ...(branchId ? { branchId } : {}),
       },
       select: {
@@ -495,7 +538,7 @@ export async function getOwnerDashboardV2(
     }),
     prisma.clinicVisit.findMany({
       where: {
-        createdAt: { gte: baselineStart },
+        createdAt: { gte: win.start, lt: win.end },
         ...(branchId ? { visit: { branchId } } : {}),
       },
       select: {
@@ -603,7 +646,10 @@ export async function getOwnerDashboardV2(
     }),
     prisma.messageLog.groupBy({
       by: ['status'],
-      where: { createdAt: { gte: todayStart, lt: tomorrowStart } },
+      where: {
+        createdAt: { gte: todayStart, lt: tomorrowStart },
+        ...(branchId ? { branchId } : {}),
+      },
       _count: true,
     }),
     prisma.visit.findMany({
@@ -615,25 +661,25 @@ export async function getOwnerDashboardV2(
       take: 1000,
     }),
 
-    // revenue mix — clinic visits today (for clinic slice)
+    // revenue mix — clinic visits in the window (for clinic slice)
     prisma.clinicVisit.aggregate({
       where: {
-        createdAt: { gte: todayStart, lt: tomorrowStart },
+        createdAt: { gte: win.start, lt: win.end },
         ...(branchId ? { visit: { branchId } } : {}),
       },
       _sum: { consultationFeeInPaise: true },
     }),
 
-    // branch table — visit counts + tat by branch (last 30 days)
+    // branch table — visit counts + tat by branch (selected window)
     prisma.visit.groupBy({
       by: ['branchId'],
-      where: { createdAt: { gte: thirtyDaysAgo } },
+      where: { createdAt: { gte: win.start, lt: win.end } },
       _count: true,
     }),
     prisma.reportVersion.findMany({
       where: {
         status: 'FINALIZED',
-        finalizedAt: { gte: thirtyDaysAgo },
+        finalizedAt: { gte: win.start, lt: win.end },
       },
       select: {
         finalizedAt: true,
@@ -642,12 +688,11 @@ export async function getOwnerDashboardV2(
       take: 2000,
     }),
 
-    // prior-window branch net inputs — mirror the baseline branch aggregation
-    // but scoped to [priorWindowStart, thirtyDaysAgo). gross - discount per bill,
-    // commission per test order + clinic visit, bucketed by branch.
+    // prior-window branch net inputs — mirror the window branch aggregation but
+    // scoped to the equal-length window before it, for the Δ vs prior column.
     prisma.bill.findMany({
       where: {
-        billedAt: { gte: priorWindowStart, lt: thirtyDaysAgo },
+        billedAt: { gte: priorWin.start, lt: priorWin.end },
         ...billBranchWhere,
       },
       select: {
@@ -658,7 +703,7 @@ export async function getOwnerDashboardV2(
     }),
     prisma.testOrder.findMany({
       where: {
-        createdAt: { gte: priorWindowStart, lt: thirtyDaysAgo },
+        createdAt: { gte: priorWin.start, lt: priorWin.end },
         ...(branchId ? { branchId } : {}),
       },
       select: {
@@ -674,7 +719,7 @@ export async function getOwnerDashboardV2(
     }),
     prisma.clinicVisit.findMany({
       where: {
-        createdAt: { gte: priorWindowStart, lt: thirtyDaysAgo },
+        createdAt: { gte: priorWin.start, lt: priorWin.end },
         ...(branchId ? { visit: { branchId } } : {}),
       },
       select: {
@@ -782,7 +827,7 @@ export async function getOwnerDashboardV2(
     });
   }
 
-  // ----- money today -----------------------------------------------------
+  // ----- money summary (selected window) ---------------------------------
   const grossToday = todayBills._sum.totalAmountInPaise ?? 0;
   const discountToday = todayBills._sum.discountAmountInPaise ?? 0;
   const commissionToday =
@@ -796,6 +841,7 @@ export async function getOwnerDashboardV2(
     if (row.paymentType === 'CASH') cashToday = amt;
     else if (row.paymentType === 'ONLINE') onlineToday = amt;
   }
+  // Open receivables stay all-time regardless of the slicer (a live figure).
   const outstandingTotal = Math.max(
     0,
     (todayOutstandingAgg._sum.totalAmountInPaise ?? 0) -
@@ -803,10 +849,29 @@ export async function getOwnerDashboardV2(
       (todayOutstandingAgg._sum.discountAmountInPaise ?? 0),
   );
 
-  // ----- bucket baseline by IST date for trend + dow comparison -----------
+  // Net vs the prior equal-length window (period-over-period). priorBranch*
+  // datasets are already scoped to priorWin and the selected branch.
+  const priorGrossNet = priorBranchBills.reduce(
+    (s, b) => s + b.totalAmountInPaise - b.discountAmountInPaise,
+    0,
+  );
+  const priorCommission =
+    accruedCommissionInPaise(priorBranchTestOrders) + clinicCommissionInPaise(priorBranchClinicVisits);
+  const priorNet = priorGrossNet - priorCommission;
+  const deltaPercent: number | null =
+    priorNet > 0 ? Math.round(((netToday - priorNet) / priorNet) * 100) : null;
+
+  // ----- bucket the window by IST date for the revenue trend -------------
+  // Cap the number of daily points so long windows (YTD) stay readable; the
+  // trend then shows the most recent MAX_TREND_DAYS of the selected window.
+  const trendDays = Math.min(winDays, MAX_TREND_DAYS);
+  const trendStart = new Date(win.end.getTime() - trendDays * DAY_MS);
   const dailyNetMap = new Map<string, number>();
-  for (let i = 0; i < TREND_DAYS; i += 1) {
-    dailyNetMap.set(toIstDateKey(startOfDaysAgoIst(now, i)), 0);
+  const trendKeys: string[] = [];
+  for (let i = 0; i < trendDays; i += 1) {
+    const k = toIstDateKey(new Date(trendStart.getTime() + i * DAY_MS));
+    trendKeys.push(k);
+    dailyNetMap.set(k, 0);
   }
   for (const b of baselineBills) {
     const key = toIstDateKey(b.billedAt);
@@ -828,24 +893,6 @@ export async function getOwnerDashboardV2(
     dailyNetMap.set(key, (dailyNetMap.get(key) ?? 0) - cc);
   }
 
-  // dow delta — average of the same DoW for the last 4 weeks
-  const todayKey = toIstDateKey(now);
-  const sameDowSamples: number[] = [];
-  for (let week = 1; week <= 4; week += 1) {
-    const key = toIstDateKey(startOfDaysAgoIst(now, week * 7));
-    if (dailyNetMap.has(key)) {
-      sameDowSamples.push(dailyNetMap.get(key) ?? 0);
-    }
-  }
-  const baselineSamples = sameDowSamples.length;
-  let deltaPercent: number | null = null;
-  if (baselineSamples >= 4) {
-    const avg = sameDowSamples.reduce((s, v) => s + v, 0) / baselineSamples;
-    if (avg > 0) {
-      deltaPercent = Math.round(((netToday - avg) / avg) * 100);
-    }
-  }
-
   const moneyToday: MoneyToday = {
     grossInPaise: grossToday,
     discountInPaise: discountToday,
@@ -857,7 +904,6 @@ export async function getOwnerDashboardV2(
     collectedTotalInPaise: cashToday + onlineToday,
     outstandingInPaise: outstandingTotal,
     deltaPercent,
-    baselineSamples,
   };
 
   // ----- payout liability -------------------------------------------------
@@ -943,19 +989,15 @@ export async function getOwnerDashboardV2(
     comms,
   };
 
-  // ----- revenue trend (last 30 days) ------------------------------------
-  // dailyNetMap is seeded + populated for the full 30-day window, so every
-  // trend day reflects real bills/orders (no silently-zeroed oldest days).
-  const trendKeys: string[] = [];
-  for (let i = TREND_DAYS - 1; i >= 0; i -= 1) {
-    trendKeys.push(toIstDateKey(startOfDaysAgoIst(now, i)));
-  }
+  // ----- revenue trend (selected window) ---------------------------------
+  // trendKeys + dailyNetMap were built above, spanning the window (capped at
+  // MAX_TREND_DAYS days) so every point reflects real bills/orders.
   const revenueTrend: TrendPoint[] = trendKeys.map((date) => ({
     date,
     netInPaise: dailyNetMap.get(date) ?? 0,
   }));
 
-  // ----- revenue mix (today) ---------------------------------------------
+  // ----- revenue mix (selected window) -----------------------------------
   const reportableRev = todayTestOrders
     .filter((o) => o.workflowMode === 'REPORTABLE')
     .reduce((s, o) => s + o.priceInPaise, 0);
@@ -976,10 +1018,9 @@ export async function getOwnerDashboardV2(
     visitCountByBranch.set(row.branchId, (row._count as any) ?? 0);
   }
 
-  // bucket gross/discount per branch from baselineBills (limited to last 30d)
+  // bucket gross/discount per branch from the window dataset
   const branchAgg = new Map<string, { gross: number; discount: number }>();
   for (const b of baselineBills) {
-    if (b.billedAt < thirtyDaysAgo) continue;
     const cur = branchAgg.get(b.branchId) ?? { gross: 0, discount: 0 };
     cur.gross += b.totalAmountInPaise;
     cur.discount += b.discountAmountInPaise;
@@ -987,12 +1028,10 @@ export async function getOwnerDashboardV2(
   }
   const branchCommission = new Map<string, number>();
   for (const o of baselineTestOrders) {
-    if (o.createdAt < thirtyDaysAgo) continue;
     const cur = branchCommission.get(o.branchId) ?? 0;
     branchCommission.set(o.branchId, cur + accruedCommissionInPaise([o]));
   }
   for (const v of baselineClinicVisits) {
-    if (v.createdAt < thirtyDaysAgo) continue;
     const bid = v.visit?.branchId;
     if (!bid) continue;
     const cur = branchCommission.get(bid) ?? 0;
@@ -1076,6 +1115,7 @@ export async function getOwnerDashboardV2(
 
   const response: DashboardV2Response = {
     generatedAt: now.toISOString(),
+    period: { key: period, startIso: win.start.toISOString(), endIso: win.end.toISOString() },
     branchScope: {
       branchId: branchId ?? null,
       branchName: scopedBranch?.name ?? null,
@@ -1095,7 +1135,7 @@ export async function getOwnerDashboardV2(
 
   if (redis) {
     redis
-      .set(cacheKey(branchId), JSON.stringify(response), 'EX', CACHE_TTL_SEC)
+      .set(cacheKey(branchId, period, range), JSON.stringify(response), 'EX', CACHE_TTL_SEC)
       .catch((err) => logger.warn({ err, branchId }, 'dashboard-v2: cache write failed'));
   }
 
