@@ -543,6 +543,13 @@ router.get("/", async (req: AuthRequest, res) => {
           include: {
             test: true,
             product: { select: { name: true } },
+            // Surface per-test readiness on the worklist: an external-upload
+            // order is "ready" once a (non-deleted) upload exists.
+            externalUploads: {
+              where: { deletedAt: null },
+              select: { id: true },
+              take: 1,
+            },
           },
         },
         bill: { include: { transactions: true } },
@@ -551,6 +558,18 @@ router.get("/", async (req: AuthRequest, res) => {
             versions: {
               orderBy: { versionNum: "desc" },
               take: 1,
+              // Load the latest version's result rows so the list can report
+              // how many tests already have results (done) vs still pending.
+              include: {
+                testResults: {
+                  select: {
+                    testOrderId: true,
+                    value: true,
+                    textValue: true,
+                    notes: true,
+                  },
+                },
+              },
             },
           },
         },
@@ -654,6 +673,48 @@ router.get("/", async (req: AuthRequest, res) => {
       );
       const billFinancials = buildBillFinancialResponse(v.bill);
 
+      // Per-test done/pending for the "Pending Results" worklist. A report-
+      // inclusion order is "ready" when it has a meaningful result row in the
+      // latest (draft) version, or — for external uploads — a saved upload.
+      // Mirrors the release-partial handler's readiness logic.
+      const reportInclusionOrders = getReportInclusionOrders(v.testOrders);
+      const draftResultOrderIds = new Set(
+        (currentVersion?.testResults ?? [])
+          .filter(hasMeaningfulResultRow)
+          .map((r) => r.testOrderId),
+      );
+      const readyExternalUploadOrderIds = new Set(
+        v.testOrders
+          .filter(
+            (o) =>
+              o.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD &&
+              o.externalUploads.length > 0,
+          )
+          .map((o) => o.id),
+      );
+      const reportInclusionOrderIds = new Set(
+        reportInclusionOrders.map((o) => o.id),
+      );
+      const readyOrderIds = new Set(
+        reportInclusionOrders
+          .filter(
+            (o) =>
+              draftResultOrderIds.has(o.id) ||
+              readyExternalUploadOrderIds.has(o.id),
+          )
+          .map((o) => o.id),
+      );
+      const reportInclusionCount = reportInclusionOrders.length;
+      const readyReportInclusionCount = readyOrderIds.size;
+      const pendingReportInclusionCount =
+        reportInclusionCount - readyReportInclusionCount;
+      // A partial report has already been dispatched when the current draft is
+      // a carry-forward version (versionNum > 1) and the visit isn't finished.
+      const hasPartialReport =
+        currentVersion?.status === "DRAFT" &&
+        (currentVersion.versionNum ?? 1) > 1 &&
+        v.status !== "COMPLETED";
+
       return {
         id: v.id,
         branchId: v.branchId,
@@ -686,6 +747,10 @@ router.get("/", async (req: AuthRequest, res) => {
         hasEntryScreenOrders: composition.hasEntryScreenOrders,
         hasFinalizedReport: composition.hasFinalizedReport,
         nextAction: composition.nextAction,
+        reportInclusionCount,
+        readyReportInclusionCount,
+        pendingReportInclusionCount,
+        hasPartialReport,
         referralDoctorId: v.referrals[0]?.referralDoctorId || null,
         referralDoctor: v.referrals[0]?.referralDoctor || null,
         testOrders: (() => {
@@ -702,6 +767,11 @@ router.get("/", async (req: AuthRequest, res) => {
               productName: to.product?.name ?? null,
               testDefinitionId: to.testDefinitionId,
               workflowMode: to.workflowMode,
+              // null for bill-only orders (not part of the report); true/false
+              // for report-inclusion orders based on whether results are in.
+              resultReady: reportInclusionOrderIds.has(to.id)
+                ? readyOrderIds.has(to.id)
+                : null,
               // E3-03: Use snapshotted metadata (fallback to live data for backward compatibility)
               testName: to.testNameSnapshot || to.test.name,
               testCode: to.testCodeSnapshot || to.test.code,

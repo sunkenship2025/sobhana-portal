@@ -19,7 +19,7 @@ import { useBranchStore } from "@/store/branchStore";
 import { useAuthStore } from "@/store/authStore";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toast } from "sonner";
-import { Clock, Search } from "lucide-react";
+import { Check, CheckCheck, Clock, Search } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -78,6 +78,52 @@ const formatTestList = (
     if (label) labels.push(label);
   }
   return labels.join(", ");
+};
+
+// Same collapse as formatTestList, but carries per-billed-item readiness so the
+// worklist can colour each test green (results in) or amber (still pending). A
+// collapsed item counts as ready only when every constituent order is ready
+// (e.g. a 13-parameter CBP isn't "done" until all its results are entered).
+const buildTestTokens = (
+  testOrders: Array<{
+    workflowMode?: string;
+    testName?: string;
+    testCode?: string;
+    productId?: string | null;
+    productName?: string | null;
+    resultReady?: boolean | null;
+    panel?: { id: string; name: string; displayName?: string } | null;
+  }>,
+): Array<{ label: string; ready: boolean }> => {
+  const map = new Map<string, { label: string; ready: boolean }>();
+  for (const order of testOrders) {
+    if (order.workflowMode === "BILL_ONLY") continue;
+    let key: string;
+    let label: string;
+    if (order.productId) {
+      key = `product:${order.productId}`;
+      label =
+        order.productName ||
+        order.panel?.displayName ||
+        order.panel?.name ||
+        order.testName ||
+        order.testCode ||
+        "";
+    } else {
+      const panel = order.panel;
+      key = panel?.id ? `panel:${panel.id}` : `test:${order.testCode || order.testName || ""}`;
+      label = panel?.displayName || panel?.name || order.testName || order.testCode || "";
+    }
+    if (!label) continue;
+    const ready = order.resultReady === true;
+    const existing = map.get(key);
+    if (existing) {
+      existing.ready = existing.ready && ready;
+    } else {
+      map.set(key, { label, ready });
+    }
+  }
+  return [...map.values()];
 };
 
 const matchesDateFilter = (filter: string, value: string) => {
@@ -410,9 +456,33 @@ const DiagnosticsPendingResults = () => {
                           Bill #:{" "}
                           <span className="font-mono">{visit.billNumber}</span>
                         </span>
-                        <span className="text-muted-foreground">
-                          Tests: {formatTestList(testOrders)}
-                        </span>
+                        {(visit.readyReportInclusionCount ?? 0) > 0 ? (
+                          <span className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-muted-foreground">Tests:</span>
+                            {buildTestTokens(testOrders).map((t) => (
+                              <span
+                                key={t.label}
+                                className={
+                                  "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium " +
+                                  (t.ready
+                                    ? "bg-emerald-50 text-emerald-700"
+                                    : "bg-amber-50 text-amber-700")
+                                }
+                              >
+                                {t.ready ? (
+                                  <Check className="h-3 w-3" />
+                                ) : (
+                                  <Clock className="h-3 w-3" />
+                                )}
+                                {t.label}
+                              </span>
+                            ))}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">
+                            Tests: {formatTestList(testOrders)}
+                          </span>
+                        )}
                         {visit.hasBillOnlyOrders &&
                           (visit.hasReportInclusionOrders ??
                             (visit.hasReportableOrders ||
@@ -427,7 +497,27 @@ const DiagnosticsPendingResults = () => {
                           </span>
                         )}
                       </div>
-                      <StatusBadge status={visit.status} />
+                      <div className="flex flex-wrap items-center gap-2">
+                        {visit.hasPartialReport ? (
+                          <span className="status-badge status-pending inline-flex items-center gap-1">
+                            <CheckCheck className="h-3 w-3" />
+                            Partial sent
+                          </span>
+                        ) : (visit.readyReportInclusionCount ?? 0) > 0 ? (
+                          <span className="status-badge status-pending">
+                            In progress
+                          </span>
+                        ) : (
+                          <StatusBadge status={visit.status} />
+                        )}
+                        {(visit.reportInclusionCount ?? 0) > 0 &&
+                          (visit.readyReportInclusionCount ?? 0) > 0 && (
+                            <span className="text-xs text-muted-foreground">
+                              {visit.readyReportInclusionCount} of{" "}
+                              {visit.reportInclusionCount} ready
+                            </span>
+                          )}
+                      </div>
                     </div>
                     <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
                       {(visit.dueAmountInPaise ?? 0) > 0 && (
