@@ -325,3 +325,397 @@ Rationale: the import graph is deeply interwoven at the coupling seams (payoutSe
 4. **New-feature default policy.** This doc encodes: existing (Sobhana) preserves current behavior (on), new signups lean (OP/external-lab/referral-centers off, `perTenantMessageQuota` on). Confirm the standing rule for *future* features — default new modules **off** for both, and require an explicit opt-in per deal? And confirm `perTenantMessageQuota` should default **on for new / off for Sobhana** (it protects HealthFlow's shared Meta bill, not the tenant).
 
 5. **GPS register() target under op=off (product call, surfaced by the break trace).** When a diagnostics-only tenant's patient hub fires "register new visit," should it launch `/diagnostics/new`, or should the register CTA be hidden/relabelled entirely? The engineering fix is flag-awareness either way; the product default is yours. **[C-raised]**
+
+---
+
+## Feature & Entitlement Catalog v2 (complete)
+
+> Supersedes the first pass (`HEALTHFLOW_MODULE_TAXONOMY.md`, 33 code-capability features). That pass captured "what the app does" but missed entire entitlement *classes*: fine-grained UI/surface toggles, RBAC/role entitlements, access & security policies, commercial limits, and — this revision adds — the **statutory-billing, localization, notification-fabric, white-label-depth, interop, and subscription-lifecycle** classes a mature multi-tenant, multi-country vertical LIS (Crelio-class) must gate. The 33 already-cataloged features are **referenced, not repeated** — the one exception is `reportQrBillGateway`, which is **split** into `billQr` + `reportGateway`. Every row: `key | type | built? | default-existing | default-new | mechanism/surface | effort`.
+
+**What this revision folds in (two-critic review):** (1) an *adversarial-completeness* pass added tax/GST, invoice numbering, per-tenant timezone, working-hours calendar, SMS/email channels + white-label email, data residency, i18n language pack, subscription lifecycle + plan tier, white-label branding depth, online payments, outbound webhooks, interop/format-level exports, self-service backup/restore, per-report metering, beta channel, and SSO/SCIM; (2) a *security-mechanism* pass reframed the `branch.ts` IDOR as a ship-now access-control bug (not a license nicety), **demoted concurrent-session-cap from PRIMARY to a secondary anti-sharing signal**, made **device-binding the PRIMARY location lever** (hard server-side count, not owner-approval, not a copyable cookie), corrected the shared-login false-positive posture to **alert-before-block / never default evict-oldest**, split login-lockout to per-account + per-IP with step-up for high-privilege accounts, moved owner/finalize 2FA to TOTP, and **dropped GPS geofence from license enforcement entirely**. Rejected/reframed points are listed at the end of the security section with a one-line reason each.
+
+---
+
+### 1. Modules (the 4 big domains — recap only)
+
+| module | one-line |
+|---|---|
+| **Core** | Shared spine: auth, branches, billing, patients, print, WhatsApp plumbing, payouts/referrals cross-cutting layer. Always on. |
+| **Diagnostics** | Real module — lab orders, result entry, signing rules, report rendering, TAT. The product's heart. |
+| **OP (Outpatient)** | `opClinicsModule` — consultations, clinic prescriptions (Rx/bill print), OP billing. |
+| **IP (Inpatient)** | `ipInpatientModule` (roadmap) — admissions, bed/ward, IP billing. Built Axora-ready/isolated. |
+
+---
+
+### 2. Capability features (finer code toggles + localization/statutory-billing config the rescan found, beyond the 33)
+
+| key | type | built? | default-existing | default-new | mechanism / surface | effort |
+|---|---|---|---|---|---|---|
+| `physicalLetterheadMode` | boolean | built | on | on | `?mode=physical` on report PDF routes; `mergedReportPdfService.ts:165` sets `drawOverlay=false`; `pdfGenerationService.ts:215` picks `pdf-physical` Puppeteer profile (strips header/footer for pre-printed stationery) | S |
+| `narrativeReportPanels` | boolean | built | on | on | `PanelLayoutType` enum `schema.prisma:189`; `reportRendererService.ts:623` renders rich-text HTML block instead of numeric table for `TEXT_ONLY`/`IMAGING_NARRATIVE`; `clinicalPanels.ts:45` validates item count | S |
+| `narrativeSignerOverride` | boolean | built | on | on | `TestResult.signerNameOverride` `schema.prisma:829`; `reportRendererService.ts:696` uses plain name in signature block instead of resolving the SigningRule. Disabling locks all signatures to `signingRulesEngine` | S |
+| `whatsappTenantKillSwitch` | boolean | partial | on | **off** | Today `process.env.WHATSAPP_ENABLED` (`whatsappCloudService.ts:26`) — one env var for the whole server; needs per-tenant boolean read at send time. Global credential-level gate (distinct from `whatsappResultDelivery`/`whatsappPayoutStatement`). New tenants off until WABA creds provisioned | M |
+| `loginBruteForceThreshold` | struct | built | 12 attempts / 15 min | 12 / 15 min | `ATTEMPT_THRESHOLD`/`ATTEMPT_WINDOW_SEC`/`LOCKOUT_DURATION_SEC` hardcoded in `lib/loginLockout.ts:23-25` (Redis INCR+TTL, keyed on **email only** — see the DoS-hardening note in §5). Constant source moves to Control-DB (NABL tenants may want 5) | M |
+| `currencyLocale` | struct | not-built | INR / en-IN | INR / en-IN | `formatCurrency()` `patientDisplay.ts:7`, `referralPayouts.ts:17`, `payoutFormatters.ts:21` all hardcode `en-IN` + paise÷100. Needs tenant `locale`+`currencySymbol`+`subunitDivisor` (VND has no subunit — divisor itself must be per-tenant). Cross-cutting; required for Vietnam expansion | L |
+| `tenantTimezone` | struct (IANA) | not-built | Asia/Kolkata (server-global) | tenant IANA | **Exact sibling of `currencyLocale`, was missed.** `Asia/Kolkata` hardcoded in `statementDownload.ts:60`, `notificationService.ts:598`, `moneyDaySheetExportService.ts:16,28`, `billPdfService.ts:282,288`, `ownerDashboardV2Service.ts:19`; only `reportRendererService.ts:35` reads a single server-global `BUSINESS_TIME_ZONE`. Thread a per-tenant IANA tz through every `toLocaleString`, "today"/day-boundary, TAT math, cron and send-window — else TAT/dunning/purge/quiet-hours are wrong for Vietnam (ICT)/France (CET) | L |
+| `taxConfig` | struct | not-built | **none** (0 GST fields) | statutory per-tenant | **Blocks the first commercial Indian tenant, not an upsell.** Grep confirms 0 `gstin/hsn/cgst/sgst/igst` refs in `schema.prisma`/`src` — the app cannot render a GST-compliant invoice. Add `gstin`, `taxRegime` (regular/composition/unregistered), `taxInclusive`, per-service HSN/SAC rate table (`cgstPct`/`sgstPct`/`igstPct`), `placeOfSupply`, `printTaxBreakdownOnBill`; resolved at bill render (`billPdfService`/`BillReceipt.tsx`) | L |
+| `invoiceNumbering` | struct | partial | hardcoded `D-{BRANCH_CODE}-{SEQ}` | tenant scheme | `NumberSequence` (`schema.prisma:245`) + compiled `billNumber` format (`schema.prisma:510`, `589`); no prefix, no FY reset, no separate GST-invoice series. India requires a configurable, unbroken, FY-reset sequential series per registration. Add `{ scheme, prefix, perBranch, resetCadence: none\|financial_year\|calendar_year, padWidth, separateGstSeries }` consumed by `NumberSequence` generation | M |
+| `uiReportLanguagePack` | enum (i18n) | not-built | en | en | **Was missed — `currencyLocale` formats money only, not language.** i18n resource bundles for the FE shell + report/bill templates (Vietnamese, French). FE i18n framework + externalized report template strings; required alongside Vietnam/France expansion | L |
+| `businessHoursCalendar` | struct | not-built | 24×7 (no calendar) | per-branch schedule | **Absent everywhere.** Add per-branch open/close + weekly schedule + `holidayCalendar` dates (depends on `tenantTimezone`). Consumed by (a) business-hours TAT pausing so nights/holidays don't count as SLA breach, (b) appointment + home-collection scheduling, (c) message quiet-hours (no 2am WhatsApp) | M |
+
+> `clinicRxPrintMode` (Rx/Bill/Both) is listed under UI/Surface Toggles (it is a print-surface enum, gated by `opClinicsModule`).
+
+---
+
+### 3. UI / surface toggles (incl. white-label branding depth)
+
+| key | type | built? | default-existing | default-new | mechanism / surface | effort |
+|---|---|---|---|---|---|---|
+| `billQr` | boolean | built | on | **off** (new) | **SPLIT from `reportQrBillGateway`.** `shouldShowReportQr()` in `reportQrService.ts`; rendered on paper bill `billPdfService.ts:277` + WhatsApp bill PDF + `BillReceipt.tsx:215`. Auto-suppressed when all orders are bill-only/cancelled/films-only. Controls only the "Scan for your report" QR block on the bill | S |
+| `reportGateway` | boolean | built | on | **off** (new) | **SPLIT from `reportQrBillGateway`.** Public stateless route `routes/reportGateway.ts` (`/r/:token`): 302 to finalized PDF, partial interstitial, or branded "being prepared" polling page. Disabling it while `billQr` is on would break the scan UX — toggle together. **Now paired with a mandatory `reportGatewayRateLimit` policy (§5)** | S |
+| `clinicRxPrintMode` | enum (rx/bill/both) | built | both | both | `printMode` prop on `ClinicPrescriptionPrint.tsx:17-18`; becomes a per-tenant/branch default in config. Only meaningful when `opClinicsModule` on | S |
+| `letterheadRenderMode` | enum (preprinted/rendered) | partial | preprinted | **rendered** | `LabProfile.letterheadMode` + `printMarginTopMm`/`printMarginBottomMm` (3 new cols). Preprinted leaves calibrated margins + no header; rendered draws full header/logo. Sobhana = 32mm/22mm calibrated → preprinted; new clients print on blank A4 → rendered (cheaper) | S |
+| `branchColorTheme` | enum | partial | hardcoded per branch (CNT navy-red, IDPL teal, JGG purple, BLN light-blue) | tenant-default at onboarding | `getBranchTheme()`/`getBranchCSSVars()` in `branchTheme.ts` inject CSS vars — but the colour map is a compiled `Record<string,BranchTheme>`, not DB. To complete: add `sidebarBg`/`accent`/`bannerBg` to Branch (or a `TenantBranding` table) feeding the existing injection | M |
+| `customLogoUpload` | boolean | not-built | on (Sobhana logo compiled) | **off** | Uploaded logo → `TenantBranding` table feeding report/bill PDF header + sidebar; replaces the per-branch compiled asset. Backs the same injection point as `branchColorTheme` | M |
+| `customFavicon` | boolean | not-built | on | **off** | Per-tenant favicon served by the FE shell | S |
+| `customReportFooter` | string | not-built | Sobhana footer | tenant/blank | Configurable report/bill footer block (address/accreditation line) rendered by the PDF footer renderer | S |
+| `poweredByBadgeRemoval` | boolean | not-built | on (removed) | **off** | **The classic white-label upsell lever** the ₹999 "HealthFlow" go-to-market implicitly sells: a "Powered by HealthFlow" badge on report/bill/portal, removable on the paid white-label tier. Sobhana (founding white-label) = removed | S |
+| `pdfWatermark` | enum | not-built | off | off | Optional `DRAFT`/branded watermark on report/bill PDFs; per-tenant text + opacity via the PDF renderer | S |
+
+> `physicalLetterheadMode` (capability, §2) and `letterheadRenderMode` (this table) are related but distinct: the former is the runtime `?mode=physical` PDF profile switch that already exists; the latter is the per-tenant *default* + margin config that decides which mode a tenant lands in. Both are kept because Sobhana runs both modes live.
+
+---
+
+### 4. RBAC / role entitlements
+
+| key | type | built? | default-existing | default-new | mechanism / surface | effort |
+|---|---|---|---|---|---|---|
+| `labInchargeRoleEnabled` | boolean | built | true | true | Gate `ASSIGNABLE_ROLES` in `users.ts` (remove `lab_incharge`) + collapse finalize/release-partial `requireRole` in `diagnosticVisits.ts:4905,5194` to owner-only. On flag-write, downgrade existing `lab_incharge` accounts to `staff`. Disabling implicitly forces `nonOwnerFinalizeAllowed=false` | M |
+| `nonOwnerFinalizeAllowed` | boolean | built | true | true | Same two `requireRole('owner','lab_incharge')` calls (`diagnosticVisits.ts:4905,5194`); when off, allowed set collapses to `('owner')` while `lab_incharge` keeps data-entry rights everywhere else. Dependent on `labInchargeRoleEnabled`. (This is `labInchargeCanFinalize` from the rescan — same entitlement.) | S |
+| `salesRoleEnabled` | boolean | built | true | **false** | Gate `ASSIGNABLE_ROLES` in `users.ts` (remove `sales`). Sales portal is deliberately minimal (referral + payout nav only, no WhatsApp send — `PayoutStatement.tsx:88`, `Sidebar.tsx:199`). Role stays in the DB enum; gate is whether the owner can assign it. Sub-25-seat centres manage referrals themselves | M |
+| `ownerSelfManagesUsers` | boolean | partial/not-built | on* | on | `/api/users` router already `requireRole('owner')`; add a feature-flag check → 403 `FEATURE_DISABLED` when off. **New build needed:** `POST /api/users` (owner-gated create w/ hashed pw scoped to tenant) + deactivate endpoint + Create/Deactivate in `ManageRoles.tsx`. Today register is `admin`-gated (`auth.ts:152`) so owners can't seed staff — not scalable for 25 tenants. `admin` becomes platform-superadmin only | L |
+| `vendorSuperAccountEnabled` | boolean | not-built | true | true | Dormant `super` role in `UserRole` enum; not in FE type/middleware. Build: vendor-side JWT `role='super'` + tenant claim; `authMiddleware` recognises it and bypasses tenant isolation for support. Flag honours/denies the bypass per tenant; audit every super action with a distinct `actionType`. **The grant must be a short-TTL, owner-consented, self-revoking break-glass — see `vendorBreakGlassExpiry` (§5); a permanent bypass is the wrong default even when audited.** The only entitlement true for both defaults — vendor can't support a tenant they can't reach; turning off requires the owner's written, logged consent | L |
+
+*`ownerSelfManagesUsers` default-existing resolved to **on** — Sobhana's owner already self-manages; the "off" only applies to enterprise/regulated tenants who opt into vendor-only provisioning.
+
+**Notes grounded in the code audit:** `UserRole` has 6 values (`staff, doctor, owner, admin, lab_incharge, sales`) but the FE exposes only 4 active — `doctor`/`admin` are legacy/dormant and need no entitlement. `owner` is structurally immutable (`users.ts` hard-blocks reassigning it) so no `ownerRoleEnabled` toggle. The finalize gate is the *only* place `lab_incharge` outranks `staff`. Enterprise identity (`ssoProvisioning`, SAML/OIDC/SCIM) is cataloged under §5 as an access policy, parked for a future enterprise tier (not relevant to the sub-25-seat segment).
+
+---
+
+### 5. Access & security policies
+
+| key | type | built? | default-existing | default-new | mechanism / surface | effort |
+|---|---|---|---|---|---|---|
+| `loginLockoutRateLimit` | boolean | **built** | on | on | `middleware/rateLimit.ts` (Redis per-IP 5/min + per-credential) + `lib/loginLockout.ts` (rolling 15-min/12-attempt, 423, fail-open). **Hardening required (see note below):** lockout is keyed on **email only** (`loginLockout.ts:27-28`) → targeted account-lockout DoS; and it **fails open on Redis outage**. Thresholds still to be exposed per-tenant (`loginBruteForceThreshold`, §2) | S |
+| `branchLocationPinning` → **rename `branchAccessAllowlist`** | boolean | partial | off→**on** (fix) | on | **ACTIVE IDOR / broken object-level authz — ship now as a standalone access-control fix, not a SaaS-rollout nicety.** `middleware/branch.ts:76-97`: any authenticated user can set `X-Branch-Id` to *any* active branch; `prisma.branch.findUnique({where:{id}})` checks only exists+isActive — **no per-user allow-list AND no tenant scoping**, so a staffer scoped to branch A can read/write branch B's patients, reports and money by changing one header. Fix: add a `UserBranch` allow-list join and validate the header against it; in the shared-DB path also scope the branch lookup by `tenantId`; 403 on any non-granted branch (owner gets all branches in-tenant, never cross-tenant). Also underpins the license model | M |
+| `reportGatewayRateLimit` | struct | not-built (gap) | none | on | **Largest unauthenticated PII surface.** Public `/r/:token` (`routes/reportGateway.ts`) has no throttle → token-enumeration risk. Add per-IP + per-tenant sliding window (reuse `rateLimit.ts`), require high-entropy opaque tokens, and return a generic 404 on miss (no enumeration oracle). Ships with `reportGateway` | M |
+| `sessionTimeout` | struct | partial | 1d absolute, no idle | per-tenant | JWT `expiresIn '1d'` (`authService.ts:188`) + 24h cookie (`auth.ts:19`), no idle timeout. Absolute-lifetime knob is trivial; any idle timeout must be **activity-based, not wall-clock**, and set well above a realistic front-desk gap (reception constantly steps away for samples) or it manufactures mid-workflow logouts. Idle needs the session registry → sequence after `concurrentSessionCap` | S |
+| `csrfSameSitePolicy` | enum | partial | 24h httpOnly cookie, no CSRF token | SameSite + token | Auth is a cookie but no CSRF defense on mutating routes. Set `SameSite=Lax/Strict` on the auth cookie + a synchronizer/double-submit token on state-changing POST/PATCH/DELETE | S |
+| `auditLogVisibility` | boolean | partial | on | on | `AuditLog` model (`schema.prisma:943`) + `/api/audit-logs` exist; add per-tenant flag + owner in-app view/export gate | S |
+| `auditLogIntegrity` | boolean | not-built | off | **on** | "Keep forever" is decided but nothing stops an owner or super account from editing/deleting audit rows. Make `AuditLog` append-only (DB revoke UPDATE/DELETE + hash-chain each row to `prevHash`) so tampering is detectable. Pairs with `vendorSuperAccountEnabled` and DPDP/NABL evidentiary needs | M |
+| `piiAccessAuditLog` | boolean | not-built | off | **on** | `AuditLog` records **mutations only**; there is no "who viewed which patient/report" access log — DPDP/NABL reviewers expect one. Log read access to report/patient PII with actor/time/subject (append-only via `auditLogIntegrity`) | M |
+| `passwordPolicy` | enum | not-built | off | off | bcrypt exists but no complexity/length/rotation. Per-tenant policy validated in set/change-password path; optional `passwordChangedAt` column | S |
+| `twoFactorAuth` | enum (off/otp-whatsapp/otp-email/totp) | not-built | off | off | Second factor verified before the JWT cookie is set. **For owner/finalize use TOTP** (otplib, secret on `User`) — WhatsApp-OTP is deliverability-dependent (Meta OTP-template throttling, WABA limits) and SIM-swap/phishable, i.e. the weakest option precisely where you want the strongest. Reserve WhatsApp/email-OTP for low-friction patient-facing gating (`patientOtpGate`) | L |
+| `vendorBreakGlassExpiry` | number (min) | not-built | never-expires | 60 min | Amends `vendorSuperAccountEnabled` (§4): the super grant is audited but never expires. Make it a short-TTL, owner-consented, self-revoking break-glass token (auto-revoke at expiry); enterprise-standard for cross-tenant support access | M |
+| `dataExportPermission` | boolean | not-built | on | off | Master security gate on bulk/raw exports (day-sheet, patient list, result dumps) — `moneyDaySheetExport` ships bulk export with no gate today. Format-level narrowing is `exportFormatsAllowed`; interop formats are §7. Relevant to white-label data-ownership + downgrade enforcement | S |
+| `exportFormatsAllowed` | list | not-built | all | csv (base) | Refines `dataExportPermission` with a format allow-list (CSV/XLSX/JSON). Base tier = CSV only; XLSX/JSON on higher tiers; HL7/FHIR/accounting are separate roadmap features (§7) | S |
+| `notificationChannelPriority` | list | not-built | [whatsapp] | ordered fallback | Per-tenant ordered delivery fallback `[whatsapp, sms, email]` consumed by `notificationService`; when a WhatsApp send fails (template reject / 24h-window), fall through to the next **enabled** channel. Removes today's silent single-point-of-failure. Depends on `smsChannelEnabled`/`emailNotificationsEnabled` (§7) | S |
+| `dataResidencyRegion` | enum (in/vn/eu) + `crossBorderTransferAllowed` bool | not-built | in | tenant region | DB-per-tenant on one Hetzner box gives physical residency *by accident*; declare it explicitly for DPA/DPDP and to constrain the backup/restic target region + a future EU-tenant route. Material given Vietnam(VND)+France. (Field-level PII encryption-at-rest is **not** a per-tenant toggle — see rejection note; full-disk LUKS + DB-per-tenant covers at-rest platform-wide) | M |
+| `mobileAccessEnabled` | boolean | not-built | on | **off** | Login-time client-type detection (UA/`X-Client` + PWA flag) stamped as a JWT claim; `authMiddleware` rejects mobile-origin tokens when off. Gate the mobile FE build behind a signed origin (UA is spoofable). Pairs with `patientPwaPortal`/`referringDoctorPortal` | M |
+| `ipAllowlist` | list (CIDR) | not-built | none | none (opt-in) | Middleware after auth: resolve tenant+branch, compare `req.ip` (set `trust proxy` for Render/Caddy XFF) against stored per-branch CIDR list → 403 on miss. **Opt-in only** for clinics with a genuine static IP (high false-positive on dynamic PPPoE/CGNAT/4G; VPN-defeatable — see location subsection) | M |
+| `concurrentSessionCap` | struct | not-built | unlimited | plan-sized, **alert-mode** | Add `jti` to each token; register in a Redis set keyed by userId/tenant (cookie TTL); `authMiddleware` checks `jti` still a member. **Anti-credential-sharing signal, NOT a location control (demoted — see subsection).** Default `onExceed:alert` (soft signal to owner + HealthFlow admin); **never default `evictOldest` — that logs staff out mid-signing; explicit opt-in only.** Also unlocks forced-logout | L |
+| `deviceBinding` (`deviceCap`) | struct | not-built | unlimited | plan seats, **hard ceiling** | **PRIMARY location lever.** First login issues a signed httpOnly device-id cookie; the **hard numeric cap lives server-side in the registry, not in owner approval and not in the cookie** (the cookie is only an identifier — a copyable bearer token). Enforce the count at the registry; detect the same device-id arriving from disjoint networks simultaneously (cookie-clone signal). Owner-approval is *not* a control against the owner (the license adversary IS the owner). IP-independent → best fit for dynamic-IP clinics | L |
+| `forcedLogoutRevocation` | boolean | not-built | off | off | Stateless JWTs can't be revoked mid-life; `isActive` only bites next request. True revocation needs the `jti` registry (shared with `concurrentSessionCap`): delete `jti`(s) from Redis to kill sessions immediately. Bundle with session cap | L |
+| `loginGeoAnomalyAlert` | boolean | not-built | off | off | Geo-IP each login (MaxMind/ipinfo), store last city/coords/time; impossible-travel/new-city → **soft alert** to owner + HealthFlow admin via `MessageLog`. **BACKSTOP — detection, not a block.** Weak vs same-city sharing | M |
+| `apiKeyRotationPolicy` | struct | not-built | n/a | on (when `apiAccessEnabled`) | `apiAccessEnabled` (§6) gates key *existence*; this governs `{ maxAgeDays, autoExpire, allowedScopes[] }` — forced rotation + least-scope on issued keys | S |
+| `ssoProvisioning` | struct | not-built | off | off | SAML/OIDC federation + SCIM provisioning `{ samlEnabled, idpMetadataUrl, scimProvisioning }` for a future enterprise tier. **Parked** — not relevant to the sub-25-seat segment; listed for catalog completeness | L |
+| `gpsGeofence` | boolean | not-built | off | off | Mobile PWA sends `navigator.geolocation`; backend checks distance to branch coords. **Dropped from license enforcement (see rejection note).** Position only as an optional mobile home-collection convenience — never a location control | XL |
+
+**Login-lockout DoS hardening (grounded):** `loginLockout.ts:27-28` keys the counter/lock on **email only** — 12 deliberate bad logins lock the owner (who holds finalize authority) out for 15 min, repeatably, potentially stalling clinical report release. Combine per-account with per-IP logic so one hostile IP can't lock a victim; for high-privilege accounts (owner/finalize) prefer a **CAPTCHA/step-up challenge over a hard 423**. Add a short circuit-breaker on the fail-open path (alert + tighten cookie/IP checks) so a forced Redis outage doesn't silently disable brute-force protection.
+
+---
+
+### 6. Commercial limits, quotas & subscription lifecycle
+
+| key | type | built? | default-existing | default-new | mechanism / surface | effort |
+|---|---|---|---|---|---|---|
+| `subscriptionLifecycle` | struct (top-level) | not-built | { legacy plan, founding, active } | plan template | **The backbone every entitlement hangs from — was missing.** Top-level `{ planId, planTier, accountStatus: trial\|active\|past_due\|grace\|suspended\|cancelled, activationDate, trialEndsAt, gracePeriodDays, readOnlyMode }`. Entitlement templates key off `planId`; the dunning cron sets `accountStatus`; `authMiddleware` forces read-only when `suspended`. `trialDurationDays` (below) feeds `trialEndsAt` | M |
+| `maxBranches` | number | not-built | unlimited | **1** | `POST /branches` reads limit, `COUNT` active branches, HTTP 402 if ≥ limit. Active-only; archived don't count. Multi-branch is a natural upsell | S |
+| `maxUsers` | number | not-built | unlimited | **5** | `POST` user/invite counts active users vs limit → 402; owner reserved (doesn't count). Per-role sublimits deferred | S |
+| `maxSigningDoctors` | number | not-built | unlimited | **2** | `POST /signing-doctors` counts active vs limit → 402; soft-delete frees a slot. Lab-size proxy / upsell signal | S |
+| `maxReportsPerMonth` | number | not-built | unlimited (-1) | plan-sized | **Core billed-unit meter — the natural per-report LIS pricing dimension, was absent.** `INCR reportcount:{tenant}:{yyyymm}` (TTL=month-end) on finalize; block/soft-alert at cap, alert at 80%. Same pattern as `msgMonthlyLimit`; the lever to enforce/upsell on actual throughput | S |
+| `msgMonthlyLimit` | number | partial | unlimited (-1) | **500** | INCR `msgcount:{tenant}:{yyyymm}` (TTL=month-end) before send in `whatsappCloudService.ts`; block + alert at cap; alert at 80%. Numeric companion to the cataloged `perTenantMessageQuota` toggle. HealthFlow pays the Meta bill → cost protection | S |
+| `msgBurstRatePerMin` | number | not-built | unlimited | **10** | Redis sliding window/min (same pattern as `rateLimit.ts`), alongside `msgMonthlyLimit`; soft-delay (queue next window) not hard drop. Safety valve vs a runaway automation burning the monthly quota | S |
+| `pdfConcurrencySlots` | number | partial | 2 | **1** | `pdfGenerationService.ts:17-25` has a global `PDF_MAX_CONCURRENT` pool; add per-tenant slicing via `pdf:active:{tenant}` Redis hash — queue (don't reject) beyond the tenant slot; global pool stays the outer bound. Prevents one tenant monopolizing Chromium during batch finalization | M |
+| `storageGbLimit` | number | not-built | unlimited | **10** | On PDF-gen + external upload, check tenant running total (Control-DB, inc/dec on write/delete) → 402 before writing; nightly reconcile cron catches drift. No object-storage layer today (greenfield). Must be generous — Neon's 0.5 GB cap was a documented rejection reason | L |
+| `reportRetentionDays` | number | not-built | unlimited (no purge) | **730** | Nightly cron purges report files older than N days (soft-tombstone → hard-delete after grace day), decrements storage total, skips active/disputed orders. 0 = no purge. 2yr is below the medico-legal floor — document in the DPA | M |
+| `backupRetentionDays` | number | not-built | 30 | 30 | Nightly per-tenant `pg_dump` → B2 (SELFHOST_PLAN §6) passes value to restic `--keep-within`/rclone lifecycle. Hetzner 7-slot VM snapshot is independent. Extended history (90d) = premium upsell | S |
+| `selfServiceBackupExport` | boolean | not-built | off | off (premium) | Owner-triggered **encrypted** `pg_dump`/report-bundle download — data-ownership expectation for white-label tenants. Distinct from `backupRetentionDays` (retention only) | M |
+| `selfServiceRestore` / `pointInTimeRestoreDays` | number | not-built | 0 | 0 (premium) | Owner-facing restore / PITR window as a premium gate; off = vendor-assisted restore only | L |
+| `customDomainEnabled` | boolean | not-built | false | false | Caddy On-Demand TLS ask-endpoint (`GET /internal/caddy/ask?domain=X`) checks Control-DB → 200 issues cert, 403 refuses (prevents LE rate-limit exhaustion). The per-tenant boolean the ask-endpoint reads; complements the cataloged `customDomainWhiteLabel`. Sobhana uses a healthflow.in subdomain → false | M |
+| `apiAccessEnabled` | boolean | not-built | false | false | Tenant may generate long-lived scoped API keys (governed by `apiKeyRotationPolicy`, §5); key middleware checks `tenantId` + flag; `POST /api-keys` → 402 when off. No public API today. Entitlement for the analyzer add-on tier (on-prem HealthFlow Agent needs a static key) | M |
+| `supportTier` | enum (standard/priority) | not-built | priority | standard | Read-only routing flag in Control-DB; no app enforcement — Retool/Crisp intake reads it. `standard`=public 1-business-day SLA; `priority`=accelerated (Sobhana=founding). Upsell lever | S |
+| `trialDurationDays` | number | not-built | 0 (Sobhana = founding, not on trial) | **14** | Control-DB `trial_ends_at = activation_date + N`; feeds `subscriptionLifecycle.trialEndsAt`; dunning/auto-suspend cron compares `NOW()`; payment failures suppressed during trial; at expiry w/o payment → D-3 reminder → D+0 → `accountStatus:suspended`. Clock starts at go-live, not signup. Extendable per pilot | S |
+
+> **Audit-log retention** is intentionally excluded from `limits{}` — resolved "keep forever" (medico-legal, DPDP-erasure-exempt); a design constant, enforced append-only via `auditLogIntegrity` (§5), not a per-tenant limit. All rows depend on the Control-DB tenants registry (Phase A).
+
+---
+
+### 7. Roadmap features / modules & notification-fabric channels (net-new)
+
+| key | type | built? | default-existing | default-new | mechanism / surface | effort |
+|---|---|---|---|---|---|---|
+| `smsChannelEnabled` | boolean + provider/DLT | not-built | off | off | `notificationService.ts:3` already advertises "WhatsApp + SMS fallback" but **nothing gates SMS and there is no provider/DLT-template config** — so a WhatsApp template-rejection/24h-window failure silently drops report/bill delivery with no fallback. Add SMS provider creds + DLT template ids; consumed as a fallback channel per `notificationChannelPriority` (§5) | M |
+| `emailNotificationsEnabled` | boolean | not-built | off | off | No email delivery path exists despite `twoFactorAuth: otp-email` presupposing one. Gate report/bill/statement/OTP email delivery; per-tenant SMTP/provider config | M |
+| `emailSenderDomain` | struct (SPF/DKIM) | not-built | off | off | **Email equivalent of `wabaBrandedSender`** (which covers WhatsApp only): branded from-domain + SMTP + SPF/DKIM so mail sends as the tenant's brand. Depends on `emailNotificationsEnabled` | M |
+| `onlinePaymentsEnabled` | boolean + gatewayConfig | not-built | off | off | `billQr`/`reportGateway` deliver reports but nothing gates taking patient payment online. Add Razorpay/UPI/Stripe `{ provider, keys, perBranch }`; per-transaction-cost toggle. Low priority for the segment | M |
+| `outboundWebhooks` | struct | not-built | off | off | `routes/webhooks.ts` is inbound Meta-delivery-receipts only; `apiAccessEnabled` is pull, not push. Add a per-tenant endpoint/secret registry + event allow-list (`order.created`, `report.finalized`, `payment.received`); delivery-worker gated on the flag. Enables HIS/ERP integration | M |
+| `hl7FhirExport` | boolean | not-built | off | off | Healthcare interop export (HL7 v2 / FHIR / ABDM-format) for the analyzer/interop tier; net-new, no exporter today. Master-gated by `dataExportPermission` (§5) | L |
+| `accountingExport` | boolean | not-built | off | off | Tally/accounting-format export of billing/day-sheet data; net-new | M |
+| `scheduledExports` | boolean | not-built | off | off | Cron-scheduled recurring export (day-sheet/patient list) delivered by email/webhook; depends on the channel + `dataExportPermission` | M |
+| `betaFeaturesOptIn` | boolean | not-built | on (Sobhana = founding gets previews) | off | Per-tenant early-access channel; feature templates can branch on it to expose preview builds. Low priority; listed for completeness | S |
+| `mobileStaffPwa` | boolean | not-built | false | false | PWA manifest + service worker; `useMobileLayout.ts` gates mobile nav/views. Distinct from `patientPwaPortal`. Targets reception on tablets, phlebotomists on phones. Roadmap bans *native* apps; PWA shell is viable solo-founder work | M |
+| `gpsPhlebotomistTracking` | boolean | not-built | false | false | Phlebotomist PWA pushes pings to `/api/home-collection/location`; dispatcher live map; new `LocationPing` model. Sub-feature of `homeSampleCollection` but first-class (real-time infra cost) | L |
+| `homeCollectionRouteOptimization` | boolean | not-built | false | false | Gates a route-opt API (Dista/Locus/Google Route Optimization); off = manual drag-order. Roadmap: "integrate routing, don't build a VRP solver." Upsell for 5+ collections/day | M |
+| `digitalConsentCapture` | boolean | not-built | false | false | Tap-to-sign configurable consent template at registration/collection; `ConsentLog` w/ timestamp+IP+device. Distinct from `dpdpConsentManagement` (backend log/erasure) | M |
+| `dpdpConsentManagement` | boolean | not-built | false | false | (1) separate `Patient.whatsappMarketingOptIn` (Act bans bundled purposes); (2) `ConsentLog` w/ actor/purpose; (3) right-to-erasure workflow scrubbing live PII (audit logs exempt). DPDP enforcement ~May 2027. **Compliance prerequisite, not upsell** — ship before first commercial tenant | M |
+| `patientOtpGate` | boolean | not-built | false | false | `/r/:token` redirects to OTP entry before serving report; OTP to registered phone via WhatsApp/SMS; token+OTP validated w/ short TTL. Roadmap's compliant delivery path. **WhatsApp-OTP is fine here** (patient-facing, low-friction) — but not for owner/finalize (§5 `twoFactorAuth`) | S |
+| `wabaBrandedSender` | boolean | partial | true | **false** | Control-DB stores `wa_phone_number_id`/`wa_access_token`/`wa_app_secret`/`wa_verify_token` per tenant; `whatsappCloudService.ts` selects creds by `tenantId`; off = no WhatsApp (WABA is per-business under Meta ToS, no shared fallback). New tenants need own WABA + template approval (3-5 days, start at signing). Sobhana has its own WABA → true | M |
+| `crossBranchConsolidatedAnalytics` | boolean | partial | true | false | Extends `ownerDashboardV2Service` to aggregate revenue/visits/TAT/top-tests/top-referrers across ALL branches (tenant-prefixed cache) + "All Branches" selector. Cataloged `ownerAnalyticsDashboard` is per-branch. Upsell for 2+ branch chains | M |
+| `panicValueCriticalAlerts` | boolean | not-built | false | false | On `CRITICAL_HIGH`/`CRITICAL_LOW` flag (`criticalMin`/`criticalMax` on TestDefinition), immediate in-app + optional WhatsApp to signing doctor + branch head. **SELFHOST §20 flagged panic values as invisible/un-alerted in prod** — the `computeFlag` fix (`reportRendererService.ts:184-190`) ships unconditionally as a bug fix; this toggle gates the *alert delivery*. NABL/ISO 15189 requires panic-value notification | M |
+
+> Already covered by the 33 and NOT re-cataloged: `analyzerInterfacing`, `homeSampleCollection`, `resultBasedReminders`, `referringDoctorPortal`, `patientPwaPortal`, `marketingCampaigns`, `inventoryReagentManagement`, `nablAccreditationReporting`, `customDomainWhiteLabel`, `abdmAbhaIntegration`, `perTenantMessageQuota`, `ipInpatientModule`.
+
+---
+
+### Location / one-branch-one-location enforcement (revised: device-binding-first)
+
+**Short answer: No — IP allowlisting is NOT the right primary lever for this segment, and neither is a concurrent-session cap.** Small Indian clinics run dynamic residential PPPoE and CGNAT-shared 4G, so IP allowlisting locks out legit staff, is desktop-only, and is trivially defeated with a cheap VPN to the allowed IP. And a **session cap counts sessions, not locations**: a cost-motivated operator runs a second site entirely within a seat-sized cap (cap=3 → two seats at site A + one at site B never trips), so it is close to security-theater *as a location control* — its real value is anti-credential-sharing. Lead with the thing you are actually licensing: **a physical, always-on desktop per site → trusted-device binding.**
+
+| mechanism | robustness (as location control) | false-positive risk | works on | bypass | effort |
+|---|---|---|---|---|---|
+| **Device binding** (hard server-side device count = plan seats; cookie is only an identifier) — **PRIMARY** | strong | low | desktop + mobile | clone the device cookie → mitigated by enforcing the count at the registry + detecting one device-id on disjoint networks; re-register → blocked by the hard cap (owner approval is *not* the boundary) | L |
+| **Concurrent-session cap** (Redis `jti` registry) — **SECONDARY / anti-credential-sharing signal, not a location control** | weak (as location) | medium (evict-oldest logs staff out) | desktop + mobile | run a second site within a seat-sized cap | L |
+| **Login geo-IP / impossible-travel ALERT** — **BACKSTOP (detect, don't block)** | medium | low | desktop + mobile | three clinics in the *same* city never trip impossible-travel | M |
+| **IP allowlist (per-branch CIDR)** — **opt-in only** | weak | high | desktop web only | cheap VPN/tunnel; dynamic-IP rotation locks out legit staff | M |
+| **GPS geofence (mobile)** — **DROPPED as a control** | none (theater) | medium | mobile only | fake-GPS apps; permission-deniable; desktop "geolocation" is IP/WiFi triangulation | XL |
+
+**Recommended layered model (decisive):**
+1. **PRIMARY — trusted-device binding.** Signed httpOnly device-id cookie + a **hard numeric device count enforced server-side in the registry**, sized to plan seats. Each physical always-on clinic desktop = one bound device, so a 1-branch tenant physically can't equip a 2nd/3rd site. IP-independent → immune to the dynamic-IP problem. **The numeric cap is the boundary — not owner approval (the owner is the license adversary and will approve their own second-site devices), and not the cookie (a copyable bearer token; detect the same device-id from disjoint networks simultaneously as a clone signal).**
+2. **SECONDARY — concurrent-session cap** as an **anti-credential-sharing** signal only. Default **alert-before-block** (soft signal to owner + HealthFlow admin, feeding the upsell conversation); **never default evict-oldest** — that logs staff out mid report-signing. Not marketed as one-branch enforcement.
+3. **BACKSTOP — login geo-IP / impossible-travel ALERTS** to owner + HealthFlow admin. Never a block.
+4. **PREREQUISITE (ship now, independent of licensing) — fix the `middleware/branch.ts:76-97` IDOR.** It is an active broken-object-level-authorization bug: validate `X-Branch-Id` against a per-user `UserBranch` allow-list AND scope the branch lookup by `tenantId`. Also add `reportGatewayRateLimit` — `/r/:token` is the largest unauthenticated PII surface and today has no throttle.
+
+**Shared-login reality (critical for a solo founder):** small clinics routinely share ONE login across the front desk and several machines. Default **all caps generous and alert-first**, encourage per-user accounts *before* enabling any cap, and keep idle timeout activity-based (or off) on reception desks. A day-one hard 423/evict-oldest posture manufactures exactly the support load the founder cannot absorb.
+
+Reserve **IP allowlist** and **GPS** as opt-in convenience only (GPS purely as a mobile home-collection nicety, never a license control). Device binding + the branch-IDOR fix + alert-mode session cap enforce the license on desktop and mobile at low false-positive risk — exactly what dynamic-IP clinics need.
+
+**Rejected / reframed critic points (one line each):**
+- **GPS geofence as a location/license control — REJECTED (security-theater):** desktop "geolocation" is IP/WiFi triangulation, spoofable and permission-deniable; keep only as an optional mobile home-collection convenience.
+- **Concurrent-session cap as PRIMARY location lever — REJECTED:** it caps sessions, not locations; a lean operator runs a 2nd site within a seat-sized cap. Demoted to a secondary anti-credential-sharing signal.
+- **IP allowlist as a mainstream control — REJECTED for this segment:** dynamic PPPoE/CGNAT/4G → high false-positive lockouts and VPN-defeatable; opt-in for genuine static IPs only.
+- **Owner-approval as the device-binding control — REJECTED:** the license adversary IS the owner; the hard server-side numeric count is the boundary, not approval and not the copyable cookie.
+- **WhatsApp-OTP as 2FA for owner/finalize — REJECTED:** deliverability-dependent + SIM-swap/phishable; use TOTP for owner/finalize and reserve WhatsApp-OTP for patient-facing `patientOtpGate`.
+- **Per-tenant field-level PII encryption-at-rest toggle — REJECTED for this segment:** full-disk LUKS + DB-per-tenant already covers at-rest uniformly and field encryption breaks search/index for negligible marginal gain; the per-tenant knob is `dataResidencyRegion`, not field encryption.
+- **SSO/SAML/SCIM — INCLUDED but PARKED:** genuinely absent, so cataloged (`ssoProvisioning`) for completeness, but deferred to a future enterprise tier — irrelevant to the sub-25-seat clinic segment.
+
+---
+
+### How these extend the config shape
+
+The Control-DB tenant record gains a top-level **`lifecycle{}`** block (the backbone entitlement templates key off) plus the numeric **`limits{}`** and **`policies{}`** blocks alongside the existing `modules{}` / `features{}`. Tag-based gating is extended with `getLimit(key)`, `getPolicy(key)`, and lifecycle-aware resolution (`accountStatus:suspended` forces read-only middleware-wide).
+
+```jsonc
+{
+  "tenantId": "clnt_0_sobhana",
+  "brand": { "name": "Sobhana Diagnostics", "domain": "sobhana.healthflow.in" },
+
+  "lifecycle": {
+    "planId": "legacy_founding",
+    "planTier": "founding",
+    "accountStatus": "active",       // trial | active | past_due | grace | suspended | cancelled
+    "activationDate": "2025-01-01",
+    "trialEndsAt": null,             // founding client, not on trial
+    "gracePeriodDays": 7,
+    "readOnlyMode": false
+  },
+
+  "modules": { "core": true, "diagnostics": true, "op": true, "ip": false },
+
+  "features": {
+    // ...the existing 33 stay as-is...
+    // reportQrBillGateway REMOVED — split into billQr + reportGateway:
+    "billQr": true,
+    "reportGateway": true,
+
+    // capability + localization/statutory-billing (§2):
+    "physicalLetterheadMode": true,
+    "narrativeReportPanels": true,
+    "narrativeSignerOverride": true,
+    "whatsappTenantKillSwitch": true,
+    "tenantTimezone": "Asia/Kolkata",
+    "uiReportLanguagePack": "en",
+    "taxConfig": {
+      "gstin": "36XXXXXXXXXXXZX", "taxRegime": "regular", "taxInclusive": false,
+      "placeOfSupply": "36-TG", "printTaxBreakdownOnBill": true,
+      "rates": [ { "hsnSac": "9993", "cgstPct": 0, "sgstPct": 0, "igstPct": 0 } ] // diagnostics exempt
+    },
+    "invoiceNumbering": {
+      "scheme": "D-{BRANCH_CODE}-{SEQ}", "prefix": "D", "perBranch": true,
+      "resetCadence": "financial_year", "padWidth": 5, "separateGstSeries": false
+    },
+    "businessHoursCalendar": { "enabled": false }, // 24x7 legacy
+
+    // UI / surface + white-label depth (§3):
+    "clinicRxPrintMode": "both",
+    "letterheadRenderMode": "preprinted",
+    "branchColorTheme": "tenant-default",
+    "customLogoUpload": true, "customFavicon": true,
+    "customReportFooter": "…", "poweredByBadgeRemoval": true, "pdfWatermark": "off",
+
+    // RBAC (§4):
+    "labInchargeRoleEnabled": true, "nonOwnerFinalizeAllowed": true,
+    "salesRoleEnabled": true, "ownerSelfManagesUsers": true,
+    "vendorSuperAccountEnabled": true,
+
+    // notification-fabric + interop + roadmap:
+    "smsChannelEnabled": false, "emailNotificationsEnabled": false,
+    "emailSenderDomain": null, "onlinePaymentsEnabled": false,
+    "outboundWebhooks": false, "hl7FhirExport": false,
+    "accountingExport": false, "scheduledExports": false, "betaFeaturesOptIn": true,
+    "wabaBrandedSender": true, "crossBranchConsolidatedAnalytics": true,
+    "panicValueCriticalAlerts": false
+    // ...all other roadmap features: false
+  },
+
+  "limits": {
+    "maxBranches": -1, "maxUsers": -1, "maxSigningDoctors": -1,
+    "maxReportsPerMonth": -1,
+    "msgMonthlyLimit": -1, "msgBurstRatePerMin": -1,
+    "pdfConcurrencySlots": 2, "storageGbLimit": -1,
+    "reportRetentionDays": 0, "backupRetentionDays": 30,
+    "selfServiceBackupExport": false, "pointInTimeRestoreDays": 0,
+    "trialDurationDays": 0,
+    "concurrentSessionCap": { "max": -1, "onExceed": "alert", "evictOldest": false },
+    "deviceCap": { "max": -1, "onExceed": "alert", "hardCeiling": true },
+    "loginBruteForceThreshold": { "attempts": 12, "windowSec": 900, "lockoutSec": 900, "perIp": true },
+    "customDomainEnabled": true, "apiAccessEnabled": false, "supportTier": "priority"
+  },
+
+  "policies": {
+    "branchAccessAllowlist": true,       // enforce per-user UserBranch list (was branchLocationPinning)
+    "reportGatewayRateLimit": { "perIpPerMin": 20, "perTenantPerMin": 120 },
+    "csrfSameSitePolicy": "lax",
+    "sessionTimeout": { "absoluteSec": 86400, "idleSec": 0, "idleMode": "activity-based" },
+    "mobileAccessEnabled": true,
+    "ipAllowlist": [],                   // empty = disabled (opt-in)
+    "twoFactorAuth": "off",              // owner/finalize → totp when on
+    "passwordPolicy": { "minLen": 8, "classes": 0, "maxAgeDays": 0 },
+    "loginGeoAnomalyAlert": false, "forcedLogoutRevocation": false,
+    "auditLogVisibility": true, "auditLogIntegrity": true, "piiAccessAuditLog": true,
+    "dataExportPermission": true, "exportFormatsAllowed": ["csv","xlsx","json"],
+    "notificationChannelPriority": ["whatsapp"],
+    "currencyLocale": { "locale": "en-IN", "symbol": "₹", "subunitDivisor": 100 },
+    "dataResidencyRegion": "in", "crossBorderTransferAllowed": false,
+    "apiKeyRotationPolicy": { "maxAgeDays": 90, "autoExpire": true, "allowedScopes": [] },
+    "vendorBreakGlassExpiry": 60,        // minutes
+    "ssoProvisioning": { "samlEnabled": false, "idpMetadataUrl": null, "scimProvisioning": false }
+  }
+}
+```
+
+**Diagnostics-only new-signup example** (small single-branch lab; everything new OFF, tighter limits, no OP/IP, no WABA until creds provisioned; **caps in alert-mode, idle timeout off on shared reception, per-account+IP lockout**):
+
+```jsonc
+{
+  "tenantId": "clnt_042_newlab",
+  "brand": { "name": "Sunrise Labs", "domain": "sunrise.healthflow.in" },
+
+  "lifecycle": {
+    "planId": "starter_diagnostics", "planTier": "starter", "accountStatus": "trial",
+    "activationDate": "2026-07-04", "trialEndsAt": "2026-07-18",
+    "gracePeriodDays": 3, "readOnlyMode": false
+  },
+
+  "modules": { "core": true, "diagnostics": true, "op": false, "ip": false },
+
+  "features": {
+    "billQr": false, "reportGateway": false,
+    "physicalLetterheadMode": false, "narrativeReportPanels": false,
+    "narrativeSignerOverride": false, "whatsappTenantKillSwitch": false,
+    "tenantTimezone": "Asia/Kolkata", "uiReportLanguagePack": "en",
+    "taxConfig": { "gstin": null, "taxRegime": "unregistered", "taxInclusive": true, "printTaxBreakdownOnBill": false, "rates": [] },
+    "invoiceNumbering": { "scheme": "INV-{SEQ}", "prefix": "INV", "perBranch": false, "resetCadence": "financial_year", "padWidth": 5, "separateGstSeries": false },
+    "businessHoursCalendar": { "enabled": true, "weekly": "…", "holidays": [] },
+    "letterheadRenderMode": "rendered", "clinicRxPrintMode": "both",
+    "branchColorTheme": "tenant-default",
+    "customLogoUpload": false, "customFavicon": false,
+    "customReportFooter": null, "poweredByBadgeRemoval": false, "pdfWatermark": "off",
+    "labInchargeRoleEnabled": true, "nonOwnerFinalizeAllowed": true,
+    "salesRoleEnabled": false, "ownerSelfManagesUsers": true,
+    "vendorSuperAccountEnabled": true,
+    "smsChannelEnabled": false, "emailNotificationsEnabled": false, "emailSenderDomain": null,
+    "onlinePaymentsEnabled": false, "outboundWebhooks": false,
+    "hl7FhirExport": false, "accountingExport": false, "scheduledExports": false,
+    "betaFeaturesOptIn": false,
+    "wabaBrandedSender": false, "crossBranchConsolidatedAnalytics": false,
+    "panicValueCriticalAlerts": false, "dpdpConsentManagement": false
+    // ...all other roadmap features: false
+  },
+
+  "limits": {
+    "maxBranches": 1, "maxUsers": 5, "maxSigningDoctors": 2,
+    "maxReportsPerMonth": 1500,
+    "msgMonthlyLimit": 500, "msgBurstRatePerMin": 10,
+    "pdfConcurrencySlots": 1, "storageGbLimit": 10,
+    "reportRetentionDays": 730, "backupRetentionDays": 30,
+    "selfServiceBackupExport": false, "pointInTimeRestoreDays": 0,
+    "trialDurationDays": 14,
+    "concurrentSessionCap": { "max": 3, "onExceed": "alert", "evictOldest": false }, // alert-first, never evict on day one
+    "deviceCap": { "max": 2, "onExceed": "alert", "hardCeiling": true },             // PRIMARY location lever, server-enforced
+    "loginBruteForceThreshold": { "attempts": 12, "windowSec": 900, "lockoutSec": 900, "perIp": true },
+    "customDomainEnabled": false, "apiAccessEnabled": false, "supportTier": "standard"
+  },
+
+  "policies": {
+    "branchAccessAllowlist": true,
+    "reportGatewayRateLimit": { "perIpPerMin": 20, "perTenantPerMin": 60 },
+    "csrfSameSitePolicy": "strict",
+    "sessionTimeout": { "absoluteSec": 86400, "idleSec": 0, "idleMode": "activity-based" }, // idle OFF on shared reception; if enabled, activity-based
+    "mobileAccessEnabled": false,
+    "ipAllowlist": [],                   // opt-in only; empty for dynamic-IP clinic
+    "twoFactorAuth": "off",              // owner/finalize → totp, not whatsapp-otp
+    "passwordPolicy": { "minLen": 10, "classes": 2, "maxAgeDays": 0 },
+    "loginGeoAnomalyAlert": true,        // soft backstop / upsell signal
+    "forcedLogoutRevocation": false,
+    "auditLogVisibility": true, "auditLogIntegrity": true, "piiAccessAuditLog": true,
+    "dataExportPermission": false, "exportFormatsAllowed": ["csv"],
+    "notificationChannelPriority": ["whatsapp"],
+    "currencyLocale": { "locale": "en-IN", "symbol": "₹", "subunitDivisor": 100 },
+    "dataResidencyRegion": "in", "crossBorderTransferAllowed": false,
+    "apiKeyRotationPolicy": { "maxAgeDays": 90, "autoExpire": true, "allowedScopes": [] },
+    "vendorBreakGlassExpiry": 60,
+    "ssoProvisioning": { "samlEnabled": false, "idpMetadataUrl": null, "scimProvisioning": false }
+  }
+}
+```
+
+Resolution stays static and mechanical: `getModules()`/`getFeatures()` read `modules{}`/`features{}`; `getLimit(key)` returns the numeric/struct cap (`-1`/`0` = unlimited/off, checked at the enforcement point — branch/user/report create, send-gate, PDF dispatch, cron); `getPolicy(key)` returns the security/localization policy consumed by `authMiddleware`, the branch-context middleware (IDOR fix), the session-registry/device-binding middleware, the bill renderer (`taxConfig`/`invoiceNumbering`/`currencyLocale`), and `notificationService` (channel priority). A new lifecycle guard reads `lifecycle.accountStatus`: `suspended`→read-only, `grace`→banner + read-write, `cancelled`→login blocked. New signups inherit an OFF/tight/trial template keyed to `planId`; Sobhana (client #0) carries the unlimited/on legacy record, preserving current behavior.
+
+---
+
+## Config Center sections as feature toggles + the `visibleIf` gate (decided Jul 4)
+
+**Decision (user Jul 4):** each admin Config Center section is a first-class **feature-list entry** — toggled in settings, which hides its editor tab (underlying data/behavior untouched; it's a declutter/operational toggle). Gating is **role-wise AND feature/module-wise** — a tab shows iff `visibleIf(roles, modules, features)` passes *both*. The Config Center already gates tabs by `roles` (`AdminConfigCenter.tsx` TABS array); we add `modules`/`features` next to `roles` and filter identically.
+
+| Config Center tab | Feature key | Role gate | Module/feature gate |
+|---|---|---|---|
+| Clinical Definitions | `clinicalDefinitionsEditor` | super | diagnostics |
+| Panel Definitions | `panelDefinitionsEditor` | super | diagnostics |
+| Departments | `departmentsEditor` | super | diagnostics |
+| Signers & Rules | `signersAndRulesEditor` | super | `signingRulesEngine` |
+| Billable Products | `billableProductsEditor` | owner, staff | diagnostics |
+| Referrals | `referralsEditor` | owner, staff, sales | `referralDoctorPayouts` (Clinic-Doctors sub-tab = `op`; Outside Labs = `externalLabOutsourcing`; Diagnostic Centers = `diagnosticReferralCenters`) |
+| Roles | `rolesEditor` | owner | `ownerSelfManagesUsers` |
+
+**One primitive everywhere:** `visibleIf(roles, modules, features)` drives Config Center tabs + sidebar nav items/sub-items + App routes + owner dashboard tiles + the backend `requireModule`/`requireFeature` guards + seed. Replaces today's ad-hoc scatter (roles on tabs, a separate `salesNavItems`, role checks in routes). Flip a feature off → its tab, nav item, route, and seed all follow; role still governs *who* sees it when on. For clinical tabs already super-only, the role gate does most of the hiding; the feature flag adds "off even for super when the tenant doesn't use it." The two compose — neither redundant.
