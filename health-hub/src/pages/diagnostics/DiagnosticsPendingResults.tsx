@@ -19,7 +19,7 @@ import { useBranchStore } from "@/store/branchStore";
 import { useAuthStore } from "@/store/authStore";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toast } from "sonner";
-import { CheckCheck, Clock, Search } from "lucide-react";
+import { CheckCheck, Clock, Search, Phone, Stethoscope } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -28,8 +28,29 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { formatPatientName } from '@/lib/patientDisplay';
+import { computeSmartAge, calculateAgeFromYOB } from "@/lib/validation";
 
 type PaymentType = "CASH" | "ONLINE";
+
+/** Compact worklist age: "47" (years), "7mo" (months), "18d" (days), "" if unknown. */
+function compactAge(patient: any): string {
+  if (!patient) return "";
+  if (patient.dateOfBirth) {
+    const { age, unit } = computeSmartAge(patient.dateOfBirth);
+    if (unit === "DAYS") return `${age}d`;
+    if (unit === "MONTHS") return `${age}mo`;
+    return `${age}`;
+  }
+  if (patient.yearOfBirth) return `${calculateAgeFromYOB(patient.yearOfBirth)}`;
+  return "";
+}
+
+/** Referring doctor label; "Self" for walk-ins, "Dr." prefixed otherwise. */
+function formatRefDoctor(name?: string | null): string {
+  const n = (name || "").trim();
+  if (!n) return "Self";
+  return /^dr\.?\s/i.test(n) ? n : `Dr. ${n}`;
+}
 
 const toSupportedPaymentType = (value: unknown): PaymentType => {
   if (value === "ONLINE") return "ONLINE";
@@ -441,7 +462,14 @@ const DiagnosticsPendingResults = () => {
               </div>
             ) : (
               <div className="space-y-3">
-                {filteredVisits.map(({ visit, patient, testOrders }) => (
+                {filteredVisits.map(({ visit, patient, testOrders }) => {
+                  const p: any = patient || {};
+                  const ageStr = compactAge(p);
+                  const genderStr = p.gender || "";
+                  const phoneVal =
+                    p.identifiers?.find((id: any) => id.type === "PHONE")?.value || "";
+                  const refName = formatRefDoctor((visit as any).referralDoctor?.name);
+                  return (
                   <div
                     key={visit.id}
                     className="flex flex-col gap-4 rounded-lg border bg-card p-4 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
@@ -451,15 +479,31 @@ const DiagnosticsPendingResults = () => {
                         <span className="font-semibold">
                           {formatPatientName(patient?.name || "Unknown", (patient as any).title)}
                         </span>
-                        <span className="text-muted-foreground">
-                          | {patient?.age} | {patient?.gender}
-                        </span>
+                        {(ageStr || genderStr) && (
+                          <span className="text-muted-foreground">
+                            {ageStr}
+                            {ageStr && genderStr ? " | " : ""}
+                            {genderStr}
+                          </span>
+                        )}
                       </div>
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                        <span className="text-muted-foreground">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                        <span>
                           Bill #:{" "}
                           <span className="font-mono">{visit.billNumber}</span>
                         </span>
+                        {phoneVal && (
+                          <span className="inline-flex items-center gap-1">
+                            <Phone className="h-3.5 w-3.5 shrink-0" />
+                            {phoneVal}
+                          </span>
+                        )}
+                        <span className="inline-flex items-center gap-1">
+                          <Stethoscope className="h-3.5 w-3.5 shrink-0" />
+                          {refName}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                         {(visit.readyReportInclusionCount ?? 0) > 0 ? (
                           <span className="text-muted-foreground">
                             Tests:{" "}
@@ -537,7 +581,8 @@ const DiagnosticsPendingResults = () => {
                       </Button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>
