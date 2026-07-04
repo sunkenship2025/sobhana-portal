@@ -133,6 +133,8 @@ Analyzer (ASTM/HL7 over serial/TCP) → on-prem HealthFlow Agent (parses, buffer
 
 **Phase B — Fast-follow (first 90 days, land 3–5 pilots).** **Analyzer interfacing (one common analyzer)** — the moat. Patient PWA portal polish. Result reminders. Referring-doctor portal. HFR registration per client. Per-branch backups + export/erasure workflows.
 
+**Phase B.5 — At ~5–10 clients (deferred, decided Jul 4).** **Location/access lock** — stop a client running multiple physical locations on a single-location plan (license enforcement, IP-based). Deferred; decide the mechanism details when we get there. Not needed at 3 clients.
+
 **Phase C — Later (post-PMF / on-demand).** Home collection module. Marketing campaigns. Custom domains + branded email. More analyzer models. Inventory/NABL on-demand. ABDM (only after India-hosting migration). Axora OP/IP modules.
 
 **The honest headline:** the launch bottleneck is **not the LIS** (that exists) — it's the **business + compliance + tenancy plumbing in Phase A**, which is weeks of solo work. The differentiator that justifies ₹999 over Labsmart's ₹417 is **Phase B's analyzer interfacing + report/WhatsApp polish** — so Phase A has to be lean enough to *get to* Phase B.
