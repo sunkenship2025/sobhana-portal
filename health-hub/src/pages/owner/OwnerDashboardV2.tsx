@@ -442,7 +442,7 @@ function PayoutLiabilityCard({
     >
       <DisplayNumber>{formatRupees(data.totalInPaise)}</DisplayNumber>
       <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
-        Total unsettled · awaiting review or payment
+        Total unsettled · awaiting review or settlement
       </div>
       <div className="mt-4 space-y-1">
         <StatRow
@@ -451,7 +451,7 @@ function PayoutLiabilityCard({
           emphasize={data.toReviewInPaise > 0 ? 'caution' : undefined}
         />
         <StatRow
-          label="Approved, awaiting payment"
+          label="Approved, awaiting settlement"
           value={formatRupees(data.approvedUnpaidInPaise)}
         />
       </div>
