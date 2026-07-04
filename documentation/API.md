@@ -22,7 +22,9 @@ Index of every backend route file, what it covers, and the most important endpoi
 | Path | Method | What it does | Source |
 |---|---|---|---|
 | `/health` | GET | Liveness + dependency probes (Postgres / Redis / R2 / Puppeteer). Returns 503 only when Postgres is unhealthy. | `index.ts` |
-| `/reports/:token` | GET | Streams the merged report PDF for a finalized visit. Token is the SHA-256-hashed bearer issued at finalize time. Logs every access to `ReportAccessLog`. | `reportDownload.ts` |
+| `/reports/:token` | GET | Streams the merged report PDF for a finalized visit. Access is logged. Blocked if underlying document is voided (checked via `revokedAt`). | `reportDownload.ts` |
+| `/bills/view/:token` | GET | Token-gated public route to view the digital bill PDF. Blocked if the underlying bill is canceled/refunded (checked via `revokedAt`). | `reportDownload.ts` / `billDownload.ts` |
+| `/statements/view/:token` | GET | Token-gated public route for external vendors/doctors to view their payout statement securely. Blocked if the payout is voided. | `payouts.ts` / `statementDownload.ts` |
 | `/webhooks/whatsapp` | GET / POST | Meta Cloud API webhook. GET for token verification (`hub.verify_token`), POST for delivery callbacks. | `webhooks.ts` |
 | `/` | GET | Returns `{status: "ok", service, timestamp}` — Render's port-detection probe. | `index.ts` |
 
@@ -223,8 +225,21 @@ Source: [`branches.ts`](../health-hub-backend/src/routes/branches.ts).
 | GET | `/:id` | Detail with derivation breakdown |
 | POST | `/derive` | Re-derive payouts for a period (idempotent — refreshes `DoctorPayoutLedger`) |
 | POST | `/:id/mark-paid` | Mark as paid (immutable thereafter) |
+| POST | `/:id/send-statement-whatsapp` | Generates a statement token and sends the statement via WhatsApp |
 
 Source: [`payouts.ts`](../health-hub-backend/src/routes/payouts.ts) → service: `payoutService`.
+
+### External Labs — `/api/external-labs`
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/` | List all external labs |
+| GET | `/:id` | Get specific external lab |
+| POST | `/` | Create an external lab |
+| PUT | `/:id` | Update an external lab |
+| DELETE | `/:id` | Delete an external lab |
+
+Source: [`externalLabs.ts`](../health-hub-backend/src/routes/externalLabs.ts).
 
 ### Audit Logs — `/api/audit-logs`
 
