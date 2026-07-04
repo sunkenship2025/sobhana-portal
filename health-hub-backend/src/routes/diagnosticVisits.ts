@@ -4780,10 +4780,19 @@ router.post("/:id/orders/:orderId/no-report", async (req: AuthRequest, res) => {
       });
     }
 
-    if (order.workflowMode !== DiagnosticWorkflowMode.REPORTABLE) {
+    // Both REPORTABLE and EXTERNAL_UPLOAD orders (e.g. X-ray / imaging sent for
+    // an external PDF) can be closed as film-only when the patient declines the
+    // written report. BILL_ONLY orders never produce a report, so there is
+    // nothing to waive.
+    const mode = order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE;
+    if (
+      mode !== DiagnosticWorkflowMode.REPORTABLE &&
+      mode !== DiagnosticWorkflowMode.EXTERNAL_UPLOAD
+    ) {
       return res.status(400).json({
-        error: "NOT_REPORTABLE",
-        message: 'Only reportable tests can be closed as "no report needed".',
+        error: "NOT_ELIGIBLE",
+        message:
+          'Only reportable or external-report tests can be closed as "no report needed".',
       });
     }
 

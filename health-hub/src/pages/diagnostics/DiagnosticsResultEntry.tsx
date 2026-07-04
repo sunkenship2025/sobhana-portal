@@ -1393,18 +1393,27 @@ const DiagnosticsResultEntry = () => {
               External report (PDF) — uploaded files merge into the final report.
             </div>
           </div>
-          <span
-            className={cn(
-              'rounded-full px-2 py-0.5 text-[11px] font-medium',
-              uploads.length === 0
-                ? 'bg-amber-100 text-amber-700'
-                : 'bg-emerald-100 text-emerald-700'
-            )}
-          >
-            {uploads.length === 0
-              ? '0 files'
-              : `${uploads.length} file${uploads.length === 1 ? '' : 's'} uploaded`}
-          </span>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => { setNoReportReasonText(''); setNoReportTarget({ orderId: order.id, testName: order.testName }); }}
+              className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              No report needed
+            </button>
+            <span
+              className={cn(
+                'rounded-full px-2 py-0.5 text-[11px] font-medium',
+                uploads.length === 0
+                  ? 'bg-amber-100 text-amber-700'
+                  : 'bg-emerald-100 text-emerald-700'
+              )}
+            >
+              {uploads.length === 0
+                ? '0 files'
+                : `${uploads.length} file${uploads.length === 1 ? '' : 's'} uploaded`}
+            </span>
+          </div>
         </div>
         <div className="space-y-3 p-4">
           {uploads.length > 0 && (
@@ -1864,6 +1873,9 @@ const DiagnosticsResultEntry = () => {
   // Used to block the Save Draft button until the user finishes uploading.
   const externalUploadOrdersMissingFiles = testOrders.filter((order) => {
     if (order.workflowMode !== 'EXTERNAL_UPLOAD') return false;
+    // Orders closed as "no report needed" (films only) never need a PDF — they
+    // drop off the entry screen into the waived strip, so they must not block Save.
+    if (order.noReportAt) return false;
     return !uploadsByOrder[order.id] || uploadsByOrder[order.id].length === 0;
   });
   const hasMissingExternalUploads = externalUploadOrdersMissingFiles.length > 0;

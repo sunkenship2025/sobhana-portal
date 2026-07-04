@@ -457,10 +457,18 @@ async function buildExternalUploadSnapshots(
     workflowMode?: DiagnosticWorkflowMode | null;
     testNameSnapshot?: string | null;
     testCodeSnapshot?: string | null;
+    cancelledAt?: Date | string | null;
+    noReportAt?: Date | string | null;
   }>
 ): Promise<ExternalUploadSnapshot[]> {
   const uploadOrders = testOrders.filter(
-    (order) => order.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD
+    (order) =>
+      order.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD &&
+      // A cancelled order, or one closed as "no report needed" (films only,
+      // patient declined the report), must not bake its PDF into the snapshot —
+      // even if a file was uploaded before it was waived.
+      !order.cancelledAt &&
+      !order.noReportAt
   );
   if (uploadOrders.length === 0) {
     return [];
