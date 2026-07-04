@@ -628,6 +628,20 @@ Reaffirmed by data (no longer assumptions): **CX23 start** (2% CPU, 74% of a 512
 
 ---
 
+## 27. Repo strategy — SEPARATE repo, Sobhana untouched (decided Jul 4)
+
+**Decision:** build HealthFlow in a **new repo** (`git clone` of `sobhana-portal` with full history → `healthflow`). **Sobhana's repo, `main`, auto-deploy, and infra (Render/Neon/Vercel) stay 100% untouched** — zero risk to the live single-tenant prod. This is the current monorepo (`health-hub/` frontend + `health-hub-backend/` backend); the clone carries both.
+
+**Sequence:** build HealthFlow → provision a throwaway pilot tenant → land the first real client → run stable → **migrate Sobhana as a tenant last (or never** — Sobhana can remain single-tenant indefinitely; HealthFlow does not depend on it migrating).
+
+**Why the porting cost is small:** because HealthFlow is a *clone*, it already contains **all of Sobhana's app code**. Migrating Sobhana later is **not a code re-port** — it's: provision a tenant DB + build its branded frontend + cut DNS. The only drift is Sobhana features added to the old repo *after* the clone date.
+
+**Single guardrail:** once the HealthFlow build starts, put **Sobhana into maintenance mode (bugfixes only)**; if a must-have Sobhana feature ships post-clone, mirror it into HealthFlow. Then drift ≈ zero. Bonus: separate repo also ends the concurrent-Claude-session git races (§Workflow).
+
+**Rejected alternatives:** evolve-on-`main` with flags (WIP could auto-deploy to Sobhana prod — user vetoed "don't mess with running Sobhana"); repoint Sobhana's deploy to a `production` branch, or a long-lived HealthFlow branch in the same repo (both unnecessary once the repos are physically separate).
+
+---
+
 ## 24. Access model / roles (decided Jul 4)
 
 Vendor controls the clinical template; the client runs the lab.
