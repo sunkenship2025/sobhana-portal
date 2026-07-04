@@ -1202,6 +1202,7 @@ model ReportAccessToken {
   token           String    @unique // SHA-256 hash of the bearer token
   reportVersionId String
   expiresAt       DateTime? // NULL = never expires
+  revokedAt       DateTime? // set when the underlying report/bill is voided → blocks the link
   accessCount     Int       @default(0)
   lastAccessedAt  DateTime?
   lastAccessedIp  String?
@@ -1680,6 +1681,7 @@ model BillAccessToken {
   token          String    @unique // SHA-256 hash of the raw bearer token
   visitId        String
   expiresAt      DateTime? // NULL = never expires
+  revokedAt      DateTime? // set on full bill void (cancellation/refund) → blocks the link
   accessCount    Int       @default(0)
   lastAccessedAt DateTime?
   lastAccessedIp String?
@@ -1699,6 +1701,7 @@ model StatementAccessToken {
   token          String    @unique // SHA-256 hash of the raw bearer token
   payoutId       String
   expiresAt      DateTime? // NULL = never expires
+  revokedAt      DateTime? // set when the payout is voided → blocks the link
   accessCount    Int       @default(0)
   lastAccessedAt DateTime?
   lastAccessedIp String?

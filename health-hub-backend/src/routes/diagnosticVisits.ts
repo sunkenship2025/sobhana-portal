@@ -2928,6 +2928,27 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
           where: { id: visit.id },
           data: { status: "CANCELLED" },
         });
+        // Whole visit voided → revoke every public link to it. Partial refunds
+        // leave links live so the updated bill/report stays viewable.
+        //  - bill token gates the bill PDF AND the /r/:token report gateway
+        await tx.billAccessToken.updateMany({
+          where: { visitId: visit.id, revokedAt: null },
+          data: { revokedAt: now },
+        });
+        //  - report tokens gate the direct /reports/:token PDF (the QR on the report)
+        const reportVersions = await tx.reportVersion.findMany({
+          where: { report: { visitId: visit.id } },
+          select: { id: true },
+        });
+        if (reportVersions.length > 0) {
+          await tx.reportAccessToken.updateMany({
+            where: {
+              reportVersionId: { in: reportVersions.map((v) => v.id) },
+              revokedAt: null,
+            },
+            data: { revokedAt: now },
+          });
+        }
       }
     });
 

@@ -11,16 +11,14 @@ import prisma from '../lib/prisma';
 
 /**
  * Generates a cryptographically secure random token.
- * Format: 8 characters, URL-safe (base62-like)
+ * Format: ~43 chars, URL-safe base64url (256 bits of entropy).
  */
 function generateToken(): string {
-  // Generate 32 bytes of randomness
-  const bytes = crypto.randomBytes(32);
-  // Convert to base64url and take first 8 characters
-  return bytes
-    .toString('base64url')
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .substring(0, 12);
+  // 32 bytes of CSPRNG → full base64url (~256 bits). No truncation: an
+  // unauthenticated bearer token needs >=128 bits of entropy. Only the SHA-256
+  // hash is stored, so token length doesn't change storage, and existing
+  // shorter tokens keep validating.
+  return crypto.randomBytes(32).toString('base64url');
 }
 
 function hashToken(token: string): string {
@@ -31,6 +29,7 @@ type TokenLookup = {
   id: string;
   reportVersionId: string;
   expiresAt: Date | null;
+  revokedAt: Date | null;
 };
 
 async function findTokenRecord(rawToken: string): Promise<TokenLookup | null> {
@@ -42,6 +41,7 @@ async function findTokenRecord(rawToken: string): Promise<TokenLookup | null> {
       id: true,
       reportVersionId: true,
       expiresAt: true,
+      revokedAt: true,
     },
   });
 
@@ -55,6 +55,7 @@ async function findTokenRecord(rawToken: string): Promise<TokenLookup | null> {
       id: true,
       reportVersionId: true,
       expiresAt: true,
+      revokedAt: true,
     },
   });
 
@@ -153,6 +154,11 @@ export async function validateToken(token: string): Promise<string | null> {
   const accessToken = await findTokenRecord(token);
 
   if (!accessToken) {
+    return null;
+  }
+
+  // Revoked when the underlying bill/report was voided (full cancellation/refund).
+  if (accessToken.revokedAt) {
     return null;
   }
 

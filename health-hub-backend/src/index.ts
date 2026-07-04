@@ -87,8 +87,14 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const SERVER_STARTED_AT = new Date().toISOString();
 
-// Trust reverse proxy (Render) — ensures req.protocol returns 'https'
-app.set('trust proxy', true);
+// Trust reverse proxy. `true` trusted the WHOLE X-Forwarded-For chain, so a
+// client could spoof its IP (leftmost XFF) and bypass every per-IP rate limit.
+// Trust exactly the real proxy-hop count instead (Render's edge = 1), so req.ip
+// is the un-spoofable IP the trusted proxy observed. X-Forwarded-Proto is still
+// read from the trusted hop, so req.protocol stays 'https'. Env-overridable in
+// case the hop count changes (e.g. Cloudflare added in front) without a deploy.
+const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS);
+app.set('trust proxy', Number.isFinite(trustProxyHops) && trustProxyHops > 0 ? trustProxyHops : 1);
 
 // Request ID first — must run before pino-http so the auto-attached request
 // logger is tagged with the same id we expose in the response header.

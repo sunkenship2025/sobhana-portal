@@ -18,11 +18,11 @@ import crypto from 'crypto';
 import prisma from '../lib/prisma';
 
 function generateToken(): string {
-  const bytes = crypto.randomBytes(32);
-  return bytes
-    .toString('base64url')
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .substring(0, 12);
+  // 32 bytes of CSPRNG → full base64url (~256 bits). No truncation: an
+  // unauthenticated bearer token needs >=128 bits of entropy. Only the SHA-256
+  // hash is stored, so token length doesn't change storage, and existing
+  // shorter tokens keep validating.
+  return crypto.randomBytes(32).toString('base64url');
 }
 
 function hashToken(token: string): string {
@@ -33,11 +33,12 @@ async function findTokenRecord(rawToken: string): Promise<{
   id: string;
   payoutId: string;
   expiresAt: Date | null;
+  revokedAt: Date | null;
 } | null> {
   const tokenHash = hashToken(rawToken);
   return prisma.statementAccessToken.findUnique({
     where: { token: tokenHash },
-    select: { id: true, payoutId: true, expiresAt: true },
+    select: { id: true, payoutId: true, expiresAt: true, revokedAt: true },
   });
 }
 
@@ -81,6 +82,9 @@ export async function createStatementAccessToken(
 export async function validateStatementToken(rawToken: string): Promise<string | null> {
   const record = await findTokenRecord(rawToken);
   if (!record) return null;
+  // Reserved: no writer yet — statement links get revoked when a payout is
+  // voided (follow-up). Harmless until then (revokedAt stays NULL).
+  if (record.revokedAt) return null;
   if (record.expiresAt && record.expiresAt < new Date()) return null;
   return record.payoutId;
 }
