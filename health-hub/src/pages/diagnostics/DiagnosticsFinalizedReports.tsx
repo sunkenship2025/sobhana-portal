@@ -13,9 +13,9 @@ import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { toast } from 'sonner';
-import { CheckCircle2, Search, Eye, Printer, MessageCircle } from 'lucide-react';
+import { CheckCircle2, Search, Eye, Printer, MessageCircle, Phone, Stethoscope } from 'lucide-react';
 import { openFinalizedReportWindow } from '@/lib/reportAccess';
-import { formatPatientName } from '@/lib/patientDisplay';
+import { formatPatientName, compactAge, formatRefDoctor } from '@/lib/patientDisplay';
 
 // Collapse a list of test orders into a readable summary for the visit row.
 // Bill-only orders are hidden (they don't ship in a report). Orders that
@@ -278,7 +278,13 @@ const DiagnosticsFinalizedReports = () => {
               })()
             ) : (
               <div className="space-y-3">
-                {filteredVisits.map(({ visit, patient, testOrders }) => (
+                {filteredVisits.map(({ visit, patient, testOrders }) => {
+                  const p: any = patient || {};
+                  const ageStr = compactAge(p);
+                  const genderStr = p.gender || '';
+                  const phoneVal = p.identifiers?.find((id: any) => id.type === 'PHONE')?.value || '';
+                  const refName = formatRefDoctor((visit as any).referralDoctor?.name);
+                  return (
                   <div
                     key={visit.id}
                     className="flex flex-col gap-4 rounded-lg border bg-card p-4 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
@@ -286,17 +292,31 @@ const DiagnosticsFinalizedReports = () => {
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-semibold">{formatPatientName(patient?.name || 'Unknown', (patient as any).title)}</span>
-                        <span className="text-muted-foreground">
-                          | {patient?.age} | {patient?.gender}
-                        </span>
+                        {(ageStr || genderStr) && (
+                          <span className="text-muted-foreground">
+                            {ageStr}
+                            {ageStr && genderStr ? ' | ' : ''}
+                            {genderStr}
+                          </span>
+                        )}
                       </div>
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                        <span className="text-muted-foreground">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                        <span>
                           Bill #: <span className="font-mono">{visit.billNumber}</span>
                         </span>
-                        <span className="text-muted-foreground">
-                          Tests: {formatTestList(testOrders)}
+                        {phoneVal && (
+                          <span className="inline-flex items-center gap-1">
+                            <Phone className="h-3.5 w-3.5 shrink-0" />
+                            {phoneVal}
+                          </span>
+                        )}
+                        <span className="inline-flex items-center gap-1">
+                          <Stethoscope className="h-3.5 w-3.5 shrink-0" />
+                          {refName}
                         </span>
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        Tests: {formatTestList(testOrders)}
                       </div>
                       <StatusBadge status={visit.status} />
                     </div>
@@ -344,7 +364,8 @@ const DiagnosticsFinalizedReports = () => {
                       </Button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>

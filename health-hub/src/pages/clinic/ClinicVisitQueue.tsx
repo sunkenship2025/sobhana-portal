@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { Search, Users, RotateCcw, Loader2, Plus } from 'lucide-react';
+import { Search, Users, RotateCcw, Loader2, Plus, Phone, Stethoscope } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
 import { toast } from 'sonner';
 import {
@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { formatPatientName } from '@/lib/patientDisplay';
+import { formatPatientName, compactAge } from '@/lib/patientDisplay';
 
 // Shape returned by GET /api/visits/clinic
 interface QueueVisit {
@@ -348,6 +348,8 @@ const ClinicVisitQueue = () => {
               <div className="space-y-3">
                 {filteredVisits.map((visit) => {
                   const phone = visit.patient.identifiers.find((i) => i.type === 'PHONE')?.value || '';
+                  const ageStr = compactAge(visit.patient);
+                  const genderStr = visit.patient.gender || '';
                   const isUpdatingThisVisit = updatingVisitId === visit.id;
                   const revisitLabel = visit.visitType === 'OP' ? 'Revisit OP' : 'Recurring Visit';
                   return (
@@ -358,6 +360,13 @@ const ClinicVisitQueue = () => {
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-semibold">{formatPatientName(visit.patient.name, (visit.patient as any).title)}</span>
+                          {(ageStr || genderStr) && (
+                            <span className="text-muted-foreground">
+                              {ageStr}
+                              {ageStr && genderStr ? ' | ' : ''}
+                              {genderStr}
+                            </span>
+                          )}
                           <span className="text-xs px-2 py-0.5 rounded bg-muted font-medium">
                             {visit.visitType}
                           </span>
@@ -368,23 +377,23 @@ const ClinicVisitQueue = () => {
                             </span>
                           )}
                         </div>
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                          <span className="text-muted-foreground">
-                            Doctor: <span className="text-foreground">{visit.doctor?.name || '—'}</span>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                          <span>
+                            Bill #: <span className="font-mono">{visit.billNumber || '—'}</span>
                           </span>
-                          <span className="text-muted-foreground">
+                          {phone && (
+                            <span className="inline-flex items-center gap-1">
+                              <Phone className="h-3.5 w-3.5 shrink-0" />
+                              {phone}
+                            </span>
+                          )}
+                          <span className="inline-flex items-center gap-1">
+                            <Stethoscope className="h-3.5 w-3.5 shrink-0" />
+                            {visit.doctor?.name || '—'}
+                          </span>
+                          <span>
                             Visit Ref: <span className="font-mono">{visit.visitRef}</span>
                           </span>
-                          {visit.billNumber && (
-                            <span className="text-muted-foreground">
-                              Bill #: <span className="font-mono">{visit.billNumber}</span>
-                            </span>
-                          )}
-                          {phone && (
-                            <span className="text-muted-foreground">
-                              Ph: <span className="text-foreground">{phone}</span>
-                            </span>
-                          )}
                         </div>
                         <div className="flex flex-wrap items-center gap-3">
                           <span className="text-sm">₹{visit.totalAmount.toLocaleString('en-IN')}</span>

@@ -27,30 +27,9 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { formatPatientName } from '@/lib/patientDisplay';
-import { computeSmartAge, calculateAgeFromYOB } from "@/lib/validation";
+import { formatPatientName, compactAge, formatRefDoctor } from '@/lib/patientDisplay';
 
 type PaymentType = "CASH" | "ONLINE";
-
-/** Compact worklist age: "47" (years), "7mo" (months), "18d" (days), "" if unknown. */
-function compactAge(patient: any): string {
-  if (!patient) return "";
-  if (patient.dateOfBirth) {
-    const { age, unit } = computeSmartAge(patient.dateOfBirth);
-    if (unit === "DAYS") return `${age}d`;
-    if (unit === "MONTHS") return `${age}mo`;
-    return `${age}`;
-  }
-  if (patient.yearOfBirth) return `${calculateAgeFromYOB(patient.yearOfBirth)}`;
-  return "";
-}
-
-/** Referring doctor label; "Self" for walk-ins, "Dr." prefixed otherwise. */
-function formatRefDoctor(name?: string | null): string {
-  const n = (name || "").trim();
-  if (!n) return "Self";
-  return /^dr\.?\s/i.test(n) ? n : `Dr. ${n}`;
-}
 
 const toSupportedPaymentType = (value: unknown): PaymentType => {
   if (value === "ONLINE") return "ONLINE";
