@@ -59,6 +59,7 @@ export async function buildDaySheetWorkbook(data: DaySheetResponse): Promise<Buf
     { header: 'Cash (₹)', key: 'cash', width: 13, style: { numFmt: RUPEE_FMT } },
     { header: 'Online (₹)', key: 'online', width: 13, style: { numFmt: RUPEE_FMT } },
     { header: 'Paid (₹)', key: 'paid', width: 13, style: { numFmt: RUPEE_FMT } },
+    { header: 'Refund (₹)', key: 'refund', width: 13, style: { numFmt: RUPEE_FMT } },
     { header: 'Due (₹)', key: 'due', width: 13, style: { numFmt: RUPEE_FMT } },
     { header: 'Status', key: 'status', width: 12 },
   ];
@@ -79,6 +80,7 @@ export async function buildDaySheetWorkbook(data: DaySheetResponse): Promise<Buf
       cash: Math.round(r.cashInPaise) / 100,
       online: Math.round(r.onlineInPaise) / 100,
       paid: Math.round(r.paidInPaise) / 100,
+      refund: Math.round(r.refundedInPaise) / 100,
       due: Math.round(r.dueInPaise) / 100,
       status: r.paymentStatus,
     });
@@ -92,6 +94,7 @@ export async function buildDaySheetWorkbook(data: DaySheetResponse): Promise<Buf
     cash: Math.round(data.totals.cashInPaise) / 100,
     online: Math.round(data.totals.onlineInPaise) / 100,
     paid: Math.round(data.totals.paidInPaise) / 100,
+    refund: Math.round(data.totals.refundedInPaise) / 100,
     due: Math.round(data.totals.dueInPaise) / 100,
   });
   totals.font = { bold: true };

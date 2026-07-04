@@ -72,12 +72,14 @@ interface DashboardV2 {
   moneyToday: {
     grossInPaise: number;
     discountInPaise: number;
+    reversedInPaise: number;
     commissionInPaise: number;
     netInPaise: number;
     discountRatePct: number;
     cashInPaise: number;
     onlineInPaise: number;
     collectedTotalInPaise: number;
+    refundInPaise: number;
     outstandingInPaise: number;
     deltaPercent: number | null;
   };
@@ -297,6 +299,14 @@ function MoneyTodayCard({
             note={Number.isFinite(data.discountRatePct) ? `(${data.discountRatePct}% of gross)` : undefined}
             noteCaution={Number.isFinite(data.discountRatePct) && data.discountRatePct > 15}
           />
+          {data.reversedInPaise > 0 && (
+            <WaterfallRow
+              label="Cancellations"
+              value={-data.reversedInPaise}
+              ratio={widthFor(data.reversedInPaise)}
+              color={TOKENS.discount}
+            />
+          )}
           <WaterfallRow
             label="Commission accrued"
             value={-data.commissionInPaise}
@@ -338,12 +348,25 @@ function MoneyTodayCard({
             </div>
           </Link>
           <div>
-            <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>Total collected</div>
+            <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
+              {data.refundInPaise > 0 ? 'Net collected' : 'Total collected'}
+            </div>
             <div className="font-medium" style={{ color: TOKENS.textPrimary }}>
-              {formatRupees(data.collectedTotalInPaise)}
+              {formatRupees(data.collectedTotalInPaise - data.refundInPaise)}
             </div>
           </div>
         </div>
+        {data.refundInPaise > 0 && (
+          <div
+            className="mt-1.5 flex items-baseline justify-between"
+            style={{ fontSize: 12 }}
+          >
+            <span style={{ color: TOKENS.textSecondary }}>Refunds paid out</span>
+            <span style={{ color: TOKENS.discount }}>
+              −{formatRupees(data.refundInPaise)}
+            </span>
+          </div>
+        )}
       </div>
     </SectionCard>
   );

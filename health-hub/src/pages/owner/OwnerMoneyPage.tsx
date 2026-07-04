@@ -124,6 +124,19 @@ interface MoneyResponse {
       refundedAt: string;
     }>;
   };
+  cancellations: {
+    totalInPaise: number;
+    count: number;
+    pctOfGross: number | null;
+    recent: Array<{
+      billNumber: string;
+      patientName: string;
+      patientTitle?: string | null;
+      reversedInPaise: number;
+      reason: string | null;
+      cancelledAt: string;
+    }>;
+  };
 }
 
 // ----- revenue trend ----------------------------------------------------
@@ -565,6 +578,50 @@ function RefundsCard({ refunds }: { refunds: MoneyResponse['refunds'] }) {
   );
 }
 
+function CancellationsCard({
+  cancellations,
+}: {
+  cancellations: MoneyResponse['cancellations'];
+}) {
+  return (
+    <SectionCard label="Cancellations">
+      <div className="font-medium" style={{ fontSize: 22, color: TOKENS.textPrimary }}>
+        {formatRupees(cancellations.totalInPaise, { short: true })}
+      </div>
+      <div style={{ fontSize: 11, color: TOKENS.textTertiary }}>
+        {cancellations.count} cancellation{cancellations.count === 1 ? '' : 's'}
+        {cancellations.pctOfGross !== null && ` · ${cancellations.pctOfGross}% of gross`}
+      </div>
+      {cancellations.recent.length > 0 && (
+        <div
+          className="mt-3 space-y-2 border-t pt-2"
+          style={{ borderColor: TOKENS.border, fontSize: 12 }}
+        >
+          {cancellations.recent.map((c, i) => (
+            <div key={`${c.billNumber}-${i}`} className="flex items-baseline justify-between">
+              <span>
+                <span style={{ color: TOKENS.textPrimary }}>
+                  {formatPatientName(c.patientName, c.patientTitle)}
+                </span>
+                <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
+                  {' '}
+                  · {c.billNumber}
+                </span>
+                <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
+                  {formatIstDate(c.cancelledAt)} · {c.reason ?? '—'}
+                </div>
+              </span>
+              <span style={{ color: TOKENS.textPrimary }}>
+                {formatRupees(c.reversedInPaise, { short: true })}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
 // ----- main page --------------------------------------------------------
 
 const MONEY_PERIOD_OPTS: PeriodKey[] = [
@@ -863,8 +920,9 @@ export default function OwnerMoneyPage() {
               <div className="lg:col-span-3">
                 <DiscountLogCard rows={data.discountLog} totalCount={data.discountLogTotalCount} />
               </div>
-              <div className="lg:col-span-2">
+              <div className="lg:col-span-2 space-y-4">
                 <RefundsCard refunds={data.refunds} />
+                <CancellationsCard cancellations={data.cancellations} />
               </div>
             </div>
           </div>

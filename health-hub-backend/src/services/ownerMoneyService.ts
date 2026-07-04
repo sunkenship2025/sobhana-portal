@@ -127,6 +127,22 @@ export interface RefundSummary {
   }>;
 }
 
+// Cancellations = charges voided off orders (money not returned as cash; the
+// charge simply reverses). Sourced from OrderRefund rows with kind='CANCEL'.
+export interface CancellationSummary {
+  totalInPaise: number;
+  count: number;
+  pctOfGross: number | null;
+  recent: Array<{
+    billNumber: string;
+    patientName: string;
+    patientTitle: string | null;
+    reversedInPaise: number;
+    reason: string | null;
+    cancelledAt: string;
+  }>;
+}
+
 export interface MoneyResponse {
   generatedAt: string;
   period: { key: PeriodKey; startIso: string; endIso: string };
@@ -141,6 +157,7 @@ export interface MoneyResponse {
   discountLog: DiscountRow[];
   discountLogTotalCount: number;
   refunds: RefundSummary;
+  cancellations: CancellationSummary;
 }
 
 // --- helpers ------------------------------------------------------------
@@ -351,7 +368,7 @@ export async function getOwnerMoney(
     }),
     prisma.bill.aggregate({
       where: { billedAt: { gte: prior.start, lt: prior.end }, ...billBranchWhere, ...domainBillWhere },
-      _sum: { totalAmountInPaise: true, discountAmountInPaise: true },
+      _sum: { totalAmountInPaise: true, discountAmountInPaise: true, reversedChargeInPaise: true },
       _count: true,
     }),
     prisma.testOrder.findMany({
@@ -401,10 +418,11 @@ export async function getOwnerMoney(
       },
     }),
     prisma.bill.aggregate({
-      where: { paymentStatus: 'REFUNDED', billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere, ...domainBillWhere },
-      // Cash actually returned to the patient = what was paid in. Face value
-      // (total - discount) overstates refunds for partially-paid bills.
-      _sum: { paidAmountInPaise: true },
+      where: { paymentStatus: { in: ['REFUNDED', 'PARTIALLY_REFUNDED'] }, billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere, ...domainBillWhere },
+      // Money actually returned = refundedAmountInPaise (the running total of
+      // REFUND events on the bill). Includes partial refunds, unlike the old
+      // REFUNDED-only + paidAmountInPaise approach which under-counted.
+      _sum: { refundedAmountInPaise: true },
       _count: true,
     }),
     prisma.paymentTransaction.findMany({
@@ -428,13 +446,13 @@ export async function getOwnerMoney(
       select: { id: true, name: true, code: true },
     }),
     prisma.bill.findMany({
-      where: { paymentStatus: 'REFUNDED', billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere, ...domainBillWhere },
+      where: { paymentStatus: { in: ['REFUNDED', 'PARTIALLY_REFUNDED'] }, billedAt: { gte: win.start, lt: win.end }, ...billBranchWhere, ...domainBillWhere },
       orderBy: { updatedAt: 'desc' },
       take: 5,
       select: {
         id: true,
         billNumber: true,
-        paidAmountInPaise: true,
+        refundedAmountInPaise: true,
         refundReason: true,
         refundedAt: true,
         updatedAt: true,
@@ -446,15 +464,17 @@ export async function getOwnerMoney(
   // ---- KPIs ----
   const grossInWindow = billsInWindow.reduce((s, b) => s + b.totalAmountInPaise, 0);
   const discountInWindow = billsInWindow.reduce((s, b) => s + b.discountAmountInPaise, 0);
+  const reversedInWindow = billsInWindow.reduce((s, b) => s + b.reversedChargeInPaise, 0);
   const commissionInWindow =
     accruedCommissionInPaise(testOrdersInWindow) + clinicCommissionInPaise(clinicVisitsInWindow);
-  const netInWindow = grossInWindow - discountInWindow - commissionInWindow;
+  const netInWindow = grossInWindow - discountInWindow - reversedInWindow - commissionInWindow;
 
   const priorGross = priorBillsAgg._sum.totalAmountInPaise ?? 0;
   const priorDiscount = priorBillsAgg._sum.discountAmountInPaise ?? 0;
+  const priorReversed = priorBillsAgg._sum.reversedChargeInPaise ?? 0;
   const priorCommission =
     accruedCommissionInPaise(priorTestOrders) + clinicCommissionInPaise(priorClinicVisits);
-  const priorNet = priorGross - priorDiscount - priorCommission;
+  const priorNet = priorGross - priorDiscount - priorReversed - priorCommission;
 
   const grossDeltaPercent =
     priorBillsAgg._count > 0 && priorGross > 0
@@ -699,10 +719,8 @@ export async function getOwnerMoney(
     .sort((a, b) => b.discountInPaise - a.discountInPaise);
   const discountLogTotalCount = discountLog.length;
 
-  // ---- refunds ----
-  // Cash actually returned = sum of paidAmountInPaise on refunded bills, not
-  // face value (total - discount).
-  const refundedTotal = refundedBills._sum.paidAmountInPaise ?? 0;
+  // ---- refunds (money returned) ----
+  const refundedTotal = refundedBills._sum.refundedAmountInPaise ?? 0;
   const refunds: RefundSummary = {
     totalInPaise: refundedTotal,
     count: refundedBills._count,
@@ -713,12 +731,48 @@ export async function getOwnerMoney(
       billNumber: b.billNumber,
       patientName: b.visit.patient.name,
       patientTitle: b.visit.patient.title,
-      // Cash returned on this bill = what the patient had paid in.
-      refundedInPaise: b.paidAmountInPaise ?? 0,
+      refundedInPaise: b.refundedAmountInPaise ?? 0,
       reason: b.refundReason ?? null,
       // Prefer the real refund timestamp; fall back to updatedAt for historical
       // rows where the refund flow never wrote refundedAt.
       refundedAt: (b.refundedAt ?? b.updatedAt).toISOString(),
+    })),
+  };
+
+  // ---- cancellations (charges voided) ----
+  const cancelScope = { ...(branchId ? { branchId } : {}), ...domainVisitWhere };
+  const [cancelAgg, cancelRecent] = await Promise.all([
+    prisma.orderRefund.aggregate({
+      where: { kind: 'CANCEL', createdAt: { gte: win.start, lt: win.end }, ...cancelScope },
+      _sum: { chargeReversedInPaise: true },
+      _count: true,
+    }),
+    prisma.orderRefund.findMany({
+      where: { kind: 'CANCEL', createdAt: { gte: win.start, lt: win.end }, ...cancelScope },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      select: {
+        chargeReversedInPaise: true,
+        reason: true,
+        createdAt: true,
+        bill: { select: { billNumber: true } },
+        visit: { select: { patient: { select: { name: true, title: true } } } },
+      },
+    }),
+  ]);
+  const cancelledTotal = cancelAgg._sum.chargeReversedInPaise ?? 0;
+  const cancellations: CancellationSummary = {
+    totalInPaise: cancelledTotal,
+    count: cancelAgg._count,
+    pctOfGross:
+      grossInWindow > 0 ? Math.round((cancelledTotal / grossInWindow) * 1000) / 10 : null,
+    recent: cancelRecent.map((r) => ({
+      billNumber: r.bill?.billNumber ?? '—',
+      patientName: r.visit?.patient?.name ?? 'Unknown',
+      patientTitle: r.visit?.patient?.title ?? null,
+      reversedInPaise: r.chargeReversedInPaise,
+      reason: r.reason ?? null,
+      cancelledAt: r.createdAt.toISOString(),
     })),
   };
 
@@ -736,6 +790,7 @@ export async function getOwnerMoney(
     discountLog,
     discountLogTotalCount,
     refunds,
+    cancellations,
   };
 
   if (redis) {
@@ -764,6 +819,7 @@ export interface DaySheetRow {
   cashInPaise: number; // CASH payment transactions on this bill
   onlineInPaise: number; // ONLINE payment transactions on this bill
   dueInPaise: number;
+  refundedInPaise: number; // cash returned to the patient on this bill
   paymentMethod: 'CASH' | 'ONLINE' | 'MIXED' | 'NONE';
   paymentStatus: string;
 }
@@ -782,6 +838,7 @@ export interface DaySheetResponse {
     cashInPaise: number;
     onlineInPaise: number;
     dueInPaise: number;
+    refundedInPaise: number;
   };
 }
 
@@ -818,6 +875,7 @@ export async function getMoneyDaySheet(
         discountAmountInPaise: true,
         paidAmountInPaise: true,
         reversedChargeInPaise: true,
+        refundedAmountInPaise: true,
         paymentStatus: true,
         branch: { select: { code: true } },
         visit: {
@@ -885,6 +943,7 @@ export async function getMoneyDaySheet(
       cashInPaise,
       onlineInPaise,
       dueInPaise: due,
+      refundedInPaise: b.refundedAmountInPaise ?? 0,
       paymentMethod,
       paymentStatus: b.paymentStatus,
     };
@@ -899,6 +958,7 @@ export async function getMoneyDaySheet(
       acc.cashInPaise += r.cashInPaise;
       acc.onlineInPaise += r.onlineInPaise;
       acc.dueInPaise += r.dueInPaise;
+      acc.refundedInPaise += r.refundedInPaise;
       return acc;
     },
     {
@@ -909,6 +969,7 @@ export async function getMoneyDaySheet(
       cashInPaise: 0,
       onlineInPaise: 0,
       dueInPaise: 0,
+      refundedInPaise: 0,
     },
   );
 

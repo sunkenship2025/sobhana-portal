@@ -69,6 +69,8 @@ export interface ActionChip {
 export interface MoneyToday {
   grossInPaise: number;
   discountInPaise: number;
+  // Charges voided after billing (order cancellations). Reduces net billed.
+  reversedInPaise: number;
   commissionInPaise: number;
   netInPaise: number;
   // Discounts as a % of gross (0 when gross is 0). Surfaced inline so a
@@ -76,9 +78,12 @@ export interface MoneyToday {
   discountRatePct: number;
   cashInPaise: number;
   onlineInPaise: number;
-  // Cash + online collected in the window. Collected differs from billed
-  // because patients pay across days; the UI labels this "Collected".
+  // Cash + online collected in the window (gross inflow, before refunds).
+  // Collected differs from billed because patients pay across days.
   collectedTotalInPaise: number;
+  // Cash returned to patients in the window (REFUND transactions). Reduces
+  // net collected (collectedTotalInPaise − refundInPaise).
+  refundInPaise: number;
   outstandingInPaise: number;
   // Net vs the prior equal-length window. Null when the prior window had no
   // net revenue to compare against (so the UI suppresses the delta).
@@ -466,6 +471,7 @@ export async function getOwnerDashboardV2(
         totalAmountInPaise: true,
         discountAmountInPaise: true,
         paidAmountInPaise: true,
+        reversedChargeInPaise: true,
       },
       _count: true,
     }),
@@ -502,7 +508,7 @@ export async function getOwnerDashboardV2(
       },
     }),
     prisma.paymentTransaction.groupBy({
-      by: ['paymentType'],
+      by: ['paymentType', 'transactionType'],
       where: {
         transactionDate: { gte: win.start, lt: win.end },
         ...(branchId ? { bill: { branchId } } : {}),
@@ -514,7 +520,7 @@ export async function getOwnerDashboardV2(
         paymentStatus: { not: 'PAID' },
         ...billBranchWhere,
       },
-      _sum: { totalAmountInPaise: true, paidAmountInPaise: true, discountAmountInPaise: true },
+      _sum: { totalAmountInPaise: true, paidAmountInPaise: true, discountAmountInPaise: true, reversedChargeInPaise: true },
     }),
 
     // window dataset (feeds revenue trend + branch table, scoped to the slicer)
@@ -524,6 +530,7 @@ export async function getOwnerDashboardV2(
         billedAt: true,
         totalAmountInPaise: true,
         discountAmountInPaise: true,
+        reversedChargeInPaise: true,
         branchId: true,
       },
     }),
@@ -706,6 +713,7 @@ export async function getOwnerDashboardV2(
       select: {
         totalAmountInPaise: true,
         discountAmountInPaise: true,
+        reversedChargeInPaise: true,
         branchId: true,
       },
     }),
@@ -838,29 +846,36 @@ export async function getOwnerDashboardV2(
   // ----- money summary (selected window) ---------------------------------
   const grossToday = todayBills._sum.totalAmountInPaise ?? 0;
   const discountToday = todayBills._sum.discountAmountInPaise ?? 0;
+  const reversedToday = todayBills._sum.reversedChargeInPaise ?? 0;
   const commissionToday =
     accruedCommissionInPaise(todayTestOrders) + clinicCommissionInPaise(todayClinicVisits);
-  const netToday = grossToday - discountToday - commissionToday;
+  const netToday = grossToday - discountToday - reversedToday - commissionToday;
 
+  // Split payments by direction: PAYMENT rows are collections (cash/online),
+  // REFUND rows are money returned. Bucketing by transactionType stops refunds
+  // from inflating collected cash/online.
   let cashToday = 0;
   let onlineToday = 0;
+  let refundToday = 0;
   for (const row of todayPaymentsByType) {
     const amt = row._sum.amountInPaise ?? 0;
-    if (row.paymentType === 'CASH') cashToday = amt;
-    else if (row.paymentType === 'ONLINE') onlineToday = amt;
+    if (row.transactionType === 'REFUND') refundToday += amt;
+    else if (row.paymentType === 'CASH') cashToday += amt;
+    else if (row.paymentType === 'ONLINE') onlineToday += amt;
   }
   // Open receivables stay all-time regardless of the slicer (a live figure).
   const outstandingTotal = Math.max(
     0,
     (todayOutstandingAgg._sum.totalAmountInPaise ?? 0) -
       (todayOutstandingAgg._sum.paidAmountInPaise ?? 0) -
-      (todayOutstandingAgg._sum.discountAmountInPaise ?? 0),
+      (todayOutstandingAgg._sum.discountAmountInPaise ?? 0) -
+      (todayOutstandingAgg._sum.reversedChargeInPaise ?? 0),
   );
 
   // Net vs the prior equal-length window (period-over-period). priorBranch*
   // datasets are already scoped to priorWin and the selected branch.
   const priorGrossNet = priorBranchBills.reduce(
-    (s, b) => s + b.totalAmountInPaise - b.discountAmountInPaise,
+    (s, b) => s + b.totalAmountInPaise - b.discountAmountInPaise - b.reversedChargeInPaise,
     0,
   );
   const priorCommission =
@@ -884,7 +899,7 @@ export async function getOwnerDashboardV2(
   for (const b of baselineBills) {
     const key = toIstDateKey(b.billedAt);
     if (dailyNetMap.has(key)) {
-      const net = b.totalAmountInPaise - b.discountAmountInPaise;
+      const net = b.totalAmountInPaise - b.discountAmountInPaise - b.reversedChargeInPaise;
       dailyNetMap.set(key, (dailyNetMap.get(key) ?? 0) + net);
     }
   }
@@ -904,12 +919,14 @@ export async function getOwnerDashboardV2(
   const moneyToday: MoneyToday = {
     grossInPaise: grossToday,
     discountInPaise: discountToday,
+    reversedInPaise: reversedToday,
     commissionInPaise: commissionToday,
     netInPaise: netToday,
     discountRatePct: grossToday > 0 ? Math.round((discountToday / grossToday) * 100) : 0,
     cashInPaise: cashToday,
     onlineInPaise: onlineToday,
     collectedTotalInPaise: cashToday + onlineToday,
+    refundInPaise: refundToday,
     outstandingInPaise: outstandingTotal,
     deltaPercent,
   };
@@ -1027,11 +1044,12 @@ export async function getOwnerDashboardV2(
   }
 
   // bucket gross/discount per branch from the window dataset
-  const branchAgg = new Map<string, { gross: number; discount: number }>();
+  const branchAgg = new Map<string, { gross: number; discount: number; reversed: number }>();
   for (const b of baselineBills) {
-    const cur = branchAgg.get(b.branchId) ?? { gross: 0, discount: 0 };
+    const cur = branchAgg.get(b.branchId) ?? { gross: 0, discount: 0, reversed: 0 };
     cur.gross += b.totalAmountInPaise;
     cur.discount += b.discountAmountInPaise;
+    cur.reversed += b.reversedChargeInPaise;
     branchAgg.set(b.branchId, cur);
   }
   const branchCommission = new Map<string, number>();
@@ -1069,11 +1087,12 @@ export async function getOwnerDashboardV2(
   }
 
   // prior-window net per branch (same shape as current: gross - discount - commission)
-  const priorBranchAgg = new Map<string, { gross: number; discount: number }>();
+  const priorBranchAgg = new Map<string, { gross: number; discount: number; reversed: number }>();
   for (const b of priorBranchBills) {
-    const cur = priorBranchAgg.get(b.branchId) ?? { gross: 0, discount: 0 };
+    const cur = priorBranchAgg.get(b.branchId) ?? { gross: 0, discount: 0, reversed: 0 };
     cur.gross += b.totalAmountInPaise;
     cur.discount += b.discountAmountInPaise;
+    cur.reversed += b.reversedChargeInPaise;
     priorBranchAgg.set(b.branchId, cur);
   }
   const priorBranchCommission = new Map<string, number>();
@@ -1094,12 +1113,12 @@ export async function getOwnerDashboardV2(
 
   const branchTable: BranchRow[] = visibleBranches
     .map((b) => {
-      const agg = branchAgg.get(b.id) ?? { gross: 0, discount: 0 };
+      const agg = branchAgg.get(b.id) ?? { gross: 0, discount: 0, reversed: 0 };
       const commission = branchCommission.get(b.id) ?? 0;
-      const net = agg.gross - agg.discount - commission;
-      const priorAgg = priorBranchAgg.get(b.id) ?? { gross: 0, discount: 0 };
+      const net = agg.gross - agg.discount - agg.reversed - commission;
+      const priorAgg = priorBranchAgg.get(b.id) ?? { gross: 0, discount: 0, reversed: 0 };
       const priorNet =
-        priorAgg.gross - priorAgg.discount - (priorBranchCommission.get(b.id) ?? 0);
+        priorAgg.gross - priorAgg.discount - priorAgg.reversed - (priorBranchCommission.get(b.id) ?? 0);
       const visits = visitCountByBranch.get(b.id) ?? 0;
       const tatList = (branchTatBuckets.get(b.id) ?? []).sort((a, c) => a - c);
       const lastVisit = lastVisitByBranch.get(b.id);

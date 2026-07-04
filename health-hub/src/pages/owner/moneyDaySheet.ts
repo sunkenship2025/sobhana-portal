@@ -21,6 +21,7 @@ export interface DaySheetRow {
   cashInPaise: number;
   onlineInPaise: number;
   dueInPaise: number;
+  refundedInPaise: number;
   paymentMethod: 'CASH' | 'ONLINE' | 'MIXED' | 'NONE';
   paymentStatus: string;
 }
@@ -39,6 +40,7 @@ export interface DaySheetResponse {
     cashInPaise: number;
     onlineInPaise: number;
     dueInPaise: number;
+    refundedInPaise: number;
   };
 }
 
@@ -109,6 +111,7 @@ export function buildDaySheetHtml(data: DaySheetResponse): string {
         <td class="amt">${r.cashInPaise ? rupees(r.cashInPaise) : '—'}</td>
         <td class="amt">${r.onlineInPaise ? rupees(r.onlineInPaise) : '—'}</td>
         <td class="amt">${rupees(r.paidInPaise)}</td>
+        <td class="amt">${r.refundedInPaise ? rupees(r.refundedInPaise) : '—'}</td>
         <td${dueClass}>${r.dueInPaise ? rupees(r.dueInPaise) : '—'}</td>
       </tr>`;
     })
@@ -116,7 +119,7 @@ export function buildDaySheetHtml(data: DaySheetResponse): string {
 
   const t = data.totals;
   const empty = data.rows.length === 0
-    ? '<tr><td colspan="12" class="empty">No bills in this period.</td></tr>'
+    ? '<tr><td colspan="13" class="empty">No bills in this period.</td></tr>'
     : '';
 
   return `<!doctype html>
@@ -158,6 +161,7 @@ export function buildDaySheetHtml(data: DaySheetResponse): string {
         <th class="amt">Cash</th>
         <th class="amt">Online</th>
         <th class="amt">Paid</th>
+        <th class="amt">Refund</th>
         <th class="amt">Due</th>
       </tr>
     </thead>
@@ -172,6 +176,7 @@ export function buildDaySheetHtml(data: DaySheetResponse): string {
         <td class="amt">${rupees(t.cashInPaise)}</td>
         <td class="amt">${rupees(t.onlineInPaise)}</td>
         <td class="amt">${rupees(t.paidInPaise)}</td>
+        <td class="amt">${rupees(t.refundedInPaise)}</td>
         <td class="amt">${rupees(t.dueInPaise)}</td>
       </tr>
     </tfoot>
