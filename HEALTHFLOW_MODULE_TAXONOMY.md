@@ -312,6 +312,10 @@ Rationale: the import graph is deeply interwoven at the coupling seams (payoutSe
 
 ## 8. Open decisions for the user
 
+**RESOLVED (user, Jul 4):** (1) **Tag-based gating** — no physical `src/modules/*` reorg; middleware + NavItem tags + static resolver + the one Patient360 relocation. (2) **Diagnostics stays a real module** (symmetry, future non-lab tenants). (3) **Payouts/referrals = Shared/CrossCutting** — always available, degrade when OP off (drop CLINIC payee bucket); not a Diagnostics-owned switch. (4) **New features default OFF for new signups (opt-in per deal), preserve existing tenants**; `perTenantMessageQuota` on-for-new / off-for-Sobhana. → §7 refactor plan is confirmed as-is. (5) **GPS `register()` under op=off** still open (product micro-call) — default proposed: route to `/diagnostics/new` (keeps the CTA useful) unless you'd rather hide it.
+
+---
+
 1. **Physical module folders vs tag-based gating.** This doc recommends **tag-based** (gates at call sites) plus the single Patient360 relocation, because the import graph resists a clean `src/modules/*` split and a big move risks Sobhana + concurrent-session conflicts. Do you want the lighter tag approach, or a full physical `src/modules/{core,diagnostics,op}` reorg (higher cost, cleaner long-term boundary)?
 
 2. **Is Diagnostics ever actually toggleable, or Core-in-practice?** No tenant is a "lab without Diagnostics." We can either keep Diagnostics as a real module (symmetry, future non-lab tenants) or fold its always-on core (catalog, report engine) into Core and only keep the *leaf* Diagnostics features toggleable. Which framing do you want the config to encode?
