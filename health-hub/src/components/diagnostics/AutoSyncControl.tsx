@@ -28,21 +28,8 @@ export function AutoSyncControl({ enabled, onToggle, status, onSaveNow }: AutoSy
   const hint = enabled ? 'Turn sync off' : 'Turn sync on';
 
   return (
+    // Switch stays first so it never shifts when the Save button appears/hides.
     <div className="flex items-center gap-2">
-      {!enabled && (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-8 gap-1.5"
-          onClick={onSaveNow}
-          disabled={status === 'saving' || !canSave}
-        >
-          <Save className="h-3.5 w-3.5" />
-          {saveLabel}
-        </Button>
-      )}
-
       <button
         type="button"
         role="switch"
@@ -51,7 +38,7 @@ export function AutoSyncControl({ enabled, onToggle, status, onSaveNow }: AutoSy
         title={hint}
         onClick={() => onToggle(!enabled)}
         className={cn(
-          'relative inline-flex h-7 w-[52px] items-center rounded-full transition-colors duration-200',
+          'relative inline-flex h-7 w-[52px] shrink-0 items-center rounded-full transition-colors duration-200',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-1',
           enabled ? 'bg-primary' : 'border border-border bg-muted',
         )}
@@ -70,6 +57,20 @@ export function AutoSyncControl({ enabled, onToggle, status, onSaveNow }: AutoSy
           )}
         </span>
       </button>
+
+      {!enabled && (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-8 gap-1.5"
+          onClick={onSaveNow}
+          disabled={status === 'saving' || !canSave}
+        >
+          <Save className="h-3.5 w-3.5" />
+          {saveLabel}
+        </Button>
+      )}
     </div>
   );
 }
