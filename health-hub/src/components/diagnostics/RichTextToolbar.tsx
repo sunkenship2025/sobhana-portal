@@ -81,8 +81,10 @@ export function RichTextToolbar({ state, onCommand, active = true, className }: 
       <select
         value={state.fontSize}
         onChange={(event) => dispatch('fontSize', event.target.value)}
+        title="Text size (— means default; choose it to clear a size override)"
         className="h-8 w-20 rounded-md border border-border bg-white px-2 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
       >
+        <option value="">—</option>
         {NARRATIVE_FONT_SIZE_OPTIONS.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}

@@ -19,6 +19,7 @@ import {
   normalizeRichTextForStorage,
   plainTextToRichText,
   sanitizeRichTextHtml,
+  stripInlineFontSize,
 } from '@/lib/richText';
 
 export type ToolbarState = {
@@ -44,7 +45,8 @@ export const DEFAULT_TOOLBAR_STATE: ToolbarState = {
   alignment: 'left',
   block: 'p',
   fontFamily: NARRATIVE_FONT_FAMILIES[0],
-  fontSize: '3',
+  // Empty means "no explicit size override" — the toolbar renders this as `—`.
+  fontSize: '',
   textColor: '#111827',
   highlightColor: '#fff59d',
 };
@@ -69,6 +71,27 @@ type CommandCapableDocument = Document & {
   execCommand?: (commandId: string, showUI?: boolean, value?: string) => boolean;
   queryCommandState?: (commandId: string) => boolean;
 };
+
+/**
+ * Walk up from the selection toward (but not including) the editor root and
+ * return the nearest ancestor that carries an explicit inline `font-size`.
+ * Returns null when the text is simply inheriting the base size — that lets the
+ * toolbar show `—` instead of snapping the inherited base to a misleading
+ * number, so an accidental size override is visible rather than silent.
+ */
+function getExplicitFontSizeElement(
+  startElement: HTMLElement | null,
+  editor: HTMLElement
+): HTMLElement | null {
+  let element: HTMLElement | null = startElement;
+  while (element && element !== editor && editor.contains(element)) {
+    if (element.style?.fontSize) {
+      return element;
+    }
+    element = element.parentElement;
+  }
+  return null;
+}
 
 function getSelectionContainer(editor: HTMLDivElement | null): HTMLElement | null {
   if (!editor) return null;
@@ -162,6 +185,9 @@ export const RichTextSurface = forwardRef<RichTextSurfaceHandle, RichTextSurface
     const block = container?.closest('h1, h2, h3, p')?.tagName.toLowerCase() as ToolbarState['block'] | null;
     const computedStyle = window.getComputedStyle(container || editor);
     const commandDocument = document as CommandCapableDocument;
+    // Only report a size when the text actually carries an explicit override;
+    // otherwise leave it blank so the toolbar shows `—` for inherited text.
+    const explicitSizeElement = getExplicitFontSizeElement(container, editor);
 
     return {
       bold:
@@ -178,7 +204,9 @@ export const RichTextSurface = forwardRef<RichTextSurfaceHandle, RichTextSurface
       alignment: getAlignmentFromComputedStyle(computedStyle.textAlign),
       block: block || 'p',
       fontFamily: normalizeFontFamilyForToolbar(computedStyle.fontFamily),
-      fontSize: getFontSizeLabelFromComputedSize(computedStyle.fontSize),
+      fontSize: explicitSizeElement
+        ? getFontSizeLabelFromComputedSize(window.getComputedStyle(explicitSizeElement).fontSize)
+        : '',
       textColor: normalizeColorForPicker(computedStyle.color),
       highlightColor: normalizeColorForPicker(container?.style.backgroundColor || '', '#fff59d'),
     };
@@ -228,10 +256,61 @@ export const RichTextSurface = forwardRef<RichTextSurfaceHandle, RichTextSurface
     [captureSelection, commitEditorValue, restoreSelection, syncToolbarState]
   );
 
+  const clearFontSizeInSelection = useCallback(() => {
+    const editor = editorRef.current;
+    const selection = window.getSelection();
+    if (!editor || !selection || selection.rangeCount === 0) {
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_ELEMENT);
+    const targets: HTMLElement[] = [];
+
+    let node = walker.nextNode();
+    while (node) {
+      const element = node as HTMLElement;
+      if (element.style?.fontSize && range.intersectsNode(element)) {
+        targets.push(element);
+      }
+      node = walker.nextNode();
+    }
+
+    targets.forEach((element) => {
+      element.style.removeProperty('font-size');
+      if (!element.getAttribute('style')) {
+        element.removeAttribute('style');
+      }
+      // Unwrap spans that now carry nothing so we don't leave empty wrappers.
+      if (element.tagName === 'SPAN' && element.attributes.length === 0) {
+        const parent = element.parentNode;
+        if (parent) {
+          while (element.firstChild) {
+            parent.insertBefore(element.firstChild, element);
+          }
+          parent.removeChild(element);
+        }
+      }
+    });
+  }, []);
+
   const runCommand = useCallback(
     (command: string, valueArg?: string) => {
       // Some commands need post-processing (font size override) — handle them here.
       if (command === 'fontSize') {
+        // The `—` option sends an empty value: strip any explicit size so the
+        // text falls back to the base, instead of applying a new override.
+        if (!valueArg) {
+          const editor = editorRef.current;
+          if (!editor) return;
+          editor.focus({ preventScroll: true });
+          restoreSelection();
+          clearFontSizeInSelection();
+          captureSelection();
+          commitEditorValue(editor.innerHTML, { normalize: false });
+          syncToolbarState();
+          return;
+        }
         runEditorCommand('fontSize', valueArg, () => {
           const editor = editorRef.current;
           const sizePx = NARRATIVE_FONT_SIZE_OPTIONS.find((option) => option.value === valueArg)?.label;
@@ -254,7 +333,14 @@ export const RichTextSurface = forwardRef<RichTextSurfaceHandle, RichTextSurface
 
       runEditorCommand(command, valueArg);
     },
-    [runEditorCommand]
+    [
+      captureSelection,
+      clearFontSizeInSelection,
+      commitEditorValue,
+      restoreSelection,
+      runEditorCommand,
+      syncToolbarState,
+    ]
   );
 
   useImperativeHandle(
@@ -296,8 +382,11 @@ export const RichTextSurface = forwardRef<RichTextSurfaceHandle, RichTextSurface
 
       const html = event.clipboardData.getData('text/html');
       const text = event.clipboardData.getData('text/plain');
+      // Strip font-size on paste: the editor base is larger than the report, so
+      // a size copied from inside the editor (or from Word) would bake in an
+      // override that only shows up as oversized on the printed report.
       const pasteHtml = html
-        ? sanitizeRichTextHtml(html)
+        ? stripInlineFontSize(sanitizeRichTextHtml(html))
         : buildPasteHtml(text);
 
       if (!pasteHtml) {

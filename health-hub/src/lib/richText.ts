@@ -323,6 +323,42 @@ export function normalizeRichTextForStorage(html: string | null | undefined): st
   return hasMeaningfulRichText(sanitized) ? sanitized : '';
 }
 
+/**
+ * Remove every explicit `font-size` from the markup so the text inherits the
+ * surrounding base size. Used on paste: the editor frame renders the narrative
+ * at a larger base than the printed report, so a size copied from inside the
+ * editor (or pasted from Word) bakes in a value that looks fine here but is
+ * oversized on the report. Stripping it keeps the body uniform.
+ */
+export function stripInlineFontSize(html: string | null | undefined): string {
+  if (!html) return '';
+
+  const parser = new DOMParser();
+  const parsed = parser.parseFromString(html, 'text/html');
+
+  parsed.querySelectorAll('[style]').forEach((element) => {
+    const style = element.getAttribute('style');
+    if (!style || !/font-size/i.test(style)) return;
+
+    const cleaned = style
+      .split(';')
+      .filter((declaration) => !/^\s*font-size\s*:/i.test(declaration))
+      .map((declaration) => declaration.trim())
+      .filter(Boolean)
+      .join('; ');
+
+    if (cleaned) {
+      element.setAttribute('style', cleaned);
+    } else {
+      element.removeAttribute('style');
+    }
+  });
+
+  parsed.querySelectorAll('font[size]').forEach((element) => element.removeAttribute('size'));
+
+  return parsed.body.innerHTML;
+}
+
 export function plainTextToRichText(text: string | null | undefined): string {
   if (!text) return '';
 
