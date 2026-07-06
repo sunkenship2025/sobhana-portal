@@ -281,6 +281,25 @@ function areResultsEqual(
   return leftKeys.every((key) => left[key] === right[key]);
 }
 
+// Remembered per-test default for the narrative "use signing rule" checkbox, so
+// the next report of the same test starts with the last choice.
+const USE_SIGNING_RULE_LS_PREFIX = 'sobhana:useSigningRule:';
+function readUseSigningRuleDefault(testId: string): boolean | null {
+  try {
+    const v = localStorage.getItem(`${USE_SIGNING_RULE_LS_PREFIX}${testId}`);
+    return v === null ? null : v === 'true';
+  } catch {
+    return null;
+  }
+}
+function writeUseSigningRuleDefault(testId: string, value: boolean): void {
+  try {
+    localStorage.setItem(`${USE_SIGNING_RULE_LS_PREFIX}${testId}`, value ? 'true' : 'false');
+  } catch {
+    /* ignore quota / disabled storage */
+  }
+}
+
 const DiagnosticsResultEntry = () => {
   const { visitId } = useParams();
   const navigate = useNavigate();
@@ -330,6 +349,9 @@ const DiagnosticsResultEntry = () => {
   // into the report snapshot at finalize so the PDF prints "{name} /
   // {Consultant Radiologist}" above the designation.
   const [signerNameByResultKey, setSignerNameByResultKey] = useState<Record<string, string>>({});
+  // Narrative "use signing rule" checkbox state, per result key. Absent = fall
+  // back to the remembered per-test default (localStorage) then false.
+  const [useSigningRuleByResultKey, setUseSigningRuleByResultKey] = useState<Record<string, boolean>>({});
   const [derivedManualOverrides, setDerivedManualOverrides] = useState<Record<string, boolean>>({});
   const [showWarning, setShowWarning] = useState(false);
   const [extremeValues, setExtremeValues] = useState<string[]>([]);
@@ -651,6 +673,7 @@ const DiagnosticsResultEntry = () => {
           const initialResults: Record<string, string> = {};
           const initialManualOverrides: Record<string, boolean> = {};
           const initialSignerNames: Record<string, string> = {};
+          const initialUseSigningRule: Record<string, boolean> = {};
 
           if (data.report?.versions?.[0]?.testResults) {
             const latestVersion = data.report.versions[0];
@@ -674,6 +697,9 @@ const DiagnosticsResultEntry = () => {
 
               if (typeof r.signerNameOverride === 'string' && r.signerNameOverride) {
                 initialSignerNames[resultKey] = r.signerNameOverride;
+              }
+              if (typeof r.useSigningRule === 'boolean') {
+                initialUseSigningRule[resultKey] = r.useSigningRule;
               }
             });
           }
@@ -712,6 +738,7 @@ const DiagnosticsResultEntry = () => {
           setResults(recalculateDerivedResults(initialResults, undefined, initialManualOverrides));
           setDerivedManualOverrides(initialManualOverrides);
           setSignerNameByResultKey(initialSignerNames);
+          setUseSigningRuleByResultKey(initialUseSigningRule);
 
           setExpandedPanels(panelExpansion);
           setVisit(data);
@@ -866,6 +893,7 @@ const DiagnosticsResultEntry = () => {
     notes: null;
     manualOverride: boolean;
     signerNameOverride: string | null;
+    useSigningRule: boolean | null;
   };
   type ResultsPayload = { results: ResultSaveItem[] };
   const payloadHasMeaningfulResult = (payload: ResultsPayload): boolean =>
@@ -983,12 +1011,18 @@ const DiagnosticsResultEntry = () => {
           notes: null,
           manualOverride: test.isDerived ? !!derivedManualOverrides[test.resultKey] : false,
           signerNameOverride: signerNameByResultKey[test.resultKey]?.trim() || null,
+          // Only narrative/text rows carry the signing-rule choice; null elsewhere.
+          useSigningRule: textLayoutByResultKey.has(test.resultKey)
+            ? (Object.prototype.hasOwnProperty.call(useSigningRuleByResultKey, test.resultKey)
+                ? useSigningRuleByResultKey[test.resultKey]
+                : (readUseSigningRuleDefault(test.testId) ?? false))
+            : null,
         };
       });
 
     if (resultsArray.length === 0) return null;
     return { results: resultsArray };
-  }, [visit, visitId, results, derivedManualOverrides, textLayoutByResultKey, signerNameByResultKey, testInputConfigByResultKey]);
+  }, [visit, visitId, results, derivedManualOverrides, textLayoutByResultKey, signerNameByResultKey, useSigningRuleByResultKey, testInputConfigByResultKey]);
 
   // The cloud toggle governs only narrative/text reports; numeric/tabular always
   // auto-saves. `autoSyncActive` is the effective on/off for THIS visit (visits
@@ -1370,6 +1404,24 @@ const DiagnosticsResultEntry = () => {
       setReportSaveStatusByKey((prev) => ({ ...prev, [resultKey]: 'unsaved' }));
     }
     setSignerNameByResultKey((prev) => ({ ...prev, [resultKey]: value }));
+  };
+
+  // Effective "use signing rule" for a narrative report: explicit per-report
+  // state, else the remembered per-test default, else false (typed name).
+  const getUseSigningRule = (resultKey: ResultKey, testId: string): boolean => {
+    if (Object.prototype.hasOwnProperty.call(useSigningRuleByResultKey, resultKey)) {
+      return useSigningRuleByResultKey[resultKey];
+    }
+    return readUseSigningRuleDefault(testId) ?? false;
+  };
+
+  const handleUseSigningRuleChange = (resultKey: ResultKey, testId: string, value: boolean) => {
+    touchedForSaveResultKeysRef.current.add(resultKey);
+    writeUseSigningRuleDefault(testId, value);
+    if (textLayoutByResultKey.has(resultKey)) {
+      setReportSaveStatusByKey((prev) => ({ ...prev, [resultKey]: 'unsaved' }));
+    }
+    setUseSigningRuleByResultKey((prev) => ({ ...prev, [resultKey]: value }));
   };
 
   const togglePanel = (orderId: string) => {
@@ -1833,12 +1885,13 @@ const DiagnosticsResultEntry = () => {
   ) => {
     const resultKey = makeResultKey(testOrderId, testId);
     const valueStr = results[resultKey] || '';
-    const locked = departmentId
+    // When the department has a SigningRule, show a checkbox: checked = sign
+    // with the rule's doctor (name box hidden); unchecked = typed name +
+    // consultant designation (the original narrative behavior).
+    const hasSigningRule = departmentId
       ? departmentsWithSigningRule.has(departmentId)
       : false;
-    const lockedReason = locked
-      ? `A signing rule is configured for ${departmentName || 'this department'}. Remove the rule in Settings → Signing Doctors to enter a name here.`
-      : undefined;
+    const useRule = hasSigningRule && getUseSigningRule(resultKey, testId);
     const order = testOrders.find((o) => o.id === testOrderId);
     const isWholeOrderRow = !!order && order.testId === testId;
 
@@ -1886,8 +1939,9 @@ const DiagnosticsResultEntry = () => {
           placeholder={placeholder}
           signerName={signerNameByResultKey[resultKey] || ''}
           onSignerNameChange={(next) => handleSignerNameChange(resultKey, next)}
-          signerLocked={locked}
-          signerLockedReason={lockedReason}
+          showSigningRuleToggle={hasSigningRule}
+          useSigningRule={useRule}
+          onUseSigningRuleChange={(next) => handleUseSigningRuleChange(resultKey, testId, next)}
           onFirstTouch={() => markNarrativeTouched(resultKey)}
         />
       </div>

@@ -887,6 +887,7 @@ router.get("/:id", async (req: AuthRequest, res) => {
             flag: true,
             notes: true,
             signerNameOverride: true,
+            useSigningRule: true,
             createdAt: true,
             testDefinitionId: true,
             test: {
@@ -993,6 +994,7 @@ router.get("/:id", async (req: AuthRequest, res) => {
             flag: true,
             notes: true,
             signerNameOverride: true,
+            useSigningRule: true,
             createdAt: true,
             testDefinitionId: true,
             test: {
@@ -3778,6 +3780,11 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
           result.signerNameOverride.trim()
             ? result.signerNameOverride.trim()
             : null;
+        // Narrative "use signing rule" checkbox: true = sign with the
+        // department's SigningRule, false = typed name + consultant. null when
+        // the client doesn't send it (non-narrative rows).
+        const useSigningRuleChoice =
+          typeof result.useSigningRule === "boolean" ? result.useSigningRule : null;
         const numericValue =
           result.value != null
             ? parseFloat(result.value)
@@ -3807,6 +3814,7 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
             testDefinitionId: context.testDefinitionId,
             enteredByUserId: req.user!.id,
             signerNameOverride: signerOverride,
+            useSigningRule: useSigningRuleChoice,
           };
 
           await tx.testResult.upsert({
@@ -5479,6 +5487,7 @@ router.post("/:id/release-partial", requireRole("owner", "lab_incharge"), async 
             testDefinitionId: r.testDefinitionId,
             enteredByUserId: r.enteredByUserId,
             signerNameOverride: r.signerNameOverride,
+            useSigningRule: r.useSigningRule,
           })),
         });
       }

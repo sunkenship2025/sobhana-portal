@@ -694,6 +694,11 @@ interface ReportPageModel {
   // signature block — when set, the renderer prints just this name above
   // the department designation regardless of any configured SigningRule.
   signerNameOverride?: string | null;
+  // Per-report signing choice for narrative pages: false = the operator
+  // unchecked "use signing rule", so ignore any configured rule and sign with
+  // the typed name + consultant designation. undefined/true = original
+  // "rule wins" behavior.
+  useSigningRule?: boolean | null;
 }
 
 function resolveProfile(profile: RenderProfile): ResolvedProfile {
@@ -1089,6 +1094,11 @@ function buildReportPages(
           .map((p) => p.signerNameOverride)
           .find((name) => typeof name === 'string' && name.trim().length > 0) ??
         null;
+      const pageUseSigningRule =
+        panels
+          .map((p) => p.useSigningRule)
+          .find((v) => typeof v === 'boolean') ??
+        null;
       pages.push({
         departmentId: department.departmentId,
         departmentHtml: renderDepartmentSection(department, panels),
@@ -1097,6 +1107,7 @@ function buildReportPages(
         includeReportBottom: true,
         includeQr: profile !== 'screen',
         signerNameOverride: pageSignerOverride,
+        useSigningRule: pageUseSigningRule,
       });
     });
   });
@@ -1151,10 +1162,31 @@ function renderReportPage(
     typeof page.signerNameOverride === 'string'
       ? page.signerNameOverride.trim()
       : '';
-  const useOverride = trimmedOverride && !hasConfiguredRule;
+  // Narrative reports carry a per-report choice. When the operator explicitly
+  // UNCHECKED "use signing rule" (useSigningRule === false), ignore the
+  // configured rule for this page and sign with the typed name + consultant
+  // designation, exactly as a department without a rule would. undefined
+  // (legacy snapshots / tabular reports) and true keep the original behavior,
+  // so nothing else changes.
+  const optedOutOfRule = page.useSigningRule === false;
+  const effectiveSignatures = optedOutOfRule
+    ? reportSignatures.map((sig) => ({
+        ...sig,
+        doctorId: '',
+        doctorName: '',
+        degrees: '',
+        registrationNumber: null,
+        signatureImagePath: null,
+        signatureImageBase64: null,
+        designation: pageDepartment
+          ? deriveConsultantTitle(pageDepartment.departmentName)
+          : sig.designation,
+      }))
+    : reportSignatures;
+  const useOverride = trimmedOverride && (!hasConfiguredRule || optedOutOfRule);
   const signatureBlocks = useOverride
-    ? renderOverrideSignatureBlock(trimmedOverride, reportSignatures, pageDepartment ?? null)
-    : renderSignatureBlocks(reportSignatures, baseUrl);
+    ? renderOverrideSignatureBlock(trimmedOverride, effectiveSignatures, pageDepartment ?? null)
+    : renderSignatureBlocks(effectiveSignatures, baseUrl);
   // Honor the page's own department for Lab Incharge. Pure-radiology pages
   // (showLabIncharge=false on the department) hide the block. For the
   // no-department fallback page, fall back to the cross-visit rule.

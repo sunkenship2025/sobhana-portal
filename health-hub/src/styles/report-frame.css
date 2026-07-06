@@ -293,6 +293,20 @@
   white-space: nowrap;
 }
 
+.report-sign-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.report-sign-toggle-row input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
 .report-sign-input {
   flex: 1;
   border: 1px solid #cbd5e1;

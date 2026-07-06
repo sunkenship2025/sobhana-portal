@@ -836,6 +836,12 @@ model TestResult {
   // any configured SigningRule for that page. Nullable: only narrative reports
   // surface the input today.
   signerNameOverride String?
+  // Narrative/text reports only. When the department has a configured
+  // SigningRule, this per-report choice decides the signature: true = use the
+  // rule's full signing-doctor block (like tabular reports); false/null = the
+  // typed signerNameOverride + "Consultant <Dept>" designation. NULL on old
+  // rows preserves the previous "rule always wins" behavior at render time.
+  useSigningRule Boolean?
 
   testOrder      TestOrder       @relation(fields: [testOrderId], references: [id], onDelete: Cascade)
   test           LabTest         @relation(fields: [testId], references: [id], onDelete: Restrict)

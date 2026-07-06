@@ -85,6 +85,11 @@ export interface PanelSnapshot {
    *  department designation for this panel's page, regardless of any
    *  configured SigningRule. */
   signerNameOverride?: string | null;
+  /** Per-report choice (narrative/text) of whether to sign with the
+   *  department's configured SigningRule. true = use the rule; false = typed
+   *  name + consultant designation. undefined/null on legacy snapshots, where
+   *  the renderer preserves the old "rule always wins" behavior. */
+  useSigningRule?: boolean | null;
 }
 
 export interface DepartmentSnapshot {
@@ -1067,7 +1072,7 @@ function buildPanelsAndDepartments(
   // only one signer per panel.
   const panelMap = new Map<
     string,
-    { panel: any; results: any[]; signerNameOverride: string | null }
+    { panel: any; results: any[]; signerNameOverride: string | null; useSigningRule: boolean | null }
   >();
 
   // _AUTO_<CODE> panels are auto-generated single-test wrappers created so that
@@ -1140,6 +1145,11 @@ function buildPanelsAndDepartments(
         ? ((result as any).signerNameOverride as string).trim()
         : null;
 
+    const resultUseSigningRule =
+      typeof (result as any).useSigningRule === 'boolean'
+        ? ((result as any).useSigningRule as boolean)
+        : null;
+
     if (useNewChain) {
       // ━━ NEW ARCHITECTURE: ClinicalPanelItem → ClinicalPanel ━━
       const chosenItems = pickRenderPanelItems(testDef.panelItems);
@@ -1148,10 +1158,13 @@ function buildPanelsAndDepartments(
         const key = panel.id;
 
         if (!panelMap.has(key)) {
-          panelMap.set(key, { panel, results: [], signerNameOverride: null });
+          panelMap.set(key, { panel, results: [], signerNameOverride: null, useSigningRule: null });
         }
         if (resultSignerOverride && !panelMap.get(key)!.signerNameOverride) {
           panelMap.get(key)!.signerNameOverride = resultSignerOverride;
+        }
+        if (resultUseSigningRule !== null && panelMap.get(key)!.useSigningRule === null) {
+          panelMap.get(key)!.useSigningRule = resultUseSigningRule;
         }
 
         // Match interpretation using InterpretationRule (operator-based)
@@ -1199,10 +1212,13 @@ function buildPanelsAndDepartments(
         const key = panel.id;
 
         if (!panelMap.has(key)) {
-          panelMap.set(key, { panel, results: [], signerNameOverride: null });
+          panelMap.set(key, { panel, results: [], signerNameOverride: null, useSigningRule: null });
         }
         if (resultSignerOverride && !panelMap.get(key)!.signerNameOverride) {
           panelMap.get(key)!.signerNameOverride = resultSignerOverride;
+        }
+        if (resultUseSigningRule !== null && panelMap.get(key)!.useSigningRule === null) {
+          panelMap.get(key)!.useSigningRule = resultUseSigningRule;
         }
 
         const interpretationText = matchLegacyInterpretation(
@@ -1263,10 +1279,14 @@ function buildPanelsAndDepartments(
           },
           results: [],
           signerNameOverride: null,
+          useSigningRule: null,
         });
       }
       if (resultSignerOverride && !panelMap.get(orphanPanelKey)!.signerNameOverride) {
         panelMap.get(orphanPanelKey)!.signerNameOverride = resultSignerOverride;
+      }
+      if (resultUseSigningRule !== null && panelMap.get(orphanPanelKey)!.useSigningRule === null) {
+        panelMap.get(orphanPanelKey)!.useSigningRule = resultUseSigningRule;
       }
 
       panelMap.get(orphanPanelKey)!.results.push({
@@ -1301,7 +1321,7 @@ function buildPanelsAndDepartments(
   // Group panels by department
   const departmentMap = new Map<string, DepartmentSnapshot>();
 
-  for (const [_panelId, { panel, results, signerNameOverride }] of panelMap) {
+  for (const [_panelId, { panel, results, signerNameOverride, useSigningRule }] of panelMap) {
     const dept = panel.department;
     const deptId = dept.id;
 
@@ -1358,6 +1378,7 @@ function buildPanelsAndDepartments(
       tests: results,
       interpretationHtml,
       signerNameOverride,
+      useSigningRule,
     });
   }
 

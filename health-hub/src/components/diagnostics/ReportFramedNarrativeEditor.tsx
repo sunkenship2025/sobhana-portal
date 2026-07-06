@@ -48,6 +48,13 @@ interface ReportFramedNarrativeEditorProps {
   /** Helper text shown beneath the locked input explaining why it's disabled
    *  and what to do to re-enable it. */
   signerLockedReason?: string;
+  /** When true (the department has a SigningRule), show a checkbox to sign with
+   *  the configured signing doctor instead of the typed name + consultant. */
+  showSigningRuleToggle?: boolean;
+  /** When true, sign with the department's SigningRule — the Doctor's Name box
+   *  is hidden and the typed name is not used for this report. */
+  useSigningRule?: boolean;
+  onUseSigningRuleChange?: (value: boolean) => void;
   /** Fires the first time the editor gains focus. The parent uses this as a
    *  proxy for "the radiologist actually touched this report" so the partial-
    *  release dialog can default-uncheck untouched template-only narratives. */
@@ -108,8 +115,9 @@ export function ReportFramedNarrativeEditor({
   placeholder = 'Start writing the narrative report...',
   signerName,
   onSignerNameChange,
-  signerLocked = false,
-  signerLockedReason,
+  showSigningRuleToggle = false,
+  useSigningRule = false,
+  onUseSigningRuleChange,
   onFirstTouch,
 }: ReportFramedNarrativeEditorProps) {
   const designation = deriveConsultantTitle(departmentName);
@@ -235,7 +243,7 @@ export function ReportFramedNarrativeEditor({
             </div>
 
             <div className="report-sign-block">
-              {trimmedSigner && (
+              {!useSigningRule && trimmedSigner && (
                 <div className="report-sign-name">{trimmedSigner}</div>
               )}
               <div className="report-sign-designation">{designation}</div>
@@ -246,23 +254,29 @@ export function ReportFramedNarrativeEditor({
 
       {onSignerNameChange && (
         <div className="report-sign-input-wrapper">
-          <label className="report-sign-input-row">
-            <span className="report-sign-input-label">Doctor&apos;s Name</span>
-            <input
-              type="text"
-              value={signerLocked ? '' : (signerName ?? '')}
-              onChange={(e) => onSignerNameChange(e.target.value)}
-              placeholder={
-                signerLocked
-                  ? 'Locked — signing rule active for this department'
-                  : `e.g. Dr. ABC ${designation.replace(/^Consultant\s+/i, '')}`
-              }
-              className="report-sign-input"
-              disabled={signerLocked}
-            />
-          </label>
-          {signerLocked && signerLockedReason && (
-            <p className="report-sign-input-hint">{signerLockedReason}</p>
+          {showSigningRuleToggle && (
+            <label className="report-sign-toggle-row">
+              <input
+                type="checkbox"
+                checked={useSigningRule}
+                onChange={(e) => onUseSigningRuleChange?.(e.target.checked)}
+              />
+              <span className="report-sign-input-label">
+                Sign with the department&apos;s signing doctor
+              </span>
+            </label>
+          )}
+          {!useSigningRule && (
+            <label className="report-sign-input-row">
+              <span className="report-sign-input-label">Doctor&apos;s Name</span>
+              <input
+                type="text"
+                value={signerName ?? ''}
+                onChange={(e) => onSignerNameChange(e.target.value)}
+                placeholder={`e.g. Dr. ABC ${designation.replace(/^Consultant\s+/i, '')}`}
+                className="report-sign-input"
+              />
+            </label>
           )}
         </div>
       )}
