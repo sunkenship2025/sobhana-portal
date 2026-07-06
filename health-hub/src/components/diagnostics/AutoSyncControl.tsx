@@ -7,24 +7,25 @@ export type AutoSyncStatus = 'idle' | 'unsaved' | 'saving' | 'saved' | 'error';
 interface AutoSyncControlProps {
   /** Whether background auto-sync is on. */
   enabled: boolean;
-  /** Flip the universal preference. */
+  /** Flip the preference. */
   onToggle: (next: boolean) => void;
   /** Current save status — drives the manual Save button's label/enabled state. */
   status: AutoSyncStatus;
-  /** Persist the current draft now (manual mode only). */
+  /** Persist the current report now (manual mode only). */
   onSaveNow: () => void;
 }
 
 /**
- * Small universal control for the report editors: a cloud toggle that switches
- * between auto-sync (draft saves in the background) and manual save. When
- * auto-sync is off, a Save button appears next to it. The preference itself
- * lives in the persisted reportSyncStore so it is remembered and shared across
- * every result-entry page.
+ * Elegant cloud-sync switch that sits on top of each narrative/text report.
+ * It reads like a form toggle: the cloud icon rides in the knob and slides
+ * between a filled "on" track (Cloud) and a muted "off" track (CloudOff). When
+ * sync is off, a Save button appears next to it to persist that report on
+ * demand.
  */
 export function AutoSyncControl({ enabled, onToggle, status, onSaveNow }: AutoSyncControlProps) {
   const canSave = status === 'unsaved' || status === 'error';
   const saveLabel = status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved' : 'Save';
+  const hint = enabled ? 'Turn sync off' : 'Turn sync on';
 
   return (
     <div className="flex items-center gap-2">
@@ -44,22 +45,30 @@ export function AutoSyncControl({ enabled, onToggle, status, onSaveNow }: AutoSy
 
       <button
         type="button"
+        role="switch"
+        aria-checked={enabled}
+        aria-label={hint}
+        title={hint}
         onClick={() => onToggle(!enabled)}
-        aria-pressed={enabled}
-        title={
-          enabled
-            ? 'Cloud sync on — changes save automatically. Click to switch to manual save.'
-            : 'Cloud sync off — changes save only when you click Save. Click to turn auto-sync on.'
-        }
         className={cn(
-          'flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors',
-          enabled
-            ? 'border-primary/30 bg-primary/5 text-primary hover:bg-primary/10'
-            : 'border-border bg-muted/40 text-muted-foreground hover:bg-muted'
+          'relative inline-flex h-7 w-[52px] items-center rounded-full transition-colors duration-200',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-1',
+          enabled ? 'bg-primary' : 'border border-border bg-muted',
         )}
       >
-        {enabled ? <Cloud className="h-4 w-4" /> : <CloudOff className="h-4 w-4" />}
-        <span className="hidden sm:inline">{enabled ? 'Cloud sync' : 'Sync off'}</span>
+        <span
+          className={cn(
+            'pointer-events-none flex h-6 w-6 items-center justify-center rounded-full bg-white shadow-sm',
+            'transition-transform duration-200 ease-out',
+            enabled ? 'translate-x-[26px]' : 'translate-x-[2px]',
+          )}
+        >
+          {enabled ? (
+            <Cloud className="h-3.5 w-3.5 text-primary" />
+          ) : (
+            <CloudOff className="h-3.5 w-3.5 text-muted-foreground" />
+          )}
+        </span>
       </button>
     </div>
   );
