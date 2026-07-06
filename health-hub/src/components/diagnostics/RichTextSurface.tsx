@@ -382,9 +382,9 @@ export const RichTextSurface = forwardRef<RichTextSurfaceHandle, RichTextSurface
 
       const html = event.clipboardData.getData('text/html');
       const text = event.clipboardData.getData('text/plain');
-      // Strip font-size on paste: the editor base is larger than the report, so
-      // a size copied from inside the editor (or from Word) would bake in an
-      // override that only shows up as oversized on the printed report.
+      // Strip font-size on paste so pasted text inherits the base size instead
+      // of baking in a fixed size copied from the source (editor or Word),
+      // which would make the findings body non-uniform.
       const pasteHtml = html
         ? stripInlineFontSize(sanitizeRichTextHtml(html))
         : buildPasteHtml(text);

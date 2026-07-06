@@ -1,11 +1,15 @@
 /* Visual chrome for the WYSIWYG framed narrative editor.
-   Mirrors the look of the finalized report HTML produced by
-   health-hub-backend/src/services/reportRendererService.ts so staff see
-   the report as they type. Scoped under .report-frame-scope to avoid
-   bleeding into the rest of the app. */
+   Mirrors the finalized report HTML produced by
+   health-hub-backend/src/services/reportRendererService.ts (report-screen.css)
+   1:1 — same font family, sizes, and spacing — so staff see exactly what the
+   report will look like as they type. Scoped under .report-frame-scope to
+   avoid bleeding into the rest of the app. Keep values in sync with
+   report-screen.css when that file changes. */
 
 .report-frame-scope {
-  --rfs-font-primary: 'Times New Roman', Times, serif;
+  /* Matches report-screen.css --font-primary so the editor renders in the
+     same (sans-serif) face the report prints in, not a serif fallback. */
+  --rfs-font-primary: 'Arimo', Arial, Helvetica, sans-serif;
   --rfs-color-primary: #1f3e6e;
   --rfs-color-red: #b22222;
   --rfs-color-text: #1a202c;
@@ -16,16 +20,17 @@
   --rfs-color-bg: #ffffff;
 
   font-family: var(--rfs-font-primary);
-  /* On-screen font sizes are bumped well above the PDF's 10pt so the editor
-     reads comfortably on a desktop. The saved HTML is unaffected — the PDF
-     renderer applies its own (smaller) print sizes when generating the PDF. */
-  font-size: 14pt;
-  line-height: 1.45;
+  /* 1:1 with the printed report: base 10pt. The editing view is the same size
+     as what prints, so an accidental size override is obviously wrong here
+     rather than only showing up on the report. */
+  font-size: 10pt;
+  line-height: 1.35;
   color: var(--rfs-color-text);
 }
 
 .report-frame-page {
-  max-width: min(960px, 100%);
+  /* A4 width so line wrapping matches the report page (210mm). */
+  max-width: min(210mm, 100%);
   margin: 0 auto;
   background: var(--rfs-color-bg);
   box-shadow: 0 2px 20px rgba(0, 0, 0, 0.15);
@@ -35,7 +40,7 @@
 }
 
 .report-frame-content {
-  padding: 24px 36px 32px 36px;
+  padding: 16px 24px 16px 24px;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -52,16 +57,16 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 28px 6px 28px;
+  padding: 10px 20px 4px 20px;
 }
 
 .report-frame-scope .header-logo {
   width: auto;
-  height: 80px;
+  height: 55px;
 }
 
 .report-frame-scope .header-stripe-band {
-  height: 18px;
+  height: 13px;
   background: white;
   display: flex;
   flex-direction: column;
@@ -70,13 +75,13 @@
 }
 
 .report-frame-scope .header-stripe-band > div {
-  height: 4px;
+  height: 3px;
   background: var(--rfs-color-primary);
 }
 
 .report-frame-scope .report-badge-row {
   text-align: center;
-  padding: 6px 0 10px 0;
+  padding: 3px 0 6px 0;
 }
 
 .report-frame-scope .report-badge {
@@ -84,17 +89,17 @@
   background: var(--rfs-color-red);
   color: white;
   font-weight: bold;
-  font-size: 12pt;
-  letter-spacing: 4px;
-  padding: 6px 30px;
+  font-size: 9pt;
+  letter-spacing: 3px;
+  padding: 4px 22px;
   text-transform: uppercase;
 }
 
 /* Patient info grid */
 .report-frame-scope .patient-info {
   border: 1px solid var(--rfs-color-border);
-  padding: 12px 18px;
-  margin-bottom: 18px;
+  padding: 8px 14px;
+  margin-bottom: 14px;
 }
 
 .report-frame-scope .info-grid {
@@ -110,16 +115,21 @@
 .report-frame-scope .info-item {
   display: table-cell;
   width: 50%;
-  padding: 4px 0;
-  font-size: 12pt;
-  line-height: 1.55;
+  padding: 2px 0;
+  font-size: 9pt;
+  line-height: 1.5;
 }
+
+/* Left column gets 2cm more room (matches report-screen.css) so long names
+   stay on one line. */
+.report-frame-scope .info-row .info-item:first-child { width: calc(50% + 20mm); }
+.report-frame-scope .info-row .info-item:last-child { width: calc(50% - 20mm); }
 
 .report-frame-scope .info-item .label {
   font-weight: bold;
   color: #333;
   display: inline-block;
-  min-width: 150px;
+  min-width: 120px;
 }
 
 .report-frame-scope .info-item .label::after {
@@ -134,24 +144,24 @@
 
 /* Department header */
 .report-frame-scope .department-header {
-  font-size: 15pt;
+  font-size: 10.5pt;
   font-weight: bold;
   color: var(--rfs-color-primary);
-  border-bottom: 2px solid var(--rfs-color-primary);
-  padding-bottom: 6px;
-  margin-bottom: 14px;
+  border-bottom: 1.5px solid var(--rfs-color-primary);
+  padding-bottom: 3px;
+  margin-bottom: 8px;
   text-align: center;
   text-transform: uppercase;
-  letter-spacing: 0.7px;
+  letter-spacing: 0.5px;
 }
 
 /* Panel title (test name banner, e.g., "2D-ECHO") */
 .report-frame-scope .panel-title {
-  font-size: 13pt;
+  font-size: 9.5pt;
   font-weight: bold;
   color: var(--rfs-color-primary);
-  margin-bottom: 10px;
-  padding: 6px 12px;
+  margin-bottom: 4px;
+  padding: 3px 8px;
   background: var(--rfs-color-section-bg);
   text-align: center;
 }
@@ -159,13 +169,15 @@
 /* Editable narrative area */
 .report-frame-scope .imaging-narrative {
   color: var(--rfs-color-text);
-  font-size: 13pt;
-  line-height: 1.7;
-  padding: 18px 20px;
+  font-size: 9pt;
+  line-height: 1.65;
+  /* Flush horizontally with the rest of the report content; a little vertical
+     room keeps the hover/focus dashed border off the text. */
+  padding: 4px 0;
   border: 1px dashed transparent;
   border-radius: 4px;
   outline: none;
-  min-height: 380px;
+  min-height: 200px;
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
@@ -214,21 +226,21 @@
   padding-left: 22px;
 }
 
-.report-frame-scope .imaging-narrative h1 { font-size: 19pt; }
-.report-frame-scope .imaging-narrative h2 { font-size: 17pt; }
-.report-frame-scope .imaging-narrative h3 { font-size: 15pt; }
-.report-frame-scope .imaging-narrative h4 { font-size: 13pt; }
+.report-frame-scope .imaging-narrative h1 { font-size: 15pt; }
+.report-frame-scope .imaging-narrative h2 { font-size: 13pt; }
+.report-frame-scope .imaging-narrative h3 { font-size: 11pt; }
+.report-frame-scope .imaging-narrative h4 { font-size: 10pt; }
 
 /* Note line at the bottom of the report */
 .report-frame-scope .report-note {
-  font-size: 11pt;
+  font-size: 8pt;
   color: #333;
   text-align: left;
-  margin-top: 22px;
+  margin-top: 16px;
   font-weight: 600;
 }
 
-/* Sign-off block — mirrors the PDF's right-aligned "Dr. Name / Consultant
+/* Sign-off block — mirrors the report's right-aligned "Dr. Name / Consultant
    Radiologist" footer so radiologists can see what will print. Lives inside
    the framed page so the typography matches the rest of the report. */
 .report-frame-scope .report-sign-block {
@@ -238,14 +250,14 @@
 }
 
 .report-frame-scope .report-sign-name {
-  font-size: 12pt;
+  font-size: 9.5pt;
   font-weight: 700;
   color: var(--rfs-color-text);
   line-height: 1.3;
 }
 
 .report-frame-scope .report-sign-designation {
-  font-size: 11pt;
+  font-size: 8pt;
   color: var(--rfs-color-text);
   line-height: 1.3;
 }
@@ -255,7 +267,7 @@
    rest of the entry form. */
 .report-sign-input-wrapper {
   margin-top: 14px;
-  max-width: min(960px, 100%);
+  max-width: min(210mm, 100%);
   margin-left: auto;
   margin-right: auto;
   padding: 0 4px;

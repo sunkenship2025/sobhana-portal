@@ -325,10 +325,9 @@ export function normalizeRichTextForStorage(html: string | null | undefined): st
 
 /**
  * Remove every explicit `font-size` from the markup so the text inherits the
- * surrounding base size. Used on paste: the editor frame renders the narrative
- * at a larger base than the printed report, so a size copied from inside the
- * editor (or pasted from Word) bakes in a value that looks fine here but is
- * oversized on the report. Stripping it keeps the body uniform.
+ * surrounding base size. Used on paste: content copied from the editor or from
+ * Word bakes in a fixed size that fights the report's base and makes the body
+ * non-uniform. Stripping it keeps pasted text at the base size.
  */
 export function stripInlineFontSize(html: string | null | undefined): string {
   if (!html) return '';
