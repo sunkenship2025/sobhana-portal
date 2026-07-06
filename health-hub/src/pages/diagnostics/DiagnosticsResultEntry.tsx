@@ -1079,10 +1079,10 @@ const DiagnosticsResultEntry = () => {
         clearTimeout(autoSaveTimerRef.current);
         autoSaveTimerRef.current = null;
       }
-      // Safety net: flush any unsaved edits when leaving the page, even in
-      // manual (cloud-off) mode, so an in-progress draft is never lost on
-      // navigation. The explicit Save button remains the primary path.
-      if (dirtyRef.current) {
+      // Flush pending edits when leaving the page — but ONLY when sync is on.
+      // In manual (cloud-off) mode nothing persists except via the Save button
+      // or Finalize, so navigating away without saving discards the draft.
+      if (dirtyRef.current && autoSyncActiveRef.current) {
         void runAutoSaveRef.current();
       }
     };
@@ -1097,6 +1097,8 @@ const DiagnosticsResultEntry = () => {
     if (!visitId) return;
     const handler = () => {
       if (!dirtyRef.current) return;
+      // Manual (cloud-off) mode: don't auto-flush on tab close / refresh.
+      if (!autoSyncActiveRef.current) return;
       const payload = buildResultsPayloadRef.current();
       if (!payload) return;
       try {
@@ -1752,8 +1754,14 @@ const DiagnosticsResultEntry = () => {
 
     return (
       <div key={resultKey} className="py-3">
-        {isWholeOrderRow && (
-          <div className="flex justify-end mb-1">
+        <div className="mb-1 flex items-center justify-between gap-3">
+          <AutoSyncControl
+            enabled={autoSync}
+            onToggle={handleToggleSync}
+            status={autoSaveStatus}
+            onSaveNow={handleSaveNow}
+          />
+          {isWholeOrderRow && (
             <button
               type="button"
               onClick={() => { setNoReportReasonText(''); setNoReportTarget({ orderId: testOrderId, testName: panelDisplayName || testName }); }}
@@ -1761,8 +1769,8 @@ const DiagnosticsResultEntry = () => {
             >
               No report needed
             </button>
-          </div>
-        )}
+          )}
+        </div>
         <ReportFramedNarrativeEditor
           value={valueStr}
           onChange={(nextValue) => handleValueChange(resultKey, nextValue)}
@@ -2146,17 +2154,7 @@ const DiagnosticsResultEntry = () => {
         {/* Test Results */}
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle>Enter Test Results</CardTitle>
-              {hasNarrativeTests && (
-                <AutoSyncControl
-                  enabled={autoSync}
-                  onToggle={handleToggleSync}
-                  status={autoSaveStatus}
-                  onSaveNow={handleSaveNow}
-                />
-              )}
-            </div>
+            <CardTitle>Enter Test Results</CardTitle>
             {hasNonNarrativeTests && (
               <div className="hidden border-b pb-2 pt-4 text-xs uppercase tracking-wide text-muted-foreground md:grid md:grid-cols-[1fr_120px_180px_80px] md:gap-4">
                 <div>Test Name</div>
