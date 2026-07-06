@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ReportFramedNarrativeEditor } from '@/components/diagnostics/ReportFramedNarrativeEditor';
 import { AutoSyncControl } from '@/components/diagnostics/AutoSyncControl';
-import { useReportSync } from '@/store/reportSyncStore';
+import { useReportSync, effectiveAutoSync } from '@/store/reportSyncStore';
 import {
   PartialReleaseSelectorDialog,
   type PartialReleaseGroup,
@@ -289,11 +289,36 @@ const DiagnosticsResultEntry = () => {
   // Staff/sales can enter and save results but never finalize, so the CTA must
   // not promise finalization to them — they hand off to owner / lab incharge.
   const canFinalize = user?.role === 'owner' || user?.role === 'lab_incharge';
-  // Universal, remembered cloud-sync preference. Only governs narrative / text
-  // (IMAGING_NARRATIVE / TEXT_ONLY) report drafts — everything else always
-  // auto-saves regardless. See `autoSyncActive` below.
-  const autoSync = useReportSync((s) => s.autoSync);
-  const setAutoSync = useReportSync((s) => s.setAutoSync);
+  // Cloud-sync preference for narrative / text reports. Two levels: an org-wide
+  // default (server, lab-incharge-settable) and a per-user override (localStorage
+  // keyed by userId). `autoSync` is this user's effective value. Only governs
+  // narrative/text; everything else always auto-saves. See `autoSyncActive`.
+  const orgDefault = useReportSync((s) => s.orgDefault);
+  const personalOverrides = useReportSync((s) => s.personal);
+  const setOrgDefault = useReportSync((s) => s.setOrgDefault);
+  const setPersonalAutoSync = useReportSync((s) => s.setPersonal);
+  const userId = user?.id;
+  const autoSync = effectiveAutoSync({ orgDefault, personal: personalOverrides }, userId);
+  // Scope prompt shown to the lab incharge when they toggle: just me / everyone.
+  const [scopePrompt, setScopePrompt] = useState<{ next: boolean } | null>(null);
+
+  // Load the org-wide default once so a user with no personal override reflects
+  // whatever the lab incharge set "for all".
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    fetch(`${API_BASE}/app-settings/report-auto-sync`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data && typeof data.orgDefault === 'boolean') {
+          setOrgDefault(data.orgDefault);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [token, setOrgDefault]);
 
   const [visit, setVisit] = useState<Visit | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1176,12 +1201,11 @@ const DiagnosticsResultEntry = () => {
     void runAutoSave();
   }, [runAutoSave]);
 
-  // Flipping the cloud toggle. Turning sync ON flushes whatever is pending
-  // (including narrative) so the server immediately catches up to the draft.
-  const handleToggleSync = useCallback((next: boolean) => {
-    setAutoSync(next);
-    // Update the ref synchronously so the flush below uses the new mode — the
-    // effect that mirrors autoSyncActive only runs after the next render.
+  // Shared flush after the preference changes: turning sync ON flushes whatever
+  // is pending (including narrative) so the server catches up immediately.
+  const flushAfterToggle = useCallback((next: boolean) => {
+    // Update the ref synchronously so the flush uses the new mode — the effect
+    // that mirrors autoSyncActive only runs after the next render.
     autoSyncActiveRef.current = textLayoutByResultKey.size > 0 ? next : true;
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);
@@ -1190,7 +1214,34 @@ const DiagnosticsResultEntry = () => {
     if (next && dirtyRef.current) {
       void runAutoSave();
     }
-  }, [setAutoSync, runAutoSave, textLayoutByResultKey]);
+  }, [runAutoSave, textLayoutByResultKey]);
+
+  // Apply a toggle at the chosen scope. 'org' (lab incharge only) persists the
+  // org-wide default and clears this user's personal override so they follow it.
+  const applyAutoSync = useCallback((next: boolean, scope: 'personal' | 'org') => {
+    if (scope === 'org') {
+      void fetch(`${API_BASE}/app-settings/report-auto-sync`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: next }),
+      }).catch(() => {});
+      setOrgDefault(next);
+      if (userId) setPersonalAutoSync(userId, null);
+    } else if (userId) {
+      setPersonalAutoSync(userId, next);
+    }
+    flushAfterToggle(next);
+  }, [token, userId, setOrgDefault, setPersonalAutoSync, flushAfterToggle]);
+
+  // The lab incharge (lab technician head) is asked whether the change is just
+  // for them or for everyone; every other role sets only their own.
+  const handleToggleSync = useCallback((next: boolean) => {
+    if (user?.role === 'lab_incharge') {
+      setScopePrompt({ next });
+      return;
+    }
+    applyAutoSync(next, 'personal');
+  }, [user, applyAutoSync]);
 
   useEffect(() => {
     if (!loading && visit) {
@@ -2882,6 +2933,35 @@ const DiagnosticsResultEntry = () => {
               onClick={(e) => { e.preventDefault(); submitNoReport(); }}
             >
               {noReportBusy ? 'Closing…' : 'Close, no report'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Cloud-sync scope — lab incharge chooses just-me vs everyone */}
+      <AlertDialog open={!!scopePrompt} onOpenChange={(open) => { if (!open) setScopePrompt(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Turn cloud sync {scopePrompt?.next ? 'on' : 'off'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Apply this to just your account, or set it as the default for everyone?
+              Individual users can still override their own.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-secondary text-secondary-foreground hover:bg-secondary/80"
+              onClick={() => { if (scopePrompt) applyAutoSync(scopePrompt.next, 'personal'); setScopePrompt(null); }}
+            >
+              Just me
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={() => { if (scopePrompt) applyAutoSync(scopePrompt.next, 'org'); setScopePrompt(null); }}
+            >
+              Everyone
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

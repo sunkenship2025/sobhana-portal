@@ -494,6 +494,15 @@ model User {
   @@index([isActive])
 }
 
+// Org-wide key/value settings that aren't branch-scoped. Currently holds the
+// cloud-sync default for narrative/text reports (key `report_auto_sync_default`,
+// value "true"/"false"), which the lab incharge can set "for all".
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
 // ============================================================================
 // BRANCH-SCOPED DATA (All anchored on Visit)
 // ============================================================================

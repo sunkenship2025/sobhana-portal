@@ -65,6 +65,7 @@ import signingLabInchargeRoutes from './routes/signingLabIncharges';
 import labInchargeRuleRoutes from './routes/labInchargeRules';
 import ownerDashboardRoutes from './routes/ownerDashboard';
 import userRoutes from './routes/users';
+import appSettingsRoutes from './routes/appSettings';
 // LEGACY — superseded by /api/clinical-panels pipeline
 // import panelRoutes from './routes/panels';
 import clinicalDefinitionRoutes from './routes/clinicalDefinitions';
@@ -313,6 +314,7 @@ app.use('/api/doctors', doctorSearchRoutes); // Cross-search endpoint
 app.use('/api/referral-doctors', referralDoctorRoutes);
 app.use('/api/clinic-doctors', clinicDoctorRoutes);
 app.use('/api/users', userRoutes); // Owner-only team/role management
+app.use('/api/app-settings', appSettingsRoutes); // Org-wide settings (report cloud-sync default)
 // LEGACY — superseded by /api/billable-products
 // app.use('/api/lab-tests', labTestRoutes);
 app.use('/api/visits/diagnostic', diagnosticVisitRoutes);
