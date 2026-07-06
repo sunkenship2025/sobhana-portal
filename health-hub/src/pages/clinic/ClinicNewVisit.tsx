@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { API_BASE } from "@/lib/api";
 import { ClinicPrescriptionPrint } from "@/components/print/ClinicPrescriptionPrint";
+import { buildClinicVisitView } from "@/lib/clinicVisitView";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -75,40 +76,6 @@ function deriveRevisitDecision(
   }
 
   return revisitContext.defaultMode === "REVISIT" ? "FORCE_NORMAL" : "AUTO";
-}
-
-function buildClinicVisitView(apiVisit: any): ClinicVisitView {
-  return {
-    visit: {
-      id: apiVisit.id,
-      branchId: apiVisit.branchId,
-      visitRef: apiVisit.visitRef,
-      billNumber: apiVisit.billNumber ?? null,
-      patientId: apiVisit.patientId,
-      domain: "CLINIC",
-      visitType: apiVisit.visitType,
-      doctorId: apiVisit.doctorId,
-      hospitalWard: apiVisit.hospitalWard || undefined,
-      totalAmountInPaise: Math.round((apiVisit.totalAmount || 0) * 100),
-      consultationFeeInPaise: Math.round((apiVisit.consultationFee || 0) * 100),
-      paymentType: apiVisit.paymentType ?? null,
-      paymentStatus: apiVisit.paymentStatus ?? null,
-      hasBill: apiVisit.hasBill,
-      billedAt: apiVisit.billedAt ? new Date(apiVisit.billedAt) : null,
-      status: apiVisit.status,
-      isRevisit: apiVisit.isRevisit || false,
-      originalVisitId: apiVisit.originalVisitId || undefined,
-      originalVisitVisitRef: apiVisit.originalVisitVisitRef || null,
-      originalVisitBillNumber: apiVisit.originalVisitBillNumber || null,
-      originalVisitDate: apiVisit.originalVisitDate
-        ? new Date(apiVisit.originalVisitDate)
-        : null,
-      createdAt: new Date(apiVisit.createdAt),
-      updatedAt: new Date(apiVisit.updatedAt),
-    },
-    patient: apiVisit.patient,
-    clinicDoctor: apiVisit.doctor || undefined,
-  };
 }
 
 /**

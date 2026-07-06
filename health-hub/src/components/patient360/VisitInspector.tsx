@@ -59,6 +59,17 @@ function openPrintBill(visit: VisitTimelineItem) {
   }
 }
 
+function openPrintPrescription(visit: VisitTimelineItem) {
+  if (!visit.visitId) {
+    toast.error("Visit data is incomplete — cannot open prescription.");
+    return;
+  }
+  const opened = window.open(`/prescription/print/${visit.visitId}`, "_blank");
+  if (!opened) {
+    toast.error("Pop-up was blocked — allow pop-ups for this site and try again.");
+  }
+}
+
 interface VisitInspectorProps {
   visit: VisitTimelineItem | null;
   open: boolean;
@@ -211,6 +222,24 @@ function InspectorBody({
         {/* Collect-payment deep-link intentionally omitted for v1 (06-frontend-plan §4 / Q5);
             print-bill is the supported path. */}
       </div>
+
+      {!isDiagnostic && (
+        <>
+          <Separator />
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium">Prescription</h4>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full justify-start sm:w-auto"
+              onClick={() => openPrintPrescription(visit)}
+            >
+              <FileText className="mr-2 h-4 w-4" aria-hidden="true" />
+              Print prescription
+            </Button>
+          </div>
+        </>
+      )}
 
       {canRefund && (
         <RefundDialog visit={visit} open={refundOpen} onOpenChange={setRefundOpen} />

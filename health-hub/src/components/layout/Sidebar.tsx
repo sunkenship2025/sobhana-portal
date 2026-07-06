@@ -89,6 +89,7 @@ const ownerNavItems: NavItem[] = [
       '/diagnostics/preview/',
       '/clinic/new',
       '/clinic/queue',
+      '/clinic/finalized',
     ],
     subItems: [
       {
@@ -109,6 +110,7 @@ const ownerNavItems: NavItem[] = [
       },
       { label: 'New clinic visit', href: '/clinic/new' },
       { label: 'OP / IP queue', href: '/clinic/queue' },
+      { label: 'Finalized OP / IP', href: '/clinic/finalized' },
     ],
   },
   {
@@ -175,6 +177,7 @@ const staffNavItems: NavItem[] = [
     subItems: [
       { label: 'New visit', href: '/clinic/new' },
       { label: 'OP / IP queue', href: '/clinic/queue' },
+      { label: 'Finalized OP / IP', href: '/clinic/finalized' },
     ],
   },
   {

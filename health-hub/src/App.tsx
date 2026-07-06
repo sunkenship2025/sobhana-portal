@@ -18,6 +18,7 @@ import DiagnosticsResultEntry from "./pages/diagnostics/DiagnosticsResultEntry";
 import DiagnosticsReportPreview from "./pages/diagnostics/DiagnosticsReportPreview";
 import ClinicNewVisit from "./pages/clinic/ClinicNewVisit";
 import ClinicVisitQueue from "./pages/clinic/ClinicVisitQueue";
+import ClinicFinalizedVisits from "./pages/clinic/ClinicFinalizedVisits";
 import GlobalPatientSearch from "./pages/clinic/GlobalPatientSearch";
 import Patient360 from "./pages/clinic/Patient360";
 import OwnerDashboardV2 from "./pages/owner/OwnerDashboardV2";
@@ -30,6 +31,7 @@ import PayoutsList from "./pages/owner/PayoutsList";
 import PayoutStatement from "./pages/owner/PayoutStatement";
 import OutsideLabs from "./pages/owner/OutsideLabs";
 import BillPrintPage from "./pages/BillPrintPage";
+import PrescriptionPrintPage from "./pages/PrescriptionPrintPage";
 import ReportViewPage from "./pages/ReportViewPage";
 import PrivacyPolicy from "./pages/legal/PrivacyPolicy";
 import TermsOfService from "./pages/legal/TermsOfService";
@@ -131,6 +133,11 @@ function AppRoutes() {
           <ClinicVisitQueue />
         </ProtectedRoute>
       } />
+      <Route path="/clinic/finalized" element={
+        <ProtectedRoute allowedRoles={['staff', 'owner', 'lab_incharge']}>
+          <ClinicFinalizedVisits />
+        </ProtectedRoute>
+      } />
       <Route path="/clinic/patient-search" element={
         <ProtectedRoute allowedRoles={['staff', 'owner', 'lab_incharge']}>
           <GlobalPatientSearch />
@@ -222,6 +229,11 @@ function AppRoutes() {
       <Route path="/bill/print/:domain/:visitId" element={
         <ProtectedRoute allowedRoles={['staff', 'owner', 'lab_incharge']}>
           <BillPrintPage />
+        </ProtectedRoute>
+      } />
+      <Route path="/prescription/print/:visitId" element={
+        <ProtectedRoute allowedRoles={['staff', 'owner', 'lab_incharge']}>
+          <PrescriptionPrintPage />
         </ProtectedRoute>
       } />
       
