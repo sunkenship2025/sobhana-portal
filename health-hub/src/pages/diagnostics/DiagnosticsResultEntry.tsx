@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ReportFramedNarrativeEditor } from '@/components/diagnostics/ReportFramedNarrativeEditor';
+import { AutoSyncControl } from '@/components/diagnostics/AutoSyncControl';
+import { useReportSync } from '@/store/reportSyncStore';
 import {
   PartialReleaseSelectorDialog,
   type PartialReleaseGroup,
@@ -287,6 +289,11 @@ const DiagnosticsResultEntry = () => {
   // Staff/sales can enter and save results but never finalize, so the CTA must
   // not promise finalization to them — they hand off to owner / lab incharge.
   const canFinalize = user?.role === 'owner' || user?.role === 'lab_incharge';
+  // Universal, remembered cloud-sync preference. Only governs narrative / text
+  // (IMAGING_NARRATIVE / TEXT_ONLY) report drafts — everything else always
+  // auto-saves regardless. See `autoSyncActive` below.
+  const autoSync = useReportSync((s) => s.autoSync);
+  const setAutoSync = useReportSync((s) => s.setAutoSync);
 
   const [visit, setVisit] = useState<Visit | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1008,6 +1015,15 @@ const DiagnosticsResultEntry = () => {
     }
   }, [persistDraft]);
 
+  // The cloud toggle only applies to visits that contain a narrative / text
+  // report. Anything else (numeric, tabular) always auto-saves, so we ignore
+  // the stored preference unless this visit actually has such a test.
+  const autoSyncActive = textLayoutByResultKey.size > 0 ? autoSync : true;
+  // Read inside the debounce effect so toggling the switch doesn't itself
+  // re-run the effect and spuriously mark the form dirty.
+  const autoSyncActiveRef = useRef(autoSyncActive);
+  useEffect(() => { autoSyncActiveRef.current = autoSyncActive; }, [autoSyncActive]);
+
   // Schedule a debounced auto-save whenever the user edits results. The very
   // first non-loading render is the initial population from fetchVisit, not a
   // user edit — that one is suppressed via autoSavePrimedRef.
@@ -1035,7 +1051,11 @@ const DiagnosticsResultEntry = () => {
 
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
     }
+    // Cloud sync off (narrative/text visit): mark the edit as unsaved but don't
+    // schedule a background save — the operator persists with the Save button.
+    if (!autoSyncActiveRef.current) return;
     autoSaveTimerRef.current = setTimeout(() => {
       autoSaveTimerRef.current = null;
       void runAutoSave();
@@ -1058,9 +1078,12 @@ const DiagnosticsResultEntry = () => {
       if (autoSaveTimerRef.current) {
         clearTimeout(autoSaveTimerRef.current);
         autoSaveTimerRef.current = null;
-        if (dirtyRef.current) {
-          void runAutoSaveRef.current();
-        }
+      }
+      // Safety net: flush any unsaved edits when leaving the page, even in
+      // manual (cloud-off) mode, so an in-progress draft is never lost on
+      // navigation. The explicit Save button remains the primary path.
+      if (dirtyRef.current) {
+        void runAutoSaveRef.current();
       }
     };
   }, []);
@@ -1100,13 +1123,41 @@ const DiagnosticsResultEntry = () => {
   // single listener on the form container catches every input/textarea/
   // contenteditable inside.
   const handleFormBlur = useCallback(() => {
+    // In manual (cloud-off) mode we don't save on blur — only via the button.
+    if (!autoSyncActive) return;
     if (!dirtyRef.current) return;
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = null;
     }
     void runAutoSave();
+  }, [autoSyncActive, runAutoSave]);
+
+  // Manual Save button (shown when cloud sync is off): persist the current
+  // draft immediately, reusing the auto-save path so status/in-flight
+  // coordination stays identical.
+  const handleSaveNow = useCallback(() => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    void runAutoSave();
   }, [runAutoSave]);
+
+  // Flipping the cloud toggle. Turning sync ON flushes whatever is pending so
+  // the server immediately catches up to the local draft.
+  const handleToggleSync = useCallback((next: boolean) => {
+    setAutoSync(next);
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    // Turning ON flushes pending edits now; turning OFF just cancels the pending
+    // background save (handled by the clear above).
+    if (next && dirtyRef.current) {
+      void runAutoSave();
+    }
+  }, [setAutoSync, runAutoSave]);
 
   useEffect(() => {
     if (!loading && visit) {
@@ -2095,7 +2146,17 @@ const DiagnosticsResultEntry = () => {
         {/* Test Results */}
         <Card>
           <CardHeader>
-            <CardTitle>Enter Test Results</CardTitle>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle>Enter Test Results</CardTitle>
+              {hasNarrativeTests && (
+                <AutoSyncControl
+                  enabled={autoSync}
+                  onToggle={handleToggleSync}
+                  status={autoSaveStatus}
+                  onSaveNow={handleSaveNow}
+                />
+              )}
+            </div>
             {hasNonNarrativeTests && (
               <div className="hidden border-b pb-2 pt-4 text-xs uppercase tracking-wide text-muted-foreground md:grid md:grid-cols-[1fr_120px_180px_80px] md:gap-4">
                 <div>Test Name</div>
