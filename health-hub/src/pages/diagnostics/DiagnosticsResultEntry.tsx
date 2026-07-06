@@ -850,7 +850,10 @@ const DiagnosticsResultEntry = () => {
       return Boolean(result.signerNameOverride?.trim());
     });
 
-  const buildResultsPayload = useCallback((isExplicit = false): ResultsPayload | null => {
+  const buildResultsPayload = useCallback((
+    isExplicit = false,
+    opts?: { onlyResultKey?: ResultKey; excludeNarrativeKeys?: boolean },
+  ): ResultsPayload | null => {
     if (!visit || !visitId) return null;
 
     type TestForSave = {
@@ -905,6 +908,11 @@ const DiagnosticsResultEntry = () => {
 
     const resultsArray: ResultSaveItem[] = allTests
       .filter((test) => {
+        // Per-report save: keep only the targeted report.
+        if (opts?.onlyResultKey && test.resultKey !== opts.onlyResultKey) return false;
+        // Numeric-only auto-save (narrative sync off): drop narrative/text rows —
+        // those are saved per-report via the Save button instead.
+        if (opts?.excludeNarrativeKeys && textLayoutByResultKey.has(test.resultKey)) return false;
         const signerSet = Boolean(signerNameByResultKey[test.resultKey]?.trim());
         const touchedForSave = touchedForSaveResultKeysRef.current.has(test.resultKey);
         const isPrefilled = prefilledResultKeysRef.current.has(test.resultKey);
@@ -957,9 +965,20 @@ const DiagnosticsResultEntry = () => {
     return { results: resultsArray };
   }, [visit, visitId, results, derivedManualOverrides, textLayoutByResultKey, signerNameByResultKey, testInputConfigByResultKey]);
 
-  const persistDraft = useCallback(async (isExplicit = false): Promise<'saved' | 'empty' | 'failed'> => {
+  // The cloud toggle governs only narrative/text reports; numeric/tabular always
+  // auto-saves. `autoSyncActive` is the effective on/off for THIS visit (visits
+  // with no narrative/text test ignore the pref and always sync).
+  const autoSyncActive = textLayoutByResultKey.size > 0 ? autoSync : true;
+  // Ref mirror so async save paths read the current mode without being deps.
+  const autoSyncActiveRef = useRef(autoSyncActive);
+  useEffect(() => { autoSyncActiveRef.current = autoSyncActive; }, [autoSyncActive]);
+
+  const persistDraft = useCallback(async (
+    isExplicit = false,
+    opts?: { onlyResultKey?: ResultKey; excludeNarrativeKeys?: boolean },
+  ): Promise<'saved' | 'empty' | 'failed'> => {
     if (!visitId) return 'empty';
-    const payload = buildResultsPayload(isExplicit);
+    const payload = buildResultsPayload(isExplicit, opts);
     if (!payload) return 'empty';
 
     try {
@@ -990,7 +1009,9 @@ const DiagnosticsResultEntry = () => {
       return;
     }
     setAutoSaveStatus('saving');
-    const promise = persistDraft();
+    // Narrative/text rows are excluded while sync is off — those save per-report
+    // via the Save button. Numeric/tabular always flows through.
+    const promise = persistDraft(false, { excludeNarrativeKeys: !autoSyncActiveRef.current });
     inFlightSaveRef.current = promise;
     try {
       const result = await promise;
@@ -998,6 +1019,16 @@ const DiagnosticsResultEntry = () => {
         dirtyRef.current = false;
         setLastSavedAt(Date.now());
         setAutoSaveStatus('saved');
+        // Sync on → this whole-visit save included the narrative/text rows, so
+        // clear their per-report "unsaved" flags too (keeps the Save buttons
+        // honest if the user later switches to manual mode).
+        if (autoSyncActiveRef.current) {
+          setReportSaveStatusByKey((prev) => {
+            const next = { ...prev };
+            textLayoutByResultKey.forEach((_layout, key) => { next[key] = 'saved'; });
+            return next;
+          });
+        }
       } else if (result === 'empty') {
         dirtyRef.current = false;
         setAutoSaveStatus('idle');
@@ -1013,16 +1044,26 @@ const DiagnosticsResultEntry = () => {
         void runAutoSave();
       }
     }
-  }, [persistDraft]);
+  }, [persistDraft, textLayoutByResultKey]);
 
-  // The cloud toggle only applies to visits that contain a narrative / text
-  // report. Anything else (numeric, tabular) always auto-saves, so we ignore
-  // the stored preference unless this visit actually has such a test.
-  const autoSyncActive = textLayoutByResultKey.size > 0 ? autoSync : true;
-  // Read inside the debounce effect so toggling the switch doesn't itself
-  // re-run the effect and spuriously mark the form dirty.
-  const autoSyncActiveRef = useRef(autoSyncActive);
-  useEffect(() => { autoSyncActiveRef.current = autoSyncActive; }, [autoSyncActive]);
+  // Per-report manual save (cloud sync off): each narrative/text report has its
+  // own Save button that persists ONLY that report, never the others. Status is
+  // tracked per result key so each button reflects just its own report.
+  type ReportSaveStatus = 'unsaved' | 'saving' | 'saved' | 'error';
+  const [reportSaveStatusByKey, setReportSaveStatusByKey] = useState<Record<string, ReportSaveStatus>>({});
+  const reportSaveInFlightRef = useRef<Set<string>>(new Set());
+  const saveReport = useCallback(async (testOrderId: string, testId: string) => {
+    const key = makeResultKey(testOrderId, testId);
+    if (reportSaveInFlightRef.current.has(key)) return;
+    reportSaveInFlightRef.current.add(key);
+    setReportSaveStatusByKey((prev) => ({ ...prev, [key]: 'saving' }));
+    try {
+      const result = await persistDraft(true, { onlyResultKey: key });
+      setReportSaveStatusByKey((prev) => ({ ...prev, [key]: result === 'failed' ? 'error' : 'saved' }));
+    } finally {
+      reportSaveInFlightRef.current.delete(key);
+    }
+  }, [persistDraft]);
 
   // Schedule a debounced auto-save whenever the user edits results. The very
   // first non-loading render is the initial population from fetchVisit, not a
@@ -1053,9 +1094,9 @@ const DiagnosticsResultEntry = () => {
       clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = null;
     }
-    // Cloud sync off (narrative/text visit): mark the edit as unsaved but don't
-    // schedule a background save — the operator persists with the Save button.
-    if (!autoSyncActiveRef.current) return;
+    // Always debounce: numeric/tabular always auto-saves; narrative/text rows
+    // are included only while sync is on (filtered inside runAutoSave). When
+    // sync is off they persist per-report via each report's Save button.
     autoSaveTimerRef.current = setTimeout(() => {
       autoSaveTimerRef.current = null;
       void runAutoSave();
@@ -1079,10 +1120,10 @@ const DiagnosticsResultEntry = () => {
         clearTimeout(autoSaveTimerRef.current);
         autoSaveTimerRef.current = null;
       }
-      // Flush pending edits when leaving the page — but ONLY when sync is on.
-      // In manual (cloud-off) mode nothing persists except via the Save button
-      // or Finalize, so navigating away without saving discards the draft.
-      if (dirtyRef.current && autoSyncActiveRef.current) {
+      // Flush pending edits when leaving the page. runAutoSave excludes
+      // narrative/text rows while sync is off, so those are never auto-flushed
+      // (they save per-report via the Save button); numeric always flushes.
+      if (dirtyRef.current) {
         void runAutoSaveRef.current();
       }
     };
@@ -1097,9 +1138,9 @@ const DiagnosticsResultEntry = () => {
     if (!visitId) return;
     const handler = () => {
       if (!dirtyRef.current) return;
-      // Manual (cloud-off) mode: don't auto-flush on tab close / refresh.
-      if (!autoSyncActiveRef.current) return;
-      const payload = buildResultsPayloadRef.current();
+      // Exclude narrative/text rows while sync is off — those persist only via
+      // the per-report Save button, never on tab close / refresh.
+      const payload = buildResultsPayloadRef.current(false, { excludeNarrativeKeys: !autoSyncActiveRef.current });
       if (!payload) return;
       try {
         fetch(`${API_BASE}/visits/diagnostic/${visitId}/results`, {
@@ -1125,20 +1166,9 @@ const DiagnosticsResultEntry = () => {
   // single listener on the form container catches every input/textarea/
   // contenteditable inside.
   const handleFormBlur = useCallback(() => {
-    // In manual (cloud-off) mode we don't save on blur — only via the button.
-    if (!autoSyncActive) return;
+    // Numeric/tabular saves on blur; narrative/text rows are excluded inside
+    // runAutoSave while sync is off (they save per-report via the Save button).
     if (!dirtyRef.current) return;
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
-      autoSaveTimerRef.current = null;
-    }
-    void runAutoSave();
-  }, [autoSyncActive, runAutoSave]);
-
-  // Manual Save button (shown when cloud sync is off): persist the current
-  // draft immediately, reusing the auto-save path so status/in-flight
-  // coordination stays identical.
-  const handleSaveNow = useCallback(() => {
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = null;
@@ -1146,20 +1176,21 @@ const DiagnosticsResultEntry = () => {
     void runAutoSave();
   }, [runAutoSave]);
 
-  // Flipping the cloud toggle. Turning sync ON flushes whatever is pending so
-  // the server immediately catches up to the local draft.
+  // Flipping the cloud toggle. Turning sync ON flushes whatever is pending
+  // (including narrative) so the server immediately catches up to the draft.
   const handleToggleSync = useCallback((next: boolean) => {
     setAutoSync(next);
+    // Update the ref synchronously so the flush below uses the new mode — the
+    // effect that mirrors autoSyncActive only runs after the next render.
+    autoSyncActiveRef.current = textLayoutByResultKey.size > 0 ? next : true;
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = null;
     }
-    // Turning ON flushes pending edits now; turning OFF just cancels the pending
-    // background save (handled by the clear above).
     if (next && dirtyRef.current) {
       void runAutoSave();
     }
-  }, [setAutoSync, runAutoSave]);
+  }, [setAutoSync, runAutoSave, textLayoutByResultKey]);
 
   useEffect(() => {
     if (!loading && visit) {
@@ -1262,6 +1293,11 @@ const DiagnosticsResultEntry = () => {
 
   const handleValueChange = (resultKey: ResultKey, value: string) => {
     touchedForSaveResultKeysRef.current.add(resultKey);
+    // Narrative/text reports track their own save state so each Save button
+    // reflects just its own report.
+    if (textLayoutByResultKey.has(resultKey)) {
+      setReportSaveStatusByKey((prev) => ({ ...prev, [resultKey]: 'unsaved' }));
+    }
     // Any user-initiated change promotes the value from "prefill" to a real
     // edit. Once cleared, auto-save will start including this testId in its
     // POST. Until cleared, the prefilled value stays local-only.
@@ -1279,6 +1315,9 @@ const DiagnosticsResultEntry = () => {
 
   const handleSignerNameChange = (resultKey: ResultKey, value: string) => {
     touchedForSaveResultKeysRef.current.add(resultKey);
+    if (textLayoutByResultKey.has(resultKey)) {
+      setReportSaveStatusByKey((prev) => ({ ...prev, [resultKey]: 'unsaved' }));
+    }
     setSignerNameByResultKey((prev) => ({ ...prev, [resultKey]: value }));
   };
 
@@ -1758,8 +1797,8 @@ const DiagnosticsResultEntry = () => {
           <AutoSyncControl
             enabled={autoSync}
             onToggle={handleToggleSync}
-            status={autoSaveStatus}
-            onSaveNow={handleSaveNow}
+            status={reportSaveStatusByKey[resultKey] ?? 'saved'}
+            onSaveNow={() => saveReport(testOrderId, testId)}
           />
           {isWholeOrderRow && (
             <button
