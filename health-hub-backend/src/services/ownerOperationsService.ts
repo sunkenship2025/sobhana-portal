@@ -54,6 +54,25 @@ function withReasons(detail: string, reasons: string[]): string {
   return reasons.length ? `${detail} · ${reasons.join(' · ')}` : detail;
 }
 
+// Catalog (config) edits we surface in the feed, mapped to a friendly label.
+// These are logged to AuditLog by the billable-products / clinical-panels routes.
+const CATALOG_ENTITY_LABELS: Record<string, string> = {
+  BillableProduct: 'Billable product',
+  ClinicalPanel: 'Clinical panel',
+};
+
+// Pull a human name out of an AuditLog old/newValues JSON blob (the catalog
+// routes stash { name, displayName } there) so the feed can show what changed.
+function catalogDisplayName(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw);
+    return v?.displayName || v?.name || null;
+  } catch {
+    return null;
+  }
+}
+
 export interface OperationsKpi {
   tatMedianMinutes: number | null;
   tatSampleCount: number;
@@ -460,20 +479,23 @@ export async function getOwnerOperations(
       },
     }),
 
-    // Recent audit log entries (for off-hours anomaly detection)
+    // Recent audit log entries: deletions/payout removals (off-hours anomaly)
+    // and catalog edits (products / panels — name pulled from old/newValues).
     prisma.auditLog.findMany({
       where: {
         createdAt: { gte: yesterdayStart },
         ...(branchId ? { branchId } : {}),
       },
       orderBy: { createdAt: 'desc' },
-      take: 30,
+      take: 50,
       select: {
         id: true,
         actionType: true,
         entityType: true,
         entityId: true,
         userId: true,
+        oldValues: true,
+        newValues: true,
         createdAt: true,
       },
     }),
@@ -810,6 +832,42 @@ export async function getOwnerOperations(
   // are intentionally NOT surfaced as standalone events any more — off-hours is
   // now a modifier on the events that matter, which cuts noise.
   for (const a of auditOffHours) {
+    // Catalog edits (billable products / clinical panels): informational, low
+    // severity. Surfaced so owners see when the price list or report
+    // definitions change. Delete is nudged to medium as it's more impactful.
+    const catalogLabel = CATALOG_ENTITY_LABELS[a.entityType];
+    if (
+      catalogLabel &&
+      (a.actionType === 'CREATE' || a.actionType === 'UPDATE' || a.actionType === 'DELETE')
+    ) {
+      const reasons: string[] = [];
+      let score = a.actionType === 'DELETE' ? 2 : 1;
+      if (isOffHoursIst(a.createdAt)) {
+        score += 1;
+        reasons.push('off-hours');
+      }
+      const verb =
+        a.actionType === 'CREATE'
+          ? 'created'
+          : a.actionType === 'DELETE'
+            ? 'deleted'
+            : 'updated';
+      const name =
+        catalogDisplayName(a.newValues) ??
+        catalogDisplayName(a.oldValues) ??
+        a.entityId.slice(0, 8);
+      audit.push({
+        id: `catalog-${a.id}`,
+        severity: bandFromScore(score),
+        event: `${catalogLabel} ${verb}`,
+        who: a.userId ? userNameById.get(a.userId) ?? `user ${a.userId.slice(0, 6)}` : null,
+        detail: withReasons(name, reasons),
+        whenIso: a.createdAt.toISOString(),
+        drillTo: null,
+      });
+      continue;
+    }
+
     const isDelete = a.actionType === 'DELETE' || a.actionType === 'PAYOUT_DELETE';
     if (!isDelete) continue;
     const reasons: string[] = [];

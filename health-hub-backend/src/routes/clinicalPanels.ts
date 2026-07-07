@@ -13,9 +13,11 @@
  */
 
 import { Router } from 'express';
+import { AuditActionType } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import prisma from '../lib/prisma';
+import { logAction } from '../services/auditService';
 
 const router = Router();
 
@@ -24,6 +26,29 @@ router.use(branchContextMiddleware);
 
 // ─── Code format validation ───────────────────────────────────────────
 const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
+
+// Record a clinical-panel change to the append-only audit log. Best-effort
+// (logAction swallows its own errors so it never blocks the response); these
+// rows surface in the owner Audit & Anomalies feed as catalog changes.
+function auditPanel(
+  req: AuthRequest,
+  actionType: AuditActionType,
+  entityId: string,
+  oldValues: any,
+  newValues: any,
+) {
+  return logAction({
+    branchId: req.branchId!,
+    actionType,
+    entityType: 'ClinicalPanel',
+    entityId,
+    userId: req.user?.id,
+    oldValues,
+    newValues,
+    ipAddress: req.ip,
+    userAgent: req.get('user-agent'),
+  });
+}
 
 // ─── Helper ──────────────────────────────────────────────────────────
 function transformPanel(panel: any) {
@@ -320,6 +345,10 @@ router.post('/', async (req: AuthRequest, res) => {
       },
     });
 
+    await auditPanel(req, 'CREATE', panel.id, null, {
+      name: panel.name,
+      displayName: panel.displayName,
+    });
     return res.status(201).json(transformPanel(panel));
   } catch (error: any) {
     console.error('Error creating clinical panel:', error);
@@ -432,6 +461,13 @@ router.put('/:id', async (req: AuthRequest, res) => {
 
     console.log("PUT /:id saved spacedDefinitionsGap:", panel.spacedDefinitionsGap);
 
+    await auditPanel(
+      req,
+      'UPDATE',
+      panel.id,
+      { name: existing.name, displayName: existing.displayName },
+      { name: panel.name, displayName: panel.displayName },
+    );
     return res.json(transformPanel(panel));
   } catch (error: any) {
     console.error('Error updating clinical panel:', error);
@@ -459,6 +495,11 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       },
     });
 
+    await auditPanel(req, 'UPDATE', panel.id, null, {
+      name: panel.name,
+      displayName: panel.displayName,
+      isActive,
+    });
     return res.json(transformPanel(panel));
   } catch (error: any) {
     console.error('Error toggling panel:', error);
@@ -490,6 +531,13 @@ router.delete('/:id', async (req: AuthRequest, res) => {
     await prisma.clinicalPanelItem.deleteMany({ where: { panelId: req.params.id } });
     await prisma.clinicalPanel.delete({ where: { id: req.params.id } });
 
+    await auditPanel(
+      req,
+      'DELETE',
+      existing.id,
+      { name: existing.name, displayName: existing.displayName },
+      null,
+    );
     return res.json({ success: true });
   } catch (error: any) {
     console.error('Error deleting panel:', error);

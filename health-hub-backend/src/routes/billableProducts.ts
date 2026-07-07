@@ -15,11 +15,12 @@
  */
 
 import { Router } from 'express';
-import { DiagnosticWorkflowMode } from '@prisma/client';
+import { DiagnosticWorkflowMode, AuditActionType } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import prisma from '../lib/prisma';
 import { buildPriceListWorkbook } from '../services/productExportService';
+import { logAction } from '../services/auditService';
 const router = Router();
 
 router.use(authMiddleware);
@@ -27,6 +28,29 @@ router.use(branchContextMiddleware);
 
 // ─── Code format validation ───────────────────────────────────────────
 const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
+
+// Record a billable-product change to the append-only audit log. Best-effort
+// (logAction swallows its own errors so it never blocks the response); these
+// rows surface in the owner Audit & Anomalies feed as catalog changes.
+function auditProduct(
+  req: AuthRequest,
+  actionType: AuditActionType,
+  entityId: string,
+  oldValues: any,
+  newValues: any,
+) {
+  return logAction({
+    branchId: req.branchId!,
+    actionType,
+    entityType: 'BillableProduct',
+    entityId,
+    userId: req.user?.id,
+    oldValues,
+    newValues,
+    ipAddress: req.ip,
+    userAgent: req.get('user-agent'),
+  });
+}
 
 // ─── Cycle check ──────────────────────────────────────────────────────
 // Walks the child-product graph downward from `startId`. Returns true if
@@ -487,6 +511,10 @@ router.post('/', async (req: AuthRequest, res) => {
       },
     });
 
+    await auditProduct(req, 'CREATE', product.id, null, {
+      name: product.name,
+      code: product.code,
+    });
     return res.status(201).json(withResolvedPrice(product));
   } catch (error: any) {
     console.error('Error creating billable product:', error);
@@ -674,6 +702,13 @@ router.put('/:id', async (req: AuthRequest, res) => {
       });
     });
 
+    await auditProduct(
+      req,
+      'UPDATE',
+      product.id,
+      { name: existing.name, code: existing.code },
+      { name: product.name, code: product.code },
+    );
     return res.json(withResolvedPrice(product));
   } catch (error: any) {
     console.error('Error updating billable product:', error);
@@ -698,6 +733,11 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       include: { _count: { select: { panels: true } } },
     });
 
+    await auditProduct(req, 'UPDATE', product.id, null, {
+      name: product.name,
+      code: product.code,
+      isActive,
+    });
     return res.json(withResolvedPrice(product));
   } catch (error: any) {
     console.error('Error toggling product:', error);
@@ -751,6 +791,13 @@ router.delete('/:id', async (req: AuthRequest, res) => {
       prisma.billableProduct.delete({ where: { id: req.params.id } }),
     ]);
 
+    await auditProduct(
+      req,
+      'DELETE',
+      existing.id,
+      { name: existing.name, code: existing.code },
+      null,
+    );
     return res.json({ success: true });
   } catch (error: any) {
     console.error('Error deleting product:', error);
