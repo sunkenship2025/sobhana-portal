@@ -30,6 +30,7 @@ import { Ban, Eye, EyeOff, FileText, Loader2, MessageCircle, Printer, ReceiptTex
 import { toast } from "sonner";
 import { EditReferralDialog } from "./EditReferralDialog";
 import { FinancialDetailPanel } from "./FinancialDetailPanel";
+import { NoReportStatus } from "./NoReportStatus";
 import { RefundDialog } from "./RefundDialog";
 import { ReportActions } from "./ReportActions";
 import { SwapTestDialog } from "./SwapTestDialog";
@@ -152,6 +153,7 @@ function InspectorBody({
               onPrint={() => printReport(visit.visitId)}
               onWhatsApp={() => sendWhatsApp(visit.visitId)}
             />
+            <NoReportStatus visit={visit} />
           </div>
         </>
       )}

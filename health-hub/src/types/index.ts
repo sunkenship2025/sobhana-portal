@@ -591,6 +591,12 @@ export interface Patient360TestOrder {
   productId?: string | null;
   productName?: string | null;
   isOutsourced?: boolean;
+  // Set when the order was closed as "no written report needed" (films only) —
+  // patient declined the narrative report. Money-neutral; reversible until the
+  // visit's report is finalized. Surfaced so the inspector leaves a trace.
+  noReportAt?: Date | string | null;
+  noReportReason?: string | null;
+  noReportBy?: string | null;
 }
 
 // Complete Patient 360 view (backend-assembled)

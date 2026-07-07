@@ -853,6 +853,11 @@ const TIMELINE_INCLUDE = {
       productId: true,
       product: { select: { name: true } },
       externalLabId: true,
+      // "No written report needed" (films only) — surfaced so the inspector can
+      // show a trace (who/when/why) instead of the Report section going blank.
+      noReportAt: true,
+      noReportReason: true,
+      noReportByUser: { select: { name: true } },
     },
     orderBy: { createdAt: 'asc' as const },
   },
@@ -1015,6 +1020,9 @@ export async function getPatient360Timeline(patientId: string, filters: Timeline
               productId: order.productId,
               productName: order.product?.name ?? null,
               isOutsourced: Boolean(order.externalLabId),
+              noReportAt: order.noReportAt,
+              noReportReason: order.noReportReason,
+              noReportBy: order.noReportByUser?.name ?? null,
             }))
           : undefined,
       // Report state + workflow + abnormal flag + delivery
