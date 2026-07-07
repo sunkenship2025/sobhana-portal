@@ -295,7 +295,9 @@ Repeated ~150 times across pages. Centralizing it in a `lib/apiClient.ts` + reac
 | `InterpretationRule` | Auto-generated interpretation text per result |
 | `ClinicalPanel` | Report rendering group (e.g. CBP). Has `layoutType` enum. |
 | `ClinicalPanelItem` | Junction `Panel ↔ TestDefinition` with display rules (subgroup, indent, bold) |
-| `BillableProduct` | Commercial product. `BillableProductPanel` joins to `ClinicalPanel`. |
+| `BillableProduct` | Commercial product. `BillableProductPanel` joins to `ClinicalPanel`. Supports `EVENT` workflow mode for campaign events. |
+| `CouponCampaign` | Configuration for reusable events/campaigns, defining discount %, validity, and landing theme. |
+| `Coupon` | One-time-use code tied to a campaign. Minted on an EVENT visit and redeemed on a later bill. |
 | `ProductBranchPricing` | Per-branch price overrides |
 | `TestInputConfig` | **Sibling table** (not versioned with TestDefinition). Holds `inputType` (NUMERIC/FREE_TEXT/TEXT_WITH_PRESETS/SELECT_ONLY), `defaultValue`, `valueOptions`. See ADR-013. |
 
@@ -438,9 +440,9 @@ authStore.checkTokenExpiration() → auto-logout on expired exp claim
 - `requireRole(...)` middleware factory.
 - Branch isolation is **application-enforced** — every Prisma query filters by `branchId`. Not enforced at DB level (no Row Level Security). Consistency depends on developer discipline; one missed filter is a data leak.
 
-### Public report & bill tokens
+### Public report, bill & coupon tokens
 - 12-char base64url bearer (~72 bits entropy → infeasible to brute-force).
-- Only the SHA-256 hash is stored (`ReportAccessToken.token`). Bearer is not recoverable.
+- Only the SHA-256 hash is stored (`ReportAccessToken.token`, `BillAccessToken.token`, `Coupon.token`). Bearer is not recoverable.
 - Tokens currently do not expire (`expiresAt: null`). Setting `expiresAt` is supported by the schema with no code change.
 - Every access logged to `ReportAccessLog` (IP, user-agent, accessType: VIEW/DOWNLOAD/PRINT).
 
