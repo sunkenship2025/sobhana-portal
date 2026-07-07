@@ -1098,6 +1098,8 @@ export interface BillReceiptData {
   discountType?: BillDiscountType | null;
   discountPercentage?: number | null;
   discountAmountInPaise?: number;
+  couponDiscountInPaise?: number;
+  couponCode?: string | null;
   paidAmountInPaise?: number;
   netAmountInPaise?: number;
   dueAmountInPaise?: number;

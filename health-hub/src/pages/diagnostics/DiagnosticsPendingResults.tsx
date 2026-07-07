@@ -333,6 +333,8 @@ const DiagnosticsPendingResults = () => {
                 discountType: data.discountType,
                 discountPercentage: data.discountPercentage,
                 discountAmountInPaise: data.discountAmountInPaise,
+                couponDiscountInPaise: (data as any).couponDiscountInPaise,
+                couponCode: (data as any).couponCode,
                 paidAmountInPaise: data.paidAmountInPaise,
                 netAmountInPaise: data.netAmountInPaise,
                 dueAmountInPaise: data.dueAmountInPaise,

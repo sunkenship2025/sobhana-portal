@@ -120,6 +120,9 @@ const DiagnosticsNewVisit = () => {
   const [discountMode, setDiscountMode] = useState<DiscountMode>("NONE");
   const [discountValue, setDiscountValue] = useState("");
   const [discountReason, setDiscountReason] = useState("");
+  const [couponCode, setCouponCode] = useState("");
+  const [couponInfo, setCouponInfo] = useState<{ code: string; discountPercentage: number; scope: string; campaignName: string } | null>(null);
+  const [couponError, setCouponError] = useState("");
   const [paidAmount, setPaidAmount] = useState("");
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("");
   const [referralOverrides, setReferralOverrides] = useState<
@@ -593,7 +596,22 @@ const DiagnosticsNewVisit = () => {
       : discountMode === "FLAT_AMOUNT"
         ? Math.min(safeDiscountNumeric, totalAmount)
         : 0;
-  const netPayable = Math.max(0, totalAmount - discountAmount);
+  // Campaign coupon: a SEPARATE discount line. TESTS_ONLY applies to REPORTABLE
+  // test items; WHOLE_BILL applies to the whole bill. Backend recomputes authoritatively.
+  const couponScopeAmount = couponInfo
+    ? couponInfo.scope === "WHOLE_BILL"
+      ? totalAmount
+      : selectedProducts.reduce((sum, pid) => {
+          const p = products.find((x) => x.id === pid);
+          const wf = p?.workflowMode;
+          const isTest = !wf || wf === "REPORTABLE";
+          return sum + (isTest ? (p?.effectivePrice ?? 0) : 0);
+        }, 0)
+    : 0;
+  const couponDiscount = couponInfo
+    ? Math.round(((couponScopeAmount * Math.min(couponInfo.discountPercentage ?? 0, 100)) / 100) * 100) / 100
+    : 0;
+  const netPayable = Math.max(0, totalAmount - discountAmount - couponDiscount);
   const paidNumeric =
     paidAmount.trim() === "" ? netPayable : Number(paidAmount);
   const safePaidAmount = Number.isFinite(paidNumeric)
@@ -605,6 +623,29 @@ const DiagnosticsNewVisit = () => {
       minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
       maximumFractionDigits: 2,
     })}`;
+
+  const validateCoupon = async () => {
+    const code = couponCode.trim();
+    if (!code) { setCouponInfo(null); setCouponError(""); return; }
+    if (discountMode !== "NONE") { setCouponInfo(null); setCouponError("Remove the manual discount to use a coupon."); return; }
+    if (!token || !activeBranch) return;
+    try {
+      const res = await fetch(`${API_BASE}/coupons/validate?code=${encodeURIComponent(code)}`, {
+        headers: { Authorization: `Bearer ${token}`, "X-Branch-Id": activeBranch.id },
+      });
+      const cdata = await res.json();
+      if (cdata.ok) {
+        setCouponInfo({ code: cdata.code, discountPercentage: cdata.discountPercentage ?? 0, scope: cdata.scope, campaignName: cdata.campaignName });
+        setCouponError("");
+      } else {
+        setCouponInfo(null);
+        setCouponError(cdata.message || "This coupon can't be applied.");
+      }
+    } catch {
+      setCouponInfo(null);
+      setCouponError("Couldn't validate the coupon. Try again.");
+    }
+  };
 
   // --- Keyboard-flow validation gating -------------------------------------
   // Enter advances only when the current field is valid, so the operator can't
@@ -965,6 +1006,7 @@ const DiagnosticsNewVisit = () => {
           discountType: discountMode === "NONE" ? undefined : discountMode,
           discountValue:
             discountMode === "NONE" ? undefined : safeDiscountNumeric,
+          couponCode: couponInfo ? couponInfo.code : undefined,
           paidAmount: safePaidAmount,
           sendWhatsApp: showNewPatientForm
             ? newPatient.whatsappOptIn
@@ -1078,6 +1120,8 @@ const DiagnosticsNewVisit = () => {
           discountType: visit.discountType ?? null,
           discountPercentage: visit.discountPercentage ?? null,
           discountAmountInPaise: visit.discountAmountInPaise ?? 0,
+          couponDiscountInPaise: (visit as any).couponDiscountInPaise ?? 0,
+          couponCode: (visit as any).couponCode ?? null,
           paidAmountInPaise: visit.paidAmountInPaise ?? totalAmountInPaise,
           netAmountInPaise: visit.netAmountInPaise ?? totalAmountInPaise,
           dueAmountInPaise: visit.dueAmountInPaise ?? 0,
@@ -2386,6 +2430,7 @@ const DiagnosticsNewVisit = () => {
                   <div className="grid gap-2 sm:grid-cols-[150px_minmax(0,1fr)]">
                     <Select
                       value={discountMode}
+                      disabled={!!couponInfo}
                       onValueChange={(value) => {
                         setDiscountMode(value as DiscountMode);
                         setDiscountValue("");
@@ -2445,6 +2490,30 @@ const DiagnosticsNewVisit = () => {
                     </>
                   )}
 
+                  <Label htmlFor="diagnostic-coupon" className="font-semibold text-muted-foreground">
+                    Coupon <span className="text-[10px] ml-2 font-normal">(optional)</span>
+                  </Label>
+                  <div>
+                    <Input
+                      id="diagnostic-coupon"
+                      value={couponCode}
+                      onChange={(e) => {
+                        setCouponCode(e.target.value.toUpperCase());
+                        setCouponError("");
+                        if (couponInfo) setCouponInfo(null);
+                      }}
+                      onBlur={validateCoupon}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); validateCoupon(); } }}
+                      placeholder="Enter coupon code"
+                      disabled={discountMode !== "NONE"}
+                    />
+                    {couponInfo && (
+                      <p className="text-xs text-emerald-700 mt-1">{couponInfo.campaignName}: {couponInfo.discountPercentage}% off tests applied</p>
+                    )}
+                    {couponError && (
+                      <p className="text-xs text-destructive mt-1">{couponError}</p>
+                    )}
+                  </div>
                   <Label
                     htmlFor="diagnostic-paid-amount"
                     className="font-semibold text-muted-foreground"

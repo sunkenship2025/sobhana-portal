@@ -12,7 +12,7 @@ export interface ProductForSelector {
   name: string;
   code: string;
   productType: string;          // 'INDIVIDUAL_TEST' | 'PANEL_BUNDLE' | 'CUSTOM_PACKAGE'
-  workflowMode?: 'REPORTABLE' | 'BILL_ONLY' | 'EXTERNAL_UPLOAD';
+  workflowMode?: 'REPORTABLE' | 'BILL_ONLY' | 'EXTERNAL_UPLOAD' | 'EVENT';
   basePrice: number;            // in ₹
   effectivePrice: number;       // branch-resolved ₹
   priceSource: string;          // 'BASE' | 'BRANCH_OVERRIDE'
@@ -34,11 +34,14 @@ interface ProductSelectorProps {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
-type ProductVisualKind = 'BILL_ONLY' | 'EXTERNAL_UPLOAD' | 'PANEL_BUNDLE' | 'CUSTOM_PACKAGE' | 'INDIVIDUAL_TEST';
+type ProductVisualKind = 'BILL_ONLY' | 'EXTERNAL_UPLOAD' | 'PANEL_BUNDLE' | 'CUSTOM_PACKAGE' | 'INDIVIDUAL_TEST' | 'EVENT';
 
 function getProductVisualKind(product: Pick<ProductForSelector, 'productType' | 'workflowMode'>): ProductVisualKind {
   // Workflow takes precedence over product type for external uploads and bill-only,
   // because both carry their result in a way that doesn't fit the standard test/panel/package taxonomy.
+  if (product.workflowMode === 'EVENT') {
+    return 'EVENT';
+  }
   if (product.workflowMode === 'BILL_ONLY') {
     return 'BILL_ONLY';
   }
@@ -50,6 +53,7 @@ function getProductVisualKind(product: Pick<ProductForSelector, 'productType' | 
 
 function typeLabel(kind: ProductVisualKind) {
   switch (kind) {
+    case 'EVENT': return 'Event';
     case 'BILL_ONLY': return 'Bill Item';
     case 'EXTERNAL_UPLOAD': return 'External';
     case 'PANEL_BUNDLE': return 'Panel';
@@ -60,6 +64,7 @@ function typeLabel(kind: ProductVisualKind) {
 
 function typeColor(kind: ProductVisualKind) {
   switch (kind) {
+    case 'EVENT': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300';
     case 'BILL_ONLY': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300';
     case 'EXTERNAL_UPLOAD': return 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300';
     case 'PANEL_BUNDLE': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300';
@@ -70,6 +75,7 @@ function typeColor(kind: ProductVisualKind) {
 
 function groupLabel(kind: ProductVisualKind) {
   switch (kind) {
+    case 'EVENT': return 'Events';
     case 'BILL_ONLY': return 'Bill-Only Items';
     case 'EXTERNAL_UPLOAD': return 'External Reports';
     case 'PANEL_BUNDLE': return 'Panels';
@@ -80,6 +86,8 @@ function groupLabel(kind: ProductVisualKind) {
 
 function TypeIcon({ productType, className }: { productType: ProductVisualKind; className?: string }) {
   switch (productType) {
+    case 'EVENT':
+      return <Package className={className} />;
     case 'BILL_ONLY':
       return <Package className={className} />;
     case 'EXTERNAL_UPLOAD':
@@ -138,7 +146,7 @@ export function ProductSelector({
     }
 
     // Sort: reportable tests first, then panels, then packages, then external reports, then bill-only items
-    const order: ProductVisualKind[] = ['INDIVIDUAL_TEST', 'PANEL_BUNDLE', 'CUSTOM_PACKAGE', 'EXTERNAL_UPLOAD', 'BILL_ONLY'];
+    const order: ProductVisualKind[] = ['INDIVIDUAL_TEST', 'PANEL_BUNDLE', 'CUSTOM_PACKAGE', 'EXTERNAL_UPLOAD', 'BILL_ONLY', 'EVENT'];
     for (const key of order) {
       const items = typeMap.get(key);
       if (items && items.length > 0) {

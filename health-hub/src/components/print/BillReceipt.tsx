@@ -60,10 +60,11 @@ export const BillReceipt = ({
   const hasBill = data.hasBill !== false;
   const subtotalAmount = data.totalAmount ?? 0;
   const discountAmount = (data.discountAmountInPaise ?? 0) / 100;
+  const couponAmount = (data.couponDiscountInPaise ?? 0) / 100;
   const netAmount =
     data.netAmountInPaise !== undefined
       ? data.netAmountInPaise / 100
-      : Math.max(0, subtotalAmount - discountAmount);
+      : Math.max(0, subtotalAmount - discountAmount - couponAmount);
   const paidAmount =
     data.paidAmountInPaise !== undefined
       ? data.paidAmountInPaise / 100
@@ -427,6 +428,14 @@ export const BillReceipt = ({
                   <span>{discountLabel}</span>
                   <span style={{ fontVariantNumeric: "tabular-nums" }}>
                     : {fmt(discountAmount)}
+                  </span>
+                </div>
+              )}
+              {couponAmount > 0 && (
+                <div className="flex justify-between py-0">
+                  <span>Coupon{data.couponCode ? ` (${data.couponCode})` : ""}</span>
+                  <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                    : {fmt(couponAmount)}
                   </span>
                 </div>
               )}
