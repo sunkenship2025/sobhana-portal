@@ -103,7 +103,7 @@ function style(t: Theme): string {
   .chip{background:#fff;border-radius:12px;padding:11px 12px 11px 14px;display:flex;align-items:center;
     justify-content:space-between;gap:10px;box-shadow:0 3px 10px rgba(80,0,10,.16)}
   .chip .ck{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:#a99;font-weight:700;display:block}
-  .chip .code{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:20px;font-weight:700;letter-spacing:.02em;color:${t.navy}}
+  .chip .code{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:20px;font-weight:700;letter-spacing:.02em;color:${t.navy};-webkit-user-select:all;user-select:all}
   .chip .copy{border:none;cursor:pointer;background:${t.accent};color:#fff;font-family:inherit;font-weight:700;
     font-size:13px;padding:10px 16px;border-radius:9px;white-space:nowrap}
   .chip .copy.copied{background:${t.navy}}
@@ -136,19 +136,25 @@ const COPY_SCRIPT = `<script>
 function copyCode(){
   var c=(document.getElementById('code').innerText||'').trim();
   var b=document.getElementById('cb');
-  function ok(){b.classList.add('copied');b.textContent='Copied ✓';setTimeout(function(){b.classList.remove('copied');b.textContent='Copy';},1800);}
-  function legacy(){
+  var copied=false;
+  // Synchronous execCommand FIRST — this is the path that works inside the tap
+  // gesture in WhatsApp's in-app browser (WKWebView/Android WebView). The async
+  // clipboard API often no-ops or resolves without copying there.
+  try{
     var t=document.createElement('textarea');
     t.value=c;t.readOnly=false;t.contentEditable='true';
-    t.style.position='fixed';t.style.top='0';t.style.left='0';t.style.opacity='0';
+    t.style.position='fixed';t.style.top='0';t.style.left='0';t.style.width='1px';t.style.height='1px';t.style.opacity='0';
     document.body.appendChild(t);
+    t.focus();
     var range=document.createRange();range.selectNodeContents(t);
     var sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);
     t.setSelectionRange(0,c.length);
-    try{document.execCommand('copy');}catch(e){}
-    document.body.removeChild(t);ok();
-  }
-  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(c).then(ok,legacy);}else{legacy();}
+    copied=document.execCommand('copy');
+    document.body.removeChild(t);
+  }catch(e){}
+  if(!copied&&navigator.clipboard&&navigator.clipboard.writeText){try{navigator.clipboard.writeText(c);}catch(e){}}
+  b.classList.add('copied');b.textContent='Copied ✓';
+  setTimeout(function(){b.classList.remove('copied');b.textContent='Copy';},1800);
 }
 </script>`;
 
