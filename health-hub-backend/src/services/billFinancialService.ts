@@ -12,6 +12,7 @@ export interface BillFinancialInput {
   discountType?: BillDiscountInputType;
   discountValue?: number | string | null;
   discountReason?: string | null;
+  couponDiscountInPaise?: number | null; // separate campaign-coupon line (already computed by caller)
   paidAmount?: number | string | null; // User-facing rupees
   paidAmountInPaise?: number | string | null;
 }
@@ -21,6 +22,8 @@ export interface BillFinancialFields {
   discountType: BillDiscountType | null;
   discountPercentage: number | null;
   discountAmountInPaise: number;
+  couponDiscountInPaise?: number; // separate campaign-coupon line (0 when no coupon)
+  couponCode?: string | null;
   paidAmountInPaise: number;
   netAmountInPaise: number;
   dueAmountInPaise: number;
@@ -33,6 +36,8 @@ export interface PersistedBillFinancials {
   discountType?: BillDiscountType | null;
   discountPercentage?: number | null;
   discountAmountInPaise?: number | null;
+  couponDiscountInPaise?: number | null;
+  couponCode?: string | null;
   paidAmountInPaise?: number | null;
   /// Money returned to the patient — drives refund status; does NOT change net.
   refundedAmountInPaise?: number | null;
@@ -88,7 +93,12 @@ export function computeBillFinancialsFromPersisted(
   // for pre-refund bills, so existing math is unchanged.
   const refundedAmountInPaise = Math.max(0, Math.round(bill.refundedAmountInPaise ?? 0));
   const reversedChargeInPaise = Math.max(0, Math.round(bill.reversedChargeInPaise ?? 0));
-  const netBeforeReversal = Math.max(0, subtotal - discountAmountInPaise);
+  // Campaign coupon is a second discount line, capped so total discounts never exceed subtotal.
+  const couponDiscountInPaise = Math.min(
+    Math.max(0, subtotal - discountAmountInPaise),
+    Math.max(0, Math.round(bill.couponDiscountInPaise ?? 0)),
+  );
+  const netBeforeReversal = Math.max(0, subtotal - discountAmountInPaise - couponDiscountInPaise);
   const netAmountInPaise = Math.max(0, netBeforeReversal - reversedChargeInPaise);
   // Source of truth for paid: prefer the transactions list when it actually
   // contains entries; otherwise use the cached paidAmountInPaise field on the
@@ -127,6 +137,8 @@ export function computeBillFinancialsFromPersisted(
     discountType: bill.discountType ?? null,
     discountPercentage: bill.discountPercentage ?? null,
     discountAmountInPaise,
+    couponDiscountInPaise,
+    couponCode: bill.couponCode ?? null,
     paidAmountInPaise,
     netAmountInPaise,
     dueAmountInPaise,
@@ -163,7 +175,11 @@ export function normalizeBillFinancialInput(
     throw new Error("Discount cannot exceed bill subtotal");
   }
 
-  const netAmountInPaise = Math.max(0, subtotal - discountAmountInPaise);
+  const couponDiscountInPaise = Math.min(
+    Math.max(0, subtotal - discountAmountInPaise),
+    Math.max(0, Math.round(input.couponDiscountInPaise ?? 0)),
+  );
+  const netAmountInPaise = Math.max(0, subtotal - discountAmountInPaise - couponDiscountInPaise);
   const explicitPaidInPaise =
     toFiniteNumber(input.paidAmountInPaise) ??
     toPaiseFromRupees(input.paidAmount);
@@ -183,6 +199,7 @@ export function normalizeBillFinancialInput(
     discountType,
     discountPercentage,
     discountAmountInPaise,
+    couponDiscountInPaise,
     paidAmountInPaise,
     netAmountInPaise,
     dueAmountInPaise,
@@ -296,6 +313,8 @@ export function buildBillFinancialResponse(
       discountType: null,
       discountPercentage: null,
       discountAmountInPaise: 0,
+      couponDiscountInPaise: 0,
+      couponCode: null,
       paidAmountInPaise: 0,
       netAmountInPaise: 0,
       dueAmountInPaise: 0,
@@ -310,6 +329,8 @@ export function buildBillFinancialResponse(
     discountType: computed.discountType,
     discountPercentage: computed.discountPercentage,
     discountAmountInPaise: computed.discountAmountInPaise,
+    couponDiscountInPaise: computed.couponDiscountInPaise ?? 0,
+    couponCode: computed.couponCode ?? null,
     paidAmountInPaise: computed.paidAmountInPaise,
     netAmountInPaise: computed.netAmountInPaise,
     dueAmountInPaise: computed.dueAmountInPaise,

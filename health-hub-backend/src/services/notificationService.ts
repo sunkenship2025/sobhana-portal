@@ -28,6 +28,7 @@ import prisma from '../lib/prisma';
 import { createAccessToken } from './reportAccessService';
 import { computeBillFinancialsFromPersisted } from './billFinancialService';
 import { createBillAccessToken } from './billAccessService';
+import { issueCoupon } from './couponService';
 import { createStatementAccessToken } from './statementAccessService';
 import { getPayoutStatement, getPayoutPayeePhone } from './payoutService';
 import { logger as rootLogger } from '../lib/logger';
@@ -470,6 +471,114 @@ export async function sendBillConfirmation(visitId: string): Promise<void> {
     log.info({ phone: formattedPhone, visitId, templateName }, 'bill confirmation sent');
   } catch (error: any) {
     log.error({ err: error, visitId }, 'failed to send bill notification');
+  }
+}
+
+// ============================================================================
+// EVENT COUPON  (blood-donation drive, and future campaign events)
+// ============================================================================
+
+const COUPON_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function formatCouponExpiry(d: Date): string {
+  return `${d.getDate()} ${COUPON_MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+/**
+ * EVENT visit → mint a one-time campaign coupon and send its WhatsApp reward.
+ * Replaces the bill-receipt send for EVENT visits (e.g. the blood-donation camp).
+ * Fire-and-forget from the visit-create post-commit hook. See EVENTS_AND_COUPONS.md.
+ */
+export async function sendEventCoupon(visitId: string): Promise<void> {
+  try {
+    if (!isWhatsAppEnabled()) {
+      log.info({ visitId }, 'WhatsApp disabled — skipping event coupon');
+      return;
+    }
+    const info = await getPatientNotificationInfo(visitId);
+    if (!info) {
+      log.info({ visitId }, 'no patient/phone — skipping event coupon');
+      return;
+    }
+
+    // Which EVENT product was billed → which campaign to mint from.
+    const visitInfo = await prisma.visit.findUnique({
+      where: { id: visitId },
+      select: {
+        branchId: true,
+        testOrders: {
+          where: { workflowMode: DiagnosticWorkflowMode.EVENT },
+          select: { productId: true },
+          take: 1,
+        },
+      },
+    });
+    const productId = visitInfo?.testOrders[0]?.productId ?? null;
+    if (!productId) {
+      log.info({ visitId }, 'no EVENT order on visit — skipping event coupon');
+      return;
+    }
+    const product = await prisma.billableProduct.findUnique({
+      where: { id: productId },
+      select: { couponCampaignId: true },
+    });
+    if (!product?.couponCampaignId) {
+      log.warn({ visitId, productId }, 'EVENT product has no couponCampaignId — cannot mint coupon');
+      return;
+    }
+    const campaign = await prisma.couponCampaign.findUnique({
+      where: { id: product.couponCampaignId },
+      select: { id: true, whatsappTemplate: true, isActive: true },
+    });
+    if (!campaign || !campaign.isActive) {
+      log.warn({ visitId, campaignId: product.couponCampaignId }, 'coupon campaign missing/inactive');
+      return;
+    }
+
+    // Mint the one-time coupon (own connection — safe post-commit).
+    const issued = await issueCoupon({
+      campaignId: campaign.id,
+      patientId: info.patient.id,
+      phone: info.phone,
+      issuedVisitId: visitId,
+    });
+
+    const formattedPhone = formatPhoneForWhatsApp(info.phone);
+    const patientDisplayName = info.patient.title
+      ? info.patient.title + '. ' + info.patient.name
+      : info.patient.name;
+    const expiry = formatCouponExpiry(issued.expiresAt);
+
+    await createAndSendTemplateMessage({
+      patientId: info.patient.id,
+      phone: formattedPhone,
+      templateName: campaign.whatsappTemplate,
+      templateParams: { name: info.patient.name, expiry, code: issued.code },
+      contextId: visitId,
+      contextType: MessageContextType.CAMPAIGN,
+      branchId: visitInfo?.branchId ?? null,
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: patientDisplayName },
+            { type: 'text', text: expiry },
+          ],
+        },
+        {
+          type: 'button',
+          sub_type: 'url',
+          index: 0,
+          parameters: [{ type: 'text', text: issued.rawToken }],
+        },
+      ],
+    });
+
+    log.info(
+      { visitId, code: issued.code, templateName: campaign.whatsappTemplate },
+      'event coupon issued + sent',
+    );
+  } catch (error: any) {
+    log.error({ err: error, visitId }, 'failed to issue/send event coupon');
   }
 }
 

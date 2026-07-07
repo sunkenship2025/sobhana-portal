@@ -54,6 +54,7 @@ import billRoutes from './routes/bills';
 import billDownloadRoutes from './routes/billDownload';
 import statementDownloadRoutes from './routes/statementDownload';
 import reportGatewayRoutes from './routes/reportGateway';
+import couponGatewayRoutes from './routes/couponGateway';
 import webhookRoutes from './routes/webhooks';
 import messageRoutes from './routes/messages';
 import departmentRoutes from './routes/departments';
@@ -296,6 +297,8 @@ app.use('/bills/view', billDownloadRoutes);
 // Report gateway (token-based, no auth) — QR on the bill lands here and resolves
 // to the finalized report / partial interstitial / "being processed" page: /r/:token
 app.use('/r', reportGatewayRoutes);
+// Coupon gateway (token-based, no auth) — the WhatsApp coupon link lands here: /c/:token
+app.use('/c', couponGatewayRoutes);
 // Payee-facing payout statement (JSON) for WhatsApp links: /statements/view/:token
 app.use('/statements/view', statementDownloadRoutes);
 

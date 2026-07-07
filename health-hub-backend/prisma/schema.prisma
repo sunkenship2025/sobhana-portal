@@ -89,6 +89,7 @@ enum DiagnosticWorkflowMode {
   REPORTABLE
   BILL_ONLY
   EXTERNAL_UPLOAD
+  EVENT // ₹0 event-participation product; billing it mints a campaign coupon + sends its template instead of a bill/report
 }
 
 enum TestResultFlag {
@@ -604,6 +605,10 @@ model Bill {
   discountAmountInPaise Int               @default(0)
   discountReason        String?
   discountedByUserId    String? // User who authorized the discount (set when discountAmountInPaise > 0)
+  // Campaign coupon redeemed on this bill — a SEPARATE line from the manual discount above.
+  couponId              String? // Coupon.id redeemed here (scalar link; module kept isolated from core billing FKs)
+  couponCode            String? // snapshot of the code for the printed / WhatsApp bill line
+  couponDiscountInPaise Int               @default(0) // net = total - discountAmountInPaise - couponDiscountInPaise
   paidAmountInPaise     Int               @default(0)
   billedAt              DateTime          @default(now()) // Explicit billing timestamp; remains stable after payment updates
   paymentStatus         PaymentStatus     @default(PENDING)
@@ -627,6 +632,77 @@ model Bill {
   @@index([billedAt])
   @@index([paymentStatus])
   @@index([createdAt])
+}
+
+// ============================================================================
+// Events & Coupons (reusable across future drives/events — see EVENTS_AND_COUPONS.md)
+// ============================================================================
+
+/// CouponCampaign: reusable config for one event-driven coupon programme.
+/// A future drive/event = one new row + one EVENT BillableProduct pointing at it. No new code.
+model CouponCampaign {
+  id                 String           @id @default(cuid())
+  code               String           @unique // e.g. BLOOD_DONATION_2026
+  name               String // human label, e.g. "Blood Donation Camp 2026"
+  discountType       BillDiscountType @default(PERCENTAGE)
+  discountPercentage Float?           @default(50) // used when discountType = PERCENTAGE
+  discountReason     String // shown on the bill's coupon line, e.g. "Blood donation drive"
+  validityDays       Int              @default(30) // coupon expires this many days after issue
+  scope              CouponScope      @default(TESTS_ONLY) // what the discount applies to
+  whatsappTemplate   String // approved template sent on issue, e.g. "blood_donor_reward"
+  landingTheme       String           @default("blood_donation") // selects the /c/:token page theme
+  isActive           Boolean          @default(true)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  products BillableProduct[]
+  coupons  Coupon[]
+
+  @@index([code])
+  @@index([isActive])
+}
+
+/// Coupon: a single, one-time-use discount code tied to a campaign.
+/// Minted when an EVENT product is billed; rendered on the public /c/:token page;
+/// redeemed once from a diagnostic/clinic bill.
+model Coupon {
+  id               String       @id @default(cuid())
+  code             String       @unique // patient-facing, e.g. BLOOD-4K9X2
+  token            String       @unique // SHA-256 of the public /c/:token link (raw bearer never stored)
+  campaignId       String
+  status           CouponStatus @default(ISSUED)
+  patientId        String? // scalar link — kept isolated from core FKs
+  phone            String? // recipient phone snapshot at issue
+  issuedVisitId    String? // the ₹0 EVENT visit that minted it
+  issuedByUserId   String?
+  expiresAt        DateTime
+  redeemedAt       DateTime?
+  redeemedVisitId  String? // visit whose bill consumed it
+  redeemedBillId   String?
+  redeemedByUserId String?
+  note             String? // free-text staff comment / audit note
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  campaign CouponCampaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+
+  @@index([campaignId])
+  @@index([status])
+  @@index([patientId])
+  @@index([phone])
+  @@index([expiresAt])
+}
+
+enum CouponStatus {
+  ISSUED
+  REDEEMED
+  EXPIRED
+  VOID
+}
+
+enum CouponScope {
+  TESTS_ONLY // discount applies to diagnostic test line items only
+  WHOLE_BILL // discount applies to the entire bill (tests + consultation)
 }
 
 /// PaymentTransaction: Individual transaction ledger for a Bill
@@ -1575,6 +1651,7 @@ model BillableProduct {
   basePriceInPaise Int // Default price (can be overridden per branch)
   isBundle         Boolean                @default(false) // true = package of multiple panels
   workflowMode     DiagnosticWorkflowMode @default(REPORTABLE)
+  couponCampaignId String? // EVENT products only: the CouponCampaign to mint a coupon from when billed
   // Grouping bucket for the payout statement (e.g. "X-Ray", "Laboratory").
   // Owner-set per product; when null the statement falls back to the test's
   // department name. No fixed enum — the centre defines its own categories.
@@ -1591,6 +1668,7 @@ model BillableProduct {
   referralDoctorRules   ReferralDoctorProductRule[]
   diagnosticCenterRules DiagnosticCenterProductRule[]
   externalLabRules      ExternalLabProductRule[]
+  couponCampaign        CouponCampaign?              @relation(fields: [couponCampaignId], references: [id], onDelete: SetNull)
 
   @@index([code])
   @@index([isActive])

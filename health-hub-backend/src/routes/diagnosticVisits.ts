@@ -1594,6 +1594,7 @@ router.post("/", async (req: AuthRequest, res) => {
       discountType,
       discountValue,
       discountReason,
+      couponCode,
       paidAmount,
       payments,
       sendWhatsApp,
@@ -2000,6 +2001,47 @@ router.post("/", async (req: AuthRequest, res) => {
       });
     }
 
+    // ── Coupon redemption (optional): a campaign code discounts the in-scope
+    // items as a SEPARATE bill line and is consumed once. See EVENTS_AND_COUPONS.md.
+    let couponContext: { couponId: string; code: string; discountInPaise: number } | null = null;
+    let redeemCouponInTx: ((tx: any, input: any) => Promise<void>) | null = null;
+    if (typeof couponCode === "string" && couponCode.trim()) {
+      const svc = await import("../services/couponService");
+      redeemCouponInTx = svc.redeemCouponInTx;
+      const v = await svc.validateCouponByCode(couponCode);
+      if (!v.ok || !v.coupon || !v.campaign) {
+        return res.status(400).json({
+          error: "COUPON_INVALID",
+          reason: v.reason,
+          message:
+            v.reason === "ALREADY_REDEEMED"
+              ? "This coupon has already been used."
+              : v.reason === "EXPIRED"
+                ? "This coupon has expired."
+                : v.reason === "NOT_FOUND"
+                  ? "No coupon found for that code."
+                  : "This coupon can't be applied.",
+        });
+      }
+      const inScopeInPaise =
+        v.campaign.scope === "WHOLE_BILL"
+          ? totalAmountInPaise
+          : testOrderData.reduce(
+              (s: number, o: any) =>
+                s +
+                ((o.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) ===
+                DiagnosticWorkflowMode.REPORTABLE
+                  ? o.priceInPaise || 0
+                  : 0),
+              0,
+            );
+      couponContext = {
+        couponId: v.coupon.id,
+        code: v.coupon.code,
+        discountInPaise: svc.computeCouponDiscountInPaise(v.campaign, inScopeInPaise),
+      };
+    }
+
     let billFinancials;
     try {
       billFinancials = normalizeBillFinancialInput(
@@ -2008,6 +2050,7 @@ router.post("/", async (req: AuthRequest, res) => {
           discountType,
           discountValue,
           discountReason,
+          couponDiscountInPaise: couponContext?.discountInPaise ?? 0,
           paidAmount,
         },
         { defaultPaidToNet: true },
@@ -2049,7 +2092,7 @@ router.post("/", async (req: AuthRequest, res) => {
         });
 
         // Create bill
-        await tx.bill.create({
+        const createdBill = await tx.bill.create({
           data: {
             visitId: visit.id,
             billNumber,
@@ -2061,6 +2104,9 @@ router.post("/", async (req: AuthRequest, res) => {
             discountAmountInPaise: billFinancials.discountAmountInPaise,
             discountedByUserId:
               billFinancials.discountAmountInPaise > 0 ? req.user!.id : null,
+            couponId: couponContext?.couponId ?? null,
+            couponCode: couponContext?.code ?? null,
+            couponDiscountInPaise: couponContext?.discountInPaise ?? 0,
             paidAmountInPaise: billFinancials.paidAmountInPaise,
             paymentStatus: billFinancials.paymentStatus,
             transactions:
@@ -2086,6 +2132,16 @@ router.post("/", async (req: AuthRequest, res) => {
                 : undefined,
           },
         });
+
+        // Consume the coupon atomically inside the same tx (one-time; race-proof).
+        if (couponContext && redeemCouponInTx) {
+          await redeemCouponInTx(tx, {
+            couponId: couponContext.couponId,
+            visitId: visit.id,
+            billId: createdBill.id,
+            userId: req.user!.id,
+          });
+        }
 
         // Create referral if specified
         if (referralDoctorId) {
@@ -2346,14 +2402,21 @@ router.post("/", async (req: AuthRequest, res) => {
       },
     });
 
-    // Fire-and-forget: Send bill confirmation via WhatsApp (non-blocking)
+    // Fire-and-forget WhatsApp (non-blocking). EVENT visits (e.g. the blood-donation
+    // camp) mint a coupon and send the campaign reward instead of a bill receipt.
     if (sendWhatsApp) {
+      const isEventVisit = (completeVisit?.testOrders ?? []).some(
+        (o: any) => o.workflowMode === DiagnosticWorkflowMode.EVENT,
+      );
       import("../services/notificationService").then(
-        ({ sendBillConfirmation }) => {
-          sendBillConfirmation(result.id).catch((err) =>
+        ({ sendBillConfirmation, sendEventCoupon }) => {
+          const task = isEventVisit
+            ? sendEventCoupon(result.id)
+            : sendBillConfirmation(result.id);
+          task.catch((err: any) =>
             console.error(
-              "[Notification] Bill notification failed (non-blocking):",
-              err.message,
+              "[Notification] WhatsApp send failed (non-blocking):",
+              err?.message,
             ),
           );
         },

@@ -95,10 +95,11 @@ export async function resolveProducts(
 
   const invalidPanels: string[] = [];
   for (const product of products) {
-    // BILL_ONLY and EXTERNAL_UPLOAD never carry panels — skip panel validation entirely.
+    // BILL_ONLY, EXTERNAL_UPLOAD and EVENT never carry panels — skip panel validation entirely.
     if (
       product.workflowMode === DiagnosticWorkflowMode.BILL_ONLY ||
-      product.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD
+      product.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD ||
+      product.workflowMode === DiagnosticWorkflowMode.EVENT
     ) {
       continue;
     }
@@ -133,7 +134,8 @@ export async function resolveProducts(
   for (const product of products) {
     if (
       product.workflowMode === DiagnosticWorkflowMode.BILL_ONLY ||
-      product.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD
+      product.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD ||
+      product.workflowMode === DiagnosticWorkflowMode.EVENT
     ) {
       continue;
     }
@@ -236,6 +238,37 @@ export async function resolveProducts(
     const priceSource: 'BASE' | 'BRANCH_OVERRIDE' = branchOverride
       ? 'BRANCH_OVERRIDE'
       : 'BASE';
+
+    if (product.workflowMode === DiagnosticWorkflowMode.EVENT) {
+      // EVENT participation product (e.g. blood-donation camp). Priced (usually ₹0),
+      // no report — mirrors BILL_ONLY structurally, but keeps workflowMode=EVENT so the
+      // post-commit hook mints a campaign coupon. See EVENTS_AND_COUPONS.md.
+      const placeholder = await ensureBillOnlyPlaceholderLabTest();
+
+      resolved.push({
+        productId: product.id,
+        productName: product.name,
+        productCode: product.code,
+        workflowMode: DiagnosticWorkflowMode.EVENT,
+        effectivePrice,
+        priceSource,
+        testOrders: [
+          {
+            labTestId: placeholder.id,
+            testName: product.name,
+            testCode: product.code,
+            referenceMin: null,
+            referenceMax: null,
+            referenceUnit: null,
+            priceInPaise: effectivePrice,
+            productId: product.id,
+            workflowMode: DiagnosticWorkflowMode.EVENT,
+            priceSource,
+          },
+        ],
+      });
+      continue;
+    }
 
     if (product.workflowMode === DiagnosticWorkflowMode.BILL_ONLY) {
       const placeholder = await ensureBillOnlyPlaceholderLabTest();
