@@ -133,16 +133,36 @@ ${inner}
 }
 
 const COPY_SCRIPT = `<script>
-function copyCode(){var c=document.getElementById('code').innerText.trim();
-var d=function(){var b=document.getElementById('cb');b.classList.add('copied');b.textContent='Copied ✓';
-setTimeout(function(){b.classList.remove('copied');b.textContent='Copy';},1800);};
-if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(c).then(d,f);}else{f();}
-function f(){var t=document.createElement('textarea');t.value=c;document.body.appendChild(t);t.select();
-try{document.execCommand('copy');}catch(e){}document.body.removeChild(t);d();}}
+function copyCode(){
+  var c=(document.getElementById('code').innerText||'').trim();
+  var b=document.getElementById('cb');
+  function ok(){b.classList.add('copied');b.textContent='Copied ✓';setTimeout(function(){b.classList.remove('copied');b.textContent='Copy';},1800);}
+  function legacy(){
+    var t=document.createElement('textarea');
+    t.value=c;t.readOnly=false;t.contentEditable='true';
+    t.style.position='fixed';t.style.top='0';t.style.left='0';t.style.opacity='0';
+    document.body.appendChild(t);
+    var range=document.createRange();range.selectNodeContents(t);
+    var sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);
+    t.setSelectionRange(0,c.length);
+    try{document.execCommand('copy');}catch(e){}
+    document.body.removeChild(t);ok();
+  }
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(c).then(ok,legacy);}else{legacy();}
+}
 </script>`;
 
 // ── Route ────────────────────────────────────────────────────────────────────
 router.get('/:token', ipRateLimit, tokenRateLimit, async (req: Request, res: Response) => {
+  // WhatsApp/Facebook link-preview crawler: serve no previewable content so no
+  // link-preview card renders above the message (the PDF bill link shows none for
+  // the same reason). Real browsers still get the full page when the user taps through.
+  const ua = req.get('user-agent') || '';
+  // Match ONLY Meta's link-preview crawler — never "WhatsApp" broadly, since the
+  // in-app browser (a real tapping user) can carry "WhatsApp" in its UA.
+  if (/facebookexternalhit|facebot/i.test(ua)) {
+    return res.status(204).end();
+  }
   res.setHeader('Content-Type', 'text/html');
   res.setHeader('Cache-Control', 'no-store');
   try {
