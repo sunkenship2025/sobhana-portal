@@ -87,6 +87,8 @@ interface Visit {
     testName: string;
     testCode: string;
     workflowMode?: 'REPORTABLE' | 'BILL_ONLY' | 'EXTERNAL_UPLOAD' | string;
+    cancelledAt?: string | null;
+    noReportAt?: string | null;
     referenceRange: { min: number; max: number; unit: string };
   }>;
   referralDoctor?: { name: string } | null;
@@ -345,11 +347,22 @@ const DiagnosticsReportPreview = () => {
   // whether to show the "Release Partial" button or the "Finalize" button —
   // they're mutually exclusive (XOR), so staff can never accidentally finalize
   // an incomplete report as if it were the final one.
+  // Cancelled and "no report needed" (films-only) orders are not part of the
+  // report, so they must drop out of the partial-vs-final counts — otherwise a
+  // waived test lingers as a phantom "pending" order, forcing the partial path
+  // and promising a WhatsApp that will never come. Mirrors the canonical
+  // backend filter (getReportInclusionOrders: !cancelledAt && !noReportAt).
   const reportableOrders = (visit.testOrders ?? []).filter(
-    (order) => order.workflowMode === 'REPORTABLE' || order.workflowMode === undefined,
+    (order) =>
+      !order.cancelledAt &&
+      !order.noReportAt &&
+      (order.workflowMode === 'REPORTABLE' || order.workflowMode === undefined),
   );
   const externalUploadOrders = (visit.testOrders ?? []).filter(
-    (order) => order.workflowMode === 'EXTERNAL_UPLOAD',
+    (order) =>
+      !order.cancelledAt &&
+      !order.noReportAt &&
+      order.workflowMode === 'EXTERNAL_UPLOAD',
   );
   const versions = (visit.report as any)?.versions as ReportVersionSummary[] | undefined;
   const finalizedVersions = (versions ?? []).filter((v) => v.status === 'FINALIZED');
