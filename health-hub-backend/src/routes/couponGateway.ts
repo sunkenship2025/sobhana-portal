@@ -164,11 +164,6 @@ router.get('/:token', ipRateLimit, tokenRateLimit, async (req: Request, res: Res
   // link-preview card renders above the message (the PDF bill link shows none for
   // the same reason). Real browsers still get the full page when the user taps through.
   const ua = req.get('user-agent') || '';
-  // TEMP diagnostic: capture the exact link-preview fetcher UA/headers so we can
-  // match it precisely (WhatsApp's fetcher is NOT facebookexternalhit here).
-  console.log('[coupon-gw]', req.method, req.originalUrl, '| ua=', JSON.stringify(ua),
-    '| accept=', JSON.stringify(req.get('accept') || ''),
-    '| sfm=', req.get('sec-fetch-mode') || '-', '| sfd=', req.get('sec-fetch-dest') || '-');
   // Match ONLY Meta's link-preview crawler — never "WhatsApp" broadly, since the
   // in-app browser (a real tapping user) can carry "WhatsApp" in its UA.
   if (/facebookexternalhit|facebot/i.test(ua)) {
