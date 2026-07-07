@@ -806,9 +806,12 @@ const ClinicNewVisit = () => {
     setIsPrinting(true);
     // Give React time to re-render the hidden print block with the new mode
     setTimeout(() => {
-      window.print();
-      setIsPrinting(false);
-    }, 100);
+      try {
+        window.print();
+      } finally {
+        setIsPrinting(false);
+      }
+    }, 150);
   };
 
   if (successData) {

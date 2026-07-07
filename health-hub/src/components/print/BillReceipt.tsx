@@ -169,26 +169,32 @@ export const BillReceipt = ({
 
   // ── Logo preload ──
   useEffect(() => {
+    let isMounted = true;
     setLogoLoaded(false);
     onLogoLoadedChange?.(false);
 
+    const handleLoaded = () => {
+      if (!isMounted) return;
+      setLogoLoaded(true);
+      onLogoLoadedChange?.(true);
+    };
+
     const image = new Image();
-    image.onload = () => {
-      setLogoLoaded(true);
-      onLogoLoadedChange?.(true);
-    };
-    image.onerror = () => {
-      setLogoLoaded(true);
-      onLogoLoadedChange?.(true);
-    };
+    image.onload = handleLoaded;
+    image.onerror = handleLoaded;
     image.src = BILL_LOGO_URL;
 
     if (image.complete) {
-      setLogoLoaded(true);
-      onLogoLoadedChange?.(true);
+      handleLoaded();
     }
 
+    // Safety fallback: if image events fail to fire (e.g. adblocker, network hang),
+    // force it to true after a short delay so the print button isn't stuck forever.
+    const fallbackTimeout = setTimeout(handleLoaded, 1500);
+
     return () => {
+      isMounted = false;
+      clearTimeout(fallbackTimeout);
       image.onload = null;
       image.onerror = null;
     };

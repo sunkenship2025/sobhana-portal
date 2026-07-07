@@ -1795,10 +1795,52 @@ const DiagnosticsResultEntry = () => {
                 placeholder="Select value…"
                 disabled={isAutoDerived}
               />
+            ) : inputConfig.inputType !== 'NUMERIC' ? (
+              <textarea
+                rows={1}
+                placeholder={isAutoDerived ? 'Auto-calculated' : 'Value (Shift+Enter for new line)'}
+                value={valueStr}
+                onChange={(e) => {
+                  handleValueChange(resultKey, e.target.value);
+                  // Auto-resize to content
+                  e.target.style.height = 'auto';
+                  e.target.style.height = e.target.scrollHeight + 'px';
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && e.shiftKey) {
+                    // Shift+Enter: let the browser insert a newline (default behavior)
+                    return;
+                  }
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const form = e.currentTarget.closest('form') || document;
+                    const inputs = Array.from(
+                      form.querySelectorAll('.test-value-input:not([disabled]):not([readonly])')
+                    ) as HTMLElement[];
+                    const index = inputs.indexOf(e.currentTarget);
+                    if (index > -1 && index < inputs.length - 1) {
+                      inputs[index + 1].focus();
+                    }
+                  }
+                }}
+                ref={(el) => {
+                  // Auto-resize on mount if value already has newlines
+                  if (el && valueStr.includes('\n')) {
+                    el.style.height = 'auto';
+                    el.style.height = el.scrollHeight + 'px';
+                  }
+                }}
+                readOnly={isAutoDerived}
+                disabled={isAutoDerived}
+                className={cn(
+                  'flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 text-center test-value-input resize-none overflow-hidden',
+                  isAutoDerived && 'bg-muted cursor-not-allowed text-muted-foreground'
+                )}
+              />
             ) : (
               <Input
                 type="text"
-                inputMode={inputConfig.inputType === 'NUMERIC' && !displayRefText.includes('-') && !displayRefText.includes('–') ? 'decimal' : 'text'}
+                inputMode={!displayRefText.includes('-') && !displayRefText.includes('–') ? 'decimal' : 'text'}
                 placeholder={isAutoDerived ? 'Auto-calculated' : 'Value'}
                 value={valueStr}
                 onChange={(e) => handleValueChange(resultKey, e.target.value)}
