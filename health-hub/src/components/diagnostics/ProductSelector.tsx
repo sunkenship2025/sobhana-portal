@@ -285,19 +285,6 @@ export function ProductSelector({
             />
             </div>
           </PopoverAnchor>
-
-          {onQuickAddBillOnly && (
-            <Button
-              type="button"
-              variant="outline"
-              className="h-12 shrink-0"
-              onClick={handleQuickAdd}
-              disabled={disabled}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Add Bill-Only
-            </Button>
-          )}
         </div>
 
         <PopoverContent
