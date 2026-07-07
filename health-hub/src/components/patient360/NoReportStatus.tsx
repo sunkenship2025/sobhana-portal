@@ -5,11 +5,10 @@
  * has no answer on screen.
  *
  * Renders one muted line per such order — the DeliveryStatusLine idiom (icon +
- * text, never color-only) — carrying who / when / why. Offers a quiet Reopen per
- * order while the visit's report isn't finalized (mirrors the backend guard:
- * reopen is refused once any FINALIZED version exists → reportState is
- * FINALIZED / PARTIALLY_FINALIZED here). Hidden entirely when no order is closed
- * this way.
+ * text, never color-only) — carrying who / when / why, plus a quiet Reopen.
+ * Reopen is always offered: a waived test is never part of a finalized version,
+ * so it can be reopened even after the visit's report was finalized (it then
+ * ships as a follow-up version). Hidden entirely when no order is closed this way.
  */
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -47,10 +46,6 @@ export function NoReportStatus({ visit }: NoReportStatusProps) {
   // visit); a single-test visit reads cleaner without it.
   const showTestName = orders.filter((o) => !o.cancelledAt).length > 1;
 
-  // The report is done → the close can no longer be undone (backend refuses it).
-  const kind = visit.reportState?.kind;
-  const canReopen = kind !== "FINALIZED" && kind !== "PARTIALLY_FINALIZED";
-
   const reopen = async (orderId: string, testName: string) => {
     const ok = await confirm({
       title: "Reopen this test?",
@@ -85,16 +80,14 @@ export function NoReportStatus({ visit }: NoReportStatusProps) {
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <FileX className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               <span>{parts.join(" · ")}</span>
-              {canReopen && (
-                <Button
-                  variant="link"
-                  className="ml-auto h-auto p-0 text-xs font-medium"
-                  disabled={busyId === order.id}
-                  onClick={() => reopen(order.id, order.testName)}
-                >
-                  {busyId === order.id ? "Reopening…" : "Reopen"}
-                </Button>
-              )}
+              <Button
+                variant="link"
+                className="ml-auto h-auto p-0 text-xs font-medium"
+                disabled={busyId === order.id}
+                onClick={() => reopen(order.id, order.testName)}
+              >
+                {busyId === order.id ? "Reopening…" : "Reopen"}
+              </Button>
             </div>
             {order.noReportReason && (
               <p className="pl-5 text-xs text-muted-foreground">

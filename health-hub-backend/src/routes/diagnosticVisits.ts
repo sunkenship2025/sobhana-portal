@@ -4868,18 +4868,24 @@ router.post("/:id/orders/:orderId/reopen-report", async (req: AuthRequest, res) 
       where: { id, branchId: req.branchId, domain: "DIAGNOSTICS" },
       select: {
         id: true,
+        status: true,
         report: {
           select: {
+            id: true,
             versions: {
-              where: { status: "FINALIZED" },
-              select: { id: true },
-              take: 1,
+              orderBy: { versionNum: "desc" },
+              select: { id: true, status: true, versionNum: true },
             },
           },
         },
         testOrders: {
-          where: { id: orderId },
-          select: { id: true, noReportAt: true, testNameSnapshot: true },
+          select: {
+            id: true,
+            noReportAt: true,
+            cancelledAt: true,
+            workflowMode: true,
+            testNameSnapshot: true,
+          },
         },
       },
     });
@@ -4890,7 +4896,7 @@ router.post("/:id/orders/:orderId/reopen-report", async (req: AuthRequest, res) 
         .json({ error: "NOT_FOUND", message: "Diagnostic visit not found" });
     }
 
-    const order = visit.testOrders[0];
+    const order = visit.testOrders.find((o) => o.id === orderId);
     if (!order) {
       return res
         .status(404)
@@ -4902,17 +4908,82 @@ router.post("/:id/orders/:orderId/reopen-report", async (req: AuthRequest, res) 
       return res.json({ success: true, alreadyOpen: true, orderId: order.id });
     }
 
-    if ((visit.report?.versions?.length ?? 0) > 0) {
-      return res.status(400).json({
-        error: "ALREADY_FINALIZED",
-        message:
-          "The report is already finalized; this test can no longer be reopened.",
-      });
-    }
+    // A films-only ("no report needed") order is never part of a FINALIZED
+    // version, so reopening one is always safe — even after the visit's report
+    // was finalized. Reopening then re-issues the test as a follow-up version:
+    // e.g. CRP shipped in v1, an X-ray was waived and later reopened → it ships
+    // in v2 with its own WhatsApp, without re-notifying CRP. Hence no
+    // "already finalized" block here (unlike the earlier design).
+    const versions = visit.report?.versions ?? [];
+    const latestVersion = versions[0]; // ordered by versionNum desc
+    const latestFinalized = versions.find((v) => v.status === "FINALIZED");
+    const hasOpenDraft = versions.some((v) => v.status === "DRAFT");
+    const reportId = visit.report?.id;
 
-    await prisma.testOrder.update({
-      where: { id: order.id },
-      data: { noReportAt: null, noReportReason: null, noReportByUserId: null },
+    // Reopening restores a live report-inclusion order. If the visit had been
+    // completed (every reportable/external test was waived, or the rest were
+    // already finalized), it must return to the entry queue or it never
+    // resurfaces in Pending Results (which lists DRAFT + WAITING).
+    const ordersAfterReopen = visit.testOrders.map((o) =>
+      o.id === order.id ? { ...o, noReportAt: null } : o,
+    );
+    const reentersEntryQueue =
+      visit.status === "COMPLETED" &&
+      getReportInclusionOrders(ordersAfterReopen).length > 0;
+
+    // When every version is already FINALIZED (no open draft), open the NEXT
+    // draft and carry forward the last finalized results — mirroring
+    // /release-partial — so (a) the entry screen has a draft to write the
+    // reopened test into and (b) finalize sees the already-sent tests as
+    // complete (its completeness check reads only the current draft). Without
+    // this, entering the reopened test would fail ("No draft report version
+    // found") and finalize would wrongly flag the already-sent tests as
+    // incomplete.
+    const needsCarryForwardDraft =
+      !hasOpenDraft && !!latestFinalized && !!reportId && !!latestVersion;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.testOrder.update({
+        where: { id: order.id },
+        data: { noReportAt: null, noReportReason: null, noReportByUserId: null },
+      });
+
+      if (reentersEntryQueue) {
+        await tx.visit.update({ where: { id }, data: { status: "DRAFT" } });
+      }
+
+      if (needsCarryForwardDraft && reportId && latestFinalized && latestVersion) {
+        const carryForward = await tx.testResult.findMany({
+          where: { reportVersionId: latestFinalized.id },
+          select: {
+            testOrderId: true,
+            testId: true,
+            value: true,
+            textValue: true,
+            flag: true,
+            notes: true,
+            testDefinitionId: true,
+            enteredByUserId: true,
+            signerNameOverride: true,
+            useSigningRule: true,
+          },
+        });
+        const nextDraft = await tx.reportVersion.create({
+          data: {
+            reportId,
+            versionNum: latestVersion.versionNum + 1,
+            status: "DRAFT",
+          },
+        });
+        if (carryForward.length > 0) {
+          await tx.testResult.createMany({
+            data: carryForward.map((r) => ({
+              ...r,
+              reportVersionId: nextDraft.id,
+            })),
+          });
+        }
+      }
     });
 
     await logAction({
@@ -4925,12 +4996,20 @@ router.post("/:id/orders/:orderId/reopen-report", async (req: AuthRequest, res) 
         noReport: false,
         reopened: true,
         testName: order.testNameSnapshot,
+        ...(reentersEntryQueue ? { visitStatus: "DRAFT" } : {}),
+        ...(needsCarryForwardDraft
+          ? { openedNextDraftVersion: (latestVersion?.versionNum ?? 0) + 1 }
+          : {}),
       },
       ipAddress: req.ip,
       userAgent: req.get("user-agent"),
     });
 
-    return res.json({ success: true, orderId: order.id });
+    return res.json({
+      success: true,
+      orderId: order.id,
+      ...(reentersEntryQueue ? { status: "DRAFT" } : {}),
+    });
   } catch (error) {
     console.error("Error reopening no-report test:", error);
     return res.status(500).json({
