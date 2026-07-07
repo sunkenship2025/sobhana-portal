@@ -17,6 +17,23 @@ import { getOwnerOperations } from '../services/ownerOperationsService';
 const router = Router();
 
 router.use(authMiddleware);
+
+// GET /api/owner/operations?branch=<id|all>
+// Operations is the live ops worklist — available to the owner AND the lab
+// in-charge (ops oversight). Registered BEFORE the owner-only gate below so
+// lab_incharge requests aren't rejected by it.
+router.get('/operations', requireRole('owner', 'lab_incharge'), async (req: AuthRequest, res) => {
+  try {
+    const rawBranch = (req.query.branch as string) || 'all';
+    const branchId = rawBranch === 'all' ? null : rawBranch;
+    const data = await getOwnerOperations(branchId);
+    return res.json(data);
+  } catch (err: any) {
+    req.log.error({ err }, 'owner operations load failed');
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to load operations page' });
+  }
+});
+
 router.use(requireRole('owner'));
 
 // GET /api/owner/dashboard-v2?period=today|yesterday|7d|30d|mtd|ytd|custom&branch=<id>
@@ -125,19 +142,6 @@ router.get('/doctors', async (req: AuthRequest, res) => {
   } catch (err: any) {
     req.log.error({ err }, 'owner doctors load failed');
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to load doctors page' });
-  }
-});
-
-// GET /api/owner/operations?branch=<id|all>
-router.get('/operations', async (req: AuthRequest, res) => {
-  try {
-    const rawBranch = (req.query.branch as string) || 'all';
-    const branchId = rawBranch === 'all' ? null : rawBranch;
-    const data = await getOwnerOperations(branchId);
-    return res.json(data);
-  } catch (err: any) {
-    req.log.error({ err }, 'owner operations load failed');
-    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to load operations page' });
   }
 });
 

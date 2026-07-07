@@ -181,6 +181,14 @@ const staffNavItems: NavItem[] = [
     ],
   },
   {
+    // Ops oversight (queue / pending / audit) — lab in-charge only, not staff.
+    label: 'Operations',
+    icon: Activity,
+    href: '/ops/queue',
+    roles: ['lab_incharge'],
+    matchPrefixes: ['/ops'],
+  },
+  {
     label: 'Admin',
     icon: Building2,
     href: '/owner/config',

@@ -181,17 +181,17 @@ function AppRoutes() {
         </ProtectedRoute>
       } />
       <Route path="/ops/queue" element={
-        <ProtectedRoute allowedRoles={['owner']}>
+        <ProtectedRoute allowedRoles={['owner', 'lab_incharge']}>
           <OwnerOperationsPage />
         </ProtectedRoute>
       } />
       <Route path="/ops/pending" element={
-        <ProtectedRoute allowedRoles={['owner']}>
+        <ProtectedRoute allowedRoles={['owner', 'lab_incharge']}>
           <OwnerOperationsPage />
         </ProtectedRoute>
       } />
       <Route path="/ops/audit" element={
-        <ProtectedRoute allowedRoles={['owner']}>
+        <ProtectedRoute allowedRoles={['owner', 'lab_incharge']}>
           <OwnerOperationsPage />
         </ProtectedRoute>
       } />
