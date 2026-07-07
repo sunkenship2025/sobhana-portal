@@ -1,6 +1,6 @@
 {
   "name": "health-hub-backend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Sobhana Health Hub - Diagnostic Center & Polyclinic Management Backend",
   "main": "dist/index.js",
   "type": "commonjs",
