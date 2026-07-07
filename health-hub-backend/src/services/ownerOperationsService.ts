@@ -246,6 +246,7 @@ export async function getOwnerOperations(
     auditOffHours,
     commsFailures,
     branches,
+    auditNoReport,
   ] = await Promise.all([
     branchId
       ? prisma.branch.findUnique({
@@ -497,6 +498,26 @@ export async function getOwnerOperations(
     }),
 
     prisma.branch.findMany({ select: { id: true, code: true, name: true } }),
+
+    // No-report-needed closes (films-only) in the last 24h — a reportable order
+    // closed without a written report because the patient declined. Surfaced in
+    // the audit feed so owners see it happening (money-neutral, but auditable).
+    prisma.testOrder.findMany({
+      where: {
+        noReportAt: { gte: yesterdayStart },
+        ...(branchId ? { branchId } : {}),
+      },
+      orderBy: { noReportAt: 'desc' },
+      take: 10,
+      select: {
+        id: true,
+        testNameSnapshot: true,
+        noReportAt: true,
+        noReportReason: true,
+        noReportByUser: { select: { name: true } },
+        visit: { select: { patientId: true, patient: { select: { name: true } } } },
+      },
+    }),
   ]);
 
   const branchById = new Map((branches ?? []).map((b) => [b.id, b]));
@@ -767,13 +788,16 @@ export async function getOwnerOperations(
       pct > 0
         ? `Discount ${Math.round(pct)}%`
         : `Discount ₹${Math.round(b.discountAmountInPaise / 100).toLocaleString('en-IN')}`;
+    const discountBase = `${b.visit.patient.name} · ${b.billNumber} · ₹${Math.round(b.discountAmountInPaise / 100).toLocaleString('en-IN')} off`;
     audit.push({
       id: `disc-${b.id}`,
       severity: bandFromScore(score),
       event: discountLabel,
       who: b.discountedByUser?.name ?? null,
+      // Surface the operator's stated reason (e.g. "Camp discount") next to the
+      // numbers; the reasons[] tail still explains the severity scoring.
       detail: withReasons(
-        `${b.visit.patient.name} · ${b.billNumber} · ₹${Math.round(b.discountAmountInPaise / 100).toLocaleString('en-IN')} off`,
+        b.discountReason ? `${discountBase} · ${b.discountReason}` : discountBase,
         reasons,
       ),
       whenIso: b.billedAt.toISOString(),
@@ -803,6 +827,31 @@ export async function getOwnerOperations(
       detail: withReasons(`${a.entityType} ${a.entityId.slice(0, 8)}`, reasons),
       whenIso: a.createdAt.toISOString(),
       drillTo: null,
+    });
+  }
+
+  // No-report-needed closes (films-only): base 1 (low), +1 off-hours. These are
+  // routine, legitimate operator decisions — surfaced for the audit trail, not
+  // as high-severity anomalies.
+  for (const t of auditNoReport) {
+    if (!t.noReportAt) continue;
+    const reasons: string[] = [];
+    let score = 1;
+    if (isOffHoursIst(t.noReportAt)) {
+      score += 1;
+      reasons.push('off-hours');
+    }
+    const base = `${t.visit.patient.name} · ${t.testNameSnapshot}${
+      t.noReportReason ? ` · ${t.noReportReason}` : ''
+    }`;
+    audit.push({
+      id: `noreport-${t.id}`,
+      severity: bandFromScore(score),
+      event: 'No report needed',
+      who: t.noReportByUser?.name ?? null,
+      detail: withReasons(base, reasons),
+      whenIso: t.noReportAt.toISOString(),
+      drillTo: `/clinic/patient-360/${t.visit.patientId}`,
     });
   }
   audit.sort((a, b) => (a.whenIso < b.whenIso ? 1 : -1));
