@@ -4823,6 +4823,10 @@ router.post("/:id/orders/:orderId/no-report", async (req: AuthRequest, res) => {
         noReportAt: now,
         noReportReason: reason,
         noReportByUserId: req.user?.id ?? null,
+        // Re-waiving supersedes any prior reopen trace (keeps the two states
+        // mutually exclusive for display).
+        reopenedAt: null,
+        reopenedByUserId: null,
       },
     });
 
@@ -4945,7 +4949,15 @@ router.post("/:id/orders/:orderId/reopen-report", async (req: AuthRequest, res) 
     await prisma.$transaction(async (tx) => {
       await tx.testOrder.update({
         where: { id: order.id },
-        data: { noReportAt: null, noReportReason: null, noReportByUserId: null },
+        data: {
+          noReportAt: null,
+          noReportReason: null,
+          noReportByUserId: null,
+          // Leave an audit trace of the reversal (surfaced in Patient 360 + the
+          // owner audit feed).
+          reopenedAt: new Date(),
+          reopenedByUserId: req.user?.id ?? null,
+        },
       });
 
       if (reentersEntryQueue) {

@@ -597,6 +597,10 @@ export interface Patient360TestOrder {
   noReportAt?: Date | string | null;
   noReportReason?: string | null;
   noReportBy?: string | null;
+  // Last reversal of a no-report close (audit trace). Present when the order was
+  // reopened; cleared if it is re-waived.
+  reopenedAt?: Date | string | null;
+  reopenedBy?: string | null;
 }
 
 // Complete Patient 360 view (backend-assembled)

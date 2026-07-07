@@ -12,7 +12,7 @@
  */
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { FileX } from "lucide-react";
+import { FileX, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/hooks/use-confirm";
@@ -40,7 +40,12 @@ export function NoReportStatus({ visit }: NoReportStatusProps) {
   const noReportOrders = orders.filter(
     (order) => !!order.noReportAt && !order.cancelledAt,
   );
-  if (noReportOrders.length === 0) return null;
+  // Reopened = a no-report close that was reversed, kept as an audit trace.
+  // Mutually exclusive with the no-report state per order.
+  const reopenedOrders = orders.filter(
+    (order) => !!order.reopenedAt && !order.noReportAt && !order.cancelledAt,
+  );
+  if (noReportOrders.length === 0 && reopenedOrders.length === 0) return null;
 
   // Name the test only when it's ambiguous (more than one live test on the
   // visit); a single-test visit reads cleaner without it.
@@ -94,6 +99,21 @@ export function NoReportStatus({ visit }: NoReportStatusProps) {
                 {order.noReportReason}
               </p>
             )}
+          </div>
+        );
+      })}
+      {reopenedOrders.map((order) => {
+        const parts = ["Reopened"];
+        if (showTestName) parts.push(order.testName);
+        if (order.reopenedAt) parts.push(formatDate(order.reopenedAt));
+        if (order.reopenedBy) parts.push(order.reopenedBy);
+        return (
+          <div
+            key={order.id}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground"
+          >
+            <RotateCcw className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span>{parts.join(" · ")}</span>
           </div>
         );
       })}

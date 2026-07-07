@@ -488,6 +488,7 @@ model User {
   refundedBills        Bill[]                 @relation("BillRefundedBy")
   orderRefunds         OrderRefund[]          @relation("OrderRefundCreatedBy")
   noReportTestOrders   TestOrder[]            @relation("TestOrderNoReportBy")
+  reopenedTestOrders   TestOrder[]            @relation("TestOrderReopenedBy")
 
   @@index([role])
   @@index([activeBranchId])
@@ -691,6 +692,12 @@ model TestOrder {
   noReportReason   String?
   noReportByUserId String? // User who closed this order as film-only (audit; mirrors Bill.discountedByUserId)
 
+  // Last reversal of a "no report needed" close (audit trace surfaced in
+  // Patient 360 + the owner audit feed). Cleared again if the order is
+  // re-waived. A reopened order re-enters the report/entry workflow.
+  reopenedAt       DateTime?
+  reopenedByUserId String?
+
   // E3-03: Test metadata snapshot (frozen at order time)
   testNameSnapshot      String // Test name at time of order
   testCodeSnapshot      String // Test code at time of order
@@ -708,6 +715,7 @@ model TestOrder {
   product        BillableProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
   externalLab    ExternalLab?     @relation(fields: [externalLabId], references: [id], onDelete: Restrict)
   noReportByUser User?            @relation("TestOrderNoReportBy", fields: [noReportByUserId], references: [id], onDelete: SetNull)
+  reopenedByUser User?            @relation("TestOrderReopenedBy", fields: [reopenedByUserId], references: [id], onDelete: SetNull)
 
   /// Results for this test
   testResults TestResult[]

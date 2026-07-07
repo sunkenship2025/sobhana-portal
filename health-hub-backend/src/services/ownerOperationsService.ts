@@ -266,6 +266,7 @@ export async function getOwnerOperations(
     commsFailures,
     branches,
     auditNoReport,
+    auditReopened,
   ] = await Promise.all([
     branchId
       ? prisma.branch.findUnique({
@@ -537,6 +538,25 @@ export async function getOwnerOperations(
         noReportAt: true,
         noReportReason: true,
         noReportByUser: { select: { name: true } },
+        visit: { select: { patientId: true, patient: { select: { name: true } } } },
+      },
+    }),
+
+    // Reopened films-only closes in the last 24h — a "no report needed" close
+    // reversed so the test re-enters the report workflow. Routine; audit-only.
+    prisma.testOrder.findMany({
+      where: {
+        reopenedAt: { gte: yesterdayStart },
+        noReportAt: null,
+        ...(branchId ? { branchId } : {}),
+      },
+      orderBy: { reopenedAt: 'desc' },
+      take: 10,
+      select: {
+        id: true,
+        testNameSnapshot: true,
+        reopenedAt: true,
+        reopenedByUser: { select: { name: true } },
         visit: { select: { patientId: true, patient: { select: { name: true } } } },
       },
     }),
@@ -888,27 +908,33 @@ export async function getOwnerOperations(
     });
   }
 
-  // No-report-needed closes (films-only): base 1 (low), +1 off-hours. These are
-  // routine, legitimate operator decisions — surfaced for the audit trail, not
-  // as high-severity anomalies.
+  // No-report-needed closes (films-only) and reopens are routine clinical
+  // decisions — always LOW, never escalated by off-hours (a diagnostic centre
+  // runs in the evening). Surfaced for the audit trail, not as anomalies.
   for (const t of auditNoReport) {
     if (!t.noReportAt) continue;
-    const reasons: string[] = [];
-    let score = 1;
-    if (isOffHoursIst(t.noReportAt)) {
-      score += 1;
-      reasons.push('off-hours');
-    }
     const base = `${t.visit.patient.name} · ${t.testNameSnapshot}${
       t.noReportReason ? ` · ${t.noReportReason}` : ''
     }`;
     audit.push({
       id: `noreport-${t.id}`,
-      severity: bandFromScore(score),
+      severity: 'low',
       event: 'No report needed',
       who: t.noReportByUser?.name ?? null,
-      detail: withReasons(base, reasons),
+      detail: base,
       whenIso: t.noReportAt.toISOString(),
+      drillTo: `/clinic/patient-360/${t.visit.patientId}`,
+    });
+  }
+  for (const t of auditReopened) {
+    if (!t.reopenedAt) continue;
+    audit.push({
+      id: `reopened-${t.id}`,
+      severity: 'low',
+      event: 'Reopened',
+      who: t.reopenedByUser?.name ?? null,
+      detail: `${t.visit.patient.name} · ${t.testNameSnapshot}`,
+      whenIso: t.reopenedAt.toISOString(),
       drillTo: `/clinic/patient-360/${t.visit.patientId}`,
     });
   }

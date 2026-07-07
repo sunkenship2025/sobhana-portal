@@ -858,6 +858,8 @@ const TIMELINE_INCLUDE = {
       noReportAt: true,
       noReportReason: true,
       noReportByUser: { select: { name: true } },
+      reopenedAt: true,
+      reopenedByUser: { select: { name: true } },
     },
     orderBy: { createdAt: 'asc' as const },
   },
@@ -1023,6 +1025,8 @@ export async function getPatient360Timeline(patientId: string, filters: Timeline
               noReportAt: order.noReportAt,
               noReportReason: order.noReportReason,
               noReportBy: order.noReportByUser?.name ?? null,
+              reopenedAt: order.reopenedAt,
+              reopenedBy: order.reopenedByUser?.name ?? null,
             }))
           : undefined,
       // Report state + workflow + abnormal flag + delivery
