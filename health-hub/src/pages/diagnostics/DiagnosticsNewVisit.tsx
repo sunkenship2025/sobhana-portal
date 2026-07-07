@@ -295,15 +295,15 @@ const DiagnosticsNewVisit = () => {
   const prevAddDoctorOpen = useRef(false);
   const prevAddCenterOpen = useRef(false);
   useEffect(() => {
-    if (prevAddProductOpen.current && !showAddProductDialog) goToStep(30);
+    if (prevAddProductOpen.current && !showAddProductDialog) goToStep(38);
     prevAddProductOpen.current = showAddProductDialog;
   }, [showAddProductDialog]);
   useEffect(() => {
-    if (prevAddDoctorOpen.current && !showAddDoctorDialog) goToStep(40);
+    if (prevAddDoctorOpen.current && !showAddDoctorDialog) goToStep(30);
     prevAddDoctorOpen.current = showAddDoctorDialog;
   }, [showAddDoctorDialog]);
   useEffect(() => {
-    if (prevAddCenterOpen.current && !showAddCenterDialog) goToStep(50);
+    if (prevAddCenterOpen.current && !showAddCenterDialog) goToStep(34);
     prevAddCenterOpen.current = showAddCenterDialog;
   }, [showAddCenterDialog]);
 
@@ -572,7 +572,7 @@ const DiagnosticsNewVisit = () => {
     setEmail("");
     // Auto-check WhatsApp opt-in if patient already opted in
     setWhatsappOptIn((result.patient as any).whatsappOptIn ?? true);
-    // Focus the test search input once the Select Tests card has committed (step 30).
+    // Focus the referral doctor field once the referral card has committed (step 30).
     goToStep(30);
   };
 
@@ -1820,6 +1820,153 @@ const DiagnosticsNewVisit = () => {
           </Card>
         )}
 
+        {/* Referrals */}
+        {(selectedPatient || showNewPatientForm) && (
+          <Card>
+            <CardHeader className="px-5 pt-4 pb-0">
+              <CardTitle className="text-base font-semibold">Referrals</CardTitle>
+            </CardHeader>
+            <CardContent className="px-5 pb-5 pt-3 space-y-3">
+              {/* Referral Doctor */}
+              <div className="space-y-3">
+                <Label className="font-semibold">Referral Doctor (optional)</Label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <SearchableSelect
+                    id="referral-doctor"
+                    value={selectedDoctorId}
+                    onValueChange={(value) => {
+                      setSelectedDoctorId(value);
+                      const doctor = referralDoctors.find(
+                        (item) => item.id === value,
+                      );
+                      setReferralOverrides(
+                        buildOverridesForProducts(
+                          selectedProducts,
+                          (productId) =>
+                            getEffectiveDoctorPayout(doctor, productId),
+                        ),
+                      );
+                      // Advance to the diagnostic center field after selection.
+                      goToStep(34);
+                    }}
+                    onSkip={() => goToStep(34)}
+                    onAdvance={() => goToStep(34)}
+                    focusStep={30}
+                    options={referralDoctors.map((doctor) => ({
+                      value: doctor.id,
+                      label: doctor.name,
+                      description: [doctor.doctorNumber, doctor.phone]
+                        .filter(Boolean)
+                        .join(" · "),
+                      keywords: [doctor.name, doctor.doctorNumber, doctor.phone]
+                        .filter(Boolean)
+                        .join(" "),
+                    }))}
+                    placeholder="Search referral doctor (Enter to skip)"
+                    searchPlaceholder="Search by doctor name, phone or number"
+                    emptyText="No referral doctors found."
+                    ariaLabel="Referral doctor — Enter to skip, Space to open"
+                    className="h-11"
+                  />
+                  {selectedDoctorId && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setSelectedDoctorId("");
+                        setReferralOverrides({});
+                      }}
+                    >
+                      Clear
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowAddDoctorDialog(true)}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <Label className="font-semibold">Diagnostic Referral (optional)</Label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <SearchableSelect
+                    id="diagnostic-center"
+                    value={selectedCenterId}
+                    onValueChange={(value) => {
+                      setSelectedCenterId(value);
+                      const center = diagnosticCenters.find(
+                        (item) => item.id === value,
+                      );
+                      setDiagnosticCenterOverrides(
+                        buildOverridesForProducts(
+                          selectedProducts,
+                          (productId) =>
+                            getEffectiveDiagnosticCenterPayout(
+                              center,
+                              productId,
+                            ),
+                        ),
+                      );
+                      // Advance to the test search after selection.
+                      goToStep(38);
+                    }}
+                    onSkip={() => goToStep(38)}
+                    onAdvance={() => goToStep(38)}
+                    focusStep={34}
+                    options={diagnosticCenters.map((center) => ({
+                      value: center.id,
+                      label: center.name,
+                      description: [
+                        center.centerNumber,
+                        center.contactPerson,
+                        center.phone,
+                      ]
+                        .filter(Boolean)
+                        .join(" · "),
+                      keywords: [
+                        center.name,
+                        center.centerNumber,
+                        center.contactPerson,
+                        center.phone,
+                      ]
+                        .filter(Boolean)
+                        .join(" "),
+                    }))}
+                    placeholder="Search diagnostic center (Enter to skip)"
+                    searchPlaceholder="Search by center name, phone or number"
+                    emptyText="No diagnostic centers found."
+                    ariaLabel="Diagnostic referral center — Enter to skip, Space to open"
+                    className="h-11"
+                  />
+                  {selectedCenterId && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setSelectedCenterId("");
+                        setDiagnosticCenterOverrides({});
+                      }}
+                    >
+                      Clear
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowAddCenterDialog(true)}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Select Tests */}
         {(selectedPatient || showNewPatientForm) && (
           <Card>
@@ -1868,8 +2015,8 @@ const DiagnosticsNewVisit = () => {
                     );
                   });
                 }}
-                onDone={() => goToStep(40)}
-                focusStep={30}
+                onDone={() => goToStep(60)}
+                focusStep={38}
                 disabled={isSubmitting}
               />
               </div>
@@ -1884,143 +2031,6 @@ const DiagnosticsNewVisit = () => {
               <CardTitle className="text-base font-semibold">Billing</CardTitle>
             </CardHeader>
             <CardContent className="px-5 pb-5 pt-3 space-y-3">
-              {/* Referral Doctor */}
-              <div className="space-y-3">
-                <Label>Referral Doctor (optional)</Label>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <SearchableSelect
-                    id="referral-doctor"
-                    value={selectedDoctorId}
-                    onValueChange={(value) => {
-                      setSelectedDoctorId(value);
-                      const doctor = referralDoctors.find(
-                        (item) => item.id === value,
-                      );
-                      setReferralOverrides(
-                        buildOverridesForProducts(
-                          selectedProducts,
-                          (productId) =>
-                            getEffectiveDoctorPayout(doctor, productId),
-                        ),
-                      );
-                      // Advance to the diagnostic center field after selection.
-                      goToStep(50);
-                    }}
-                    onSkip={() => goToStep(50)}
-                    onAdvance={() => goToStep(50)}
-                    focusStep={40}
-                    options={referralDoctors.map((doctor) => ({
-                      value: doctor.id,
-                      label: doctor.name,
-                      description: [doctor.doctorNumber, doctor.phone]
-                        .filter(Boolean)
-                        .join(" · "),
-                      keywords: [doctor.name, doctor.doctorNumber, doctor.phone]
-                        .filter(Boolean)
-                        .join(" "),
-                    }))}
-                    placeholder="Search referral doctor (Enter to skip)"
-                    searchPlaceholder="Search by doctor name, phone or number"
-                    emptyText="No referral doctors found."
-                    ariaLabel="Referral doctor — Enter to skip, Space to open"
-                    className="h-11"
-                  />
-                  {selectedDoctorId && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        setSelectedDoctorId("");
-                        setReferralOverrides({});
-                      }}
-                    >
-                      Clear
-                    </Button>
-                  )}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setShowAddDoctorDialog(true)}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <Label>Diagnostic Referral (optional)</Label>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <SearchableSelect
-                    id="diagnostic-center"
-                    value={selectedCenterId}
-                    onValueChange={(value) => {
-                      setSelectedCenterId(value);
-                      const center = diagnosticCenters.find(
-                        (item) => item.id === value,
-                      );
-                      setDiagnosticCenterOverrides(
-                        buildOverridesForProducts(
-                          selectedProducts,
-                          (productId) =>
-                            getEffectiveDiagnosticCenterPayout(
-                              center,
-                              productId,
-                            ),
-                        ),
-                      );
-                      // Advance to the discount field after selection.
-                      goToStep(60);
-                    }}
-                    onSkip={() => goToStep(60)}
-                    onAdvance={() => goToStep(60)}
-                    focusStep={50}
-                    options={diagnosticCenters.map((center) => ({
-                      value: center.id,
-                      label: center.name,
-                      description: [
-                        center.centerNumber,
-                        center.contactPerson,
-                        center.phone,
-                      ]
-                        .filter(Boolean)
-                        .join(" · "),
-                      keywords: [
-                        center.name,
-                        center.centerNumber,
-                        center.contactPerson,
-                        center.phone,
-                      ]
-                        .filter(Boolean)
-                        .join(" "),
-                    }))}
-                    placeholder="Search diagnostic center (Enter to skip)"
-                    searchPlaceholder="Search by center name, phone or number"
-                    emptyText="No diagnostic centers found."
-                    ariaLabel="Diagnostic referral center — Enter to skip, Space to open"
-                    className="h-11"
-                  />
-                  {selectedCenterId && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        setSelectedCenterId("");
-                        setDiagnosticCenterOverrides({});
-                      }}
-                    >
-                      Clear
-                    </Button>
-                  )}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setShowAddCenterDialog(true)}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-
               {externalLabs.length > 0 && selectedProducts.length > 0 && (
                 <div className="space-y-2">
                   <Label>Outsource to outside lab (optional)</Label>
