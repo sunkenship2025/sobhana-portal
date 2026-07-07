@@ -217,8 +217,10 @@ function buildHistogram(
 
 function isOffHoursIst(d: Date): boolean {
   const ist = new Date(d.getTime() + IST_OFFSET_MS);
-  const h = ist.getUTCHours();
-  return h < 8 || h >= 20;
+  const minutesOfDay = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+  // Off-hours = 10:00pm–7:30am IST. A diagnostic centre runs into the evening,
+  // so only genuinely late/early activity is a signal (not normal evening work).
+  return minutesOfDay >= 22 * 60 || minutesOfDay < 7 * 60 + 30;
 }
 
 function commsFailureAction(reason: string): string {
@@ -761,18 +763,19 @@ export async function getOwnerOperations(
 
   const audit: AuditRow[] = [];
 
-  // Identity changes: base 2 (no reason) / 1 (with reason); +1 if the same
-  // patient was edited repeatedly in the window; +1 if off-hours.
+  // Identity changes: a single edit is MEDIUM (base 2) — usually a legit
+  // correction, occasionally a cover. Repeated edits to the SAME patient escalate
+  // to HIGH (+2). Off-hours adds +1.
   const identityCountByPatient = new Map<string, number>();
   for (const c of auditIdentity) {
     identityCountByPatient.set(c.patientId, (identityCountByPatient.get(c.patientId) ?? 0) + 1);
   }
   for (const c of auditIdentity) {
     const reasons: string[] = [];
-    let score = c.changeReason ? 1 : 2;
+    let score = 2;
     if (!c.changeReason) reasons.push('no reason');
     if ((identityCountByPatient.get(c.patientId) ?? 0) > IDENTITY_REPEAT_THRESHOLD) {
-      score += 1;
+      score += 2;
       reasons.push('repeated edits to this patient');
     }
     if (isOffHoursIst(c.createdAt)) {
@@ -793,8 +796,9 @@ export async function getOwnerOperations(
     });
   }
 
-  // Discounts: base 1; scaled by the discount as a % OF THE BILL (works for both
-  // percentage and amount discounts), a large-absolute bump, no-reason, off-hours.
+  // Discounts: base 1 (LOW); a big discount — ≥50% of the bill OR ≥₹2,000
+  // absolute — is HIGH; a moderate 20–50% is MEDIUM. No-reason and off-hours add
+  // +1 each. Works for both percentage and amount discounts.
   for (const b of auditDiscounts) {
     const reasons: string[] = [];
     let score = 1;
@@ -805,14 +809,14 @@ export async function getOwnerOperations(
         ? (b.discountAmountInPaise / b.totalAmountInPaise) * 100
         : (b.discountPercentage ?? 0);
     if (effectivePct >= SEV_PCT_HIGH) {
-      score += 2;
+      score += 3; // ≥50% of bill → HIGH
       reasons.push(`${Math.round(effectivePct)}% of bill`);
     } else if (effectivePct >= SEV_PCT_MED) {
-      score += 1;
+      score += 1; // 20–50% → MEDIUM
       reasons.push(`${Math.round(effectivePct)}% of bill`);
     }
     if (b.discountAmountInPaise >= SEV_LARGE_AMOUNT_PAISE) {
-      score += 1;
+      score += 3; // ≥₹2,000 absolute → HIGH
       reasons.push('large amount');
     }
     if (!b.discountReason) {
@@ -848,9 +852,9 @@ export async function getOwnerOperations(
   }
 
   // Deletions & payout removals are the highest-value signals for an owner:
-  // base 3 (already "high"), +1 off-hours. Generic off-hours CREATE/UPDATE rows
-  // are intentionally NOT surfaced as standalone events any more — off-hours is
-  // now a modifier on the events that matter, which cuts noise.
+  // base 4 → HIGH regardless of hour. Generic off-hours CREATE/UPDATE rows are
+  // intentionally NOT surfaced as standalone events any more — off-hours is now
+  // a modifier on the events that matter, which cuts noise.
   for (const a of auditOffHours) {
     // Catalog edits (billable products / clinical panels): informational, low
     // severity. Surfaced so owners see when the price list or report
@@ -891,7 +895,7 @@ export async function getOwnerOperations(
     const isDelete = a.actionType === 'DELETE' || a.actionType === 'PAYOUT_DELETE';
     if (!isDelete) continue;
     const reasons: string[] = [];
-    let score = 3;
+    let score = 4;
     if (isOffHoursIst(a.createdAt)) {
       score += 1;
       reasons.push('off-hours');
