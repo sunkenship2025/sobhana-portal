@@ -65,7 +65,7 @@ interface ProductBranchPricing {
   branch?: { id: string; name: string };
 }
 
-type WorkflowMode = 'REPORTABLE' | 'BILL_ONLY' | 'EXTERNAL_UPLOAD';
+type WorkflowMode = 'REPORTABLE' | 'BILL_ONLY' | 'EXTERNAL_UPLOAD' | 'EVENT';
 
 interface BillableProduct {
   id: string;
@@ -91,18 +91,21 @@ const PRODUCT_TYPES = [
   { value: 'INDIVIDUAL_TEST', label: 'Individual Test', color: 'bg-blue-100 text-blue-800' },
   { value: 'PANEL_BUNDLE', label: 'Panel Bundle', color: 'bg-purple-100 text-purple-800' },
   { value: 'CUSTOM_PACKAGE', label: 'Custom Package', color: 'bg-green-100 text-green-800' },
+  { value: 'EVENT', label: 'Event', color: 'bg-red-100 text-red-800' },
 ];
 
 const WORKFLOW_MODES = [
   { value: 'REPORTABLE', label: 'Reportable', color: 'bg-emerald-100 text-emerald-800' },
   { value: 'BILL_ONLY', label: 'Bill Only', color: 'bg-amber-100 text-amber-800' },
   { value: 'EXTERNAL_UPLOAD', label: 'External Upload', color: 'bg-sky-100 text-sky-800' },
+  { value: 'EVENT', label: 'Event', color: 'bg-red-100 text-red-800' },
 ];
 
 const WORKFLOW_LABELS: Record<WorkflowMode, string> = {
   REPORTABLE: 'Reportable',
   BILL_ONLY: 'Bill Only',
   EXTERNAL_UPLOAD: 'External Upload',
+  EVENT: 'Event',
 };
 
 function typeBadgeColor(productType: string) {
@@ -250,7 +253,7 @@ export default function ManageBillableProducts() {
   const populateForm = (p: BillableProduct) => {
     setFormName(p.name);
     setFormCode(p.code);
-    setFormType(p.productType);
+    setFormType(p.workflowMode === 'EVENT' ? 'EVENT' : p.productType);
     setFormWorkflowMode(p.workflowMode || 'REPORTABLE');
     setFormBasePrice(p.basePrice.toString());
     setFormActive(p.isActive);
@@ -354,8 +357,8 @@ export default function ManageBillableProducts() {
       const body = {
         name: formName.trim(),
         code: formCode.trim(),
-        productType: formType,
-        workflowMode: formWorkflowMode,
+        productType: formType === 'EVENT' ? 'INDIVIDUAL_TEST' : formType,
+        workflowMode: formType === 'EVENT' ? 'EVENT' : formWorkflowMode,
         basePrice: parseFloat(formBasePrice),
         isActive: formActive,
         description: formDescription || null,
@@ -649,8 +652,8 @@ export default function ManageBillableProducts() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge className={typeBadgeColor(product.productType)}>
-                      {product.productType.replace(/_/g, ' ')}
+                    <Badge className={product.workflowMode === 'EVENT' ? 'bg-red-100 text-red-800' : typeBadgeColor(product.productType)}>
+                      {product.workflowMode === 'EVENT' ? 'Event' : product.productType.replace(/_/g, ' ')}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -750,7 +753,11 @@ export default function ManageBillableProducts() {
             </div>
             <div>
               <Label>Product Type</Label>
-              <Select value={formType} onValueChange={setFormType}>
+              <Select value={formType} onValueChange={(v) => {
+                setFormType(v);
+                if (v === 'EVENT') setFormWorkflowMode('EVENT');
+                else if (formWorkflowMode === 'EVENT') setFormWorkflowMode('REPORTABLE');
+              }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {PRODUCT_TYPES.map(pt => (
@@ -759,6 +766,7 @@ export default function ManageBillableProducts() {
                 </SelectContent>
               </Select>
             </div>
+            {formType !== 'EVENT' && (
             <div>
               <Label>Workflow</Label>
               <Select
@@ -767,12 +775,13 @@ export default function ManageBillableProducts() {
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {WORKFLOW_MODES.map((mode) => (
+                  {WORKFLOW_MODES.filter((mode) => mode.value !== 'EVENT').map((mode) => (
                     <SelectItem key={mode.value} value={mode.value}>{mode.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
+            )}
             <div>
               <Label>Base Price (₹) *</Label>
               <Input type="number" value={formBasePrice} onChange={e => setFormBasePrice(e.target.value)} />
@@ -790,9 +799,11 @@ export default function ManageBillableProducts() {
           <Separator />
 
           {/* ─── Panels ──────────────────────────────────────────────── */}
-          {formWorkflowMode === 'EXTERNAL_UPLOAD' ? (
+          {formWorkflowMode === 'EXTERNAL_UPLOAD' || formWorkflowMode === 'EVENT' ? (
             <div className="mt-2 rounded border border-dashed p-3 text-xs text-muted-foreground">
-              External Upload products do not require panels. Staff will attach the report PDF on the result-entry screen; the upload is merged into the patient's report with the Sobhana letterhead.
+              {formWorkflowMode === 'EVENT'
+                ? 'Event products carry no tests. Billing this ₹0 item issues a campaign coupon and sends the WhatsApp reward — no bill or report.'
+                : "External Upload products do not require panels. Staff will attach the report PDF on the result-entry screen; the upload is merged into the patient's report with the Sobhana letterhead."}
             </div>
           ) : (
             <div className="mt-2">
