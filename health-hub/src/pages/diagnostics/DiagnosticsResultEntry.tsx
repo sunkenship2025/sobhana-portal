@@ -2796,7 +2796,11 @@ const DiagnosticsResultEntry = () => {
               // dialog when either is present so the doctor explicitly
               // confirms what ships — Cancel safely backs out (auto-save
               // and uploaded files are preserved).
-              const hasExternalUploadTests = testOrders.some(
+              // Only ACTIVE (non-waived) external-upload tests should force the
+              // explicit partial-release dialog. A test closed as "no report
+              // needed" isn't shipping, so it must not push the flow into the
+              // partial path or show up in the selector.
+              const hasExternalUploadTests = activeTestOrders.some(
                 (o) => o.workflowMode === 'EXTERNAL_UPLOAD',
               );
               const requiresExplicitConfirmation =
@@ -2842,7 +2846,14 @@ const DiagnosticsResultEntry = () => {
                     size="lg"
                     onClick={allWaived ? finalizeNoReport : handleClick}
                     disabled={
-                      saving || (allWaived ? !canFinalize : !hasReportableInputs)
+                      saving ||
+                      (allWaived
+                        ? !canFinalize
+                        : !hasReportableInputs ||
+                          // Nothing entered yet on any active test (and none
+                          // are complete) — there's nothing to ship or
+                          // finalize, so block instead of erroring on click.
+                          (!fullyDone && partialEligibleOrderIds.length === 0))
                     }
                   >
                     {saving ? (
@@ -2885,7 +2896,10 @@ const DiagnosticsResultEntry = () => {
         };
         const panelMap = new Map<string, PanelAgg>();
 
-        testOrders.forEach((order) => {
+        // Waived ("no report needed") orders never ship, so they must not appear
+        // in the partial-release selector — otherwise a films-only external test
+        // shows up as "No PDF uploaded — cannot ship / upload pending".
+        activeTestOrders.forEach((order) => {
           const status = orderStatuses.get(order.id);
           const isMissingUpload =
             order.workflowMode === 'EXTERNAL_UPLOAD' &&
