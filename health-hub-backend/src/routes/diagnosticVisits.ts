@@ -5014,11 +5014,114 @@ router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: A
       });
     }
 
-    if (getReportInclusionOrders(visit.testOrders).length === 0) {
-      return res.status(400).json({
-        error: "BILL_ONLY_VISIT",
-        message: "Pure bill-only visits do not use report finalization.",
+    const reportInclusionOrders = getReportInclusionOrders(visit.testOrders);
+    if (reportInclusionOrders.length === 0) {
+      // Nothing to include in a report. Two very different situations land here:
+      //   1. Pure bill-only visit — no reportable/external test ever existed.
+      //   2. Every reportable/external test was closed as "no report needed"
+      //      (films only). This IS a valid completion: there is no report to
+      //      build and — per product rule — NO message to the patient.
+      const waivedReportableOrders = visit.testOrders.filter(
+        (o) =>
+          !!o.noReportAt &&
+          ((o.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) ===
+            DiagnosticWorkflowMode.REPORTABLE ||
+            o.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD),
+      );
+
+      if (waivedReportableOrders.length === 0) {
+        return res.status(400).json({
+          error: "BILL_ONLY_VISIT",
+          message: "Pure bill-only visits do not use report finalization.",
+        });
+      }
+
+      // Idempotent — already completed (e.g. double-click).
+      if (visit.status === "COMPLETED") {
+        return res.json({ success: true, status: "COMPLETED", noReport: true });
+      }
+
+      // Bill-due guard — same authoritative gate as the normal finalize path.
+      if (visit.bill) {
+        const billFinancials = computeBillFinancialsFromPersisted(visit.bill);
+        if (billFinancials.dueAmountInPaise > 0) {
+          return res.status(400).json({
+            error: "BILL_DUE",
+            message: `Cannot finalize while bill has due amount ₹${(billFinancials.dueAmountInPaise / 100).toFixed(2)}.`,
+            dueAmountInPaise: billFinancials.dueAmountInPaise,
+          });
+        }
+      }
+
+      const completedAt = new Date();
+      await prisma.visit.update({
+        where: { id },
+        data: { status: "COMPLETED" },
       });
+
+      await logAction({
+        branchId: req.branchId!,
+        actionType: "FINALIZE",
+        entityType: "Visit",
+        entityId: visit.id,
+        userId: req.user?.id!,
+        newValues: {
+          status: "COMPLETED",
+          noReport: true,
+          waivedOrderIds: waivedReportableOrders.map((o) => o.id),
+          completedAt: completedAt.toISOString(),
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+      });
+
+      // Derive payouts exactly like the normal path — the referring doctor /
+      // centre still earns on a films-only test (the close is money-neutral).
+      const periodStartDate = new Date(completedAt);
+      periodStartDate.setHours(0, 0, 0, 0);
+      const periodEndDate = new Date(completedAt);
+      periodEndDate.setHours(23, 59, 59, 999);
+      const noReportPayoutTasks: Array<Promise<unknown>> = [];
+      const noReportReferralDoctorId = visit.referrals[0]?.referralDoctorId;
+      const noReportDiagnosticCenterId =
+        visit.diagnosticCenterReferrals[0]?.diagnosticCenterId;
+      if (noReportReferralDoctorId) {
+        noReportPayoutTasks.push(
+          derivePayout(
+            "REFERRAL",
+            noReportReferralDoctorId,
+            visit.branchId,
+            periodStartDate,
+            periodEndDate,
+          ),
+        );
+      }
+      if (noReportDiagnosticCenterId) {
+        noReportPayoutTasks.push(
+          derivePayout(
+            "DIAGNOSTIC_CENTER",
+            noReportDiagnosticCenterId,
+            visit.branchId,
+            periodStartDate,
+            periodEndDate,
+          ),
+        );
+      }
+      if (noReportPayoutTasks.length > 0) {
+        const settled = await Promise.allSettled(noReportPayoutTasks);
+        for (const r of settled) {
+          if (r.status === "rejected") {
+            console.error(
+              "Auto-refresh payout after no-report completion failed:",
+              r.reason,
+            );
+          }
+        }
+      }
+
+      // Deliberately NO sendReportReady() — a films-only visit issues no report
+      // and sends no report message to the patient.
+      return res.json({ success: true, status: "COMPLETED", noReport: true });
     }
 
     if (visit.bill) {
@@ -5078,6 +5181,24 @@ router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: A
         ),
       });
     }
+
+    // Compute — BEFORE we flip the current draft to FINALIZED — which orders
+    // were already shipped to the patient in a prior FINALIZED (e.g. partial)
+    // version. If this finalize adds nothing they haven't already received
+    // (the only change since the last release was a films-only close), we stay
+    // silent instead of firing a redundant "final" message.
+    const priorFinalizedResults = await prisma.testResult.findMany({
+      where: {
+        reportVersion: { reportId: visit.report!.id, status: "FINALIZED" },
+      },
+      select: { testOrderId: true },
+    });
+    const priorFinalizedOrderIds = new Set(
+      priorFinalizedResults.map((r) => r.testOrderId),
+    );
+    const shipsNewReportContent = reportInclusionOrders.some(
+      (o) => !priorFinalizedOrderIds.has(o.id),
+    );
 
     let accessToken: string | null = null;
     const finalizedAt = new Date();
@@ -5192,15 +5313,20 @@ router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: A
       }
     }
 
-    // Fire-and-forget: Send report-ready notification via WhatsApp (non-blocking)
-    import("../services/notificationService").then(({ sendReportReady }) => {
-      sendReportReady(visit.id, accessToken || undefined, "final").catch((err) =>
-        console.error(
-          "[Notification] Report notification failed (non-blocking):",
-          err.message,
-        ),
-      );
-    });
+    // Fire-and-forget: Send report-ready notification via WhatsApp (non-blocking).
+    // Skipped when this finalize ships nothing the patient hasn't already
+    // received — e.g. the last remaining test was closed as films-only after a
+    // partial report already went out.
+    if (shipsNewReportContent) {
+      import("../services/notificationService").then(({ sendReportReady }) => {
+        sendReportReady(visit.id, accessToken || undefined, "final").catch((err) =>
+          console.error(
+            "[Notification] Report notification failed (non-blocking):",
+            err.message,
+          ),
+        );
+      });
+    }
 
     return res.json({
       success: true,

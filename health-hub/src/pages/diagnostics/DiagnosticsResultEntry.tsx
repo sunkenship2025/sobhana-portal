@@ -2262,6 +2262,31 @@ const DiagnosticsResultEntry = () => {
     }
   };
 
+  // Finalize a visit whose every reportable/external test was closed as "no
+  // report needed" (films only). There's no report to build and — per product
+  // rule — no message goes to the patient. The backend /finalize endpoint
+  // detects the all-waived state and completes the visit without a report
+  // version or notification.
+  const finalizeNoReport = async () => {
+    if (!visitId) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/visits/diagnostic/${visitId}/finalize`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'X-Branch-Id': activeBranchId, 'Content-Type': 'application/json' },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(data?.message || 'Could not finalize this visit.'); return; }
+      toast.success('Visit finalized — no report issued, no message sent.');
+      navigate('/diagnostics/pending');
+    } catch (e) {
+      console.error('no-report finalize failed:', e);
+      toast.error('Could not finalize this visit.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const reopenNoReport = async (orderId: string) => {
     if (!visitId) return;
     try {
@@ -2752,9 +2777,17 @@ const DiagnosticsResultEntry = () => {
               // is genuinely complete — template-only narratives count as
               // incomplete here so the staff sees the "partial" path and gets
               // the selector dialog.
-              const buttonLabel = fullyDone
-                ? (canFinalize ? 'Review & Finalize' : 'Review Report')
-                : 'Continue with Partial Report';
+              // Every reportable/external test in this visit was closed as
+              // "no report needed" (films only): nothing to enter, nothing to
+              // preview — just finalize the visit, sending NO patient message.
+              const allWaived =
+                activeTestOrders.length === 0 && waivedOrders.length > 0;
+
+              const buttonLabel = allWaived
+                ? 'Finalize — no report'
+                : fullyDone
+                  ? (canFinalize ? 'Review & Finalize' : 'Review Report')
+                  : 'Continue with Partial Report';
 
               // Narrative AND external-upload tests both look "complete" the
               // moment the doctor adds content / a file, even when they're
@@ -2797,12 +2830,20 @@ const DiagnosticsResultEntry = () => {
 
               return (
                 <>
+                  {allWaived && !canFinalize && (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      All tests closed as films only — ask an owner or lab
+                      in-charge to finalize this visit.
+                    </p>
+                  )}
                   {renderAutoSaveStatus(autoSaveStatus, lastSavedAt)}
                   <Button
                     className="w-full mt-2"
                     size="lg"
-                    onClick={handleClick}
-                    disabled={saving || !hasReportableInputs}
+                    onClick={allWaived ? finalizeNoReport : handleClick}
+                    disabled={
+                      saving || (allWaived ? !canFinalize : !hasReportableInputs)
+                    }
                   >
                     {saving ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
