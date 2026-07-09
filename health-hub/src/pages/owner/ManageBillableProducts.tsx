@@ -118,6 +118,31 @@ function workflowBadgeColor(workflowMode: string) {
   return wm ? wm.color : 'bg-muted text-foreground';
 }
 
+// The kind of a package line item, for the at-a-glance badge: a clinical panel,
+// or a child product tagged by its own workflow (Reportable / Bill Only /
+// External). Reads the loaded nested childProduct first, then the dropdown list
+// (fresh selection), defaulting to Bill Only since that's all the picker offers.
+function lineItemKind(
+  pp: ProductPanel,
+  subProducts: ProductSummary[],
+): { label: string; color: string } | null {
+  if (pp.panelId) {
+    return { label: 'Panel', color: 'bg-purple-100 text-purple-800' };
+  }
+  if (pp.childProductId) {
+    const wm =
+      pp.childProduct?.workflowMode ??
+      subProducts.find((sp) => sp.id === pp.childProductId)?.workflowMode ??
+      'BILL_ONLY';
+    const meta = WORKFLOW_MODES.find((m) => m.value === wm);
+    return {
+      label: wm === 'EXTERNAL_UPLOAD' ? 'External' : meta?.label ?? 'Bill Only',
+      color: meta?.color ?? 'bg-amber-100 text-amber-800',
+    };
+  }
+  return null;
+}
+
 const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
 
 const LOGO_URL = `${API_BASE_URL}/images/sobhana-clinic-logo.png`;
@@ -911,6 +936,12 @@ export default function ManageBillableProducts() {
                             ))}
                         </SelectContent>
                       </Select>
+                      {(() => {
+                        const kind = lineItemKind(pp, availableSubProducts);
+                        return kind ? (
+                          <Badge className={`${kind.color} shrink-0 text-[10px] px-1.5`}>{kind.label}</Badge>
+                        ) : null;
+                      })()}
                       <Button size="sm" variant="ghost" onClick={() => removePanel(i)} className="text-destructive shrink-0 h-8 w-8 p-0">
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
