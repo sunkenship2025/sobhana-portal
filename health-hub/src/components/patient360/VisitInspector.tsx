@@ -30,9 +30,10 @@ import { Ban, Eye, EyeOff, FileText, Loader2, MessageCircle, Printer, ReceiptTex
 import { toast } from "sonner";
 import { EditReferralDialog } from "./EditReferralDialog";
 import { FinancialDetailPanel } from "./FinancialDetailPanel";
+import { DeliveryStatusLine } from "./DeliveryStatusLine";
 import { NoReportStatus } from "./NoReportStatus";
 import { RefundDialog } from "./RefundDialog";
-import { ReportActions } from "./ReportActions";
+import { ReportActions, canViewReport } from "./ReportActions";
 import { SwapTestDialog } from "./SwapTestDialog";
 import type { UseReportActions } from "@/hooks/patient360/useReportActions";
 import type { VisitTimelineItem } from "@/types";
@@ -42,6 +43,16 @@ function formatDate(date: Date | string): string {
     day: "2-digit",
     month: "short",
     year: "numeric",
+  });
+}
+
+function formatPrintedAt(value: Date | string | null | undefined): string {
+  if (!value) return "";
+  return new Date(value).toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
@@ -90,9 +101,21 @@ function InspectorBody({
   patientPhone?: string | null;
   reportActions: UseReportActions;
 }) {
-  const { preview, busy, viewReport, viewBill, printReport, sendWhatsApp, sendBillWhatsApp, closePreview } =
+  const { preview, busy, viewReport, viewBill, printReport, sendWhatsApp, sendBillWhatsApp, markPrinted, closePreview } =
     reportActions;
   const isDiagnostic = visit.domain === "DIAGNOSTICS";
+
+  // Optimistic "just printed" state so the green Printed line/button appears
+  // immediately, before the timeline refetches. Reset when the visit changes.
+  const [localPrinted, setLocalPrinted] = useState<{ report?: string; bill?: string }>({});
+  useEffect(() => {
+    setLocalPrinted({});
+  }, [visit.visitId]);
+  const reportPrintedAt = localPrinted.report ?? visit.reportPrintedAt ?? null;
+  const billPrintedAt = localPrinted.bill ?? visit.billPrintedAt ?? null;
+  const hasNoReportOrders = (visit.testOrders ?? []).some(
+    (order) => !!order.noReportAt && !order.cancelledAt,
+  );
   const activePreview = preview?.visitId === visit.visitId ? preview : null;
   const reportActive = activePreview?.kind === "report";
   const billActive = activePreview?.kind === "bill";
@@ -137,7 +160,7 @@ function InspectorBody({
         }
       />
 
-      {isDiagnostic && (
+      {isDiagnostic && (canViewReport(visit) || hasNoReportOrders) && (
         <>
           <Separator />
           <div className="space-y-2">
@@ -149,8 +172,13 @@ function InspectorBody({
               busy={busy?.visitId === visit.visitId}
               busyAction={busy?.visitId === visit.visitId ? busy.action : null}
               reportActive={reportActive}
+              reportPrintedAt={reportPrintedAt}
               onView={() => viewReport(visit.visitId)}
-              onPrint={() => printReport(visit.visitId)}
+              onPrint={() => {
+                setLocalPrinted((p) => ({ ...p, report: new Date().toISOString() }));
+                markPrinted(visit.visitId, "report");
+                printReport(visit.visitId);
+              }}
               onWhatsApp={() => sendWhatsApp(visit.visitId)}
             />
             <NoReportStatus visit={visit} />
@@ -181,8 +209,18 @@ function InspectorBody({
           <Button
             variant="outline"
             size="sm"
-            className="justify-start"
-            onClick={() => openPrintBill(visit)}
+            className={`justify-start${
+              billPrintedAt
+                ? " border-green-600 text-green-600 hover:bg-green-50 hover:text-green-700"
+                : ""
+            }`}
+            onClick={() => {
+              if (isDiagnostic) {
+                setLocalPrinted((p) => ({ ...p, bill: new Date().toISOString() }));
+                markPrinted(visit.visitId, "bill");
+              }
+              openPrintBill(visit);
+            }}
           >
             {hasBill ? (
               <ReceiptText className="mr-2 h-4 w-4" aria-hidden="true" />
@@ -221,6 +259,15 @@ function InspectorBody({
             </Button>
           )}
         </div>
+        {billPrintedAt && (
+          <p className="flex items-center gap-1.5 text-xs text-green-600">
+            <Printer className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              Printed{formatPrintedAt(billPrintedAt) ? ` · ${formatPrintedAt(billPrintedAt)}` : ""}
+            </span>
+          </p>
+        )}
+        <DeliveryStatusLine delivery={visit.billDelivery ?? null} />
         {/* Collect-payment deep-link intentionally omitted for v1 (06-frontend-plan §4 / Q5);
             print-bill is the supported path. */}
       </div>

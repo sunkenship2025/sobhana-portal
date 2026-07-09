@@ -916,17 +916,25 @@ export async function getPatient360Timeline(patientId: string, filters: Timeline
     }
   }
 
-  // Query 3 — latest REPORT MessageLog per visit (batched). Sorted desc, keep first.
-  const deliveryByVisit = new Map<
-    string,
-    { status: string; sentAt: Date | null; deliveredAt: Date | null; readAt: Date | null }
-  >();
+  // Query 3 — latest REPORT + BILL MessageLog per visit (batched). Sorted desc,
+  // keep first per (visit, context). Drives the report AND bill delivery lines
+  // in the inspector — a bill-only / films-only visit has no report to send but
+  // its bill can still go out on WhatsApp, so surface that progression too.
+  type DeliverySnapshot = {
+    status: string;
+    sentAt: Date | null;
+    deliveredAt: Date | null;
+    readAt: Date | null;
+  };
+  const deliveryByVisit = new Map<string, DeliverySnapshot>();
+  const billDeliveryByVisit = new Map<string, DeliverySnapshot>();
   if (pageIds.length > 0) {
     const logs = await prisma.messageLog.findMany({
-      where: { contextType: 'REPORT', contextId: { in: pageIds } },
+      where: { contextType: { in: ['REPORT', 'BILL'] }, contextId: { in: pageIds } },
       orderBy: { createdAt: 'desc' },
       select: {
         contextId: true,
+        contextType: true,
         status: true,
         sentAt: true,
         deliveredAt: true,
@@ -934,8 +942,9 @@ export async function getPatient360Timeline(patientId: string, filters: Timeline
       },
     });
     for (const log of logs) {
-      if (!deliveryByVisit.has(log.contextId)) {
-        deliveryByVisit.set(log.contextId, {
+      const target = log.contextType === 'BILL' ? billDeliveryByVisit : deliveryByVisit;
+      if (!target.has(log.contextId)) {
+        target.set(log.contextId, {
           status: log.status,
           sentAt: log.sentAt,
           deliveredAt: log.deliveredAt,
@@ -977,6 +986,7 @@ export async function getPatient360Timeline(patientId: string, filters: Timeline
   const items = page.map((visit) => {
     const financials = mapBillFinancials(visit.bill, visit.status);
     const delivery = deliveryByVisit.get(visit.id) ?? null;
+    const billDelivery = billDeliveryByVisit.get(visit.id) ?? null;
 
     const item: any = {
       visitId: visit.id,
@@ -1034,6 +1044,11 @@ export async function getPatient360Timeline(patientId: string, filters: Timeline
       workflowMode: deriveWorkflowMode(visit),
       hasAbnormalResults: abnormalVisitIds.has(visit.id),
       delivery,
+      // Bill-side delivery + "already printed" timestamps so the inspector can
+      // show the same green Printed / Sent affordances as the Finalized page.
+      billDelivery,
+      billPrintedAt: visit.billPrintedAt ?? null,
+      reportPrintedAt: visit.reportPrintedAt ?? null,
     };
 
     if (visit.domain === 'CLINIC' && visit.clinicVisit) {

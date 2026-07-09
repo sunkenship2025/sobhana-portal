@@ -25,6 +25,16 @@ import type { VisitTimelineItem } from "@/types";
 
 const VIEWABLE_KINDS = new Set(["FINALIZED", "PARTIALLY_FINALIZED"]);
 
+function formatPrintedAt(value: Date | string | null | undefined): string {
+  if (!value) return "";
+  return new Date(value).toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export function canViewReport(visit: VisitTimelineItem): boolean {
   return (
     visit.domain === "DIAGNOSTICS" &&
@@ -43,6 +53,8 @@ interface ReportActionsProps {
   busyAction?: ReportAction | null;
   /** True when the inline report preview for this visit is currently open. */
   reportActive?: boolean;
+  /** When the report was last printed — turns the Print button green + shows a line. */
+  reportPrintedAt?: Date | string | null;
   onView: () => void;
   onPrint?: () => void;
   onWhatsApp?: () => void;
@@ -55,6 +67,7 @@ export function ReportActions({
   busy,
   busyAction,
   reportActive = false,
+  reportPrintedAt,
   onView,
   onPrint,
   onWhatsApp,
@@ -107,7 +120,11 @@ export function ReportActions({
         <Button
           variant="outline"
           size="sm"
-          className="justify-start"
+          className={`justify-start${
+            reportPrintedAt
+              ? " border-green-600 text-green-600 hover:bg-green-50 hover:text-green-700"
+              : ""
+          }`}
           disabled={busy}
           onClick={onPrint}
         >
@@ -135,6 +152,14 @@ export function ReportActions({
           </Button>
         )}
       </div>
+      {reportPrintedAt && (
+        <p className="flex items-center gap-1.5 text-xs text-green-600">
+          <Printer className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span>
+            Printed{formatPrintedAt(reportPrintedAt) ? ` · ${formatPrintedAt(reportPrintedAt)}` : ""}
+          </span>
+        </p>
+      )}
       <DeliveryStatusLine delivery={visit.delivery ?? null} />
     </div>
   );

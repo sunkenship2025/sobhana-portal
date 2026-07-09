@@ -54,6 +54,9 @@ export interface UseReportActions {
   sendWhatsApp: (visitId: string) => Promise<void>;
   /** POST /messages/:visitId/send-bill (branch-scoped). Sends the bill on WhatsApp. */
   sendBillWhatsApp: (visitId: string) => Promise<void>;
+  /** POST /visits/diagnostic/:id/mark-printed — stamp the bill/report as printed
+   * (green "Printed" affordance). Fire-and-forget; failures are non-fatal. */
+  markPrinted: (visitId: string, kind: "bill" | "report") => Promise<void>;
   /** Revoke the current preview blob and clear `preview`. */
   closePreview: () => void;
 }
@@ -181,6 +184,23 @@ export function useReportActions(isMobile?: boolean): UseReportActions {
     [branchId],
   );
 
+  // Record that the bill/report was printed from here. Best-effort: the print
+  // itself already happened, so a failure here just means the green won't stick.
+  const markPrinted = useCallback(
+    async (visitId: string, kind: "bill" | "report") => {
+      try {
+        await apiRequest(`${API_BASE}/visits/diagnostic/${visitId}/mark-printed`, {
+          method: "POST",
+          headers: { "X-Branch-Id": branchId ?? "" },
+          body: JSON.stringify({ kind }),
+        });
+      } catch {
+        // Non-fatal — swallow so it never blocks the print.
+      }
+    },
+    [branchId],
+  );
+
   // Revoke on unmount.
   useEffect(() => revoke, [revoke]);
 
@@ -200,6 +220,7 @@ export function useReportActions(isMobile?: boolean): UseReportActions {
     printReport,
     sendWhatsApp,
     sendBillWhatsApp,
+    markPrinted,
     closePreview,
   };
 }

@@ -566,6 +566,12 @@ export interface VisitTimelineItem {
   workflowMode?: VisitWorkflowMode | null;
   // Latest REPORT-context delivery progression, or null when never sent.
   delivery?: VisitDelivery | null;
+  // Latest BILL-context delivery progression (for the bill's WhatsApp line).
+  billDelivery?: VisitDelivery | null;
+  // When the bill / finalized report was printed from the app — drives the
+  // green "Printed · time" affordance in the inspector.
+  billPrintedAt?: Date | string | null;
+  reportPrintedAt?: Date | string | null;
   // Nested discount object (mirrors the flat discount* fields above).
   discount?: VisitDiscount;
   // Refund rollups (per-order cancellation feature). Absent on legacy shapes.
