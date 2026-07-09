@@ -68,5 +68,7 @@ export function compactAge(patient: any): string {
 export function formatRefDoctor(name?: string | null): string {
   const n = (name || "").trim();
   if (!n) return "Self";
-  return /^dr\.?\s/i.test(n) ? n : `Dr. ${n}`;
+  // Already prefixed with a "Dr" title? Match "Dr " or "Dr." (with or without a
+  // following space, e.g. "Dr.SHARATH") so we never produce "Dr. Dr.SHARATH".
+  return /^dr[.\s]/i.test(n) ? n : `Dr. ${n}`;
 }

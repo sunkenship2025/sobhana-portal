@@ -158,6 +158,20 @@ const matchesDateFilter = (filter: string, value: string) => {
   return true;
 };
 
+// Compact "billed at" label, e.g. "9 Jul, 2:05 PM".
+const formatBilledAt = (value?: string | null): string => {
+  if (!value) return "";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-IN", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+};
+
 const DiagnosticsPendingResults = () => {
   const navigate = useNavigate();
   const { activeBranchId } = useBranchStore();
@@ -450,6 +464,9 @@ const DiagnosticsPendingResults = () => {
                   const phoneVal =
                     p.identifiers?.find((id: any) => id.type === "PHONE")?.value || "";
                   const refName = formatRefDoctor((visit as any).referralDoctor?.name);
+                  const billedAtStr = formatBilledAt(
+                    (visit as any).billedAt || (visit as any).createdAt,
+                  );
                   return (
                   <div
                     key={visit.id}
@@ -473,6 +490,12 @@ const DiagnosticsPendingResults = () => {
                           Bill #:{" "}
                           <span className="font-mono">{visit.billNumber}</span>
                         </span>
+                        {billedAtStr && (
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="h-3.5 w-3.5 shrink-0" />
+                            {billedAtStr}
+                          </span>
+                        )}
                         {phoneVal && (
                           <span className="inline-flex items-center gap-1">
                             <Phone className="h-3.5 w-3.5 shrink-0" />

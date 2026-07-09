@@ -138,6 +138,9 @@ export default function ManageBillableProducts() {
   const [branchOptions, setBranchOptions] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [filterType, setFilterType] = useState('all');
+  const [filterWorkflow, setFilterWorkflow] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
 
   // Print / Excel selection — checkboxes only appear in select mode;
   // otherwise Print/Excel take all active products shown
@@ -491,6 +494,25 @@ export default function ManageBillableProducts() {
 
   // ─── Print / Excel export ──────────────────────────────────────────────
 
+  // Client-side filters (Type / Workflow / Status) layered on top of the
+  // server-side name/code search.
+  const filteredProducts = useMemo(
+    () => products.filter(p => {
+      if (filterType !== 'all' && p.productType !== filterType) return false;
+      if (filterWorkflow !== 'all' && p.workflowMode !== filterWorkflow) return false;
+      if (filterStatus === 'active' && !p.isActive) return false;
+      if (filterStatus === 'inactive' && p.isActive) return false;
+      return true;
+    }),
+    [products, filterType, filterWorkflow, filterStatus],
+  );
+  const filtersActive = filterType !== 'all' || filterWorkflow !== 'all' || filterStatus !== 'all';
+  const clearFilters = () => {
+    setFilterType('all');
+    setFilterWorkflow('all');
+    setFilterStatus('all');
+  };
+
   const selectedProducts = useMemo(
     () => products.filter(p => selected.has(p.id)),
     [products, selected],
@@ -499,7 +521,7 @@ export default function ManageBillableProducts() {
   // (an inactive product doesn't belong on a customer price list).
   const exportTargets = selectedProducts.length
     ? selectedProducts
-    : products.filter(p => p.isActive);
+    : filteredProducts.filter(p => p.isActive);
 
   const toggleSelect = (id: string) => {
     setSelected(prev => {
@@ -509,9 +531,9 @@ export default function ManageBillableProducts() {
     });
   };
 
-  const allShownSelected = products.length > 0 && products.every(p => selected.has(p.id));
+  const allShownSelected = filteredProducts.length > 0 && filteredProducts.every(p => selected.has(p.id));
   const toggleSelectAll = () => {
-    setSelected(allShownSelected ? new Set() : new Set(products.map(p => p.id)));
+    setSelected(allShownSelected ? new Set() : new Set(filteredProducts.map(p => p.id)));
   };
 
   const exportExcel = async () => {
@@ -589,21 +611,48 @@ export default function ManageBillableProducts() {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-md">
-        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search products..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="pl-8"
-        />
+      {/* Search + filters */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[220px] max-w-md">
+          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search products..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="pl-8"
+          />
+        </div>
+        <Select value={filterType} onValueChange={setFilterType}>
+          <SelectTrigger className="w-[160px]"><SelectValue placeholder="Type" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All types</SelectItem>
+            {PRODUCT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={filterWorkflow} onValueChange={setFilterWorkflow}>
+          <SelectTrigger className="w-[170px]"><SelectValue placeholder="Workflow" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All workflows</SelectItem>
+            {WORKFLOW_MODES.map(w => <SelectItem key={w.value} value={w.value}>{w.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={filterStatus} onValueChange={setFilterStatus}>
+          <SelectTrigger className="w-[140px]"><SelectValue placeholder="Status" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="inactive">Inactive</SelectItem>
+          </SelectContent>
+        </Select>
+        {filtersActive && (
+          <Button variant="ghost" size="sm" onClick={clearFilters}>Clear</Button>
+        )}
       </div>
 
       {/* Table */}
       {loading ? (
         <LoadingState />
-      ) : products.length === 0 ? (
+      ) : filteredProducts.length === 0 ? (
         <EmptyState title="No products found" />
       ) : (
         <div className="border rounded-lg overflow-x-auto">
@@ -701,7 +750,8 @@ export default function ManageBillableProducts() {
       )}
 
       <p className="text-xs text-muted-foreground text-right">
-        Showing {products.length} product{products.length !== 1 ? 's' : ''}
+        Showing {filteredProducts.length} product{filteredProducts.length !== 1 ? 's' : ''}
+        {filtersActive && ` of ${products.length}`}
         {selected.size > 0 && ` · ${selected.size} selected`}
       </p>
 
