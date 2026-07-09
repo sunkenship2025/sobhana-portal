@@ -71,6 +71,16 @@ function makeResultKey(testOrderId: string, testId: string): ResultKey {
   return `${testOrderId}:${testId}`;
 }
 
+// Stringify an auto-calculated derived value, padding a single-digit whole
+// number with a leading zero (8 → "08", 5 → "05", -3 → "-03"). Non-integers
+// and two-or-more-digit values are left untouched (8.5 → "8.5", 12 → "12").
+function formatDerivedValue(n: number): string {
+  if (Number.isInteger(n) && Math.abs(n) <= 9) {
+    return n < 0 ? `-0${Math.abs(n)}` : `0${n}`;
+  }
+  return n.toString();
+}
+
 function shouldUseTextInput(
   _testName: string,
   _testCode: string,
@@ -593,7 +603,7 @@ const DiagnosticsResultEntry = () => {
         );
 
         if (calculatedValue !== null) {
-          updated[derivedTest.testId] = calculatedValue.toString();
+          updated[derivedTest.testId] = formatDerivedValue(calculatedValue);
           valuesByCode.set(derivedTest.code, calculatedValue);
           prefilledResultKeysRef.current.delete(derivedTest.testId);
         } else {
