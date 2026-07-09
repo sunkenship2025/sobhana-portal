@@ -12,6 +12,7 @@
  * truth; SELF ⇒ null, which the renderer prints as "SELF".
  */
 import prisma from "../src/lib/prisma";
+import { deleteCachedMergedPdf } from "../src/services/mergedReportPdfCache";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -49,9 +50,11 @@ async function main() {
   console.log("LIVE referral:   ", liveName ?? "SELF");
 
   const patches: { id: string; visitSnapshot: Record<string, unknown> }[] = [];
+  const finalizedVersionIds: string[] = [];
   for (const v of visit.report?.versions ?? []) {
     const snap = v.visitSnapshot as Record<string, unknown> | null;
     if (v.status !== "FINALIZED" || !snap) continue;
+    finalizedVersionIds.push(v.id);
     const frozen = (snap.referralDoctorName as string | null) ?? null;
     const drift = frozen !== liveName;
     console.log(
@@ -63,12 +66,15 @@ async function main() {
     }
   }
 
-  if (patches.length === 0) {
-    console.log("Nothing to fix.");
+  if (finalizedVersionIds.length === 0) {
+    console.log("No finalized versions — nothing to fix.");
     return;
   }
   if (!apply) {
-    console.log(`\nDRY RUN — ${patches.length} version(s) would change. Re-run with --apply to write.`);
+    console.log(
+      `\nDRY RUN — ${patches.length} snapshot(s) would change; ` +
+        `${finalizedVersionIds.length} cached PDF(s) would be busted. Re-run with --apply.`,
+    );
     return;
   }
   for (const patch of patches) {
@@ -77,7 +83,15 @@ async function main() {
       data: { visitSnapshot: patch.visitSnapshot as any },
     });
   }
-  console.log(`\nAPPLIED — patched ${patches.length} version(s).`);
+  // Always drop the cached PDF for every finalized version (harmless on a fresh
+  // entry) so the served download matches the DB — the snapshot may already be
+  // in sync from a prior run while the stale PDF still sits in Redis.
+  for (const id of finalizedVersionIds) {
+    await deleteCachedMergedPdf(id);
+  }
+  console.log(
+    `\nAPPLIED — patched ${patches.length} snapshot(s), invalidated ${finalizedVersionIds.length} cached PDF(s).`,
+  );
 }
 
 main().finally(() => prisma.$disconnect());

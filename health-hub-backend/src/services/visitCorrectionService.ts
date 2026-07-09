@@ -20,6 +20,7 @@
  */
 import prisma from "../lib/prisma";
 import { logAction } from "./auditService";
+import { deleteCachedMergedPdf } from "./mergedReportPdfCache";
 import {
   distributeFixedAmountInPaise,
   resolveReducedReferralSnapshot,
@@ -351,6 +352,14 @@ export async function changeVisitReferral(params: {
     },
     { timeout: 30_000 },
   );
+
+  // The public report download caches the merged PDF per finalized version,
+  // assuming the snapshot never changes. We just changed it, so drop those
+  // cache entries or the patient/doctor keeps downloading the old doctor's PDF
+  // until the 7-day TTL lapses. Best-effort; runs after commit.
+  for (const patch of finalizedSnapshotPatches) {
+    await deleteCachedMergedPdf(patch.id);
+  }
 
   // Re-derive any payout run that covered this visit so its total drops (Self)
   // or grows (re-referred) to match. Best-effort; runs after commit.
