@@ -232,19 +232,44 @@ export async function createPatient(input: CreatePatientInput) {
  * 2. Email (primary, exact match)
  * 3. Name (secondary, fuzzy match)
  */
+const SEARCH_PAGE_SIZE_DEFAULT = 20;
+const SEARCH_PAGE_SIZE_MAX = 50;
+
+export interface PaginatedSearch {
+  results: ReturnType<typeof toSearchResult>[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+}
+
 export async function searchPatients(query: {
   phone?: string;
   email?: string;
   name?: string;
   patientNumber?: string;
-  limit?: number;
-}) {
-  const limit = query.limit || 20;
+  page?: number;     // 1-based; when provided, returns a paginated envelope
+  pageSize?: number;
+  limit?: number;    // legacy alias for pageSize (non-paginated array callers)
+}): Promise<ReturnType<typeof toSearchResult>[] | PaginatedSearch> {
+  // Pagination is OPT-IN: only when `page` is supplied do we return the
+  // { results, total, page, pageSize, hasMore } envelope. Legacy callers
+  // (new-visit phone lookups, backend tests) send no page and still get a
+  // plain array, so their response shape is unchanged.
+  const paginated = query.page !== undefined;
+  const pageSize = Math.min(
+    SEARCH_PAGE_SIZE_MAX,
+    Math.max(1, query.pageSize ?? query.limit ?? SEARCH_PAGE_SIZE_DEFAULT),
+  );
+  const page = Math.max(1, query.page ?? 1);
 
-  // patientNumber is an exact/unique key — do NOT route through fuzzy matching.
-  // Direct findUnique, mapped into the SAME search-result shape. Empty array (not
-  // 404) on no match so the frontend shows the "no match → register" state.
+  let results: ReturnType<typeof toSearchResult>[];
+  let total: number;
+
   if (query.patientNumber) {
+    // patientNumber is an exact/unique key — do NOT route through fuzzy
+    // matching. Direct findUnique, mapped into the SAME search-result shape.
+    // Empty (not 404) on no match so the frontend shows the register state.
     const patient = await prisma.patient.findUnique({
       where: { patientNumber: query.patientNumber },
       include: {
@@ -255,31 +280,78 @@ export async function searchPatients(query: {
         },
       },
     });
-
-    if (!patient) return [];
-    return [toSearchResult(patient)];
+    results = patient ? [toSearchResult(patient)] : [];
+    total = results.length;
+  } else if (query.name && !query.phone && !query.email) {
+    // NAME — rank ALL matches (exact name first) and page the ranked list, so
+    // an exact-name match is never truncated out before it can be scored.
+    ({ results, total } = await searchByNameRanked(query.name, page, pageSize));
+  } else {
+    // PHONE / EMAIL — exact identity match via the centralized matcher (E2-02).
+    const matches = await patientMatching.findPatientsByIdentifier(
+      { phone: query.phone, email: query.email },
+      { limit: pageSize, includeVisitHistory: true, strictMode: false },
+    );
+    results = matches.map(match => toSearchResult(match.patient));
+    total = results.length;
   }
 
-  // Use centralized patient matching service (E2-02)
-  const matches = await patientMatching.findPatientsByIdentifier(
-    {
-      phone: query.phone,
-      email: query.email,
-      name: query.name
+  if (!paginated) return results;
+  return { results, total, page, pageSize, hasMore: page * pageSize < total };
+}
+
+/**
+ * Ranked, paginated name search across ALL branches.
+ *
+ * Two-phase, to rank the ENTIRE match set while keeping per-request load
+ * bounded. The old single query fetched an arbitrary capped window (take:
+ * limit*2) with no ordering, so an exact-name match outside that window was
+ * dropped before it could be scored — it never appeared even though an exact
+ * match is the best possible result. Here:
+ *   1. Lightweight scan of every name match (id + name only) → score + sort →
+ *      total count + the id slice for this page.
+ *   2. Full fetch (identifiers + recent visits) for THIS page's ids only.
+ */
+async function searchByNameRanked(name: string, page: number, pageSize: number) {
+  const candidates = await prisma.patient.findMany({
+    where: { name: { contains: name, mode: 'insensitive' } },
+    select: { id: true, name: true },
+  });
+
+  const ranked = candidates
+    .map(c => ({
+      id: c.id,
+      name: c.name,
+      score: patientMatching.calculateNameSimilarity(name, c.name),
+    }))
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+
+  const total = ranked.length;
+  const start = (page - 1) * pageSize;
+  const pageIds = ranked.slice(start, start + pageSize).map(r => r.id);
+
+  if (pageIds.length === 0) return { results: [] as ReturnType<typeof toSearchResult>[], total };
+
+  const patients = await prisma.patient.findMany({
+    where: { id: { in: pageIds } },
+    include: {
+      identifiers: true,
+      visits: {
+        include: { branch: { select: { id: true, name: true, code: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      },
     },
-    {
-      limit,
-      includeVisitHistory: true,
-      strictMode: false // Allow fuzzy name matching
-    }
-  );
+  });
 
-  // Return just the patient data (without match metadata)
-  // Frontend doesn't need to know about match scores/confidence
-  const patients = matches.map(match => match.patient);
+  // findMany(`in`) does not preserve the ranked order — reorder by pageIds.
+  const byId = new Map(patients.map(p => [p.id, p]));
+  const results = pageIds
+    .map(id => byId.get(id))
+    .filter((p): p is NonNullable<typeof p> => Boolean(p))
+    .map(p => toSearchResult(p));
 
-  // Transform to search result format with history snapshot
-  return patients.map((patient: any) => toSearchResult(patient));
+  return { results, total };
 }
 
 // Shared search-result shaper (used by fuzzy + patientNumber paths).

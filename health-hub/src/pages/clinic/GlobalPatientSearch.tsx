@@ -33,13 +33,16 @@ export default function GlobalPatientSearch() {
   const [rawQuery, setRawQuery] = useState("");
   // null = auto-detect; a SearchKind = forced via an override pill.
   const [override, setOverride] = useState<SearchKind | null>(null);
+  // 1-based page for the ranked name results. Reset to 1 synchronously whenever
+  // the query text or override changes (below) so a new search starts on page 1.
+  const [page, setPage] = useState(1);
   // Bumped to re-read localStorage after a clear (recently-viewed is read on
   // every render but localStorage writes from the detail page need a nudge).
   const [recentNonce, setRecentNonce] = useState(0);
 
   // Patient-search slice (phone/name/email/patientNumber). The hook owns the
   // 300ms debounce + detection + type-gated placeholderData.
-  const search = useSmartSearch(rawQuery, override ?? undefined);
+  const search = useSmartSearch(rawQuery, override ?? undefined, page);
   const effectiveKind = search.effectiveKind;
   const detectedKind = search.detectedKind;
 
@@ -79,6 +82,7 @@ export default function GlobalPatientSearch() {
   const clear = () => {
     setRawQuery("");
     setOverride(null);
+    setPage(1);
   };
 
   const clearRecent = () => {
@@ -106,13 +110,17 @@ export default function GlobalPatientSearch() {
               rawQuery={rawQuery}
               onChange={(v) => {
                 setRawQuery(v);
-                // Editing text resets any active override (§5).
+                // Editing text resets any active override (§5) and the pager.
                 if (override) setOverride(null);
+                setPage(1);
               }}
               detection={detectedKind}
               effectiveKind={effectiveKind}
               overrideActive={override !== null}
-              onOverride={setOverride}
+              onOverride={(k) => {
+                setOverride(k);
+                setPage(1);
+              }}
               onSubmit={retry}
             />
           </CardContent>
@@ -122,8 +130,21 @@ export default function GlobalPatientSearch() {
           effectiveKind={effectiveKind}
           typed={rawQuery.trim()}
           active={active}
-          patientResults={search.data}
-          patientLoading={search.isFetching && active && effectiveKind !== "bill"}
+          patientResults={search.results}
+          patientTotal={search.total}
+          page={page}
+          pageSize={search.pageSize}
+          hasMore={search.hasMore}
+          onPrevPage={() => setPage((p) => Math.max(1, p - 1))}
+          onNextPage={() => setPage((p) => p + 1)}
+          // Skeleton only when there's nothing to show yet — during page flips
+          // the previous page stays visible (placeholderData) instead of a flash.
+          patientLoading={
+            search.isFetching &&
+            active &&
+            effectiveKind !== "bill" &&
+            search.results.length === 0
+          }
           patientError={effectiveKind !== "bill" ? search.error : null}
           billResult={bill.data}
           billLoading={bill.isFetching && effectiveKind === "bill"}

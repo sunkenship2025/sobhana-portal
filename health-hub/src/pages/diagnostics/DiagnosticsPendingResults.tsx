@@ -20,6 +20,9 @@ import { useAuthStore } from "@/store/authStore";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toast } from "sonner";
 import { CheckCheck, Clock, Search, Phone, Stethoscope } from "lucide-react";
+import { searchWorklist } from "@/lib/worklistSearch";
+import { usePagedList } from "@/hooks/usePagedList";
+import { WorklistPager } from "@/components/worklist/WorklistPager";
 import {
   Dialog,
   DialogContent,
@@ -247,7 +250,7 @@ const DiagnosticsPendingResults = () => {
   }, [pendingVisits, activeBranchId]);
 
   const filteredVisits = useMemo(() => {
-    return visitsWithDetails.filter(({ patient, visit }) => {
+    const base = visitsWithDetails.filter(({ visit }) => {
       // Include both REPORTABLE and EXTERNAL_UPLOAD visits — both land on the entry screen.
       const hasInclusion =
         visit.hasReportInclusionOrders ??
@@ -256,22 +259,19 @@ const DiagnosticsPendingResults = () => {
         return false;
       }
 
-      if (!matchesDateFilter(dateFilter, visit.createdAt)) {
-        return false;
-      }
-
-      if (!search) return true;
-      const searchLower = search.toLowerCase();
-      const phone =
-        patient?.identifiers?.find((id: any) => id.type === "PHONE")?.value ||
-        "";
-      return (
-        phone.includes(search) ||
-        patient?.name.toLowerCase().includes(searchLower) ||
-        visit.billNumber.toLowerCase().includes(searchLower)
-      );
+      return matchesDateFilter(dateFilter, visit.createdAt);
     });
+
+    // Ranked, case-insensitive, phone-format-agnostic search (exact name first);
+    // returns `base` unchanged when the search box is empty.
+    return searchWorklist(base, search, ({ patient, visit }) => ({
+      name: patient?.name,
+      phone: patient?.identifiers?.find((id: any) => id.type === "PHONE")?.value,
+      billNumber: visit.billNumber,
+    }));
   }, [visitsWithDetails, dateFilter, search]);
+
+  const paged = usePagedList(filteredVisits, `${search}|${dateFilter}`);
 
   // Whether any case is actually result-entry-eligible (passes the domain gate
   // above), independent of date/search. Lets the empty state tell "nothing to
@@ -457,7 +457,7 @@ const DiagnosticsPendingResults = () => {
               </div>
             ) : (
               <div className="space-y-3">
-                {filteredVisits.map(({ visit, patient, testOrders }) => {
+                {paged.pageItems.map(({ visit, patient, testOrders }) => {
                   const p: any = patient || {};
                   const ageStr = compactAge(p);
                   const genderStr = p.gender || "";
@@ -587,6 +587,14 @@ const DiagnosticsPendingResults = () => {
                   </div>
                   );
                 })}
+                <WorklistPager
+                  page={paged.page}
+                  totalPages={paged.totalPages}
+                  hasPrev={paged.hasPrev}
+                  hasNext={paged.hasNext}
+                  onPrev={paged.prev}
+                  onNext={paged.next}
+                />
               </div>
             )}
           </CardContent>

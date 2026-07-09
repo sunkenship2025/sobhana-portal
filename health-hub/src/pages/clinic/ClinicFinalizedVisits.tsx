@@ -13,6 +13,9 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { CheckCircle2, Search, Eye, Printer, FileText, Phone, Stethoscope, Loader2 } from 'lucide-react';
 import { formatPatientName, compactAge } from '@/lib/patientDisplay';
+import { searchWorklist } from '@/lib/worklistSearch';
+import { usePagedList } from '@/hooks/usePagedList';
+import { WorklistPager } from '@/components/worklist/WorklistPager';
 
 // Shape returned by GET /api/visits/clinic (mirrors ClinicVisitQueue's QueueVisit).
 interface ClinicVisit {
@@ -98,25 +101,28 @@ const ClinicFinalizedVisits = () => {
   }, [token, activeBranchId]);
 
   const filteredVisits = useMemo(() => {
-    return visits
+    const base = visits
       .filter((v) => v.status === 'COMPLETED' && v.branchId === activeBranchId)
       .filter((v) => visitTypeFilter === 'all' || v.visitType === visitTypeFilter)
       .filter((v) => matchesDateFilter(dateFilter, v.completedAt || v.updatedAt))
-      .filter((v) => {
-        if (!search) return true;
-        const s = search.toLowerCase();
-        const phone = v.patient.identifiers.find((i) => i.type === 'PHONE')?.value || '';
-        return (
-          phone.includes(search) ||
-          v.patient.name.toLowerCase().includes(s) ||
-          v.visitRef.toLowerCase().includes(s) ||
-          (v.billNumber || '').toLowerCase().includes(s)
-        );
-      })
       .sort((a, b) =>
         new Date(b.completedAt || b.updatedAt).getTime() - new Date(a.completedAt || a.updatedAt).getTime(),
       );
+
+    // Ranked, case-insensitive, phone-format-agnostic search (exact name first);
+    // returns `base` unchanged when the search box is empty.
+    return searchWorklist(base, search, (v) => ({
+      name: v.patient.name,
+      phone: v.patient.identifiers.find((i) => i.type === 'PHONE')?.value,
+      billNumber: v.billNumber,
+      visitRef: v.visitRef,
+    }));
   }, [visits, activeBranchId, visitTypeFilter, dateFilter, search]);
+
+  const paged = usePagedList(
+    filteredVisits,
+    `${search}|${visitTypeFilter}|${dateFilter}`,
+  );
 
   const hasData = visits.some((v) => v.status === 'COMPLETED' && v.branchId === activeBranchId);
 
@@ -213,7 +219,7 @@ const ClinicFinalizedVisits = () => {
               </div>
             ) : (
               <div className="space-y-3">
-                {filteredVisits.map((visit) => {
+                {paged.pageItems.map((visit) => {
                   const ageStr = compactAge(visit.patient);
                   const genderStr = visit.patient.gender || '';
                   const phone = visit.patient.identifiers.find((i) => i.type === 'PHONE')?.value || '';
@@ -282,6 +288,14 @@ const ClinicFinalizedVisits = () => {
                     </div>
                   );
                 })}
+                <WorklistPager
+                  page={paged.page}
+                  totalPages={paged.totalPages}
+                  hasPrev={paged.hasPrev}
+                  hasNext={paged.hasNext}
+                  onPrev={paged.prev}
+                  onNext={paged.next}
+                />
               </div>
             )}
           </CardContent>

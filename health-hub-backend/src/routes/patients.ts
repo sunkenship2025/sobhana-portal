@@ -56,17 +56,21 @@ router.post('/', async (req: AuthRequest, res) => {
 // GET /api/patients/search - Search patients
 router.get('/search', async (req: AuthRequest, res) => {
   try {
-    const { phone, email, name, patientNumber, limit } = req.query;
+    const { phone, email, name, patientNumber, page, pageSize, limit } = req.query;
 
-    const patients = await patientService.searchPatients({
+    const result = await patientService.searchPatients({
       phone: phone as string,
       email: email as string,
       name: name as string,
       patientNumber: patientNumber as string,
+      // Pagination is opt-in: only a present `page` switches the response to
+      // the { results, total, ... } envelope (legacy array otherwise).
+      page: page !== undefined ? parseInt(page as string) : undefined,
+      pageSize: pageSize !== undefined ? parseInt(pageSize as string) : undefined,
       limit: limit ? parseInt(limit as string) : undefined
     });
 
-    return res.json(patients);
+    return res.json(result);
   } catch (err: any) {
     if (err.statusCode) {
       return res.status(err.statusCode).json({

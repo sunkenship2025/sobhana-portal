@@ -630,6 +630,17 @@ export interface PatientSearchResult {
   totalVisits: number;
 }
 
+// Paginated smart-search envelope (returned when the request carries `?page=`).
+// The whole match set is ranked server-side (exact name first); each page is
+// one 20-row slice, `total` is the full match count for the pager.
+export interface PatientSearchPage {
+  results: PatientSearchResult[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+}
+
 // ============================================
 // PATIENT 360 v2 (§6 of 06-frontend-plan.md)
 // Shapes mirror the live backend in patientService.ts. The four endpoints are

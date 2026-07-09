@@ -120,8 +120,8 @@ export const qk = {
     ["patient360", "summary", patientId] as const,
   patient360Timeline: (patientId: string, filters: TimelineFilters) =>
     ["patient360", "timeline", patientId, filters] as const,
-  patientSmartSearch: (type: SearchKind, q: string) =>
-    ["patientSearch", "smart", type, q] as const,
+  patientSmartSearch: (type: SearchKind, q: string, page: number) =>
+    ["patientSearch", "smart", type, q, page] as const,
   billLookup: (billNumber: string) => ["billLookup", billNumber] as const,
   // --- branch-scoped (branchId in key; flushed wholesale on branch switch) ---
   diagnosticCenters: (branchId: string | null) =>

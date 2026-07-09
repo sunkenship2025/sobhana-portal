@@ -19,6 +19,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { formatPatientName, compactAge } from '@/lib/patientDisplay';
+import { searchWorklist } from '@/lib/worklistSearch';
+import { usePagedList } from '@/hooks/usePagedList';
+import { WorklistPager } from '@/components/worklist/WorklistPager';
 
 // Shape returned by GET /api/visits/clinic
 interface QueueVisit {
@@ -119,39 +122,38 @@ const ClinicVisitQueue = () => {
 
   // Filter visits
   const filteredVisits = useMemo(() => {
-    const queueVisits = visits.filter((visit) =>
-      visit.status === 'WAITING' || visit.status === 'IN_PROGRESS',
-    );
+    const base = visits
+      .filter((visit) => visit.status === 'WAITING' || visit.status === 'IN_PROGRESS')
+      .filter((visit) => {
+        // Visit type filter
+        if (visitTypeFilter !== 'all' && visit.visitType !== visitTypeFilter) return false;
+        // Doctor filter
+        if (doctorFilter !== 'all' && visit.doctorId !== doctorFilter) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const statusOrder = { WAITING: 0, IN_PROGRESS: 1 } as Record<string, number>;
+        const statusDelta = (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
+        if (statusDelta !== 0) {
+          return statusDelta;
+        }
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      });
 
-    return queueVisits.filter((visit) => {
-      // Visit type filter
-      if (visitTypeFilter !== 'all' && visit.visitType !== visitTypeFilter) return false;
-
-      // Doctor filter
-      if (doctorFilter !== 'all' && visit.doctorId !== doctorFilter) return false;
-
-      // Search filter
-      if (search) {
-        const searchLower = search.toLowerCase();
-        const phone = visit.patient.identifiers.find((i) => i.type === 'PHONE')?.value || '';
-        return (
-          phone.includes(search) ||
-          visit.visitRef.toLowerCase().includes(searchLower) ||
-          (visit.billNumber || '').toLowerCase().includes(searchLower) ||
-          visit.patient.name.toLowerCase().includes(searchLower)
-        );
-      }
-
-      return true;
-    }).sort((a, b) => {
-      const statusOrder = { WAITING: 0, IN_PROGRESS: 1 } as Record<string, number>;
-      const statusDelta = (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
-      if (statusDelta !== 0) {
-        return statusDelta;
-      }
-      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-    });
+    // Ranked, case-insensitive, phone-format-agnostic search (exact name first);
+    // returns `base` unchanged when the search box is empty.
+    return searchWorklist(base, search, (visit) => ({
+      name: visit.patient.name,
+      phone: visit.patient.identifiers.find((i) => i.type === 'PHONE')?.value,
+      billNumber: visit.billNumber,
+      visitRef: visit.visitRef,
+    }));
   }, [visits, visitTypeFilter, doctorFilter, search]);
+
+  const paged = usePagedList(
+    filteredVisits,
+    `${search}|${visitTypeFilter}|${doctorFilter}`,
+  );
 
   const updateVisitStatus = async (visit: QueueVisit, status: 'IN_PROGRESS' | 'COMPLETED') => {
     if (!activeBranchId) return;
@@ -346,7 +348,7 @@ const ClinicVisitQueue = () => {
               })()
             ) : (
               <div className="space-y-3">
-                {filteredVisits.map((visit) => {
+                {paged.pageItems.map((visit) => {
                   const phone = visit.patient.identifiers.find((i) => i.type === 'PHONE')?.value || '';
                   const ageStr = compactAge(visit.patient);
                   const genderStr = visit.patient.gender || '';
@@ -457,6 +459,14 @@ const ClinicVisitQueue = () => {
                     </div>
                   );
                 })}
+                <WorklistPager
+                  page={paged.page}
+                  totalPages={paged.totalPages}
+                  hasPrev={paged.hasPrev}
+                  hasNext={paged.hasNext}
+                  onPrev={paged.prev}
+                  onNext={paged.next}
+                />
               </div>
             )}
           </CardContent>

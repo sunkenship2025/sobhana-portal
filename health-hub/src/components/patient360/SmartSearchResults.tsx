@@ -38,8 +38,15 @@ interface SmartSearchResultsProps {
   /** Whether any network query is enabled for the current input (min-length met). */
   active: boolean;
 
-  // patient-search slice (useSmartSearch)
+  // patient-search slice (useSmartSearch) — `patientResults` is the current
+  // page; `patientTotal` is the full ranked match count (drives count + pager).
   patientResults: PatientSearchResult[] | undefined;
+  patientTotal: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  onPrevPage: () => void;
+  onNextPage: () => void;
   patientLoading: boolean;
   patientError: Error | null;
 
@@ -103,6 +110,12 @@ export function SmartSearchResults(props: SmartSearchResultsProps) {
     typed,
     active,
     patientResults,
+    patientTotal,
+    page,
+    pageSize,
+    hasMore,
+    onPrevPage,
+    onNextPage,
     patientLoading,
     patientError,
     billResult,
@@ -157,7 +170,7 @@ export function SmartSearchResults(props: SmartSearchResultsProps) {
   // --- patient path --------------------------------------------------------
   if (patientLoading) return <SkeletonRows />;
   if (patientError) return <ErrorAlert onRetry={onRetry} />;
-  if (patientResults && patientResults.length === 0) {
+  if (patientResults && patientTotal === 0) {
     return (
       <NoMatchRegister
         typed={typed}
@@ -168,12 +181,12 @@ export function SmartSearchResults(props: SmartSearchResultsProps) {
     );
   }
   if (patientResults && patientResults.length > 0) {
+    const totalPages = Math.ceil(patientTotal / pageSize);
     return (
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          {patientResults.length}{" "}
-          {patientResults.length === 1 ? "patient" : "patients"} found · all
-          branches · read-only
+          {patientTotal} {patientTotal === 1 ? "patient" : "patients"} found ·
+          all branches · read-only
         </p>
         {patientResults.map((result) => (
           <PatientMatchCard
@@ -182,6 +195,29 @@ export function SmartSearchResults(props: SmartSearchResultsProps) {
             onOpen={onOpenPatient}
           />
         ))}
+        {patientTotal > pageSize && (
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page <= 1}
+              onClick={onPrevPage}
+            >
+              Previous
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              Page {page} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!hasMore}
+              onClick={onNextPage}
+            >
+              Next
+            </Button>
+          </div>
+        )}
       </div>
     );
   }

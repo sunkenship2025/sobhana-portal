@@ -17,6 +17,9 @@ import { CheckCircle2, Search, Eye, Printer, MessageCircle, Phone, Stethoscope, 
 import { openFinalizedReportWindow } from '@/lib/reportAccess';
 import { formatPatientName, compactAge, formatRefDoctor } from '@/lib/patientDisplay';
 import { cn } from '@/lib/utils';
+import { searchWorklist } from '@/lib/worklistSearch';
+import { usePagedList } from '@/hooks/usePagedList';
+import { WorklistPager } from '@/components/worklist/WorklistPager';
 
 // Collapse a list of test orders into a readable summary for the visit row.
 // Bill-only orders are hidden (they don't ship in a report). Orders that
@@ -160,7 +163,7 @@ const DiagnosticsFinalizedReports = () => {
   }, [finalizedVisits, activeBranchId]);
 
   const filteredVisits = useMemo(() => {
-    return visitsWithDetails.filter(({ patient, visit }) => {
+    const base = visitsWithDetails.filter(({ visit }) => {
       // Report rows sort by finalize time; bill-only / films-only rows have no
       // report, so fall back to when they were billed.
       const activityAt =
@@ -169,20 +172,19 @@ const DiagnosticsFinalizedReports = () => {
         visit.updatedAt ||
         visit.createdAt;
 
-      if (!matchesDateFilter(dateFilter, activityAt)) {
-        return false;
-      }
-
-      if (!search) return true;
-      const searchLower = search.toLowerCase();
-      const phone = patient?.identifiers?.find((id: any) => id.type === 'PHONE')?.value || '';
-      return (
-        phone.includes(search) ||
-        patient?.name.toLowerCase().includes(searchLower) ||
-        (visit.billNumber || '').toLowerCase().includes(searchLower)
-      );
+      return matchesDateFilter(dateFilter, activityAt);
     });
+
+    // Ranked, case-insensitive, phone-format-agnostic search (exact name first);
+    // returns `base` unchanged when the search box is empty.
+    return searchWorklist(base, search, ({ patient, visit }) => ({
+      name: patient?.name,
+      phone: patient?.identifiers?.find((id: any) => id.type === 'PHONE')?.value,
+      billNumber: visit.billNumber,
+    }));
   }, [visitsWithDetails, dateFilter, search]);
+
+  const paged = usePagedList(filteredVisits, `${search}|${dateFilter}`);
 
   // Optimistically patch a visit in local state so its green Printed/Sent
   // indicators update immediately, before the next refetch.
@@ -355,7 +357,7 @@ const DiagnosticsFinalizedReports = () => {
               })()
             ) : (
               <div className="space-y-3">
-                {filteredVisits.map(({ visit, patient, testOrders }) => {
+                {paged.pageItems.map(({ visit, patient, testOrders }) => {
                   const p: any = patient || {};
                   const ageStr = compactAge(p);
                   const genderStr = p.gender || '';
@@ -512,6 +514,14 @@ const DiagnosticsFinalizedReports = () => {
                   </div>
                   );
                 })}
+                <WorklistPager
+                  page={paged.page}
+                  totalPages={paged.totalPages}
+                  hasPrev={paged.hasPrev}
+                  hasNext={paged.hasNext}
+                  onPrev={paged.prev}
+                  onNext={paged.next}
+                />
               </div>
             )}
           </CardContent>

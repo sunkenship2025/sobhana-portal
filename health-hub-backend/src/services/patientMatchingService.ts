@@ -50,8 +50,11 @@ function validateEmail(email: string): boolean {
 
 /**
  * Calculate name similarity score (basic Levenshtein-like)
+ *
+ * Exported so the search layer can rank name matches (exact === 100 first)
+ * consistently with the create-time matcher.
  */
-function calculateNameSimilarity(name1: string, name2: string): number {
+export function calculateNameSimilarity(name1: string, name2: string): number {
   const n1 = name1.toLowerCase().trim();
   const n2 = name2.toLowerCase().trim();
   

@@ -22,7 +22,7 @@ import type {
   Patient,
   Patient360Summary,
   Patient360TimelinePage,
-  PatientSearchResult,
+  PatientSearchPage,
   BillLookupResult,
   PatientEditPayload,
   SearchKind,
@@ -168,8 +168,13 @@ export function usePatient360Timeline(
 // ---------------------------------------------------------------------------
 
 const SEARCH_DEBOUNCE_MS = 300;
+const SEARCH_PAGE_SIZE = 20;
 
-export function useSmartSearch(raw: string, overrideType?: SearchKind) {
+export function useSmartSearch(
+  raw: string,
+  overrideType?: SearchKind,
+  page = 1,
+) {
   const [debounced, setDebounced] = useState(raw);
 
   useEffect(() => {
@@ -190,22 +195,28 @@ export function useSmartSearch(raw: string, overrideType?: SearchKind) {
   const enabled =
     !!param && type !== "bill" && value.length >= 2;
 
-  const query = useApiQuery<PatientSearchResult[]>({
-    queryKey: qk.patientSmartSearch(type, value),
+  // Paginated envelope: `?page=&pageSize=` switches the backend to the ranked
+  // { results, total, hasMore } shape. The full match set is ranked server-side
+  // (exact name first), so the best match is never truncated out of a page.
+  const query = useApiQuery<PatientSearchPage>({
+    queryKey: qk.patientSmartSearch(type, value, page),
     queryFn: ({ signal }) =>
-      apiCall<PatientSearchResult[]>(
-        `/patients/search?${param}=${encodeURIComponent(value)}`,
+      apiCall<PatientSearchPage>(
+        `/patients/search?${param}=${encodeURIComponent(value)}&page=${page}&pageSize=${SEARCH_PAGE_SIZE}`,
         { signal },
       ),
     enabled,
     staleTime: 30_000,
     // Type-gated: keep prior data ONLY when the previous key's `type` (index 2)
     // matches the current type, so results persist between same-type keystrokes
-    // but CLEAR the moment effectiveKind flips (no stale phone rows under a name
-    // query). queryKey is ['patientSearch','smart',type,q] → type at index 2.
+    // and page flips but CLEAR the moment effectiveKind flips (no stale phone
+    // rows under a name query). queryKey is
+    // ['patientSearch','smart',type,q,page] → type at index 2.
     placeholderData: (prev, prevQuery) =>
       prevQuery && (prevQuery.queryKey as QueryKey)[2] === type ? prev : undefined,
   });
+
+  const pageData = query.data;
 
   // Expose the settled detection + the effective (override-aware) kind so the
   // SmartSearchBar can render the badge / announce the SETTLED detection, and
@@ -213,6 +224,14 @@ export function useSmartSearch(raw: string, overrideType?: SearchKind) {
   // normalized bill number when the effective kind is "bill", else null.
   return {
     ...query,
+    /** Current page of results (ranked; empty until the first page loads). */
+    results: pageData?.results ?? [],
+    /** Full match count across all pages (drives the count line + pager). */
+    total: pageData?.total ?? 0,
+    /** True when another page exists after this one. */
+    hasMore: pageData?.hasMore ?? false,
+    /** Server page size (rows per page). */
+    pageSize: pageData?.pageSize ?? SEARCH_PAGE_SIZE,
     /** Settled (debounced) auto-detected kind — drives the aria-live badge. */
     detectedKind: detection.kind,
     /** Override ?? detection — the kind in effect right now. */
