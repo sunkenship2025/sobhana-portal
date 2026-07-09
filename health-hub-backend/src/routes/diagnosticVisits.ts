@@ -2,6 +2,8 @@ import { Router } from "express";
 import QRCode from "qrcode";
 import {
   DiagnosticWorkflowMode,
+  MessageChannel,
+  MessageStatus,
   ReportStatus,
   VisitStatus,
 } from "@prisma/client";
@@ -583,6 +585,47 @@ router.get("/", async (req: AuthRequest, res) => {
       orderBy: { createdAt: "desc" },
     });
 
+    // WhatsApp delivery signal for the Finalized page: has a REPORT / BILL
+    // notification actually gone out for each visit? Drives the green "Sent"
+    // affordance. Only count messages that left the building (SENT/DELIVERED/
+    // READ) — a PENDING/FAILED row isn't a send. Latest wins per context.
+    const listVisitIds = visits.map((v) => v.id);
+    const sentMessages = listVisitIds.length
+      ? await prisma.messageLog.findMany({
+          where: {
+            contextId: { in: listVisitIds },
+            channel: MessageChannel.WHATSAPP,
+            status: {
+              in: [
+                MessageStatus.SENT,
+                MessageStatus.DELIVERED,
+                MessageStatus.READ,
+              ],
+            },
+          },
+          orderBy: { createdAt: "desc" },
+          select: {
+            contextId: true,
+            contextType: true,
+            sentAt: true,
+            createdAt: true,
+          },
+        })
+      : [];
+    const reportSentAtByVisit = new Map<string, Date>();
+    const billSentAtByVisit = new Map<string, Date>();
+    for (const m of sentMessages) {
+      const at = m.sentAt ?? m.createdAt;
+      if (m.contextType === "REPORT" && !reportSentAtByVisit.has(m.contextId)) {
+        reportSentAtByVisit.set(m.contextId, at);
+      } else if (
+        m.contextType === "BILL" &&
+        !billSentAtByVisit.has(m.contextId)
+      ) {
+        billSentAtByVisit.set(m.contextId, at);
+      }
+    }
+
     // Resolve panel membership for every test order so list views can show
     // panel names ("HEMOGRAM") instead of long lists of constituent test
     // codes ("HB, PCV, RBC, ..."). Two arches coexist: lab tests resolve via
@@ -746,6 +789,11 @@ router.get("/", async (req: AuthRequest, res) => {
           currentVersion?.status === "FINALIZED"
             ? currentVersion.finalizedAt
             : null,
+        // Finalized-page "Printed" / "Sent" signals (green affordances).
+        billPrintedAt: v.billPrintedAt,
+        reportPrintedAt: v.reportPrintedAt,
+        billWhatsappSentAt: billSentAtByVisit.get(v.id) ?? null,
+        reportWhatsappSentAt: reportSentAtByVisit.get(v.id) ?? null,
         hasReportableOrders: composition.hasReportableOrders,
         hasBillOnlyOrders: composition.hasBillOnlyOrders,
         hasExternalUploadOrders: composition.hasExternalUploadOrders,
@@ -4773,6 +4821,54 @@ router.post("/:id/confirm-ready", async (req: AuthRequest, res) => {
     return res.status(500).json({
       error: "INTERNAL_ERROR",
       message: "Failed to complete legacy bill-only visit",
+    });
+  }
+});
+
+// POST /api/visits/diagnostic/:id/mark-printed
+// Stamp when the bill or finalized report was printed from the Finalized page,
+// so the print icon turns green ("Printed · time") for every staffer/device.
+// Purely a staff-facing signal — never touches report content or money.
+router.post("/:id/mark-printed", async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const kind = req.body?.kind;
+
+    if (kind !== "bill" && kind !== "report") {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "kind must be 'bill' or 'report'",
+      });
+    }
+
+    const visit = await prisma.visit.findFirst({
+      where: { id, branchId: req.branchId, domain: "DIAGNOSTICS" },
+      select: { id: true },
+    });
+
+    if (!visit) {
+      return res.status(404).json({
+        error: "NOT_FOUND",
+        message: "Diagnostic visit not found",
+      });
+    }
+
+    const updated = await prisma.visit.update({
+      where: { id },
+      data: kind === "bill" ? { billPrintedAt: new Date() } : { reportPrintedAt: new Date() },
+      select: { billPrintedAt: true, reportPrintedAt: true },
+    });
+
+    return res.json({
+      success: true,
+      billPrintedAt: updated.billPrintedAt,
+      reportPrintedAt: updated.reportPrintedAt,
+    });
+  } catch (err: any) {
+    console.error("Mark visit printed error:", err);
+    return res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: "Failed to record print",
     });
   }
 });

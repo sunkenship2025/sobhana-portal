@@ -523,6 +523,13 @@ model Visit {
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
 
+  // Set when the bill / finalized report is printed from the Finalized page.
+  // Drives the green "Printed · time" affordance so staff can see at a glance
+  // that a bill-only / films-only bill (or a finalized report) was already
+  // printed. Purely a staff-facing signal; no bearing on report content.
+  billPrintedAt      DateTime?
+  reportPrintedAt    DateTime?
+
   // Relations
   branch  Branch  @relation(fields: [branchId], references: [id], onDelete: Restrict)
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Restrict)
