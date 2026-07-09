@@ -214,6 +214,11 @@ app.use((req, res, next) => {
   next();
 });
 
+// WhatsApp webhook — MUST be mounted BEFORE express.json so the route's own
+// express.raw captures the exact request bytes for HMAC signature verification.
+// Otherwise express.json consumes the body first -> empty buffer -> 401 on every webhook.
+app.use('/webhooks/whatsapp', webhookRoutes);
+
 app.use(express.json());
 
 // Parse Set-Cookie / Cookie headers — required for httpOnly JWT auth.
@@ -302,9 +307,6 @@ app.use('/r', reportGatewayRoutes);
 app.use('/c', couponGatewayRoutes);
 // Payee-facing payout statement (JSON) for WhatsApp links: /statements/view/:token
 app.use('/statements/view', statementDownloadRoutes);
-
-// WhatsApp webhook (public, no auth) - Meta delivery receipts
-app.use('/webhooks/whatsapp', webhookRoutes);
 
 // Legacy report API (JWT-based, for clinic/Patient360)
 app.use('/api/reports', reportRoutes);
