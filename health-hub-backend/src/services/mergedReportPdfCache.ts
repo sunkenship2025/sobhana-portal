@@ -29,7 +29,11 @@ import { logger } from '../lib/logger';
 // v12 -> v13: physical keys gained a signature variant (see `variant` below)
 // and the lab-incharge show-on-print flag became live rather than frozen, so
 // old physical entries used stale keys/logic. Cheap to regenerate at clinic volume.
-const KEY_PREFIX = 'merged-pdf:v13:';
+// v13 -> v14: one-time flush after a manual value correction of a finalized
+// report (MONTAZ ALI P-000807, CBP diff count) whose snapshot was patched
+// directly; the external Redis has no in-app delete hook, so bump the prefix to
+// invalidate the stale cached PDF on the patient's already-sent report link.
+const KEY_PREFIX = 'merged-pdf:v14:';
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 const CACHE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — skip outliers so they don't flush LRU
 
