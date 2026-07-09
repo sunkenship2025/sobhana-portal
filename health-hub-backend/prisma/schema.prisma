@@ -1248,6 +1248,10 @@ model SigningLabIncharge {
   designation          String   @default("Lab Incharge")
   signatureImagePath   String? // Path to signature PNG in storage (set after upload)
   signatureImageBase64 String? // Base64 data URI — persists across deploys (Render safe)
+  /// When true, the digital signature image also prints on physical (letterhead)
+  /// reports. Default false keeps the legacy behavior: physical prints show a
+  /// blank Lab Incharge line for a wet signature (only the digital PDF signs).
+  showSignatureOnPrint Boolean  @default(false)
   isActive             Boolean  @default(true)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt

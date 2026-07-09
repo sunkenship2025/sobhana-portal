@@ -67,6 +67,7 @@ interface SigningLabIncharge {
   name: string;
   designation: string;
   signatureImagePath: string | null;
+  showSignatureOnPrint: boolean;
   isActive: boolean;
   _count: { labInchargeRules: number };
 }
@@ -137,7 +138,7 @@ export default function ManageSigningDoctors() {
   const [editingLabInchargeId, setEditingLabInchargeId] = useState<string | null>(null);
   const [deleteLabInchargeId, setDeleteLabInchargeId] = useState<string | null>(null);
   const [labInchargeForm, setLabInchargeForm] = useState({
-    name: '', designation: 'Lab Incharge', isActive: true,
+    name: '', designation: 'Lab Incharge', showSignatureOnPrint: false, isActive: true,
   });
   const [labInchargePendingSignatureFile, setLabInchargePendingSignatureFile] = useState<File | null>(null);
   const [labInchargePendingSignaturePreview, setLabInchargePendingSignaturePreview] = useState<string | null>(null);
@@ -325,7 +326,7 @@ export default function ManageSigningDoctors() {
 
   // ── Lab Incharge CRUD ──────────────────────────────────────────
   const resetLabInchargeForm = () => {
-    setLabInchargeForm({ name: '', designation: 'Lab Incharge', isActive: true });
+    setLabInchargeForm({ name: '', designation: 'Lab Incharge', showSignatureOnPrint: false, isActive: true });
     setLabInchargePendingSignatureFile(null);
     if (labInchargePendingSignaturePreview) URL.revokeObjectURL(labInchargePendingSignaturePreview);
     setLabInchargePendingSignaturePreview(null);
@@ -335,7 +336,7 @@ export default function ManageSigningDoctors() {
 
   const handleAddLabIncharge = () => {
     resetLabInchargeForm();
-    setLabInchargeForm({ name: '', designation: 'Lab Incharge', isActive: true });
+    setLabInchargeForm({ name: '', designation: 'Lab Incharge', showSignatureOnPrint: false, isActive: true });
     setLabInchargeSheetOpen(true);
   };
 
@@ -343,6 +344,7 @@ export default function ManageSigningDoctors() {
     setLabInchargeForm({
       name: li.name,
       designation: li.designation,
+      showSignatureOnPrint: li.showSignatureOnPrint,
       isActive: li.isActive,
     });
     setEditingLabInchargeId(li.id);
@@ -360,6 +362,7 @@ export default function ManageSigningDoctors() {
       const body = {
         name: labInchargeForm.name.trim(),
         designation: labInchargeForm.designation.trim(),
+        showSignatureOnPrint: labInchargeForm.showSignatureOnPrint,
         isActive: labInchargeForm.isActive,
       };
 
@@ -1390,6 +1393,15 @@ export default function ManageSigningDoctors() {
               <p className="text-xs text-muted-foreground">
                 Signature will appear on printed reports for this lab incharge
               </p>
+            </div>
+
+            {/* Show signature on physical (letterhead) prints */}
+            <div className="flex items-center gap-3">
+              <Switch
+                checked={labInchargeForm.showSignatureOnPrint}
+                onCheckedChange={v => setLabInchargeForm({ ...labInchargeForm, showSignatureOnPrint: v })}
+              />
+              <Label>Show signature on physical prints</Label>
             </div>
 
             {/* Active toggle */}

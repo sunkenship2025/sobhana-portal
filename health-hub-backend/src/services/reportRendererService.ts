@@ -966,7 +966,7 @@ function renderReportBottomHtml(
   const labInchargeBlock = showLabIncharge
     ? `
             <div class="signature-block lab-incharge-block">
-              ${!isPhysicalPrint && labInchargeSignatureImg ? `<img src="${labInchargeSignatureImg}" alt="Signature" class="signature-image" onerror="this.style.display='none'" />` : '<div class="lab-incharge-line"></div>'}
+              ${labInchargeSignatureImg ? `<img src="${labInchargeSignatureImg}" alt="Signature" class="signature-image" onerror="this.style.display='none'" />` : '<div class="lab-incharge-line"></div>'}
               <div class="lab-incharge-label">Lab Incharge</div>
             </div>`
     : '';
@@ -1194,7 +1194,13 @@ function renderReportPage(
     ? pageDepartment.showLabIncharge !== false
     : snapshot.departments.some((d) => d.showLabIncharge !== false);
   const isRadiology = pageDepartment?.departmentName === 'RADIOLOGY';
-  const labInchargeSignatureImg = showLabIncharge && !isPhysicalPrint
+  // Physical (letterhead) prints normally leave the Lab Incharge a blank line
+  // for a wet signature. The per-signer showSignatureOnPrint toggle opts into
+  // printing the digital signature image there too. Digital PDFs always sign.
+  const showLabInchargeSignature =
+    showLabIncharge &&
+    (!isPhysicalPrint || snapshot.labIncharge?.showSignatureOnPrint === true);
+  const labInchargeSignatureImg = showLabInchargeSignature
     ? renderLabInchargeSignatureImg(snapshot.labIncharge, baseUrl)
     : '';
   const reportBottomHtml = page.includeReportBottom

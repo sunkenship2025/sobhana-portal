@@ -121,6 +121,10 @@ export interface LabInchargeSnapshot {
   designation: string;
   signatureImagePath: string | null;
   signatureImageBase64: string | null;
+  /** When true, the signature image also renders on physical (letterhead)
+   *  prints; when false, physical prints show a blank line for a wet signature.
+   *  Absent on snapshots frozen before this field existed — treat as false. */
+  showSignatureOnPrint: boolean;
 }
 
 export interface PatientSnapshot {
@@ -395,6 +399,7 @@ async function getLabInchargeSnapshotForBranch(branchId: string): Promise<LabInc
     designation: li.designation,
     signatureImagePath: li.signatureImagePath,
     signatureImageBase64: li.signatureImageBase64 || null,
+    showSignatureOnPrint: li.showSignatureOnPrint,
   };
 }
 
@@ -1880,6 +1885,7 @@ export async function getReportSnapshot(reportVersionId: string): Promise<Report
         designation: true,
         signatureImagePath: true,
         signatureImageBase64: true,
+        showSignatureOnPrint: true,
       },
     });
     if (currentLabIncharge) {
@@ -1899,6 +1905,13 @@ export async function getReportSnapshot(reportVersionId: string): Promise<Report
           labIncharge.signatureImageBase64 ||
           currentLabIncharge.signatureImageBase64 ||
           null,
+        // Frozen value wins for reports finalized after this field shipped;
+        // reports frozen before it (undefined) fall back to the live setting so
+        // turning the toggle on takes effect on them too.
+        showSignatureOnPrint:
+          typeof labIncharge.showSignatureOnPrint === 'boolean'
+            ? labIncharge.showSignatureOnPrint
+            : currentLabIncharge.showSignatureOnPrint,
       };
     }
   }
