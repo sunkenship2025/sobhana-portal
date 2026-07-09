@@ -428,6 +428,18 @@ export default function ManageSigningDoctors() {
     } catch { toast.error('Failed to update status'); }
   };
 
+  const handleToggleLabInchargeShowSignature = async (li: SigningLabIncharge) => {
+    try {
+      const res = await fetch(`${API_BASE}/signing-lab-incharges/${li.id}`, {
+        method: 'PATCH', headers: getHeaders(),
+        body: JSON.stringify({ showSignatureOnPrint: !li.showSignatureOnPrint }),
+      });
+      if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed'); return; }
+      toast.success(`Signature ${!li.showSignatureOnPrint ? 'will now print' : 'hidden'} on physical reports`);
+      await fetchAll();
+    } catch { toast.error('Failed to update setting'); }
+  };
+
   const handleDeleteLabIncharge = async () => {
     if (!deleteLabInchargeId) return;
     setDeletingLabInchargeIds((prev) => { const next = new Set(prev); next.add(deleteLabInchargeId); return next; });
@@ -937,6 +949,7 @@ export default function ManageSigningDoctors() {
                   <TableHead>Designation</TableHead>
                   <TableHead className="text-center">Signature</TableHead>
                   <TableHead className="text-center">Rules</TableHead>
+                  <TableHead className="text-center">Sign on print</TableHead>
                   <TableHead className="text-center">Active</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -973,6 +986,9 @@ export default function ManageSigningDoctors() {
                     </TableCell>
                     <TableCell className="text-center">
                       <Badge variant="secondary">{li._count.labInchargeRules}</Badge>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Switch checked={li.showSignatureOnPrint} onCheckedChange={() => handleToggleLabInchargeShowSignature(li)} />
                     </TableCell>
                     <TableCell className="text-center">
                       <Switch checked={li.isActive} onCheckedChange={() => handleToggleLabIncharge(li)} />
