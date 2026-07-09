@@ -215,6 +215,12 @@ export function TestInputConfigEditor({ rootDefinitionId, config, onChange, test
       */}
       {(() => {
         const dv = config.defaultValue ?? '';
+        // A freshly-added preset row is an empty string until the admin types
+        // into it. Never surface those as pickable options: an empty-string
+        // <SelectItem> makes Radix Select throw ("must have a value prop that
+        // is not an empty string") and blanks the page. Filtering here also
+        // heals any blank option that slipped into saved data.
+        const presetOptions = config.valueOptions.filter((o) => o.trim() !== '');
         const numericInvalid =
           config.inputType === 'NUMERIC' && dv !== '' && Number.isNaN(Number(dv));
         const selectInvalid =
@@ -256,7 +262,7 @@ export function TestInputConfigEditor({ rootDefinitionId, config, onChange, test
             )}
 
             {config.inputType === 'TEXT_WITH_PRESETS' && (
-              config.valueOptions.length === 0 ? (
+              presetOptions.length === 0 ? (
                 <Input
                   value={dv}
                   onChange={(e) => update({ defaultValue: e.target.value })}
@@ -266,7 +272,7 @@ export function TestInputConfigEditor({ rootDefinitionId, config, onChange, test
                 <TestValueCombobox
                   value={dv}
                   onChange={(next) => update({ defaultValue: next })}
-                  options={config.valueOptions}
+                  options={presetOptions}
                   allowCustom={true}
                   placeholder="Pick a preset or type custom…"
                 />
@@ -274,7 +280,7 @@ export function TestInputConfigEditor({ rootDefinitionId, config, onChange, test
             )}
 
             {config.inputType === 'SELECT_ONLY' && (
-              config.valueOptions.length === 0 ? (
+              presetOptions.length === 0 ? (
                 <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
                   Add at least one preset above to pick a default. A strict
                   dropdown can't accept values that aren't in the list.
@@ -289,7 +295,7 @@ export function TestInputConfigEditor({ rootDefinitionId, config, onChange, test
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">No default</SelectItem>
-                    {config.valueOptions.map((opt) => (
+                    {presetOptions.map((opt) => (
                       <SelectItem key={opt} value={opt}>{opt}</SelectItem>
                     ))}
                   </SelectContent>
