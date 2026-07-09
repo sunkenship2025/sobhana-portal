@@ -104,6 +104,10 @@ export interface DepartmentSnapshot {
   departmentHeaderText: string;
   displayOrder: number;
   showLabIncharge: boolean;
+  /** Lab incharge resolved for THIS department (branch+department rule, most
+   *  specific wins). `undefined` on snapshots frozen before per-department
+   *  incharges existed — the renderer falls back to the top-level labIncharge. */
+  labIncharge?: LabInchargeSnapshot | null;
   panels: PanelSnapshot[];
 }
 
@@ -370,35 +374,14 @@ async function getLiveSignatureSnapshotsForDepartments(departmentIds: string[]):
   return [...ruleSignatures, ...placeholderSignatures];
 }
 
-async function getLabInchargeSnapshotForBranch(branchId: string): Promise<LabInchargeSnapshot | null> {
-  // Try branch-specific rule first
-  const branchRule = await prisma.labInchargeRule.findFirst({
-    where: {
-      branchId,
-      isActive: true,
-    },
-    include: {
-      signingLabIncharge: true,
-    },
-    orderBy: { displayOrder: 'asc' },
-  });
-
-  const rule = branchRule || await prisma.labInchargeRule.findFirst({
-    where: {
-      branchId: null,
-      isActive: true,
-    },
-    include: {
-      signingLabIncharge: true,
-    },
-    orderBy: { displayOrder: 'asc' },
-  });
-
-  if (!rule?.signingLabIncharge) {
-    return null;
-  }
-
-  const li = rule.signingLabIncharge;
+function labInchargeToSnapshot(li: {
+  id: string;
+  name: string;
+  designation: string;
+  signatureImagePath: string | null;
+  signatureImageBase64: string | null;
+  showSignatureOnPrint: boolean;
+}): LabInchargeSnapshot {
   return {
     signerId: li.id,
     signerName: li.name,
@@ -407,6 +390,134 @@ async function getLabInchargeSnapshotForBranch(branchId: string): Promise<LabInc
     signatureImageBase64: li.signatureImageBase64 || null,
     showSignatureOnPrint: li.showSignatureOnPrint,
   };
+}
+
+/**
+ * Resolve the lab incharge for each department of a report, plus a global
+ * fallback for department-less pages. Every department is matched most-specific
+ * first against the active LabInchargeRules:
+ *   (branch, dept) → (branch, All Depts) → (All Branches, dept) → (All, All).
+ * One incharge may own many rules; a (branch, dept) slot has at most one.
+ */
+async function resolveLabInchargesForReport(
+  branchId: string,
+  departmentIds: string[],
+): Promise<{ byDepartment: Map<string, LabInchargeSnapshot>; fallback: LabInchargeSnapshot | null }> {
+  // One query for every rule that could apply to this branch — this branch's own
+  // rules plus the All-Branches (null) rules. Resolution is done in memory.
+  const rules = await prisma.labInchargeRule.findMany({
+    where: {
+      isActive: true,
+      OR: [{ branchId }, { branchId: null }],
+    },
+    include: { signingLabIncharge: true },
+    orderBy: { displayOrder: 'asc' },
+  });
+
+  const pick = (thisBranch: boolean, deptId: string | null) =>
+    rules.find(
+      (r) => (thisBranch ? r.branchId === branchId : r.branchId === null) && r.departmentId === deptId,
+    );
+
+  const resolveForDept = (deptId: string): LabInchargeSnapshot | null => {
+    const rule =
+      pick(true, deptId) || // (branch, dept)
+      pick(true, null) || // (branch, All Departments)
+      pick(false, deptId) || // (All Branches, dept)
+      pick(false, null); // (All Branches, All Departments)
+    return rule?.signingLabIncharge ? labInchargeToSnapshot(rule.signingLabIncharge) : null;
+  };
+
+  const byDepartment = new Map<string, LabInchargeSnapshot>();
+  for (const deptId of [...new Set(departmentIds.filter(Boolean))]) {
+    const snap = resolveForDept(deptId);
+    if (snap) byDepartment.set(deptId, snap);
+  }
+
+  // Department-less pages (empty-results fallback) use the branch-wide default.
+  const fallbackRule = pick(true, null) || pick(false, null);
+  const fallback = fallbackRule?.signingLabIncharge
+    ? labInchargeToSnapshot(fallbackRule.signingLabIncharge)
+    : null;
+
+  return { byDepartment, fallback };
+}
+
+/**
+ * Set each department's Lab Incharge visibility from its signing rule(s). The
+ * "Show lab incharge" checkbox on the SigningRule (showLabInchargeNote, default
+ * on) is the single source of truth — a department with no signing rule, or one
+ * whose rule is unchecked, hides the block. Multi-rule departments (radiology)
+ * show it if ANY active rule opts in. Frozen into the snapshot at creation like
+ * the rest of the department data, so finalized reports stay immutable.
+ */
+function applyLabInchargeVisibility(
+  departments: DepartmentSnapshot[],
+  signatures: SignatureSnapshot[],
+): void {
+  const showByDept = new Map<string, boolean>();
+  for (const sig of signatures) {
+    if (!sig.departmentId || !sig.doctorId) continue; // ignore no-rule placeholders
+    showByDept.set(
+      sig.departmentId,
+      (showByDept.get(sig.departmentId) ?? false) || sig.showLabInchargeNote === true,
+    );
+  }
+  for (const dept of departments) {
+    dept.showLabIncharge = showByDept.get(dept.departmentId) ?? false;
+  }
+}
+
+/**
+ * Refresh frozen lab incharge snapshots (top-level + per-department) from the
+ * live SigningLabIncharge in a single query. Identity + signature image stay
+ * FROZEN (medico-legal: the report shows who actually signed it); only the
+ * showSignatureOnPrint flag is taken live, mirroring the pre-feature behavior.
+ * Returns the merged top-level; mutates each department's labIncharge in place.
+ */
+async function rehydrateStoredLabIncharges(
+  topLevel: LabInchargeSnapshot | null,
+  departments: DepartmentSnapshot[],
+): Promise<LabInchargeSnapshot | null> {
+  const frozen: LabInchargeSnapshot[] = [];
+  if (topLevel?.signerId) frozen.push(topLevel);
+  for (const dept of departments) {
+    if (dept.labIncharge?.signerId) frozen.push(dept.labIncharge);
+  }
+  const ids = [...new Set(frozen.map((f) => f.signerId))];
+  if (ids.length === 0) return topLevel;
+
+  const current = await prisma.signingLabIncharge.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      name: true,
+      designation: true,
+      signatureImagePath: true,
+      signatureImageBase64: true,
+      showSignatureOnPrint: true,
+    },
+  });
+  const map = new Map(current.map((c) => [c.id, c]));
+
+  const merge = (f: LabInchargeSnapshot | null): LabInchargeSnapshot | null => {
+    if (!f?.signerId) return f ?? null;
+    const c = map.get(f.signerId);
+    if (!c) return f; // signer deleted — keep the frozen snapshot
+    return {
+      signerId: f.signerId,
+      signerName: f.signerName || c.name,
+      designation: f.designation || c.designation,
+      signatureImagePath: f.signatureImagePath || c.signatureImagePath,
+      signatureImageBase64: f.signatureImageBase64 || c.signatureImageBase64 || null,
+      showSignatureOnPrint: c.showSignatureOnPrint, // LIVE
+    };
+  };
+
+  for (const dept of departments) {
+    if (dept.labIncharge !== undefined) dept.labIncharge = merge(dept.labIncharge);
+  }
+  return merge(topLevel);
 }
 
 async function backfillStoredSignatureAssets(signatures: SignatureSnapshot[]): Promise<SignatureSnapshot[]> {
@@ -1572,7 +1683,15 @@ export async function createReportSnapshot(
   const signatures = await getLiveSignatureSnapshotsForDepartments(
     departments.map(department => department.departmentId),
   );
-  const labIncharge = await getLabInchargeSnapshotForBranch(visit.branchId);
+  applyLabInchargeVisibility(departments, signatures);
+  const { byDepartment: labInchargeByDept, fallback: labIncharge } =
+    await resolveLabInchargesForReport(
+      visit.branchId,
+      departments.map((department) => department.departmentId),
+    );
+  for (const department of departments) {
+    department.labIncharge = labInchargeByDept.get(department.departmentId) ?? null;
+  }
 
   // ============================================================================
   // BUILD PATIENT SNAPSHOT
@@ -1767,7 +1886,15 @@ export async function buildEphemeralSnapshot(
   const signatures = await getLiveSignatureSnapshotsForDepartments(
     departments.map(department => department.departmentId),
   );
-  const labIncharge = await getLabInchargeSnapshotForBranch(visit.branchId);
+  applyLabInchargeVisibility(departments, signatures);
+  const { byDepartment: labInchargeByDept, fallback: labIncharge } =
+    await resolveLabInchargesForReport(
+      visit.branchId,
+      departments.map((department) => department.departmentId),
+    );
+  for (const department of departments) {
+    department.labIncharge = labInchargeByDept.get(department.departmentId) ?? null;
+  }
 
   // Build patient snapshot
   const currentYear = new Date().getFullYear();
@@ -1897,47 +2024,15 @@ export async function getReportSnapshot(reportVersionId: string): Promise<Report
     ? await backfillStoredSignatureAssets(storedSignatures)
     : await getLiveSignatureSnapshotsForDepartments(departments.map(department => department.departmentId));
 
-  // Re-hydrate lab incharge signature if stored
-  let labIncharge: LabInchargeSnapshot | null = (reportVersion.labInchargeSnapshot as unknown as LabInchargeSnapshot | null) ?? null;
-  if (labIncharge?.signerId) {
-    const currentLabIncharge = await prisma.signingLabIncharge.findUnique({
-      where: { id: labIncharge.signerId },
-      select: {
-        id: true,
-        name: true,
-        designation: true,
-        signatureImagePath: true,
-        signatureImageBase64: true,
-        showSignatureOnPrint: true,
-      },
-    });
-    if (currentLabIncharge) {
-      // Immutability: prefer the values frozen into the snapshot at
-      // finalization — the identity AND the actual signature bytes
-      // (signatureImageBase64). Fall back to the live record only for a field
-      // an older snapshot never captured (null); never overwrite a frozen
-      // value, so replacing or editing the lab incharge later cannot rewrite
-      // historical reports. Mirrors backfillStoredSignatureAssets for doctors.
-      labIncharge = {
-        signerId: labIncharge.signerId,
-        signerName: labIncharge.signerName || currentLabIncharge.name,
-        designation: labIncharge.designation || currentLabIncharge.designation,
-        signatureImagePath:
-          labIncharge.signatureImagePath || currentLabIncharge.signatureImagePath,
-        signatureImageBase64:
-          labIncharge.signatureImageBase64 ||
-          currentLabIncharge.signatureImageBase64 ||
-          null,
-        // LIVE flag (unlike the frozen identity/image above): whether the
-        // signature prints on physical copies follows the CURRENT setting, so
-        // flipping the toggle governs past and future prints alike. The image
-        // itself stays frozen — it matches the digital report and survives later
-        // edits/deletion. If the signer was later deleted, the else-branch below
-        // keeps the last value frozen into the snapshot.
-        showSignatureOnPrint: currentLabIncharge.showSignatureOnPrint,
-      };
-    }
-  }
+  // Re-hydrate frozen lab incharge snapshots — the per-department signers (new
+  // snapshots) and the top-level fallback (all snapshots). Identity + signature
+  // image stay frozen for immutability; only showSignatureOnPrint is taken live
+  // so toggling it governs past and future physical prints. Mutates each
+  // department's labIncharge in place.
+  const labIncharge = await rehydrateStoredLabIncharges(
+    (reportVersion.labInchargeSnapshot as unknown as LabInchargeSnapshot | null) ?? null,
+    departments,
+  );
 
   const externalUploads =
     (reportVersion.externalUploadsSnapshot as unknown as ExternalUploadSnapshot[] | null) ?? [];

@@ -9,6 +9,13 @@ const router = Router();
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
 
+/** Human label for a (branch, department) slot, used in duplicate-rule errors. */
+function scopeLabel(branchId?: string | null, departmentId?: string | null): string {
+  const branch = branchId ? 'this branch' : 'All Branches';
+  const department = departmentId ? 'this department' : 'All Departments';
+  return `${branch} / ${department}`;
+}
+
 // ─── GET /api/lab-incharge-rules ────────────────────────────────────
 router.get('/', async (req: AuthRequest, res) => {
   try {
@@ -32,6 +39,7 @@ router.get('/', async (req: AuthRequest, res) => {
       where,
       include: {
         branch: { select: { id: true, name: true } },
+        department: { select: { id: true, name: true } },
         signingLabIncharge: {
           select: { id: true, name: true, designation: true, signatureImagePath: true },
         },
@@ -74,7 +82,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
 // ─── POST /api/lab-incharge-rules ───────────────────────────────────
 router.post('/', async (req: AuthRequest, res) => {
   try {
-    const { signingLabInchargeId, branchId, displayOrder } = req.body;
+    const { signingLabInchargeId, branchId, departmentId, displayOrder } = req.body;
 
     if (!signingLabInchargeId) {
       return res.status(400).json({
@@ -89,19 +97,20 @@ router.post('/', async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'LAB_INCHARGE_NOT_FOUND', message: 'Signing lab incharge not found' });
     }
 
-    // Check for duplicate active rule on this branch scope
+    // Check for a duplicate active rule on this (branch, department) slot —
+    // one incharge per slot ("no overlap"), though a person may own many slots.
     const existingActive = await prisma.labInchargeRule.findFirst({
       where: {
         branchId: branchId || null,
+        departmentId: departmentId || null,
         isActive: true,
       },
     });
 
     if (existingActive) {
-      const branchLabel = branchId ? 'this branch' : 'All Branches';
       return res.status(409).json({
         error: 'DUPLICATE_RULE',
-        message: `An active lab incharge rule already exists for ${branchLabel}`,
+        message: `An active lab incharge rule already exists for ${scopeLabel(branchId, departmentId)}`,
       });
     }
 
@@ -109,10 +118,12 @@ router.post('/', async (req: AuthRequest, res) => {
       data: {
         signingLabInchargeId,
         branchId: branchId || null,
+        departmentId: departmentId || null,
         displayOrder: displayOrder ?? 0,
       },
       include: {
         branch: { select: { id: true, name: true } },
+        department: { select: { id: true, name: true } },
         signingLabIncharge: {
           select: { id: true, name: true, designation: true },
         },
@@ -137,28 +148,29 @@ router.post('/', async (req: AuthRequest, res) => {
 router.patch('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { signingLabInchargeId, branchId, displayOrder, isActive } = req.body;
+    const { signingLabInchargeId, branchId, departmentId, displayOrder, isActive } = req.body;
 
     const existing = await prisma.labInchargeRule.findUnique({ where: { id } });
     if (!existing) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Lab incharge rule not found' });
     }
 
-    // If changing branchId or signingLabInchargeId, check for conflicts
-    if ((branchId !== undefined && branchId !== existing.branchId) ||
-        (signingLabInchargeId !== undefined && signingLabInchargeId !== existing.signingLabInchargeId)) {
+    // If the (branch, department) slot changes, guard the one-per-slot rule.
+    const nextBranchId = branchId !== undefined ? (branchId || null) : existing.branchId;
+    const nextDepartmentId = departmentId !== undefined ? (departmentId || null) : existing.departmentId;
+    if (nextBranchId !== existing.branchId || nextDepartmentId !== existing.departmentId) {
       const conflict = await prisma.labInchargeRule.findFirst({
         where: {
-          branchId: branchId || null,
+          branchId: nextBranchId,
+          departmentId: nextDepartmentId,
           isActive: true,
           id: { not: id },
         },
       });
       if (conflict) {
-        const branchLabel = branchId ? 'this branch' : 'All Branches';
         return res.status(409).json({
           error: 'DUPLICATE_RULE',
-          message: `An active lab incharge rule already exists for ${branchLabel}`,
+          message: `An active lab incharge rule already exists for ${scopeLabel(nextBranchId, nextDepartmentId)}`,
         });
       }
     }
@@ -166,6 +178,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     const data: any = {};
     if (signingLabInchargeId !== undefined) data.signingLabInchargeId = signingLabInchargeId;
     if (branchId !== undefined) data.branchId = branchId || null;
+    if (departmentId !== undefined) data.departmentId = departmentId || null;
     if (displayOrder !== undefined) data.displayOrder = displayOrder;
     if (isActive !== undefined) data.isActive = isActive;
 
@@ -174,6 +187,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       data,
       include: {
         branch: { select: { id: true, name: true } },
+        department: { select: { id: true, name: true } },
         signingLabIncharge: {
           select: { id: true, name: true, designation: true },
         },

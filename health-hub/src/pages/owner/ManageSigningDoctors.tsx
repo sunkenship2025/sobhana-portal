@@ -42,6 +42,7 @@ interface SigningDoctor {
   designation: string;
   registrationNumber: string | null;
   signatureImagePath: string | null;
+  signatureImageBase64: string | null;
   isActive: boolean;
   _count: { signingRules: number };
 }
@@ -67,6 +68,7 @@ interface SigningLabIncharge {
   name: string;
   designation: string;
   signatureImagePath: string | null;
+  signatureImageBase64: string | null;
   showSignatureOnPrint: boolean;
   isActive: boolean;
   _count: { labInchargeRules: number };
@@ -81,9 +83,11 @@ interface LabInchargeRule {
   id: string;
   signingLabInchargeId: string;
   branchId: string | null;
+  departmentId: string | null;
   displayOrder: number;
   isActive: boolean;
   branch: { id: string; name: string } | null;
+  department: { id: string; name: string } | null;
   signingLabIncharge: { id: string; name: string; designation: string };
 }
 
@@ -97,6 +101,16 @@ function getInitials(name: string) {
     .slice(0, 2)
     .map(w => w[0].toUpperCase())
     .join('');
+}
+
+/**
+ * Resolve a signature image source. Prefers the persistent base64 copy stored in
+ * the DB — the disk path is served from the server's local filesystem, which
+ * Render wipes on every redeploy, so `signatureImagePath` 404s for anything
+ * uploaded before the last deploy. Mirrors how the report renderer resolves it.
+ */
+function signatureSrc(sig: { signatureImageBase64?: string | null; signatureImagePath?: string | null }): string {
+  return sig.signatureImageBase64 || (sig.signatureImagePath ? `${API_BASE_URL}${sig.signatureImagePath}` : '');
 }
 
 /* ───────── Component ───────── */
@@ -146,14 +160,16 @@ export default function ManageSigningDoctors() {
 
   // Rule dialog
   const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [ruleForm, setRuleForm] = useState({
-    departmentId: '', signingDoctorId: '', showLabInchargeNote: false, displayOrder: '1',
+    departmentId: '', signingDoctorId: '', showLabInchargeNote: true, displayOrder: '1',
   });
 
   // Lab incharge rule dialog
   const [labInchargeRuleDialogOpen, setLabInchargeRuleDialogOpen] = useState(false);
+  const [editingLabInchargeRuleId, setEditingLabInchargeRuleId] = useState<string | null>(null);
   const [labInchargeRuleForm, setLabInchargeRuleForm] = useState({
-    signingLabInchargeId: '', branchId: '__all__', displayOrder: '1',
+    signingLabInchargeId: '', branchId: '__all__', departmentId: '__all__', displayOrder: '1',
   });
 
   const getHeaders = () => {
@@ -508,8 +524,25 @@ export default function ManageSigningDoctors() {
   };
 
   // ── Lab Incharge Rule CRUD ───────────────────────────────────────
+  const closeLabInchargeRuleDialog = () => {
+    setLabInchargeRuleDialogOpen(false);
+    setEditingLabInchargeRuleId(null);
+  };
+
   const handleAddLabInchargeRule = () => {
-    setLabInchargeRuleForm({ signingLabInchargeId: '', branchId: '__all__', displayOrder: '1' });
+    setEditingLabInchargeRuleId(null);
+    setLabInchargeRuleForm({ signingLabInchargeId: '', branchId: '__all__', departmentId: '__all__', displayOrder: '1' });
+    setLabInchargeRuleDialogOpen(true);
+  };
+
+  const handleEditLabInchargeRule = (rule: LabInchargeRule) => {
+    setEditingLabInchargeRuleId(rule.id);
+    setLabInchargeRuleForm({
+      signingLabInchargeId: rule.signingLabInchargeId,
+      branchId: rule.branchId ?? '__all__',
+      departmentId: rule.departmentId ?? '__all__',
+      displayOrder: String(rule.displayOrder),
+    });
     setLabInchargeRuleDialogOpen(true);
   };
 
@@ -520,20 +553,24 @@ export default function ManageSigningDoctors() {
     }
     setSubmittingRule(true);
     try {
-      const res = await fetch(`${API_BASE}/lab-incharge-rules`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify({
-          signingLabInchargeId: labInchargeRuleForm.signingLabInchargeId,
-          branchId: labInchargeRuleForm.branchId === '__all__' ? null : labInchargeRuleForm.branchId,
-          displayOrder: parseInt(labInchargeRuleForm.displayOrder) || 1,
-        }),
-      });
-      if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed to create rule'); return; }
-      toast.success('Lab incharge rule created');
+      const body = {
+        signingLabInchargeId: labInchargeRuleForm.signingLabInchargeId,
+        branchId: labInchargeRuleForm.branchId === '__all__' ? null : labInchargeRuleForm.branchId,
+        departmentId: labInchargeRuleForm.departmentId === '__all__' ? null : labInchargeRuleForm.departmentId,
+        displayOrder: parseInt(labInchargeRuleForm.displayOrder) || 1,
+      };
+      const res = editingLabInchargeRuleId
+        ? await fetch(`${API_BASE}/lab-incharge-rules/${editingLabInchargeRuleId}`, {
+            method: 'PATCH', headers: getHeaders(), body: JSON.stringify(body),
+          })
+        : await fetch(`${API_BASE}/lab-incharge-rules`, {
+            method: 'POST', headers: getHeaders(), body: JSON.stringify(body),
+          });
+      if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed to save rule'); return; }
+      toast.success(editingLabInchargeRuleId ? 'Lab incharge rule updated' : 'Lab incharge rule created');
       await fetchAll();
-      setLabInchargeRuleDialogOpen(false);
-    } catch { toast.error('Failed to create rule'); }
+      closeLabInchargeRuleDialog();
+    } catch { toast.error('Failed to save rule'); }
     finally { setSubmittingRule(false); }
   };
 
@@ -635,8 +672,25 @@ export default function ManageSigningDoctors() {
   };
 
   // ── Rule CRUD ────────────────────────────────────────────────────
+  const closeRuleDialog = () => {
+    setRuleDialogOpen(false);
+    setEditingRuleId(null);
+  };
+
   const handleAddRule = () => {
-    setRuleForm({ departmentId: '', signingDoctorId: '', showLabInchargeNote: false, displayOrder: '1' });
+    setEditingRuleId(null);
+    setRuleForm({ departmentId: '', signingDoctorId: '', showLabInchargeNote: true, displayOrder: '1' });
+    setRuleDialogOpen(true);
+  };
+
+  const handleEditRule = (rule: SigningRule) => {
+    setEditingRuleId(rule.id);
+    setRuleForm({
+      departmentId: rule.departmentId,
+      signingDoctorId: rule.signingDoctorId,
+      showLabInchargeNote: rule.showLabInchargeNote,
+      displayOrder: String(rule.displayOrder),
+    });
     setRuleDialogOpen(true);
   };
 
@@ -648,21 +702,39 @@ export default function ManageSigningDoctors() {
     if (submittingRule) return;
     setSubmittingRule(true);
     try {
-      const res = await fetch(`${API_BASE}/signing-rules`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify({
-          departmentId: ruleForm.departmentId,
-          signingDoctorId: ruleForm.signingDoctorId,
-          showLabInchargeNote: ruleForm.showLabInchargeNote,
-          displayOrder: parseInt(ruleForm.displayOrder) || 1,
-        }),
-      });
-      if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed to create rule'); return; }
-      toast.success('Signing rule created');
-      await fetchAll();
-      setRuleDialogOpen(false);
-    } catch { toast.error('Failed to create rule'); }
+      if (editingRuleId) {
+        // Department stays fixed — a rule belongs to its department. Editing
+        // reassigns the doctor and updates the flag / order.
+        const res = await fetch(`${API_BASE}/signing-rules/${editingRuleId}`, {
+          method: 'PATCH',
+          headers: getHeaders(),
+          body: JSON.stringify({
+            signingDoctorId: ruleForm.signingDoctorId,
+            showLabInchargeNote: ruleForm.showLabInchargeNote,
+            displayOrder: parseInt(ruleForm.displayOrder) || 1,
+          }),
+        });
+        if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed to update rule'); return; }
+        toast.success('Signing rule updated');
+        await fetchAll();
+        closeRuleDialog();
+      } else {
+        const res = await fetch(`${API_BASE}/signing-rules`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({
+            departmentId: ruleForm.departmentId,
+            signingDoctorId: ruleForm.signingDoctorId,
+            showLabInchargeNote: ruleForm.showLabInchargeNote,
+            displayOrder: parseInt(ruleForm.displayOrder) || 1,
+          }),
+        });
+        if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed to create rule'); return; }
+        toast.success('Signing rule created');
+        await fetchAll();
+        closeRuleDialog();
+      }
+    } catch { toast.error('Failed to save rule'); }
     finally { setSubmittingRule(false); }
   };
 
@@ -795,9 +867,9 @@ export default function ManageSigningDoctors() {
                         <span className="text-muted-foreground text-sm">—</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-center">                      {doc.signatureImagePath ? (
+                    <TableCell className="text-center">                      {signatureSrc(doc) ? (
                         <img
-                          src={`${API_BASE_URL}${doc.signatureImagePath}`}
+                          src={signatureSrc(doc)}
                           alt="Sig"
                           className="h-8 mx-auto"
                           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -856,7 +928,7 @@ export default function ManageSigningDoctors() {
                 <TableRow className="bg-muted/40">
                   <TableHead>Department</TableHead>
                   <TableHead>Doctor</TableHead>
-                  <TableHead className="text-center">Lab Incharge Note</TableHead>
+                  <TableHead className="text-center">Lab Incharge</TableHead>
                   <TableHead className="text-center">Order</TableHead>
                   <TableHead className="text-center">Active</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -886,16 +958,27 @@ export default function ManageSigningDoctors() {
                       <Switch checked={rule.isActive} onCheckedChange={() => handleToggleRule(rule)} />
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDeleteRule(rule.id)}
-                        disabled={deletingRuleIds.has(rule.id)}
-                        className="h-8 w-8"
-                        aria-label="Delete signing rule"
-                      >
-                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                      </Button>
+                      <div className="flex gap-1 justify-end">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEditRule(rule)}
+                          className="h-8 w-8"
+                          aria-label="Edit signing rule"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteRule(rule.id)}
+                          disabled={deletingRuleIds.has(rule.id)}
+                          className="h-8 w-8"
+                          aria-label="Delete signing rule"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -973,9 +1056,9 @@ export default function ManageSigningDoctors() {
                     </TableCell>
                     <TableCell className="text-sm">{li.designation}</TableCell>
                     <TableCell className="text-center">
-                      {li.signatureImagePath ? (
+                      {signatureSrc(li) ? (
                         <img
-                          src={`${API_BASE_URL}${li.signatureImagePath}`}
+                          src={signatureSrc(li)}
                           alt="Sig"
                           className="h-8 mx-auto"
                           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -1021,7 +1104,7 @@ export default function ManageSigningDoctors() {
               <Link2 className="h-5 w-5" /> Lab Incharge Signing Rules
             </h2>
             <p className="text-sm text-muted-foreground">
-              Assign lab incharges to branches for report signing
+              Assign lab incharges to branches and departments for report signing
             </p>
           </div>
           <Button onClick={handleAddLabInchargeRule} size="sm" variant="outline">
@@ -1037,6 +1120,7 @@ export default function ManageSigningDoctors() {
               <TableHeader>
                 <TableRow className="bg-muted/40">
                   <TableHead>Branch</TableHead>
+                  <TableHead>Department</TableHead>
                   <TableHead>Lab Incharge</TableHead>
                   <TableHead className="text-center">Order</TableHead>
                   <TableHead className="text-center">Active</TableHead>
@@ -1052,6 +1136,11 @@ export default function ManageSigningDoctors() {
                       </Badge>
                     </TableCell>
                     <TableCell>
+                      <Badge variant="secondary">
+                        {rule.department ? rule.department.name : 'All Departments'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
                       <div>
                         <span className="font-medium">{rule.signingLabIncharge.name}</span>
                         <span className="text-muted-foreground text-sm"> — {rule.signingLabIncharge.designation}</span>
@@ -1062,16 +1151,27 @@ export default function ManageSigningDoctors() {
                       <Switch checked={rule.isActive} onCheckedChange={() => handleToggleLabInchargeRule(rule)} />
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDeleteLabInchargeRule(rule.id)}
-                        disabled={deletingLabInchargeRuleIds.has(rule.id)}
-                        className="h-8 w-8"
-                        aria-label="Delete lab incharge rule"
-                      >
-                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                      </Button>
+                      <div className="flex gap-1 justify-end">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEditLabInchargeRule(rule)}
+                          className="h-8 w-8"
+                          aria-label="Edit lab incharge rule"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteLabInchargeRule(rule.id)}
+                          disabled={deletingLabInchargeRuleIds.has(rule.id)}
+                          className="h-8 w-8"
+                          aria-label="Delete lab incharge rule"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -1175,11 +1275,11 @@ export default function ManageSigningDoctors() {
               />
 
               {/* Current / pending signature preview */}
-              {(editingDoctorId && doctors.find(d => d.id === editingDoctorId)?.signatureImagePath) || pendingSignaturePreview ? (
+              {(editingDoctorId && signatureSrc(doctors.find(d => d.id === editingDoctorId) || {})) || pendingSignaturePreview ? (
                 <div className="space-y-2">
                   <div className="border rounded-lg p-3 bg-muted/30">
                     <img
-                      src={pendingSignaturePreview || `${API_BASE_URL}${doctors.find(d => d.id === editingDoctorId)!.signatureImagePath}`}
+                      src={pendingSignaturePreview || signatureSrc(doctors.find(d => d.id === editingDoctorId) || {})}
                       alt={pendingSignaturePreview ? 'Selected signature' : 'Current signature'}
                       className="h-16 mx-auto"
                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -1239,10 +1339,10 @@ export default function ManageSigningDoctors() {
       </Sheet>
 
       {/* ── Signing Rule Dialog ─────────────────────────────────── */}
-      <Dialog open={ruleDialogOpen} onOpenChange={(open) => { if (!open) setRuleDialogOpen(false); }}>
+      <Dialog open={ruleDialogOpen} onOpenChange={(open) => { if (!open) closeRuleDialog(); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Add Signing Rule</DialogTitle>
+            <DialogTitle>{editingRuleId ? 'Edit Signing Rule' : 'Add Signing Rule'}</DialogTitle>
             <DialogDescription>
               Assign a doctor to sign reports for a specific department.
             </DialogDescription>
@@ -1250,7 +1350,11 @@ export default function ManageSigningDoctors() {
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
               <Label>Department *</Label>
-              <Select value={ruleForm.departmentId} onValueChange={v => setRuleForm({ ...ruleForm, departmentId: v })}>
+              <Select
+                value={ruleForm.departmentId}
+                onValueChange={v => setRuleForm({ ...ruleForm, departmentId: v })}
+                disabled={!!editingRuleId}
+              >
                 <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
                 <SelectContent>
                   {departments.map(d => (
@@ -1276,7 +1380,7 @@ export default function ManageSigningDoctors() {
                 checked={ruleForm.showLabInchargeNote}
                 onCheckedChange={(checked) => setRuleForm({ ...ruleForm, showLabInchargeNote: checked === true })}
               />
-              <Label htmlFor="rule-incharge">Show lab incharge note on report</Label>
+              <Label htmlFor="rule-incharge">Show lab incharge on report</Label>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="rule-order">Display Order</Label>
@@ -1289,9 +1393,9 @@ export default function ManageSigningDoctors() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRuleDialogOpen(false)} disabled={submittingRule}>Cancel</Button>
+            <Button variant="outline" onClick={closeRuleDialog} disabled={submittingRule}>Cancel</Button>
             <Button onClick={handleSubmitRule} disabled={submittingRule}>
-              {submittingRule ? 'Saving...' : 'Create Rule'}
+              {submittingRule ? 'Saving...' : (editingRuleId ? 'Update Rule' : 'Create Rule')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1367,11 +1471,11 @@ export default function ManageSigningDoctors() {
                 onChange={handleLabInchargeSignatureUpload}
               />
 
-              {(editingLabInchargeId && labIncharges.find(li => li.id === editingLabInchargeId)?.signatureImagePath) || labInchargePendingSignaturePreview ? (
+              {(editingLabInchargeId && signatureSrc(labIncharges.find(li => li.id === editingLabInchargeId) || {})) || labInchargePendingSignaturePreview ? (
                 <div className="space-y-2">
                   <div className="border rounded-lg p-3 bg-muted/30">
                     <img
-                      src={labInchargePendingSignaturePreview || `${API_BASE_URL}${labIncharges.find(li => li.id === editingLabInchargeId)!.signatureImagePath}`}
+                      src={labInchargePendingSignaturePreview || signatureSrc(labIncharges.find(li => li.id === editingLabInchargeId) || {})}
                       alt={labInchargePendingSignaturePreview ? 'Selected signature' : 'Current signature'}
                       className="h-16 mx-auto"
                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -1440,12 +1544,12 @@ export default function ManageSigningDoctors() {
       </Sheet>
 
       {/* ── Lab Incharge Rule Dialog ────────────────────────────── */}
-      <Dialog open={labInchargeRuleDialogOpen} onOpenChange={(open) => { if (!open) setLabInchargeRuleDialogOpen(false); }}>
+      <Dialog open={labInchargeRuleDialogOpen} onOpenChange={(open) => { if (!open) closeLabInchargeRuleDialog(); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Add Lab Incharge Rule</DialogTitle>
+            <DialogTitle>{editingLabInchargeRuleId ? 'Edit Lab Incharge Rule' : 'Add Lab Incharge Rule'}</DialogTitle>
             <DialogDescription>
-              Assign a lab incharge to sign reports for a specific branch.
+              Assign a lab incharge to sign reports for a branch and department.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -1457,6 +1561,18 @@ export default function ManageSigningDoctors() {
                   <SelectItem value="__all__">All Branches</SelectItem>
                   {branches.map(b => (
                     <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Department</Label>
+              <Select value={labInchargeRuleForm.departmentId} onValueChange={v => setLabInchargeRuleForm({ ...labInchargeRuleForm, departmentId: v })}>
+                <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All Departments</SelectItem>
+                  {departments.map(d => (
+                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1483,9 +1599,9 @@ export default function ManageSigningDoctors() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setLabInchargeRuleDialogOpen(false)} disabled={submittingRule}>Cancel</Button>
+            <Button variant="outline" onClick={closeLabInchargeRuleDialog} disabled={submittingRule}>Cancel</Button>
             <Button onClick={handleSubmitLabInchargeRule} disabled={submittingRule}>
-              {submittingRule ? 'Saving...' : 'Create Rule'}
+              {submittingRule ? 'Saving...' : (editingLabInchargeRuleId ? 'Update Rule' : 'Create Rule')}
             </Button>
           </DialogFooter>
         </DialogContent>

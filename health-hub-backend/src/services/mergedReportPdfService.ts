@@ -165,7 +165,13 @@ function cacheVariantFor(
   mode: 'physical' | 'digital',
 ): string | undefined {
   if (mode !== 'physical') return undefined;
-  return snapshot.labIncharge?.showSignatureOnPrint ? 'sig1' : 'sig0';
+  // Lab incharge is per-department now, so encode every signer's live
+  // show-on-print flag (top-level fallback + each department) in a stable order.
+  // Toggling any one changes the key, so the stale physical PDF regenerates.
+  const flag = (li: { showSignatureOnPrint?: boolean } | null | undefined) =>
+    li?.showSignatureOnPrint ? '1' : '0';
+  const perDept = snapshot.departments.map((d) => flag(d.labIncharge)).join('');
+  return `sig${flag(snapshot.labIncharge)}${perDept}`;
 }
 
 async function mergeUploadsIntoBase(

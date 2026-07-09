@@ -364,22 +364,9 @@ export default function ManageDepartments() {
                 className="max-w-[120px]"
               />
             </div>
-
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="dept-show-lab-incharge">Show Lab Incharge on report</Label>
-                <Switch
-                  id="dept-show-lab-incharge"
-                  checked={formData.showLabIncharge}
-                  onCheckedChange={(checked) =>
-                    setFormData({ ...formData, showLabIncharge: checked })
-                  }
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Turn off for departments that sign out alone (e.g. Radiology)
-              </p>
-            </div>
+            {/* "Show Lab Incharge on report" now lives on the Signing Rules page
+                (per-department "Show lab incharge" checkbox), so this per-department
+                toggle was retired to avoid two controls for the same thing. */}
           </div>
 
           <DialogFooter>

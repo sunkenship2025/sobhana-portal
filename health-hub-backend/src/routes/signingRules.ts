@@ -154,7 +154,7 @@ router.post('/', async (req: AuthRequest, res) => {
 router.patch('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { showLabInchargeNote, displayOrder, isActive } = req.body;
+    const { showLabInchargeNote, displayOrder, isActive, signingDoctorId } = req.body;
 
     const existing = await prisma.signingRule.findUnique({ where: { id } });
     if (!existing) {
@@ -165,6 +165,26 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     if (showLabInchargeNote !== undefined) data.showLabInchargeNote = showLabInchargeNote;
     if (displayOrder !== undefined) data.displayOrder = displayOrder;
     if (isActive !== undefined) data.isActive = isActive;
+
+    // Reassigning the rule to a different doctor keeps the department fixed (the
+    // rule "belongs" to its department). Guard the [departmentId, signingDoctorId]
+    // unique constraint so a friendly 409 replaces a raw Prisma error.
+    if (signingDoctorId !== undefined && signingDoctorId !== existing.signingDoctorId) {
+      const collision = await prisma.signingRule.findFirst({
+        where: {
+          departmentId: existing.departmentId,
+          signingDoctorId,
+          id: { not: id },
+        },
+      });
+      if (collision) {
+        return res.status(409).json({
+          error: 'DUPLICATE_RULE',
+          message: 'That doctor already has a signing rule for this department',
+        });
+      }
+      data.signingDoctorId = signingDoctorId;
+    }
 
     const rule = await prisma.signingRule.update({
       where: { id },

@@ -1221,14 +1221,21 @@ function renderReportPage(
     ? pageDepartment.showLabIncharge !== false
     : snapshot.departments.some((d) => d.showLabIncharge !== false);
   const isRadiology = pageDepartment?.departmentName === 'RADIOLOGY';
+  // Lab incharge is resolved per department (branch+department rule). New
+  // snapshots carry it on the department; pre-feature snapshots don't (field is
+  // undefined) so fall back to the visit-level signer for backward compatibility.
+  const pageLabIncharge =
+    pageDepartment && pageDepartment.labIncharge !== undefined
+      ? pageDepartment.labIncharge
+      : snapshot.labIncharge;
   // Physical (letterhead) prints normally leave the Lab Incharge a blank line
   // for a wet signature. The per-signer showSignatureOnPrint toggle opts into
   // printing the digital signature image there too. Digital PDFs always sign.
   const showLabInchargeSignature =
     showLabIncharge &&
-    (!isPhysicalPrint || snapshot.labIncharge?.showSignatureOnPrint === true);
+    (!isPhysicalPrint || pageLabIncharge?.showSignatureOnPrint === true);
   const labInchargeSignatureImg = showLabInchargeSignature
-    ? renderLabInchargeSignatureImg(snapshot.labIncharge, baseUrl)
+    ? renderLabInchargeSignatureImg(pageLabIncharge, baseUrl)
     : '';
   const reportBottomHtml = page.includeReportBottom
     ? renderReportBottomHtml(
