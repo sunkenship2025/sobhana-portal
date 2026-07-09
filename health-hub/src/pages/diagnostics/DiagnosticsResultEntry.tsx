@@ -1352,6 +1352,39 @@ const DiagnosticsResultEntry = () => {
     }
   }, [loading, visit]);
 
+  // Narrative rows in a MULTI-rule department (radiology) where the operator
+  // opted into the signing rule but hasn't picked which radiologist signed.
+  // These block finalize — the report can't ship without a named signer.
+  // NOTE: declared ABOVE the loading/visit early returns below. A hook placed
+  // after an early return runs a different number of times per render (skipped
+  // while loading, run once loaded), which crashes React with error #310
+  // ("Rendered more hooks than during the previous render") — a blank page.
+  const narrativeSigningGaps = useMemo(() => {
+    const gaps: string[] = [];
+    if (!visit) return gaps;
+    const orders = visit.testOrders.filter((o) => !o.noReportAt);
+    for (const order of orders) {
+      const deptId = order.department?.id;
+      if (!deptId) continue;
+      if ((signingRulesByDept[deptId]?.length ?? 0) < 2) continue;
+      const rows =
+        order.isPanel && order.childTests && order.childTests.length > 0
+          ? order.childTests.map((c) => ({ resultKey: makeResultKey(order.id, c.id), testId: c.id, name: c.name }))
+          : [{ resultKey: makeResultKey(order.id, order.testId), testId: order.testId, name: order.testName }];
+      for (const row of rows) {
+        if (!textLayoutByResultKey.has(row.resultKey)) continue;
+        // Effective "use signing rule" (mirrors getUseSigningRule): explicit
+        // per-report state, else the remembered per-test default, else false.
+        const useRule = Object.prototype.hasOwnProperty.call(useSigningRuleByResultKey, row.resultKey)
+          ? useSigningRuleByResultKey[row.resultKey]
+          : (readUseSigningRuleDefault(row.testId) ?? false);
+        if (!useRule) continue;
+        if (!selectedSigningDoctorByResultKey[row.resultKey]) gaps.push(row.name);
+      }
+    }
+    return gaps;
+  }, [visit, signingRulesByDept, textLayoutByResultKey, useSigningRuleByResultKey, selectedSigningDoctorByResultKey]);
+
   if (loading) {
     return (
       <AppLayout context="diagnostics">
@@ -1488,30 +1521,6 @@ const DiagnosticsResultEntry = () => {
     }
     setSelectedSigningDoctorByResultKey((prev) => ({ ...prev, [resultKey]: value }));
   };
-
-  // Narrative rows in a MULTI-rule department (radiology) where the operator
-  // opted into the signing rule but hasn't picked which radiologist signed.
-  // These block finalize — the report can't ship without a named signer.
-  const narrativeSigningGaps = useMemo(() => {
-    const gaps: string[] = [];
-    for (const order of activeTestOrders) {
-      const deptId = order.department?.id;
-      if (!deptId) continue;
-      if ((signingRulesByDept[deptId]?.length ?? 0) < 2) continue;
-      const rows =
-        order.isPanel && order.childTests && order.childTests.length > 0
-          ? order.childTests.map((c) => ({ resultKey: makeResultKey(order.id, c.id), testId: c.id, name: c.name }))
-          : [{ resultKey: makeResultKey(order.id, order.testId), testId: order.testId, name: order.testName }];
-      for (const row of rows) {
-        if (!textLayoutByResultKey.has(row.resultKey)) continue;
-        if (!getUseSigningRule(row.resultKey, row.testId)) continue;
-        if (!selectedSigningDoctorByResultKey[row.resultKey]) gaps.push(row.name);
-      }
-    }
-    return gaps;
-    // getUseSigningRule reads useSigningRuleByResultKey (+ localStorage default).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTestOrders, signingRulesByDept, textLayoutByResultKey, useSigningRuleByResultKey, selectedSigningDoctorByResultKey]);
 
   const togglePanel = (orderId: string) => {
     setExpandedPanels((prev) => ({
