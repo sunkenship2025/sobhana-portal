@@ -3896,6 +3896,14 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
         // the client doesn't send it (non-narrative rows).
         const useSigningRuleChoice =
           typeof result.useSigningRule === "boolean" ? result.useSigningRule : null;
+        // Pinned signing doctor for a multi-rule department (radiology). Only
+        // meaningful when useSigningRule is true; ignored otherwise.
+        const selectedSigningDoctorChoice =
+          useSigningRuleChoice === true &&
+          typeof result.selectedSigningDoctorId === "string" &&
+          result.selectedSigningDoctorId.trim()
+            ? result.selectedSigningDoctorId.trim()
+            : null;
         const numericValue =
           result.value != null
             ? parseFloat(result.value)
@@ -3926,6 +3934,7 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
             enteredByUserId: req.user!.id,
             signerNameOverride: signerOverride,
             useSigningRule: useSigningRuleChoice,
+            selectedSigningDoctorId: selectedSigningDoctorChoice,
           };
 
           await tx.testResult.upsert({
@@ -5137,6 +5146,7 @@ router.post("/:id/orders/:orderId/reopen-report", async (req: AuthRequest, res) 
             enteredByUserId: true,
             signerNameOverride: true,
             useSigningRule: true,
+            selectedSigningDoctorId: true,
           },
         });
         const nextDraft = await tx.reportVersion.create({
@@ -5864,6 +5874,7 @@ router.post("/:id/release-partial", requireRole("owner", "lab_incharge"), async 
             enteredByUserId: r.enteredByUserId,
             signerNameOverride: r.signerNameOverride,
             useSigningRule: r.useSigningRule,
+            selectedSigningDoctorId: r.selectedSigningDoctorId,
           })),
         });
       }

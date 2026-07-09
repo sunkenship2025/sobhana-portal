@@ -933,6 +933,15 @@ model TestResult {
   // typed signerNameOverride + "Consultant <Dept>" designation. NULL on old
   // rows preserves the previous "rule always wins" behavior at render time.
   useSigningRule Boolean?
+  // Narrative/text reports whose department has MULTIPLE SigningRules (e.g.
+  // radiology, where several radiologists each have a rule). When useSigningRule
+  // is true, this pins the ONE signing doctor (SigningDoctor.id) that actually
+  // read this report, so the renderer prints just that doctor's block instead
+  // of every configured signature. NULL = not pinned: single-rule departments
+  // and legacy rows keep the "render all configured rules" behavior. Stored as
+  // a loose id (no FK) — signatures are resolved live at render, matching how
+  // the rest of the signing pipeline treats doctors as live lookups.
+  selectedSigningDoctorId String?
 
   testOrder      TestOrder       @relation(fields: [testOrderId], references: [id], onDelete: Cascade)
   test           LabTest         @relation(fields: [testId], references: [id], onDelete: Restrict)

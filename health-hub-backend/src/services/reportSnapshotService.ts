@@ -90,6 +90,12 @@ export interface PanelSnapshot {
    *  name + consultant designation. undefined/null on legacy snapshots, where
    *  the renderer preserves the old "rule always wins" behavior. */
   useSigningRule?: boolean | null;
+  /** Pinned signing doctor (SigningDoctor.id) for a department that has several
+   *  SigningRules (radiology). When set, the renderer keeps only this doctor's
+   *  configured signature for the page instead of stamping every rule.
+   *  undefined/null = render all the department's rules (single-rule departments
+   *  and legacy snapshots). */
+  selectedSigningDoctorId?: string | null;
 }
 
 export interface DepartmentSnapshot {
@@ -1077,7 +1083,7 @@ function buildPanelsAndDepartments(
   // only one signer per panel.
   const panelMap = new Map<
     string,
-    { panel: any; results: any[]; signerNameOverride: string | null; useSigningRule: boolean | null }
+    { panel: any; results: any[]; signerNameOverride: string | null; useSigningRule: boolean | null; selectedSigningDoctorId: string | null }
   >();
 
   // _AUTO_<CODE> panels are auto-generated single-test wrappers created so that
@@ -1155,6 +1161,12 @@ function buildPanelsAndDepartments(
         ? ((result as any).useSigningRule as boolean)
         : null;
 
+    const resultSelectedSigningDoctorId =
+      typeof (result as any).selectedSigningDoctorId === 'string' &&
+      (result as any).selectedSigningDoctorId.trim()
+        ? ((result as any).selectedSigningDoctorId as string).trim()
+        : null;
+
     if (useNewChain) {
       // ━━ NEW ARCHITECTURE: ClinicalPanelItem → ClinicalPanel ━━
       const chosenItems = pickRenderPanelItems(testDef.panelItems);
@@ -1163,13 +1175,16 @@ function buildPanelsAndDepartments(
         const key = panel.id;
 
         if (!panelMap.has(key)) {
-          panelMap.set(key, { panel, results: [], signerNameOverride: null, useSigningRule: null });
+          panelMap.set(key, { panel, results: [], signerNameOverride: null, useSigningRule: null, selectedSigningDoctorId: null });
         }
         if (resultSignerOverride && !panelMap.get(key)!.signerNameOverride) {
           panelMap.get(key)!.signerNameOverride = resultSignerOverride;
         }
         if (resultUseSigningRule !== null && panelMap.get(key)!.useSigningRule === null) {
           panelMap.get(key)!.useSigningRule = resultUseSigningRule;
+        }
+        if (resultSelectedSigningDoctorId !== null && panelMap.get(key)!.selectedSigningDoctorId === null) {
+          panelMap.get(key)!.selectedSigningDoctorId = resultSelectedSigningDoctorId;
         }
 
         // Match interpretation using InterpretationRule (operator-based)
@@ -1217,13 +1232,16 @@ function buildPanelsAndDepartments(
         const key = panel.id;
 
         if (!panelMap.has(key)) {
-          panelMap.set(key, { panel, results: [], signerNameOverride: null, useSigningRule: null });
+          panelMap.set(key, { panel, results: [], signerNameOverride: null, useSigningRule: null, selectedSigningDoctorId: null });
         }
         if (resultSignerOverride && !panelMap.get(key)!.signerNameOverride) {
           panelMap.get(key)!.signerNameOverride = resultSignerOverride;
         }
         if (resultUseSigningRule !== null && panelMap.get(key)!.useSigningRule === null) {
           panelMap.get(key)!.useSigningRule = resultUseSigningRule;
+        }
+        if (resultSelectedSigningDoctorId !== null && panelMap.get(key)!.selectedSigningDoctorId === null) {
+          panelMap.get(key)!.selectedSigningDoctorId = resultSelectedSigningDoctorId;
         }
 
         const interpretationText = matchLegacyInterpretation(
@@ -1285,6 +1303,7 @@ function buildPanelsAndDepartments(
           results: [],
           signerNameOverride: null,
           useSigningRule: null,
+          selectedSigningDoctorId: null,
         });
       }
       if (resultSignerOverride && !panelMap.get(orphanPanelKey)!.signerNameOverride) {
@@ -1292,6 +1311,9 @@ function buildPanelsAndDepartments(
       }
       if (resultUseSigningRule !== null && panelMap.get(orphanPanelKey)!.useSigningRule === null) {
         panelMap.get(orphanPanelKey)!.useSigningRule = resultUseSigningRule;
+      }
+      if (resultSelectedSigningDoctorId !== null && panelMap.get(orphanPanelKey)!.selectedSigningDoctorId === null) {
+        panelMap.get(orphanPanelKey)!.selectedSigningDoctorId = resultSelectedSigningDoctorId;
       }
 
       panelMap.get(orphanPanelKey)!.results.push({
@@ -1326,7 +1348,7 @@ function buildPanelsAndDepartments(
   // Group panels by department
   const departmentMap = new Map<string, DepartmentSnapshot>();
 
-  for (const [_panelId, { panel, results, signerNameOverride, useSigningRule }] of panelMap) {
+  for (const [_panelId, { panel, results, signerNameOverride, useSigningRule, selectedSigningDoctorId }] of panelMap) {
     const dept = panel.department;
     const deptId = dept.id;
 
@@ -1384,6 +1406,7 @@ function buildPanelsAndDepartments(
       interpretationHtml,
       signerNameOverride,
       useSigningRule,
+      selectedSigningDoctorId,
     });
   }
 

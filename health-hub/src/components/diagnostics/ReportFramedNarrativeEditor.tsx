@@ -55,6 +55,14 @@ interface ReportFramedNarrativeEditorProps {
    *  is hidden and the typed name is not used for this report. */
   useSigningRule?: boolean;
   onUseSigningRuleChange?: (value: boolean) => void;
+  /** For a department with SEVERAL SigningRules (radiology, multiple
+   *  radiologists): the doctors to choose between. When provided and
+   *  useSigningRule is checked, a strict dropdown replaces the free-text name
+   *  box so the operator pins the ONE doctor who read this report. Omitted for
+   *  single-rule departments (the checkbox alone is unambiguous there). */
+  signingRuleOptions?: Array<{ doctorId: string; name: string; degrees: string; designation: string }>;
+  selectedSigningDoctorId?: string;
+  onSelectedSigningDoctorChange?: (doctorId: string) => void;
   /** Fires the first time the editor gains focus. The parent uses this as a
    *  proxy for "the radiologist actually touched this report" so the partial-
    *  release dialog can default-uncheck untouched template-only narratives. */
@@ -118,10 +126,20 @@ export function ReportFramedNarrativeEditor({
   showSigningRuleToggle = false,
   useSigningRule = false,
   onUseSigningRuleChange,
+  signingRuleOptions,
+  selectedSigningDoctorId,
+  onSelectedSigningDoctorChange,
   onFirstTouch,
 }: ReportFramedNarrativeEditorProps) {
   const designation = deriveConsultantTitle(departmentName);
   const trimmedSigner = (signerName ?? '').trim();
+  // When the department offers a strict doctor dropdown, resolve the picked
+  // doctor so the framed preview shows their name + designation, matching the
+  // PDF's signature block.
+  const selectedDoctor =
+    useSigningRule && signingRuleOptions
+      ? signingRuleOptions.find((o) => o.doctorId === selectedSigningDoctorId)
+      : undefined;
   const surfaceRef = useRef<RichTextSurfaceHandle>(null);
   const [toolbarState, setToolbarState] = useState<ToolbarState>(DEFAULT_TOOLBAR_STATE);
   // Toolbar is muted (semi-transparent) until the editor underneath it has
@@ -246,7 +264,12 @@ export function ReportFramedNarrativeEditor({
               {!useSigningRule && trimmedSigner && (
                 <div className="report-sign-name">{trimmedSigner}</div>
               )}
-              <div className="report-sign-designation">{designation}</div>
+              {selectedDoctor && (
+                <div className="report-sign-name">{selectedDoctor.name}</div>
+              )}
+              <div className="report-sign-designation">
+                {selectedDoctor?.designation?.trim() || designation}
+              </div>
             </div>
           </div>
         </div>
@@ -264,6 +287,24 @@ export function ReportFramedNarrativeEditor({
               <span className="report-sign-input-label">
                 Sign with the department&apos;s signing doctor
               </span>
+            </label>
+          )}
+          {useSigningRule && signingRuleOptions && signingRuleOptions.length > 0 && (
+            <label className="report-sign-input-row">
+              <span className="report-sign-input-label">Signing Doctor</span>
+              <select
+                value={selectedSigningDoctorId ?? ''}
+                onChange={(e) => onSelectedSigningDoctorChange?.(e.target.value)}
+                className="report-sign-input"
+              >
+                <option value="">— Select radiologist —</option>
+                {signingRuleOptions.map((opt) => (
+                  <option key={opt.doctorId} value={opt.doctorId}>
+                    {opt.name}
+                    {opt.degrees ? `, ${opt.degrees}` : ''}
+                  </option>
+                ))}
+              </select>
             </label>
           )}
           {!useSigningRule && (

@@ -699,6 +699,11 @@ interface ReportPageModel {
   // the typed name + consultant designation. undefined/true = original
   // "rule wins" behavior.
   useSigningRule?: boolean | null;
+  // Pinned signing doctor (SigningDoctor.id) for a multi-rule department
+  // (radiology). When set and the page uses the rule, keep only this doctor's
+  // configured signature instead of every rule for the department. undefined =
+  // render all configured rules (single-rule departments, legacy snapshots).
+  selectedSigningDoctorId?: string | null;
 }
 
 function resolveProfile(profile: RenderProfile): ResolvedProfile {
@@ -1099,6 +1104,11 @@ function buildReportPages(
           .map((p) => p.useSigningRule)
           .find((v) => typeof v === 'boolean') ??
         null;
+      const pageSelectedSigningDoctorId =
+        panels
+          .map((p) => p.selectedSigningDoctorId)
+          .find((v) => typeof v === 'string' && v.trim().length > 0) ??
+        null;
       pages.push({
         departmentId: department.departmentId,
         departmentHtml: renderDepartmentSection(department, panels),
@@ -1108,6 +1118,7 @@ function buildReportPages(
         includeQr: profile !== 'screen',
         signerNameOverride: pageSignerOverride,
         useSigningRule: pageUseSigningRule,
+        selectedSigningDoctorId: pageSelectedSigningDoctorId,
       });
     });
   });
@@ -1148,7 +1159,23 @@ function renderReportPage(
   const pageSignatureSource = page.departmentId
     ? snapshot.signatures.filter((s) => s.departmentId === page.departmentId)
     : snapshot.signatures;
-  const reportSignatures = dedupeReportSignatures(pageSignatureSource);
+  const dedupedSignatures = dedupeReportSignatures(pageSignatureSource);
+  // Multi-rule departments (radiology) can have several configured signers. When
+  // the operator pinned the specific doctor who read this report, keep only that
+  // doctor's block — otherwise every rule's signature would print. Fall back to
+  // all signatures if the pinned doctor is gone (deleted / deactivated rule).
+  const pinnedDoctorId =
+    typeof page.selectedSigningDoctorId === 'string' &&
+    page.selectedSigningDoctorId.trim()
+      ? page.selectedSigningDoctorId.trim()
+      : null;
+  const pinnedSignatures = pinnedDoctorId
+    ? dedupedSignatures.filter((s) => s.doctorId === pinnedDoctorId)
+    : [];
+  const reportSignatures =
+    pinnedDoctorId && pinnedSignatures.length > 0
+      ? pinnedSignatures
+      : dedupedSignatures;
   // Per-page signer override (typed by the radiologist in the entry screen)
   // replaces the configured signature block for THIS page — just name +
   // designation, no degrees / reg-no / image. BUT: a configured SigningRule

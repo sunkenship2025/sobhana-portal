@@ -310,6 +310,15 @@ function writeUseSigningRuleDefault(testId: string, value: boolean): void {
   }
 }
 
+// One configured signing doctor for a department (radiology depts have several).
+// Drives the strict "which radiologist signed this?" dropdown.
+type SigningRuleOption = {
+  doctorId: string;
+  name: string;
+  degrees: string;
+  designation: string;
+};
+
 const DiagnosticsResultEntry = () => {
   const { visitId } = useParams();
   const navigate = useNavigate();
@@ -362,6 +371,12 @@ const DiagnosticsResultEntry = () => {
   // Narrative "use signing rule" checkbox state, per result key. Absent = fall
   // back to the remembered per-test default (localStorage) then false.
   const [useSigningRuleByResultKey, setUseSigningRuleByResultKey] = useState<Record<string, boolean>>({});
+  // For multi-rule departments (radiology): which signing doctor the operator
+  // picked in the strict dropdown, per result key. Absent = not yet chosen —
+  // finalize is blocked until one is selected. Deliberately NOT remembered
+  // across reports (unlike the checkbox): each report gets a fresh, conscious
+  // pick of who read it.
+  const [selectedSigningDoctorByResultKey, setSelectedSigningDoctorByResultKey] = useState<Record<string, string>>({});
   const [derivedManualOverrides, setDerivedManualOverrides] = useState<Record<string, boolean>>({});
   const [showWarning, setShowWarning] = useState(false);
   const [extremeValues, setExtremeValues] = useState<string[]>([]);
@@ -409,13 +424,12 @@ const DiagnosticsResultEntry = () => {
   // *clicked into* this session. Used as the "did they touch it?" signal
   // for partial-release pre-selection: untouched narratives stay unchecked
   // by default so the unedited template can never silently ship.
-  // Set of departmentIds that have an active SigningRule. When a department
-  // has one configured, the per-narrative "Doctor's Name" input locks — the
-  // rule is the source of truth for that department. The input re-enables
-  // automatically once the rule is removed.
-  const [departmentsWithSigningRule, setDepartmentsWithSigningRule] = useState<Set<string>>(
-    () => new Set(),
-  );
+  // Active SigningRules grouped by departmentId. A department with ≥1 rule shows
+  // the "sign with the department's doctor" checkbox; a department with ≥2 rules
+  // (radiology, multiple radiologists) also shows the strict doctor dropdown so
+  // the operator pins the ONE who read this report. Empty for departments where
+  // the typed "Doctor's Name" box remains the source of truth.
+  const [signingRulesByDept, setSigningRulesByDept] = useState<Record<string, SigningRuleOption[]>>({});
 
   const [touchedNarrativeResultKeys, setTouchedNarrativeResultKeys] = useState<Set<string>>(
     () => new Set(),
@@ -684,6 +698,7 @@ const DiagnosticsResultEntry = () => {
           const initialManualOverrides: Record<string, boolean> = {};
           const initialSignerNames: Record<string, string> = {};
           const initialUseSigningRule: Record<string, boolean> = {};
+          const initialSelectedSigningDoctor: Record<string, string> = {};
 
           if (data.report?.versions?.[0]?.testResults) {
             const latestVersion = data.report.versions[0];
@@ -710,6 +725,9 @@ const DiagnosticsResultEntry = () => {
               }
               if (typeof r.useSigningRule === 'boolean') {
                 initialUseSigningRule[resultKey] = r.useSigningRule;
+              }
+              if (typeof r.selectedSigningDoctorId === 'string' && r.selectedSigningDoctorId) {
+                initialSelectedSigningDoctor[resultKey] = r.selectedSigningDoctorId;
               }
             });
           }
@@ -749,6 +767,7 @@ const DiagnosticsResultEntry = () => {
           setDerivedManualOverrides(initialManualOverrides);
           setSignerNameByResultKey(initialSignerNames);
           setUseSigningRuleByResultKey(initialUseSigningRule);
+          setSelectedSigningDoctorByResultKey(initialSelectedSigningDoctor);
 
           setExpandedPanels(panelExpansion);
           setVisit(data);
@@ -789,11 +808,24 @@ const DiagnosticsResultEntry = () => {
           },
         });
         if (!response.ok) return;
-        const rules: Array<{ departmentId: string }> = await response.json();
+        const rules: Array<{
+          departmentId: string;
+          displayOrder?: number;
+          signingDoctor?: { id: string; name: string; degrees?: string; designation?: string } | null;
+        }> = await response.json();
         if (cancelled) return;
-        setDepartmentsWithSigningRule(
-          new Set(rules.map((r) => r.departmentId).filter(Boolean)),
-        );
+        // Group by department, preserving the API's displayOrder sort.
+        const byDept: Record<string, SigningRuleOption[]> = {};
+        for (const rule of rules) {
+          if (!rule.departmentId || !rule.signingDoctor?.id) continue;
+          (byDept[rule.departmentId] ??= []).push({
+            doctorId: rule.signingDoctor.id,
+            name: rule.signingDoctor.name,
+            degrees: rule.signingDoctor.degrees ?? '',
+            designation: rule.signingDoctor.designation ?? '',
+          });
+        }
+        setSigningRulesByDept(byDept);
       } catch (error) {
         console.error('Failed to fetch signing rules:', error);
       }
@@ -1027,12 +1059,17 @@ const DiagnosticsResultEntry = () => {
                 ? useSigningRuleByResultKey[test.resultKey]
                 : (readUseSigningRuleDefault(test.testId) ?? false))
             : null,
+          // Pinned signing doctor for multi-rule departments. Backend ignores it
+          // unless useSigningRule is true, so it's safe to always ship the state.
+          selectedSigningDoctorId: textLayoutByResultKey.has(test.resultKey)
+            ? (selectedSigningDoctorByResultKey[test.resultKey] || null)
+            : null,
         };
       });
 
     if (resultsArray.length === 0) return null;
     return { results: resultsArray };
-  }, [visit, visitId, results, derivedManualOverrides, textLayoutByResultKey, signerNameByResultKey, useSigningRuleByResultKey, testInputConfigByResultKey]);
+  }, [visit, visitId, results, derivedManualOverrides, textLayoutByResultKey, signerNameByResultKey, useSigningRuleByResultKey, selectedSigningDoctorByResultKey, testInputConfigByResultKey]);
 
   // The cloud toggle governs only narrative/text reports; numeric/tabular always
   // auto-saves. `autoSyncActive` is the effective on/off for THIS visit (visits
@@ -1432,7 +1469,49 @@ const DiagnosticsResultEntry = () => {
       setReportSaveStatusByKey((prev) => ({ ...prev, [resultKey]: 'unsaved' }));
     }
     setUseSigningRuleByResultKey((prev) => ({ ...prev, [resultKey]: value }));
+    // Unchecking drops back to the typed-name path, so any pinned doctor is
+    // stale — clear it. (Re-checking then starts empty, forcing a fresh pick.)
+    if (!value) {
+      setSelectedSigningDoctorByResultKey((prev) => {
+        if (!Object.prototype.hasOwnProperty.call(prev, resultKey)) return prev;
+        const next = { ...prev };
+        delete next[resultKey];
+        return next;
+      });
+    }
   };
+
+  const handleSelectedSigningDoctorChange = (resultKey: ResultKey, value: string) => {
+    touchedForSaveResultKeysRef.current.add(resultKey);
+    if (textLayoutByResultKey.has(resultKey)) {
+      setReportSaveStatusByKey((prev) => ({ ...prev, [resultKey]: 'unsaved' }));
+    }
+    setSelectedSigningDoctorByResultKey((prev) => ({ ...prev, [resultKey]: value }));
+  };
+
+  // Narrative rows in a MULTI-rule department (radiology) where the operator
+  // opted into the signing rule but hasn't picked which radiologist signed.
+  // These block finalize — the report can't ship without a named signer.
+  const narrativeSigningGaps = useMemo(() => {
+    const gaps: string[] = [];
+    for (const order of activeTestOrders) {
+      const deptId = order.department?.id;
+      if (!deptId) continue;
+      if ((signingRulesByDept[deptId]?.length ?? 0) < 2) continue;
+      const rows =
+        order.isPanel && order.childTests && order.childTests.length > 0
+          ? order.childTests.map((c) => ({ resultKey: makeResultKey(order.id, c.id), testId: c.id, name: c.name }))
+          : [{ resultKey: makeResultKey(order.id, order.testId), testId: order.testId, name: order.testName }];
+      for (const row of rows) {
+        if (!textLayoutByResultKey.has(row.resultKey)) continue;
+        if (!getUseSigningRule(row.resultKey, row.testId)) continue;
+        if (!selectedSigningDoctorByResultKey[row.resultKey]) gaps.push(row.name);
+      }
+    }
+    return gaps;
+    // getUseSigningRule reads useSigningRuleByResultKey (+ localStorage default).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTestOrders, signingRulesByDept, textLayoutByResultKey, useSigningRuleByResultKey, selectedSigningDoctorByResultKey]);
 
   const togglePanel = (orderId: string) => {
     setExpandedPanels((prev) => ({
@@ -1940,10 +2019,13 @@ const DiagnosticsResultEntry = () => {
     // When the department has a SigningRule, show a checkbox: checked = sign
     // with the rule's doctor (name box hidden); unchecked = typed name +
     // consultant designation (the original narrative behavior).
-    const hasSigningRule = departmentId
-      ? departmentsWithSigningRule.has(departmentId)
-      : false;
+    const deptRules = departmentId ? (signingRulesByDept[departmentId] ?? []) : [];
+    const hasSigningRule = deptRules.length > 0;
     const useRule = hasSigningRule && getUseSigningRule(resultKey, testId);
+    // Only surface the strict "which radiologist?" dropdown when the department
+    // actually has several signers to choose between (radiology). A single-rule
+    // department signs unambiguously from the checkbox alone.
+    const signingRuleOptions = deptRules.length >= 2 ? deptRules : undefined;
     const order = testOrders.find((o) => o.id === testOrderId);
     const isWholeOrderRow = !!order && order.testId === testId;
 
@@ -1994,6 +2076,9 @@ const DiagnosticsResultEntry = () => {
           showSigningRuleToggle={hasSigningRule}
           useSigningRule={useRule}
           onUseSigningRuleChange={(next) => handleUseSigningRuleChange(resultKey, testId, next)}
+          signingRuleOptions={signingRuleOptions}
+          selectedSigningDoctorId={selectedSigningDoctorByResultKey[resultKey] || ''}
+          onSelectedSigningDoctorChange={(next) => handleSelectedSigningDoctorChange(resultKey, next)}
           onFirstTouch={() => markNarrativeTouched(resultKey)}
         />
       </div>
@@ -2817,6 +2902,15 @@ const DiagnosticsResultEntry = () => {
                 hasNarrativeTests || hasExternalUploadTests;
 
               const handleClick = () => {
+                // Strict signer gate: a radiology (multi-rule) narrative that
+                // opted into the signing rule must name which radiologist read
+                // it before anything ships. Blocks every finalize/release path.
+                if (narrativeSigningGaps.length > 0) {
+                  toast.error(
+                    `Select the signing radiologist for: ${[...new Set(narrativeSigningGaps)].join(', ')}`,
+                  );
+                  return;
+                }
                 if (fullyDone && !requiresExplicitConfirmation) {
                   // Pure numeric visit — reuse the extreme-value validation
                   // flow so we don't bypass the warning dialog for fully-
