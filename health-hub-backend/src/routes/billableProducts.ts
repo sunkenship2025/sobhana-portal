@@ -472,15 +472,15 @@ router.post('/', async (req: AuthRequest, res) => {
           message: `Sub-products not found: ${missing.join(', ')}`,
         });
       }
-      // A child line is bill itemization only — the billing engine never expands
-      // it into report orders. So a reportable/external/package child would be
-      // billed but silently never generate its report. Reject any non-bill-only
-      // child (this is the airtight backstop; the picker also only offers bill-only).
-      const nonBillOnly = found.filter((p) => p.workflowMode !== DiagnosticWorkflowMode.BILL_ONLY);
-      if (nonBillOnly.length > 0) {
+      // Child products now expand into their own report/upload orders (nesting),
+      // so reportable / external-upload / package children are allowed. Only
+      // EVENT products are rejected — they're ₹0 coupon triggers, not
+      // investigations, and have no meaning as a package line item.
+      const eventChildren = found.filter((p) => p.workflowMode === DiagnosticWorkflowMode.EVENT);
+      if (eventChildren.length > 0) {
         return res.status(400).json({
           error: 'VALIDATION_ERROR',
-          message: `Only bill-only items can be added as package line items. Not bill-only: ${nonBillOnly.map((p) => p.code).join(', ')}. A reportable, external-upload or package product added as a line would be billed but never produce its report.`,
+          message: `Event products cannot be package line items: ${eventChildren.map((p) => p.code).join(', ')}.`,
         });
       }
     }
@@ -566,29 +566,6 @@ router.put('/:id', async (req: AuthRequest, res) => {
 
     const resolvedWorkflowMode = workflowMode ?? existing.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE;
 
-    // Flip guard: a bill-only product that is used as a package line item must
-    // NOT be turned reportable/external — the billing engine treats child lines
-    // as bill-only, so the parent package would then bill it without producing
-    // its report. (This is exactly how earlier mis-structured packages arose.)
-    // Only fires on the actual bill-only → non-bill-only transition.
-    if (
-      existing.workflowMode === DiagnosticWorkflowMode.BILL_ONLY &&
-      resolvedWorkflowMode !== DiagnosticWorkflowMode.BILL_ONLY
-    ) {
-      const parentRefs = await prisma.billableProductPanel.findMany({
-        where: { childProductId: req.params.id },
-        select: { product: { select: { code: true } } },
-        take: 5,
-      });
-      if (parentRefs.length > 0) {
-        const parents = [...new Set(parentRefs.map((r) => r.product.code))].join(', ');
-        return res.status(409).json({
-          error: 'CONFLICT',
-          message: `This product is a bill-only line item inside package(s): ${parents}. Remove it from those packages before making it ${resolvedWorkflowMode}, otherwise they would bill it without a report.`,
-        });
-      }
-    }
-
     // Validate each line points at exactly one of panel/child product
     if (panels !== undefined) {
       for (const [idx, p] of panels.entries()) {
@@ -672,14 +649,13 @@ router.put('/:id', async (req: AuthRequest, res) => {
         });
       }
 
-      // Child lines are bill itemization only — never expanded into report
-      // orders. Reject any non-bill-only child so a package can't silently drop
-      // a reportable/external/package child's report. (Mirrors the POST guard.)
-      const nonBillOnly = found.filter((p) => p.workflowMode !== DiagnosticWorkflowMode.BILL_ONLY);
-      if (nonBillOnly.length > 0) {
+      // Child products expand into their own orders (nesting); only EVENT
+      // products are rejected as line items (₹0 coupon triggers, not tests).
+      const eventChildren = found.filter((p) => p.workflowMode === DiagnosticWorkflowMode.EVENT);
+      if (eventChildren.length > 0) {
         return res.status(400).json({
           error: 'VALIDATION_ERROR',
-          message: `Only bill-only items can be added as package line items. Not bill-only: ${nonBillOnly.map((p) => p.code).join(', ')}. A reportable, external-upload or package product added as a line would be billed but never produce its report.`,
+          message: `Event products cannot be package line items: ${eventChildren.map((p) => p.code).join(', ')}.`,
         });
       }
 

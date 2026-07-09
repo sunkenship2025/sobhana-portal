@@ -93,8 +93,55 @@ export async function resolveProducts(
     );
   }
 
+  // ── Pull in nested child products ────────────────────────────────────────
+  // A package line can point at another BillableProduct (childProductId). Walk
+  // the child graph into `allProducts` so children (and their children) can be
+  // expanded into their own report/upload orders. Bounded depth; the save-time
+  // cycle guard keeps real data acyclic, and collectLeaves() re-checks per path.
+  const allProducts = new Map<string, (typeof products)[number]>(
+    products.map((p) => [p.id, p]),
+  );
+  let childFrontier: string[] = products.flatMap((p) =>
+    p.panels.filter((pp) => pp.childProductId).map((pp) => pp.childProductId!),
+  );
+  for (let depth = 0; depth < 6 && childFrontier.length > 0; depth++) {
+    const toFetch = [...new Set(childFrontier)].filter((id) => !allProducts.has(id));
+    if (toFetch.length === 0) break;
+    const kids = await prisma.billableProduct.findMany({
+      where: { id: { in: toFetch } },
+      include: {
+        panels: {
+          include: {
+            panel: {
+              include: {
+                items: {
+                  include: {
+                    testDefinition: {
+                      select: { id: true, code: true, name: true, referenceUnit: true,
+                                referenceMin: true, referenceMax: true },
+                    },
+                  },
+                  orderBy: { displayOrder: 'asc' },
+                },
+              },
+            },
+          },
+          orderBy: { displayOrder: 'asc' },
+        },
+        branchPricing: {
+          where: { branchId, isActive: true },
+          take: 1,
+        },
+      },
+    });
+    for (const kid of kids) allProducts.set(kid.id, kid as (typeof products)[number]);
+    childFrontier = kids.flatMap((k) =>
+      k.panels.filter((pp) => pp.childProductId).map((pp) => pp.childProductId!),
+    );
+  }
+
   const invalidPanels: string[] = [];
-  for (const product of products) {
+  for (const product of allProducts.values()) {
     // BILL_ONLY, EXTERNAL_UPLOAD and EVENT never carry panels — skip panel validation entirely.
     if (
       product.workflowMode === DiagnosticWorkflowMode.BILL_ONLY ||
@@ -131,7 +178,7 @@ export async function resolveProducts(
 
   // Collect all unique TestDefinition codes across all panels to batch-fetch LabTests
   const allCodes = new Set<string>();
-  for (const product of products) {
+  for (const product of allProducts.values()) {
     if (
       product.workflowMode === DiagnosticWorkflowMode.BILL_ONLY ||
       product.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD ||
@@ -176,7 +223,7 @@ export async function resolveProducts(
   if (missingCodes.length > 0) {
     // Collect TestDefinition data for missing codes from the already-fetched products
     const missingDefs: Array<{ code: string; name: string; referenceMin: number | null; referenceMax: number | null; referenceUnit: string | null }> = [];
-    for (const product of products) {
+    for (const product of allProducts.values()) {
       for (const pp of product.panels) {
         if (!pp.panel) continue; // child-product line
         for (const item of pp.panel.items) {
@@ -220,8 +267,88 @@ export async function resolveProducts(
     }
   }
 
-  // Create a map for quick lookup
+  // Create a map for quick lookup of the top-level products being ordered.
   const productMap = new Map(products.map(p => [p.id, p]));
+
+  // The bill-only/external/event placeholder LabTest satisfies the
+  // TestOrder→LabTest FK for orders with no backing test (bill-only lines,
+  // external uploads, event coupons). Fetched once and reused.
+  const placeholder = await ensureBillOnlyPlaceholderLabTest();
+
+  type Leaf = Omit<ResolvedTestOrder, 'priceInPaise' | 'productId' | 'priceSource'>;
+
+  const placeholderLeaf = (
+    mode: DiagnosticWorkflowMode,
+    p: { name: string; code: string },
+  ): Leaf => ({
+    labTestId: placeholder.id,
+    testName: p.name,
+    testCode: p.code,
+    referenceMin: null,
+    referenceMax: null,
+    referenceUnit: null,
+    workflowMode: mode,
+  });
+
+  // Recursively flatten a product into leaf orders. Panel lines become
+  // reportable tests; an EXTERNAL_UPLOAD product becomes a single upload order;
+  // a REPORTABLE child (including a nested package) expands recursively. A
+  // BILL_ONLY / EVENT product yields its own placeholder order ONLY when it is
+  // the top-level product being ordered — as a *child line* it's bill
+  // itemization only (unchanged) and contributes nothing. `path` guards against
+  // cycles / runaway depth in legacy data (real data is kept acyclic at save).
+  const collectLeaves = (
+    product: (typeof products)[number],
+    isTopLevel: boolean,
+    path: Set<string>,
+  ): Leaf[] => {
+    if (path.has(product.id) || path.size >= 6) {
+      throw new ProductResolutionError(
+        `Package "${product.code}" nests too deeply or references itself.`,
+        'INVALID_NESTING',
+        [product.code],
+      );
+    }
+    const mode = product.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE;
+
+    if (mode === DiagnosticWorkflowMode.EVENT) {
+      return isTopLevel ? [placeholderLeaf(DiagnosticWorkflowMode.EVENT, product)] : [];
+    }
+    if (mode === DiagnosticWorkflowMode.BILL_ONLY) {
+      return isTopLevel ? [placeholderLeaf(DiagnosticWorkflowMode.BILL_ONLY, product)] : [];
+    }
+    if (mode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD) {
+      // A nested external-upload investigation DOES get its own upload order —
+      // that's the point of bundling an outside scan into a package.
+      return [placeholderLeaf(DiagnosticWorkflowMode.EXTERNAL_UPLOAD, product)];
+    }
+
+    // REPORTABLE: panels expand into tests; child lines expand recursively.
+    const nextPath = new Set(path).add(product.id);
+    const leaves: Leaf[] = [];
+    for (const pp of product.panels) {
+      if (pp.panel) {
+        for (const item of pp.panel.items) {
+          const labTest = labTestByCode.get(item.testDefinition.code);
+          if (!labTest) continue;
+          leaves.push({
+            labTestId: labTest.id,
+            testDefinitionId: item.testDefinition.id,
+            testName: labTest.name,
+            testCode: labTest.code,
+            referenceMin: labTest.referenceMin,
+            referenceMax: labTest.referenceMax,
+            referenceUnit: labTest.referenceUnit,
+            workflowMode: DiagnosticWorkflowMode.REPORTABLE,
+          });
+        }
+      } else if (pp.childProductId) {
+        const child = allProducts.get(pp.childProductId);
+        if (child) leaves.push(...collectLeaves(child, false, nextPath));
+      }
+    }
+    return leaves;
+  };
 
   // Resolve each product in the EXACT order of input productIds
   const resolved: ResolvedProduct[] = [];
@@ -239,157 +366,39 @@ export async function resolveProducts(
       ? 'BRANCH_OVERRIDE'
       : 'BASE';
 
-    if (product.workflowMode === DiagnosticWorkflowMode.EVENT) {
-      // EVENT participation product (e.g. blood-donation camp). Priced (usually ₹0),
-      // no report — mirrors BILL_ONLY structurally, but keeps workflowMode=EVENT so the
-      // post-commit hook mints a campaign coupon. See EVENTS_AND_COUPONS.md.
-      const placeholder = await ensureBillOnlyPlaceholderLabTest();
-
-      resolved.push({
-        productId: product.id,
-        productName: product.name,
-        productCode: product.code,
-        workflowMode: DiagnosticWorkflowMode.EVENT,
-        effectivePrice,
-        priceSource,
-        testOrders: [
-          {
-            labTestId: placeholder.id,
-            testName: product.name,
-            testCode: product.code,
-            referenceMin: null,
-            referenceMax: null,
-            referenceUnit: null,
-            priceInPaise: effectivePrice,
-            productId: product.id,
-            workflowMode: DiagnosticWorkflowMode.EVENT,
-            priceSource,
-          },
-        ],
-      });
-      continue;
-    }
-
-    if (product.workflowMode === DiagnosticWorkflowMode.BILL_ONLY) {
-      const placeholder = await ensureBillOnlyPlaceholderLabTest();
-
-      resolved.push({
-        productId: product.id,
-        productName: product.name,
-        productCode: product.code,
-        workflowMode: DiagnosticWorkflowMode.BILL_ONLY,
-        effectivePrice,
-        priceSource,
-        testOrders: [
-          {
-            labTestId: placeholder.id,
-            testName: product.name,
-            testCode: product.code,
-            referenceMin: null,
-            referenceMax: null,
-            referenceUnit: null,
-            priceInPaise: effectivePrice,
-            productId: product.id,
-            workflowMode: DiagnosticWorkflowMode.BILL_ONLY,
-            priceSource,
-          },
-        ],
-      });
-      continue;
-    }
-
-    if (product.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD) {
-      // Reuses the bill-only placeholder LabTest as a generic stub; the placeholder
-      // exists only to satisfy the TestOrder->LabTest FK. The TestOrder still carries
-      // workflowMode=EXTERNAL_UPLOAD so downstream code can branch correctly, and the
-      // uploaded PDF lives in ExternalReportUpload, attached via testOrderId.
-      const placeholder = await ensureBillOnlyPlaceholderLabTest();
-
-      resolved.push({
-        productId: product.id,
-        productName: product.name,
-        productCode: product.code,
-        workflowMode: DiagnosticWorkflowMode.EXTERNAL_UPLOAD,
-        effectivePrice,
-        priceSource,
-        testOrders: [
-          {
-            labTestId: placeholder.id,
-            testName: product.name,
-            testCode: product.code,
-            referenceMin: null,
-            referenceMax: null,
-            referenceUnit: null,
-            priceInPaise: effectivePrice,
-            productId: product.id,
-            workflowMode: DiagnosticWorkflowMode.EXTERNAL_UPLOAD,
-            priceSource,
-          },
-        ],
-      });
-      continue;
-    }
-
-    // Flatten all panel items into test orders. Child-product lines don't
-    // contribute test orders here — they're priced into the parent's effective
-    // price, and the bill receipt itemizes them separately at render time.
-    const allItems: Array<{ testDefinition: any }> = [];
-    for (const pp of product.panels) {
-      if (!pp.panel) continue;
-      for (const item of pp.panel.items) {
-        allItems.push(item);
-      }
-    }
-
-    const testCount = allItems.length;
+    // Flatten the whole product (panels + nested children) into leaf orders,
+    // then spread the FIXED package price across them. Every leaf carries the
+    // top-level productId, so the package stays one bill line / one refund unit
+    // however deep it nests, and a child's own list price is ignored.
+    const leaves = collectLeaves(product, true, new Set());
+    const testCount = leaves.length;
     const testOrders: ResolvedTestOrder[] = [];
 
     if (testCount === 1) {
-      // Single-test product: full price on one TestOrder
-      const item = allItems[0];
-      const labTest = labTestByCode.get(item.testDefinition.code)!;
       testOrders.push({
-        labTestId: labTest.id,
-        testDefinitionId: item.testDefinition.id,
-        testName: labTest.name,
-        testCode: labTest.code,
-        referenceMin: labTest.referenceMin,
-        referenceMax: labTest.referenceMax,
-        referenceUnit: labTest.referenceUnit,
+        ...leaves[0],
         priceInPaise: effectivePrice,
         productId: product.id,
-        workflowMode: DiagnosticWorkflowMode.REPORTABLE,
         priceSource,
       });
     } else if (testCount > 1) {
-      // Bundle: distribute price across all test items
       const perTestPrice = Math.floor(effectivePrice / testCount);
       const remainder = effectivePrice - perTestPrice * testCount;
-
-      for (let i = 0; i < testCount; i++) {
-        const item = allItems[i];
-        const labTest = labTestByCode.get(item.testDefinition.code)!;
+      leaves.forEach((leaf, i) => {
         testOrders.push({
-          labTestId: labTest.id,
-          testDefinitionId: item.testDefinition.id,
-          testName: labTest.name,
-          testCode: labTest.code,
-          referenceMin: labTest.referenceMin,
-          referenceMax: labTest.referenceMax,
-          referenceUnit: labTest.referenceUnit,
+          ...leaf,
           priceInPaise: i === 0 ? perTestPrice + remainder : perTestPrice,
           productId: product.id,
-          workflowMode: DiagnosticWorkflowMode.REPORTABLE,
           priceSource,
         });
-      }
+      });
     }
 
     resolved.push({
       productId: product.id,
       productName: product.name,
       productCode: product.code,
-      workflowMode: DiagnosticWorkflowMode.REPORTABLE,
+      workflowMode: product.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE,
       effectivePrice,
       priceSource,
       testOrders,

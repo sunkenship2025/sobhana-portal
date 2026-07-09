@@ -230,28 +230,29 @@ export default function ManageBillableProducts() {
 
   const fetchDependencies = useCallback(async () => {
     try {
-      // Sub-products offered as package line items are BILL_ONLY only, on
-      // purpose: a child line is bill itemization (e.g. sample-collection
-      // charge) and is NEVER expanded into a report order by the billing engine
-      // (productOrderService skips child lines). Offering reportable/external
-      // products here would let a package silently drop their reports.
-      const [panelsRes, branchRes, billOnlyRes] = await Promise.all([
+      // Sub-products offered as package line items: every active product
+      // (reportable, external-upload, bill-only), each tagged by kind in the
+      // picker. Nesting expands a child into its own report/upload orders, so
+      // any workflow is safe. EVENT products are excluded (₹0 coupon triggers).
+      const [panelsRes, branchRes, subProductsRes] = await Promise.all([
         fetch(`${API_BASE}/clinical-panels`, { headers }),
         fetch(`${API_BASE}/branches`, { headers }),
-        fetch(`${API_BASE}/billable-products?workflowMode=BILL_ONLY`, { headers }),
+        fetch(`${API_BASE}/billable-products?active=true`, { headers }),
       ]);
       if (panelsRes.ok) setAvailablePanels(await panelsRes.json());
       if (branchRes.ok) setBranchOptions(await branchRes.json());
-      if (billOnlyRes.ok) {
-        const items: any[] = await billOnlyRes.json();
-        setAvailableSubProducts(items.map((p) => ({
-          id: p.id,
-          code: p.code,
-          name: p.name,
-          workflowMode: p.workflowMode,
-          basePrice: p.basePrice,
-          basePriceInPaise: p.basePriceInPaise,
-        })));
+      if (subProductsRes.ok) {
+        const items: any[] = await subProductsRes.json();
+        setAvailableSubProducts(items
+          .filter((p) => p.workflowMode !== 'EVENT')
+          .map((p) => ({
+            id: p.id,
+            code: p.code,
+            name: p.name,
+            workflowMode: p.workflowMode,
+            basePrice: p.basePrice,
+            basePriceInPaise: p.basePriceInPaise,
+          })));
       }
     } catch { /* ignore */ }
   }, []);
@@ -913,7 +914,7 @@ export default function ManageBillableProducts() {
 
               <p className="mb-3 text-xs text-muted-foreground">
                 {formWorkflowMode === 'REPORTABLE'
-                  ? 'Reportable products require at least one line item — a clinical panel or a bill-only sub-product.'
+                  ? 'Reportable products require at least one line item — a clinical panel or a sub-product. A sub-product (reportable, external or bill-only) expands into its own report/upload when this package is billed.'
                   : 'Bill-only products can be billed without lines. Linked lines are only used after switching back to Reportable.'}
               </p>
 
@@ -929,7 +930,7 @@ export default function ManageBillableProducts() {
                         onValueChange={v => updatePanel(i, v)}
                       >
                         <SelectTrigger className="flex-1 h-8 text-xs">
-                          <SelectValue placeholder="Select panel or bill-only item..." />
+                          <SelectValue placeholder="Select panel or product..." />
                         </SelectTrigger>
                         <SelectContent>
                           {availablePanels.length > 0 && (
@@ -944,18 +945,30 @@ export default function ManageBillableProducts() {
                           ))}
                           {availableSubProducts.length > 0 && (
                             <div className="px-2 py-1 mt-1 border-t text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                              Bill-Only Items
+                              Products
                             </div>
                           )}
                           {availableSubProducts
                             // Don't allow a product to include itself
                             .filter(sp => !editingProduct || sp.id !== editingProduct.id)
-                            .map(sp => (
-                              <SelectItem key={`child:${sp.id}`} value={`child:${sp.id}`}>
-                                {sp.code} – {sp.name}
-                                {sp.basePrice != null ? ` (₹${sp.basePrice})` : ''}
-                              </SelectItem>
-                            ))}
+                            .map(sp => {
+                              const wm = WORKFLOW_MODES.find(m => m.value === sp.workflowMode);
+                              return (
+                                <SelectItem key={`child:${sp.id}`} value={`child:${sp.id}`}>
+                                  <span className="flex items-center gap-2">
+                                    <span>
+                                      {sp.code} – {sp.name}
+                                      {sp.basePrice != null ? ` (₹${sp.basePrice})` : ''}
+                                    </span>
+                                    {wm && (
+                                      <Badge className={`${wm.color} shrink-0 text-[10px] px-1.5`}>
+                                        {wm.value === 'EXTERNAL_UPLOAD' ? 'External' : wm.label}
+                                      </Badge>
+                                    )}
+                                  </span>
+                                </SelectItem>
+                              );
+                            })}
                         </SelectContent>
                       </Select>
                       {(() => {
