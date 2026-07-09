@@ -387,6 +387,28 @@
 }
 
 @layer components {
+  /* Slim, on-theme scrollbar for the navy sidebar nav. The default OS
+     scrollbar renders a chunky light-gray track that clashes with the dark
+     sidebar; this makes the thumb a faint translucent white (matching the
+     border-white/10 accents) over a transparent track, brightening on hover. */
+  .sidebar-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  }
+  .sidebar-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+  .sidebar-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .sidebar-scroll::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-radius: 9999px;
+  }
+  .sidebar-scroll:hover::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.28);
+  }
+
   .context-banner {
     @apply px-4 py-2 text-sm font-medium text-white;
     background-color: var(--branch-banner-bg);

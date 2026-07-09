@@ -260,7 +260,7 @@ export function Sidebar() {
     || false;
 
   const renderNavContent = (onNavigate?: () => void) => (
-    <nav className="mt-6 flex-1 min-h-0 overflow-y-auto px-3">
+    <nav className="sidebar-scroll mt-6 flex-1 min-h-0 overflow-y-auto px-3">
       <div className="space-y-2">
         {navItems.map((item) => {
           const Icon = item.icon;
