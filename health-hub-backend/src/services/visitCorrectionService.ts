@@ -147,7 +147,16 @@ async function loadVisitForCorrection(visitId: string, branchId: string) {
       },
       testOrders: true,
       report: {
-        select: { versions: { select: { finalizedAt: true, status: true } } },
+        select: {
+          versions: {
+            select: {
+              id: true,
+              finalizedAt: true,
+              status: true,
+              visitSnapshot: true,
+            },
+          },
+        },
       },
     },
   });
@@ -293,6 +302,26 @@ export async function changeVisitReferral(params: {
     ordersBySnapshotKey.set(key, entry);
   }
 
+  // A finalized report renders "Referred by" from the referralDoctorName frozen
+  // into its visitSnapshot at finalization, NOT from the live referral link. A
+  // correction that only repointed the link would leave every already-finalized
+  // report (screen + printed PDF + WhatsApp gateway) showing the old doctor. So
+  // repoint the frozen name too — null ⇒ the renderer prints "SELF". Draft /
+  // non-finalized versions re-derive from live data and need no patch. This is
+  // a deliberate amendment of the immutable snapshot, bounded to the one
+  // identifying field the user just corrected and recorded in the audit log
+  // below.
+  const newReferralName = newDoctor?.name ?? null;
+  const finalizedSnapshotPatches = (visit.report?.versions ?? [])
+    .filter((version) => version.status === "FINALIZED" && version.visitSnapshot)
+    .map((version) => ({
+      id: version.id,
+      visitSnapshot: {
+        ...(version.visitSnapshot as Record<string, unknown>),
+        referralDoctorName: newReferralName,
+      },
+    }));
+
   await prisma.$transaction(
     async (tx) => {
       // Soft-delete the active link(s): keep the row in the DB as history,
@@ -311,6 +340,12 @@ export async function changeVisitReferral(params: {
         await tx.testOrder.updateMany({
           where: { id: { in: orderIds } },
           data: snapshot,
+        });
+      }
+      for (const patch of finalizedSnapshotPatches) {
+        await tx.reportVersion.update({
+          where: { id: patch.id },
+          data: { visitSnapshot: patch.visitSnapshot as any },
         });
       }
     },
