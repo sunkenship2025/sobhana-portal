@@ -89,7 +89,7 @@ interface Branch { id: string; name: string }
 
 const PRODUCT_TYPES = [
   { value: 'INDIVIDUAL_TEST', label: 'Individual Test', color: 'bg-blue-100 text-blue-800' },
-  { value: 'PANEL_BUNDLE', label: 'Panel Bundle', color: 'bg-purple-100 text-purple-800' },
+  { value: 'PANEL_BUNDLE', label: 'Panel', color: 'bg-purple-100 text-purple-800' },
   { value: 'CUSTOM_PACKAGE', label: 'Custom Package', color: 'bg-green-100 text-green-800' },
   { value: 'EVENT', label: 'Event', color: 'bg-red-100 text-red-800' },
 ];
@@ -108,14 +108,21 @@ const WORKFLOW_LABELS: Record<WorkflowMode, string> = {
   EVENT: 'Event',
 };
 
-function typeBadgeColor(productType: string) {
-  const pt = PRODUCT_TYPES.find(p => p.value === productType);
-  return pt ? pt.color : 'bg-muted text-foreground';
-}
-
 function workflowBadgeColor(workflowMode: string) {
   const wm = WORKFLOW_MODES.find((mode) => mode.value === workflowMode);
   return wm ? wm.color : 'bg-muted text-foreground';
+}
+
+// The DB stores only `isBundle` (boolean), not the 3-way Individual/Panel/Package
+// choice — so derive the display type: an Event by workflow, a Custom Package once
+// it carries more than one line item, otherwise a single Panel (bundle) or an
+// Individual Test. Keeps the Type column + filter meaningful after the round-trip.
+function effectiveProductType(p: BillableProduct): string {
+  if (p.workflowMode === 'EVENT') return 'EVENT';
+  const lineCount = p.panelCount ?? p.panels?.length ?? 0;
+  if (lineCount > 1) return 'CUSTOM_PACKAGE';
+  if (p.productType === 'PANEL_BUNDLE') return 'PANEL_BUNDLE';
+  return 'INDIVIDUAL_TEST';
 }
 
 // The kind of a package line item, for the at-a-glance badge: a clinical panel,
@@ -223,23 +230,30 @@ export default function ManageBillableProducts() {
 
   const fetchDependencies = useCallback(async () => {
     try {
-      const [panelsRes, branchRes, billOnlyRes] = await Promise.all([
+      // Sub-products offered as package line items: every active product
+      // (reportable, external-upload, bill-only), not just bill-only ones — the
+      // picker tags each by kind. EVENT products are excluded below (they're
+      // ₹0 coupon triggers, never line items). Child lines are bill itemization
+      // only, so any workflow is safe to include.
+      const [panelsRes, branchRes, subProductsRes] = await Promise.all([
         fetch(`${API_BASE}/clinical-panels`, { headers }),
         fetch(`${API_BASE}/branches`, { headers }),
-        fetch(`${API_BASE}/billable-products?workflowMode=BILL_ONLY`, { headers }),
+        fetch(`${API_BASE}/billable-products?active=true`, { headers }),
       ]);
       if (panelsRes.ok) setAvailablePanels(await panelsRes.json());
       if (branchRes.ok) setBranchOptions(await branchRes.json());
-      if (billOnlyRes.ok) {
-        const items: any[] = await billOnlyRes.json();
-        setAvailableSubProducts(items.map((p) => ({
-          id: p.id,
-          code: p.code,
-          name: p.name,
-          workflowMode: p.workflowMode,
-          basePrice: p.basePrice,
-          basePriceInPaise: p.basePriceInPaise,
-        })));
+      if (subProductsRes.ok) {
+        const items: any[] = await subProductsRes.json();
+        setAvailableSubProducts(items
+          .filter((p) => p.workflowMode !== 'EVENT')
+          .map((p) => ({
+            id: p.id,
+            code: p.code,
+            name: p.name,
+            workflowMode: p.workflowMode,
+            basePrice: p.basePrice,
+            basePriceInPaise: p.basePriceInPaise,
+          })));
       }
     } catch { /* ignore */ }
   }, []);
@@ -281,7 +295,9 @@ export default function ManageBillableProducts() {
   const populateForm = (p: BillableProduct) => {
     setFormName(p.name);
     setFormCode(p.code);
-    setFormType(p.workflowMode === 'EVENT' ? 'EVENT' : p.productType);
+    // Type isn't persisted (only isBundle) — infer it so a multi-line package
+    // re-opens as Custom Package rather than Panel (and stays editable).
+    setFormType(effectiveProductType(p));
     setFormWorkflowMode(p.workflowMode || 'REPORTABLE');
     setFormBasePrice(p.basePrice.toString());
     setFormActive(p.isActive);
@@ -360,10 +376,12 @@ export default function ManageBillableProducts() {
       return;
     }
 
-    // Line-item validation — each row points at exactly one of panel/sub-product
+    // Line-item validation — each row points at exactly one of panel/sub-product.
+    // Only a Custom Package may carry more than one line; an Individual Test or a
+    // Panel is a single line item.
     const validLines = formPanels.filter(p => p.panelId || p.childProductId);
-    if (formWorkflowMode === 'REPORTABLE' && formType === 'INDIVIDUAL_TEST' && validLines.length > 1) {
-      toast.error('Individual Test products can have at most 1 line item');
+    if (formType !== 'CUSTOM_PACKAGE' && formType !== 'EVENT' && validLines.length > 1) {
+      toast.error('Only Custom Package products can have multiple line items');
       return;
     }
     if (formWorkflowMode === 'REPORTABLE' && validLines.length < 1) {
@@ -523,7 +541,7 @@ export default function ManageBillableProducts() {
   // server-side name/code search.
   const filteredProducts = useMemo(
     () => products.filter(p => {
-      if (filterType !== 'all' && p.productType !== filterType) return false;
+      if (filterType !== 'all' && effectiveProductType(p) !== filterType) return false;
       if (filterWorkflow !== 'all' && p.workflowMode !== filterWorkflow) return false;
       if (filterStatus === 'active' && !p.isActive) return false;
       if (filterStatus === 'inactive' && p.isActive) return false;
@@ -705,7 +723,7 @@ export default function ManageBillableProducts() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {products.map(product => (
+              {filteredProducts.map(product => (
                 <TableRow key={product.id} className="hover:bg-muted/50">
                   {selectMode && (
                     <TableCell>
@@ -726,9 +744,15 @@ export default function ManageBillableProducts() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge className={product.workflowMode === 'EVENT' ? 'bg-red-100 text-red-800' : typeBadgeColor(product.productType)}>
-                      {product.workflowMode === 'EVENT' ? 'Event' : product.productType.replace(/_/g, ' ')}
-                    </Badge>
+                    {(() => {
+                      const et = effectiveProductType(product);
+                      const meta = PRODUCT_TYPES.find(t => t.value === et);
+                      return (
+                        <Badge className={meta?.color ?? 'bg-muted text-foreground'}>
+                          {meta?.label ?? et.replace(/_/g, ' ')}
+                        </Badge>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell>
                     <Badge className={workflowBadgeColor(product.workflowMode)}>
@@ -891,7 +915,7 @@ export default function ManageBillableProducts() {
 
               <p className="mb-3 text-xs text-muted-foreground">
                 {formWorkflowMode === 'REPORTABLE'
-                  ? 'Reportable products require at least one line item — a clinical panel or a bill-only sub-product.'
+                  ? 'Reportable products require at least one line item — a clinical panel or a sub-product.'
                   : 'Bill-only products can be billed without lines. Linked lines are only used after switching back to Reportable.'}
               </p>
 
@@ -907,7 +931,7 @@ export default function ManageBillableProducts() {
                         onValueChange={v => updatePanel(i, v)}
                       >
                         <SelectTrigger className="flex-1 h-8 text-xs">
-                          <SelectValue placeholder="Select panel or bill-only item..." />
+                          <SelectValue placeholder="Select panel or product..." />
                         </SelectTrigger>
                         <SelectContent>
                           {availablePanels.length > 0 && (
@@ -922,18 +946,30 @@ export default function ManageBillableProducts() {
                           ))}
                           {availableSubProducts.length > 0 && (
                             <div className="px-2 py-1 mt-1 border-t text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                              Bill-Only Items
+                              Products
                             </div>
                           )}
                           {availableSubProducts
                             // Don't allow a product to include itself
                             .filter(sp => !editingProduct || sp.id !== editingProduct.id)
-                            .map(sp => (
-                              <SelectItem key={`child:${sp.id}`} value={`child:${sp.id}`}>
-                                {sp.code} – {sp.name}
-                                {sp.basePrice != null ? ` (₹${sp.basePrice})` : ''}
-                              </SelectItem>
-                            ))}
+                            .map(sp => {
+                              const wm = WORKFLOW_MODES.find(m => m.value === sp.workflowMode);
+                              return (
+                                <SelectItem key={`child:${sp.id}`} value={`child:${sp.id}`}>
+                                  <span className="flex items-center gap-2">
+                                    <span>
+                                      {sp.code} – {sp.name}
+                                      {sp.basePrice != null ? ` (₹${sp.basePrice})` : ''}
+                                    </span>
+                                    {wm && (
+                                      <Badge className={`${wm.color} shrink-0 text-[10px] px-1.5`}>
+                                        {wm.value === 'EXTERNAL_UPLOAD' ? 'External' : wm.label}
+                                      </Badge>
+                                    )}
+                                  </span>
+                                </SelectItem>
+                              );
+                            })}
                         </SelectContent>
                       </Select>
                       {(() => {

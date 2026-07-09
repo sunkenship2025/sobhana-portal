@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -44,7 +45,17 @@ interface ProductLite {
   name: string;
   code?: string;
   basePriceInPaise?: number;
+  workflowMode?: string;
 }
+
+// Small colored tag so staff can tell a reportable test from a bill-only /
+// external-upload one at a glance (same palette as Manage Billable Products).
+const WORKFLOW_TAG: Record<string, { label: string; className: string }> = {
+  REPORTABLE: { label: "Reportable", className: "bg-emerald-100 text-emerald-800" },
+  BILL_ONLY: { label: "Bill Only", className: "bg-amber-100 text-amber-800" },
+  EXTERNAL_UPLOAD: { label: "External", className: "bg-sky-100 text-sky-800" },
+  EVENT: { label: "Event", className: "bg-red-100 text-red-800" },
+};
 
 interface BilledGroup {
   productId: string;
@@ -121,7 +132,9 @@ export function SwapTestDialog({ visit, open, onOpenChange }: SwapTestDialogProp
             product.name.toLowerCase().includes(q) ||
             (product.code || "").toLowerCase().includes(q)),
       )
-      .slice(0, 30);
+      // Cap high enough to reach the whole catalogue by scrolling; the search
+      // box narrows it further. (Was 30 — too low to see every test.)
+      .slice(0, 300);
   }, [products, query, oldProductId]);
 
   const submit = async () => {
@@ -204,32 +217,42 @@ export function SwapTestDialog({ visit, open, onOpenChange }: SwapTestDialogProp
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
-              <div className="max-h-[24vh] space-y-0.5 overflow-y-auto rounded-lg border p-1">
+              <div className="max-h-[32vh] space-y-0.5 overflow-y-auto rounded-lg border p-1">
                 {loading && (
                   <div className="flex items-center gap-2 px-2 py-2 text-sm text-muted-foreground">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
                   </div>
                 )}
-                {filtered.map((product) => (
-                  <button
-                    key={product.id}
-                    type="button"
-                    className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/60 ${newProductId === product.id ? "bg-muted font-medium" : ""}`}
-                    onClick={() => setNewProductId(product.id)}
-                  >
-                    <span className="flex items-center gap-2">
-                      {product.name}
-                      {newProductId === product.id && (
-                        <Check className="h-3.5 w-3.5" />
-                      )}
-                    </span>
-                    {typeof product.basePriceInPaise === "number" && (
-                      <span className="tabular-nums text-muted-foreground">
-                        {formatCurrency(product.basePriceInPaise)}
+                {filtered.map((product) => {
+                  const tag = product.workflowMode
+                    ? WORKFLOW_TAG[product.workflowMode]
+                    : undefined;
+                  return (
+                    <button
+                      key={product.id}
+                      type="button"
+                      className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/60 ${newProductId === product.id ? "bg-muted font-medium" : ""}`}
+                      onClick={() => setNewProductId(product.id)}
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate">{product.name}</span>
+                        {tag && (
+                          <Badge className={`${tag.className} shrink-0 text-[10px] px-1.5`}>
+                            {tag.label}
+                          </Badge>
+                        )}
+                        {newProductId === product.id && (
+                          <Check className="h-3.5 w-3.5 shrink-0" />
+                        )}
                       </span>
-                    )}
-                  </button>
-                ))}
+                      {typeof product.basePriceInPaise === "number" && (
+                        <span className="tabular-nums text-muted-foreground shrink-0">
+                          {formatCurrency(product.basePriceInPaise)}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
