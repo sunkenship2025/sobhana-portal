@@ -25,28 +25,40 @@ import { logger } from '../lib/logger';
 
 // v11 -> v12: one-time flush to drop merged PDFs cached from finalized
 // snapshots that were later amended by a referral correction before
-// deleteCachedMergedPdf existed. Cheap to regenerate at clinic volume.
-const KEY_PREFIX = 'merged-pdf:v12:';
+// deleteCachedMergedPdf existed.
+// v12 -> v13: physical keys gained a signature variant (see `variant` below)
+// and the lab-incharge show-on-print flag became live rather than frozen, so
+// old physical entries used stale keys/logic. Cheap to regenerate at clinic volume.
+const KEY_PREFIX = 'merged-pdf:v13:';
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 const CACHE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — skip outliers so they don't flush LRU
 
 export type MergedPdfMode = 'digital' | 'physical';
 
-function buildKey(reportVersionId: string, mode: MergedPdfMode): string {
-  return `${KEY_PREFIX}${mode}:${reportVersionId}`;
+// Physical prints vary by the LIVE lab-incharge show-signature-on-print flag,
+// so it is folded into the cache key as a variant ('sig1'/'sig0'). Flipping the
+// toggle therefore reads a different key (miss → regenerate), which makes past
+// and future physical prints follow the current setting with no explicit
+// invalidation; the superseded entry just expires. Digital always signs, so it
+// has no variant. All physical variants that can exist for a version:
+const PHYSICAL_VARIANTS = ['sig1', 'sig0'] as const;
+
+function buildKey(reportVersionId: string, mode: MergedPdfMode, variant?: string): string {
+  return `${KEY_PREFIX}${mode}:${reportVersionId}${variant ? `:${variant}` : ''}`;
 }
 
 export async function getCachedMergedPdf(
   reportVersionId: string,
   mode: MergedPdfMode,
+  variant?: string,
 ): Promise<Buffer | null> {
   const client = getRedisClient();
   if (!client) return null;
 
   try {
-    return await client.getBuffer(buildKey(reportVersionId, mode));
+    return await client.getBuffer(buildKey(reportVersionId, mode, variant));
   } catch (err: any) {
-    logger.warn({ err, reportVersionId, mode }, 'merged-pdf cache: get failed (falling through to regenerate)');
+    logger.warn({ err, reportVersionId, mode, variant }, 'merged-pdf cache: get failed (falling through to regenerate)');
     return null;
   }
 }
@@ -55,10 +67,11 @@ export async function setCachedMergedPdf(
   reportVersionId: string,
   mode: MergedPdfMode,
   buffer: Buffer,
+  variant?: string,
 ): Promise<void> {
   if (buffer.length > CACHE_MAX_BYTES) {
     logger.warn(
-      { reportVersionId, mode, sizeBytes: buffer.length, capBytes: CACHE_MAX_BYTES },
+      { reportVersionId, mode, variant, sizeBytes: buffer.length, capBytes: CACHE_MAX_BYTES },
       'merged-pdf cache: skipping write, buffer exceeds size cap',
     );
     return;
@@ -68,17 +81,18 @@ export async function setCachedMergedPdf(
   if (!client) return;
 
   try {
-    await client.set(buildKey(reportVersionId, mode), buffer, 'EX', TTL_SECONDS);
+    await client.set(buildKey(reportVersionId, mode, variant), buffer, 'EX', TTL_SECONDS);
   } catch (err: any) {
-    logger.warn({ err, reportVersionId, mode }, 'merged-pdf cache: set failed');
+    logger.warn({ err, reportVersionId, mode, variant }, 'merged-pdf cache: set failed');
   }
 }
 
 /**
- * Drop both cached modes for a report version. Call after any correction that
- * amends a finalized snapshot, otherwise the public download keeps serving the
- * pre-correction PDF until its 7-day TTL lapses. Best-effort: a Redis miss or
- * unreachable client is fine (the entry simply expires / never existed).
+ * Drop every cached key for a report version — digital plus all physical
+ * signature variants. Call after any correction that amends a finalized
+ * snapshot, otherwise the public download keeps serving the pre-correction PDF
+ * until its 7-day TTL lapses. Best-effort: a Redis miss or unreachable client
+ * is fine (the entry simply expires / never existed).
  */
 export async function deleteCachedMergedPdf(reportVersionId: string): Promise<void> {
   const client = getRedisClient();
@@ -87,7 +101,7 @@ export async function deleteCachedMergedPdf(reportVersionId: string): Promise<vo
   try {
     await client.del(
       buildKey(reportVersionId, 'digital'),
-      buildKey(reportVersionId, 'physical'),
+      ...PHYSICAL_VARIANTS.map((variant) => buildKey(reportVersionId, 'physical', variant)),
     );
   } catch (err: any) {
     logger.warn({ err, reportVersionId }, 'merged-pdf cache: delete failed');

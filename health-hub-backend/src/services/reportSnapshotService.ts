@@ -1905,13 +1905,13 @@ export async function getReportSnapshot(reportVersionId: string): Promise<Report
           labIncharge.signatureImageBase64 ||
           currentLabIncharge.signatureImageBase64 ||
           null,
-        // Frozen value wins for reports finalized after this field shipped;
-        // reports frozen before it (undefined) fall back to the live setting so
-        // turning the toggle on takes effect on them too.
-        showSignatureOnPrint:
-          typeof labIncharge.showSignatureOnPrint === 'boolean'
-            ? labIncharge.showSignatureOnPrint
-            : currentLabIncharge.showSignatureOnPrint,
+        // LIVE flag (unlike the frozen identity/image above): whether the
+        // signature prints on physical copies follows the CURRENT setting, so
+        // flipping the toggle governs past and future prints alike. The image
+        // itself stays frozen — it matches the digital report and survives later
+        // edits/deletion. If the signer was later deleted, the else-branch below
+        // keeps the last value frozen into the snapshot.
+        showSignatureOnPrint: currentLabIncharge.showSignatureOnPrint,
       };
     }
   }

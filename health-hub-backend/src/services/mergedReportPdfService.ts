@@ -113,8 +113,13 @@ export async function generateMergedReportPdf(
 ): Promise<Buffer> {
   const { mode, baseUrl, qrDataUrl, cache = false } = options;
 
+  // Physical prints vary by the live lab-incharge show-signature-on-print flag,
+  // so it's part of the cache key — flipping the toggle is a key change, not a
+  // stale hit. Digital always signs → no variant.
+  const cacheVariant = cacheVariantFor(snapshot, mode);
+
   if (cache) {
-    const hit = await getCachedMergedPdf(snapshot.reportVersionId, mode).catch(() => null);
+    const hit = await getCachedMergedPdf(snapshot.reportVersionId, mode, cacheVariant).catch(() => null);
     if (hit) return hit;
   }
 
@@ -138,17 +143,29 @@ export async function generateMergedReportPdf(
 
     if (uploads.length === 0) {
       if (cache) {
-        void setCachedMergedPdf(snapshot.reportVersionId, mode, basePdf);
+        void setCachedMergedPdf(snapshot.reportVersionId, mode, basePdf, cacheVariant);
       }
       return basePdf;
     }
 
     // Continue with merge — load the base PDF, append uploads with overlay.
-    return await mergeUploadsIntoBase(basePdf, uploads, snapshot, cache, mode);
+    return await mergeUploadsIntoBase(basePdf, uploads, snapshot, cache, mode, cacheVariant);
   }
 
   // skipBaseRender path: start from a blank document, append uploads with overlay only.
-  return await mergeUploadsIntoBase(null, uploads, snapshot, cache, mode);
+  return await mergeUploadsIntoBase(null, uploads, snapshot, cache, mode, cacheVariant);
+}
+
+/**
+ * The cache-key variant for a render: physical prints depend on the live
+ * lab-incharge show-signature-on-print flag, so encode it; digital has none.
+ */
+function cacheVariantFor(
+  snapshot: ReportSnapshot,
+  mode: 'physical' | 'digital',
+): string | undefined {
+  if (mode !== 'physical') return undefined;
+  return snapshot.labIncharge?.showSignatureOnPrint ? 'sig1' : 'sig0';
 }
 
 async function mergeUploadsIntoBase(
@@ -157,6 +174,7 @@ async function mergeUploadsIntoBase(
   snapshot: ReportSnapshot,
   cache: boolean,
   mode: 'physical' | 'digital',
+  cacheVariant: string | undefined,
 ): Promise<Buffer> {
   // Physical mode prints on pre-printed Sobhana letterhead — the paper already
   // carries the logo + stripe + footer, so drawing our overlay on top would
@@ -213,7 +231,7 @@ async function mergeUploadsIntoBase(
   const out = Buffer.from(await merged.save());
 
   if (cache) {
-    void setCachedMergedPdf(snapshot.reportVersionId, mode, out);
+    void setCachedMergedPdf(snapshot.reportVersionId, mode, out, cacheVariant);
   }
 
   return out;
