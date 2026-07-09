@@ -152,6 +152,47 @@ router.post(
               console.log(`[Webhook] Updated ${waMessageId} → ${statusValue}`);
             }
           }
+
+          // ── Inbound messages → campaign auto-reply ──
+          // When someone replies after getting the blood-donation camp invite, send
+          // a one-time "call us for details" reply. Free-form is allowed inside the
+          // 24h window their inbound message just opened. Scoped to invited numbers.
+          for (const msg of change.value?.messages || []) {
+            const from = msg?.from;
+            if (!from || msg.type === 'reaction') continue;
+            try {
+              const invited = await prisma.messageLog.findFirst({
+                where: { phone: from, templateName: 'blood_camp_invite' },
+                select: { id: true },
+              });
+              if (!invited) continue;
+              const already = await prisma.messageLog.findFirst({
+                where: { phone: from, templateName: 'camp_autoreply' },
+                select: { id: true },
+              });
+              if (already) continue;
+              const { sendText } = await import('../services/whatsappCloudService');
+              const result = await sendText(
+                from,
+                "Thank you for your interest in Sobhana's *Be a Hero* Blood Donation Camp! 🩸 For details, please call us at 9490539006.",
+              );
+              await prisma.messageLog.create({
+                data: {
+                  phone: from,
+                  channel: 'WHATSAPP',
+                  templateName: 'camp_autoreply',
+                  status: 'SENT',
+                  waMessageId: result.waMessageId,
+                  sentAt: new Date(),
+                  contextType: 'CAMPAIGN',
+                  contextId: 'blood-camp-2026',
+                },
+              });
+              console.log(`[Webhook] Camp auto-reply sent to ${from}`);
+            } catch (replyErr) {
+              console.error('[Webhook] Camp auto-reply failed:', replyErr);
+            }
+          }
         }
       }
     } catch (error) {

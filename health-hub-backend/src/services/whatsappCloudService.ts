@@ -124,6 +124,26 @@ export async function sendTemplate(
 }
 
 /**
+ * Send a free-form text message. ONLY valid inside the 24h customer-service
+ * window (i.e. after the user messages us). Used for campaign auto-replies.
+ */
+export async function sendText(phone: string, text: string): Promise<SendTemplateResult> {
+  const config = getConfig();
+  if (!config.enabled) throw new Error('WhatsApp messaging is disabled (WHATSAPP_ENABLED != true)');
+  if (!config.phoneNumberId || !config.accessToken) throw new Error('WhatsApp Cloud API credentials not configured');
+
+  const normalizedPhone = phone.replace(/^\+/, '').replace(/\s/g, '');
+  const response = await axios.post(
+    `${WHATSAPP_API_BASE}/${config.phoneNumberId}/messages`,
+    { messaging_product: 'whatsapp', to: normalizedPhone, type: 'text', text: { body: text } },
+    { headers: { Authorization: `Bearer ${config.accessToken}`, 'Content-Type': 'application/json' }, timeout: 10000 },
+  );
+  const waMessageId = response.data?.messages?.[0]?.id;
+  if (!waMessageId) throw new Error(`WhatsApp API returned no message ID. Response: ${JSON.stringify(response.data)}`);
+  return { waMessageId, success: true };
+}
+
+/**
  * Check if WhatsApp messaging is enabled.
  * Use this to gate UI buttons and skip notification calls.
  */
