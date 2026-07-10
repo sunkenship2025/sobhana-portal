@@ -5305,7 +5305,9 @@ router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: A
       }
 
       // Bill-due guard — same authoritative gate as the normal finalize path.
-      if (visit.bill) {
+      // Owners may finalize with an outstanding due (business override); the
+      // due stays on the bill. lab_incharge must still collect it first.
+      if (visit.bill && req.user?.role !== "owner") {
         const billFinancials = computeBillFinancialsFromPersisted(visit.bill);
         if (billFinancials.dueAmountInPaise > 0) {
           return res.status(400).json({
@@ -5387,7 +5389,9 @@ router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: A
       return res.json({ success: true, status: "COMPLETED", noReport: true });
     }
 
-    if (visit.bill) {
+    // Owners may finalize with an outstanding due (business override); the due
+    // stays on the bill. lab_incharge must still collect it before finalizing.
+    if (visit.bill && req.user?.role !== "owner") {
       const billFinancials = computeBillFinancialsFromPersisted(visit.bill);
       if (billFinancials.dueAmountInPaise > 0) {
         return res.status(400).json({
@@ -5680,9 +5684,10 @@ router.post("/:id/release-partial", requireRole("owner", "lab_incharge"), async 
       });
     }
 
-    // Bill-due guard — verbatim from /finalize. Backend is the authoritative
-    // gate even if the frontend allows the click through.
-    if (visit.bill) {
+    // Bill-due guard — same rule as /finalize. Backend is the authoritative
+    // gate even if the frontend allows the click through. Owners may release
+    // with an outstanding due (override); lab_incharge must collect it first.
+    if (visit.bill && req.user?.role !== "owner") {
       const billFinancials = computeBillFinancialsFromPersisted(visit.bill);
       if (billFinancials.dueAmountInPaise > 0) {
         return res.status(400).json({

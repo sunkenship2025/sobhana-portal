@@ -205,6 +205,9 @@ const DiagnosticsReportPreview = () => {
   // Only the owner and lab incharge may finalize / release a report. Staff and
   // sales can view the preview but see no finalize action (backend enforces too).
   const canFinalize = user?.role === 'owner' || user?.role === 'lab_incharge';
+  // Owners may finalize/release even with an outstanding due (business override);
+  // lab_incharge must collect it first. Backend enforces the same rule.
+  const canFinalizeWithDue = user?.role === 'owner';
 
   const [visit, setVisit] = useState<Visit | null>(null);
   const [reportSnapshot, setReportSnapshot] = useState<ReportSnapshotData | null>(null);
@@ -341,6 +344,10 @@ const DiagnosticsReportPreview = () => {
   const isFinalized = visit.hasFinalizedReport === true;
   const dueAmountInPaise = visit.dueAmountInPaise ?? 0;
   const hasDue = dueAmountInPaise > 0;
+  // A due blocks finalize/release for everyone EXCEPT owners, who may override
+  // and finalize with the balance outstanding. Owners still see the due warning
+  // (informational) — it just doesn't disable the action. Backend enforces too.
+  const dueBlocksFinalize = hasDue && !canFinalizeWithDue;
 
   // Partial-release support: count report-inclusion orders that have results
   // or uploaded PDFs in the current DRAFT vs those still pending. Used to decide
@@ -410,7 +417,7 @@ const DiagnosticsReportPreview = () => {
   const nextVersionNum = ((lastFinalizedVersion?.versionNum ?? lastFinalizedVersion?.versionNumber) ?? 0) + 1;
 
   const handleFinalize = async () => {
-    if (hasDue) {
+    if (dueBlocksFinalize) {
       toast.error('Collect due before finalizing this report');
       return;
     }
@@ -463,7 +470,7 @@ const DiagnosticsReportPreview = () => {
   };
 
   const handleReleasePartial = async () => {
-    if (hasDue) {
+    if (dueBlocksFinalize) {
       toast.error('Collect due before releasing this partial report');
       return;
     }
@@ -613,7 +620,7 @@ const DiagnosticsReportPreview = () => {
   };
 
   const handleFinalizeFromPreview = () => {
-    if (hasDue) {
+    if (dueBlocksFinalize) {
       toast.error('Collect due before finalizing this report');
       return;
     }
@@ -622,7 +629,7 @@ const DiagnosticsReportPreview = () => {
   };
 
   const handleReleasePartialFromPreview = () => {
-    if (hasDue) {
+    if (dueBlocksFinalize) {
       toast.error('Collect due before releasing this partial report');
       return;
     }
@@ -973,7 +980,9 @@ const DiagnosticsReportPreview = () => {
               <div className="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-200 flex items-center gap-2 text-amber-800">
                 <AlertTriangle className="h-5 w-5" />
                 <span className="text-sm font-medium">
-                  Bill due {formatMoneyFromPaise(dueAmountInPaise)}. Collect due from Pending Results before finalizing.
+                  {canFinalizeWithDue
+                    ? `Bill due ${formatMoneyFromPaise(dueAmountInPaise)}. You can finalize with the due outstanding — it stays on the bill.`
+                    : `Bill due ${formatMoneyFromPaise(dueAmountInPaise)}. Collect due from Pending Results before finalizing.`}
                 </span>
               </div>
             )}
@@ -1065,10 +1074,10 @@ const DiagnosticsReportPreview = () => {
                   variant="default"
                   size="sm"
                   onClick={handleReleasePartialFromPreview}
-                  disabled={hasDue}
+                  disabled={dueBlocksFinalize}
                 >
                   <CheckCircle2 className="mr-2 h-4 w-4" />
-                  {hasDue
+                  {dueBlocksFinalize
                     ? 'Collect Due Before Releasing'
                     : `Looks Good — Release ${readyReportInclusionCount} of ${totalReportInclusionCount}`}
                 </Button>
@@ -1077,10 +1086,10 @@ const DiagnosticsReportPreview = () => {
                   variant="default"
                   size="sm"
                   onClick={handleFinalizeFromPreview}
-                  disabled={hasDue}
+                  disabled={dueBlocksFinalize}
                 >
                   <CheckCircle2 className="mr-2 h-4 w-4" />
-                  {hasDue ? 'Collect Due Before Finalizing' : 'Looks Good — Finalize'}
+                  {dueBlocksFinalize ? 'Collect Due Before Finalizing' : 'Looks Good — Finalize'}
                 </Button>
               ) : null}
               <Button
@@ -1133,7 +1142,9 @@ const DiagnosticsReportPreview = () => {
                 )}
                 {hasDue && (
                   <p className="font-medium text-amber-700">
-                    Bill due {formatMoneyFromPaise(dueAmountInPaise)} must be collected before release.
+                    {canFinalizeWithDue
+                      ? `Bill due ${formatMoneyFromPaise(dueAmountInPaise)} is outstanding — releasing anyway. It stays on the bill.`
+                      : `Bill due ${formatMoneyFromPaise(dueAmountInPaise)} must be collected before release.`}
                   </p>
                 )}
               </div>
@@ -1143,7 +1154,7 @@ const DiagnosticsReportPreview = () => {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleReleasePartial}
-              disabled={releasing || hasDue}
+              disabled={releasing || dueBlocksFinalize}
             >
               {releasing ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1170,14 +1181,16 @@ const DiagnosticsReportPreview = () => {
               )}
               {hasDue && (
                 <p className="mt-2 font-medium text-amber-700">
-                  Bill due {formatMoneyFromPaise(dueAmountInPaise)} must be collected before finalization.
+                  {canFinalizeWithDue
+                    ? `Bill due ${formatMoneyFromPaise(dueAmountInPaise)} is outstanding — finalizing anyway. It stays on the bill.`
+                    : `Bill due ${formatMoneyFromPaise(dueAmountInPaise)} must be collected before finalization.`}
                 </p>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleFinalize} disabled={finalizing || hasDue}>
+            <AlertDialogAction onClick={handleFinalize} disabled={finalizing || dueBlocksFinalize}>
               {finalizing ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
