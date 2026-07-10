@@ -4922,7 +4922,6 @@ router.post("/:id/orders/:orderId/no-report", async (req: AuthRequest, res) => {
             versions: {
               where: { status: "FINALIZED" },
               select: { id: true },
-              take: 1,
             },
           },
         },
@@ -4934,6 +4933,7 @@ router.post("/:id/orders/:orderId/no-report", async (req: AuthRequest, res) => {
             cancelledAt: true,
             noReportAt: true,
             testNameSnapshot: true,
+            testResults: { select: { reportVersionId: true } },
           },
         },
       },
@@ -4975,10 +4975,23 @@ router.post("/:id/orders/:orderId/no-report", async (req: AuthRequest, res) => {
       });
     }
 
-    if ((visit.report?.versions?.length ?? 0) > 0) {
+    // A partial report may already be FINALIZED for OTHER tests on this visit.
+    // Waiving a still-open test is valid then — the finalize path is built for
+    // exactly this ("last remaining test closed as films-only after a partial
+    // report already went out", see /finalize). Only block when THIS order's own
+    // result has already shipped in a FINALIZED version: it's already reported
+    // and can't be retroactively waived.
+    const finalizedVersionIds = new Set(
+      (visit.report?.versions ?? []).map((v) => v.id),
+    );
+    const orderAlreadyFinalized = order.testResults.some(
+      (r) => r.reportVersionId && finalizedVersionIds.has(r.reportVersionId),
+    );
+    if (orderAlreadyFinalized) {
       return res.status(400).json({
         error: "ALREADY_FINALIZED",
-        message: "The report for this visit is already finalized.",
+        message:
+          "This test is already finalized in a report and can't be closed as no-report.",
       });
     }
 
