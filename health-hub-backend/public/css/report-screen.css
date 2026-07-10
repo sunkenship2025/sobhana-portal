@@ -710,6 +710,9 @@ body.report-body {
   font-weight: bold;
   color: var(--color-primary);
 }
+/* Name + designation variant (showNameOnPrint) — mirrors the doctor block. */
+.lab-incharge-name { font-weight: bold; font-size: 9.5pt; color: var(--color-text); }
+.lab-incharge-designation { font-size: 8pt; color: var(--color-primary); font-weight: 500; }
 
 /* ============================================================================
    FOOTER

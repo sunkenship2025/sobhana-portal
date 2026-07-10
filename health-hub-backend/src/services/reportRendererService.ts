@@ -981,12 +981,23 @@ function renderReportBottomHtml(
   showLabIncharge: boolean,
   isRadiology: boolean,
   isPhysicalPrint: boolean,
+  labInchargeName: string,
+  labInchargeDesignation: string,
+  showLabInchargeName: boolean,
 ): string {
+  // When showNameOnPrint is on (and a name exists), the block renders like a
+  // doctor sign-off: name (bold) + designation under the signature, on BOTH
+  // digital and physical. Otherwise it keeps the legacy "Lab Incharge" label.
+  const nameBlock =
+    showLabInchargeName && labInchargeName.trim()
+      ? `<div class="lab-incharge-name">${escapeHtml(labInchargeName)}</div>
+              <div class="lab-incharge-designation">${escapeHtml(labInchargeDesignation.trim() || 'Lab Incharge')}</div>`
+      : `<div class="lab-incharge-label">Lab Incharge</div>`;
   const labInchargeBlock = showLabIncharge
     ? `
             <div class="signature-block lab-incharge-block">
               ${labInchargeSignatureImg ? `<img src="${labInchargeSignatureImg}" alt="Signature" class="signature-image" onerror="this.style.display='none'" />` : '<div class="lab-incharge-line"></div>'}
-              <div class="lab-incharge-label">Lab Incharge</div>
+              ${nameBlock}
             </div>`
     : '';
 
@@ -1303,6 +1314,9 @@ function renderReportPage(
         showLabIncharge,
         isRadiology,
         isPhysicalPrint,
+        pageLabIncharge?.signerName ?? '',
+        pageLabIncharge?.designation ?? '',
+        pageLabIncharge?.showNameOnPrint === true,
       )
     : '';
 

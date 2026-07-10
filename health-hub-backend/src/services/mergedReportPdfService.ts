@@ -162,21 +162,27 @@ export async function generateMergedReportPdf(
 }
 
 /**
- * The cache-key variant for a render: physical prints depend on the live
- * lab-incharge show-signature-on-print flag, so encode it; digital has none.
+ * The cache-key variant for a render. Two live lab-incharge display flags feed
+ * it, both encoded in a stable order (top-level fallback + each department):
+ *   - showNameOnPrint changes BOTH digital and physical output, so it's part of
+ *     the key for every mode (else a cached digital PDF goes stale on toggle).
+ *   - showSignatureOnPrint only affects physical (digital always signs), so it's
+ *     appended only for the physical mode.
+ * Toggling any flag changes the key, so the stale PDF regenerates.
  */
 function cacheVariantFor(
   snapshot: ReportSnapshot,
   mode: 'physical' | 'digital',
 ): string | undefined {
-  if (mode !== 'physical') return undefined;
-  // Lab incharge is per-department now, so encode every signer's live
-  // show-on-print flag (top-level fallback + each department) in a stable order.
-  // Toggling any one changes the key, so the stale physical PDF regenerates.
-  const flag = (li: { showSignatureOnPrint?: boolean } | null | undefined) =>
+  const nameFlag = (li: { showNameOnPrint?: boolean } | null | undefined) =>
+    li?.showNameOnPrint ? '1' : '0';
+  const perDeptName = snapshot.departments.map((d) => nameFlag(d.labIncharge)).join('');
+  const namePart = `name${nameFlag(snapshot.labIncharge)}${perDeptName}`;
+  if (mode !== 'physical') return namePart;
+  const sigFlag = (li: { showSignatureOnPrint?: boolean } | null | undefined) =>
     li?.showSignatureOnPrint ? '1' : '0';
-  const perDept = snapshot.departments.map((d) => flag(d.labIncharge)).join('');
-  return `sig${flag(snapshot.labIncharge)}${perDept}`;
+  const perDeptSig = snapshot.departments.map((d) => sigFlag(d.labIncharge)).join('');
+  return `${namePart}_sig${sigFlag(snapshot.labIncharge)}${perDeptSig}`;
 }
 
 async function mergeUploadsIntoBase(

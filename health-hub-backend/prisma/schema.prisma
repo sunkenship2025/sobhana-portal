@@ -1269,6 +1269,10 @@ model SigningLabIncharge {
   /// reports. Default false keeps the legacy behavior: physical prints show a
   /// blank Lab Incharge line for a wet signature (only the digital PDF signs).
   showSignatureOnPrint Boolean  @default(false)
+  /// When true, the incharge's name + designation render under the signature on
+  /// BOTH digital and physical reports (like a doctor block). Default false keeps
+  /// the legacy behavior: only the "Lab Incharge" label shows.
+  showNameOnPrint      Boolean  @default(false)
   isActive             Boolean  @default(true)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt

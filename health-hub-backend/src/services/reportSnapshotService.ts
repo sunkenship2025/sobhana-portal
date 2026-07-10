@@ -135,6 +135,10 @@ export interface LabInchargeSnapshot {
    *  prints; when false, physical prints show a blank line for a wet signature.
    *  Absent on snapshots frozen before this field existed — treat as false. */
   showSignatureOnPrint: boolean;
+  /** When true, the incharge's name + designation render under the signature on
+   *  BOTH digital and physical reports (like a doctor block); when false, only
+   *  the "Lab Incharge" label shows. Taken live on render (not frozen). */
+  showNameOnPrint: boolean;
 }
 
 export interface PatientSnapshot {
@@ -383,6 +387,7 @@ function labInchargeToSnapshot(li: {
   signatureImagePath: string | null;
   signatureImageBase64: string | null;
   showSignatureOnPrint: boolean;
+  showNameOnPrint: boolean;
 }): LabInchargeSnapshot {
   return {
     signerId: li.id,
@@ -391,6 +396,7 @@ function labInchargeToSnapshot(li: {
     signatureImagePath: li.signatureImagePath,
     signatureImageBase64: li.signatureImageBase64 || null,
     showSignatureOnPrint: li.showSignatureOnPrint,
+    showNameOnPrint: li.showNameOnPrint,
   };
 }
 
@@ -474,7 +480,8 @@ function applyLabInchargeVisibility(
  * Refresh frozen lab incharge snapshots (top-level + per-department) from the
  * live SigningLabIncharge in a single query. Identity + signature image stay
  * FROZEN (medico-legal: the report shows who actually signed it); only the
- * showSignatureOnPrint flag is taken live, mirroring the pre-feature behavior.
+ * showSignatureOnPrint / showNameOnPrint display flags are taken live, mirroring
+ * the pre-feature behavior.
  * Returns the merged top-level; mutates each department's labIncharge in place.
  */
 async function rehydrateStoredLabIncharges(
@@ -498,6 +505,7 @@ async function rehydrateStoredLabIncharges(
       signatureImagePath: true,
       signatureImageBase64: true,
       showSignatureOnPrint: true,
+      showNameOnPrint: true,
     },
   });
   const map = new Map(current.map((c) => [c.id, c]));
@@ -513,6 +521,7 @@ async function rehydrateStoredLabIncharges(
       signatureImagePath: f.signatureImagePath || c.signatureImagePath,
       signatureImageBase64: f.signatureImageBase64 || c.signatureImageBase64 || null,
       showSignatureOnPrint: c.showSignatureOnPrint, // LIVE
+      showNameOnPrint: c.showNameOnPrint, // LIVE
     };
   };
 

@@ -125,7 +125,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
 // ─── POST /api/signing-lab-incharges ────────────────────────────────
 router.post('/', async (req: AuthRequest, res) => {
   try {
-    const { name, designation, isActive, showSignatureOnPrint } = req.body;
+    const { name, designation, isActive, showSignatureOnPrint, showNameOnPrint } = req.body;
 
     if (!name) {
       return res.status(400).json({
@@ -151,6 +151,7 @@ router.post('/', async (req: AuthRequest, res) => {
         designation: designation?.trim() || 'Lab Incharge',
         isActive: isActive ?? true,
         showSignatureOnPrint: showSignatureOnPrint ?? false,
+        showNameOnPrint: showNameOnPrint ?? false,
       },
     });
 
@@ -165,7 +166,7 @@ router.post('/', async (req: AuthRequest, res) => {
 router.patch('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { name, designation, isActive, showSignatureOnPrint } = req.body;
+    const { name, designation, isActive, showSignatureOnPrint, showNameOnPrint } = req.body;
 
     const existing = await prisma.signingLabIncharge.findUnique({ where: { id } });
     if (!existing) {
@@ -193,6 +194,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     if (designation !== undefined) data.designation = designation?.trim() || 'Lab Incharge';
     if (isActive !== undefined) data.isActive = isActive;
     if (showSignatureOnPrint !== undefined) data.showSignatureOnPrint = showSignatureOnPrint;
+    if (showNameOnPrint !== undefined) data.showNameOnPrint = showNameOnPrint;
 
     const labIncharge = await prisma.signingLabIncharge.update({
       where: { id },

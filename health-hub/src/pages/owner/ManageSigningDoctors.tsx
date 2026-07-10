@@ -70,6 +70,7 @@ interface SigningLabIncharge {
   signatureImagePath: string | null;
   signatureImageBase64: string | null;
   showSignatureOnPrint: boolean;
+  showNameOnPrint: boolean;
   isActive: boolean;
   _count: { labInchargeRules: number };
 }
@@ -152,7 +153,7 @@ export default function ManageSigningDoctors() {
   const [editingLabInchargeId, setEditingLabInchargeId] = useState<string | null>(null);
   const [deleteLabInchargeId, setDeleteLabInchargeId] = useState<string | null>(null);
   const [labInchargeForm, setLabInchargeForm] = useState({
-    name: '', designation: 'Lab Incharge', showSignatureOnPrint: false, isActive: true,
+    name: '', designation: 'Lab Incharge', showSignatureOnPrint: false, showNameOnPrint: false, isActive: true,
   });
   const [labInchargePendingSignatureFile, setLabInchargePendingSignatureFile] = useState<File | null>(null);
   const [labInchargePendingSignaturePreview, setLabInchargePendingSignaturePreview] = useState<string | null>(null);
@@ -342,7 +343,7 @@ export default function ManageSigningDoctors() {
 
   // ── Lab Incharge CRUD ──────────────────────────────────────────
   const resetLabInchargeForm = () => {
-    setLabInchargeForm({ name: '', designation: 'Lab Incharge', showSignatureOnPrint: false, isActive: true });
+    setLabInchargeForm({ name: '', designation: 'Lab Incharge', showSignatureOnPrint: false, showNameOnPrint: false, isActive: true });
     setLabInchargePendingSignatureFile(null);
     if (labInchargePendingSignaturePreview) URL.revokeObjectURL(labInchargePendingSignaturePreview);
     setLabInchargePendingSignaturePreview(null);
@@ -352,7 +353,7 @@ export default function ManageSigningDoctors() {
 
   const handleAddLabIncharge = () => {
     resetLabInchargeForm();
-    setLabInchargeForm({ name: '', designation: 'Lab Incharge', showSignatureOnPrint: false, isActive: true });
+    setLabInchargeForm({ name: '', designation: 'Lab Incharge', showSignatureOnPrint: false, showNameOnPrint: false, isActive: true });
     setLabInchargeSheetOpen(true);
   };
 
@@ -361,6 +362,7 @@ export default function ManageSigningDoctors() {
       name: li.name,
       designation: li.designation,
       showSignatureOnPrint: li.showSignatureOnPrint,
+      showNameOnPrint: li.showNameOnPrint,
       isActive: li.isActive,
     });
     setEditingLabInchargeId(li.id);
@@ -379,6 +381,7 @@ export default function ManageSigningDoctors() {
         name: labInchargeForm.name.trim(),
         designation: labInchargeForm.designation.trim(),
         showSignatureOnPrint: labInchargeForm.showSignatureOnPrint,
+        showNameOnPrint: labInchargeForm.showNameOnPrint,
         isActive: labInchargeForm.isActive,
       };
 
@@ -452,6 +455,18 @@ export default function ManageSigningDoctors() {
       });
       if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed'); return; }
       toast.success(`Signature ${!li.showSignatureOnPrint ? 'will now print' : 'hidden'} on physical reports`);
+      await fetchAll();
+    } catch { toast.error('Failed to update setting'); }
+  };
+
+  const handleToggleLabInchargeShowName = async (li: SigningLabIncharge) => {
+    try {
+      const res = await fetch(`${API_BASE}/signing-lab-incharges/${li.id}`, {
+        method: 'PATCH', headers: getHeaders(),
+        body: JSON.stringify({ showNameOnPrint: !li.showNameOnPrint }),
+      });
+      if (!res.ok) { const e = await res.json(); toast.error(e.message || 'Failed'); return; }
+      toast.success(`Name and designation ${!li.showNameOnPrint ? 'will now show' : 'hidden'} on reports`);
       await fetchAll();
     } catch { toast.error('Failed to update setting'); }
   };
@@ -1033,6 +1048,7 @@ export default function ManageSigningDoctors() {
                   <TableHead className="text-center">Signature</TableHead>
                   <TableHead className="text-center">Rules</TableHead>
                   <TableHead className="text-center">Sign on print</TableHead>
+                  <TableHead className="text-center">Name on print</TableHead>
                   <TableHead className="text-center">Active</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -1072,6 +1088,9 @@ export default function ManageSigningDoctors() {
                     </TableCell>
                     <TableCell className="text-center">
                       <Switch checked={li.showSignatureOnPrint} onCheckedChange={() => handleToggleLabInchargeShowSignature(li)} />
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Switch checked={li.showNameOnPrint} onCheckedChange={() => handleToggleLabInchargeShowName(li)} />
                     </TableCell>
                     <TableCell className="text-center">
                       <Switch checked={li.isActive} onCheckedChange={() => handleToggleLabIncharge(li)} />
@@ -1522,6 +1541,15 @@ export default function ManageSigningDoctors() {
                 onCheckedChange={v => setLabInchargeForm({ ...labInchargeForm, showSignatureOnPrint: v })}
               />
               <Label>Show signature on physical prints</Label>
+            </div>
+
+            {/* Show name + designation under the signature (digital and print) */}
+            <div className="flex items-center gap-3">
+              <Switch
+                checked={labInchargeForm.showNameOnPrint}
+                onCheckedChange={v => setLabInchargeForm({ ...labInchargeForm, showNameOnPrint: v })}
+              />
+              <Label>Show name and designation</Label>
             </div>
 
             {/* Active toggle */}

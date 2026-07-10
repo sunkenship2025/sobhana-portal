@@ -595,6 +595,9 @@ body.report-body {
   font-size: 9.4pt;
   font-weight: bold;
 }
+/* Name + designation variant (showNameOnPrint) — mirrors the doctor block. */
+.lab-incharge-name { font-weight: bold; font-size: 9.8pt; }
+.lab-incharge-designation { font-size: 8.2pt; }
 
 .signature-image { height: 38pt; width: auto; margin-bottom: 1pt; }
 .doctor-name { font-weight: bold; font-size: 9.8pt; }
