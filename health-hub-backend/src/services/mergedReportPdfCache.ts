@@ -45,7 +45,9 @@ import { logger } from '../lib/logger';
 // report online") for BOTH digital and physical — out of the header/bottom.
 // v19 -> v20: enlarged the patient-info QR (screen/digital 50px -> 70px,
 // physical 44pt -> 60pt) so it scans more reliably; re-render cached PDFs.
-const KEY_PREFIX = 'merged-pdf:v20:';
+// v20 -> v21: reduced the physical/print QR 60pt -> 48pt (was oversized on
+// the letterhead); digital stays 70px. Re-render cached PDFs.
+const KEY_PREFIX = 'merged-pdf:v21:';
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 const CACHE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — skip outliers so they don't flush LRU
 
