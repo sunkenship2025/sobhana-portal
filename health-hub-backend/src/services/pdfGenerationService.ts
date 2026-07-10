@@ -185,7 +185,7 @@ const DIGITAL_FOOTER_TEMPLATE = `
     </div>
     <div style="text-align: right; max-width: 50%;">
       <div style="font-weight: 500; font-size: 7pt; margin-bottom: 1px;">Balanagar : # 3-67, Sobhana Complex, Balanagar, Hyderabad-500042.</div>
-      <div style="font-weight: 600; font-size: 7.5pt;">Ph : 040-2377 2929, 4016 3301</div>
+      <div style="font-weight: 600; font-size: 7.5pt;">Ph : 040-2377 2929</div>
     </div>
   </div>
 </div>`;

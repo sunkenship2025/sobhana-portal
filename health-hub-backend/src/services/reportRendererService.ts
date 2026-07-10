@@ -1005,7 +1005,7 @@ function renderReportBottomHtml(
 // legacy snapshot taken before these fields existed, or an unpopulated Branch
 // row — we fall back to the Balanagar head-office block, the historical default.
 const DEFAULT_FOOTER_ADDRESS = 'Balanagar : # 3-67, Sobhana Complex, Balanagar, Hyderabad-500042.';
-const DEFAULT_FOOTER_PHONE = '040-2377 2929, 4016 3301';
+const DEFAULT_FOOTER_PHONE = '040-2377 2929';
 
 export interface FooterLines {
   addressLine: string;
