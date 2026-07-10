@@ -243,6 +243,9 @@ router.get('/:token/view', publicReportIpRateLimit, publicReportTokenRateLimit, 
       profile: autoPrint ? 'pdf-physical' : 'screen',
       baseUrl,
       qrDataUrl,
+      // Stamp the moment of this print. Rendered on-demand (no-store), so it's
+      // always accurate; only set on the actual print, never the screen view.
+      printedAt: autoPrint ? new Date() : undefined,
     });
     const finalHtml = autoPrint
       ? html.replace('</body>', '<script>window.onload=function(){setTimeout(function(){window.print()},600)}</script></body>')

@@ -665,6 +665,12 @@ export interface RenderOptions {
   profile: RenderProfile;
   baseUrl?: string;
   qrDataUrl?: string;
+  // When set, stamps a "Printed On" line under "Reported On" in the patient-info
+  // box. Passed ONLY by the fresh-render browser-print flows (?print=true), which
+  // render on-demand with no caching, so it always reflects the real print moment.
+  // Deliberately NOT set by the Redis-cached merged-PDF path — a cached buffer
+  // would freeze the first print's timestamp onto every later download.
+  printedAt?: Date;
 }
 
 interface ResolvedProfile {
@@ -815,8 +821,18 @@ function renderHeaderHtml(baseUrl: string): string {
     </header>`;
 }
 
-function renderPatientInfoHtml(snapshot: ReportSnapshot, sampleTypes: string[], qrImgSrc = ''): string {
+function renderPatientInfoHtml(snapshot: ReportSnapshot, sampleTypes: string[], qrImgSrc = '', printedOnDisplay = ''): string {
   const referredBy = snapshot.visit.referralDoctorName?.trim() || 'SELF';
+
+  // "Printed On" sits directly under "Reported On" (right column). It only
+  // appears on the browser-print flows, which pass a fresh render-time value —
+  // screen/digital views leave it blank so the cell stays empty as before.
+  const printedOnCell = printedOnDisplay
+    ? `<div class="info-item">
+              <span class="label">Printed On</span>
+              <span class="value">${escapeHtml(printedOnDisplay)}</span>
+            </div>`
+    : '<div class="info-item"></div>';
 
   // "Scan for your report" QR lives as a right-hand cell inside the patient-info
   // box. This works on BOTH digital and physical (letterhead) prints because the
@@ -879,7 +895,7 @@ function renderPatientInfoHtml(snapshot: ReportSnapshot, sampleTypes: string[], 
               <span class="label">Referred by</span>
               <span class="value">${escapeHtml(referredBy)}</span>
             </div>
-            <div class="info-item"></div>
+            ${printedOnCell}
           </div>
         </div>${qrCell}
         </div>
@@ -1189,6 +1205,7 @@ function renderReportPage(
   snapshot: ReportSnapshot,
   baseUrl: string,
   isPhysicalPrint: boolean,
+  printedOnDisplay: string,
 ): string {
   // Each page belongs to exactly one department (or null for the empty-results
   // fallback). The bottom block must reflect only THAT department's signers
@@ -1298,7 +1315,7 @@ function renderReportPage(
         <tr>
           <td style="padding: 0; border: none; vertical-align: top;">
             <main class="report-content">
-              ${page.includePatientInfo ? renderPatientInfoHtml(snapshot, page.sampleTypes, page.includeQr ? fragments.qrImgSrc : '') : ''}
+              ${page.includePatientInfo ? renderPatientInfoHtml(snapshot, page.sampleTypes, page.includeQr ? fragments.qrImgSrc : '', printedOnDisplay) : ''}
               <div class="results-container">
                 ${page.departmentHtml}
               </div>
@@ -1324,7 +1341,7 @@ function renderReportPage(
   <div class="report-page">
     ${fragments.headerHtml}
     <main class="report-content">
-      ${page.includePatientInfo ? renderPatientInfoHtml(snapshot, page.sampleTypes, page.includeQr ? fragments.qrImgSrc : '') : ''}
+      ${page.includePatientInfo ? renderPatientInfoHtml(snapshot, page.sampleTypes, page.includeQr ? fragments.qrImgSrc : '', printedOnDisplay) : ''}
       <div class="results-container">
         ${page.departmentHtml}
       </div>
@@ -1355,8 +1372,9 @@ ${pagesHtml}
 }
 
 export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOptions): string {
-  const { profile, baseUrl = '', qrDataUrl = '' } = options;
+  const { profile, baseUrl = '', qrDataUrl = '', printedAt } = options;
   const resolved = resolveProfile(profile);
+  const printedOnDisplay = printedAt ? formatDateTime(printedAt.toISOString()) : '';
 
   const renderDepartmentSection = (
     department: ReportSnapshot['departments'][number],
@@ -1380,7 +1398,7 @@ export function renderReportHtml(snapshot: ReportSnapshot, options: RenderOption
   }
   const isPhysicalPrint = profile === 'pdf-physical';
   const pages = buildReportPages(snapshot, profile, renderDepartmentSection)
-    .map(page => renderReportPage(page, fragments, snapshot, baseUrl, isPhysicalPrint))
+    .map(page => renderReportPage(page, fragments, snapshot, baseUrl, isPhysicalPrint, printedOnDisplay))
     .join('');
 
   return renderDocumentHtml(snapshot, resolved, pages);
