@@ -41,7 +41,9 @@ import { logger } from '../lib/logger';
 // v16 -> v17: reduced the digital signature-to-footer gap 2cm -> 1cm.
 // v17 -> v18: keep the divider line glued to the bottom; lift only the
 // signatures ~5mm off it (was lifting the whole block incl. the divider).
-const KEY_PREFIX = 'merged-pdf:v18:';
+// v18 -> v19: QR moved into the patient-info box (right cell, "Scan to view
+// report online") for BOTH digital and physical — out of the header/bottom.
+const KEY_PREFIX = 'merged-pdf:v19:';
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 const CACHE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — skip outliers so they don't flush LRU
 

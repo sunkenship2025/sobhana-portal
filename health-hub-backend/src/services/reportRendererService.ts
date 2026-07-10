@@ -726,20 +726,8 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
             @page { size: A4; margin: 0; }
             .no-print { display: none !important; }
           }
-          /* QR lives in the header top-right for the digital report (base
-             .header-qr is display:flex; the old override that hid it is gone).
-             Hide the bottom QR here; physical letterhead prints keep it
-             (report-print.css). Size the QR to the compacted 40px digital logo. */
-          .print-qr {
-            display: none !important;
-          }
-          .header-qr-img {
-            width: 42px;
-            height: 42px;
-          }
-          .header-qr-text {
-            font-size: 6.5pt;
-          }
+          /* The QR is a cell inside the patient-info box (see .patient-info-qr
+             in report-screen.css) — shared by digital and physical prints. */
           .report-page {
             box-shadow: none;
             margin: 0 auto;
@@ -808,19 +796,15 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
   }
 }
 
-function renderHeaderHtml(baseUrl: string, qrImgSrc: string): string {
+function renderHeaderHtml(baseUrl: string): string {
   const logoSrc = LOGO_DATA_URI || `${baseUrl}/images/sobhana-logo-cropped.png`;
 
+  // The QR now lives in the patient-info box (works on physical letterhead too);
+  // the header carries only the logo + stripe band.
   return `
     <header class="header">
       <div class="header-logo-row">
         <img src="${logoSrc}" alt="Sobhana Diagnostic Centre" class="header-logo" />
-        ${qrImgSrc ? `
-        <div class="header-qr">
-          <img src="${qrImgSrc}" alt="QR" class="header-qr-img" />
-          <div class="header-qr-text">Scan to<br>download</div>
-        </div>
-        ` : ''}
       </div>
       <div class="header-stripe-band">
         <div></div><div></div><div></div>
@@ -831,11 +815,24 @@ function renderHeaderHtml(baseUrl: string, qrImgSrc: string): string {
     </header>`;
 }
 
-function renderPatientInfoHtml(snapshot: ReportSnapshot, sampleTypes: string[]): string {
+function renderPatientInfoHtml(snapshot: ReportSnapshot, sampleTypes: string[], qrImgSrc = ''): string {
   const referredBy = snapshot.visit.referralDoctorName?.trim() || 'SELF';
+
+  // "Scan for your report" QR lives as a right-hand cell inside the patient-info
+  // box. This works on BOTH digital and physical (letterhead) prints because the
+  // patient-info box is rendered content in every profile — unlike the header,
+  // which is pre-printed on the physical letterhead.
+  const qrCell = qrImgSrc
+    ? `
+          <div class="patient-info-qr">
+            <img src="${qrImgSrc}" alt="QR" class="patient-qr-img" onerror="this.style.display='none'" />
+            <div class="patient-qr-text">Scan to view<br>report online</div>
+          </div>`
+    : '';
 
   return `
       <section class="patient-info">
+        <div class="patient-info-row">
         <div class="info-grid">
           <div class="info-row">
             <div class="info-item">
@@ -884,6 +881,7 @@ function renderPatientInfoHtml(snapshot: ReportSnapshot, sampleTypes: string[]):
             </div>
             <div class="info-item"></div>
           </div>
+        </div>${qrCell}
         </div>
       </section>`;
 }
@@ -964,7 +962,6 @@ function dedupeReportSignatures(signatures: SignatureSnapshot[]): SignatureSnaps
 function renderReportBottomHtml(
   signatureBlocks: string,
   labInchargeSignatureImg: string,
-  qrImgSrc: string,
   showLabIncharge: boolean,
   isRadiology: boolean,
   isPhysicalPrint: boolean,
@@ -990,13 +987,6 @@ function renderReportBottomHtml(
             ${signatureBlocks}
           </div>
         </section>
-
-        ${qrImgSrc ? `
-        <div class="print-qr">
-          <img src="${qrImgSrc}" alt="QR" class="print-qr-img" />
-          <div class="print-qr-text">Scan to download report</div>
-        </div>
-        ` : ''}
 
         ${!isPhysicalPrint ? '<div class="report-divider"></div>' : ''}
       </div>`;
@@ -1074,7 +1064,7 @@ function buildReportFragments(snapshot: ReportSnapshot, baseUrl: string, qrDataU
   // Patient info is now rendered per-page in renderReportPage so the Sample
   // Type field can match the panels actually shown on that page.
   return {
-    headerHtml: renderHeaderHtml(baseUrl, qrDataUrl),
+    headerHtml: renderHeaderHtml(baseUrl),
     footerHtml: renderFooterHtml(snapshot),
     qrImgSrc: qrDataUrl,
   };
@@ -1293,7 +1283,6 @@ function renderReportPage(
     ? renderReportBottomHtml(
         signatureBlocks,
         labInchargeSignatureImg,
-        page.includeQr ? fragments.qrImgSrc : '',
         showLabIncharge,
         isRadiology,
         isPhysicalPrint,
@@ -1309,7 +1298,7 @@ function renderReportPage(
         <tr>
           <td style="padding: 0; border: none; vertical-align: top;">
             <main class="report-content">
-              ${page.includePatientInfo ? renderPatientInfoHtml(snapshot, page.sampleTypes) : ''}
+              ${page.includePatientInfo ? renderPatientInfoHtml(snapshot, page.sampleTypes, page.includeQr ? fragments.qrImgSrc : '') : ''}
               <div class="results-container">
                 ${page.departmentHtml}
               </div>
@@ -1335,7 +1324,7 @@ function renderReportPage(
   <div class="report-page">
     ${fragments.headerHtml}
     <main class="report-content">
-      ${page.includePatientInfo ? renderPatientInfoHtml(snapshot, page.sampleTypes) : ''}
+      ${page.includePatientInfo ? renderPatientInfoHtml(snapshot, page.sampleTypes, page.includeQr ? fragments.qrImgSrc : '') : ''}
       <div class="results-container">
         ${page.departmentHtml}
       </div>

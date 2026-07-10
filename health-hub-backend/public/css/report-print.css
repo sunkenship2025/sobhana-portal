@@ -122,6 +122,38 @@ body.report-body {
   margin-bottom: 6pt;
 }
 
+/* Patient info + "Scan for your report" QR side by side inside the box. The
+   patient-info box is rendered on the letterhead too (only the header/footer are
+   pre-printed), so the QR prints here on physical copies as well. */
+.patient-info-row {
+  display: flex;
+  align-items: center;
+  gap: 12pt;
+}
+.patient-info-row .info-grid {
+  flex: 1;
+}
+.patient-info-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-left: 0.5pt solid var(--color-border);
+  padding-left: 12pt;
+  flex-shrink: 0;
+}
+.patient-qr-img {
+  width: 44pt;
+  height: 44pt;
+  display: block;
+}
+.patient-qr-text {
+  font-size: 6pt;
+  text-align: center;
+  margin-top: 2pt;
+  line-height: 1.15;
+}
+
 .info-grid { display: table; width: 100%; }
 .info-row { display: table-row; }
 
