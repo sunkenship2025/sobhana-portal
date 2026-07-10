@@ -744,14 +744,14 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
             box-shadow: none;
             margin: 0 auto;
             max-width: 210mm;
-            /* 265mm — the printable area is A4 (297mm) minus the 12mm Puppeteer
+            /* 275mm — the printable area is A4 (297mm) minus the 12mm Puppeteer
                footer reservation (DIGITAL_PDF_OPTIONS.margin.bottom) = 285mm; we
-               glue the signatures ~20mm (≈2cm) above that so short reports don't
+               glue the signatures ~10mm (≈1cm) above that so short reports don't
                sit flush against the footer. min-height only floors short pages —
                a full report still grows to the 285mm printable area, so no
                content overflows to a second page. Signatures glue to this bottom
                via .report-bottom-section margin-top: auto. */
-            min-height: 265mm;
+            min-height: 275mm;
           }
           body.report-body { background: white; padding: 0; }
           /* digital-PDF compaction — whitespace + auxiliary text only.

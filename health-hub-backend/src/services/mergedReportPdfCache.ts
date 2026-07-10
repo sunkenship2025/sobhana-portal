@@ -37,8 +37,9 @@ import { logger } from '../lib/logger';
 // authenticated" and the address/phone is per-branch. Bump to re-render every
 // already-cached finalized report with the new footer.
 // v15 -> v16: digital report QR moved to the header top-right (was bottom-right)
-// and signatures now sit ~2cm above the footer. Re-render cached digital PDFs.
-const KEY_PREFIX = 'merged-pdf:v16:';
+// and signatures now sit above the footer. Re-render cached digital PDFs.
+// v16 -> v17: reduced the digital signature-to-footer gap 2cm -> 1cm.
+const KEY_PREFIX = 'merged-pdf:v17:';
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 const CACHE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — skip outliers so they don't flush LRU
 
