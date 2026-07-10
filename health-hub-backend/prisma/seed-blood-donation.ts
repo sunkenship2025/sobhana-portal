@@ -42,7 +42,7 @@ async function main() {
   });
 
   const product = await prisma.billableProduct.upsert({
-    where: { code: 'BLOOD_DONATION' },
+    where: { code: 'BDC' },
     update: {
       workflowMode: DiagnosticWorkflowMode.EVENT,
       basePriceInPaise: 0,
@@ -51,7 +51,7 @@ async function main() {
     },
     create: {
       name: 'Blood Donation Camp (Participation)',
-      code: 'BLOOD_DONATION',
+      code: 'BDC',
       description:
         'Free event participation. Billing this ₹0 item issues a one-time 50% donor coupon and sends the WhatsApp reward — no bill/report.',
       basePriceInPaise: 0,
