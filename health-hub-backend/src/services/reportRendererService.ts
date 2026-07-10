@@ -744,14 +744,13 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
             box-shadow: none;
             margin: 0 auto;
             max-width: 210mm;
-            /* 275mm — the printable area is A4 (297mm) minus the 12mm Puppeteer
-               footer reservation (DIGITAL_PDF_OPTIONS.margin.bottom) = 285mm; we
-               glue the signatures ~10mm (≈1cm) above that so short reports don't
-               sit flush against the footer. min-height only floors short pages —
-               a full report still grows to the 285mm printable area, so no
-               content overflows to a second page. Signatures glue to this bottom
-               via .report-bottom-section margin-top: auto. */
-            min-height: 275mm;
+            /* 285mm — the printable area (A4 297mm minus the 12mm Puppeteer
+               footer reservation). The bottom block (signatures + divider line)
+               glues here via .report-bottom-section margin-top: auto, so the
+               divider sits just above the footer as it did originally. The
+               breathing room is added as margin-bottom on .signatures-section
+               below, which lifts ONLY the signatures, not the divider line. */
+            min-height: 285mm;
           }
           body.report-body { background: white; padding: 0; }
           /* digital-PDF compaction — whitespace + auxiliary text only.
@@ -771,7 +770,10 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
           .smear-section { margin-top: 4px; margin-bottom: 4px; padding: 3px 10px; }
           .report-note { margin-top: 6px; }
           .report-content { padding: 4px 24px 4px 24px; }
-          .signatures-section { gap: 16px; }
+          /* Lift only the signatures ~5mm off the divider; the divider line
+             stays glued to the bottom just above the footer (see the
+             .report-page min-height note above). */
+          .signatures-section { gap: 16px; margin-bottom: 5mm; }
           /* Narrative panels (IMAGING_NARRATIVE / TEXT_ONLY): allow Chromium
              to fit them on one page when possible, and split cleanly when
              not. Tabular panels keep break-inside: avoid from

@@ -39,7 +39,9 @@ import { logger } from '../lib/logger';
 // v15 -> v16: digital report QR moved to the header top-right (was bottom-right)
 // and signatures now sit above the footer. Re-render cached digital PDFs.
 // v16 -> v17: reduced the digital signature-to-footer gap 2cm -> 1cm.
-const KEY_PREFIX = 'merged-pdf:v17:';
+// v17 -> v18: keep the divider line glued to the bottom; lift only the
+// signatures ~5mm off it (was lifting the whole block incl. the divider).
+const KEY_PREFIX = 'merged-pdf:v18:';
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 const CACHE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — skip outliers so they don't flush LRU
 
