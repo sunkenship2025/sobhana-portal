@@ -143,8 +143,8 @@ body.report-body {
   flex-shrink: 0;
 }
 .patient-qr-img {
-  width: 44pt;
-  height: 44pt;
+  width: 60pt;
+  height: 60pt;
   display: block;
 }
 .patient-qr-text {

@@ -43,7 +43,9 @@ import { logger } from '../lib/logger';
 // signatures ~5mm off it (was lifting the whole block incl. the divider).
 // v18 -> v19: QR moved into the patient-info box (right cell, "Scan to view
 // report online") for BOTH digital and physical — out of the header/bottom.
-const KEY_PREFIX = 'merged-pdf:v19:';
+// v19 -> v20: enlarged the patient-info QR (screen/digital 50px -> 70px,
+// physical 44pt -> 60pt) so it scans more reliably; re-render cached PDFs.
+const KEY_PREFIX = 'merged-pdf:v20:';
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 const CACHE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — skip outliers so they don't flush LRU
 
