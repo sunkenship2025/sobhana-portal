@@ -166,7 +166,7 @@ export const BillReceipt = ({
   // ── Container class ──
   const containerClass = asPage
     ? "print-page bill-receipt-page"
-    : "print-content bg-white text-black";
+    : "print-content bill-print-doc bg-white text-black";
 
   // ── Logo preload ──
   useEffect(() => {

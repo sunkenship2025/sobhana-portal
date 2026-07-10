@@ -338,6 +338,12 @@
     padding: 0;
   }
 
+  /* Bill receipt printed on its own: nudge the box below the printer's
+     non-printable top edge (~4-6mm) so its top border isn't clipped. */
+  .print-content.bill-print-doc {
+    padding-top: 8mm;
+  }
+
   /* Multi-page print: pages stack naturally */
   .print-page {
     page-break-after: always;
