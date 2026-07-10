@@ -180,7 +180,7 @@ const DIGITAL_FOOTER_TEMPLATE = `
   <div style="height: 2px; background: #cc2222; width: 100%;"></div>
   <div style="display: flex; justify-content: space-between; padding: 4px 24px 0 24px; box-sizing: border-box;">
     <div style="max-width: 50%;">
-      <div style="font-weight: bold; font-size: 7pt; margin-bottom: 1px;">Note : This report is subject to the terms and conditions overleaf.</div>
+      <div style="font-weight: bold; font-size: 7pt; margin-bottom: 1px;">This is an electronically authenticated report.</div>
       <div style="font-weight: bold; text-transform: uppercase; font-size: 6.5pt;">Partial reproduction of this report is not permitted.</div>
     </div>
     <div style="text-align: right; max-width: 50%;">
@@ -215,6 +215,12 @@ export interface PdfGenerationOptions {
    * Mode: 'physical' for pre-printed letterhead, 'digital' for standalone PDF, 'bill' for raw bill prints
    */
   mode: 'physical' | 'digital' | 'bill';
+  /**
+   * Digital-only: overrides the Puppeteer page-bottom footer template. Used to
+   * inject the per-branch address/phone footer (see renderDigitalFooterHtml).
+   * Ignored for 'physical' (footer is on the letterhead) and 'bill'.
+   */
+  footerTemplate?: string;
 }
 
 const BILL_PDF_OPTIONS: PDFOptions = {
@@ -254,7 +260,7 @@ export async function generatePdfFromHtml(
           ? { ...PHYSICAL_PDF_OPTIONS }
           : options.mode === 'bill'
           ? { ...BILL_PDF_OPTIONS }
-          : { ...DIGITAL_PDF_OPTIONS };
+          : { ...DIGITAL_PDF_OPTIONS, footerTemplate: options.footerTemplate ?? DIGITAL_FOOTER_TEMPLATE };
 
       if (options.mode === 'bill') {
         const bodyHeight = await page.evaluate('document.documentElement.offsetHeight') as number;

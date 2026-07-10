@@ -1001,29 +1001,80 @@ function renderReportBottomHtml(
       </div>`;
 }
 
-function renderFooterHtml(): string {
+// Footer address/phone are recorded per branch. When a branch has none — a
+// legacy snapshot taken before these fields existed, or an unpopulated Branch
+// row — we fall back to the Balanagar head-office block, the historical default.
+const DEFAULT_FOOTER_ADDRESS = 'Balanagar : # 3-67, Sobhana Complex, Balanagar, Hyderabad-500042.';
+const DEFAULT_FOOTER_PHONE = '040-2377 2929, 4016 3301';
+
+export interface FooterLines {
+  addressLine: string;
+  phoneLine: string;
+}
+
+/**
+ * Resolves the footer address + phone for the branch that produced this report.
+ * Captured in the snapshot at finalize time, so a report always shows the
+ * address of the branch where it was made — even if the branch's details later
+ * change. The "Ph : " label is added here so all three renderers stay in sync.
+ */
+export function resolveFooterLines(snapshot: ReportSnapshot): FooterLines {
+  const address = snapshot.visit.branchAddress?.trim();
+  const phone = snapshot.visit.branchPhone?.trim();
+  return {
+    addressLine: address ? address : DEFAULT_FOOTER_ADDRESS,
+    phoneLine: `Ph : ${phone ? phone : DEFAULT_FOOTER_PHONE}`,
+  };
+}
+
+function renderFooterHtml(snapshot: ReportSnapshot): string {
+  const { addressLine, phoneLine } = resolveFooterLines(snapshot);
   return `
     <footer class="footer">
       <div class="footer-stripe"></div>
       <div class="footer-content">
         <div class="footer-left">
-          <div class="note-text">Note : This report is subject to the terms and conditions overleaf.</div>
+          <div class="note-text">This is an electronically authenticated report.</div>
           <div class="partial-text">Partial reproduction of this report is not permitted.</div>
         </div>
         <div class="footer-right">
-          <div class="address-text">Balanagar : # 3-67, Sobhana Complex, Balanagar, Hyderabad-500042.</div>
-          <div class="phone-text">Ph : 040-2377 2929, 4016 3301</div>
+          <div class="address-text">${escapeHtml(addressLine)}</div>
+          <div class="phone-text">${escapeHtml(phoneLine)}</div>
         </div>
       </div>
     </footer>`;
 }
 
-function buildReportFragments(_snapshot: ReportSnapshot, baseUrl: string, qrDataUrl: string): ReportFragments {
+/**
+ * The digital PDF's footer is drawn by Puppeteer at the bottom of every page
+ * (see DIGITAL_PDF_OPTIONS). It renders in an isolated context that ignores the
+ * document CSS, so it needs fully-inlined styles and explicit pt sizes. Kept in
+ * lockstep with renderFooterHtml above.
+ */
+export function renderDigitalFooterHtml(snapshot: ReportSnapshot): string {
+  const { addressLine, phoneLine } = resolveFooterLines(snapshot);
+  return `
+<div style="font-family: Helvetica, Arial, sans-serif; width: 100%; color: #333; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
+  <div style="height: 2px; background: #cc2222; width: 100%;"></div>
+  <div style="display: flex; justify-content: space-between; padding: 4px 24px 0 24px; box-sizing: border-box;">
+    <div style="max-width: 50%;">
+      <div style="font-weight: bold; font-size: 7pt; margin-bottom: 1px;">This is an electronically authenticated report.</div>
+      <div style="font-weight: bold; text-transform: uppercase; font-size: 6.5pt;">Partial reproduction of this report is not permitted.</div>
+    </div>
+    <div style="text-align: right; max-width: 50%;">
+      <div style="font-weight: 500; font-size: 7pt; margin-bottom: 1px;">${escapeHtml(addressLine)}</div>
+      <div style="font-weight: 600; font-size: 7.5pt;">${escapeHtml(phoneLine)}</div>
+    </div>
+  </div>
+</div>`;
+}
+
+function buildReportFragments(snapshot: ReportSnapshot, baseUrl: string, qrDataUrl: string): ReportFragments {
   // Patient info is now rendered per-page in renderReportPage so the Sample
   // Type field can match the panels actually shown on that page.
   return {
     headerHtml: renderHeaderHtml(baseUrl, qrDataUrl),
-    footerHtml: renderFooterHtml(),
+    footerHtml: renderFooterHtml(snapshot),
     qrImgSrc: qrDataUrl,
   };
 }

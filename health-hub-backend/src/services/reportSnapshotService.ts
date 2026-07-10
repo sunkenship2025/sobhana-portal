@@ -201,6 +201,8 @@ export interface VisitSnapshot {
   branchId: string;
   branchName: string;
   branchCode: string;
+  branchAddress: string | null;
+  branchPhone: string | null;
   referralDoctorName: string | null;
   createdAt: string;
   collectedAt: string | null;
@@ -1720,6 +1722,8 @@ export async function createReportSnapshot(
     branchId: visit.branchId,
     branchName: visit.branch.name,
     branchCode: visit.branch.code,
+    branchAddress: visit.branch.address,
+    branchPhone: visit.branch.phone,
     referralDoctorName: visit.referrals[0]?.referralDoctor.name || null,
     createdAt: visit.createdAt.toISOString(),
     collectedAt: visit.createdAt.toISOString(), // Sample collection time defaults to registration
@@ -1921,6 +1925,8 @@ export async function buildEphemeralSnapshot(
     branchId: visit.branchId,
     branchName: visit.branch.name,
     branchCode: visit.branch.code,
+    branchAddress: visit.branch.address,
+    branchPhone: visit.branch.phone,
     referralDoctorName: visit.referrals[0]?.referralDoctor.name || null,
     createdAt: visit.createdAt.toISOString(),
     collectedAt: visit.createdAt.toISOString(),

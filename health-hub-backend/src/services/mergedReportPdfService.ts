@@ -23,7 +23,7 @@ import {
   StandardFonts,
   rgb,
 } from 'pdf-lib';
-import { renderReportHtml } from './reportRendererService';
+import { renderReportHtml, renderDigitalFooterHtml, resolveFooterLines } from './reportRendererService';
 import { generatePdfFromHtml } from './pdfGenerationService';
 import { getObject } from './r2StorageService';
 import {
@@ -67,11 +67,11 @@ const COLOR_PRIMARY = rgb(0x1f / 0xff, 0x3e / 0xff, 0x6e / 0xff); // #1f3e6e
 const COLOR_RED = rgb(0xcc / 0xff, 0x22 / 0xff, 0x22 / 0xff);     // #cc2222
 const COLOR_DARK = rgb(0.1, 0.1, 0.1);
 
-// Static footer text (verbatim from reportRendererService.ts:1023-1028).
-const FOOTER_NOTE_LINE_1 = 'Note : This report is subject to the terms and conditions overleaf.';
+// Static footer note text. Address + phone are per-branch (see resolveFooterLines)
+// and threaded into the overlay via OverlayAssets, so they live on that struct
+// rather than here.
+const FOOTER_NOTE_LINE_1 = 'This is an electronically authenticated report.';
 const FOOTER_NOTE_LINE_2 = 'PARTIAL REPRODUCTION OF THIS REPORT IS NOT PERMITTED.';
-const FOOTER_ADDRESS_LINE = 'Balanagar : # 3-67, Sobhana Complex, Balanagar, Hyderabad-500042.';
-const FOOTER_PHONE_LINE = 'Ph : 040-2377 2929, 4016 3301';
 
 // Lazy-loaded logo bytes. The same file is already used by the report renderer.
 const LOGO_PATH = path.join(__dirname, '../../public/images/sobhana-logo-cropped.png');
@@ -139,7 +139,12 @@ export async function generateMergedReportPdf(
   if (!skipBaseRender) {
     const profile = mode === 'physical' ? 'pdf-physical' : 'pdf-digital';
     const html = renderReportHtml(snapshot, { profile, baseUrl, qrDataUrl });
-    const basePdf = await generatePdfFromHtml(html, { mode });
+    const basePdf = await generatePdfFromHtml(html, {
+      mode,
+      // Digital footer is drawn by Puppeteer per page; inject the per-branch
+      // address/phone. Ignored for physical (footer is on the letterhead).
+      footerTemplate: mode === 'digital' ? renderDigitalFooterHtml(snapshot) : undefined,
+    });
 
     if (uploads.length === 0) {
       if (cache) {
@@ -207,11 +212,14 @@ async function mergeUploadsIntoBase(
 
   const merged = basePdf ? await PDFDocument.load(basePdf) : await PDFDocument.create();
   // Only embed font/logo when we're going to draw the overlay.
+  const footerLines = resolveFooterLines(snapshot);
   const overlayAssets = drawOverlay
     ? {
         helvetica: await merged.embedFont(StandardFonts.Helvetica),
         helveticaBold: await merged.embedFont(StandardFonts.HelveticaBold),
         logoImage: await merged.embedPng(getLogoBytes()),
+        addressLine: footerLines.addressLine,
+        phoneLine: footerLines.phoneLine,
       }
     : null;
 
@@ -247,6 +255,10 @@ interface OverlayAssets {
   logoImage: PDFImage;
   helvetica: PDFFont;
   helveticaBold: PDFFont;
+  // Per-branch footer lines (address includes any branch label; phone includes
+  // the "Ph : " prefix). Same values used for the Puppeteer base-page footer.
+  addressLine: string;
+  phoneLine: string;
 }
 
 async function appendUpload(
@@ -267,6 +279,8 @@ async function appendUpload(
         overlayAssets.logoImage,
         overlayAssets.helvetica,
         overlayAssets.helveticaBold,
+        overlayAssets.addressLine,
+        overlayAssets.phoneLine,
       );
     }
   }
@@ -277,6 +291,8 @@ function drawOverlayOnPage(
   logoImage: PDFImage,
   helvetica: PDFFont,
   helveticaBold: PDFFont,
+  addressLine: string,
+  phoneLine: string,
 ): void {
   const { width, height } = page.getSize();
 
@@ -346,16 +362,16 @@ function drawOverlayOnPage(
   });
 
   // Right column — right-aligned by measuring rendered text width.
-  const addressWidth = helvetica.widthOfTextAtSize(FOOTER_ADDRESS_LINE, FOOTER_ADDRESS_SIZE_PT);
-  page.drawText(FOOTER_ADDRESS_LINE, {
+  const addressWidth = helvetica.widthOfTextAtSize(addressLine, FOOTER_ADDRESS_SIZE_PT);
+  page.drawText(addressLine, {
     x: width - FOOTER_TEXT_RIGHT_MARGIN_PT - addressWidth,
     y: noteBaselineY,
     size: FOOTER_ADDRESS_SIZE_PT,
     font: helvetica,
     color: COLOR_DARK,
   });
-  const phoneWidth = helveticaBold.widthOfTextAtSize(FOOTER_PHONE_LINE, FOOTER_PHONE_SIZE_PT);
-  page.drawText(FOOTER_PHONE_LINE, {
+  const phoneWidth = helveticaBold.widthOfTextAtSize(phoneLine, FOOTER_PHONE_SIZE_PT);
+  page.drawText(phoneLine, {
     x: width - FOOTER_TEXT_RIGHT_MARGIN_PT - phoneWidth,
     y: partialBaselineY,
     size: FOOTER_PHONE_SIZE_PT,

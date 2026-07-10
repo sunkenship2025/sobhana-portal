@@ -33,7 +33,10 @@ import { logger } from '../lib/logger';
 // report (MONTAZ ALI P-000807, CBP diff count) whose snapshot was patched
 // directly; the external Redis has no in-app delete hook, so bump the prefix to
 // invalidate the stale cached PDF on the patient's already-sent report link.
-const KEY_PREFIX = 'merged-pdf:v14:';
+// v14 -> v15: report footer changed — note line is now "electronically
+// authenticated" and the address/phone is per-branch. Bump to re-render every
+// already-cached finalized report with the new footer.
+const KEY_PREFIX = 'merged-pdf:v15:';
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 const CACHE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — skip outliers so they don't flush LRU
 
