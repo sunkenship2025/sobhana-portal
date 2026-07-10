@@ -36,7 +36,9 @@ import { logger } from '../lib/logger';
 // v14 -> v15: report footer changed — note line is now "electronically
 // authenticated" and the address/phone is per-branch. Bump to re-render every
 // already-cached finalized report with the new footer.
-const KEY_PREFIX = 'merged-pdf:v15:';
+// v15 -> v16: digital report QR moved to the header top-right (was bottom-right)
+// and signatures now sit ~2cm above the footer. Re-render cached digital PDFs.
+const KEY_PREFIX = 'merged-pdf:v16:';
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 const CACHE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — skip outliers so they don't flush LRU
 

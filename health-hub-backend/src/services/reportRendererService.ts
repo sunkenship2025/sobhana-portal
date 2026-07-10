@@ -726,33 +726,32 @@ function resolveProfile(profile: RenderProfile): ResolvedProfile {
             @page { size: A4; margin: 0; }
             .no-print { display: none !important; }
           }
-          .header-qr {
+          /* QR lives in the header top-right for the digital report (base
+             .header-qr is display:flex; the old override that hid it is gone).
+             Hide the bottom QR here; physical letterhead prints keep it
+             (report-print.css). Size the QR to the compacted 40px digital logo. */
+          .print-qr {
             display: none !important;
           }
-          .print-qr {
-            display: flex !important;
-            align-items: center;
-            gap: 6px;
-            justify-content: flex-end;
-            margin-top: 8px;
+          .header-qr-img {
+            width: 42px;
+            height: 42px;
           }
-          .print-qr-img {
-            width: 50px;
-            height: 50px;
-          }
-          .print-qr-text {
-            font-size: 7pt;
-            color: #4a5568;
+          .header-qr-text {
+            font-size: 6.5pt;
           }
           .report-page {
             box-shadow: none;
             margin: 0 auto;
             max-width: 210mm;
-            /* 285mm — A4 (297mm) minus the 12mm Puppeteer footer reservation
-               (set in DIGITAL_PDF_OPTIONS.margin.bottom). Stays a few mm shy
-               so sub-pixel rendering can't bleed into the footer band.
-               Signatures glue to bottom via .report-bottom-section margin-top: auto. */
-            min-height: 285mm;
+            /* 265mm — the printable area is A4 (297mm) minus the 12mm Puppeteer
+               footer reservation (DIGITAL_PDF_OPTIONS.margin.bottom) = 285mm; we
+               glue the signatures ~20mm (≈2cm) above that so short reports don't
+               sit flush against the footer. min-height only floors short pages —
+               a full report still grows to the 285mm printable area, so no
+               content overflows to a second page. Signatures glue to this bottom
+               via .report-bottom-section margin-top: auto. */
+            min-height: 265mm;
           }
           body.report-body { background: white; padding: 0; }
           /* digital-PDF compaction — whitespace + auxiliary text only.
@@ -815,7 +814,7 @@ function renderHeaderHtml(baseUrl: string, qrImgSrc: string): string {
       <div class="header-logo-row">
         <img src="${logoSrc}" alt="Sobhana Diagnostic Centre" class="header-logo" />
         ${qrImgSrc ? `
-        <div class="header-qr no-print">
+        <div class="header-qr">
           <img src="${qrImgSrc}" alt="QR" class="header-qr-img" />
           <div class="header-qr-text">Scan to<br>download</div>
         </div>
