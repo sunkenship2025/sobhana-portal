@@ -489,6 +489,7 @@ export async function getOwnerDashboardV2(
         diagnosticCenterCommissionPercentage: true,
         diagnosticCenterCommissionAmountInPaise: true,
         workflowMode: true,
+        uploadInsteadAt: true,
       },
     }),
     prisma.clinicVisit.findMany({
@@ -1023,11 +1024,15 @@ export async function getOwnerDashboardV2(
   }));
 
   // ----- revenue mix (selected window) -----------------------------------
+  // An order switched to "Upload instead" (uploadInsteadAt set) reads
+  // EXTERNAL_UPLOAD now, but it was SOLD as a reportable narrative and still
+  // produces a report — keep its revenue in the reportable bucket. Native
+  // external-upload products (no uploadInsteadAt) stay bill-only as before.
   const reportableRev = todayTestOrders
-    .filter((o) => o.workflowMode === 'REPORTABLE')
+    .filter((o) => o.workflowMode === 'REPORTABLE' || o.uploadInsteadAt != null)
     .reduce((s, o) => s + o.priceInPaise, 0);
   const billOnlyRev = todayTestOrders
-    .filter((o) => o.workflowMode !== 'REPORTABLE')
+    .filter((o) => o.workflowMode !== 'REPORTABLE' && o.uploadInsteadAt == null)
     .reduce((s, o) => s + o.priceInPaise, 0);
   const clinicRev = todayClinicForMix._sum.consultationFeeInPaise ?? 0;
   const revenueMix: RevenueMix = {

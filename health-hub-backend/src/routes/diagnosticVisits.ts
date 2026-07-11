@@ -1012,6 +1012,8 @@ router.get("/:id", async (req: AuthRequest, res) => {
         noReportAt: true,
         noReportReason: true,
         noReportByUser: { select: { name: true } },
+        uploadInsteadAt: true,
+        uploadInsteadByUser: { select: { name: true } },
         test: {
           select: {
             id: true,
@@ -1478,6 +1480,8 @@ router.get("/:id", async (req: AuthRequest, res) => {
             noReportAt: to.noReportAt,
             noReportReason: to.noReportReason,
             noReportBy: to.noReportByUser?.name ?? null,
+            uploadInsteadAt: to.uploadInsteadAt,
+            uploadInsteadBy: to.uploadInsteadByUser?.name ?? null,
             referralCommissionType: to.referralCommissionType,
             referralCommissionPercent: to.referralCommissionPercentage,
             referralCommissionAmountInPaise: to.referralCommissionAmountInPaise,
@@ -4962,6 +4966,7 @@ router.post("/:id/orders/:orderId/no-report", async (req: AuthRequest, res) => {
             workflowMode: true,
             cancelledAt: true,
             noReportAt: true,
+            uploadInsteadAt: true,
             testNameSnapshot: true,
           },
         },
@@ -4985,6 +4990,19 @@ router.post("/:id/orders/:orderId/no-report", async (req: AuthRequest, res) => {
       return res.status(400).json({
         error: "ORDER_CANCELLED",
         message: "This test was already cancelled.",
+      });
+    }
+
+    // A report switched to "Upload instead" must be reverted to typing before it
+    // can be closed as films-only — the two are mutually exclusive (upload-instead
+    // sends a real report from the PDF; films-only sends nothing). This keeps the
+    // order from ending up in a contradictory EXTERNAL_UPLOAD + noReportAt state.
+    // (The UI already hides "No report needed" in upload mode; this guards the API.)
+    if (order.uploadInsteadAt) {
+      return res.status(400).json({
+        error: "NOT_ELIGIBLE",
+        message:
+          'This report is set to "Upload instead". Switch it back to typing before closing it as no-report.',
       });
     }
 
@@ -5251,6 +5269,298 @@ router.post("/:id/orders/:orderId/reopen-report", async (req: AuthRequest, res) 
     return res.status(500).json({
       error: "INTERNAL_ERROR",
       message: "Failed to reopen test",
+    });
+  }
+});
+
+// POST /:id/orders/:orderId/switch-to-upload
+// "Upload instead": switch a REPORTABLE narrative/text report to being fulfilled
+// by an uploaded PDF (an outside radiologist's report) rather than a typed one.
+// This flips the order's workflowMode to EXTERNAL_UPLOAD, reusing the entire
+// external-upload pipeline verbatim (upload zone -> snapshot -> merged PDF -> QR
+// -> report-ready WhatsApp). UNLIKE "no report needed" (films-only, which stays
+// silent), the patient still receives a REAL report — sourced from the uploaded
+// PDF instead of typed text. Instant and reversible via /revert-to-typed until
+// the order is finalized into a report.
+//
+// Any half-typed draft is KEPT (not deleted): while the order is EXTERNAL_UPLOAD
+// it's inert — filterReportableOrders / the finalize completeness gate ignore it
+// — and it is restored in the editor on toggle-back. Mirrors the /no-report guard
+// order and audit shape; deliberately NOT role-gated (matches no-report).
+router.post("/:id/orders/:orderId/switch-to-upload", async (req: AuthRequest, res) => {
+  try {
+    const { id, orderId } = req.params;
+
+    const visit = await prisma.visit.findFirst({
+      where: { id, branchId: req.branchId, domain: "DIAGNOSTICS" },
+      select: {
+        id: true,
+        report: {
+          select: {
+            versions: {
+              where: { status: "FINALIZED" },
+              select: {
+                id: true,
+                panelsSnapshot: true,
+                externalUploadsSnapshot: true,
+              },
+            },
+          },
+        },
+        testOrders: {
+          where: { id: orderId },
+          select: {
+            id: true,
+            workflowMode: true,
+            cancelledAt: true,
+            noReportAt: true,
+            uploadInsteadAt: true,
+            testNameSnapshot: true,
+          },
+        },
+      },
+    });
+
+    if (!visit) {
+      return res
+        .status(404)
+        .json({ error: "NOT_FOUND", message: "Diagnostic visit not found" });
+    }
+
+    const order = visit.testOrders[0];
+    if (!order) {
+      return res
+        .status(404)
+        .json({ error: "NOT_FOUND", message: "Test not found on this visit" });
+    }
+
+    if (order.cancelledAt) {
+      return res.status(400).json({
+        error: "ORDER_CANCELLED",
+        message: "This test was already cancelled.",
+      });
+    }
+
+    // Idempotent — already switched to upload. Gate on uploadInsteadAt so a
+    // NATIVE external-upload product (EXTERNAL_UPLOAD but never switched) falls
+    // through to the REPORTABLE-only eligibility check below and gets a proper
+    // NOT_ELIGIBLE, rather than a misleading "alreadySwitched".
+    if (
+      order.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD &&
+      order.uploadInsteadAt
+    ) {
+      return res.json({
+        success: true,
+        alreadySwitched: true,
+        orderId: order.id,
+        workflowMode: "EXTERNAL_UPLOAD",
+      });
+    }
+
+    // Only a typed (reportable) report can be switched to upload. BILL_ONLY /
+    // EVENT orders never produce a typed report, so there's nothing to switch.
+    const mode = order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE;
+    if (mode !== DiagnosticWorkflowMode.REPORTABLE) {
+      return res.status(400).json({
+        error: "NOT_ELIGIBLE",
+        message: "Only a typed (reportable) report can be switched to upload.",
+      });
+    }
+
+    // Mutually exclusive with films-only: a "no report needed" order fires NO
+    // patient message, whereas upload-instead DOES. Reopen it first.
+    if (order.noReportAt) {
+      return res.status(400).json({
+        error: "NOT_ELIGIBLE",
+        message:
+          'This test is closed as "no report needed". Reopen it before switching to upload.',
+      });
+    }
+
+    // Already-shipped guard — judged by the finalized report SNAPSHOT (what was
+    // actually rendered/sent), NOT by TestResult.reportVersionId (a held-back
+    // test in a partial release can carry the FK without ever shipping). A test
+    // already reported to the patient can't have its fulfilment mode changed.
+    const reportedOrderIds = new Set<string>();
+    for (const version of visit.report?.versions ?? []) {
+      collectSnapshotTestOrderIds(version.panelsSnapshot, reportedOrderIds);
+      collectSnapshotTestOrderIds(
+        version.externalUploadsSnapshot,
+        reportedOrderIds,
+      );
+    }
+    if (reportedOrderIds.has(order.id)) {
+      return res.status(400).json({
+        error: "ALREADY_FINALIZED",
+        message:
+          "This test is already finalized in a report and can't be switched to upload.",
+      });
+    }
+
+    const now = new Date();
+    await prisma.testOrder.update({
+      where: { id: order.id },
+      data: {
+        workflowMode: DiagnosticWorkflowMode.EXTERNAL_UPLOAD,
+        uploadInsteadAt: now,
+        uploadInsteadByUserId: req.user?.id ?? null,
+      },
+    });
+
+    await logAction({
+      branchId: req.branchId!,
+      actionType: "UPDATE",
+      entityType: "TestOrder",
+      entityId: order.id,
+      userId: req.user?.id!,
+      newValues: {
+        uploadInstead: true,
+        fromWorkflowMode: mode,
+        toWorkflowMode: "EXTERNAL_UPLOAD",
+        testName: order.testNameSnapshot,
+        switchedAt: now.toISOString(),
+      },
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+    });
+
+    return res.json({
+      success: true,
+      orderId: order.id,
+      workflowMode: "EXTERNAL_UPLOAD",
+      uploadInsteadAt: now.toISOString(),
+    });
+  } catch (error) {
+    console.error("Error switching test to upload:", error);
+    return res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: "Failed to switch test to upload",
+    });
+  }
+});
+
+// POST /:id/orders/:orderId/revert-to-typed
+// Undo "Upload instead": flip the order back to REPORTABLE so the doctor types
+// the report again. Only a SWITCHED order (uploadInsteadAt set) can revert — a
+// product born EXTERNAL_UPLOAD stays an upload. Valid only before the order is
+// finalized into a report. The kept draft narrative reappears in the editor; any
+// attached PDFs are left in place but become inert (buildExternalUploadSnapshots
+// only bakes EXTERNAL_UPLOAD orders) and reappear if the operator switches again.
+router.post("/:id/orders/:orderId/revert-to-typed", async (req: AuthRequest, res) => {
+  try {
+    const { id, orderId } = req.params;
+
+    const visit = await prisma.visit.findFirst({
+      where: { id, branchId: req.branchId, domain: "DIAGNOSTICS" },
+      select: {
+        id: true,
+        report: {
+          select: {
+            versions: {
+              where: { status: "FINALIZED" },
+              select: {
+                id: true,
+                panelsSnapshot: true,
+                externalUploadsSnapshot: true,
+              },
+            },
+          },
+        },
+        testOrders: {
+          where: { id: orderId },
+          select: {
+            id: true,
+            workflowMode: true,
+            cancelledAt: true,
+            uploadInsteadAt: true,
+            testNameSnapshot: true,
+          },
+        },
+      },
+    });
+
+    if (!visit) {
+      return res
+        .status(404)
+        .json({ error: "NOT_FOUND", message: "Diagnostic visit not found" });
+    }
+
+    const order = visit.testOrders[0];
+    if (!order) {
+      return res
+        .status(404)
+        .json({ error: "NOT_FOUND", message: "Test not found on this visit" });
+    }
+
+    // Parity with switch-to-upload: don't mutate a cancelled order's mode.
+    if (order.cancelledAt) {
+      return res.status(400).json({
+        error: "ORDER_CANCELLED",
+        message: "This test was already cancelled.",
+      });
+    }
+
+    // Only a report that was SWITCHED to upload can revert to typing. A native
+    // external-upload product (no uploadInsteadAt) has no typed form to go back to.
+    if (!order.uploadInsteadAt) {
+      return res.status(400).json({
+        error: "NOT_ELIGIBLE",
+        message: "Only a report switched to upload can be reverted to typing.",
+      });
+    }
+
+    // Same snapshot-inclusion guard as switch-to-upload: a shipped order is fixed.
+    const reportedOrderIds = new Set<string>();
+    for (const version of visit.report?.versions ?? []) {
+      collectSnapshotTestOrderIds(version.panelsSnapshot, reportedOrderIds);
+      collectSnapshotTestOrderIds(
+        version.externalUploadsSnapshot,
+        reportedOrderIds,
+      );
+    }
+    if (reportedOrderIds.has(order.id)) {
+      return res.status(400).json({
+        error: "ALREADY_FINALIZED",
+        message:
+          "This test is already finalized in a report and can't be reverted.",
+      });
+    }
+
+    await prisma.testOrder.update({
+      where: { id: order.id },
+      data: {
+        workflowMode: DiagnosticWorkflowMode.REPORTABLE,
+        uploadInsteadAt: null,
+        uploadInsteadByUserId: null,
+      },
+    });
+
+    await logAction({
+      branchId: req.branchId!,
+      actionType: "UPDATE",
+      entityType: "TestOrder",
+      entityId: order.id,
+      userId: req.user?.id!,
+      newValues: {
+        uploadInstead: false,
+        reverted: true,
+        toWorkflowMode: "REPORTABLE",
+        testName: order.testNameSnapshot,
+      },
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+    });
+
+    return res.json({
+      success: true,
+      orderId: order.id,
+      workflowMode: "REPORTABLE",
+    });
+  } catch (error) {
+    console.error("Error reverting test to typed:", error);
+    return res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: "Failed to revert test to typed",
     });
   }
 });

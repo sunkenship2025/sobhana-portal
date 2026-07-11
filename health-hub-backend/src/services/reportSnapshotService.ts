@@ -1641,7 +1641,16 @@ export async function createReportSnapshot(
   // Results entered against since-cancelled orders — or orders closed as "no
   // written report needed" (films only) — must not render.
   const activeTestResults = (filteredTestResults as any[]).filter(
-    (r: any) => !r.testOrder?.cancelledAt && !r.testOrder?.noReportAt,
+    (r: any) =>
+      !r.testOrder?.cancelledAt &&
+      !r.testOrder?.noReportAt &&
+      // "Upload instead": a switched order (workflowMode flipped to
+      // EXTERNAL_UPLOAD) keeps its pre-switch typed draft rows so a toggle-back
+      // restores them — but those rows must NEVER bake into the rendered
+      // panelsSnapshot; the uploaded PDF is the report. The orderedPanelIds gate
+      // only filters these out on MULTI-order visits (a lone switched order
+      // contributes no reportable panel id), so this is the real guard.
+      r.testOrder?.workflowMode !== DiagnosticWorkflowMode.EXTERNAL_UPLOAD,
   );
   const augmentedTestResults = dedupeResultsForSnapshot(await backfillDerivedResults(
     activeTestResults,
@@ -1848,7 +1857,16 @@ export async function buildEphemeralSnapshot(
   // Results entered against since-cancelled orders — or orders closed as "no
   // written report needed" (films only) — must not render.
   const activeTestResults = (filteredTestResults as any[]).filter(
-    (r: any) => !r.testOrder?.cancelledAt && !r.testOrder?.noReportAt,
+    (r: any) =>
+      !r.testOrder?.cancelledAt &&
+      !r.testOrder?.noReportAt &&
+      // "Upload instead": a switched order (workflowMode flipped to
+      // EXTERNAL_UPLOAD) keeps its pre-switch typed draft rows so a toggle-back
+      // restores them — but those rows must NEVER bake into the rendered
+      // panelsSnapshot; the uploaded PDF is the report. The orderedPanelIds gate
+      // only filters these out on MULTI-order visits (a lone switched order
+      // contributes no reportable panel id), so this is the real guard.
+      r.testOrder?.workflowMode !== DiagnosticWorkflowMode.EXTERNAL_UPLOAD,
   );
 
   // External-upload visits have no test results — the report content is the

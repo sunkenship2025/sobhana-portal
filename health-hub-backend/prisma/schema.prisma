@@ -490,6 +490,7 @@ model User {
   orderRefunds         OrderRefund[]          @relation("OrderRefundCreatedBy")
   noReportTestOrders   TestOrder[]            @relation("TestOrderNoReportBy")
   reopenedTestOrders   TestOrder[]            @relation("TestOrderReopenedBy")
+  uploadInsteadTestOrders TestOrder[]         @relation("TestOrderUploadInsteadBy")
 
   @@index([role])
   @@index([activeBranchId])
@@ -781,6 +782,14 @@ model TestOrder {
   reopenedAt       DateTime?
   reopenedByUserId String?
 
+  // "Upload instead": set when a REPORTABLE narrative/text report is switched to
+  // being fulfilled by an uploaded PDF (an outside radiologist's report) rather
+  // than a typed one. The actual behavior comes from workflowMode flipping to
+  // EXTERNAL_UPLOAD; these are audit-only trace fields that also distinguish a
+  // SWITCHED order from one that was born EXTERNAL_UPLOAD. Cleared on toggle-back.
+  uploadInsteadAt       DateTime?
+  uploadInsteadByUserId String?
+
   // E3-03: Test metadata snapshot (frozen at order time)
   testNameSnapshot      String // Test name at time of order
   testCodeSnapshot      String // Test code at time of order
@@ -799,6 +808,7 @@ model TestOrder {
   externalLab    ExternalLab?     @relation(fields: [externalLabId], references: [id], onDelete: Restrict)
   noReportByUser User?            @relation("TestOrderNoReportBy", fields: [noReportByUserId], references: [id], onDelete: SetNull)
   reopenedByUser User?            @relation("TestOrderReopenedBy", fields: [reopenedByUserId], references: [id], onDelete: SetNull)
+  uploadInsteadByUser User?       @relation("TestOrderUploadInsteadBy", fields: [uploadInsteadByUserId], references: [id], onDelete: SetNull)
 
   /// Results for this test
   testResults TestResult[]

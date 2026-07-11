@@ -18,7 +18,7 @@ import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
 import { FlagBadge } from '@/components/ui/flag-badge';
 import { toast } from 'sonner';
-import { AlertTriangle, Save, Loader2, ChevronDown, ChevronUp, Lock } from 'lucide-react';
+import { AlertTriangle, Save, Loader2, ChevronDown, ChevronUp, Lock, Pencil, Upload } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -158,6 +158,12 @@ interface TestOrder {
   noReportAt?: string | null;
   noReportReason?: string | null;
   noReportBy?: string | null;
+  // "Upload instead": set when a REPORTABLE narrative/text order was switched to
+  // being fulfilled by an uploaded PDF (workflowMode then reads EXTERNAL_UPLOAD).
+  // Distinguishes a SWITCHED order from one born EXTERNAL_UPLOAD; null once
+  // reverted to typing.
+  uploadInsteadAt?: string | null;
+  uploadInsteadBy?: string | null;
 }
 
 interface ExternalUpload {
@@ -385,6 +391,9 @@ const DiagnosticsResultEntry = () => {
   // and mutated locally as the user uploads / deletes files.
   const [uploadsByOrder, setUploadsByOrder] = useState<Record<string, ExternalUpload[]>>({});
   const [uploadingOrderId, setUploadingOrderId] = useState<string | null>(null);
+  // Order whose Type/Upload ("Upload instead") toggle is mid-flight — disables
+  // the segmented control so a double-click can't fire switch + revert together.
+  const [switchingOrderId, setSwitchingOrderId] = useState<string | null>(null);
   const [noReportTarget, setNoReportTarget] = useState<{ orderId: string; testName: string } | null>(null);
   const [noReportReasonText, setNoReportReasonText] = useState('');
   const [noReportBusy, setNoReportBusy] = useState(false);
@@ -923,6 +932,65 @@ const DiagnosticsResultEntry = () => {
     }
   }, [token, activeBranchId]);
 
+  // "Upload instead" — switch a REPORTABLE narrative/text report to being
+  // fulfilled by an uploaded PDF. Flips the order to EXTERNAL_UPLOAD server-side
+  // (reusing the whole external-upload pipeline) and mirrors that in local state
+  // so the editor swaps to the upload zone. The typed draft in `results` is left
+  // untouched — inert while in upload mode, restored on revert.
+  const switchToUpload = useCallback(async (testOrderId: string) => {
+    if (!token || !activeBranchId || !visitId) return;
+    setSwitchingOrderId(testOrderId);
+    try {
+      const res = await fetch(`${API_BASE}/visits/diagnostic/${visitId}/orders/${testOrderId}/switch-to-upload`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'X-Branch-Id': activeBranchId, 'Content-Type': 'application/json' },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(data?.message || 'Could not switch to upload.'); return; }
+      setVisit((prev) => prev ? {
+        ...prev,
+        testOrders: prev.testOrders.map((o) =>
+          o.id === testOrderId
+            ? { ...o, workflowMode: 'EXTERNAL_UPLOAD', uploadInsteadAt: data?.uploadInsteadAt || new Date().toISOString() }
+            : o
+        ),
+      } : prev);
+      toast.success('Switched to upload — attach the PDF report.');
+    } catch (e) {
+      console.error('switch-to-upload failed:', e);
+      toast.error('Could not switch to upload.');
+    } finally {
+      setSwitchingOrderId(null);
+    }
+  }, [token, activeBranchId, visitId]);
+
+  // Revert an "Upload instead" order back to a typed report. The kept draft
+  // reappears in the editor; attached PDFs stay but become inert.
+  const revertToTyped = useCallback(async (testOrderId: string) => {
+    if (!token || !activeBranchId || !visitId) return;
+    setSwitchingOrderId(testOrderId);
+    try {
+      const res = await fetch(`${API_BASE}/visits/diagnostic/${visitId}/orders/${testOrderId}/revert-to-typed`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'X-Branch-Id': activeBranchId, 'Content-Type': 'application/json' },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(data?.message || 'Could not switch back to typing.'); return; }
+      setVisit((prev) => prev ? {
+        ...prev,
+        testOrders: prev.testOrders.map((o) =>
+          o.id === testOrderId ? { ...o, workflowMode: 'REPORTABLE', uploadInsteadAt: null } : o
+        ),
+      } : prev);
+      toast.success('Switched back to typing.');
+    } catch (e) {
+      console.error('revert-to-typed failed:', e);
+      toast.error('Could not switch back to typing.');
+    } finally {
+      setSwitchingOrderId(null);
+    }
+  }, [token, activeBranchId, visitId]);
+
   // Build the {testId, value, textValue, flag, ...} payload that the auto-save
   // and explicit save share. Returns null when there is nothing meaningful to
   // send (e.g. external-upload-only visit before the PDF is attached).
@@ -1362,7 +1430,14 @@ const DiagnosticsResultEntry = () => {
   const narrativeSigningGaps = useMemo(() => {
     const gaps: string[] = [];
     if (!visit) return gaps;
-    const orders = visit.testOrders.filter((o) => !o.noReportAt);
+    // Exclude films-only AND orders switched to "Upload instead": an uploaded
+    // report is self-signed by the external radiologist, so the internal
+    // signing-doctor dropdown doesn't apply — and a stale useSigningRule choice
+    // from before the switch must not falsely block finalize (the upload zone
+    // has no signer dropdown to satisfy it).
+    const orders = visit.testOrders.filter(
+      (o) => !o.noReportAt && o.workflowMode !== 'EXTERNAL_UPLOAD',
+    );
     for (const order of orders) {
       const deptId = order.department?.id;
       if (!deptId) continue;
@@ -1666,7 +1741,26 @@ const DiagnosticsResultEntry = () => {
     });
   };
 
-  const renderExternalUploadOrder = (order: TestOrder) => {
+  // Small amber/emerald "N files" chip shared by the native external-upload card
+  // and the "Upload instead" upload zone.
+  const uploadCountPill = (order: TestOrder) => {
+    const n = (uploadsByOrder[order.id] || []).length;
+    return (
+      <span
+        className={cn(
+          'rounded-full px-2 py-0.5 text-[11px] font-medium',
+          n === 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+        )}
+      >
+        {n === 0 ? '0 files' : `${n} file${n === 1 ? '' : 's'} uploaded`}
+      </span>
+    );
+  };
+
+  // The PDF file list + upload button. Shared verbatim by the native
+  // EXTERNAL_UPLOAD card and the "Upload instead" upload zone that replaces the
+  // narrative editor — so both experiences are identical.
+  const renderUploadZoneBody = (order: TestOrder) => {
     const uploads = uploadsByOrder[order.id] || [];
     const isThisOrderUploading = uploadingOrderId === order.id;
     const formatBytes = (n: number) => {
@@ -1677,6 +1771,80 @@ const DiagnosticsResultEntry = () => {
     const fileViewUrl = (uploadId: string) =>
       `${API_BASE}/external-uploads/${uploadId}`;
 
+    return (
+      <div className="space-y-3 p-4">
+        {uploads.length > 0 && (
+          <ul className="space-y-2">
+            {uploads.map((upload) => (
+              <li
+                key={upload.id}
+                className="flex items-center justify-between gap-2 rounded border bg-background px-3 py-2 text-sm"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium">{upload.originalFilename}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {upload.pageCount != null ? `${upload.pageCount} page${upload.pageCount === 1 ? '' : 's'} · ` : ''}
+                    {formatBytes(upload.fileSizeBytes)}
+                  </div>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <a
+                    href={fileViewUrl(upload.id)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-medium text-primary hover:underline"
+                  >
+                    View
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => deleteUpload(upload.id, order.id)}
+                    className="text-xs font-medium text-destructive hover:underline"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div>
+          <label
+            className={cn(
+              'inline-flex cursor-pointer items-center gap-2 rounded border border-dashed px-3 py-2 text-sm font-medium hover:bg-muted/50',
+              isThisOrderUploading && 'pointer-events-none opacity-60'
+            )}
+          >
+            <input
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              disabled={isThisOrderUploading}
+              onChange={async (e) => {
+                const files = Array.from(e.target.files || []);
+                e.target.value = '';
+                for (const file of files) {
+                  await uploadFileForOrder(order.id, file);
+                }
+              }}
+              multiple
+            />
+            {isThisOrderUploading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Uploading…
+              </>
+            ) : uploads.length === 0 ? (
+              'Upload PDF'
+            ) : (
+              'Add another PDF'
+            )}
+          </label>
+        </div>
+      </div>
+    );
+  };
+
+  const renderExternalUploadOrder = (order: TestOrder) => {
     return (
       <div key={order.id} className="overflow-hidden rounded-lg border">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-4 py-3">
@@ -1694,89 +1862,45 @@ const DiagnosticsResultEntry = () => {
             >
               No report needed
             </button>
-            <span
-              className={cn(
-                'rounded-full px-2 py-0.5 text-[11px] font-medium',
-                uploads.length === 0
-                  ? 'bg-amber-100 text-amber-700'
-                  : 'bg-emerald-100 text-emerald-700'
-              )}
-            >
-              {uploads.length === 0
-                ? '0 files'
-                : `${uploads.length} file${uploads.length === 1 ? '' : 's'} uploaded`}
-            </span>
+            {uploadCountPill(order)}
           </div>
         </div>
-        <div className="space-y-3 p-4">
-          {uploads.length > 0 && (
-            <ul className="space-y-2">
-              {uploads.map((upload) => (
-                <li
-                  key={upload.id}
-                  className="flex items-center justify-between gap-2 rounded border bg-background px-3 py-2 text-sm"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{upload.originalFilename}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {upload.pageCount != null ? `${upload.pageCount} page${upload.pageCount === 1 ? '' : 's'} · ` : ''}
-                      {formatBytes(upload.fileSizeBytes)}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 gap-2">
-                    <a
-                      href={fileViewUrl(upload.id)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs font-medium text-primary hover:underline"
-                    >
-                      View
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => deleteUpload(upload.id, order.id)}
-                      className="text-xs font-medium text-destructive hover:underline"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+        {renderUploadZoneBody(order)}
+      </div>
+    );
+  };
+
+  // The Type / Upload PDF ("Upload instead") segmented switch that sits on top of
+  // a narrative report's header. Type = the doctor types the report; Upload PDF =
+  // an outside radiologist's PDF is attached instead (order flips to
+  // EXTERNAL_UPLOAD server-side). Reversible until finalize; the typed draft is
+  // preserved either way. Only shown for whole-order narrative rows.
+  const renderUploadInsteadToggle = (testOrderId: string, isUploadMode: boolean) => {
+    const busy = switchingOrderId === testOrderId;
+    return (
+      <div className="mb-2 inline-flex items-center rounded-lg border bg-muted p-0.5 text-xs font-medium">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => { if (isUploadMode) revertToTyped(testOrderId); }}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md px-3 py-1 transition-colors disabled:opacity-60',
+            !isUploadMode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
           )}
-          <div>
-            <label
-              className={cn(
-                'inline-flex cursor-pointer items-center gap-2 rounded border border-dashed px-3 py-2 text-sm font-medium hover:bg-muted/50',
-                isThisOrderUploading && 'pointer-events-none opacity-60'
-              )}
-            >
-              <input
-                type="file"
-                accept="application/pdf"
-                className="hidden"
-                disabled={isThisOrderUploading}
-                onChange={async (e) => {
-                  const files = Array.from(e.target.files || []);
-                  e.target.value = '';
-                  for (const file of files) {
-                    await uploadFileForOrder(order.id, file);
-                  }
-                }}
-                multiple
-              />
-              {isThisOrderUploading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> Uploading…
-                </>
-              ) : uploads.length === 0 ? (
-                'Upload PDF'
-              ) : (
-                'Add another PDF'
-              )}
-            </label>
-          </div>
-        </div>
+        >
+          <Pencil className="h-3.5 w-3.5" /> Type report
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => { if (!isUploadMode) switchToUpload(testOrderId); }}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md px-3 py-1 transition-colors disabled:opacity-60',
+            isUploadMode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Upload PDF
+        </button>
       </div>
     );
   };
@@ -2037,17 +2161,28 @@ const DiagnosticsResultEntry = () => {
     const signingRuleOptions = deptRules.length >= 2 ? deptRules : undefined;
     const order = testOrders.find((o) => o.id === testOrderId);
     const isWholeOrderRow = !!order && order.testId === testId;
+    // "Upload instead" mode: the order was switched to being fulfilled by an
+    // uploaded PDF (workflowMode reads EXTERNAL_UPLOAD). Only whole-order
+    // narrative rows can toggle (matches the "No report needed" gate); a switched
+    // order can toggle back. The typed draft stays in `results` either way.
+    const isUploadMode = order?.workflowMode === 'EXTERNAL_UPLOAD';
+    const canSwitch = isWholeOrderRow && (!isUploadMode || !!order?.uploadInsteadAt);
 
     return (
       <div key={resultKey} className="py-3">
+        {canSwitch && renderUploadInsteadToggle(testOrderId, isUploadMode)}
         <div className="mb-1 flex items-center justify-between gap-3">
-          <AutoSyncControl
-            enabled={autoSync}
-            onToggle={handleToggleSync}
-            status={reportSaveStatusByKey[resultKey] ?? 'saved'}
-            onSaveNow={() => saveReport(testOrderId, testId)}
-          />
-          {isWholeOrderRow && (
+          {isUploadMode ? (
+            <span />
+          ) : (
+            <AutoSyncControl
+              enabled={autoSync}
+              onToggle={handleToggleSync}
+              status={reportSaveStatusByKey[resultKey] ?? 'saved'}
+              onSaveNow={() => saveReport(testOrderId, testId)}
+            />
+          )}
+          {isWholeOrderRow && !isUploadMode && (
             <button
               type="button"
               onClick={() => { setNoReportReasonText(''); setNoReportTarget({ orderId: testOrderId, testName: panelDisplayName || testName }); }}
@@ -2057,39 +2192,54 @@ const DiagnosticsResultEntry = () => {
             </button>
           )}
         </div>
-        <ReportFramedNarrativeEditor
-          value={valueStr}
-          onChange={(nextValue) => handleValueChange(resultKey, nextValue)}
-          patient={{
-            name: visit?.patient.name || '',
-            title: visit?.patient.title || null,
-            ageDisplay: visit?.patient.yearOfBirth
-              ? `${new Date().getFullYear() - visit.patient.yearOfBirth} Years`
-              : undefined,
-            gender: visit?.patient.gender,
-            patientNumber: undefined,
-          }}
-          visit={{
-            billNumber: visit?.billNumber || '',
-            createdAt: undefined,
-            collectedAt: null,
-            reportedAt: null,
-            sampleType: null,
-          }}
-          departmentName={departmentName || 'Tests'}
-          panelDisplayName={panelDisplayName || testName}
-          testCode={testCode}
-          placeholder={placeholder}
-          signerName={signerNameByResultKey[resultKey] || ''}
-          onSignerNameChange={(next) => handleSignerNameChange(resultKey, next)}
-          showSigningRuleToggle={hasSigningRule}
-          useSigningRule={useRule}
-          onUseSigningRuleChange={(next) => handleUseSigningRuleChange(resultKey, testId, next)}
-          signingRuleOptions={signingRuleOptions}
-          selectedSigningDoctorId={selectedSigningDoctorByResultKey[resultKey] || ''}
-          onSelectedSigningDoctorChange={(next) => handleSelectedSigningDoctorChange(resultKey, next)}
-          onFirstTouch={() => markNarrativeTouched(resultKey)}
-        />
+        {isUploadMode && order ? (
+          <div className="overflow-hidden rounded-lg border">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-4 py-3">
+              <div>
+                <div className="font-semibold">{panelDisplayName || testName}</div>
+                <div className="text-xs text-muted-foreground">
+                  External report (PDF) — the uploaded file becomes this patient’s report.
+                </div>
+              </div>
+              {uploadCountPill(order)}
+            </div>
+            {renderUploadZoneBody(order)}
+          </div>
+        ) : (
+          <ReportFramedNarrativeEditor
+            value={valueStr}
+            onChange={(nextValue) => handleValueChange(resultKey, nextValue)}
+            patient={{
+              name: visit?.patient.name || '',
+              title: visit?.patient.title || null,
+              ageDisplay: visit?.patient.yearOfBirth
+                ? `${new Date().getFullYear() - visit.patient.yearOfBirth} Years`
+                : undefined,
+              gender: visit?.patient.gender,
+              patientNumber: undefined,
+            }}
+            visit={{
+              billNumber: visit?.billNumber || '',
+              createdAt: undefined,
+              collectedAt: null,
+              reportedAt: null,
+              sampleType: null,
+            }}
+            departmentName={departmentName || 'Tests'}
+            panelDisplayName={panelDisplayName || testName}
+            testCode={testCode}
+            placeholder={placeholder}
+            signerName={signerNameByResultKey[resultKey] || ''}
+            onSignerNameChange={(next) => handleSignerNameChange(resultKey, next)}
+            showSigningRuleToggle={hasSigningRule}
+            useSigningRule={useRule}
+            onUseSigningRuleChange={(next) => handleUseSigningRuleChange(resultKey, testId, next)}
+            signingRuleOptions={signingRuleOptions}
+            selectedSigningDoctorId={selectedSigningDoctorByResultKey[resultKey] || ''}
+            onSelectedSigningDoctorChange={(next) => handleSelectedSigningDoctorChange(resultKey, next)}
+            onFirstTouch={() => markNarrativeTouched(resultKey)}
+          />
+        )}
       </div>
     );
   };
@@ -2526,7 +2676,11 @@ const DiagnosticsResultEntry = () => {
                           )
                         : (() => {
                             const o = group.order;
-                            if (o.workflowMode === 'EXTERNAL_UPLOAD') return false;
+                            // A NATIVE external-upload order isn't narrative. But an
+                            // order SWITCHED via "Upload instead" (uploadInsteadAt set)
+                            // stays a narrative order — it renders through the narrative
+                            // path so it keeps the Type/Upload toggle and can revert.
+                            if (o.workflowMode === 'EXTERNAL_UPLOAD' && !o.uploadInsteadAt) return false;
                             if (o.isPanel && o.childTests && o.childTests.length > 0) {
                               return o.childTests.every((c) =>
                                 isRichTextPanelLayout(textLayoutByResultKey.get(makeResultKey(o.id, c.id)))
@@ -2711,7 +2865,11 @@ const DiagnosticsResultEntry = () => {
 
                     // Render single order (legacy panel with childTests or individual test)
                     const order = group.order;
-                    if (order.workflowMode === 'EXTERNAL_UPLOAD') {
+                    // Native external-upload orders render as the plain upload card.
+                    // A SWITCHED order (uploadInsteadAt set) is caught above by
+                    // isNarrativeOnlyGroup and rendered via the narrative path (toggle
+                    // + upload zone), so it never reaches here.
+                    if (order.workflowMode === 'EXTERNAL_UPLOAD' && !order.uploadInsteadAt) {
                       return renderExternalUploadOrder(order);
                     }
                     const isLegacyPanel = order.isPanel && order.childTests && order.childTests.length > 0;
