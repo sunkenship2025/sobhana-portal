@@ -243,6 +243,32 @@ function hasMeaningfulResultRow(result: {
   );
 }
 
+/**
+ * Collect every testOrderId referenced anywhere in a finalized report snapshot
+ * (panels / external-upload sections). This is the authoritative "what actually
+ * shipped in this report" signal. TestResult.reportVersionId is NOT reliable for
+ * this: a partial release scopes its rendered snapshot to the selected orders,
+ * but can still leave a deliberately held-back test's result row tagged to the
+ * finalized version (via carry-forward / version assignment). So a test can have
+ * reportVersionId === a FINALIZED version yet never have appeared in that report.
+ */
+function collectSnapshotTestOrderIds(node: unknown, acc: Set<string>): void {
+  if (!node) return;
+  if (Array.isArray(node)) {
+    for (const item of node) collectSnapshotTestOrderIds(item, acc);
+    return;
+  }
+  if (typeof node === "object") {
+    for (const [key, val] of Object.entries(node as Record<string, unknown>)) {
+      if (key === "testOrderId" && typeof val === "string") {
+        acc.add(val);
+      } else {
+        collectSnapshotTestOrderIds(val, acc);
+      }
+    }
+  }
+}
+
 function getExpectedResultTestIds(order: {
   testId: string;
   test?: {
@@ -4921,7 +4947,11 @@ router.post("/:id/orders/:orderId/no-report", async (req: AuthRequest, res) => {
           select: {
             versions: {
               where: { status: "FINALIZED" },
-              select: { id: true },
+              select: {
+                id: true,
+                panelsSnapshot: true,
+                externalUploadsSnapshot: true,
+              },
             },
           },
         },
@@ -4933,14 +4963,6 @@ router.post("/:id/orders/:orderId/no-report", async (req: AuthRequest, res) => {
             cancelledAt: true,
             noReportAt: true,
             testNameSnapshot: true,
-            testResults: {
-              select: {
-                reportVersionId: true,
-                value: true,
-                textValue: true,
-                notes: true,
-              },
-            },
           },
         },
       },
@@ -4985,26 +5007,25 @@ router.post("/:id/orders/:orderId/no-report", async (req: AuthRequest, res) => {
     // A partial report may already be FINALIZED for OTHER tests on this visit.
     // Waiving a still-open test is valid then — the finalize path is built for
     // exactly this ("last remaining test closed as films-only after a partial
-    // report already went out", see /finalize). Only block when THIS order's own
-    // result has already shipped in a FINALIZED version: it's already reported
-    // and can't be retroactively waived.
+    // report already went out", see /finalize). Only block when THIS order was
+    // actually SHIPPED in a finalized report: it's already reported and can't be
+    // retroactively waived.
     //
-    // The row must be MEANINGFUL, not just present. The partial-release carry-
-    // forward re-seeds every draft row (incl. empty template/placeholder rows)
-    // into the next version, so a still-pending test can end up with a blank
-    // result row tagged to a finalized version. That's not a shipped result —
-    // the rest of the pipeline (readiness, incompleteOrders, draftResultOrderIds)
-    // all gate on hasMeaningfulResultRow, so this guard must too, or a genuinely
-    // pending test reads as "already finalized" and can never be waived.
-    const finalizedVersionIds = new Set(
-      (visit.report?.versions ?? []).map((v) => v.id),
-    );
-    const orderAlreadyFinalized = order.testResults.some(
-      (r) =>
-        r.reportVersionId &&
-        finalizedVersionIds.has(r.reportVersionId) &&
-        hasMeaningfulResultRow(r),
-    );
+    // Inclusion is judged by the finalized report SNAPSHOT (what was actually
+    // rendered/sent), NOT by TestResult.reportVersionId. A partial release scopes
+    // its snapshot to the selected orders but can leave a deliberately held-back
+    // test's result row tagged to the finalized version — so gating on the FK
+    // wrongly blocks waiving a test that was excluded from the partial and never
+    // shipped (e.g. a USG held for the radiologist while the CBC went out).
+    const reportedOrderIds = new Set<string>();
+    for (const version of visit.report?.versions ?? []) {
+      collectSnapshotTestOrderIds(version.panelsSnapshot, reportedOrderIds);
+      collectSnapshotTestOrderIds(
+        version.externalUploadsSnapshot,
+        reportedOrderIds,
+      );
+    }
+    const orderAlreadyFinalized = reportedOrderIds.has(order.id);
     if (orderAlreadyFinalized) {
       return res.status(400).json({
         error: "ALREADY_FINALIZED",
