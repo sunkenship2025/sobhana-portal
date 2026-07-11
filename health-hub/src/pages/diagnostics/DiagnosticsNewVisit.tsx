@@ -608,9 +608,14 @@ const DiagnosticsNewVisit = () => {
           return sum + (isTest ? (p?.effectivePrice ?? 0) : 0);
         }, 0)
     : 0;
-  const couponDiscount = couponInfo
+  const couponDiscountRaw = couponInfo
     ? Math.round(((couponScopeAmount * Math.min(couponInfo.discountPercentage ?? 0, 100)) / 100) * 100) / 100
     : 0;
+  // A coupon and a manual discount can now be stacked. Mirror the backend clamp
+  // (billFinancialService): the coupon can't discount more than what remains
+  // after the manual discount, so net never goes below 0 and "Discount applied"
+  // (discount + coupon) never exceeds the bill.
+  const couponDiscount = Math.min(couponDiscountRaw, Math.max(0, totalAmount - discountAmount));
   const netPayable = Math.max(0, totalAmount - discountAmount - couponDiscount);
   const paidNumeric =
     paidAmount.trim() === "" ? netPayable : Number(paidAmount);
@@ -2430,7 +2435,6 @@ const DiagnosticsNewVisit = () => {
                   <div className="grid gap-2 sm:grid-cols-[150px_minmax(0,1fr)]">
                     <Select
                       value={discountMode}
-                      disabled={!!couponInfo}
                       onValueChange={(value) => {
                         setDiscountMode(value as DiscountMode);
                         setDiscountValue("");
@@ -2505,7 +2509,6 @@ const DiagnosticsNewVisit = () => {
                       onBlur={validateCoupon}
                       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); validateCoupon(); } }}
                       placeholder="Enter coupon code"
-                      disabled={discountMode !== "NONE"}
                     />
                     {couponInfo && (
                       <p className="text-xs text-emerald-700 mt-1">{couponInfo.campaignName}: {couponInfo.discountPercentage}% off tests applied</p>
