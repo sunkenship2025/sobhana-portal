@@ -105,9 +105,11 @@ function getInitials(name: string) {
 }
 
 /**
- * Search-and-add department picker (mirrors the test selector). An empty
- * selection means "All Departments"; adding any department scopes the rule to
- * that set. Selecting the "All Departments" entry clears back to all.
+ * Search-and-add department picker. "All Departments" and a specific set are
+ * mutually exclusive: an empty selection means All (the default), and while All
+ * is active the individual departments are hidden — you pick "Choose specific
+ * departments" to scope down, or the "All Departments" row to reset. An empty
+ * selection is still persisted as All.
  */
 function DepartmentMultiSelect({
   departments,
@@ -120,17 +122,25 @@ function DepartmentMultiSelect({
 }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
+  // Two mutually-exclusive modes. `scoping` false = the rule covers All
+  // Departments (an empty selection); flip it to pick a specific set. Start
+  // scoped only when editing a rule that already targets specific departments.
+  const [scoping, setScoping] = useState(selectedIds.length > 0);
 
-  const isAll = selectedIds.length === 0;
   const selected = departments.filter(d => selectedIds.includes(d.id));
   const q = query.toLowerCase().trim();
   const results = departments
     .filter(d => !selectedIds.includes(d.id))
     .filter(d => !q || d.name.toLowerCase().includes(q));
 
+  const chooseAll = () => { onChange([]); setScoping(false); setQuery(''); setOpen(false); };
+  const beginScoping = () => { setScoping(true); setQuery(''); setOpen(true); };
   const addDept = (id: string) => { onChange([...selectedIds, id]); setQuery(''); };
-  const removeDept = (id: string) => onChange(selectedIds.filter(x => x !== id));
-  const selectAll = () => { onChange([]); setQuery(''); setOpen(false); };
+  const removeDept = (id: string) => {
+    const next = selectedIds.filter(x => x !== id);
+    onChange(next);
+    if (next.length === 0) setScoping(false); // removed the last one -> back to All
+  };
 
   return (
     <div className="space-y-2">
@@ -141,42 +151,53 @@ function DepartmentMultiSelect({
           onChange={e => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
-          placeholder="Search departments to add..."
+          placeholder={scoping ? 'Search departments to add...' : 'All Departments'}
           className="pl-9"
         />
-        {open && (results.length > 0 || !isAll) && (
+        {open && (
           <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md max-h-56 overflow-auto py-1">
-            {!isAll && (
+            {/* "All Departments" — a first-class, mutually-exclusive choice */}
+            <button
+              type="button"
+              onMouseDown={e => { e.preventDefault(); chooseAll(); }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-left hover:bg-accent"
+            >
+              <Check className={`h-4 w-4 ${scoping ? 'opacity-0' : 'text-primary'}`} />
+              All Departments
+            </button>
+            {scoping ? (
+              results.length > 0 ? (
+                results.map(d => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onMouseDown={e => { e.preventDefault(); addDept(d.id); }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-left hover:bg-accent"
+                  >
+                    <Plus className="h-4 w-4 text-muted-foreground" />
+                    {d.name}
+                  </button>
+                ))
+              ) : (
+                <div className="px-3 py-2 text-sm text-muted-foreground">No departments found</div>
+              )
+            ) : (
               <button
                 type="button"
-                onMouseDown={e => { e.preventDefault(); selectAll(); }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-left hover:bg-accent"
+                onMouseDown={e => { e.preventDefault(); beginScoping(); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-left hover:bg-accent text-muted-foreground"
               >
-                <Check className="h-4 w-4 text-muted-foreground" />
-                All Departments
+                <Plus className="h-4 w-4" />
+                Choose specific departments…
               </button>
-            )}
-            {results.map(d => (
-              <button
-                key={d.id}
-                type="button"
-                onMouseDown={e => { e.preventDefault(); addDept(d.id); }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-left hover:bg-accent"
-              >
-                <Plus className="h-4 w-4 text-muted-foreground" />
-                {d.name}
-              </button>
-            ))}
-            {results.length === 0 && isAll && (
-              <div className="px-3 py-2 text-sm text-muted-foreground">No departments found</div>
             )}
           </div>
         )}
       </div>
       <div className="flex flex-wrap gap-1.5">
-        {isAll ? (
+        {!scoping ? (
           <Badge variant="secondary">All Departments</Badge>
-        ) : (
+        ) : selected.length > 0 ? (
           selected.map(d => (
             <Badge key={d.id} variant="secondary" className="pl-2.5 pr-1 py-1 flex items-center gap-1">
               {d.name}
@@ -190,6 +211,10 @@ function DepartmentMultiSelect({
               </button>
             </Badge>
           ))
+        ) : (
+          <span className="text-xs text-muted-foreground py-1">
+            Add at least one department, or reselect All Departments.
+          </span>
         )}
       </div>
     </div>
