@@ -2539,7 +2539,7 @@ const DiagnosticsNewVisit = () => {
                       Discount applied
                     </div>
                     <div className="font-semibold">
-                      -{formatMoney(discountAmount)}
+                      -{formatMoney(discountAmount + couponDiscount)}
                     </div>
 
                     <div className="font-semibold text-muted-foreground">
