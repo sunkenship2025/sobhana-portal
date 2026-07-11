@@ -1163,12 +1163,12 @@ model Department {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  panels           PanelDefinition[]
-  signingRules     SigningRule[]
-  labInchargeRules LabInchargeRule[]
-  labTests         LabTest[]
-  clinicalPanels   ClinicalPanel[]
-  testDefinitions  TestDefinition[]
+  panels                     PanelDefinition[]
+  signingRules               SigningRule[]
+  labInchargeRuleDepartments LabInchargeRuleDepartment[]
+  labTests                   LabTest[]
+  clinicalPanels             ClinicalPanel[]
+  testDefinitions            TestDefinition[]
 
   @@index([displayOrder])
   @@index([isActive])
@@ -1287,22 +1287,36 @@ model SigningLabIncharge {
 /// Branches, NULL departmentId = All Departments. A report resolves its incharge
 /// most-specific-first: (branch,dept) → (branch,All) → (All,dept) → (All,All).
 /// One lab incharge may own many rules (different branches / departments).
+/// A rule covers a SET of departments (LabInchargeRuleDepartment). A rule with
+/// NO department rows = All Departments. "One incharge per (branch, dept) slot"
+/// is enforced in the app layer (a branch may keep an All-Departments catch-all
+/// plus specific-department overrides).
 model LabInchargeRule {
   id                   String   @id @default(cuid())
   signingLabInchargeId String
   branchId             String? // NULL = All Branches
-  departmentId         String? // NULL = All Departments
   displayOrder         Int      @default(0)
   isActive             Boolean  @default(true)
   createdAt            DateTime @default(now())
 
-  signingLabIncharge SigningLabIncharge @relation(fields: [signingLabInchargeId], references: [id], onDelete: Restrict)
-  branch             Branch?            @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  department         Department?        @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  signingLabIncharge SigningLabIncharge          @relation(fields: [signingLabInchargeId], references: [id], onDelete: Restrict)
+  branch             Branch?                     @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  departments        LabInchargeRuleDepartment[]
 
-  @@unique([branchId, departmentId])
   @@index([signingLabInchargeId])
   @@index([branchId])
+}
+
+/// The departments a LabInchargeRule signs for. No rows for a rule = All
+/// Departments (branch default); one or more rows scope it to those departments.
+model LabInchargeRuleDepartment {
+  ruleId       String
+  departmentId String
+
+  rule       LabInchargeRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  department Department      @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@id([ruleId, departmentId])
   @@index([departmentId])
 }
 

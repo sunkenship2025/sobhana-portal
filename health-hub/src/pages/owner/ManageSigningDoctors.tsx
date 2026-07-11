@@ -17,7 +17,7 @@ import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import { useConfirm } from '@/hooks/use-confirm';
 import {
-  Plus, Pencil, Trash2, UserCheck, Link2, Search, Upload, FileSignature,
+  Plus, Pencil, Trash2, UserCheck, Link2, Search, Upload, FileSignature, X, Check,
 } from 'lucide-react';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -84,11 +84,11 @@ interface LabInchargeRule {
   id: string;
   signingLabInchargeId: string;
   branchId: string | null;
-  departmentId: string | null;
   displayOrder: number;
   isActive: boolean;
   branch: { id: string; name: string } | null;
-  department: { id: string; name: string } | null;
+  // Departments this rule covers. Empty = All Departments (branch default).
+  departments: { id: string; name: string }[];
   signingLabIncharge: { id: string; name: string; designation: string };
 }
 
@@ -102,6 +102,98 @@ function getInitials(name: string) {
     .slice(0, 2)
     .map(w => w[0].toUpperCase())
     .join('');
+}
+
+/**
+ * Search-and-add department picker (mirrors the test selector). An empty
+ * selection means "All Departments"; adding any department scopes the rule to
+ * that set. Selecting the "All Departments" entry clears back to all.
+ */
+function DepartmentMultiSelect({
+  departments,
+  selectedIds,
+  onChange,
+}: {
+  departments: { id: string; name: string }[];
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+
+  const isAll = selectedIds.length === 0;
+  const selected = departments.filter(d => selectedIds.includes(d.id));
+  const q = query.toLowerCase().trim();
+  const results = departments
+    .filter(d => !selectedIds.includes(d.id))
+    .filter(d => !q || d.name.toLowerCase().includes(q));
+
+  const addDept = (id: string) => { onChange([...selectedIds, id]); setQuery(''); };
+  const removeDept = (id: string) => onChange(selectedIds.filter(x => x !== id));
+  const selectAll = () => { onChange([]); setQuery(''); setOpen(false); };
+
+  return (
+    <div className="space-y-2">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          value={query}
+          onChange={e => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder="Search departments to add..."
+          className="pl-9"
+        />
+        {open && (results.length > 0 || !isAll) && (
+          <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md max-h-56 overflow-auto py-1">
+            {!isAll && (
+              <button
+                type="button"
+                onMouseDown={e => { e.preventDefault(); selectAll(); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-left hover:bg-accent"
+              >
+                <Check className="h-4 w-4 text-muted-foreground" />
+                All Departments
+              </button>
+            )}
+            {results.map(d => (
+              <button
+                key={d.id}
+                type="button"
+                onMouseDown={e => { e.preventDefault(); addDept(d.id); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-left hover:bg-accent"
+              >
+                <Plus className="h-4 w-4 text-muted-foreground" />
+                {d.name}
+              </button>
+            ))}
+            {results.length === 0 && isAll && (
+              <div className="px-3 py-2 text-sm text-muted-foreground">No departments found</div>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {isAll ? (
+          <Badge variant="secondary">All Departments</Badge>
+        ) : (
+          selected.map(d => (
+            <Badge key={d.id} variant="secondary" className="pl-2.5 pr-1 py-1 flex items-center gap-1">
+              {d.name}
+              <button
+                type="button"
+                onClick={() => removeDept(d.id)}
+                className="ml-0.5 rounded-full p-0.5 hover:bg-destructive/20"
+                aria-label={`Remove ${d.name}`}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          ))
+        )}
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -170,7 +262,7 @@ export default function ManageSigningDoctors() {
   const [labInchargeRuleDialogOpen, setLabInchargeRuleDialogOpen] = useState(false);
   const [editingLabInchargeRuleId, setEditingLabInchargeRuleId] = useState<string | null>(null);
   const [labInchargeRuleForm, setLabInchargeRuleForm] = useState({
-    signingLabInchargeId: '', branchId: '__all__', departmentId: '__all__', displayOrder: '1',
+    signingLabInchargeId: '', branchId: '__all__', departmentIds: [] as string[], displayOrder: '1',
   });
 
   const getHeaders = () => {
@@ -546,7 +638,7 @@ export default function ManageSigningDoctors() {
 
   const handleAddLabInchargeRule = () => {
     setEditingLabInchargeRuleId(null);
-    setLabInchargeRuleForm({ signingLabInchargeId: '', branchId: '__all__', departmentId: '__all__', displayOrder: '1' });
+    setLabInchargeRuleForm({ signingLabInchargeId: '', branchId: '__all__', departmentIds: [], displayOrder: '1' });
     setLabInchargeRuleDialogOpen(true);
   };
 
@@ -555,7 +647,7 @@ export default function ManageSigningDoctors() {
     setLabInchargeRuleForm({
       signingLabInchargeId: rule.signingLabInchargeId,
       branchId: rule.branchId ?? '__all__',
-      departmentId: rule.departmentId ?? '__all__',
+      departmentIds: rule.departments.map(d => d.id),
       displayOrder: String(rule.displayOrder),
     });
     setLabInchargeRuleDialogOpen(true);
@@ -571,7 +663,7 @@ export default function ManageSigningDoctors() {
       const body = {
         signingLabInchargeId: labInchargeRuleForm.signingLabInchargeId,
         branchId: labInchargeRuleForm.branchId === '__all__' ? null : labInchargeRuleForm.branchId,
-        departmentId: labInchargeRuleForm.departmentId === '__all__' ? null : labInchargeRuleForm.departmentId,
+        departmentIds: labInchargeRuleForm.departmentIds, // empty = All Departments
         displayOrder: parseInt(labInchargeRuleForm.displayOrder) || 1,
       };
       const res = editingLabInchargeRuleId
@@ -1155,9 +1247,15 @@ export default function ManageSigningDoctors() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="secondary">
-                        {rule.department ? rule.department.name : 'All Departments'}
-                      </Badge>
+                      {rule.departments.length === 0 ? (
+                        <Badge variant="secondary">All Departments</Badge>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {rule.departments.map(d => (
+                            <Badge key={d.id} variant="secondary">{d.name}</Badge>
+                          ))}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div>
@@ -1577,7 +1675,7 @@ export default function ManageSigningDoctors() {
           <DialogHeader>
             <DialogTitle>{editingLabInchargeRuleId ? 'Edit Lab Incharge Rule' : 'Add Lab Incharge Rule'}</DialogTitle>
             <DialogDescription>
-              Assign a lab incharge to sign reports for a branch and department.
+              Assign a lab incharge to sign reports for a branch. Leave departments empty for all, or add specific ones.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -1594,16 +1692,12 @@ export default function ManageSigningDoctors() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Department</Label>
-              <Select value={labInchargeRuleForm.departmentId} onValueChange={v => setLabInchargeRuleForm({ ...labInchargeRuleForm, departmentId: v })}>
-                <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">All Departments</SelectItem>
-                  {departments.map(d => (
-                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Departments</Label>
+              <DepartmentMultiSelect
+                departments={departments}
+                selectedIds={labInchargeRuleForm.departmentIds}
+                onChange={ids => setLabInchargeRuleForm({ ...labInchargeRuleForm, departmentIds: ids })}
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Lab Incharge *</Label>

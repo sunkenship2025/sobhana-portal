@@ -105,6 +105,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
         labInchargeRules: {
           include: {
             branch: { select: { id: true, name: true } },
+            departments: { include: { department: { select: { id: true, name: true } } } },
           },
           orderBy: { displayOrder: 'asc' },
         },

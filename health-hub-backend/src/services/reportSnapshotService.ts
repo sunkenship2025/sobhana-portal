@@ -418,14 +418,21 @@ async function resolveLabInchargesForReport(
       isActive: true,
       OR: [{ branchId }, { branchId: null }],
     },
-    include: { signingLabIncharge: true },
+    include: { signingLabIncharge: true, departments: true },
     orderBy: { displayOrder: 'asc' },
   });
 
+  // A rule with no department rows covers All Departments; otherwise it covers
+  // exactly its listed departments. `deptId === null` asks for the All-Departments
+  // (catch-all) rule at a branch scope.
   const pick = (thisBranch: boolean, deptId: string | null) =>
-    rules.find(
-      (r) => (thisBranch ? r.branchId === branchId : r.branchId === null) && r.departmentId === deptId,
-    );
+    rules.find((r) => {
+      if ((thisBranch ? r.branchId === branchId : r.branchId === null) === false) return false;
+      const coversAll = r.departments.length === 0;
+      return deptId === null
+        ? coversAll
+        : !coversAll && r.departments.some((d) => d.departmentId === deptId);
+    });
 
   const resolveForDept = (deptId: string): LabInchargeSnapshot | null => {
     const rule =
