@@ -5506,15 +5506,26 @@ router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: A
     // version. If this finalize adds nothing they haven't already received
     // (the only change since the last release was a films-only close), we stay
     // silent instead of firing a redundant "final" message.
-    const priorFinalizedResults = await prisma.testResult.findMany({
-      where: {
-        reportVersion: { reportId: visit.report!.id, status: "FINALIZED" },
-      },
-      select: { testOrderId: true },
+    //
+    // "Already shipped" is judged by what each prior finalized SNAPSHOT actually
+    // rendered — NOT by TestResult.reportVersionId. A partial release can leave a
+    // held-back test's result row tagged to the finalized version without ever
+    // rendering it (see the /no-report guard). Using that FK here would count the
+    // held-back test as already sent, so once it is finally reported (or reopened
+    // then entered) this finalize would wrongly stay silent and the patient would
+    // never be told their completed report is ready.
+    const priorFinalizedVersions = await prisma.reportVersion.findMany({
+      where: { reportId: visit.report!.id, status: "FINALIZED" },
+      select: { panelsSnapshot: true, externalUploadsSnapshot: true },
     });
-    const priorFinalizedOrderIds = new Set(
-      priorFinalizedResults.map((r) => r.testOrderId),
-    );
+    const priorFinalizedOrderIds = new Set<string>();
+    for (const version of priorFinalizedVersions) {
+      collectSnapshotTestOrderIds(version.panelsSnapshot, priorFinalizedOrderIds);
+      collectSnapshotTestOrderIds(
+        version.externalUploadsSnapshot,
+        priorFinalizedOrderIds,
+      );
+    }
     const shipsNewReportContent = reportInclusionOrders.some(
       (o) => !priorFinalizedOrderIds.has(o.id),
     );
