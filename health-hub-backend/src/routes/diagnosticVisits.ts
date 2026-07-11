@@ -4933,7 +4933,14 @@ router.post("/:id/orders/:orderId/no-report", async (req: AuthRequest, res) => {
             cancelledAt: true,
             noReportAt: true,
             testNameSnapshot: true,
-            testResults: { select: { reportVersionId: true } },
+            testResults: {
+              select: {
+                reportVersionId: true,
+                value: true,
+                textValue: true,
+                notes: true,
+              },
+            },
           },
         },
       },
@@ -4981,11 +4988,22 @@ router.post("/:id/orders/:orderId/no-report", async (req: AuthRequest, res) => {
     // report already went out", see /finalize). Only block when THIS order's own
     // result has already shipped in a FINALIZED version: it's already reported
     // and can't be retroactively waived.
+    //
+    // The row must be MEANINGFUL, not just present. The partial-release carry-
+    // forward re-seeds every draft row (incl. empty template/placeholder rows)
+    // into the next version, so a still-pending test can end up with a blank
+    // result row tagged to a finalized version. That's not a shipped result —
+    // the rest of the pipeline (readiness, incompleteOrders, draftResultOrderIds)
+    // all gate on hasMeaningfulResultRow, so this guard must too, or a genuinely
+    // pending test reads as "already finalized" and can never be waived.
     const finalizedVersionIds = new Set(
       (visit.report?.versions ?? []).map((v) => v.id),
     );
     const orderAlreadyFinalized = order.testResults.some(
-      (r) => r.reportVersionId && finalizedVersionIds.has(r.reportVersionId),
+      (r) =>
+        r.reportVersionId &&
+        finalizedVersionIds.has(r.reportVersionId) &&
+        hasMeaningfulResultRow(r),
     );
     if (orderAlreadyFinalized) {
       return res.status(400).json({
