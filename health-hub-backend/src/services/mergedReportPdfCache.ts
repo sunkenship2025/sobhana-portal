@@ -48,7 +48,9 @@ import { logger } from '../lib/logger';
 // v20 -> v21: reduced the physical/print QR 60pt -> 48pt (was oversized on
 // the letterhead); digital stays 70px. Re-render cached PDFs.
 // v21 -> v22: thinner divider left of the physical QR (0.5pt -> 0.25pt hairline).
-const KEY_PREFIX = 'merged-pdf:v22:';
+// v22 -> v23: interpretation box restyled (navy left-accent bar + navy label,
+// light grey fill) on both screen/digital and physical; re-render cached PDFs.
+const KEY_PREFIX = 'merged-pdf:v23:';
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 const CACHE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — skip outliers so they don't flush LRU
 
