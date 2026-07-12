@@ -321,6 +321,16 @@ function renderTestsWithGridRuns(tests: TestResultSnapshot[], valuePrefix: strin
   return renderedRuns.join('');
 }
 
+/** Panel-level interpretation box, rendered below the results when enabled. */
+function renderInterpretBlock(panel: PanelSnapshot, label: string = 'Interpretation'): string {
+  if (!panel.showInterpretation || !panel.interpretationHtml) return '';
+  return `
+    <div class="interpretation-block">
+      <strong>${label}:</strong>
+      <p>${escapeHtml(panel.interpretationHtml)}</p>
+    </div>`;
+}
+
 /** Standard table for most panels */
 function renderStandardTable(panel: PanelSnapshot): string {
   const useSubgroups = panel.showSubgroups === true;
@@ -385,15 +395,6 @@ function renderStandardTable(panel: PanelSnapshot): string {
     rowsHtml = renderTestsWithGridRuns(panel.tests, panel.valueDisplayPrefix ?? null, panel.spacedDefinitionsGap ?? 0);
   }
 
-  let interpretBlock = '';
-  if (panel.showInterpretation && panel.interpretationHtml) {
-    interpretBlock = `
-    <div class="interpretation-block">
-      <strong>Interpretation:</strong>
-      <p>${escapeHtml(panel.interpretationHtml)}</p>
-    </div>`;
-  }
-
   return `
     <table class="results-table">
       <thead>
@@ -409,7 +410,7 @@ function renderStandardTable(panel: PanelSnapshot): string {
       </tbody>
     </table>
     ${smearHtml}
-    ${interpretBlock}`;
+    ${renderInterpretBlock(panel)}`;
 }
 
 /** CBP table: main tests + differential count section + peripheral smear (separate) */
@@ -556,7 +557,8 @@ function renderTextOnly(panel: PanelSnapshot): string {
     <div class="text-only-result">
       <strong class="text-only-label">${escapeHtml(test.testName)}:</strong>
       <div class="result-text${isRichText ? ' text-only-rich-text' : ''}">${contentHtml}</div>
-    </div>`;
+    </div>
+    ${renderInterpretBlock(panel)}`;
 }
 
 function renderImagingNarrative(panel: PanelSnapshot): string {
@@ -568,19 +570,10 @@ function renderImagingNarrative(panel: PanelSnapshot): string {
       </div>`;
   }).join('');
 
-  let interpretBlock = '';
-  if (panel.showInterpretation && panel.interpretationHtml) {
-    interpretBlock = `
-    <div class="interpretation-block">
-      <strong>Impression:</strong>
-      <p>${escapeHtml(panel.interpretationHtml)}</p>
-    </div>`;
-  }
-
   return `
     <div class="imaging-report">
       ${sections}
-      ${interpretBlock}
+      ${renderInterpretBlock(panel, 'Impression')}
     </div>`;
 }
 
@@ -607,7 +600,8 @@ function renderProcedureStructured(panel: PanelSnapshot): string {
       <tbody>
         ${rows}
       </tbody>
-    </table>`;
+    </table>
+    ${renderInterpretBlock(panel)}`;
 }
 
 function renderPanel(panel: PanelSnapshot): string {

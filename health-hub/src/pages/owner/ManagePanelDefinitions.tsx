@@ -1213,7 +1213,7 @@ export default function ManagePanelDefinitions() {
                   <Textarea
                     value={formTemplate}
                     onChange={e => setFormTemplate(e.target.value)}
-                    placeholder="Use {{TEST_CODE}} placeholders for dynamic values"
+                    placeholder="Interpretation text shown in a box below the results (same on every report)"
                     rows={2}
                   />
                 </div>
