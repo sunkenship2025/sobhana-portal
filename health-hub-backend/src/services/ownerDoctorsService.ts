@@ -279,7 +279,7 @@ export async function getOwnerDoctors(
 
     // all currently-open payouts — used for the payout-aging card
     prisma.doctorPayoutLedger.findMany({
-      where: { paidAt: null, ...(branchId ? { branchId } : {}) },
+      where: { deletedAt: null, paidAt: null, ...(branchId ? { branchId } : {}) },
       select: {
         derivedAmountInPaise: true,
         derivedAt: true,
@@ -288,7 +288,7 @@ export async function getOwnerDoctors(
 
     // recent activity — last 20 by latest state change
     prisma.doctorPayoutLedger.findMany({
-      where: { ...(branchId ? { branchId } : {}) },
+      where: { deletedAt: null, ...(branchId ? { branchId } : {}) },
       orderBy: [{ paidAt: 'desc' }, { reviewedAt: 'desc' }, { derivedAt: 'desc' }],
       take: 20,
       select: {

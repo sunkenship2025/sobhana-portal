@@ -429,6 +429,7 @@ export async function getOwnerDashboardV2(
     }),
     prisma.doctorPayoutLedger.aggregate({
       where: {
+        deletedAt: null,
         reviewedAt: null,
         paidAt: null,
         ...(branchId ? { branchId } : {}),
@@ -575,6 +576,7 @@ export async function getOwnerDashboardV2(
     prisma.doctorPayoutLedger.groupBy({
       by: ['doctorType'],
       where: {
+        deletedAt: null,
         paidAt: null,
         ...(branchId ? { branchId } : {}),
       },

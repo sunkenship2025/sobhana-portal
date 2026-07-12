@@ -264,6 +264,7 @@ export async function getOwnerMetrics(window: MetricsWindow): Promise<OwnerMetri
       ? prisma.doctorPayoutLedger.groupBy({
           by: ['referralDoctorId'],
           where: {
+            deletedAt: null,
             doctorType: 'REFERRAL',
             referralDoctorId: { in: doctorIds },
             derivedAt: { gte: since },
