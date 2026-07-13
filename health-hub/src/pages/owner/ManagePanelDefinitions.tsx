@@ -1705,23 +1705,25 @@ export default function ManagePanelDefinitions() {
                           )}
                         </tbody>
                       </table>
-                      {formShowInterpretation && (hasMeaningfulRichText(formInterpretation) || hasMeaningfulRichText(formComments)) && (
-                        <div className="mt-2 pt-2 border-t space-y-2">
-                          {hasMeaningfulRichText(formInterpretation) && (
-                            <div>
-                              <div className="font-semibold text-[11px]">INTERPRETATION:</div>
-                              <div className="rich-text-preview text-[12px] leading-[1.45] mt-1" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml(formInterpretation) }} />
-                            </div>
-                          )}
-                          {hasMeaningfulRichText(formComments) && (
-                            <div>
-                              <div className="font-semibold text-[11px]">COMMENTS:</div>
-                              <div className="rich-text-preview text-[12px] leading-[1.45] mt-1" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml(formComments) }} />
-                            </div>
-                          )}
+                    </>
+                  )}
+
+                  {/* Comments / Interpretation preview — all layouts */}
+                  {formShowInterpretation && (hasMeaningfulRichText(formInterpretation) || hasMeaningfulRichText(formComments)) && (
+                    <div className="mt-2 pt-2 border-t space-y-2">
+                      {hasMeaningfulRichText(formInterpretation) && (
+                        <div>
+                          <div className="font-semibold text-[11px]">INTERPRETATION:</div>
+                          <div className="rich-text-preview text-[12px] leading-[1.45] mt-1" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml(formInterpretation) }} />
                         </div>
                       )}
-                    </>
+                      {hasMeaningfulRichText(formComments) && (
+                        <div>
+                          <div className="font-semibold text-[11px]">COMMENTS:</div>
+                          <div className="rich-text-preview text-[12px] leading-[1.45] mt-1" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml(formComments) }} />
+                        </div>
+                      )}
+                    </div>
                   )}
 
                   {/* Layout type indicator */}
