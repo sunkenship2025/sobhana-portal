@@ -1224,6 +1224,7 @@ export default function ManagePanelDefinitions() {
                       onChange={setFormComments}
                       placeholder="Comments shown in a box below the results (same on every report)"
                       minHeightClassName="min-h-[140px]"
+                      contentClassName="text-[12px] leading-[1.45] px-4 py-3"
                     />
                   </div>
                   <button
@@ -1242,6 +1243,7 @@ export default function ManagePanelDefinitions() {
                         onChange={setFormInterpretation}
                         placeholder="Optional. Rendered above Comments on the report when filled."
                         minHeightClassName="min-h-[100px]"
+                        contentClassName="text-[12px] leading-[1.45] px-4 py-3"
                       />
                     </div>
                   )}
@@ -1708,13 +1710,13 @@ export default function ManagePanelDefinitions() {
                           {hasMeaningfulRichText(formInterpretation) && (
                             <div>
                               <div className="font-semibold text-[11px]">INTERPRETATION</div>
-                              <div className="text-[10px] mt-0.5" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml(formInterpretation) }} />
+                              <div className="rich-text-preview text-[12px] leading-[1.45] mt-1" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml(formInterpretation) }} />
                             </div>
                           )}
                           {hasMeaningfulRichText(formComments) && (
                             <div>
                               <div className="font-semibold text-[11px]">COMMENTS</div>
-                              <div className="text-[10px] mt-0.5" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml(formComments) }} />
+                              <div className="rich-text-preview text-[12px] leading-[1.45] mt-1" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml(formComments) }} />
                             </div>
                           )}
                         </div>
@@ -1885,13 +1887,13 @@ export default function ManagePanelDefinitions() {
                   {hasMeaningfulRichText((previewData.panel as any)?.interpretation) && (
                     <div>
                       <strong>Interpretation:</strong>
-                      <div className="mt-1 p-2 bg-muted rounded text-xs" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml((previewData.panel as any)?.interpretation) }} />
+                      <div className="rich-text-preview mt-1 p-2 bg-muted rounded text-[12px] leading-[1.45]" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml((previewData.panel as any)?.interpretation) }} />
                     </div>
                   )}
                   {hasMeaningfulRichText((previewData.panel as any)?.comments) && (
                     <div>
                       <strong>Comments:</strong>
-                      <div className="mt-1 p-2 bg-muted rounded text-xs" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml((previewData.panel as any)?.comments) }} />
+                      <div className="rich-text-preview mt-1 p-2 bg-muted rounded text-[12px] leading-[1.45]" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml((previewData.panel as any)?.comments) }} />
                     </div>
                   )}
                 </div>

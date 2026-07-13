@@ -525,6 +525,12 @@
   .rich-text-preview ol {
     padding-left: 1.5rem;
   }
+  /* Restore list markers Tailwind Preflight strips, so bullets/numbers show in
+     the editor + preview and match the rendered report (which has no reset). */
+  .rich-text-narrative-editor ul,
+  .rich-text-preview ul { list-style: disc; }
+  .rich-text-narrative-editor ol,
+  .rich-text-preview ol { list-style: decimal; }
 
   .rich-text-narrative-editor h1,
   .rich-text-preview h1 {
