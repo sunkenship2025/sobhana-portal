@@ -59,7 +59,7 @@ import { logger } from '../lib/logger';
 // v26 -> v27: keep navy on screen/digital; physical PRINT profile back to
 // pure B&W (my V4 edit had leaked navy into report-print.css) — black label
 // + black accent, no grey fill. Screen stays navy. Re-render.
-const KEY_PREFIX = 'merged-pdf:v27:';
+const KEY_PREFIX = 'merged-pdf:v28:';
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 const CACHE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — skip outliers so they don't flush LRU
 

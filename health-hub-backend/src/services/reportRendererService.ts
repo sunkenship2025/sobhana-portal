@@ -330,7 +330,7 @@ function renderCommentsInterpretation(panel: PanelSnapshot): string {
     html
       ? `
     <div class="interpretation-block">
-      <strong>${label}</strong>
+      <strong>${label}:</strong>
       <div class="interpretation-body">${renderNarrativeContent(html)}</div>
     </div>`
       : '';
