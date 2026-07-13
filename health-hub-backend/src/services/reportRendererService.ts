@@ -238,7 +238,7 @@ function renderTestLabel(test: TestResultSnapshot): string {
   ].filter(Boolean).join(' ');
 
   const methodHtml = test.showMethod && test.methodText
-    ? `<div class="test-method${test.isItalic ? ' is-italic' : ''}">(Method : ${escapeHtml(test.methodText)})</div>`
+    ? `<div class="test-method${test.isItalic ? ' is-italic' : ''}">Method : ${escapeHtml(test.methodText)}</div>`
     : '';
 
   return `
@@ -337,6 +337,13 @@ function renderCommentsInterpretation(panel: PanelSnapshot): string {
   return box('INTERPRETATION', panel.interpretationHtml) + box('COMMENTS', panel.commentsHtml);
 }
 
+/** Panel-level method line, rendered as a footnote directly below the results table. */
+function renderPanelMethod(panel: PanelSnapshot): string {
+  if (!panel.panelMethodText) return '';
+  return `
+    <div class="panel-method${panel.panelMethodItalic ? ' is-italic' : ''}">Method : ${escapeHtml(panel.panelMethodText)}</div>`;
+}
+
 /** Standard table for most panels */
 function renderStandardTable(panel: PanelSnapshot): string {
   const useSubgroups = panel.showSubgroups === true;
@@ -416,6 +423,7 @@ function renderStandardTable(panel: PanelSnapshot): string {
       </tbody>
     </table>
     ${smearHtml}
+    ${renderPanelMethod(panel)}
     ${renderCommentsInterpretation(panel)}`;
 }
 
@@ -564,6 +572,7 @@ function renderTextOnly(panel: PanelSnapshot): string {
       <strong class="text-only-label">${escapeHtml(test.testName)}:</strong>
       <div class="result-text${isRichText ? ' text-only-rich-text' : ''}">${contentHtml}</div>
     </div>
+    ${renderPanelMethod(panel)}
     ${renderCommentsInterpretation(panel)}`;
 }
 
@@ -579,6 +588,7 @@ function renderImagingNarrative(panel: PanelSnapshot): string {
   return `
     <div class="imaging-report">
       ${sections}
+      ${renderPanelMethod(panel)}
       ${renderCommentsInterpretation(panel)}
     </div>`;
 }
@@ -607,14 +617,12 @@ function renderProcedureStructured(panel: PanelSnapshot): string {
         ${rows}
       </tbody>
     </table>
+    ${renderPanelMethod(panel)}
     ${renderCommentsInterpretation(panel)}`;
 }
 
 function renderPanel(panel: PanelSnapshot): string {
   let content = '';
-  const panelMethodHtml = panel.panelMethodText
-    ? `<div class="panel-method${panel.panelMethodItalic ? ' is-italic' : ''}">(Method : ${escapeHtml(panel.panelMethodText)})</div>`
-    : '';
 
   switch (panel.layoutType) {
     case 'STANDARD_TABLE':
@@ -650,7 +658,6 @@ function renderPanel(panel: PanelSnapshot): string {
   return `
     <div class="panel${layoutClass}" data-panel="${escapeHtml(panel.panelName)}">
       <div class="panel-title">${escapeHtml(panel.displayName)}</div>
-      ${panelMethodHtml}
       ${content}
     </div>`;
 }
