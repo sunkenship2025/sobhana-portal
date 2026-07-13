@@ -54,7 +54,9 @@ import { logger } from '../lib/logger';
 // (rich HTML); renderer + labels changed; re-render cached PDFs.
 // v24 -> v25: panel method line moved from under the title to a footnote below
 // the results table (above Comments), and de-bracketed ("Method : X").
-const KEY_PREFIX = 'merged-pdf:v25:';
+// v25 -> v26: interpretation/comments box de-coloured — navy label + accent
+// -> near-black label + dark-grey accent (neutral for print). Re-render.
+const KEY_PREFIX = 'merged-pdf:v26:';
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 const CACHE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — skip outliers so they don't flush LRU
 
