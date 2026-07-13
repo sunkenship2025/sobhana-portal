@@ -427,114 +427,6 @@ function renderStandardTable(panel: PanelSnapshot): string {
     ${renderCommentsInterpretation(panel)}`;
 }
 
-/** CBP table: main tests + differential count section + peripheral smear (separate) */
-function renderCBPTable(panel: PanelSnapshot): string {
-  const DIFF_CODES = ['NEUTRO', 'LYMPH', 'MONO', 'EOSINO', 'BASO'];
-
-  const mainTests = panel.tests.filter((t: TestResultSnapshot) =>
-    t.subGroup ? t.subGroup === 'MAIN' : (!DIFF_CODES.includes(t.testCode) && t.testCode !== 'PS' && t.subGroup !== 'SMEAR')
-  );
-  const diffTests = panel.tests.filter((t: TestResultSnapshot) =>
-    t.subGroup ? t.subGroup === 'DIFFERENTIAL' : DIFF_CODES.includes(t.testCode)
-  );
-  const smearTests = panel.tests.filter((t: TestResultSnapshot) =>
-    t.subGroup ? t.subGroup === 'SMEAR' : t.testCode === 'PS'
-  );
-
-  // Main rows
-  const mainRows = mainTests.map(t => renderTestRow(t)).join('');
-
-  // Differential count section
-  let diffSection = '';
-  if (diffTests.length > 0) {
-    const diffRows = diffTests.map(t => {
-      const flag = computeFlag(t.value, t.referenceMin, t.referenceMax);
-      const { isAbnormal } = flagPresentation(flag);
-      const valueDisplay = t.textValue || formatNumericValue(t.value);
-      return `
-      <tr class="data-row indent-1">
-        <td class="col-test">${escapeHtml(t.testName)}</td>
-        <td class="col-value${isAbnormal ? ' abnormal' : ''}">${escapeHtml(valueDisplay)}</td>
-        <td class="col-unit">${escapeHtml(t.referenceUnit) || '%'}</td>
-        <td class="col-ref">${formatReference(t.referenceMin, t.referenceMax, t.referenceText)}</td>
-      </tr>`;
-    }).join('');
-
-    diffSection = `
-      <tr class="section-divider">
-        <td colspan="4">DIFFERENTIAL COUNT</td>
-      </tr>
-      ${diffRows}`;
-  }
-
-  // Peripheral smear — rendered OUTSIDE the numeric table
-  let smearHtml = '';
-  if (smearTests.length > 0) {
-    const hasSmearData = smearTests.some(t => t.textValue || t.notes || t.value !== null);
-    if (hasSmearData) {
-      const smearRows = smearTests.map(t => {
-        const displayValue = t.textValue || t.notes || (t.value !== null ? String(t.value) : '\u2014');
-        return `
-        <div class="smear-row">
-          <span class="smear-label">${escapeHtml(t.testName)}</span>
-          <span class="smear-sep">:</span>
-          <span class="smear-value">${escapeHtml(displayValue)}</span>
-        </div>`;
-      }).join('');
-
-      smearHtml = `
-    <div class="smear-section">
-      <div class="smear-header">PERIPHERAL SMEAR EXAMINATION</div>
-      ${smearRows}
-    </div>`;
-    }
-  }
-
-  return `
-    <table class="results-table">
-      <thead>
-        <tr>
-          <th class="col-test">Test</th>
-          <th class="col-value">Result</th>
-          <th class="col-unit">Unit</th>
-          <th class="col-ref">Reference Range</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${mainRows}
-        ${diffSection}
-      </tbody>
-    </table>
-    ${smearHtml}`;
-}
-
-function renderWidalTable(panel: PanelSnapshot): string {
-  const rows = panel.tests.map((test: TestResultSnapshot) => {
-    const dilution = test.value !== null ? `1:${test.value}` : 'Negative';
-    return `
-      <tr class="data-row">
-        <td class="col-test">${escapeHtml(test.testName)}</td>
-        <td class="col-value">${dilution}</td>
-      </tr>`;
-  }).join('');
-
-  return `
-    <table class="results-table widal-table">
-      <thead>
-        <tr>
-          <th class="col-antigen">Antigen</th>
-          <th class="col-titre">Titre</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows}
-      </tbody>
-    </table>
-    <div class="widal-note">
-      <em>Note: Titre of 1:80 or above is considered significant for diagnosis.</em>
-    </div>`;
-}
-
 function renderInterpretationSingle(panel: PanelSnapshot): string {
   const test = panel.tests[0];
   if (!test) return '';
@@ -636,12 +528,6 @@ function renderPanel(panel: PanelSnapshot): string {
       break;
     case 'PROCEDURE_STRUCTURED':
       content = renderProcedureStructured(panel);
-      break;
-    case 'CBP':
-      content = renderCBPTable(panel);
-      break;
-    case 'WIDAL':
-      content = renderWidalTable(panel);
       break;
     case 'INTERPRETATION_SINGLE':
       content = renderInterpretationSingle(panel);
