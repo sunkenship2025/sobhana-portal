@@ -418,7 +418,6 @@ body.report-body {
 
 .interpretation-block {
   border: 0.5pt solid var(--color-border);
-  border-left: 2.25pt solid var(--color-text);
   padding: var(--spacing-sm);
   margin-top: var(--spacing-xs);
   background: transparent;

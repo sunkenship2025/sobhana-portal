@@ -507,9 +507,8 @@ body.report-body {
    ============================================================================ */
 
 .interpretation-block {
-  background: #f7f8fa;
-  border: 1px solid #e2e2e2;
-  border-left: 3px solid #1f3e6e;
+  background: #f8fafd;
+  border: 1px solid #c3d0e6;
   border-radius: 2px;
   padding: 8px;
   margin-top: 4px;

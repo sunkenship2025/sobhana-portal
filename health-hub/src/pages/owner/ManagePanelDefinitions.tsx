@@ -1710,16 +1710,16 @@ export default function ManagePanelDefinitions() {
 
                   {/* Comments / Interpretation preview — all layouts */}
                   {formShowInterpretation && (hasMeaningfulRichText(formInterpretation) || hasMeaningfulRichText(formComments)) && (
-                    <div className="mt-2 pt-2 border-t space-y-2">
+                    <div className="mt-2 space-y-2">
                       {hasMeaningfulRichText(formInterpretation) && (
-                        <div>
-                          <div className="font-semibold text-[11px]">INTERPRETATION:</div>
+                        <div className="bg-[#f8fafd] border border-[#c3d0e6] rounded-[2px] p-2">
+                          <div className="font-semibold text-[11px] text-[#1f3e6e]">INTERPRETATION:</div>
                           <div className="rich-text-preview text-[12px] leading-[1.45] mt-1" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml(formInterpretation) }} />
                         </div>
                       )}
                       {hasMeaningfulRichText(formComments) && (
-                        <div>
-                          <div className="font-semibold text-[11px]">COMMENTS:</div>
+                        <div className="bg-[#f8fafd] border border-[#c3d0e6] rounded-[2px] p-2">
+                          <div className="font-semibold text-[11px] text-[#1f3e6e]">COMMENTS:</div>
                           <div className="rich-text-preview text-[12px] leading-[1.45] mt-1" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml(formComments) }} />
                         </div>
                       )}
