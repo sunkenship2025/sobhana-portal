@@ -12,7 +12,6 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { RichTextNarrativeEditor } from '@/components/diagnostics/RichTextNarrativeEditor';
 import {
@@ -89,6 +88,8 @@ interface ClinicalPanel {
   panelMethodItalic: boolean;
   narrativeTemplateHtml: string | null;
   summaryInterpretationTemplate: string | null;
+  comments: string | null;
+  interpretation: string | null;
   subgroupMethods: Record<string, string> | null;
   subgroupTableOverrides: Record<string, boolean> | null;
   createdAt: string;
@@ -331,7 +332,6 @@ export default function ManagePanelDefinitions() {
   const [formDeptId, setFormDeptId] = useState('');
   const [formSampleType, setFormSampleType] = useState('');
   const [formActive, setFormActive] = useState(true);
-  const [formTemplate, setFormTemplate] = useState('');
   const [formItems, setFormItems] = useState<ClinicalPanelItem[]>([]);
 
   // Code validation
@@ -348,6 +348,10 @@ export default function ManagePanelDefinitions() {
   const [formPanelMethodText, setFormPanelMethodText] = useState('');
   const [formPanelMethodItalic, setFormPanelMethodItalic] = useState(false);
   const [formNarrativeTemplateHtml, setFormNarrativeTemplateHtml] = useState('');
+  // Comments (rich text, default) + Interpretation (rich text, behind Advanced)
+  const [formComments, setFormComments] = useState('');
+  const [formInterpretation, setFormInterpretation] = useState('');
+  const [formShowAdvanced, setFormShowAdvanced] = useState(false);
 
   // Drag-and-drop
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -479,11 +483,12 @@ export default function ManagePanelDefinitions() {
 
   const resetForm = () => {
     setFormName(''); setFormCode(''); setFormLayout('STANDARD_TABLE'); setFormDeptId('');
-    setFormSampleType(''); setFormActive(true); setFormTemplate(''); setFormItems([]);
+    setFormSampleType(''); setFormActive(true); setFormItems([]);
     setFormShowMethod(false); setFormShowSubgroups(false);
     setFormShowInterpretation(false); setFormSpacedDefinitionsGap(0); setFormValuePrefix('');
     setFormPanelMethodText(''); setFormPanelMethodItalic(false);
     setFormNarrativeTemplateHtml('');
+    setFormComments(''); setFormInterpretation(''); setFormShowAdvanced(false);
     setFormSubgroups([]); setNewSubgroupInput('');
     setFormSubgroupMethods({}); setFormShowSubgroupMethods(false); setNewSubgroupMethodInput('');
     setFormSubgroupTableOverrides({});
@@ -499,7 +504,6 @@ export default function ManagePanelDefinitions() {
     setFormDeptId(p.departmentId || '');
     setFormSampleType(p.sampleType || '');
     setFormActive(p.isActive);
-    setFormTemplate(p.summaryInterpretationTemplate || '');
     setFormShowMethod(p.showMethodColumn ?? false);
     setFormShowSubgroups(p.showSubgroups ?? false);
     setFormShowInterpretation(p.showInterpretation ?? false);
@@ -508,6 +512,9 @@ export default function ManagePanelDefinitions() {
     setFormPanelMethodText(p.panelMethodText || '');
     setFormPanelMethodItalic(p.panelMethodItalic ?? false);
     setFormNarrativeTemplateHtml(p.narrativeTemplateHtml || '');
+    setFormComments(p.comments ?? p.summaryInterpretationTemplate ?? '');
+    setFormInterpretation(p.interpretation ?? '');
+    setFormShowAdvanced(hasMeaningfulRichText(p.interpretation));
     const items = (p.items || []).map(item => ({
       testDefinitionId: item.testDefinitionId,
       displayOrder: item.displayOrder,
@@ -730,7 +737,8 @@ export default function ManagePanelDefinitions() {
         narrativeTemplateHtml: supportsRichTextTemplate(formLayout)
           ? normalizeRichTextForStorage(formNarrativeTemplateHtml) || null
           : null,
-        summaryInterpretationTemplate: formTemplate || null,
+        comments: normalizeRichTextForStorage(formComments) || null,
+        interpretation: normalizeRichTextForStorage(formInterpretation) || null,
         subgroupMethods: (() => {
           // Filter out empty method strings
           const filtered = Object.fromEntries(
@@ -1078,7 +1086,7 @@ export default function ManagePanelDefinitions() {
                   )}
                   <div className="flex items-center gap-2">
                     <Switch checked={formShowInterpretation} onCheckedChange={setFormShowInterpretation} />
-                    <Label className="text-sm">Show Interpretation</Label>
+                    <Label className="text-sm">Show Comments</Label>
                   </div>
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-2">
@@ -1206,16 +1214,37 @@ export default function ManagePanelDefinitions() {
                 )}
               </div>
 
-              {/* Summary Interpretation Template */}
+              {/* Comments (rich text, default) + Advanced → Interpretation */}
               {formShowInterpretation && (
-                <div>
-                  <Label>Summary Interpretation Template</Label>
-                  <Textarea
-                    value={formTemplate}
-                    onChange={e => setFormTemplate(e.target.value)}
-                    placeholder="Interpretation text shown in a box below the results (same on every report)"
-                    rows={2}
-                  />
+                <div className="space-y-3">
+                  <div>
+                    <Label>Comments</Label>
+                    <RichTextNarrativeEditor
+                      value={formComments}
+                      onChange={setFormComments}
+                      placeholder="Comments shown in a box below the results (same on every report)"
+                      minHeightClassName="min-h-[140px]"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFormShowAdvanced(v => !v)}
+                    className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    <span className="text-xs w-3 inline-block">{formShowAdvanced ? '▾' : '▸'}</span>
+                    Advanced
+                  </button>
+                  {formShowAdvanced && (
+                    <div>
+                      <Label>Interpretation</Label>
+                      <RichTextNarrativeEditor
+                        value={formInterpretation}
+                        onChange={setFormInterpretation}
+                        placeholder="Optional. Rendered above Comments on the report when filled."
+                        minHeightClassName="min-h-[100px]"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1674,12 +1703,20 @@ export default function ManagePanelDefinitions() {
                           )}
                         </tbody>
                       </table>
-                      {formShowInterpretation && (
-                        <div className="mt-2 pt-2 border-t">
-                          <div className="font-semibold text-[11px]">Interpretation:</div>
-                          <p className="text-muted-foreground italic text-[10px] mt-0.5">
-                            {formTemplate || 'Interpretation text will appear here based on results...'}
-                          </p>
+                      {formShowInterpretation && (hasMeaningfulRichText(formInterpretation) || hasMeaningfulRichText(formComments)) && (
+                        <div className="mt-2 pt-2 border-t space-y-2">
+                          {hasMeaningfulRichText(formInterpretation) && (
+                            <div>
+                              <div className="font-semibold text-[11px]">INTERPRETATION</div>
+                              <div className="text-[10px] mt-0.5" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml(formInterpretation) }} />
+                            </div>
+                          )}
+                          {hasMeaningfulRichText(formComments) && (
+                            <div>
+                              <div className="font-semibold text-[11px]">COMMENTS</div>
+                              <div className="text-[10px] mt-0.5" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml(formComments) }} />
+                            </div>
+                          )}
                         </div>
                       )}
                     </>
@@ -1843,12 +1880,20 @@ export default function ManagePanelDefinitions() {
                   </table>
                 )}
               </div>
-              {previewData.panel?.summaryInterpretationTemplate && (
-                <div>
-                  <strong>Interpretation Template:</strong>
-                  <pre className="mt-1 p-2 bg-muted rounded text-xs whitespace-pre-wrap">
-                    {previewData.panel.summaryInterpretationTemplate}
-                  </pre>
+              {(hasMeaningfulRichText((previewData.panel as any)?.interpretation) || hasMeaningfulRichText((previewData.panel as any)?.comments)) && (
+                <div className="space-y-2">
+                  {hasMeaningfulRichText((previewData.panel as any)?.interpretation) && (
+                    <div>
+                      <strong>Interpretation:</strong>
+                      <div className="mt-1 p-2 bg-muted rounded text-xs" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml((previewData.panel as any)?.interpretation) }} />
+                    </div>
+                  )}
+                  {hasMeaningfulRichText((previewData.panel as any)?.comments) && (
+                    <div>
+                      <strong>Comments:</strong>
+                      <div className="mt-1 p-2 bg-muted rounded text-xs" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml((previewData.panel as any)?.comments) }} />
+                    </div>
+                  )}
                 </div>
               )}
             </div>

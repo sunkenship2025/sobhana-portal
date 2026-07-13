@@ -80,6 +80,7 @@ export interface PanelSnapshot {
   spacedDefinitionsGap?: number;
   tests: TestResultSnapshot[];
   interpretationHtml?: string;
+  commentsHtml?: string;
   /** Per-narrative signer override the radiologist typed below the framed
    *  editor. When non-empty the renderer prints just this name above the
    *  department designation for this panel's page, regardless of any
@@ -1495,22 +1496,19 @@ function buildPanelsAndDepartments(
     // Sort results by display order
     results.sort((a: any, b: any) => a.displayOrder - b.displayOrder);
 
-    // Build interpretation HTML for panels with showInterpretation
+    // Build COMMENTS + INTERPRETATION HTML (rich text). Gated by the "Show
+    // Comments" toggle (persisted as showInterpretation). Panels edited before
+    // the comments/interpretation split fall back to the legacy
+    // summaryInterpretationTemplate for their comments text.
+    let commentsHtml: string | undefined;
     let interpretationHtml: string | undefined;
-    const shouldShowInterp = panel.showInterpretation === true
+    const showBoxes = panel.showInterpretation === true
       || panel.layoutType === 'INTERPRETATION_SINGLE'; // legacy compat
-    if (shouldShowInterp) {
-      const panelTemplate = panel.summaryInterpretationTemplate?.trim();
-      if (panelTemplate) {
-        interpretationHtml = panelTemplate;
-      } else {
-        const interpretations = results
-          .filter((r: any) => r.interpretationText)
-          .map((r: any) => r.interpretationText);
-        if (interpretations.length > 0) {
-          interpretationHtml = interpretations.join('\n\n');
-        }
-      }
+    if (showBoxes) {
+      const meaningful = (s?: string | null) =>
+        s && s.replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim() ? s : undefined;
+      commentsHtml = meaningful(panel.comments) ?? meaningful(panel.summaryInterpretationTemplate);
+      interpretationHtml = meaningful(panel.interpretation);
     }
 
     departmentMap.get(deptId)!.panels.push({
@@ -1533,6 +1531,7 @@ function buildPanelsAndDepartments(
       spacedDefinitionsGap: panel.spacedDefinitionsGap ?? 0,
       tests: results,
       interpretationHtml,
+      commentsHtml,
       signerNameOverride,
       useSigningRule,
       selectedSigningDoctorId,

@@ -321,14 +321,20 @@ function renderTestsWithGridRuns(tests: TestResultSnapshot[], valuePrefix: strin
   return renderedRuns.join('');
 }
 
-/** Panel-level interpretation box, rendered below the results when enabled. */
-function renderInterpretBlock(panel: PanelSnapshot, label: string = 'Interpretation'): string {
-  if (!panel.showInterpretation || !panel.interpretationHtml) return '';
-  return `
+/** Panel-level INTERPRETATION + COMMENTS boxes (rich text), rendered below the
+ *  results. Interpretation (when present) stacks above Comments. Content is
+ *  rich HTML from the editor, so it goes through renderNarrativeContent (which
+ *  sanitizes HTML and preserves legacy plain-text line breaks) — not escapeHtml. */
+function renderCommentsInterpretation(panel: PanelSnapshot): string {
+  const box = (label: string, html?: string): string =>
+    html
+      ? `
     <div class="interpretation-block">
-      <strong>${label}:</strong>
-      <p>${escapeHtml(panel.interpretationHtml)}</p>
-    </div>`;
+      <strong>${label}</strong>
+      <div class="interpretation-body">${renderNarrativeContent(html)}</div>
+    </div>`
+      : '';
+  return box('INTERPRETATION', panel.interpretationHtml) + box('COMMENTS', panel.commentsHtml);
 }
 
 /** Standard table for most panels */
@@ -410,7 +416,7 @@ function renderStandardTable(panel: PanelSnapshot): string {
       </tbody>
     </table>
     ${smearHtml}
-    ${renderInterpretBlock(panel)}`;
+    ${renderCommentsInterpretation(panel)}`;
 }
 
 /** CBP table: main tests + differential count section + peripheral smear (separate) */
@@ -558,7 +564,7 @@ function renderTextOnly(panel: PanelSnapshot): string {
       <strong class="text-only-label">${escapeHtml(test.testName)}:</strong>
       <div class="result-text${isRichText ? ' text-only-rich-text' : ''}">${contentHtml}</div>
     </div>
-    ${renderInterpretBlock(panel)}`;
+    ${renderCommentsInterpretation(panel)}`;
 }
 
 function renderImagingNarrative(panel: PanelSnapshot): string {
@@ -573,7 +579,7 @@ function renderImagingNarrative(panel: PanelSnapshot): string {
   return `
     <div class="imaging-report">
       ${sections}
-      ${renderInterpretBlock(panel, 'Impression')}
+      ${renderCommentsInterpretation(panel)}
     </div>`;
 }
 
@@ -601,7 +607,7 @@ function renderProcedureStructured(panel: PanelSnapshot): string {
         ${rows}
       </tbody>
     </table>
-    ${renderInterpretBlock(panel)}`;
+    ${renderCommentsInterpretation(panel)}`;
 }
 
 function renderPanel(panel: PanelSnapshot): string {

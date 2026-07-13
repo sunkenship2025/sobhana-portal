@@ -263,7 +263,7 @@ router.post('/', async (req: AuthRequest, res) => {
     const {
       name, displayName, departmentId, layoutType, sampleType,
       displayOrder, showMethodColumn, showSubgroups, showInterpretation, valueDisplayPrefix, spacedDefinitionsGap,
-      summaryInterpretationTemplate, subgroupMethods, subgroupTableOverrides,
+      summaryInterpretationTemplate, comments, interpretation, subgroupMethods, subgroupTableOverrides,
       panelMethodText, panelMethodItalic, narrativeTemplateHtml, items,
     } = req.body;
 
@@ -312,6 +312,8 @@ router.post('/', async (req: AuthRequest, res) => {
         spacedDefinitionsGap: spacedDefinitionsGap ?? 0,
         valueDisplayPrefix: valueDisplayPrefix || null,
         summaryInterpretationTemplate: summaryInterpretationTemplate ?? null,
+        comments: comments ?? null,
+        interpretation: interpretation ?? null,
         subgroupMethods: subgroupMethods ?? null,
         subgroupTableOverrides: subgroupTableOverrides ?? null,
         panelMethodText: panelMethodText ?? null,
@@ -365,7 +367,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
     const {
       name, displayName, departmentId, layoutType, sampleType,
       displayOrder, showMethodColumn, showSubgroups, showInterpretation, valueDisplayPrefix, spacedDefinitionsGap,
-      summaryInterpretationTemplate, subgroupMethods, subgroupTableOverrides,
+      summaryInterpretationTemplate, comments, interpretation, subgroupMethods, subgroupTableOverrides,
       panelMethodText, panelMethodItalic, narrativeTemplateHtml, items,
     } = req.body;
 
@@ -425,6 +427,8 @@ router.put('/:id', async (req: AuthRequest, res) => {
           summaryInterpretationTemplate: summaryInterpretationTemplate !== undefined
             ? summaryInterpretationTemplate
             : existing.summaryInterpretationTemplate,
+          comments: comments !== undefined ? comments : existing.comments,
+          interpretation: interpretation !== undefined ? interpretation : existing.interpretation,
           subgroupMethods: subgroupMethods !== undefined ? subgroupMethods : existing.subgroupMethods,
           subgroupTableOverrides: subgroupTableOverrides !== undefined ? subgroupTableOverrides : existing.subgroupTableOverrides,
           panelMethodText: panelMethodText !== undefined ? panelMethodText : existing.panelMethodText,
@@ -580,6 +584,8 @@ router.post('/:id/preview', async (req: AuthRequest, res) => {
         layoutType: panel.layoutType,
         showMethodColumn: panel.showMethodColumn,
         summaryInterpretationTemplate: panel.summaryInterpretationTemplate,
+        comments: panel.comments,
+        interpretation: panel.interpretation,
         panelMethodText: panel.panelMethodText,
         panelMethodItalic: panel.panelMethodItalic,
         narrativeTemplateHtml: panel.narrativeTemplateHtml,

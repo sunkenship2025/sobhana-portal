@@ -1655,7 +1655,9 @@ model ClinicalPanel {
   valueDisplayPrefix   String? // e.g., "1:" for Widal dilution format
   spacedDefinitionsGap Int     @default(0)
 
-  summaryInterpretationTemplate String? // Template for panel-level interpretation
+  summaryInterpretationTemplate String? // DEPRECATED: superseded by `comments`; retained for backfill/rollback
+  comments                      String? // Rich-text (HTML) COMMENTS box below results. Gated by showInterpretation (the "Show Comments" toggle).
+  interpretation                String? // Rich-text (HTML) INTERPRETATION box, rendered ABOVE comments when non-empty. Static for now (dynamic value-rules are future work).
   subgroupMethods               Json? // Map<subgroupName, methodString> e.g. {"PHYSICAL EXAMINATION": "Transmission refractometry"}
   subgroupTableOverrides        Json? // Map<subgroupName, true> — force table rendering even when heuristic says key-value
   isActive                      Boolean  @default(true)

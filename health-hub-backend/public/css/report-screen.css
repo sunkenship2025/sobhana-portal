@@ -516,14 +516,21 @@ body.report-body {
   font-size: 9pt;
 }
 
-.interpretation-block strong {
+.interpretation-block > strong {
   color: #1f3e6e;
   display: block;
   margin-bottom: 2px;
   font-size: 8.5pt;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .interpretation-block p { line-height: 1.4; white-space: pre-wrap; }
+.interpretation-block .interpretation-body { line-height: 1.4; }
+.interpretation-block .interpretation-body p { margin: 0 0 4px; white-space: normal; }
+.interpretation-block .interpretation-body ul,
+.interpretation-block .interpretation-body ol { margin: 2px 0 5px; padding-left: 18px; }
+.interpretation-block .interpretation-body li { margin: 1px 0; }
 
 /* ============================================================================
    TEXT-ONLY RESULTS

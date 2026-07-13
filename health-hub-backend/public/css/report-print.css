@@ -424,8 +424,13 @@ body.report-body {
   background: #f7f8fa;
 }
 
-.interpretation-block strong { display: block; margin-bottom: var(--spacing-xs); font-size: 9.2pt; color: #1f3e6e; }
+.interpretation-block > strong { display: block; margin-bottom: var(--spacing-xs); font-size: 9.2pt; color: #1f3e6e; text-transform: uppercase; letter-spacing: 0.04em; }
 .interpretation-block p { line-height: 1.3; font-size: 9.2pt; white-space: pre-wrap; }
+.interpretation-block .interpretation-body { font-size: 9.2pt; line-height: 1.3; }
+.interpretation-block .interpretation-body p { margin: 0 0 3pt; white-space: normal; }
+.interpretation-block .interpretation-body ul,
+.interpretation-block .interpretation-body ol { margin: 1pt 0 3pt; padding-left: 16pt; }
+.interpretation-block .interpretation-body li { margin: 0.5pt 0; }
 
 /* ============================================================================
    TEXT-ONLY RESULTS
