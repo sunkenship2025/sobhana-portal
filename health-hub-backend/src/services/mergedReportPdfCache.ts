@@ -56,7 +56,10 @@ import { logger } from '../lib/logger';
 // the results table (above Comments), and de-bracketed ("Method : X").
 // v25 -> v26: interpretation/comments box de-coloured — navy label + accent
 // -> near-black label + dark-grey accent (neutral for print). Re-render.
-const KEY_PREFIX = 'merged-pdf:v26:';
+// v26 -> v27: keep navy on screen/digital; physical PRINT profile back to
+// pure B&W (my V4 edit had leaked navy into report-print.css) — black label
+// + black accent, no grey fill. Screen stays navy. Re-render.
+const KEY_PREFIX = 'merged-pdf:v27:';
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 const CACHE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — skip outliers so they don't flush LRU
 

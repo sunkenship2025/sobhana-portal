@@ -509,7 +509,7 @@ body.report-body {
 .interpretation-block {
   background: #f7f8fa;
   border: 1px solid #e2e2e2;
-  border-left: 3px solid #334155;
+  border-left: 3px solid #1f3e6e;
   border-radius: 2px;
   padding: 8px;
   margin-top: 4px;
@@ -517,7 +517,7 @@ body.report-body {
 }
 
 .interpretation-block > strong {
-  color: #1a202c;
+  color: #1f3e6e;
   display: block;
   margin-bottom: 2px;
   font-size: 8.5pt;
