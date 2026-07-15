@@ -24,6 +24,11 @@ import prisma from '../lib/prisma';
 import { buildBillFinancialResponse } from './billFinancialService';
 import { buildDiagnosticBillItems } from './billItemService';
 import { generatePdfFromHtml } from './pdfGenerationService';
+import {
+  billPdfCacheKeyFor,
+  getCachedBillPdf,
+  setCachedBillPdf,
+} from './billPdfCache';
 import { getPatientAgeDisplay } from '../utils/validation';
 import { shouldShowReportQr, reportGatewayQrDataUrl } from './reportQrService';
 import { createBillAccessToken } from './billAccessService';
@@ -614,7 +619,19 @@ export async function generateBillPdf(
   }
 
   const html = renderBillHtml(billData, { reportQrDataUrl });
+
+  // Content-addressed cache: the key is a hash of the exact HTML, so any change
+  // to the bill (data OR template) yields a new key and re-renders automatically
+  // — no invalidation call to remember. A hit skips the Chromium render entirely
+  // (the app's main memory driver), which is the point on repeat patient views.
+  const cacheHash = billPdfCacheKeyFor(html);
+  const cached = await getCachedBillPdf(cacheHash);
+  if (cached) {
+    return { pdfBuffer: cached, billData };
+  }
+
   const pdfBuffer = await generatePdfFromHtml(html, { mode: 'bill' });
+  void setCachedBillPdf(cacheHash, pdfBuffer);
 
   return { pdfBuffer, billData };
 }
