@@ -49,7 +49,11 @@ function isSameLocalDay(value: string, reference: Date): boolean {
 const Dashboard = () => {
   const { token } = useAuthStore();
   const { activeBranchId } = useBranchStore();
-  const [diagnosticVisits, setDiagnosticVisits] = useState<DiagnosticVisitSummary[]>([]);
+  const [diagnosticSummary, setDiagnosticSummary] = useState<{
+    pending: number;
+    today: number;
+    finalizedToday: number;
+  }>({ pending: 0, today: 0, finalizedToday: 0 });
   const [clinicVisits, setClinicVisits] = useState<ClinicVisitSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -65,13 +69,22 @@ const Dashboard = () => {
       setLoading(true);
       setError(false);
       try {
+        // The dashboard only needs COUNTS from the diagnostic side, so hit the
+        // lightweight summary endpoint instead of pulling the whole visit list.
+        // "Today" is the client's local day so the counts match the UI exactly.
+        const now = new Date();
+        const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        const dayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
         const [diagnosticRes, clinicRes] = await Promise.all([
-          fetch(`${API_BASE}/visits/diagnostic`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'X-Branch-Id': activeBranchId,
+          fetch(
+            `${API_BASE}/visits/diagnostic/summary?dayStart=${encodeURIComponent(dayStart)}&dayEnd=${encodeURIComponent(dayEnd)}`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'X-Branch-Id': activeBranchId,
+              },
             },
-          }),
+          ),
           fetch(`${API_BASE}/visits/clinic`, {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -89,7 +102,9 @@ const Dashboard = () => {
           clinicRes.json(),
         ]);
 
-        setDiagnosticVisits(diagnosticData || []);
+        setDiagnosticSummary(
+          diagnosticData || { pending: 0, today: 0, finalizedToday: 0 },
+        );
         setClinicVisits(clinicData || []);
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error);
@@ -104,12 +119,8 @@ const Dashboard = () => {
 
   const metrics = useMemo(() => {
     const today = new Date();
-    const pendingResults = diagnosticVisits.filter(
-      (visit) =>
-        (visit.hasReportInclusionOrders ?? (visit.hasReportableOrders || visit.hasExternalUploadOrders))
-        && (visit.status === 'DRAFT' || visit.status === 'WAITING'),
-    );
-    const finalizedReports = diagnosticVisits.filter((visit) => visit.hasFinalizedReport);
+    // Diagnostic counts come from the summary endpoint (computed server-side with
+    // the same composition logic). Clinic metrics stay derived from the (small) list.
     const waitingOP = clinicVisits.filter(
       (visit) => visit.visitType === 'OP' && visit.status === 'WAITING',
     );
@@ -122,22 +133,21 @@ const Dashboard = () => {
     const todayIP = clinicVisits.filter(
       (visit) => visit.visitType === 'IP' && isSameLocalDay(visit.createdAt, today),
     );
-    const diagnosticsToday = diagnosticVisits.filter((visit) => isSameLocalDay(visit.createdAt, today));
-    const finalizedToday = finalizedReports.filter((visit) => isSameLocalDay(visit.createdAt, today));
 
     return {
-      pendingResults,
+      pendingResultsCount: diagnosticSummary.pending,
+      diagnosticsTodayCount: diagnosticSummary.today,
+      finalizedTodayCount: diagnosticSummary.finalizedToday,
       waitingOP,
       activeIP,
       todayOP,
       todayIP,
-      diagnosticsToday,
-      finalizedToday,
-      hasPendingWork: pendingResults.length > 0 || waitingOP.length > 0 || activeIP.length > 0,
+      hasPendingWork:
+        diagnosticSummary.pending > 0 || waitingOP.length > 0 || activeIP.length > 0,
     };
-  }, [diagnosticVisits, clinicVisits]);
+  }, [diagnosticSummary, clinicVisits]);
 
-  const pending = metrics.pendingResults.length > 0;
+  const pending = metrics.pendingResultsCount > 0;
 
   // Metric cards as one uniform grid of pure-stat tiles (actions live in Quick
   // Actions below). Tiling through an adaptive grid keeps every count clean.
@@ -155,7 +165,7 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className={`text-3xl font-bold ${pending ? 'text-warning' : 'text-muted-foreground'}`}>
-              {metrics.pendingResults.length}
+              {metrics.pendingResultsCount}
             </div>
             <p className="text-xs text-muted-foreground">awaiting result entry</p>
           </CardContent>
@@ -207,7 +217,7 @@ const Dashboard = () => {
             <FlaskConical className="h-4 w-4" style={{ color: 'var(--branch-accent)' }} />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{metrics.diagnosticsToday.length}</div>
+            <div className="text-3xl font-bold">{metrics.diagnosticsTodayCount}</div>
             <p className="text-xs text-muted-foreground">visits registered</p>
           </CardContent>
         </Card>
@@ -223,7 +233,7 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold" style={{ color: 'var(--branch-accent)' }}>
-              {metrics.finalizedToday.length}
+              {metrics.finalizedTodayCount}
             </div>
             <p className="text-xs text-muted-foreground">finalized today</p>
           </CardContent>

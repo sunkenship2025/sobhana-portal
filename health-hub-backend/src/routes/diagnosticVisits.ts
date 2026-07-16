@@ -919,6 +919,101 @@ router.get("/", async (req: AuthRequest, res) => {
   }
 });
 
+// GET /api/visits/diagnostic/summary — lightweight dashboard counts (no visit rows).
+// The staff Dashboard needs only three numbers (pending result-entry, diagnostics
+// created "today", finalized "today"); it previously fetched the ENTIRE visit list
+// (megabytes) purely to count. This returns the counts directly, reusing the exact
+// same composition helper so the numbers can't drift from the old client-side
+// computation. "Today" is defined by the CLIENT (its local-day boundaries via
+// dayStart/dayEnd) so it matches the UI's isSameLocalDay filter with no timezone
+// drift. MUST stay registered before "/:id" so it isn't captured as an id.
+router.get("/summary", async (req: AuthRequest, res) => {
+  try {
+    const { dayStart, dayEnd } = req.query as {
+      dayStart?: string;
+      dayEnd?: string;
+    };
+    const branchId = req.branchId;
+
+    const compositionSelect = {
+      status: true,
+      testOrders: {
+        select: { workflowMode: true, cancelledAt: true, noReportAt: true },
+      },
+      report: {
+        select: {
+          versions: {
+            orderBy: { versionNum: "desc" as const },
+            take: 1,
+            select: { status: true },
+          },
+        },
+      },
+    };
+
+    // Pending result-entry: active (DRAFT/WAITING) visits carrying at least one
+    // report-inclusion order. Only the small active set is scanned, and only the
+    // minimal fields the composition needs are loaded.
+    const activeVisits = await prisma.visit.findMany({
+      where: {
+        domain: "DIAGNOSTICS",
+        branchId,
+        status: { in: [VisitStatus.DRAFT, VisitStatus.WAITING] },
+      },
+      select: compositionSelect,
+    });
+    let pending = 0;
+    for (const v of activeVisits) {
+      const comp = getVisitComposition(
+        v.testOrders,
+        v.status,
+        v.report?.versions ?? [],
+      );
+      // Mirrors the Dashboard predicate exactly (incl. the legacy fallback).
+      if (
+        comp.hasReportInclusionOrders ??
+        (comp.hasReportableOrders || comp.hasExternalUploadOrders)
+      ) {
+        pending++;
+      }
+    }
+
+    // "Today" counts, windowed by the client's local day so they match the UI's
+    // isSameLocalDay filter. Absent a window, they're 0 (the dashboard always sends it).
+    let today = 0;
+    let finalizedToday = 0;
+    const from = dayStart ? new Date(dayStart) : null;
+    const to = dayEnd ? new Date(dayEnd) : null;
+    if (from && to && !isNaN(from.getTime()) && !isNaN(to.getTime())) {
+      const todaysVisits = await prisma.visit.findMany({
+        where: {
+          domain: "DIAGNOSTICS",
+          branchId,
+          createdAt: { gte: from, lt: to },
+        },
+        select: compositionSelect,
+      });
+      today = todaysVisits.length;
+      finalizedToday = todaysVisits.filter((v) => {
+        const comp = getVisitComposition(
+          v.testOrders,
+          v.status,
+          v.report?.versions ?? [],
+        );
+        return comp.hasFinalizedReport;
+      }).length;
+    }
+
+    return res.json({ pending, today, finalizedToday });
+  } catch (err: any) {
+    console.error("Diagnostic summary error:", err);
+    return res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: "Failed to load diagnostic summary",
+    });
+  }
+});
+
 // GET /api/visits/diagnostic/:id - Get single diagnostic visit
 router.get("/:id", async (req: AuthRequest, res) => {
   try {
