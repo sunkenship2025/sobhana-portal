@@ -575,7 +575,17 @@ router.get("/", async (req: AuthRequest, res) => {
         },
         testOrders: {
           include: {
-            test: true,
+            // Worklist reads only the test's name/code + reference range; select
+            // those so the full LabTest row isn't loaded/serialised per order.
+            test: {
+              select: {
+                name: true,
+                code: true,
+                referenceMin: true,
+                referenceMax: true,
+                referenceUnit: true,
+              },
+            },
             product: { select: { name: true } },
             // Surface per-test readiness on the worklist: an external-upload
             // order is "ready" once a (non-deleted) upload exists.
@@ -592,9 +602,17 @@ router.get("/", async (req: AuthRequest, res) => {
             versions: {
               orderBy: { versionNum: "desc" },
               take: 1,
-              // Load the latest version's result rows so the list can report
-              // how many tests already have results (done) vs still pending.
-              include: {
+              // The list needs only status/version/finalizedAt + the latest
+              // version's result rows (to count done vs pending). Select these
+              // EXPLICITLY so the heavy frozen snapshots (panelsSnapshot /
+              // visitSnapshot / signaturesSnapshot / …) are never loaded into
+              // memory or serialised — they bloated the worklist payload to
+              // ~8MB and drove the 512MB OOM restarts.
+              select: {
+                id: true,
+                status: true,
+                versionNum: true,
+                finalizedAt: true,
                 testResults: {
                   select: {
                     testOrderId: true,
@@ -873,7 +891,17 @@ router.get("/", async (req: AuthRequest, res) => {
         report: v.report
           ? {
               id: v.report.id,
-              currentVersion,
+              // Ship a slim version — the worklist reads only status/version/
+              // finalizedAt off it. testResults were used only to compute the
+              // done/pending counts above; no need to send the array to the client.
+              currentVersion: currentVersion
+                ? {
+                    id: currentVersion.id,
+                    versionNum: currentVersion.versionNum,
+                    status: currentVersion.status,
+                    finalizedAt: currentVersion.finalizedAt,
+                  }
+                : null,
             }
           : null,
         createdAt: v.createdAt,

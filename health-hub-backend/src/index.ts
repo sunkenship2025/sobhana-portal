@@ -239,11 +239,22 @@ app.get('/', (_req, res) => {
 // Render and uptime monitors can hit this frequently without waking Neon.
 function handleHealth(_req: express.Request, res: express.Response) {
   res.setHeader('Cache-Control', 'no-store');
+  // Surface process memory so OOM pressure is observable/alertable without
+  // opening the Render dashboard. Node-process RSS only (Chromium children are
+  // separate processes) — still a useful trend line for the heap side.
+  const mem = process.memoryUsage();
+  const toMB = (n: number) => Math.round(n / 1024 / 1024);
   res.json({
     status: 'ok',
     service: 'sobhana-health-hub',
     timestamp: new Date().toISOString(),
     uptimeSeconds: Math.floor(process.uptime()),
+    memory: {
+      rssMB: toMB(mem.rss),
+      heapUsedMB: toMB(mem.heapUsed),
+      heapTotalMB: toMB(mem.heapTotal),
+      externalMB: toMB(mem.external),
+    },
   });
 }
 app.get('/health', handleHealth);
