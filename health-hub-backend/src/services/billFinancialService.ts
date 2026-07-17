@@ -339,6 +339,32 @@ export function buildBillFinancialResponse(
   };
 }
 
+/// Net amount collected per payment mode (REFUND rows subtract; modes that net
+/// to zero drop out). Lets the worklists show "Cash" / "Online" / a split with
+/// how much came in each way.
+export function paymentBreakdownFromTransactions(
+  transactions:
+    | {
+        paymentType: string;
+        amountInPaise: number;
+        transactionType?: string | null;
+      }[]
+    | null
+    | undefined,
+): { mode: string; amountInPaise: number }[] {
+  const byMode = new Map<string, number>();
+  for (const tx of transactions ?? []) {
+    const signed =
+      tx.transactionType === "REFUND"
+        ? -(tx.amountInPaise || 0)
+        : tx.amountInPaise || 0;
+    byMode.set(tx.paymentType, (byMode.get(tx.paymentType) ?? 0) + signed);
+  }
+  return [...byMode.entries()]
+    .filter(([, amountInPaise]) => amountInPaise > 0)
+    .map(([mode, amountInPaise]) => ({ mode, amountInPaise }));
+}
+
 export function allocateBillDiscountAcrossOrders<
   T extends { id: string; priceInPaise: number },
 >(orders: T[], discountAmountInPaise: number): Map<string, number> {

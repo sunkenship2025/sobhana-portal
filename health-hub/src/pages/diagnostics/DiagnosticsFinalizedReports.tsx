@@ -15,7 +15,8 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { toast } from 'sonner';
 import { CheckCircle2, Search, Eye, Printer, MessageCircle, Phone, Stethoscope, Receipt } from 'lucide-react';
 import { openFinalizedReportWindow } from '@/lib/reportAccess';
-import { formatPatientName, compactAge, formatRefDoctor } from '@/lib/patientDisplay';
+import { formatPatientName, compactAge, formatRefDoctor, formatCurrency } from '@/lib/patientDisplay';
+import { formatPaymentModes } from '@/lib/paymentDisplay';
 import { cn } from '@/lib/utils';
 import { searchWorklist } from '@/lib/worklistSearch';
 import { usePagedList } from '@/hooks/usePagedList';
@@ -371,6 +372,9 @@ const DiagnosticsFinalizedReports = () => {
                   const testsLabel = formatTestList(testOrders) || formatBillOnlyList(testOrders);
                   const printedAt = isBillRow ? visit.billPrintedAt : visit.reportPrintedAt;
                   const sentAt = isBillRow ? visit.billWhatsappSentAt : visit.reportWhatsappSentAt;
+                  const paidModes = formatPaymentModes(visit.paymentBreakdown, visit.paymentType);
+                  const paidPaise = visit.paidAmountInPaise ?? 0;
+                  const duePaise = visit.dueAmountInPaise ?? 0;
                   return (
                   <div
                     key={visit.id}
@@ -405,6 +409,21 @@ const DiagnosticsFinalizedReports = () => {
                       {testsLabel && (
                         <div className="text-sm text-muted-foreground">
                           Tests: {testsLabel}
+                        </div>
+                      )}
+                      {(paidPaise > 0 || duePaise > 0) && (
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                          {paidPaise > 0 && (
+                            <span className="text-muted-foreground">
+                              Paid: {formatCurrency(paidPaise)}
+                              {paidModes ? ` · ${paidModes}` : ''}
+                            </span>
+                          )}
+                          {duePaise > 0 && (
+                            <span className="font-medium text-amber-700">
+                              Due: {formatCurrency(duePaise)}
+                            </span>
+                          )}
                         </div>
                       )}
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">

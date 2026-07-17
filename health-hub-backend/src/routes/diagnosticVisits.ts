@@ -60,6 +60,7 @@ import {
   collectBillDue,
   computeBillFinancialsFromPersisted,
   normalizeBillFinancialInput,
+  paymentBreakdownFromTransactions,
   recomputeBillFinancialsForSubtotal,
 } from "../services/billFinancialService";
 
@@ -826,6 +827,11 @@ router.get("/", async (req: AuthRequest, res) => {
                 ),
               ).join(", ")
             : null,
+        // Per-mode collected amounts so the worklists can show a split
+        // ("Cash ₹300 + Online ₹200"), not just the joined mode names.
+        paymentBreakdown: paymentBreakdownFromTransactions(
+          (v as any).bill?.transactions,
+        ),
         paymentStatus: v.bill?.paymentStatus || "PENDING",
         ...billFinancials,
         billedAt: v.bill?.billedAt || v.bill?.createdAt || null,
@@ -2941,6 +2947,9 @@ router.post("/:id/collect-due", async (req: AuthRequest, res) => {
               ),
             ).join(", ")
           : null,
+      paymentBreakdown: paymentBreakdownFromTransactions(
+        (updated as any).transactions,
+      ),
       paymentStatus: updated.paymentStatus,
       ...billFinancials,
       billedAt: updated.billedAt || updated.createdAt,

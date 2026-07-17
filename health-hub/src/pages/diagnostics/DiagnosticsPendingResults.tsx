@@ -30,7 +30,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { formatPatientName, compactAge, formatRefDoctor } from '@/lib/patientDisplay';
+import { formatPatientName, compactAge, formatRefDoctor, formatCurrency } from '@/lib/patientDisplay';
+import { formatPaymentModes } from '@/lib/paymentDisplay';
 
 type PaymentType = "CASH" | "ONLINE";
 
@@ -343,6 +344,7 @@ const DiagnosticsPendingResults = () => {
             ? {
                 ...visit,
                 paymentType: data.paymentType,
+                paymentBreakdown: data.paymentBreakdown,
                 paymentStatus: data.paymentStatus,
                 discountType: data.discountType,
                 discountPercentage: data.discountPercentage,
@@ -467,6 +469,10 @@ const DiagnosticsPendingResults = () => {
                   const billedAtStr = formatBilledAt(
                     (visit as any).billedAt || (visit as any).createdAt,
                   );
+                  const paidModes = formatPaymentModes(
+                    visit.paymentBreakdown,
+                    visit.paymentType,
+                  );
                   return (
                   <div
                     key={visit.id}
@@ -539,6 +545,12 @@ const DiagnosticsPendingResults = () => {
                               Includes bill-only items
                             </span>
                           )}
+                        {(visit.paidAmountInPaise ?? 0) > 0 && (
+                          <span className="text-muted-foreground">
+                            Paid: {formatCurrency(visit.paidAmountInPaise)}
+                            {paidModes ? ` · ${paidModes}` : ""}
+                          </span>
+                        )}
                         {(visit.dueAmountInPaise ?? 0) > 0 && (
                           <span className="font-medium text-amber-700">
                             Balance due: {formatMoneyFromPaise(visit.dueAmountInPaise)}
