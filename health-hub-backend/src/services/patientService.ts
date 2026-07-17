@@ -698,6 +698,9 @@ export type ReportState =
   | { kind: 'BILL_ONLY' }
   | { kind: 'EXTERNAL_UPLOAD_PENDING' }
   | { kind: 'RESULTS_PENDING' }
+  // Every reportable/external order was closed as films-only (no report needed)
+  // or cancelled, so no patient-facing report is issued. The visit is COMPLETED.
+  | { kind: 'NO_REPORT' }
   | null;
 
 export type VisitWorkflowMode = 'REPORTABLE' | 'BILL_ONLY' | 'EXTERNAL_UPLOAD' | 'MIXED';
@@ -705,7 +708,11 @@ export type VisitWorkflowMode = 'REPORTABLE' | 'BILL_ONLY' | 'EXTERNAL_UPLOAD' |
 type VisitForReportState = {
   domain: VisitDomain | string;
   status: VisitStatus | string;
-  testOrders?: { workflowMode: DiagnosticWorkflowMode }[];
+  testOrders?: {
+    workflowMode: DiagnosticWorkflowMode;
+    cancelledAt?: Date | string | null;
+    noReportAt?: Date | string | null;
+  }[];
   report?: { versions?: { status: ReportStatus; versionNum: number }[] } | null;
 };
 
@@ -722,8 +729,21 @@ export function deriveReportState(visit: VisitForReportState): ReportState {
   // 1. Zero-order diagnostic visit → RESULTS_PENDING (explicit, no fall-through).
   if (orders.length === 0) return { kind: 'RESULTS_PENDING' };
 
-  // 2. All BILL_ONLY → BILL_ONLY.
-  if (orders.every((o) => o.workflowMode === 'BILL_ONLY')) return { kind: 'BILL_ONLY' };
+  // Cancelled + films-only (no-report) orders contribute nothing to the report,
+  // so the workflow-mode reads below run over ACTIVE orders only — otherwise a
+  // films-only EXTERNAL_UPLOAD wrongly reads "Awaiting upload" and an all-resolved
+  // visit reads "Results pending". Steps that count what was ISSUED (finalized
+  // versions) still read the raw set.
+  const activeOrders = orders.filter((o) => !o.cancelledAt && !o.noReportAt);
+
+  // 2. All ACTIVE orders BILL_ONLY → BILL_ONLY. (Guard length: an empty active
+  //    set makes `every` vacuously true — that's the NO_REPORT case, handled below.)
+  if (
+    activeOrders.length > 0 &&
+    activeOrders.every((o) => o.workflowMode === 'BILL_ONLY')
+  ) {
+    return { kind: 'BILL_ONLY' };
+  }
 
   const finalizedVersions = versions.filter((v) => v.status === 'FINALIZED');
   const hasFinalizedVersion = finalizedVersions.length > 0;
@@ -735,18 +755,26 @@ export function deriveReportState(visit: VisitForReportState): ReportState {
     return { kind: 'FINALIZED', version };
   }
 
-  // 4. Some FINALIZED but not COMPLETED → PARTIALLY_FINALIZED.
+  // 4. Some FINALIZED but not COMPLETED → PARTIALLY_FINALIZED. Count the total
+  //    over ACTIVE non-bill-only orders only, so a cancelled / films-only test
+  //    doesn't inflate the "X of Y" denominator with work that no longer exists.
   if (hasFinalizedVersion && visit.status !== 'COMPLETED') {
-    const total = orders.filter((o) => o.workflowMode !== 'BILL_ONLY').length;
+    const total = activeOrders.filter((o) => o.workflowMode !== 'BILL_ONLY').length;
     return { kind: 'PARTIALLY_FINALIZED', finalized: finalizedVersions.length, total };
   }
 
-  // 5. EXTERNAL_UPLOAD present and none finalized → EXTERNAL_UPLOAD_PENDING.
-  if (orders.some((o) => o.workflowMode === 'EXTERNAL_UPLOAD')) {
+  // 5. Every reportable/external order was resolved (films-only or cancelled) and
+  //    nothing was finalized → No report. This is the films-only close: the visit
+  //    is COMPLETED via reevaluateVisitCompletion, and the chip reads "No report"
+  //    instead of a stale "Awaiting upload" / "Results pending".
+  if (activeOrders.length === 0) return { kind: 'NO_REPORT' };
+
+  // 6. EXTERNAL_UPLOAD present and none finalized → EXTERNAL_UPLOAD_PENDING.
+  if (activeOrders.some((o) => o.workflowMode === 'EXTERNAL_UPLOAD')) {
     return { kind: 'EXTERNAL_UPLOAD_PENDING' };
   }
 
-  // 6. Reportable orders exist, none finalized → RESULTS_PENDING.
+  // 7. Reportable orders exist, none finalized → RESULTS_PENDING.
   return { kind: 'RESULTS_PENDING' };
 }
 

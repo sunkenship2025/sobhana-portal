@@ -97,6 +97,8 @@ export function mapReportStateToChip(
       };
     case "BILL_ONLY":
       return { label: "Bill only", icon: FileText, tone: "draft" };
+    case "NO_REPORT":
+      return { label: "No report", icon: Ban, tone: "muted" };
     case "EXTERNAL_UPLOAD_PENDING":
       return { label: "Awaiting upload", icon: Upload, tone: "pending" };
     case "RESULTS_PENDING":

@@ -536,6 +536,158 @@ function getReportInclusionOrders<
   );
 }
 
+/**
+ * Auto-complete a diagnostic visit whose report workflow is fully resolved.
+ *
+ * When the LAST reportable/external order on an open (DRAFT/WAITING) visit is
+ * closed as "no report needed" (films-only) or cancelled, there is nothing left
+ * to enter or finalize — the visit is done. Historically only the owner-only
+ * "finalize all-waived" button flipped such a visit to COMPLETED, so a visit
+ * whose last order was closed by front-desk staff stranded in DRAFT: invisible
+ * in Pending (nothing to enter) AND in Finalized (not COMPLETED). This helper
+ * closes that gap by re-deriving completion after each no-report / cancel action.
+ *
+ * Fires ONLY when getReportInclusionOrders() is empty AND at least one order was
+ * resolved via noReportAt/cancelledAt — so a genuinely-awaiting-upload or
+ * mid-entry visit is never wrongly completed, and a pure bill-only visit (which
+ * is already COMPLETED at billing) is untouched.
+ *
+ * Money-neutral: a films-only close still earns the referrer their commission
+ * (payouts re-derived, exactly like the finalize-waived path), and an
+ * outstanding bill due is NOT waived — it stays on the bill, still collectible,
+ * and the visit becomes visible so it can actually be chased. Deliberately sends
+ * NO WhatsApp: a films-only visit issues no patient-facing report.
+ *
+ * Idempotent + race-safe: re-reads fresh state and flips via an updateMany
+ * guarded on status IN (DRAFT,WAITING), so a double-close / concurrent action
+ * completes the visit at most once.
+ */
+async function reevaluateVisitCompletion(
+  visitId: string,
+  actor: {
+    userId?: string | null;
+    branchId: string;
+    ip?: string;
+    userAgent?: string;
+  },
+): Promise<{ completed: boolean }> {
+  const visit = await prisma.visit.findUnique({
+    where: { id: visitId },
+    select: {
+      id: true,
+      status: true,
+      branchId: true,
+      testOrders: {
+        select: {
+          id: true,
+          workflowMode: true,
+          cancelledAt: true,
+          noReportAt: true,
+        },
+      },
+      referrals: {
+        where: { deletedAt: null },
+        select: { referralDoctorId: true },
+      },
+      diagnosticCenterReferrals: {
+        select: { diagnosticCenterId: true },
+      },
+    },
+  });
+
+  if (!visit) return { completed: false };
+  // Only an open visit can auto-complete. COMPLETED/CANCELLED are terminal;
+  // the cancel path already sets CANCELLED when every order is voided.
+  if (visit.status !== "DRAFT" && visit.status !== "WAITING") {
+    return { completed: false };
+  }
+  // Something still reportable → leave the visit open for result entry.
+  if (getReportInclusionOrders(visit.testOrders).length > 0) {
+    return { completed: false };
+  }
+  // Only complete when an order was actually resolved down to nothing (films-only
+  // or cancelled). Never auto-complete a visit that merely lacks reportable
+  // orders — pure bill-only visits are COMPLETED at billing, not here.
+  const someResolved = visit.testOrders.some(
+    (o) => o.noReportAt || o.cancelledAt,
+  );
+  if (!someResolved) return { completed: false };
+
+  const completedAt = new Date();
+  // Race-safe flip: only if still open. A concurrent close/cancel that already
+  // completed this visit matches 0 rows here, so we complete at most once.
+  const flipped = await prisma.visit.updateMany({
+    where: { id: visit.id, status: { in: ["DRAFT", "WAITING"] } },
+    data: { status: "COMPLETED" },
+  });
+  if (flipped.count !== 1) return { completed: false };
+
+  await logAction({
+    branchId: actor.branchId,
+    actionType: "FINALIZE",
+    entityType: "Visit",
+    entityId: visit.id,
+    userId: actor.userId ?? undefined,
+    newValues: {
+      status: "COMPLETED",
+      noReport: true,
+      autoCompleted: true,
+      completedAt: completedAt.toISOString(),
+      resolvedOrderIds: visit.testOrders
+        .filter((o) => o.noReportAt || o.cancelledAt)
+        .map((o) => o.id),
+    },
+    ipAddress: actor.ip,
+    userAgent: actor.userAgent,
+  });
+
+  // Referrer / centre still earns on a films-only test — re-derive payouts
+  // exactly like the finalize-waived path (this close is money-neutral).
+  const periodStartDate = new Date(completedAt);
+  periodStartDate.setHours(0, 0, 0, 0);
+  const periodEndDate = new Date(completedAt);
+  periodEndDate.setHours(23, 59, 59, 999);
+  const payoutTasks: Array<Promise<unknown>> = [];
+  const referralDoctorId = visit.referrals[0]?.referralDoctorId;
+  const diagnosticCenterId =
+    visit.diagnosticCenterReferrals[0]?.diagnosticCenterId;
+  if (referralDoctorId) {
+    payoutTasks.push(
+      derivePayout(
+        "REFERRAL",
+        referralDoctorId,
+        visit.branchId,
+        periodStartDate,
+        periodEndDate,
+      ),
+    );
+  }
+  if (diagnosticCenterId) {
+    payoutTasks.push(
+      derivePayout(
+        "DIAGNOSTIC_CENTER",
+        diagnosticCenterId,
+        visit.branchId,
+        periodStartDate,
+        periodEndDate,
+      ),
+    );
+  }
+  if (payoutTasks.length > 0) {
+    const settled = await Promise.allSettled(payoutTasks);
+    for (const r of settled) {
+      if (r.status === "rejected") {
+        console.error(
+          "Auto-refresh payout after visit auto-completion failed:",
+          r.reason,
+        );
+      }
+    }
+  }
+
+  return { completed: true };
+}
+
 // GET /api/visits/diagnostic - List diagnostic visits
 // When patientId is provided: Returns ALL visits for that patient across ALL branches (Patient 360 view)
 // When patientId is omitted: Returns visits for current branch only (daily operations)
@@ -3244,6 +3396,22 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
       },
     });
 
+    // Cancelling can leave a visit with only films-only (noReportAt) orders and
+    // nothing left to report — complete it so it doesn't strand in DRAFT.
+    // (remainingActiveOrders counts a films-only order as "active", so the
+    // CANCELLED flip above misses this case.) No-op when the visit was just set
+    // CANCELLED or a live reportable order remains — the helper self-guards.
+    let autoCompleted = false;
+    if (remainingActiveOrders.length > 0) {
+      const completion = await reevaluateVisitCompletion(visit.id, {
+        userId: req.user?.id,
+        branchId: visit.branchId,
+        ip: req.ip,
+        userAgent: req.get("user-agent"),
+      });
+      autoCompleted = completion.completed;
+    }
+
     const updatedBill = await prisma.bill.findUnique({
       where: { id: bill.id },
       include: { transactions: true },
@@ -3252,7 +3420,12 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
 
     return res.json({
       id: visit.id,
-      status: remainingActiveOrders.length === 0 ? "CANCELLED" : visit.status,
+      status:
+        remainingActiveOrders.length === 0
+          ? "CANCELLED"
+          : autoCompleted
+            ? "COMPLETED"
+            : visit.status,
       paymentStatus: updatedBill?.paymentStatus,
       refundInPaise,
       totalReversalInPaise,
@@ -5185,8 +5358,23 @@ router.post("/:id/orders/:orderId/no-report", async (req: AuthRequest, res) => {
     }
 
     if (order.noReportAt) {
-      // Idempotent — already closed as no-report.
-      return res.json({ success: true, alreadyNoReport: true, orderId: order.id });
+      // Idempotent — already closed as no-report. A PRIOR call may have written
+      // noReportAt but then failed to complete the visit (e.g. the completion
+      // re-derivation below errored after this order was committed). Re-attempt
+      // completion here so a transient failure can't leave the visit stranded in
+      // DRAFT — reevaluateVisitCompletion is itself idempotent + race-safe.
+      const completion = await reevaluateVisitCompletion(id, {
+        userId: req.user?.id,
+        branchId: req.branchId!,
+        ip: req.ip,
+        userAgent: req.get("user-agent"),
+      });
+      return res.json({
+        success: true,
+        alreadyNoReport: true,
+        orderId: order.id,
+        visitCompleted: completion.completed,
+      });
     }
 
     const now = new Date();
@@ -5219,11 +5407,23 @@ router.post("/:id/orders/:orderId/no-report", async (req: AuthRequest, res) => {
       userAgent: req.get("user-agent"),
     });
 
+    // Closing the LAST reportable/external order as films-only leaves nothing to
+    // enter or finalize — complete the visit so it lands in Finalized instead of
+    // stranding in DRAFT (invisible in both Pending and Finalized). No-op when
+    // other reportable tests remain; the helper self-guards.
+    const completion = await reevaluateVisitCompletion(id, {
+      userId: req.user?.id,
+      branchId: req.branchId!,
+      ip: req.ip,
+      userAgent: req.get("user-agent"),
+    });
+
     return res.json({
       success: true,
       orderId: order.id,
       noReportAt: now.toISOString(),
       noReportReason: reason,
+      visitCompleted: completion.completed,
     });
   } catch (error) {
     console.error("Error closing test as no-report:", error);

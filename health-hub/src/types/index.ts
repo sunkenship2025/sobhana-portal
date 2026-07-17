@@ -663,6 +663,9 @@ export type ReportState =
   | { kind: "BILL_ONLY" }
   | { kind: "EXTERNAL_UPLOAD_PENDING" }
   | { kind: "RESULTS_PENDING" }
+  // Every reportable/external order was closed as films-only (no report needed)
+  // or cancelled → no patient-facing report issued. Visit is COMPLETED.
+  | { kind: "NO_REPORT" }
   | null;
 
 // workflowMode rollup (patientService.ts:613). 'MIXED' when heterogeneous.
