@@ -3151,6 +3151,7 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
       include: {
         bill: { include: { transactions: true } },
         testOrders: true,
+        patient: { select: { name: true } },
       },
     });
 
@@ -3388,6 +3389,8 @@ router.post("/:id/refund", async (req: AuthRequest, res) => {
       newValues: {
         action: refundInPaise > 0 ? "ORDER_REFUND" : "ORDER_CANCEL",
         billNumber: visit.billNumber,
+        patientId: visit.patientId,
+        patientName: visit.patient?.name,
         testOrderIds: perOrder.map((entry) => entry.testOrderId),
         chargeReversedInPaise: totalReversalInPaise,
         refundedInPaise: refundInPaise,

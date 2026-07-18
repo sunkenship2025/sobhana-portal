@@ -269,6 +269,7 @@ export async function getOwnerOperations(
     branches,
     auditNoReport,
     auditReopened,
+    auditCancelRefunds,
   ] = await Promise.all([
     branchId
       ? prisma.branch.findUnique({
@@ -562,6 +563,28 @@ export async function getOwnerOperations(
         visit: { select: { patientId: true, patient: { select: { name: true } } } },
       },
     }),
+
+    // Cancel / refund of billed tests in the last 24h. The refund route is the
+    // ONLY writer of entityType 'Bill' audit rows (ORDER_REFUND = cash returned,
+    // ORDER_CANCEL = charge reversal only), so a dedicated query surfaces them
+    // reliably instead of competing for slots in the shared 50-row audit pull.
+    prisma.auditLog.findMany({
+      where: {
+        entityType: 'Bill',
+        actionType: 'UPDATE',
+        createdAt: { gte: yesterdayStart },
+        ...(branchId ? { branchId } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: {
+        id: true,
+        entityId: true,
+        userId: true,
+        newValues: true,
+        createdAt: true,
+      },
+    }),
   ]);
 
   const branchById = new Map((branches ?? []).map((b) => [b.id, b]));
@@ -753,6 +776,7 @@ export async function getOwnerOperations(
       [
         ...auditIdentity.map((c) => c.changedBy),
         ...auditOffHours.map((a) => a.userId),
+        ...auditCancelRefunds.map((a) => a.userId),
       ].filter((v): v is string => Boolean(v)),
     ),
   ];
@@ -940,6 +964,66 @@ export async function getOwnerOperations(
       detail: `${t.visit.patient.name} · ${t.testNameSnapshot}`,
       whenIso: t.reopenedAt.toISOString(),
       drillTo: `/clinic/patient-360/${t.visit.patientId}`,
+    });
+  }
+
+  // Cancel / refund of billed tests — money reversed or returned to the patient,
+  // so owners see it in the trail. Base 1 (LOW, routine); ≥ ₹2,000 reversed or
+  // refunded makes it HIGH; a missing reason and off-hours each add +1.
+  const rupees = (paise: number) =>
+    `₹${Math.round(paise / 100).toLocaleString('en-IN')}`;
+  for (const a of auditCancelRefunds) {
+    let parsed:
+      | {
+          action?: string;
+          billNumber?: string;
+          patientId?: string;
+          patientName?: string;
+          chargeReversedInPaise?: number;
+          refundedInPaise?: number;
+          reason?: string;
+        }
+      | null = null;
+    try {
+      parsed = a.newValues ? JSON.parse(a.newValues) : null;
+    } catch {
+      parsed = null;
+    }
+    if (!parsed || (parsed.action !== 'ORDER_REFUND' && parsed.action !== 'ORDER_CANCEL')) {
+      continue;
+    }
+    const reversedPaise = Number(parsed.chargeReversedInPaise) || 0;
+    const refundedPaise = Number(parsed.refundedInPaise) || 0;
+    const reasons: string[] = [];
+    let score = 1;
+    if (Math.max(reversedPaise, refundedPaise) >= SEV_LARGE_AMOUNT_PAISE) {
+      score += 3; // ≥ ₹2,000 reversed/returned → HIGH
+      reasons.push('large amount');
+    }
+    if (!parsed.reason) {
+      score += 1;
+      reasons.push('no reason');
+    }
+    if (isOffHoursIst(a.createdAt)) {
+      score += 1;
+      reasons.push('off-hours');
+    }
+    const billNumber = parsed.billNumber || a.entityId.slice(0, 8);
+    const base =
+      (parsed.patientName ? `${parsed.patientName} · ` : '') +
+      `${billNumber} · ${rupees(reversedPaise)} cancelled` +
+      (refundedPaise > 0 && refundedPaise !== reversedPaise
+        ? ` · ${rupees(refundedPaise)} refunded`
+        : '') +
+      (parsed.reason ? ` · ${parsed.reason}` : '');
+    audit.push({
+      id: `refund-${a.id}`,
+      severity: bandFromScore(score),
+      event: refundedPaise > 0 ? `Refund ${rupees(refundedPaise)}` : 'Tests cancelled',
+      who: a.userId ? userNameById.get(a.userId) ?? `user ${a.userId.slice(0, 6)}` : null,
+      detail: withReasons(base, reasons),
+      whenIso: a.createdAt.toISOString(),
+      drillTo: parsed.patientId ? `/clinic/patient-360/${parsed.patientId}` : null,
     });
   }
   audit.sort((a, b) => (a.whenIso < b.whenIso ? 1 : -1));
