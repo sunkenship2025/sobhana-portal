@@ -86,20 +86,19 @@ export interface OperationsKpi {
   inFlight: number;
 }
 
-export interface TatHistogramBin {
-  rangeMin: number;
-  rangeMax: number; // exclusive; 999 means open-ended (30+)
+export interface TurnaroundBucket {
+  label: string;
   count: number;
 }
 
-export interface TatHistogram {
-  bins: TatHistogramBin[];
-  p50Minutes: number | null;
-  p95Minutes: number | null;
-  slaMinutes: number;
-  breachCount: number;
+export interface ReportTurnaround {
   sampleCount: number;
-  xMaxMinutes: number; // data-driven upper bound of the x-axis (for frontend scaling)
+  windowDays: number;
+  medianMinutes: number | null;
+  slaMinutes: number;
+  withinSlaPercent: number | null; // share finalized within the SLA (<= 24h)
+  overSlaCount: number;
+  buckets: TurnaroundBucket[];
 }
 
 export interface DiagnosticsQueueRow {
@@ -158,7 +157,7 @@ export interface OperationsResponse {
   generatedAt: string;
   branchScope: { branchId: string | null; branchName: string | null };
   kpis: OperationsKpi;
-  tatHistogram: TatHistogram;
+  reportTurnaround: ReportTurnaround;
   diagnosticsQueue: DiagnosticsQueueRow[];
   clinicQueue: ClinicQueueDoctor[];
   audit: AuditRow[];
@@ -179,40 +178,28 @@ function percentile(sorted: number[], p: number): number | null {
   return sorted[idx];
 }
 
-const HISTOGRAM_BIN_COUNT = 11; // 10 fixed-width bins + 1 open-ended overflow bin
+// Fixed, human-readable turnaround buckets. Unlike a data-driven histogram, a
+// single slow outlier can't stretch the scale — it just lands in the last
+// bucket. Boundaries are inclusive-upper so "12–24h" matches the 24h SLA.
+const TURNAROUND_BUCKETS: { label: string; maxMinutes: number }[] = [
+  { label: 'Under 4h', maxMinutes: 4 * 60 },
+  { label: '4–12h', maxMinutes: 12 * 60 },
+  { label: '12–24h', maxMinutes: 24 * 60 },
+  { label: '1–3 days', maxMinutes: 72 * 60 },
+  { label: 'Over 3 days', maxMinutes: Infinity },
+];
 
-/**
- * Data-driven histogram. The x-range is derived from the data (p95 + largest
- * non-empty observation, padded 10%) instead of a hardcoded 33-min window, so
- * the same chart works whether durations are minutes or many hours.
- * Returns the bins plus the xMax the frontend should scale to.
- */
-function buildHistogram(
-  durations: number[],
-  p95: number | null,
-): { bins: TatHistogramBin[]; xMaxMinutes: number } {
-  const maxObserved = durations.length > 0 ? Math.max(...durations) : 0;
-  // Use p95 (robust) and the largest observation as anchors; pad 10%.
-  const rawMax = Math.max(p95 ?? 0, maxObserved);
-  // Round to a sensible step and guarantee a non-zero range.
-  const xMaxMinutes = Math.max(30, Math.ceil((rawMax * 1.1) / 5) * 5);
-  const binWidth = xMaxMinutes / (HISTOGRAM_BIN_COUNT - 1);
-
-  const bins: TatHistogramBin[] = [];
-  for (let i = 0; i < HISTOGRAM_BIN_COUNT - 1; i += 1) {
-    bins.push({ rangeMin: i * binWidth, rangeMax: (i + 1) * binWidth, count: 0 });
-  }
-  // Final open-ended overflow bin (anything >= xMax).
-  bins.push({ rangeMin: xMaxMinutes, rangeMax: 999_999, count: 0 });
-
+function buildTurnaroundBuckets(durations: number[]): TurnaroundBucket[] {
+  const counts: TurnaroundBucket[] = TURNAROUND_BUCKETS.map((b) => ({
+    label: b.label,
+    count: 0,
+  }));
   for (const d of durations) {
-    const idx =
-      d >= xMaxMinutes
-        ? bins.length - 1
-        : Math.min(bins.length - 2, Math.floor(d / binWidth));
-    bins[idx].count += 1;
+    let idx = TURNAROUND_BUCKETS.findIndex((b) => d <= b.maxMinutes);
+    if (idx === -1) idx = counts.length - 1;
+    counts[idx].count += 1;
   }
-  return { bins, xMaxMinutes };
+  return counts;
 }
 
 function isOffHoursIst(d: Date): boolean {
@@ -250,10 +237,11 @@ export async function getOwnerOperations(
   const todayStart = startOfTodayIst(now);
   const tomorrowStart = new Date(todayStart.getTime() + DAY_MS);
   const yesterdayStart = new Date(now.getTime() - DAY_MS);
+  const sevenDaysStart = new Date(now.getTime() - 7 * DAY_MS);
 
   const [
     scopedBranch,
-    last100Finalized,
+    turnaroundRows,
     finalizedTodayRows,
     finalizableTodayVisits,
     inQueueByDomain,
@@ -278,14 +266,21 @@ export async function getOwnerOperations(
         })
       : Promise.resolve(null),
 
-    // Last 100 finalized for histogram + p50
+    // Report turnaround sample: finalized reports whose VISIT was registered in
+    // the last 7 days. Scoping by REGISTRATION date (not "last N finalized")
+    // keeps backlog cleanups — old visits bulk-finalized recently — out of the
+    // numbers, so the median/buckets reflect current turnaround. take is a
+    // generous safety bound; real 7-day volume sits well under it.
     prisma.reportVersion.findMany({
       where: {
         status: 'FINALIZED',
-        ...(branchId ? { report: { branchId } } : {}),
+        report: {
+          ...(branchId ? { branchId } : {}),
+          visit: { createdAt: { gte: sevenDaysStart } },
+        },
       },
       orderBy: { finalizedAt: 'desc' },
-      take: 100,
+      take: 2000,
       select: {
         finalizedAt: true,
         report: { select: { visit: { select: { createdAt: true } } } },
@@ -589,8 +584,8 @@ export async function getOwnerOperations(
 
   const branchById = new Map((branches ?? []).map((b) => [b.id, b]));
 
-  // --- TAT histogram + KPIs ----------------------------------------------
-  const durations = last100Finalized
+  // --- report turnaround + KPIs -------------------------------------------
+  const durations = turnaroundRows
     .filter((r) => r.report?.visit?.createdAt && r.finalizedAt)
     .map(
       (r) =>
@@ -598,18 +593,19 @@ export async function getOwnerOperations(
     )
     .filter((d) => d >= 0);
   const sortedDurations = [...durations].sort((a, b) => a - b);
-  const tatP50 = percentile(sortedDurations, 50);
-  const tatP95 = percentile(sortedDurations, 95);
-  const breachCount = durations.filter((d) => d > SLA_TAT_MINUTES).length;
-  const { bins: histogramBins, xMaxMinutes } = buildHistogram(durations, tatP95);
-  const tatHistogram: TatHistogram = {
-    bins: histogramBins,
-    p50Minutes: tatP50,
-    p95Minutes: tatP95,
-    slaMinutes: SLA_TAT_MINUTES,
-    breachCount,
+  const tatMedian = percentile(sortedDurations, 50);
+  const withinSlaCount = durations.filter((d) => d <= SLA_TAT_MINUTES).length;
+  const reportTurnaround: ReportTurnaround = {
     sampleCount: durations.length,
-    xMaxMinutes,
+    windowDays: 7,
+    medianMinutes: tatMedian,
+    slaMinutes: SLA_TAT_MINUTES,
+    withinSlaPercent:
+      durations.length > 0
+        ? Math.round((withinSlaCount / durations.length) * 100)
+        : null,
+    overSlaCount: durations.length - withinSlaCount,
+    buckets: buildTurnaroundBuckets(durations),
   };
 
   // delivery rate today (P0-A): denominator excludes in-flight SENT.
@@ -648,7 +644,7 @@ export async function getOwnerOperations(
   }
 
   const kpis: OperationsKpi = {
-    tatMedianMinutes: tatP50,
+    tatMedianMinutes: tatMedian,
     tatSampleCount: durations.length,
     finalizedToday: finalizedDistinctVisits,
     finalizableToday: finalizableDistinctVisits,
@@ -1044,7 +1040,7 @@ export async function getOwnerOperations(
     generatedAt: now.toISOString(),
     branchScope: { branchId: branchId ?? null, branchName: scopedBranch?.name ?? null },
     kpis,
-    tatHistogram,
+    reportTurnaround,
     diagnosticsQueue,
     clinicQueue,
     audit: auditTrimmed,

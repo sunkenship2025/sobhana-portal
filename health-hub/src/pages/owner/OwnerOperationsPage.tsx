@@ -6,7 +6,7 @@
  *
  * Layout:
  *   - 4 KPI: TAT median / finalized today / in queue / delivery rate
- *   - TAT distribution histogram (last 100)
+ *   - Report turnaround buckets (last 7 days)
  *   - Diagnostics queue (50%) + Clinic queue grouped by doctor (50%)
  *   - Audit feed
  *   - Communication failures (conditional — hides at zero)
@@ -48,14 +48,14 @@ interface OperationsResponse {
     deliveryAttempted: number;
     inFlight: number;
   };
-  tatHistogram: {
-    bins: { rangeMin: number; rangeMax: number; count: number }[];
-    p50Minutes: number | null;
-    p95Minutes: number | null;
-    slaMinutes: number;
-    breachCount: number;
+  reportTurnaround: {
     sampleCount: number;
-    xMaxMinutes: number;
+    windowDays: number;
+    medianMinutes: number | null;
+    slaMinutes: number;
+    withinSlaPercent: number | null;
+    overSlaCount: number;
+    buckets: { label: string; count: number }[];
   };
    diagnosticsQueue: Array<{
      visitId: string;
@@ -110,13 +110,6 @@ interface OperationsResponse {
 // ----- TAT histogram ----------------------------------------------------
 
 // Compact human label for a duration in minutes (axis spans hours now).
-function fmtMinutes(mins: number): string {
-  const m = Math.round(mins);
-  if (m < 90) return `${m}m`;
-  const hrs = m / 60;
-  return Number.isInteger(hrs) ? `${hrs}h` : `${hrs.toFixed(1)}h`;
-}
-
 // Human-readable duration that adapts to magnitude:
 //   < 60 min  → "45m"
 //   < 24 h    → "6h 18m" (drops 0m → "6h")
@@ -132,128 +125,97 @@ function fmtDuration(mins: number): string {
   return h === 0 ? `${d}d` : `${d}d ${h}h`;
 }
 
-function TatHistogramCard({ histogram }: { histogram: OperationsResponse['tatHistogram'] }) {
-  if (histogram.sampleCount === 0) {
+// Report turnaround, in plain language for owners/managers: a "typical" time,
+// the share within the 24h SLA, and fixed time buckets with counts. Fixed
+// buckets mean a single slow report can't stretch the scale — it just lands in
+// "Over 3 days" — which is what made the old percentile histogram unreadable.
+function ReportTurnaroundCard({
+  turnaround,
+}: {
+  turnaround: OperationsResponse['reportTurnaround'];
+}) {
+  if (turnaround.sampleCount === 0) {
     return (
-      <SectionCard label="Registration→Report time" description="Last 100 finalized reports">
+      <SectionCard label="Report turnaround" description={`Last ${turnaround.windowDays} days`}>
         <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>
-          No finalized reports yet.
+          No reports finalized yet.
         </div>
       </SectionCard>
     );
   }
-  const max = Math.max(1, ...histogram.bins.map((b) => b.count));
-  const width = 600;
-  const height = 140;
-  const binWidth = width / histogram.bins.length;
-
-  // P0-C: x-range is data-driven (xMaxMinutes from the backend). Markers and the
-  // SLA line scale to that range; the SLA line is only drawn if it fits on-scale.
-  const xMax = Math.max(1, histogram.xMaxMinutes);
-  const xPos = (mins: number) => (Math.min(xMax, mins) / xMax) * width;
-  const slaOnScale = histogram.slaMinutes <= xMax;
-  const slaX = xPos(histogram.slaMinutes);
-  const p50X = histogram.p50Minutes !== null ? xPos(histogram.p50Minutes) : null;
-  const p95X = histogram.p95Minutes !== null ? xPos(histogram.p95Minutes) : null;
-
-  // Color thresholds scale to the range (early/healthy → late/critical).
-  function colorFor(rangeMin: number): string {
-    const frac = rangeMin / xMax;
-    if (frac < 0.3) return TOKENS.healthy;
-    if (frac < 0.55) return TOKENS.cautionLight;
-    if (frac < 0.85) return TOKENS.caution;
-    return TOKENS.critical;
-  }
+  const maxCount = Math.max(1, ...turnaround.buckets.map((b) => b.count));
+  // Within the day = green; past the SLA (1–3 days / 3 days+) tints amber → red.
+  const barColor = (label: string) =>
+    label === 'Over 3 days'
+      ? TOKENS.critical
+      : label === '1–3 days'
+        ? TOKENS.caution
+        : TOKENS.healthy;
 
   return (
     <SectionCard
-      label="Registration→Report time"
-      description={
-        slaOnScale
-          ? 'Last 100 finalized · SLA dashed red'
-          : 'Last 100 finalized · SLA is 24h (off-scale)'
-      }
+      label="Report turnaround"
+      description={`Last ${turnaround.windowDays} days · registration to report`}
     >
-      <div className="relative" style={{ height }}>
-        <svg
-          viewBox={`0 0 ${width} ${height}`}
-          width="100%"
-          height="100%"
-          preserveAspectRatio="none"
-        >
-          {histogram.bins.map((b, i) => {
-            const h = (b.count / max) * (height - 20);
-            const x = i * binWidth;
-            return (
-              <rect
-                key={i}
-                x={x + 1}
-                y={height - h - 4}
-                width={Math.max(0, binWidth - 2)}
-                height={h}
-                fill={colorFor(b.rangeMin)}
-              />
-            );
-          })}
-          {p50X !== null && (
-            <line
-              x1={p50X}
-              y1={4}
-              x2={p50X}
-              y2={height - 4}
-              stroke={TOKENS.info}
-              strokeWidth={1}
-              strokeDasharray="3,2"
-            />
-          )}
-          {p95X !== null && (
-            <line
-              x1={p95X}
-              y1={4}
-              x2={p95X}
-              y2={height - 4}
-              stroke={TOKENS.info}
-              strokeWidth={1}
-              strokeDasharray="3,2"
-            />
-          )}
-          {slaOnScale && (
-            <line
-              x1={slaX}
-              y1={4}
-              x2={slaX}
-              y2={height - 4}
-              stroke={TOKENS.critical}
-              strokeWidth={1}
-              strokeDasharray="3,2"
-            />
-          )}
-        </svg>
-      </div>
-      <div
-        className="mt-2 flex items-center justify-between"
-        style={{ color: TOKENS.textTertiary, fontSize: 11 }}
-      >
-        <span>0</span>
-        <span>{fmtMinutes(xMax / 2)}</span>
-        <span>{fmtMinutes(xMax)}+</span>
-      </div>
-      <div
-        className="mt-2 border-t pt-2"
-        style={{ borderColor: TOKENS.border, fontSize: 12, color: TOKENS.textSecondary }}
-      >
-        p50 {fmtMinutes(histogram.p50Minutes ?? 0)} · p95 {fmtMinutes(histogram.p95Minutes ?? 0)} ·{' '}
-        SLA {fmtMinutes(histogram.slaMinutes)}
-        {histogram.breachCount > 0 && (
-          <span style={{ color: TOKENS.critical }}>
-            {' '}
-            · {histogram.breachCount} over 24h{' '}
-            <Link to="/diagnostics/pending?filter=overdue" style={{ color: TOKENS.info }}>
-              open list ↗
-            </Link>
-          </span>
+      <div className="mb-3" style={{ fontSize: 13, color: TOKENS.textSecondary }}>
+        {turnaround.medianMinutes !== null && (
+          <>
+            Typical{' '}
+            <strong style={{ color: TOKENS.textPrimary }}>
+              {fmtDuration(turnaround.medianMinutes)}
+            </strong>
+          </>
+        )}
+        {turnaround.withinSlaPercent !== null && (
+          <>
+            {' · '}
+            <strong style={{ color: TOKENS.textPrimary }}>
+              {turnaround.withinSlaPercent}%
+            </strong>{' '}
+            ready within a day
+          </>
         )}
       </div>
+
+      <div className="space-y-1.5">
+        {turnaround.buckets.map((b) => (
+          <div key={b.label} className="flex items-center gap-3" style={{ fontSize: 12 }}>
+            <div style={{ width: 92, flexShrink: 0, color: TOKENS.textSecondary }}>
+              {b.label}
+            </div>
+            <div className="flex-1">
+              <div
+                style={{
+                  width: `${b.count === 0 ? 0 : Math.max(3, (b.count / maxCount) * 100)}%`,
+                  height: 10,
+                  borderRadius: 3,
+                  background: barColor(b.label),
+                }}
+              />
+            </div>
+            <div
+              style={{ width: 40, flexShrink: 0, textAlign: 'right', color: TOKENS.textSecondary }}
+            >
+              {b.count}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {turnaround.overSlaCount > 0 && (
+        <div
+          className="mt-3 border-t pt-2"
+          style={{ borderColor: TOKENS.border, fontSize: 12 }}
+        >
+          <span style={{ color: TOKENS.critical }}>
+            {turnaround.overSlaCount} report{turnaround.overSlaCount === 1 ? '' : 's'} took over a
+            day
+          </span>{' '}
+          <Link to="/diagnostics/pending?filter=overdue" style={{ color: TOKENS.info }}>
+            view ↗
+          </Link>
+        </div>
+      )}
     </SectionCard>
   );
 }
@@ -636,14 +598,14 @@ export default function OwnerOperationsPage() {
                 }
                 sub={
                   data.kpis.tatSampleCount >= 4
-                    ? `${data.kpis.tatSampleCount} finalized`
+                    ? `${data.kpis.tatSampleCount} reports · last 7 days`
                     : `${data.kpis.tatSampleCount}/4 samples · baseline forming`
                 }
               />
               <KpiCard
-                label="Visits with reports finalized"
-                value={`${data.kpis.finalizedToday}/${data.kpis.finalizableToday}`}
-                sub="finalized / reportable visits today"
+                label="Reports finalized today"
+                value={data.kpis.finalizedToday}
+                sub="since midnight"
               />
               <KpiCard
                 label="In queue right now"
@@ -673,7 +635,7 @@ export default function OwnerOperationsPage() {
               />
             </div>
 
-            <TatHistogramCard histogram={data.tatHistogram} />
+            <ReportTurnaroundCard turnaround={data.reportTurnaround} />
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <DiagnosticsQueueCard rows={data.diagnosticsQueue} />
