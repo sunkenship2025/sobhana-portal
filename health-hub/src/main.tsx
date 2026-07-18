@@ -4,15 +4,32 @@ import "./index.css";
 import { initSentry, Sentry, isSentryEnabled } from "./lib/sentry";
 
 // ── Stale-chunk auto-reload ──────────────────────────────────────────────
-// After a new deployment Vite's chunk filenames change. Users with stale tabs
-// try to import the old chunk → server returns index.html (text/html) instead
-// of JS → "Failed to fetch dynamically imported module" error.
-// Catch this globally and reload once so they silently get the new bundle.
-window.addEventListener("vite:preloadError", () => {
-  const key = "__vite_reload";
-  if (!sessionStorage.getItem(key)) {
-    sessionStorage.setItem(key, "1");
-    window.location.reload();
+// After a deploy Vite's chunk filenames change. A tab opened before the deploy
+// imports an old chunk → the server returns index.html (text/html) instead of
+// JS → "Failed to fetch dynamically imported module" / MIME error. Reload once
+// to silently pick up the new bundle.
+//
+// The 10s window prevents a reload loop if the fresh load ALSO fails, while
+// still re-arming for the NEXT deploy — a permanent flag (the old behaviour)
+// disarmed after the first self-heal, so a second deploy in the same session
+// left users stranded on the raw error.
+const STALE_CHUNK_RELOAD_AT = "__stale_chunk_reload_at";
+function reloadForStaleChunk() {
+  const last = Number(sessionStorage.getItem(STALE_CHUNK_RELOAD_AT) || 0);
+  if (Date.now() - last < 10_000) return; // just reloaded → don't loop
+  sessionStorage.setItem(STALE_CHUNK_RELOAD_AT, String(Date.now()));
+  window.location.reload();
+}
+window.addEventListener("vite:preloadError", (event) => {
+  event.preventDefault(); // we recover by reloading; don't also throw (Sentry noise)
+  reloadForStaleChunk();
+});
+// Backstop: some dynamic-import failures surface as an unhandled rejection
+// rather than a vite:preloadError (e.g. a lazy import outside Vite's helper).
+window.addEventListener("unhandledrejection", (event) => {
+  const msg = (event.reason && (event.reason.message || String(event.reason))) || "";
+  if (/dynamically imported module|module script failed|ChunkLoadError/i.test(msg)) {
+    reloadForStaleChunk();
   }
 });
 
