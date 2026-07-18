@@ -11,6 +11,13 @@ import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import {
   Search,
@@ -19,9 +26,12 @@ import {
   Mail,
   Hash,
   Receipt,
+  Building2,
+  Globe,
+  ChevronDown,
   type LucideIcon,
 } from "lucide-react";
-import type { SearchKind } from "@/types";
+import type { Branch, SearchKind } from "@/types";
 
 const KIND_META: Record<
   SearchKind,
@@ -56,6 +66,71 @@ interface SmartSearchBarProps {
   onSubmit: () => void;
   /** Whether an override is currently active (controls pill styling + reset). */
   overrideActive: boolean;
+  /** Active branches to scope the search by (empty ⇒ selector hidden). */
+  branches: Branch[];
+  /** Current scope: a branchId, or null for "all branches" (global). */
+  scope: string | null;
+  /** Change the branch scope (null ⇒ global). */
+  onScopeChange: (branchId: string | null) => void;
+}
+
+/**
+ * Branch-scope dropdown — pinned left of the search box. Defaults to the
+ * header's active branch; "All branches" restores the global search. Reuses the
+ * same DropdownMenu + outline-button shape as the header BranchSelector so it
+ * reads as the same control, just scoped to search.
+ */
+function BranchScopeSelect({
+  branches,
+  scope,
+  onScopeChange,
+}: {
+  branches: Branch[];
+  scope: string | null;
+  onScopeChange: (branchId: string | null) => void;
+}) {
+  const active = scope ? branches.find((b) => b.id === scope) : null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          className="w-full justify-between gap-2 sm:w-[12rem]"
+          aria-label="Branch to search in"
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            {active ? (
+              <Building2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+            ) : (
+              <Globe className="h-4 w-4 shrink-0" aria-hidden="true" />
+            )}
+            <span className="truncate">{active ? active.name : "All branches"}</span>
+          </span>
+          <ChevronDown className="h-4 w-4 shrink-0 opacity-50" aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56 max-w-[calc(100vw-2rem)]">
+        <DropdownMenuItem
+          onClick={() => onScopeChange(null)}
+          className={cn("cursor-pointer gap-2", scope === null && "bg-accent")}
+        >
+          <Globe className="h-4 w-4" aria-hidden="true" />
+          All branches (global)
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {branches.map((branch) => (
+          <DropdownMenuItem
+            key={branch.id}
+            onClick={() => onScopeChange(branch.id)}
+            className={cn("cursor-pointer gap-2", scope === branch.id && "bg-accent")}
+          >
+            <Building2 className="h-4 w-4" aria-hidden="true" />
+            {branch.name}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 export function SmartSearchBar({
@@ -66,6 +141,9 @@ export function SmartSearchBar({
   onOverride,
   onSubmit,
   overrideActive,
+  branches,
+  scope,
+  onScopeChange,
 }: SmartSearchBarProps) {
   // aria-live announcement is keyed on the SETTLED detection only.
   const [announced, setAnnounced] = useState("");
@@ -78,6 +156,13 @@ export function SmartSearchBar({
   return (
     <div className="space-y-3">
       <div className="flex flex-col gap-3 sm:flex-row">
+        {branches.length > 0 && (
+          <BranchScopeSelect
+            branches={branches}
+            scope={scope}
+            onScopeChange={onScopeChange}
+          />
+        )}
         <div className="relative flex-1">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"

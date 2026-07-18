@@ -56,13 +56,16 @@ router.post('/', async (req: AuthRequest, res) => {
 // GET /api/patients/search - Search patients
 router.get('/search', async (req: AuthRequest, res) => {
   try {
-    const { phone, email, name, patientNumber, page, pageSize, limit } = req.query;
+    const { phone, email, name, patientNumber, page, pageSize, limit, branchId } = req.query;
 
     const result = await patientService.searchPatients({
       phone: phone as string,
       email: email as string,
       name: name as string,
       patientNumber: patientNumber as string,
+      // Scope is opt-in: a present `branchId` narrows the (otherwise global —
+      // BINDING DECISION 1) search to patients with a visit at that branch.
+      branchId: branchId as string | undefined,
       // Pagination is opt-in: only a present `page` switches the response to
       // the { results, total, ... } envelope (legacy array otherwise).
       page: page !== undefined ? parseInt(page as string) : undefined,

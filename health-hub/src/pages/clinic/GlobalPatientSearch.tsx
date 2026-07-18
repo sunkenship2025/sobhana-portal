@@ -17,6 +17,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuthStore } from "@/store/authStore";
+import { useBranchStore } from "@/store/branchStore";
 import {
   getRecentPatients,
   clearRecentPatients,
@@ -29,10 +30,20 @@ import type { SearchKind } from "@/types";
 export default function GlobalPatientSearch() {
   const navigate = useNavigate();
   const userId = useAuthStore((s) => s.user?.id);
+  const branches = useBranchStore((s) => s.branches);
+  const activeBranchId = useBranchStore((s) => s.activeBranchId);
+  const activeBranches = useMemo(
+    () => branches.filter((b) => b.isActive),
+    [branches],
+  );
 
   const [rawQuery, setRawQuery] = useState("");
   // null = auto-detect; a SearchKind = forced via an override pill.
   const [override, setOverride] = useState<SearchKind | null>(null);
+  // Branch scope: null = all branches (global). Defaults to the header's active
+  // branch so search starts scoped to where the user is working; "All branches"
+  // restores the original cross-branch behavior.
+  const [scope, setScope] = useState<string | null>(activeBranchId);
   // 1-based page for the ranked name results. Reset to 1 synchronously whenever
   // the query text or override changes (below) so a new search starts on page 1.
   const [page, setPage] = useState(1);
@@ -41,8 +52,10 @@ export default function GlobalPatientSearch() {
   const [recentNonce, setRecentNonce] = useState(0);
 
   // Patient-search slice (phone/name/email/patientNumber). The hook owns the
-  // 300ms debounce + detection + type-gated placeholderData.
-  const search = useSmartSearch(rawQuery, override ?? undefined, page);
+  // 300ms debounce + detection + type-gated placeholderData. `scope` narrows
+  // the (otherwise global) search to one branch when set.
+  const search = useSmartSearch(rawQuery, override ?? undefined, page, scope);
+  const scopeBranch = scope ? branches.find((b) => b.id === scope) : null;
   const effectiveKind = search.effectiveKind;
   const detectedKind = search.detectedKind;
 
@@ -100,7 +113,11 @@ export default function GlobalPatientSearch() {
       <div className="mx-auto max-w-3xl space-y-6">
         <PageHeader
           title="Patient 360"
-          subtitle="Search any patient across all Sobhana branches"
+          subtitle={
+            scopeBranch
+              ? `Searching patients in ${scopeBranch.name}`
+              : "Search any patient across all Sobhana branches"
+          }
           className="mb-2"
         />
 
@@ -122,6 +139,12 @@ export default function GlobalPatientSearch() {
                 setPage(1);
               }}
               onSubmit={retry}
+              branches={activeBranches}
+              scope={scope}
+              onScopeChange={(branchId) => {
+                setScope(branchId);
+                setPage(1);
+              }}
             />
           </CardContent>
         </Card>

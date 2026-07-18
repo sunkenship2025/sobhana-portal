@@ -248,6 +248,7 @@ export async function searchPatients(query: {
   email?: string;
   name?: string;
   patientNumber?: string;
+  branchId?: string; // when set, restrict to patients with a visit at this branch
   page?: number;     // 1-based; when provided, returns a paginated envelope
   pageSize?: number;
   limit?: number;    // legacy alias for pageSize (non-paginated array callers)
@@ -263,15 +264,22 @@ export async function searchPatients(query: {
   );
   const page = Math.max(1, query.page ?? 1);
 
+  // Optional branch scope: a patient has no home branch (patients are global —
+  // only visits carry a branchId), so "in this branch" means "has ≥1 visit at
+  // this branch". Absent → global search (BINDING DECISION 1) is preserved.
+  const branchId = query.branchId || undefined;
+  const branchVisitFilter = branchId ? { visits: { some: { branchId } } } : {};
+
   let results: ReturnType<typeof toSearchResult>[];
   let total: number;
 
   if (query.patientNumber) {
     // patientNumber is an exact/unique key — do NOT route through fuzzy
-    // matching. Direct findUnique, mapped into the SAME search-result shape.
+    // matching. Direct lookup, mapped into the SAME search-result shape.
     // Empty (not 404) on no match so the frontend shows the register state.
-    const patient = await prisma.patient.findUnique({
-      where: { patientNumber: query.patientNumber },
+    // findFirst (not findUnique) so the branch-visit filter can apply.
+    const patient = await prisma.patient.findFirst({
+      where: { patientNumber: query.patientNumber, ...branchVisitFilter },
       include: {
         identifiers: true,
         visits: {
@@ -285,14 +293,19 @@ export async function searchPatients(query: {
   } else if (query.name && !query.phone && !query.email) {
     // NAME — rank ALL matches (exact name first) and page the ranked list, so
     // an exact-name match is never truncated out before it can be scored.
-    ({ results, total } = await searchByNameRanked(query.name, page, pageSize));
+    ({ results, total } = await searchByNameRanked(query.name, page, pageSize, branchId));
   } else {
     // PHONE / EMAIL — exact identity match via the centralized matcher (E2-02).
     const matches = await patientMatching.findPatientsByIdentifier(
       { phone: query.phone, email: query.email },
       { limit: pageSize, includeVisitHistory: true, strictMode: false },
     );
-    results = matches.map(match => toSearchResult(match.patient));
+    // Branch scope: keep only patients with a visit at the branch. Exact-identity
+    // matches are few (typically 1-3), so post-filtering the capped set is safe.
+    const scoped = branchId
+      ? matches.filter(m => ((m.patient as any).visits ?? []).some((v: any) => v.branchId === branchId))
+      : matches;
+    results = scoped.map(match => toSearchResult(match.patient));
     total = results.length;
   }
 
@@ -312,9 +325,12 @@ export async function searchPatients(query: {
  *      total count + the id slice for this page.
  *   2. Full fetch (identifiers + recent visits) for THIS page's ids only.
  */
-async function searchByNameRanked(name: string, page: number, pageSize: number) {
+async function searchByNameRanked(name: string, page: number, pageSize: number, branchId?: string) {
   const candidates = await prisma.patient.findMany({
-    where: { name: { contains: name, mode: 'insensitive' } },
+    where: {
+      name: { contains: name, mode: 'insensitive' },
+      ...(branchId ? { visits: { some: { branchId } } } : {}),
+    },
     select: { id: true, name: true },
   });
 

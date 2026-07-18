@@ -174,6 +174,7 @@ export function useSmartSearch(
   raw: string,
   overrideType?: SearchKind,
   page = 1,
+  branchId: string | null = null,
 ) {
   const [debounced, setDebounced] = useState(raw);
 
@@ -199,10 +200,12 @@ export function useSmartSearch(
   // { results, total, hasMore } shape. The full match set is ranked server-side
   // (exact name first), so the best match is never truncated out of a page.
   const query = useApiQuery<PatientSearchPage>({
-    queryKey: qk.patientSmartSearch(type, value, page),
+    queryKey: qk.patientSmartSearch(type, value, page, branchId),
     queryFn: ({ signal }) =>
       apiCall<PatientSearchPage>(
-        `/patients/search?${param}=${encodeURIComponent(value)}&page=${page}&pageSize=${SEARCH_PAGE_SIZE}`,
+        `/patients/search?${param}=${encodeURIComponent(value)}&page=${page}&pageSize=${SEARCH_PAGE_SIZE}${
+          branchId ? `&branchId=${encodeURIComponent(branchId)}` : ""
+        }`,
         { signal },
       ),
     enabled,
