@@ -316,6 +316,31 @@ function writeUseSigningRuleDefault(testId: string, value: boolean): void {
   }
 }
 
+// Remembered per-test default for the narrative signing-doctor dropdown, so the
+// next report of the same test pre-selects the last radiologist who signed it —
+// the same convenience the "use signing rule" checkbox above already gives. Kept
+// in localStorage (like the checkbox) so it survives regardless of the cloud-sync
+// toggle, which only governs whether narrative rows auto-save to the server.
+const SIGNING_DOCTOR_LS_PREFIX = 'sobhana:signingDoctor:';
+function readSigningDoctorDefault(testId: string): string | null {
+  try {
+    return localStorage.getItem(`${SIGNING_DOCTOR_LS_PREFIX}${testId}`) || null;
+  } catch {
+    return null;
+  }
+}
+function writeSigningDoctorDefault(testId: string, doctorId: string): void {
+  try {
+    if (doctorId) {
+      localStorage.setItem(`${SIGNING_DOCTOR_LS_PREFIX}${testId}`, doctorId);
+    } else {
+      localStorage.removeItem(`${SIGNING_DOCTOR_LS_PREFIX}${testId}`);
+    }
+  } catch {
+    /* ignore quota / disabled storage */
+  }
+}
+
 // One configured signing doctor for a department (radiology depts have several).
 // Drives the strict "which radiologist signed this?" dropdown.
 type SigningRuleOption = {
@@ -379,9 +404,10 @@ const DiagnosticsResultEntry = () => {
   const [useSigningRuleByResultKey, setUseSigningRuleByResultKey] = useState<Record<string, boolean>>({});
   // For multi-rule departments (radiology): which signing doctor the operator
   // picked in the strict dropdown, per result key. Absent = not yet chosen —
-  // finalize is blocked until one is selected. Deliberately NOT remembered
-  // across reports (unlike the checkbox): each report gets a fresh, conscious
-  // pick of who read it.
+  // finalize is blocked until one is selected. Seeded from the last pick for the
+  // same test (localStorage, like the "use signing rule" checkbox) once the
+  // signing rules load, so the common case of one radiologist repeatedly reading
+  // the same study doesn't force re-picking every report. See the seeding effect.
   const [selectedSigningDoctorByResultKey, setSelectedSigningDoctorByResultKey] = useState<Record<string, string>>({});
   const [derivedManualOverrides, setDerivedManualOverrides] = useState<Record<string, boolean>>({});
   const [showWarning, setShowWarning] = useState(false);
@@ -843,6 +869,43 @@ const DiagnosticsResultEntry = () => {
       cancelled = true;
     };
   }, [token, activeBranchId]);
+
+  // Pre-select the last-remembered signing doctor for each multi-radiologist
+  // narrative row, so a department with several signers doesn't force re-picking
+  // the same doctor on every report (mirrors the remembered "use signing rule"
+  // checkbox). Runs once the visit AND the signing rules are both loaded so the
+  // remembered id can be validated as still a configured signer — a stale id (the
+  // doctor was removed from the rules) is ignored, keeping the finalize guard
+  // honest. Only fills rows with no pick yet: a server value or a choice made this
+  // session always wins, so this never clobbers real data.
+  useEffect(() => {
+    if (!visit || Object.keys(signingRulesByDept).length === 0) return;
+    setSelectedSigningDoctorByResultKey((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const order of visit.testOrders) {
+        if (order.noReportAt || order.workflowMode === 'EXTERNAL_UPLOAD') continue;
+        const deptId = order.department?.id;
+        if (!deptId) continue;
+        const options = signingRulesByDept[deptId] ?? [];
+        if (options.length < 2) continue;
+        const rows =
+          order.isPanel && order.childTests && order.childTests.length > 0
+            ? order.childTests.map((c) => ({ resultKey: makeResultKey(order.id, c.id), testId: c.id }))
+            : [{ resultKey: makeResultKey(order.id, order.testId), testId: order.testId }];
+        for (const row of rows) {
+          if (!textLayoutByResultKey.has(row.resultKey)) continue;
+          if (Object.prototype.hasOwnProperty.call(next, row.resultKey)) continue;
+          const remembered = readSigningDoctorDefault(row.testId);
+          if (remembered && options.some((o) => o.doctorId === remembered)) {
+            next[row.resultKey] = remembered;
+            changed = true;
+          }
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [visit, signingRulesByDept, textLayoutByResultKey]);
 
   // Fetch external uploads for the visit (renders the per-order upload zones).
   useEffect(() => {
@@ -1589,8 +1652,11 @@ const DiagnosticsResultEntry = () => {
     }
   };
 
-  const handleSelectedSigningDoctorChange = (resultKey: ResultKey, value: string) => {
+  const handleSelectedSigningDoctorChange = (resultKey: ResultKey, testId: string, value: string) => {
     touchedForSaveResultKeysRef.current.add(resultKey);
+    // Remember this pick per-test so the next report of the same study pre-selects
+    // it (like the checkbox). Clearing back to "— Select —" forgets it.
+    writeSigningDoctorDefault(testId, value);
     if (textLayoutByResultKey.has(resultKey)) {
       setReportSaveStatusByKey((prev) => ({ ...prev, [resultKey]: 'unsaved' }));
     }
@@ -2236,7 +2302,7 @@ const DiagnosticsResultEntry = () => {
             onUseSigningRuleChange={(next) => handleUseSigningRuleChange(resultKey, testId, next)}
             signingRuleOptions={signingRuleOptions}
             selectedSigningDoctorId={selectedSigningDoctorByResultKey[resultKey] || ''}
-            onSelectedSigningDoctorChange={(next) => handleSelectedSigningDoctorChange(resultKey, next)}
+            onSelectedSigningDoctorChange={(next) => handleSelectedSigningDoctorChange(resultKey, testId, next)}
             onFirstTouch={() => markNarrativeTouched(resultKey)}
           />
         )}
