@@ -3,6 +3,7 @@ import { Building2, ChevronDown, Loader2 } from 'lucide-react';
 import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
 import { getBranchTheme } from '@/lib/branchTheme';
+import { branchShortName } from '@/lib/branchName';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -74,7 +75,7 @@ export function BranchSelector() {
               >
                 {branchDot(branch.code)}
                 <div className="flex flex-col">
-                  <span className="font-medium">{branch.name}</span>
+                  <span className="font-medium">{branchShortName(branch.name)}</span>
                   {branch.address && (
                     <span className="text-xs text-muted-foreground truncate max-w-[180px]">
                       {branch.address}
@@ -96,7 +97,7 @@ export function BranchSelector() {
     return (
       <div className="flex w-full items-center gap-2 rounded-lg bg-white/10 px-3 py-2 sm:w-auto">
         <Building2 className="h-4 w-4 text-white/70" />
-        <span className="min-w-0 truncate text-sm font-medium text-white">{activeBranch.name}</span>
+        <span className="min-w-0 truncate text-sm font-medium text-white">{branchShortName(activeBranch.name)}</span>
       </div>
     );
   }
@@ -109,7 +110,7 @@ export function BranchSelector() {
           className="flex w-full max-w-full items-center justify-between gap-2 overflow-hidden border-white/30 bg-white/10 text-white hover:bg-white/20 sm:w-auto sm:justify-start"
         >
           <Building2 className="h-4 w-4" />
-          <span className="min-w-0 truncate font-medium">{activeBranch.name}</span>
+          <span className="min-w-0 truncate font-medium">{branchShortName(activeBranch.name)}</span>
           <ChevronDown className="h-4 w-4 opacity-50" />
         </Button>
       </DropdownMenuTrigger>

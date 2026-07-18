@@ -19,6 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { branchShortName } from "@/lib/branchName";
 import {
   Search,
   Phone,
@@ -95,7 +96,7 @@ function BranchScopeSelect({
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          className="w-full justify-between gap-2 sm:w-[12rem]"
+          className="w-full justify-between gap-2 sm:w-auto"
           aria-label="Branch to search in"
         >
           <span className="flex min-w-0 items-center gap-2">
@@ -104,7 +105,7 @@ function BranchScopeSelect({
             ) : (
               <Globe className="h-4 w-4 shrink-0" aria-hidden="true" />
             )}
-            <span className="truncate">{active ? active.name : "All branches"}</span>
+            <span className="truncate">{active ? branchShortName(active.name) : "All branches"}</span>
           </span>
           <ChevronDown className="h-4 w-4 shrink-0 opacity-50" aria-hidden="true" />
         </Button>
@@ -125,7 +126,7 @@ function BranchScopeSelect({
             className={cn("cursor-pointer gap-2", scope === branch.id && "bg-accent")}
           >
             <Building2 className="h-4 w-4" aria-hidden="true" />
-            {branch.name}
+            {branchShortName(branch.name)}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>
