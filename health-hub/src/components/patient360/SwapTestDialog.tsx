@@ -166,7 +166,7 @@ export function SwapTestDialog({ visit, open, onOpenChange }: SwapTestDialogProp
 
   return (
     <Dialog open={open} onOpenChange={(o) => (!busy ? onOpenChange(o) : undefined)}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Replace a billed test</DialogTitle>
           <DialogDescription>
@@ -175,7 +175,7 @@ export function SwapTestDialog({ visit, open, onOpenChange }: SwapTestDialogProp
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="-mr-2 min-h-0 flex-1 space-y-4 overflow-y-auto pr-2">
           <div className="space-y-2">
             <Label>Billed test to replace</Label>
             <div className="max-h-[22vh] space-y-0.5 overflow-y-auto rounded-lg border p-1">
