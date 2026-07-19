@@ -190,6 +190,19 @@ const DiagnosticsPendingResults = () => {
     useState<PaymentType>("CASH");
   const [collectingDue, setCollectingDue] = useState(false);
   const [collectSuccessId, setCollectSuccessId] = useState<string | null>(null);
+  // Optional discount applied while collecting the due. Mirrors the new-visit
+  // discount control; the reason is mandatory when a discount is entered.
+  const [collectDiscountMode, setCollectDiscountMode] = useState<
+    "NONE" | "PERCENTAGE" | "FLAT_AMOUNT"
+  >("NONE");
+  const [collectDiscountValue, setCollectDiscountValue] = useState("");
+  const [collectDiscountReason, setCollectDiscountReason] = useState("");
+
+  const resetCollectDiscount = () => {
+    setCollectDiscountMode("NONE");
+    setCollectDiscountValue("");
+    setCollectDiscountReason("");
+  };
 
   const formatMoneyFromPaise = (amountInPaise?: number | null) =>
     `₹${((amountInPaise ?? 0) / 100).toLocaleString("en-IN", {
@@ -293,6 +306,57 @@ const DiagnosticsPendingResults = () => {
     navigate(`/diagnostics/results/${visit.id}`);
   };
 
+  // The additional discount (in paise) entered in the dialog, and the resulting
+  // preview of Discount / Net / Balance so the operator sees the effect live.
+  const collectPreview = useMemo(() => {
+    if (!dueVisit) return null;
+    const totalPaise = Math.round((dueVisit.totalAmount ?? 0) * 100);
+    const existingDiscountPaise = dueVisit.discountAmountInPaise ?? 0;
+    const netPaise = dueVisit.netAmountInPaise ?? 0;
+    const paidPaise = dueVisit.paidAmountInPaise ?? 0;
+    const value = Number(collectDiscountValue);
+    const active =
+      collectDiscountMode !== "NONE" && Number.isFinite(value) && value > 0;
+    const incrementPaise = !active
+      ? 0
+      : collectDiscountMode === "PERCENTAGE"
+        ? Math.round((totalPaise * Math.min(100, value)) / 100)
+        : Math.round(value * 100);
+    const discountPaise = Math.min(totalPaise, existingDiscountPaise + incrementPaise);
+    const netPreview = Math.max(0, netPaise - incrementPaise);
+    const duePreview = Math.max(0, netPreview - paidPaise);
+    return {
+      active,
+      discountPaise,
+      netPreview,
+      duePreview,
+      // The discount is bigger than the remaining balance — the patient has
+      // already paid more than the new net, so a refund is needed first.
+      tooLarge: incrementPaise > 0 && netPreview < paidPaise,
+    };
+  }, [dueVisit, collectDiscountMode, collectDiscountValue]);
+
+  // Keep "Collect Now" defaulted to the balance after the entered discount, so
+  // the common case (collect the reduced balance) needs no manual retyping.
+  const syncCollectAmountToDiscount = (
+    mode: typeof collectDiscountMode,
+    rawValue: string,
+  ) => {
+    if (!dueVisit) return;
+    const totalPaise = Math.round((dueVisit.totalAmount ?? 0) * 100);
+    const netPaise = dueVisit.netAmountInPaise ?? 0;
+    const paidPaise = dueVisit.paidAmountInPaise ?? 0;
+    const value = Number(rawValue);
+    const incrementPaise =
+      mode !== "NONE" && Number.isFinite(value) && value > 0
+        ? mode === "PERCENTAGE"
+          ? Math.round((totalPaise * Math.min(100, value)) / 100)
+          : Math.round(value * 100)
+        : 0;
+    const duePreview = Math.max(0, Math.max(0, netPaise - incrementPaise) - paidPaise);
+    setCollectAmount(duePreview > 0 ? String(duePreview / 100) : "0");
+  };
+
   const openCollectDue = (visit: any) => {
     const firstPaymentType =
       typeof visit.paymentType === "string"
@@ -300,6 +364,7 @@ const DiagnosticsPendingResults = () => {
         : undefined;
 
     setDueVisit(visit);
+    resetCollectDiscount();
     setCollectAmount(
       visit.dueAmountInPaise ? String(visit.dueAmountInPaise / 100) : "",
     );
@@ -309,8 +374,29 @@ const DiagnosticsPendingResults = () => {
   const handleCollectDue = async () => {
     if (!dueVisit) return;
 
+    const discountActive = collectDiscountMode !== "NONE";
+    const discountVal = Number(collectDiscountValue);
+    if (discountActive) {
+      if (!Number.isFinite(discountVal) || discountVal <= 0) {
+        toast.error("Enter a valid discount");
+        return;
+      }
+      if (!collectDiscountReason.trim()) {
+        toast.error("A reason is required to apply a discount");
+        return;
+      }
+      if (collectPreview?.tooLarge) {
+        toast.error(
+          "Discount is larger than the remaining balance — refund the overpaid amount first",
+        );
+        return;
+      }
+    }
+
     const amount = Number(collectAmount);
-    if (!Number.isFinite(amount) || amount <= 0) {
+    // A discount that clears the whole balance can be applied with no collection.
+    const isWaiver = discountActive && (collectPreview?.duePreview ?? 1) === 0;
+    if (!isWaiver && (!Number.isFinite(amount) || amount <= 0)) {
       toast.error("Enter a valid collection amount");
       return;
     }
@@ -327,8 +413,15 @@ const DiagnosticsPendingResults = () => {
             "X-Branch-Id": activeBranchId,
           },
           body: JSON.stringify({
-            amount,
+            amount: isWaiver ? 0 : amount,
             paymentType: collectPaymentType,
+            ...(discountActive
+              ? {
+                  discountType: collectDiscountMode,
+                  discountValue: discountVal,
+                  discountReason: collectDiscountReason.trim(),
+                }
+              : {}),
           }),
         },
       );
@@ -349,6 +442,7 @@ const DiagnosticsPendingResults = () => {
                 discountType: data.discountType,
                 discountPercentage: data.discountPercentage,
                 discountAmountInPaise: data.discountAmountInPaise,
+                discountReason: data.discountReason,
                 couponDiscountInPaise: (data as any).couponDiscountInPaise,
                 couponCode: (data as any).couponCode,
                 paidAmountInPaise: data.paidAmountInPaise,
@@ -358,7 +452,9 @@ const DiagnosticsPendingResults = () => {
             : visit,
         ),
       );
-      toast.success("Due payment collected");
+      toast.success(
+        discountActive ? "Discount applied & payment collected" : "Due payment collected",
+      );
       setCollectSuccessId(dueVisit.id);
     } catch (error: any) {
       toast.error(error.message || "Failed to collect due");
@@ -619,6 +715,7 @@ const DiagnosticsPendingResults = () => {
               setDueVisit(null);
               setCollectSuccessId(null);
               setCollectAmount("");
+              resetCollectDiscount();
             }
           }}
         >
@@ -642,13 +739,19 @@ const DiagnosticsPendingResults = () => {
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Discount</span>
                     <span>
-                      -{formatMoneyFromPaise(dueVisit.discountAmountInPaise)}
+                      -
+                      {formatMoneyFromPaise(
+                        collectPreview?.discountPaise ??
+                          dueVisit.discountAmountInPaise,
+                      )}
                     </span>
                   </div>
                   <div className="flex justify-between font-medium">
                     <span>Net payable</span>
                     <span>
-                      {formatMoneyFromPaise(dueVisit.netAmountInPaise)}
+                      {formatMoneyFromPaise(
+                        collectPreview?.netPreview ?? dueVisit.netAmountInPaise,
+                      )}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -660,9 +763,67 @@ const DiagnosticsPendingResults = () => {
                   <div className="flex justify-between font-semibold text-amber-700">
                     <span>Balance due</span>
                     <span>
-                      {formatMoneyFromPaise(dueVisit.dueAmountInPaise)}
+                      {formatMoneyFromPaise(
+                        collectPreview?.duePreview ?? dueVisit.dueAmountInPaise,
+                      )}
                     </span>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Discount</Label>
+                  <div className="grid gap-2 sm:grid-cols-[130px_minmax(0,1fr)]">
+                    <Select
+                      value={collectDiscountMode}
+                      onValueChange={(value) => {
+                        const mode = value as typeof collectDiscountMode;
+                        setCollectDiscountMode(mode);
+                        setCollectDiscountValue("");
+                        setCollectDiscountReason("");
+                        syncCollectAmountToDiscount(mode, "");
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NONE">No discount</SelectItem>
+                        <SelectItem value="PERCENTAGE">Percent %</SelectItem>
+                        <SelectItem value="FLAT_AMOUNT">Amount ₹</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type="text"
+                      inputMode="numeric"
+                      value={collectDiscountValue}
+                      onChange={(e) => {
+                        setCollectDiscountValue(e.target.value);
+                        syncCollectAmountToDiscount(
+                          collectDiscountMode,
+                          e.target.value,
+                        );
+                      }}
+                      placeholder={
+                        collectDiscountMode === "PERCENTAGE"
+                          ? "Enter discount %"
+                          : "Enter discount amount"
+                      }
+                      disabled={collectDiscountMode === "NONE"}
+                    />
+                  </div>
+                  {collectDiscountMode !== "NONE" && (
+                    <Input
+                      placeholder="Reason for discount (Required)"
+                      value={collectDiscountReason}
+                      onChange={(e) => setCollectDiscountReason(e.target.value)}
+                    />
+                  )}
+                  {collectPreview?.tooLarge && (
+                    <p className="text-xs text-destructive">
+                      Discount is larger than the remaining balance. Refund the
+                      overpaid amount first.
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -670,7 +831,7 @@ const DiagnosticsPendingResults = () => {
                   <Input
                     type="number"
                     min={0}
-                    max={(dueVisit.dueAmountInPaise ?? 0) / 100}
+                    max={(collectPreview?.duePreview ?? dueVisit.dueAmountInPaise ?? 0) / 100}
                     step="1"
                     value={collectAmount}
                     onChange={(e) => setCollectAmount(e.target.value)}
@@ -718,7 +879,13 @@ const DiagnosticsPendingResults = () => {
             <DialogFooter>
               {!collectSuccessId ? (
                 <>
-                  <Button variant="outline" onClick={() => setDueVisit(null)}>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setDueVisit(null);
+                      resetCollectDiscount();
+                    }}
+                  >
                     Cancel
                   </Button>
                   <Button
@@ -735,6 +902,7 @@ const DiagnosticsPendingResults = () => {
                     setDueVisit(null);
                     setCollectSuccessId(null);
                     setCollectAmount("");
+                    resetCollectDiscount();
                   }}
                 >
                   Close

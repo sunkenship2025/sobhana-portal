@@ -1,6 +1,7 @@
 import { Router } from "express";
 import QRCode from "qrcode";
 import {
+  BillDiscountType,
   DiagnosticWorkflowMode,
   MessageChannel,
   MessageStatus,
@@ -3016,7 +3017,8 @@ router.patch("/:id", async (req: AuthRequest, res) => {
 router.post("/:id/collect-due", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { amount, paymentType } = req.body;
+    const { amount, paymentType, discountType, discountValue, discountReason } =
+      req.body;
 
     const existing = await prisma.visit.findFirst({
       where: {
@@ -3041,27 +3043,154 @@ router.post("/:id/collect-due", async (req: AuthRequest, res) => {
       });
     }
 
-    let nextBillFinancials;
-    try {
-      nextBillFinancials = collectBillDue(existing.bill, amount);
-    } catch (validationErr: any) {
+    // Optionally apply a discount at collection time. The reason is MANDATORY
+    // (mirrors the create-visit rule at POST /) and the discount is stored on the
+    // bill with the collector as `discountedByUserId` + `discountReason`, so it
+    // flows into the owner audit/anomaly feed (which reads those columns). The
+    // discount is ADDITIVE to any discount already on the bill.
+    const subtotalPaise = Math.max(
+      0,
+      Math.round(existing.bill.totalAmountInPaise || 0),
+    );
+    const existingDiscountPaise = Math.max(
+      0,
+      Math.round(existing.bill.discountAmountInPaise ?? 0),
+    );
+    const wantsDiscount =
+      discountType && discountType !== "NONE" && Number(discountValue) > 0;
+
+    let discountData:
+      | {
+          discountType: BillDiscountType;
+          discountPercentage: number | null;
+          discountAmountInPaise: number;
+          discountReason: string;
+          discountedByUserId: string;
+        }
+      | undefined;
+    let workingBill: typeof existing.bill = existing.bill;
+
+    if (wantsDiscount) {
+      if (typeof discountReason !== "string" || !discountReason.trim()) {
+        return res.status(400).json({
+          error: "VALIDATION_ERROR",
+          message: "A reason must be provided when applying a discount",
+        });
+      }
+      let incrementPaise = 0;
+      if (discountType === "PERCENTAGE") {
+        const pct = Number(discountValue);
+        if (!Number.isFinite(pct) || pct <= 0 || pct > 100) {
+          return res.status(400).json({
+            error: "VALIDATION_ERROR",
+            message: "Discount percentage must be between 0 and 100",
+          });
+        }
+        incrementPaise = Math.round((subtotalPaise * pct) / 100);
+      } else if (discountType === "FLAT_AMOUNT") {
+        const flat = Number(discountValue);
+        if (!Number.isFinite(flat) || flat <= 0) {
+          return res.status(400).json({
+            error: "VALIDATION_ERROR",
+            message: "Discount amount must be greater than zero",
+          });
+        }
+        incrementPaise = Math.round(flat * 100);
+      } else {
+        return res.status(400).json({
+          error: "VALIDATION_ERROR",
+          message: "Invalid discount type",
+        });
+      }
+
+      const newDiscountPaise = Math.min(
+        subtotalPaise,
+        existingDiscountPaise + incrementPaise,
+      );
+      const currentPaidPaise =
+        computeBillFinancialsFromPersisted(existing.bill).paidAmountInPaise;
+      const couponPaise = Math.max(
+        0,
+        Math.round(existing.bill.couponDiscountInPaise ?? 0),
+      );
+      const reversedPaise = Math.max(
+        0,
+        Math.round(existing.bill.reversedChargeInPaise ?? 0),
+      );
+      const newNetPaise = Math.max(
+        0,
+        subtotalPaise - newDiscountPaise - couponPaise - reversedPaise,
+      );
+      if (newNetPaise < currentPaidPaise) {
+        return res.status(400).json({
+          error: "VALIDATION_ERROR",
+          message: `Discount would drop the bill below the amount already paid (₹${(currentPaidPaise / 100).toFixed(2)}). Refund the overpayment first.`,
+        });
+      }
+
+      // Store faithfully as a percentage only when there was no prior manual
+      // discount; otherwise freeze the combined discount as an absolute amount so
+      // it stays stable if the subtotal later changes (add/remove test).
+      if (existingDiscountPaise === 0 && discountType === "PERCENTAGE") {
+        discountData = {
+          discountType: BillDiscountType.PERCENTAGE,
+          discountPercentage: Number(discountValue),
+          discountAmountInPaise: newDiscountPaise,
+          discountReason: discountReason.trim(),
+          discountedByUserId: req.user!.id,
+        };
+      } else {
+        discountData = {
+          discountType: BillDiscountType.FLAT_AMOUNT,
+          discountPercentage: null,
+          discountAmountInPaise: newDiscountPaise,
+          discountReason: discountReason.trim(),
+          discountedByUserId: req.user!.id,
+        };
+      }
+      workingBill = { ...existing.bill, ...discountData };
+    }
+
+    // Collection amount may be 0 ONLY when a discount is being applied (e.g. the
+    // discount clears the remaining balance). Otherwise a positive amount is
+    // required.
+    const collectRupees = Number(amount);
+    const wantsCollection = Number.isFinite(collectRupees) && collectRupees > 0;
+    if (!wantsCollection && !wantsDiscount) {
       return res.status(400).json({
         error: "VALIDATION_ERROR",
-        message: validationErr.message,
+        message: "Collection amount must be greater than zero",
       });
     }
 
-    const currentBillFinancials = buildBillFinancialResponse(existing.bill);
-    const addedAmountInPaise = Math.max(
-      0,
-      nextBillFinancials.paidAmountInPaise -
-        currentBillFinancials.paidAmountInPaise,
-    );
-    if (addedAmountInPaise <= 0) {
-      return res.status(400).json({
-        error: "VALIDATION_ERROR",
-        message: "Collection amount must increase paid amount",
-      });
+    const workingFinancials = computeBillFinancialsFromPersisted(workingBill);
+    let nextPaidAmountInPaise = workingFinancials.paidAmountInPaise;
+    let nextPaymentStatus = workingFinancials.paymentStatus;
+    let addedAmountInPaise = 0;
+
+    if (wantsCollection) {
+      let nextBillFinancials;
+      try {
+        nextBillFinancials = collectBillDue(workingBill, amount);
+      } catch (validationErr: any) {
+        return res.status(400).json({
+          error: "VALIDATION_ERROR",
+          message: validationErr.message,
+        });
+      }
+      addedAmountInPaise = Math.max(
+        0,
+        nextBillFinancials.paidAmountInPaise -
+          workingFinancials.paidAmountInPaise,
+      );
+      if (addedAmountInPaise <= 0) {
+        return res.status(400).json({
+          error: "VALIDATION_ERROR",
+          message: "Collection amount must increase paid amount",
+        });
+      }
+      nextPaidAmountInPaise = nextBillFinancials.paidAmountInPaise;
+      nextPaymentStatus = nextBillFinancials.paymentStatus;
     }
 
     const normalizedPaymentType =
@@ -3070,15 +3199,20 @@ router.post("/:id/collect-due", async (req: AuthRequest, res) => {
     const updated = await prisma.bill.update({
       where: { id: existing.bill.id },
       data: {
-        paidAmountInPaise: nextBillFinancials.paidAmountInPaise,
-        paymentStatus: nextBillFinancials.paymentStatus,
-        transactions: {
-          create: {
-            amountInPaise: addedAmountInPaise,
-            paymentType: normalizedPaymentType,
-            collectedByUserId: req.user!.id,
-          },
-        },
+        ...(discountData ?? {}),
+        paidAmountInPaise: nextPaidAmountInPaise,
+        paymentStatus: nextPaymentStatus,
+        ...(addedAmountInPaise > 0
+          ? {
+              transactions: {
+                create: {
+                  amountInPaise: addedAmountInPaise,
+                  paymentType: normalizedPaymentType,
+                  collectedByUserId: req.user!.id,
+                },
+              },
+            }
+          : {}),
       },
       include: { transactions: true },
     });
