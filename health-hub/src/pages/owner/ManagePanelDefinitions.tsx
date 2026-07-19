@@ -1086,7 +1086,7 @@ export default function ManagePanelDefinitions() {
                   )}
                   <div className="flex items-center gap-2">
                     <Switch checked={formShowInterpretation} onCheckedChange={setFormShowInterpretation} />
-                    <Label className="text-sm">Show Comments</Label>
+                    <Label className="text-sm">Show Clinical Notes</Label>
                   </div>
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-2">
@@ -1214,15 +1214,15 @@ export default function ManagePanelDefinitions() {
                 )}
               </div>
 
-              {/* Comments (rich text, default) + Advanced → Interpretation */}
+              {/* Clinical Notes (rich text, default) + Advanced → Interpretation */}
               {formShowInterpretation && (
                 <div className="space-y-3">
                   <div>
-                    <Label>Comments</Label>
+                    <Label>Clinical Notes</Label>
                     <RichTextNarrativeEditor
                       value={formComments}
                       onChange={setFormComments}
-                      placeholder="Comments shown in a box below the results (same on every report)"
+                      placeholder="Clinical notes shown in a box below the results (same on every report)"
                       minHeightClassName="min-h-[140px]"
                       contentClassName="text-[12px] leading-[1.45] px-4 py-3"
                     />
@@ -1241,7 +1241,7 @@ export default function ManagePanelDefinitions() {
                       <RichTextNarrativeEditor
                         value={formInterpretation}
                         onChange={setFormInterpretation}
-                        placeholder="Optional. Rendered above Comments on the report when filled."
+                        placeholder="Optional. Rendered above Clinical Notes on the report when filled."
                         minHeightClassName="min-h-[100px]"
                         contentClassName="text-[12px] leading-[1.45] px-4 py-3"
                       />
@@ -1719,7 +1719,7 @@ export default function ManagePanelDefinitions() {
                       )}
                       {hasMeaningfulRichText(formComments) && (
                         <div className="bg-[#f8fafd] border border-[#c3d0e6] rounded-[2px] p-2">
-                          <div className="font-semibold text-[11px] text-[#1f3e6e]">COMMENTS:</div>
+                          <div className="font-semibold text-[11px] text-[#1f3e6e]">CLINICAL NOTES:</div>
                           <div className="rich-text-preview text-[12px] leading-[1.45] mt-1" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml(formComments) }} />
                         </div>
                       )}
@@ -1894,7 +1894,7 @@ export default function ManagePanelDefinitions() {
                   )}
                   {hasMeaningfulRichText((previewData.panel as any)?.comments) && (
                     <div>
-                      <strong>Comments:</strong>
+                      <strong>Clinical Notes:</strong>
                       <div className="rich-text-preview mt-1 p-2 bg-muted rounded text-[12px] leading-[1.45]" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml((previewData.panel as any)?.comments) }} />
                     </div>
                   )}
