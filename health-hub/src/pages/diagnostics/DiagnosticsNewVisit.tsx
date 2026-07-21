@@ -1044,6 +1044,17 @@ const DiagnosticsNewVisit = () => {
 
       if (!res.ok) {
         const error = await res.json();
+        // The backend refused a resubmit of a registration it already recorded.
+        // Nothing was created, so say so plainly instead of "Failed to create
+        // visit" — otherwise staff retry and think the bill went missing.
+        if (res.status === 409 && error.error === "DUPLICATE_VISIT") {
+          toast.warning("Already registered", {
+            description: error.message,
+            duration: 8000,
+          });
+          setShowConfirmDialog(false);
+          return;
+        }
         throw new Error(error.message || "Failed to create visit");
       }
 
