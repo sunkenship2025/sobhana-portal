@@ -290,6 +290,7 @@ function MoneyTodayCard({
             value={data.grossInPaise}
             ratio={widthFor(data.grossInPaise)}
             color={TOKENS.gross}
+            isBaseline
           />
           <WaterfallRow
             label="Discounts"
@@ -405,6 +406,7 @@ function WaterfallRow({
   emphasize,
   note,
   noteCaution,
+  isBaseline,
 }: {
   label: string;
   value: number;
@@ -413,21 +415,43 @@ function WaterfallRow({
   emphasize?: boolean;
   note?: string;
   noteCaution?: boolean;
+  isBaseline?: boolean;
 }) {
+  const [hovered, setHovered] = useState(false);
+  // The bar length encodes share-of-gross but only Discounts ever spells it out.
+  // On hover the rest reveal theirs in the SAME note slot Discounts already
+  // uses — no floating tooltip, no new visual vocabulary.
+  const sharePct = Math.round(ratio * 100);
+  const revealed =
+    hovered && !note ? (isBaseline ? 'baseline for the bars below' : `(${sharePct}% of gross)`) : null;
+
+  const enter = () => setHovered(true);
+  const leave = () => setHovered(false);
+
   return (
-    <div>
+    <div
+      tabIndex={0}
+      aria-label={`${label}: ${value < 0 ? 'minus ' : ''}${formatRupees(Math.abs(value))}${
+        isBaseline ? '' : `, ${sharePct} percent of gross billed`
+      }`}
+      onMouseEnter={enter}
+      onMouseLeave={leave}
+      onFocus={enter}
+      onBlur={leave}
+      style={{ outline: 'none', cursor: 'default' }}
+    >
       <div
         className="mb-1 flex items-baseline justify-between"
         style={{ fontSize: 12 }}
       >
         <span style={{ color: TOKENS.textSecondary }}>
           {label}
-          {note && (
+          {(note || revealed) && (
             <span
               className="ml-1.5"
               style={{ color: noteCaution ? TOKENS.caution : TOKENS.textTertiary }}
             >
-              {note}
+              {note ?? revealed}
             </span>
           )}
         </span>
@@ -439,7 +463,7 @@ function WaterfallRow({
           {formatRupees(Math.abs(value))}
         </span>
       </div>
-      <MiniBar fillRatio={ratio} color={color} />
+      <MiniBar fillRatio={ratio} color={color} highlight={hovered} />
     </div>
   );
 }

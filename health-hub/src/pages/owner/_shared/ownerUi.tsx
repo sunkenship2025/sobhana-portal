@@ -184,20 +184,24 @@ export function MiniBar({
   fillRatio,
   color,
   height = 6,
+  highlight = false,
 }: {
   fillRatio: number;
   color: string;
   height?: number;
+  /** Thickens the track while its row is hovered/focused, so the bar answers back. */
+  highlight?: boolean;
 }) {
   const ratio = Math.max(0, Math.min(1, fillRatio));
   return (
     <div
       style={{
         width: '100%',
-        height,
+        height: highlight ? height + 2 : height,
         background: 'rgba(0,0,0,0.04)',
         borderRadius: 3,
         overflow: 'hidden',
+        transition: 'height 120ms ease',
       }}
     >
       <div
@@ -280,15 +284,31 @@ export function AgingBar({
 }) {
   const pct = total > 0 ? Math.round((bucket.amountInPaise / total) * 100) : 0;
   const count = bucket.rowCount ?? bucket.billCount ?? 0;
+  const [hovered, setHovered] = React.useState(false);
+  // The row shortens the amount (₹1.6L). Hover swaps in the exact figure in
+  // place — the compressed digits are the only thing the row actually hides.
+  const exact = formatRupees(bucket.amountInPaise);
+  const short = formatRupees(bucket.amountInPaise, { short: true });
   return (
-    <div className="py-2">
+    <div
+      className="py-2"
+      tabIndex={0}
+      aria-label={`${bucket.label}: ${exact}, ${count} bills, ${pct} percent`}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setHovered(true)}
+      onBlur={() => setHovered(false)}
+      style={{ outline: 'none', cursor: 'default' }}
+    >
       <div className="mb-1 flex items-baseline justify-between" style={{ fontSize: 12 }}>
         <span style={{ color: TOKENS.textSecondary }}>{bucket.label}</span>
-        <span style={{ color: TOKENS.textPrimary }}>
-          {formatRupees(bucket.amountInPaise, { short: true })} · {count} bills · {pct}%
+        <span
+          style={{ color: TOKENS.textPrimary, fontVariantNumeric: 'tabular-nums' }}
+        >
+          {hovered && exact !== short ? exact : short} · {count} bills · {pct}%
         </span>
       </div>
-      <MiniBar fillRatio={pct / 100} color={color} />
+      <MiniBar fillRatio={pct / 100} color={color} highlight={hovered} />
     </div>
   );
 }

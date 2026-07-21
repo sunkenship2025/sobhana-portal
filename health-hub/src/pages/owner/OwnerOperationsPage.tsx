@@ -12,6 +12,7 @@
  *   - Communication failures (conditional — hides at zero)
  */
 
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -125,6 +126,62 @@ function fmtDuration(mins: number): string {
   return h === 0 ? `${d}d` : `${d}d ${h}h`;
 }
 
+// One turnaround bucket. The row shows a raw count; what it never says is how
+// big a slice of the week that is, so hover/focus reveals the share in the
+// count cell (whose width is reserved up front, so nothing shifts).
+function TurnaroundRow({
+  label,
+  count,
+  maxCount,
+  sampleCount,
+  color,
+}: {
+  label: string;
+  count: number;
+  maxCount: number;
+  sampleCount: number;
+  color: string;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const pct = sampleCount > 0 ? Math.round((count / sampleCount) * 100) : 0;
+  return (
+    <div
+      className="flex items-center gap-3"
+      style={{ fontSize: 12, outline: 'none', cursor: 'default' }}
+      tabIndex={0}
+      aria-label={`${label}: ${count} reports, ${pct} percent of the window`}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setHovered(true)}
+      onBlur={() => setHovered(false)}
+    >
+      <div style={{ width: 92, flexShrink: 0, color: TOKENS.textSecondary }}>{label}</div>
+      <div className="flex-1">
+        <div
+          style={{
+            width: `${count === 0 ? 0 : Math.max(3, (count / maxCount) * 100)}%`,
+            height: hovered ? 12 : 10,
+            borderRadius: 3,
+            background: color,
+            transition: 'height 120ms ease',
+          }}
+        />
+      </div>
+      <div
+        style={{
+          width: 68,
+          flexShrink: 0,
+          textAlign: 'right',
+          color: TOKENS.textSecondary,
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        {hovered ? `${count} · ${pct}%` : count}
+      </div>
+    </div>
+  );
+}
+
 // Report turnaround, in plain language for owners/managers: a "typical" time,
 // the share within the 24h SLA, and fixed time buckets with counts. Fixed
 // buckets mean a single slow report can't stretch the scale — it just lands in
@@ -179,26 +236,14 @@ function ReportTurnaroundCard({
 
       <div className="space-y-1.5">
         {turnaround.buckets.map((b) => (
-          <div key={b.label} className="flex items-center gap-3" style={{ fontSize: 12 }}>
-            <div style={{ width: 92, flexShrink: 0, color: TOKENS.textSecondary }}>
-              {b.label}
-            </div>
-            <div className="flex-1">
-              <div
-                style={{
-                  width: `${b.count === 0 ? 0 : Math.max(3, (b.count / maxCount) * 100)}%`,
-                  height: 10,
-                  borderRadius: 3,
-                  background: barColor(b.label),
-                }}
-              />
-            </div>
-            <div
-              style={{ width: 40, flexShrink: 0, textAlign: 'right', color: TOKENS.textSecondary }}
-            >
-              {b.count}
-            </div>
-          </div>
+          <TurnaroundRow
+            key={b.label}
+            label={b.label}
+            count={b.count}
+            maxCount={maxCount}
+            sampleCount={turnaround.sampleCount}
+            color={barColor(b.label)}
+          />
         ))}
       </div>
 

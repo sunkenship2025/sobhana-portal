@@ -332,6 +332,79 @@ function OldestUnpaidCard({
 
 // ----- cash by branch / user -------------------------------------------
 
+// One branch's cash/online split. Both halves are their own hit target; hovering
+// one lights it, dims the other, and bolds the matching half of the caption
+// below — the caption already carries the values, so it doubles as the readout
+// and no floating tooltip is needed. Amounts are shortened (₹2.7L), so hover
+// swaps in the exact figures.
+function CashByBranchRow({ b }: { b: MoneyResponse['cashByBranch'][number] }) {
+  const [side, setSide] = useState<'cash' | 'online' | null>(null);
+  const onlineSharePct = 100 - b.cashSharePct;
+  const amount = (v: number) => (side ? formatRupees(v) : formatRupees(v, { short: true }));
+  return (
+    <div
+      className="py-2"
+      style={{
+        borderTop: `0.5px solid ${TOKENS.border}`,
+        background: b.flagHeavyCash ? '#FFF8E1' : undefined,
+        padding: 8,
+      }}
+      onMouseLeave={() => setSide(null)}
+    >
+      <div className="mb-1 flex items-baseline justify-between" style={{ fontSize: 13 }}>
+        <span style={{ color: TOKENS.textPrimary }}>
+          {b.branchName}{' '}
+          <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}>({b.branchCode})</span>
+        </span>
+        <span style={{ color: TOKENS.textPrimary }}>
+          {amount(b.totalInPaise)}
+        </span>
+      </div>
+      <div className="flex w-full overflow-hidden" style={{ height: 12, borderRadius: 3 }}>
+        {(['cash', 'online'] as const).map((k) => (
+          <div
+            key={k}
+            tabIndex={0}
+            aria-label={`${b.branchName} ${k}: ${formatRupees(
+              k === 'cash' ? b.cashInPaise : b.onlineInPaise
+            )}, ${k === 'cash' ? b.cashSharePct : onlineSharePct} percent`}
+            onMouseEnter={() => setSide(k)}
+            onFocus={() => setSide(k)}
+            onBlur={() => setSide(null)}
+            style={{
+              width: `${k === 'cash' ? b.cashSharePct : onlineSharePct}%`,
+              background: k === 'cash' ? TOKENS.cash : TOKENS.online,
+              opacity: side && side !== k ? 0.4 : 1,
+              transition: 'opacity 120ms ease',
+              outline: 'none',
+              cursor: 'default',
+            }}
+          />
+        ))}
+      </div>
+      <div className="mt-1" style={{ fontSize: 11, color: TOKENS.textSecondary }}>
+        <span
+          style={{
+            color: side === 'cash' ? TOKENS.textPrimary : undefined,
+            fontWeight: side === 'cash' ? 600 : undefined,
+          }}
+        >
+          cash {amount(b.cashInPaise)} ({b.cashSharePct}%)
+        </span>
+        {' · '}
+        <span
+          style={{
+            color: side === 'online' ? TOKENS.textPrimary : undefined,
+            fontWeight: side === 'online' ? 600 : undefined,
+          }}
+        >
+          online {amount(b.onlineInPaise)} ({onlineSharePct}%)
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function CashByBranchCard({ rows }: { rows: MoneyResponse['cashByBranch'] }) {
   const visible = rows.filter((r) => r.totalInPaise > 0);
   return (
@@ -342,48 +415,7 @@ function CashByBranchCard({ rows }: { rows: MoneyResponse['cashByBranch'] }) {
       {visible.length === 0 ? (
         <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>No payments in window.</div>
       ) : (
-        visible.map((b) => (
-          <div
-            key={b.branchId}
-            className="py-2"
-            style={{
-              borderTop: `0.5px solid ${TOKENS.border}`,
-              background: b.flagHeavyCash ? '#FFF8E1' : undefined,
-              padding: 8,
-            }}
-          >
-            <div className="mb-1 flex items-baseline justify-between" style={{ fontSize: 13 }}>
-              <span style={{ color: TOKENS.textPrimary }}>
-                {b.branchName}{' '}
-                <span style={{ color: TOKENS.textTertiary, fontSize: 11 }}>({b.branchCode})</span>
-              </span>
-              <span style={{ color: TOKENS.textPrimary }}>
-                {formatRupees(b.totalInPaise, { short: true })}
-              </span>
-            </div>
-            <div
-              className="flex w-full overflow-hidden"
-              style={{ height: 12, borderRadius: 3 }}
-            >
-              <div
-                style={{
-                  width: `${b.cashSharePct}%`,
-                  background: TOKENS.cash,
-                }}
-              />
-              <div
-                style={{
-                  width: `${100 - b.cashSharePct}%`,
-                  background: TOKENS.online,
-                }}
-              />
-            </div>
-            <div className="mt-1" style={{ fontSize: 11, color: TOKENS.textSecondary }}>
-              cash {formatRupees(b.cashInPaise, { short: true })} ({b.cashSharePct}%) · online{' '}
-              {formatRupees(b.onlineInPaise, { short: true })} ({100 - b.cashSharePct}%)
-            </div>
-          </div>
-        ))
+        visible.map((b) => <CashByBranchRow key={b.branchId} b={b} />)
       )}
     </SectionCard>
   );
