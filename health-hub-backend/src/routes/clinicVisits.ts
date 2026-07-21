@@ -5,6 +5,11 @@ import { branchContextMiddleware } from "../middleware/branch";
 import prisma from "../lib/prisma";
 import { logAction } from "../services/auditService";
 import { generateClinicBillNumber } from "../services/numberService";
+import {
+  DUPLICATE_VISIT_WINDOW_MS,
+  DuplicateVisitError,
+  duplicateVisitLockId,
+} from "../lib/duplicateGuard";
 import { getPatientAge, getPatientAgeDisplay } from "../utils/validation";
 
 const router = Router();
@@ -531,6 +536,34 @@ router.post("/", async (req: AuthRequest, res) => {
     const visitRef = await generateClinicBillNumber(branch.code);
 
     const result = await prisma.$transaction(async (tx) => {
+      // Idempotency guard — same reasoning as the diagnostic registration:
+      // one run creates Visit + Bill + PaymentTransaction, and nothing else
+      // stops a resubmit. Serialize on (domain, branch, patient) FIRST, because
+      // a bare SELECT would let two concurrent requests both look, both find
+      // nothing, and both insert. The check reads through `tx` so the lock
+      // actually covers it.
+      const dupLockId = duplicateVisitLockId(
+        "CLINIC",
+        req.branchId!,
+        patientId,
+      );
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${dupLockId})`;
+      const recentTwin = await tx.visit.findFirst({
+        where: {
+          branchId: req.branchId!,
+          patientId,
+          domain: "CLINIC",
+          totalAmountInPaise: consultationFeeInPaise,
+          status: { not: "CANCELLED" },
+          createdAt: { gte: new Date(Date.now() - DUPLICATE_VISIT_WINDOW_MS) },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, billNumber: true },
+      });
+      if (recentTwin) {
+        throw new DuplicateVisitError(recentTwin.billNumber);
+      }
+
       const visit = await tx.visit.create({
         data: {
           branchId: req.branchId!,
@@ -664,6 +697,17 @@ router.post("/", async (req: AuthRequest, res) => {
 
     return res.status(201).json(transformedVisit);
   } catch (err: any) {
+    // The registration was already recorded moments ago — this is a resubmit,
+    // not a second visit. The transaction rolled back, so nothing was written;
+    // report the bill that already exists rather than billing twice.
+    if (err instanceof DuplicateVisitError) {
+      return res.status(409).json({
+        error: "DUPLICATE_VISIT",
+        existingBillNumber: err.existingBillNumber,
+        message: `This patient was already registered as ${err.existingBillNumber} moments ago. No second bill was created.`,
+      });
+    }
+
     if (err.statusCode) {
       return res.status(err.statusCode).json({
         error: err.error,

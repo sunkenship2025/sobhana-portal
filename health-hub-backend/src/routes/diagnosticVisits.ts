@@ -1,6 +1,10 @@
 import { Router } from "express";
-import crypto from "crypto";
 import QRCode from "qrcode";
+import {
+  DUPLICATE_VISIT_WINDOW_MS,
+  DuplicateVisitError,
+  duplicateVisitLockId,
+} from "../lib/duplicateGuard";
 import {
   BillDiscountType,
   DiagnosticWorkflowMode,
@@ -67,30 +71,6 @@ import {
 } from "../services/billFinancialService";
 
 const router = Router();
-
-// How close together two identical registrations for the same patient must be
-// before the second is treated as an accidental resubmit rather than a real
-// second visit. A patient genuinely registering twice for the same basket at
-// the same branch inside this window is not a real workflow; a double-click,
-// a retried request, or a duplicated tab all are.
-const DUPLICATE_VISIT_WINDOW_MS = 60_000;
-
-/** Advisory-lock id for serializing registrations of one patient at one branch. */
-function duplicateVisitLockId(branchId: string, patientId: string): number {
-  return crypto
-    .createHash("sha256")
-    .update(`visit:${branchId}:${patientId}`)
-    .digest()
-    .readInt32BE(0);
-}
-
-/** Thrown inside the create transaction to roll it back when a twin is found. */
-class DuplicateVisitError extends Error {
-  constructor(public existingBillNumber: string) {
-    super(`Duplicate of ${existingBillNumber}`);
-    this.name = "DuplicateVisitError";
-  }
-}
 
 // All routes require auth + branch context
 router.use(authMiddleware);
@@ -2484,7 +2464,11 @@ router.post("/", async (req: AuthRequest, res) => {
         // Serialize on (branch, patient) first — a bare SELECT would let two
         // concurrent requests both look, both find nothing, and both insert.
         // The check reads through `tx` so it is covered by that same lock.
-        const dupLockId = duplicateVisitLockId(req.branchId!, patientId);
+        const dupLockId = duplicateVisitLockId(
+          "DIAGNOSTICS",
+          req.branchId!,
+          patientId,
+        );
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(${dupLockId})`;
         const recentTwin = await tx.visit.findFirst({
           where: {

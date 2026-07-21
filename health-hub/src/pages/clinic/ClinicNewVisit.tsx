@@ -549,7 +549,29 @@ const ClinicNewVisit = () => {
     setWhatsappOptIn(true);
   };
 
+  // Re-entrancy latch. `isSubmitting` alone cannot hold the door: two clicks in
+  // the same React batch both read the pre-render value (button still enabled),
+  // and the patient-create POST below is awaited long before the flag is set. A
+  // ref flips synchronously, so the second call bails out. Since one run creates
+  // Patient + Visit + Bill + PaymentTransaction, a second run bills twice.
+  const submittingRef = useRef(false);
+
+  // Thin wrapper so the latch is released on EVERY exit path — submitVisit has
+  // nine early returns plus its own try/finally, and hand-releasing at each was
+  // the kind of thing that silently rots. Do not inline this back.
   const handleSubmit = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    try {
+      await submitVisit();
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
+    }
+  };
+
+  const submitVisit = async () => {
     if (!token || !activeBranch) {
       toast.error("Not authenticated");
       return;
@@ -700,8 +722,7 @@ const ClinicNewVisit = () => {
       return;
     }
 
-    setIsSubmitting(true);
-
+    // (handleSubmit already set isSubmitting before the first await.)
     try {
       const sendBillConfirmation =
         !isRevisitSelected &&
@@ -750,6 +771,17 @@ const ClinicNewVisit = () => {
       const visit = await res.json();
 
       if (!res.ok) {
+        // The backend refused a resubmit of a registration it already recorded.
+        // Nothing was created, so say so plainly instead of "Failed to create
+        // visit" — otherwise staff retry and think the bill went missing.
+        if (res.status === 409 && visit.error === "DUPLICATE_VISIT") {
+          toast.warning("Already registered", {
+            description: visit.message,
+            duration: 8000,
+          });
+          setShowConfirmDialog(false);
+          return;
+        }
         throw new Error(visit.message || "Failed to create visit");
       }
 
