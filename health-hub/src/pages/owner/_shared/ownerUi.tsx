@@ -538,6 +538,10 @@ export function NumericLink({ to, children }: { to: string; children: React.Reac
 
 // ----- trend chart ------------------------------------------------------
 
+/** Fixed readout box so the hover card can be clamped/flipped inside the plot. */
+const TOOLTIP_W = 104;
+const TOOLTIP_H = 40;
+
 /**
  * Shared daily-trend line chart. Uses a fixed-aspect responsive svg (the
  * viewBox is sized to the data) so the rendered slope is honest — never
@@ -561,6 +565,7 @@ export function TrendChart({
   // and the slope is honest (viewBox === pixel size, no aspect distortion).
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [containerW, setContainerW] = React.useState(0);
+  const [activeIdx, setActiveIdx] = React.useState<number | null>(null);
   React.useEffect(() => {
     const el = containerRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
@@ -613,15 +618,54 @@ export function TrendChart({
   if (midIdx > 0 && midIdx < n - 1) dateLabels.push({ i: midIdx, anchor: 'middle' });
   if (n > 1) dateLabels.push({ i: n - 1, anchor: 'end' });
 
+  // Nearest-X hover: the reader aims at a date, never at a 1.5px line, so the
+  // whole plot is the hit target and the pointer only has to be *closest*.
+  const idxAtPointer = (clientX: number, svgEl: SVGSVGElement) => {
+    const box = svgEl.getBoundingClientRect();
+    const px = clientX - box.left;
+    if (n === 1) return 0;
+    const ratio = (px - padL) / (plotW || 1);
+    return Math.max(0, Math.min(n - 1, Math.round(ratio * (n - 1))));
+  };
+
+  const active = activeIdx != null && activeIdx >= 0 && activeIdx < n ? points[activeIdx] : null;
+
   return (
-    <div ref={containerRef} style={{ width: '100%', height }}>
+    <div ref={containerRef} style={{ width: '100%', height, position: 'relative' }}>
       {containerW > 0 && (
     <svg
       width={VB_W}
       height={height}
       viewBox={`0 0 ${VB_W} ${VB_H}`}
       role="img"
-      style={{ display: 'block' }}
+      aria-label={`Daily trend, ${n} points, from ${formatIstDate(data[0].date)} to ${formatIstDate(
+        data[n - 1].date
+      )}. High ${valueFormat(maxV)}, low ${valueFormat(minV)}.`}
+      tabIndex={0}
+      style={{ display: 'block', outline: 'none', touchAction: 'none' }}
+      onPointerMove={(e) => setActiveIdx(idxAtPointer(e.clientX, e.currentTarget))}
+      onPointerDown={(e) => setActiveIdx(idxAtPointer(e.clientX, e.currentTarget))}
+      onPointerLeave={() => setActiveIdx(null)}
+      onFocus={() => setActiveIdx((cur) => cur ?? n - 1)}
+      onBlur={() => setActiveIdx(null)}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          const step = e.key === 'ArrowRight' ? 1 : -1;
+          setActiveIdx((cur) => {
+            const base = cur ?? n - 1;
+            return Math.max(0, Math.min(n - 1, base + step));
+          });
+        } else if (e.key === 'Home') {
+          e.preventDefault();
+          setActiveIdx(0);
+        } else if (e.key === 'End') {
+          e.preventDefault();
+          setActiveIdx(n - 1);
+        } else if (e.key === 'Escape') {
+          setActiveIdx(null);
+        }
+      }}
     >
       {/* zero baseline */}
       <line
@@ -645,6 +689,17 @@ export function TrendChart({
       >
         {valueFormat(minV)}
       </text>
+      {/* crosshair — drawn under the marks so it never sits on top of them */}
+      {active && (
+        <line
+          x1={active.x}
+          y1={padT - 6}
+          x2={active.x}
+          y2={baselineY}
+          stroke={TOKENS.borderStrong}
+          strokeWidth={1}
+        />
+      )}
       {/* trend line */}
       <polyline
         points={polyline}
@@ -657,20 +712,17 @@ export function TrendChart({
       {/* points */}
       {points.map((p, i) => {
         const isToday = markLastAsToday && i === n - 1;
+        const isActive = activeIdx === i;
         return (
           <circle
             key={i}
             cx={p.x}
             cy={p.y}
-            r={isToday ? 4 : 2}
-            fill={isToday ? accent : TOKENS.surface}
-            stroke={accent}
-            strokeWidth={isToday ? 0 : 1.2}
-          >
-            <title>
-              {formatIstDate(p.d.date)} · {valueFormat(p.d.value)}
-            </title>
-          </circle>
+            r={isActive ? 4.5 : isToday ? 4 : 2}
+            fill={isActive || isToday ? accent : TOKENS.surface}
+            stroke={isActive ? TOKENS.surface : accent}
+            strokeWidth={isActive ? 1.5 : isToday ? 0 : 1.2}
+          />
         );
       })}
       {/* date labels */}
@@ -687,6 +739,38 @@ export function TrendChart({
         </text>
       ))}
     </svg>
+      )}
+      {/* readout — value leads, date follows; clamped so it never leaves the card */}
+      {active && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: 'absolute',
+            left: Math.max(0, Math.min(VB_W - TOOLTIP_W, active.x - TOOLTIP_W / 2)),
+            // sit above the point, but flip below for peaks so the box never
+            // covers the line it is describing (nor the max-value label)
+            top:
+              active.y > padT + plotH * 0.45
+                ? Math.max(0, active.y - TOOLTIP_H - 10)
+                : Math.min(VB_H - TOOLTIP_H, active.y + 12),
+            width: TOOLTIP_W,
+            pointerEvents: 'none',
+            background: TOKENS.surface,
+            border: `1px solid ${TOKENS.border}`,
+            borderRadius: 4,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.10)',
+            padding: '5px 8px',
+            textAlign: 'center',
+          }}
+        >
+          <div style={{ fontSize: 13, color: TOKENS.textPrimary, fontVariantNumeric: 'tabular-nums' }}>
+            {valueFormat(active.d.value)}
+          </div>
+          <div style={{ fontSize: 10, color: TOKENS.textTertiary, whiteSpace: 'nowrap' }}>
+            {formatIstDate(active.d.date)}
+          </div>
+        </div>
       )}
     </div>
   );

@@ -15,7 +15,7 @@
  *   - Net revenue trend + revenue mix (period)
  *   - Branch performance table (period, Δ vs prior window)
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, Clock, Info } from 'lucide-react';
@@ -645,6 +645,9 @@ function RevenueMixCard({
     { label: 'Clinic consultations', value: mix.clinicInPaise, color: TOKENS.clinic },
     { label: 'Bill-only / external', value: mix.billOnlyInPaise, color: TOKENS.billOnly },
   ];
+  // Hovering a segment or its legend row highlights the other — a thin segment
+  // (clinic is often ~8%) is hard to aim at, so the row is a hit target too.
+  const [activeSeg, setActiveSeg] = useState<string | null>(null);
 
   return (
     <SectionCard
@@ -679,19 +682,72 @@ function RevenueMixCard({
             </span>
             <DisplayNumber size={18}>{formatRupees(mix.totalInPaise)}</DisplayNumber>
           </div>
-          <div
-            className="flex w-full overflow-hidden"
-            style={{ height: 18, borderRadius: 3 }}
-          >
-            {segs.map((s) => (
-              <div
-                key={s.label}
-                style={{
-                  width: `${(s.value / total) * 100}%`,
-                  background: s.color,
-                }}
-              />
-            ))}
+          <div className="relative">
+            <div
+              className="flex w-full overflow-hidden"
+              style={{ height: 18, borderRadius: 3 }}
+              onMouseLeave={() => setActiveSeg(null)}
+            >
+              {segs.map((s) => {
+                const isActive = activeSeg === s.label;
+                const dimmed = activeSeg != null && !isActive;
+                return (
+                  <div
+                    key={s.label}
+                    tabIndex={0}
+                    aria-label={`${s.label}: ${formatRupees(s.value)}, ${Math.round(
+                      (s.value / total) * 100
+                    )} percent of gross`}
+                    onMouseEnter={() => setActiveSeg(s.label)}
+                    onFocus={() => setActiveSeg(s.label)}
+                    onBlur={() => setActiveSeg(null)}
+                    style={{
+                      width: `${(s.value / total) * 100}%`,
+                      background: s.color,
+                      opacity: dimmed ? 0.45 : 1,
+                      transition: 'opacity 120ms ease',
+                      cursor: 'default',
+                      outline: 'none',
+                    }}
+                  />
+                );
+              })}
+            </div>
+            {(() => {
+              if (!activeSeg) return null;
+              const i = segs.findIndex((x) => x.label === activeSeg);
+              const s = segs[i];
+              // centre the readout over the hovered segment, clamped so it can't
+              // run off either end of the card
+              const before = segs.slice(0, i).reduce((a, x) => a + x.value, 0);
+              const centerPct = ((before + s.value / 2) / total) * 100;
+              return (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  style={{
+                    position: 'absolute',
+                    // above the bar: the legend below is the thing being
+                    // cross-highlighted, so keep the box off it
+                    top: -32,
+                    left: `${Math.min(85, Math.max(15, centerPct))}%`,
+                    transform: 'translateX(-50%)',
+                    pointerEvents: 'none',
+                    zIndex: 1,
+                    background: TOKENS.surface,
+                    border: `1px solid ${TOKENS.border}`,
+                    borderRadius: 4,
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.10)',
+                    padding: '4px 8px',
+                    fontSize: 12,
+                    color: TOKENS.textPrimary,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {`${formatRupees(s.value)} · ${Math.round((s.value / total) * 100)}% — ${s.label}`}
+                </div>
+              );
+            })()}
           </div>
           <div className="mt-3 space-y-1.5">
             {segs.map((s) => {
@@ -700,7 +756,19 @@ function RevenueMixCard({
                 <div
                   key={s.label}
                   className="flex items-baseline justify-between"
-                  style={{ fontSize: 12 }}
+                  style={{
+                    fontSize: 12,
+                    // negative margin keeps the row flush while giving the wash
+                    // some breathing room, so nothing shifts on hover
+                    margin: '0 -6px',
+                    padding: '2px 6px',
+                    borderRadius: 3,
+                    background: activeSeg === s.label ? TOKENS.page : 'transparent',
+                    opacity: activeSeg != null && activeSeg !== s.label ? 0.55 : 1,
+                    transition: 'background 120ms ease, opacity 120ms ease',
+                  }}
+                  onMouseEnter={() => setActiveSeg(s.label)}
+                  onMouseLeave={() => setActiveSeg(null)}
                 >
                   <span className="flex items-center gap-2">
                     <span
