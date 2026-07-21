@@ -18,11 +18,11 @@ import type { ClinicVisitView } from "@/types";
 export default function PrescriptionPrintPage() {
   const { visitId } = useParams<{ visitId: string }>();
   const { token } = useAuthStore();
-  const { activeBranch } = useBranchStore();
+  const getActiveBranch = useBranchStore((state) => state.getActiveBranch);
+  const activeBranch = getActiveBranch();
   const [visitView, setVisitView] = useState<ClinicVisitView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [logoLoaded, setLogoLoaded] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -69,16 +69,15 @@ export default function PrescriptionPrintPage() {
   return (
     <>
       <div className="no-print fixed top-4 right-4 z-50">
-        <Button onClick={() => window.print()} disabled={!logoLoaded}>
-          {logoLoaded ? "Print Prescription" : "Preparing Print..."}
-        </Button>
+        {/* The Rx sheet prints onto pre-printed letterhead and renders no logo,
+            so there is nothing to wait for before enabling the button. */}
+        <Button onClick={() => window.print()}>Print Prescription</Button>
       </div>
 
       <div ref={contentRef}>
         <ClinicPrescriptionPrint
           visitView={visitView}
           branchName={activeBranch?.name}
-          onBillLogoLoadedChange={setLogoLoaded}
           printMode="rx"
         />
       </div>
