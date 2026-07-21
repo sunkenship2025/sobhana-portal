@@ -1244,6 +1244,11 @@ router.get("/:id", async (req: AuthRequest, res) => {
             notes: true,
             signerNameOverride: true,
             useSigningRule: true,
+            // Must travel with useSigningRule: the result-entry screen seeds the
+            // radiology signing-doctor dropdown from it. Omitting it made every
+            // reload come back with an empty dropdown even though the pick was
+            // stored, and left finalize blocked on a choice already made.
+            selectedSigningDoctorId: true,
             createdAt: true,
             testDefinitionId: true,
             test: {
@@ -1353,6 +1358,11 @@ router.get("/:id", async (req: AuthRequest, res) => {
             notes: true,
             signerNameOverride: true,
             useSigningRule: true,
+            // Must travel with useSigningRule: the result-entry screen seeds the
+            // radiology signing-doctor dropdown from it. Omitting it made every
+            // reload come back with an empty dropdown even though the pick was
+            // stored, and left finalize blocked on a choice already made.
+            selectedSigningDoctorId: true,
             createdAt: true,
             testDefinitionId: true,
             test: {
