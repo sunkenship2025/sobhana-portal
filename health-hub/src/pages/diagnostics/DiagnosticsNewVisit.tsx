@@ -139,6 +139,11 @@ const DiagnosticsNewVisit = () => {
   // fresh print carries the same "Scan for your report" QR as reprints.
   const [reportQrDataUrl, setReportQrDataUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Re-entrancy latch for handleSubmit. `isSubmitting` alone can't hold the door:
+  // two clicks dispatched in the same React batch both read the pre-render value
+  // (button still enabled), and the patient-create POST is awaited before the
+  // flag is ever set. A ref flips synchronously, so the second call bails out.
+  const submittingRef = useRef(false);
   const [billLogoLoaded, setBillLogoLoaded] = useState(false);
   const [whatsappOptIn, setWhatsappOptIn] = useState(true); // For existing patients
 
@@ -797,9 +802,18 @@ const DiagnosticsNewVisit = () => {
   };
 
   const handleSubmit = async () => {
+    // A second click must never start a second registration: each run creates a
+    // Patient + Visit + Bill + PaymentTransaction with a freshly allocated bill
+    // number, so a double fire bills the patient twice under two patient records.
+    if (submittingRef.current) return;
     // Validation lives in runBillValidation (also gates the confirm dialog).
     if (!runBillValidation()) return;
     if (!token || !activeBranch) return;
+
+    // Latch before the first await (the patient-create POST below), not after —
+    // that gap is where the duplicate registrations were getting in.
+    submittingRef.current = true;
+    setIsSubmitting(true);
 
     let patient = selectedPatient;
 
@@ -853,7 +867,13 @@ const DiagnosticsNewVisit = () => {
             defaultFocus: "confirm",
           });
 
-          if (choice === null) return; // dismissed — abort without creating anything
+          if (choice === null) {
+            // Dismissed — abort without creating anything. Release the latch or
+            // the button stays stuck on "Creating..." until a page reload.
+            submittingRef.current = false;
+            setIsSubmitting(false);
+            return;
+          }
 
           if (choice) {
             // Use existing patient. Carry through ageDisplay/ageUnit so the
@@ -914,16 +934,19 @@ const DiagnosticsNewVisit = () => {
         }
       } catch (error) {
         toast.error("Failed to create patient");
+        // Release the latch — nothing was created, so a retry must be allowed.
+        submittingRef.current = false;
+        setIsSubmitting(false);
         return;
       }
     }
 
     if (!patient) {
       toast.error("Please select or create a patient");
+      submittingRef.current = false;
+      setIsSubmitting(false);
       return;
     }
-
-    setIsSubmitting(true);
 
     try {
       // Create diagnostic visit via API
@@ -1188,6 +1211,7 @@ const DiagnosticsNewVisit = () => {
     } catch (error: any) {
       toast.error(error.message || "Failed to create visit");
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };
