@@ -423,7 +423,7 @@ body.report-body {
   background: transparent;
 }
 
-.interpretation-block > strong { display: block; margin-bottom: var(--spacing-xs); font-size: 9.2pt; color: var(--color-text); letter-spacing: 0.04em; }
+.interpretation-block > strong { display: block; margin-bottom: var(--spacing-xs); font-size: 9.2pt; color: var(--color-text); text-transform: uppercase; letter-spacing: 0.04em; }
 .interpretation-block p { line-height: 1.3; font-size: 9.2pt; white-space: pre-wrap; }
 .interpretation-block .interpretation-body { font-size: 9.2pt; line-height: 1.3; }
 .interpretation-block .interpretation-body p { margin: 0 0 3pt; white-space: normal; }

@@ -1713,13 +1713,13 @@ export default function ManagePanelDefinitions() {
                     <div className="mt-2 space-y-2">
                       {hasMeaningfulRichText(formInterpretation) && (
                         <div className="bg-[#f8fafd] border border-[#c3d0e6] rounded-[2px] p-2">
-                          <div className="font-semibold text-[11px] text-[#1f3e6e]">Interpretation:</div>
+                          <div className="font-semibold text-[11px] text-[#1f3e6e]">INTERPRETATION:</div>
                           <div className="rich-text-preview text-[12px] leading-[1.45] mt-1" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml(formInterpretation) }} />
                         </div>
                       )}
                       {hasMeaningfulRichText(formComments) && (
                         <div className="bg-[#f8fafd] border border-[#c3d0e6] rounded-[2px] p-2">
-                          <div className="font-semibold text-[11px] text-[#1f3e6e]">Clinical Notes:</div>
+                          <div className="font-semibold text-[11px] text-[#1f3e6e]">CLINICAL NOTES:</div>
                           <div className="rich-text-preview text-[12px] leading-[1.45] mt-1" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml(formComments) }} />
                         </div>
                       )}

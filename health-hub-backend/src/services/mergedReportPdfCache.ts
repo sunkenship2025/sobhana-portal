@@ -61,10 +61,7 @@ import { logger } from '../lib/logger';
 // + black accent, no grey fill. Screen stays navy. Re-render.
 // v29 -> v30: report "COMMENTS" box label renamed to "CLINICAL NOTES"
 // (renderer text changed); re-render cached PDFs.
-// v30 -> v31: Interpretation / Clinical Notes box labels switched from ALL-CAPS
-// to Title Case (renderer strings + dropped text-transform:uppercase in the
-// report CSS); re-render so finalized PDFs pick up the new casing.
-const KEY_PREFIX = 'merged-pdf:v31:';
+const KEY_PREFIX = 'merged-pdf:v30:';
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 const CACHE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB — skip outliers so they don't flush LRU
 
