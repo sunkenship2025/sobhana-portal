@@ -321,7 +321,7 @@ function renderTestsWithGridRuns(tests: TestResultSnapshot[], valuePrefix: strin
   return renderedRuns.join('');
 }
 
-/** Panel-level INTERPRETATION + CLINICAL NOTES boxes (rich text), rendered below
+/** Panel-level Interpretation + Clinical Notes boxes (rich text), rendered below
  *  the results. Interpretation (when present) stacks above Clinical Notes. Content
  *  is rich HTML from the editor, so it goes through renderNarrativeContent (which
  *  sanitizes HTML and preserves legacy plain-text line breaks) — not escapeHtml. */
@@ -334,7 +334,7 @@ function renderCommentsInterpretation(panel: PanelSnapshot): string {
       <div class="interpretation-body">${renderNarrativeContent(html)}</div>
     </div>`
       : '';
-  return box('INTERPRETATION', panel.interpretationHtml) + box('CLINICAL NOTES', panel.commentsHtml);
+  return box('Interpretation', panel.interpretationHtml) + box('Clinical Notes', panel.commentsHtml);
 }
 
 /** Panel-level method line, rendered as a footnote directly below the results table. */
