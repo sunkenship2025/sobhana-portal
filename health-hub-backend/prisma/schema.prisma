@@ -1137,6 +1137,7 @@ model MessageLog {
   waMessageId    String? // WhatsApp Cloud API message ID
   status         MessageStatus      @default(PENDING)
   failureReason  String?
+  errorCode      String? // Meta WhatsApp error code (e.g. "131026") on FAILED rows; null otherwise
   sentAt         DateTime?
   deliveredAt    DateTime?
   readAt         DateTime?

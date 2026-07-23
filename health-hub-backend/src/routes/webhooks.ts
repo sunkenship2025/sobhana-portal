@@ -20,6 +20,7 @@ import crypto from 'crypto';
 import express, { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { whatsappWebhookRateLimit } from '../middleware/rateLimit';
+import { cleanWaReason } from '../services/whatsappErrors';
 
 const router = Router();
 
@@ -133,9 +134,8 @@ router.post(
 
               case 'failed':
                 updateData.status = 'FAILED';
-                updateData.failureReason = errorInfo
-                  ? `${errorInfo.code}: ${errorInfo.title} — ${errorInfo.message}`
-                  : 'Unknown failure';
+                updateData.errorCode = errorInfo?.code != null ? String(errorInfo.code) : null;
+                updateData.failureReason = errorInfo ? cleanWaReason(errorInfo) : 'Unknown failure';
                 break;
 
               default:

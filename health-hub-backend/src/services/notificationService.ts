@@ -230,11 +230,18 @@ async function createAndSendTemplateMessage(input: {
 
     return result;
   } catch (error: any) {
+    // A Meta API rejection carries a structured error ({ code, message,
+    // error_data.details }); a local/network failure (disabled, timeout) does
+    // not — then errorCode stays null and we keep the raw message.
+    const meta = error?.response?.data?.error;
+    const reason: string =
+      meta?.error_data?.details || meta?.message || error.message || 'Send failed';
     await prisma.messageLog.update({
       where: { id: messageLog.id },
       data: {
         status: 'FAILED',
-        failureReason: error.message?.slice(0, 500),
+        errorCode: meta?.code != null ? String(meta.code) : null,
+        failureReason: reason.slice(0, 500),
       },
     });
 

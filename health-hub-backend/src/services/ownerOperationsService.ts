@@ -17,6 +17,7 @@
 import prisma from '../lib/prisma';
 import { getRedisClient } from '../lib/redis';
 import { logger } from '../lib/logger';
+import { describeWaError } from './whatsappErrors';
 
 const CACHE_TTL_SEC = 30; // shorter TTL — this page is meant to feel live
 const cacheKey = (branchId: string | null) =>
@@ -148,6 +149,7 @@ export interface CommsFailureRow {
   patientTitle: string | null;
   channel: 'WHATSAPP' | 'SMS';
   context: string;
+  errorCode: string | null;
   failureReason: string;
   action: string;
   failedAtIso: string;
@@ -208,14 +210,6 @@ function isOffHoursIst(d: Date): boolean {
   // Off-hours = 10:00pm–7:30am IST. A diagnostic centre runs into the evening,
   // so only genuinely late/early activity is a signal (not normal evening work).
   return minutesOfDay >= 22 * 60 || minutesOfDay < 7 * 60 + 30;
-}
-
-function commsFailureAction(reason: string): string {
-  const lower = (reason || '').toLowerCase();
-  if (lower.includes('opt')) return 'send sms';
-  if (lower.includes('not registered') || lower.includes('invalid')) return 'call patient';
-  if (lower.includes('template')) return 'open template settings';
-  return 'review';
 }
 
 // --- main entry ---------------------------------------------------------
@@ -512,6 +506,7 @@ export async function getOwnerOperations(
         id: true,
         channel: true,
         contextType: true,
+        errorCode: true,
         failureReason: true,
         createdAt: true,
         patient: { select: { name: true, title: true } },
@@ -1026,15 +1021,19 @@ export async function getOwnerOperations(
   const auditTrimmed = audit.slice(0, 20);
 
   // --- comms failures ------------------------------------------------------
-  const commsFailureRows: CommsFailureRow[] = (commsFailures ?? []).map((m) => ({
-    patientName: m.patient?.name ?? '—',
-    patientTitle: m.patient?.title ?? null,
-    channel: m.channel as 'WHATSAPP' | 'SMS',
-    context: String(m.contextType).toLowerCase(),
-    failureReason: m.failureReason || 'unknown',
-    action: commsFailureAction(m.failureReason ?? ''),
-    failedAtIso: m.createdAt.toISOString(),
-  }));
+  const commsFailureRows: CommsFailureRow[] = (commsFailures ?? []).map((m) => {
+    const { label, action } = describeWaError(m.errorCode, m.failureReason);
+    return {
+      patientName: m.patient?.name ?? '—',
+      patientTitle: m.patient?.title ?? null,
+      channel: m.channel as 'WHATSAPP' | 'SMS',
+      context: String(m.contextType).toLowerCase(),
+      errorCode: m.errorCode ?? null,
+      failureReason: label,
+      action,
+      failedAtIso: m.createdAt.toISOString(),
+    };
+  });
 
   const response: OperationsResponse = {
     generatedAt: now.toISOString(),

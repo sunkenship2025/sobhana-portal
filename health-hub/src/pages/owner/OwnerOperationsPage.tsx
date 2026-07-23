@@ -102,6 +102,7 @@ interface OperationsResponse {
      patientTitle?: string | null;
      channel: 'WHATSAPP' | 'SMS';
     context: string;
+    errorCode: string | null;
     failureReason: string;
     action: string;
     failedAtIso: string;
@@ -563,6 +564,14 @@ function CommsFailuresCard({ rows }: { rows: OperationsResponse['commsFailures']
                   {r.context}
                 </td>
                 <td className="py-2" style={{ color: TOKENS.critical }}>
+                  {r.errorCode && (
+                    <span
+                      style={{ color: TOKENS.textTertiary, fontVariantNumeric: 'tabular-nums' }}
+                    >
+                      {r.errorCode}
+                      {' · '}
+                    </span>
+                  )}
                   {r.failureReason}
                 </td>
                 <td className="py-2" style={{ color: TOKENS.textTertiary }}>
