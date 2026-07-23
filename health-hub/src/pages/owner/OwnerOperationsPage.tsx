@@ -100,14 +100,14 @@ interface OperationsResponse {
    commsFailures: Array<{
      patientName: string;
      patientTitle?: string | null;
-     channel: 'WHATSAPP' | 'SMS';
-    context: string;
+    phone: string;
+    attemptCount: number;
+    contextLabel: string;
     errorCode: string | null;
     failureReason: string;
-    action: string;
-    phone: string;
-    failedAtIso: string;
+    lastTriedIso: string;
   }>;
+  commsSummary: { patients: number; sends: number };
 }
 
 // ----- TAT histogram ----------------------------------------------------
@@ -529,27 +529,44 @@ function AuditFeedCard({ rows }: { rows: OperationsResponse['audit'] }) {
 
 // ----- comms failures ---------------------------------------------------
 
-function CommsFailuresCard({ rows }: { rows: OperationsResponse['commsFailures'] }) {
-  // Per brief §7.7: hides entirely when count is 0
+function CommsFailuresCard({
+  rows,
+  summary,
+}: {
+  rows: OperationsResponse['commsFailures'];
+  summary: OperationsResponse['commsSummary'];
+}) {
+  // Hides entirely when nothing failed.
   if (rows.length === 0) return null;
+  // Tolerate a briefly-stale API during a deploy (new UI, old response shape):
+  // fall back to what the rows themselves imply rather than throwing.
+  const s = summary ?? {
+    patients: rows.length,
+    sends: rows.reduce((n, r) => n + (r.attemptCount ?? 1), 0),
+  };
   return (
-    <SectionCard label="Communication failures · last 24h">
+    <SectionCard
+      label="Communication failures · last 24h"
+      rightSlot={
+        <span
+          style={{ fontSize: 12, color: TOKENS.textTertiary, fontVariantNumeric: 'tabular-nums' }}
+        >
+          <b style={{ color: TOKENS.textSecondary, fontWeight: 600 }}>{s.patients}</b>
+          {s.patients === 1 ? ' patient · ' : ' patients · '}
+          <b style={{ color: TOKENS.textSecondary, fontWeight: 600 }}>{s.sends}</b>
+          {s.sends === 1 ? ' failed send' : ' failed sends'}
+        </span>
+      }
+    >
       <div className="overflow-x-auto">
         <table className="w-full" style={{ fontSize: 12 }}>
           <thead>
-            <tr
-              style={{
-                color: TOKENS.textTertiary,
-                textAlign: 'left',
-                fontWeight: 400,
-              }}
-            >
+            <tr style={{ color: TOKENS.textTertiary, textAlign: 'left', fontWeight: 400 }}>
               <th className="pb-2">Patient</th>
-              <th className="pb-2">Channel</th>
-              <th className="pb-2">Context</th>
+              <th className="pb-2">Number</th>
+              <th className="pb-2">Failed</th>
               <th className="pb-2">Reason</th>
-              <th className="pb-2">Action</th>
-              <th className="pb-2">Time</th>
+              <th className="pb-2">Last tried</th>
             </tr>
           </thead>
           <tbody>
@@ -558,11 +575,33 @@ function CommsFailuresCard({ rows }: { rows: OperationsResponse['commsFailures']
                 <td className="py-2" style={{ color: TOKENS.textPrimary }}>
                   {formatPatientName(r.patientName, r.patientTitle)}
                 </td>
-                <td className="py-2" style={{ color: TOKENS.textSecondary }}>
-                  {r.channel.toLowerCase()}
+                <td className="py-2">
+                  {/* The number to reach them on — the row's action, so it's dialable. */}
+                  <a
+                    href={`tel:${r.phone.replace(/[^\d+]/g, '')}`}
+                    style={{
+                      color: TOKENS.info,
+                      textDecoration: 'none',
+                      fontVariantNumeric: 'tabular-nums',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {r.phone}
+                  </a>
                 </td>
-                <td className="py-2" style={{ color: TOKENS.textSecondary }}>
-                  {r.context}
+                <td className="py-2" style={{ whiteSpace: 'nowrap' }}>
+                  <span
+                    style={{
+                      color: TOKENS.critical,
+                      fontWeight: 600,
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {r.attemptCount}
+                  </span>
+                  <span style={{ color: TOKENS.textTertiary, marginLeft: 8 }}>
+                    {r.contextLabel}
+                  </span>
                 </td>
                 <td className="py-2" style={{ color: TOKENS.critical }}>
                   {r.errorCode && (
@@ -577,19 +616,16 @@ function CommsFailuresCard({ rows }: { rows: OperationsResponse['commsFailures']
                 </td>
                 <td
                   className="py-2"
-                  style={{ color: TOKENS.textTertiary, fontVariantNumeric: 'tabular-nums' }}
+                  style={{ color: TOKENS.textTertiary, whiteSpace: 'nowrap' }}
                 >
-                  {/* "call patient" is only actionable with the number in hand */}
-                  {r.action === 'call patient' && r.phone ? `call ${r.phone}` : r.action}
-                </td>
-                <td className="py-2" style={{ color: TOKENS.textTertiary }}>
-                  {formatIstTime(r.failedAtIso)}
+                  {formatIstTime(r.lastTriedIso)}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      <TruncationFooter shown={rows.length} total={s.patients} />
     </SectionCard>
   );
 }
@@ -703,7 +739,7 @@ export default function OwnerOperationsPage() {
 
             <AuditFeedCard rows={data.audit} />
 
-            <CommsFailuresCard rows={data.commsFailures} />
+            <CommsFailuresCard rows={data.commsFailures} summary={data.commsSummary} />
           </div>
         )}
       </div>

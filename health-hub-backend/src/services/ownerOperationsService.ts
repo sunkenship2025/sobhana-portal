@@ -20,8 +20,9 @@ import { logger } from '../lib/logger';
 import { describeWaError } from './whatsappErrors';
 
 const CACHE_TTL_SEC = 30; // shorter TTL — this page is meant to feel live
+// v3: comms failures grouped by patient + commsSummary added (shape change).
 const cacheKey = (branchId: string | null) =>
-  `owner-operations:v2:${branchId ?? 'all'}`;
+  `owner-operations:v3:${branchId ?? 'all'}`;
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -144,17 +145,20 @@ export interface AuditRow {
   drillTo: string | null;
 }
 
+// One row = one patient (their repeat failed sends collapsed together).
 export interface CommsFailureRow {
   patientName: string;
   patientTitle: string | null;
-  channel: 'WHATSAPP' | 'SMS';
-  context: string;
+  /** Recipient number we sent to — shown so the patient is immediately dialable. */
+  phone: string;
+  /** How many sends failed for this patient in the window. */
+  attemptCount: number;
+  /** Which sends failed, e.g. "3 report, 1 bill" — or just "bill" for a single kind. */
+  contextLabel: string;
   errorCode: string | null;
   failureReason: string;
-  action: string;
-  /** Recipient number we sent to — shown so "call patient" is immediately dialable. */
-  phone: string;
-  failedAtIso: string;
+  /** Most recent failure for this patient. */
+  lastTriedIso: string;
 }
 
 export interface OperationsResponse {
@@ -166,6 +170,16 @@ export interface OperationsResponse {
   clinicQueue: ClinicQueueDoctor[];
   audit: AuditRow[];
   commsFailures: CommsFailureRow[];
+  /** Counts across the whole window (before the top-N cut), so the header can
+   * show how much the grouping collapsed — e.g. "7 patients · 16 failed sends". */
+  commsSummary: { patients: number; sends: number };
+}
+
+/** "3 report, 1 bill" for a mixed patient; just "bill" when only one kind failed. */
+function formatContexts(contexts: Map<string, number>): string {
+  const entries = [...contexts.entries()].sort((a, b) => b[1] - a[1]);
+  if (entries.length === 1) return entries[0][0];
+  return entries.map(([type, n]) => `${n} ${type}`).join(', ');
 }
 
 // --- helpers ------------------------------------------------------------
@@ -495,7 +509,8 @@ export async function getOwnerOperations(
       },
     }),
 
-    // Failed message deliveries in last 24h
+    // Failed message deliveries in last 24h. Fetched flat then grouped by patient
+    // below; the cap is a memory guard (a clinic sees dozens/day, not hundreds).
     prisma.messageLog.findMany({
       where: {
         status: 'FAILED',
@@ -503,10 +518,9 @@ export async function getOwnerOperations(
         ...(branchId ? { branchId } : {}),
       },
       orderBy: { createdAt: 'desc' },
-      take: 20,
+      take: 500,
       select: {
-        id: true,
-        channel: true,
+        patientId: true,
         contextType: true,
         errorCode: true,
         failureReason: true,
@@ -1024,20 +1038,63 @@ export async function getOwnerOperations(
   const auditTrimmed = audit.slice(0, 20);
 
   // --- comms failures ------------------------------------------------------
-  const commsFailureRows: CommsFailureRow[] = (commsFailures ?? []).map((m) => {
-    const { label, action } = describeWaError(m.errorCode, m.failureReason);
+  // Collapse repeat sends: one row per patient (a patient routinely gets a bill
+  // send + partial/final report sends, each logged separately). Rows arrive
+  // most-recent-first, so the first row seen per group is the representative.
+  interface CommsGroup {
+    patientName: string;
+    patientTitle: string | null;
+    phone: string;
+    count: number;
+    contexts: Map<string, number>;
+    errorCode: string | null;
+    failureReason: string | null;
+    lastTried: Date;
+  }
+  const commsGroups = new Map<string, CommsGroup>();
+  for (const m of commsFailures ?? []) {
+    // Non-patient rows (e.g. payout statements) have no patientId — group by phone.
+    const key = m.patientId ?? `phone:${m.phone}`;
+    let g = commsGroups.get(key);
+    if (!g) {
+      g = {
+        patientName: m.patient?.name ?? '—',
+        patientTitle: m.patient?.title ?? null,
+        phone: m.phone,
+        count: 0,
+        contexts: new Map(),
+        errorCode: m.errorCode ?? null,
+        failureReason: m.failureReason ?? null,
+        lastTried: m.createdAt,
+      };
+      commsGroups.set(key, g);
+    }
+    g.count += 1;
+    const ctx = String(m.contextType).toLowerCase();
+    g.contexts.set(ctx, (g.contexts.get(ctx) ?? 0) + 1);
+    if (m.createdAt > g.lastTried) g.lastTried = m.createdAt;
+  }
+
+  const allCommsGroups = [...commsGroups.values()].sort(
+    (a, b) => b.count - a.count || b.lastTried.getTime() - a.lastTried.getTime(),
+  );
+  const commsFailureRows: CommsFailureRow[] = allCommsGroups.slice(0, 20).map((g) => {
+    const { label } = describeWaError(g.errorCode, g.failureReason);
     return {
-      patientName: m.patient?.name ?? '—',
-      patientTitle: m.patient?.title ?? null,
-      channel: m.channel as 'WHATSAPP' | 'SMS',
-      context: String(m.contextType).toLowerCase(),
-      errorCode: m.errorCode ?? null,
+      patientName: g.patientName,
+      patientTitle: g.patientTitle,
+      phone: g.phone,
+      attemptCount: g.count,
+      contextLabel: formatContexts(g.contexts),
+      errorCode: g.errorCode,
       failureReason: label,
-      action,
-      phone: m.phone,
-      failedAtIso: m.createdAt.toISOString(),
+      lastTriedIso: g.lastTried.toISOString(),
     };
   });
+  const commsSummary = {
+    patients: allCommsGroups.length,
+    sends: (commsFailures ?? []).length,
+  };
 
   const response: OperationsResponse = {
     generatedAt: now.toISOString(),
@@ -1048,6 +1105,7 @@ export async function getOwnerOperations(
     clinicQueue,
     audit: auditTrimmed,
     commsFailures: commsFailureRows,
+    commsSummary,
   };
 
   if (redis) {
