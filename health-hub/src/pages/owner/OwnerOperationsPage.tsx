@@ -105,6 +105,7 @@ interface OperationsResponse {
     errorCode: string | null;
     failureReason: string;
     action: string;
+    phone: string;
     failedAtIso: string;
   }>;
 }
@@ -574,8 +575,12 @@ function CommsFailuresCard({ rows }: { rows: OperationsResponse['commsFailures']
                   )}
                   {r.failureReason}
                 </td>
-                <td className="py-2" style={{ color: TOKENS.textTertiary }}>
-                  {r.action}
+                <td
+                  className="py-2"
+                  style={{ color: TOKENS.textTertiary, fontVariantNumeric: 'tabular-nums' }}
+                >
+                  {/* "call patient" is only actionable with the number in hand */}
+                  {r.action === 'call patient' && r.phone ? `call ${r.phone}` : r.action}
                 </td>
                 <td className="py-2" style={{ color: TOKENS.textTertiary }}>
                   {formatIstTime(r.failedAtIso)}

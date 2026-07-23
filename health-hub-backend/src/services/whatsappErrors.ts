@@ -20,7 +20,7 @@ interface WaErrorInfo {
 // to Meta's own reason string (see describeWaError). Keep this list conservative
 // rather than guess at a code's meaning.
 const WA_ERRORS: Record<string, WaErrorInfo> = {
-  '131026': { label: 'Recipient not on WhatsApp or hasn’t accepted its terms', action: 'send sms' },
+  '131026': { label: 'Recipient not on WhatsApp or hasn’t accepted its terms', action: 'call patient' },
   '131047': { label: 'Outside the 24-hour window — needs a template', action: 'review' },
   '131048': { label: 'Spam-rate limit — sending too fast to new numbers', action: 'review' },
   '131049': { label: 'Meta limited delivery (per-recipient frequency cap)', action: 'review' },

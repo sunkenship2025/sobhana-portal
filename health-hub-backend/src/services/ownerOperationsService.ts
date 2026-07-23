@@ -152,6 +152,8 @@ export interface CommsFailureRow {
   errorCode: string | null;
   failureReason: string;
   action: string;
+  /** Recipient number we sent to — shown so "call patient" is immediately dialable. */
+  phone: string;
   failedAtIso: string;
 }
 
@@ -508,6 +510,7 @@ export async function getOwnerOperations(
         contextType: true,
         errorCode: true,
         failureReason: true,
+        phone: true,
         createdAt: true,
         patient: { select: { name: true, title: true } },
       },
@@ -1031,6 +1034,7 @@ export async function getOwnerOperations(
       errorCode: m.errorCode ?? null,
       failureReason: label,
       action,
+      phone: m.phone,
       failedAtIso: m.createdAt.toISOString(),
     };
   });
