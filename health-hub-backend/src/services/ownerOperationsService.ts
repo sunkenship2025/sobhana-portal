@@ -376,6 +376,14 @@ export async function getOwnerOperations(
             some: { status: 'DRAFT' },
           },
         },
+        // A completed visit only genuinely "awaits sign-off" if it still has a
+        // live REPORTABLE order. Bill-only, films-only (noReportAt) and cancelled
+        // orders never produce a typed report but DO leave a vestigial DRAFT
+        // report version behind — without this guard those closed visits (465 of
+        // them) resurfaced in the live queue as stale "awaiting sign-off" rows.
+        testOrders: {
+          some: { workflowMode: 'REPORTABLE', cancelledAt: null, noReportAt: null },
+        },
       },
       orderBy: { createdAt: 'asc' },
       take: 25,
