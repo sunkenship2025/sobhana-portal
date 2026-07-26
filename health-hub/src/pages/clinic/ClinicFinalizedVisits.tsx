@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '@/lib/api';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -16,6 +16,14 @@ import { formatPatientName, compactAge } from '@/lib/patientDisplay';
 import { searchWorklist } from '@/lib/worklistSearch';
 import { usePagedList } from '@/hooks/usePagedList';
 import { WorklistPager } from '@/components/worklist/WorklistPager';
+import { useRevalidateOnFocus } from '@/hooks/useRevalidateOnFocus';
+import { DateRangeFilter } from '@/components/worklist/DateRangeFilter';
+import {
+  type DateRangeState,
+  makeDateRange,
+  matchesDateRange,
+  dateRangeKey,
+} from '@/lib/dateFilter';
 
 // Shape returned by GET /api/visits/clinic (mirrors ClinicVisitQueue's QueueVisit).
 interface ClinicVisit {
@@ -46,45 +54,28 @@ interface ClinicVisit {
   updatedAt: string;
 }
 
-const matchesDateFilter = (filter: string, value: string | null | undefined) => {
-  if (filter === 'all') return true;
-  const source = value ? new Date(value) : null;
-  if (!source) return false;
-
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const tomorrowStart = new Date(todayStart);
-  tomorrowStart.setDate(todayStart.getDate() + 1);
-  const yesterdayStart = new Date(todayStart);
-  yesterdayStart.setDate(todayStart.getDate() - 1);
-  const weekStart = new Date(todayStart);
-  weekStart.setDate(todayStart.getDate() - 6);
-
-  if (filter === 'today') return source >= todayStart && source < tomorrowStart;
-  if (filter === 'yesterday') return source >= yesterdayStart && source < todayStart;
-  if (filter === 'week') return source >= weekStart && source < tomorrowStart;
-  return true;
-};
 
 const ClinicFinalizedVisits = () => {
   const navigate = useNavigate();
   const { token } = useAuthStore();
   const { activeBranchId } = useBranchStore();
-  const [dateFilter, setDateFilter] = useState('today');
+  const [dateRange, setDateRange] = useState<DateRangeState>(makeDateRange('today'));
   const [visitTypeFilter, setVisitTypeFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [visits, setVisits] = useState<ClinicVisit[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedVisit, setSelectedVisit] = useState<ClinicVisit | null>(null);
 
-  useEffect(() => {
-    const fetchVisits = async () => {
-      if (!activeBranchId) {
-        setLoading(false);
+  // `silent` skips the full-page spinner so background revalidation swaps data
+  // in place.
+  const fetchVisits = useCallback(
+    async ({ silent = false }: { silent?: boolean } = {}) => {
+      if (!token || !activeBranchId) {
+        if (!silent) setLoading(false);
         return;
       }
       try {
-        setLoading(true);
+        if (!silent) setLoading(true);
         const res = await fetch(`${API_BASE}/visits/clinic?status=COMPLETED`, {
           headers: { 'Authorization': `Bearer ${token}`, 'x-branch-id': activeBranchId },
         });
@@ -94,17 +85,28 @@ const ClinicFinalizedVisits = () => {
       } catch (err) {
         console.error('Failed to fetch finalized clinic visits:', err);
       } finally {
-        setLoading(false);
+        if (!silent) setLoading(false);
       }
-    };
-    if (token && activeBranchId) fetchVisits();
-  }, [token, activeBranchId]);
+    },
+    [token, activeBranchId],
+  );
+
+  useEffect(() => {
+    void fetchVisits();
+  }, [fetchVisits]);
+
+  // Revalidate when the staff return to a stale tab so newly finalized OP/IP
+  // visits show up without a manual refresh.
+  useRevalidateOnFocus(() => void fetchVisits({ silent: true }), {
+    enabled: Boolean(token && activeBranchId),
+    pollMs: 60_000,
+  });
 
   const filteredVisits = useMemo(() => {
     const base = visits
       .filter((v) => v.status === 'COMPLETED' && v.branchId === activeBranchId)
       .filter((v) => visitTypeFilter === 'all' || v.visitType === visitTypeFilter)
-      .filter((v) => matchesDateFilter(dateFilter, v.completedAt || v.updatedAt))
+      .filter((v) => matchesDateRange(dateRange, v.completedAt || v.updatedAt))
       .sort((a, b) =>
         new Date(b.completedAt || b.updatedAt).getTime() - new Date(a.completedAt || a.updatedAt).getTime(),
       );
@@ -117,11 +119,11 @@ const ClinicFinalizedVisits = () => {
       billNumber: v.billNumber,
       visitRef: v.visitRef,
     }));
-  }, [visits, activeBranchId, visitTypeFilter, dateFilter, search]);
+  }, [visits, activeBranchId, visitTypeFilter, dateRange, search]);
 
   const paged = usePagedList(
     filteredVisits,
-    `${search}|${visitTypeFilter}|${dateFilter}`,
+    `${search}|${visitTypeFilter}|${dateRangeKey(dateRange)}`,
   );
 
   const hasData = visits.some((v) => v.status === 'COMPLETED' && v.branchId === activeBranchId);
@@ -148,18 +150,11 @@ const ClinicFinalizedVisits = () => {
         <Card>
           <CardContent className="pt-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap">
-              <div className="space-y-2">
-                <Label>Date</Label>
-                <Select value={dateFilter} onValueChange={setDateFilter}>
-                  <SelectTrigger className="w-full sm:w-[160px]"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="today">Today</SelectItem>
-                    <SelectItem value="yesterday">Yesterday</SelectItem>
-                    <SelectItem value="week">This Week</SelectItem>
-                    <SelectItem value="all">All Time</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <DateRangeFilter
+                value={dateRange}
+                onChange={setDateRange}
+                triggerClassName="w-full sm:w-[160px]"
+              />
               <div className="space-y-2">
                 <Label>Visit Type</Label>
                 <Select value={visitTypeFilter} onValueChange={setVisitTypeFilter}>

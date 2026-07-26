@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { API_BASE } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -22,6 +22,14 @@ import { toast } from "sonner";
 import { CheckCheck, Clock, Search, Phone, Stethoscope } from "lucide-react";
 import { searchWorklist } from "@/lib/worklistSearch";
 import { usePagedList } from "@/hooks/usePagedList";
+import { useRevalidateOnFocus } from "@/hooks/useRevalidateOnFocus";
+import { DateRangeFilter } from "@/components/worklist/DateRangeFilter";
+import {
+  type DateRangeState,
+  makeDateRange,
+  matchesDateRange,
+  dateRangeKey,
+} from "@/lib/dateFilter";
 import { WorklistPager } from "@/components/worklist/WorklistPager";
 import {
   Dialog,
@@ -134,34 +142,6 @@ const buildTestTokens = (
   return [...map.values()];
 };
 
-const matchesDateFilter = (filter: string, value: string) => {
-  if (filter === "all") return true;
-
-  const visitDate = new Date(value);
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const tomorrowStart = new Date(todayStart);
-  tomorrowStart.setDate(todayStart.getDate() + 1);
-  const yesterdayStart = new Date(todayStart);
-  yesterdayStart.setDate(todayStart.getDate() - 1);
-  const weekStart = new Date(todayStart);
-  weekStart.setDate(todayStart.getDate() - 6);
-
-  if (filter === "today") {
-    return visitDate >= todayStart && visitDate < tomorrowStart;
-  }
-
-  if (filter === "yesterday") {
-    return visitDate >= yesterdayStart && visitDate < todayStart;
-  }
-
-  if (filter === "week") {
-    return visitDate >= weekStart && visitDate < tomorrowStart;
-  }
-
-  return true;
-};
-
 // Compact "billed at" label, e.g. "9 Jul, 2:05 PM".
 const formatBilledAt = (value?: string | null): string => {
   if (!value) return "";
@@ -180,7 +160,7 @@ const DiagnosticsPendingResults = () => {
   const navigate = useNavigate();
   const { activeBranchId } = useBranchStore();
   const { token } = useAuthStore();
-  const [dateFilter, setDateFilter] = useState("all");
+  const [dateRange, setDateRange] = useState<DateRangeState>(makeDateRange("all"));
   const [search, setSearch] = useState("");
   const [pendingVisits, setPendingVisits] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -210,11 +190,13 @@ const DiagnosticsPendingResults = () => {
       maximumFractionDigits: 2,
     })}`;
 
-  // Fetch pending visits from API (DRAFT and WAITING status)
-  useEffect(() => {
-    const fetchPendingVisits = async () => {
+  // Fetch pending visits from API (DRAFT and WAITING status). `silent` skips the
+  // full-page spinner so background revalidation swaps data in place.
+  const fetchPendingVisits = useCallback(
+    async ({ silent = false }: { silent?: boolean } = {}) => {
+      if (!token || !activeBranchId) return;
       try {
-        setLoading(true);
+        if (!silent) setLoading(true);
         // Fetch DRAFT visits (no results entered yet) and WAITING visits (results saved but not finalized)
         const [draftRes, waitingRes] = await Promise.all([
           fetch(`${API_BASE}/visits/diagnostic?status=DRAFT`, {
@@ -243,14 +225,22 @@ const DiagnosticsPendingResults = () => {
       } catch (error) {
         console.error("Failed to fetch pending visits:", error);
       } finally {
-        setLoading(false);
+        if (!silent) setLoading(false);
       }
-    };
+    },
+    [token, activeBranchId],
+  );
 
-    if (token && activeBranchId) {
-      fetchPendingVisits();
-    }
-  }, [token, activeBranchId]);
+  useEffect(() => {
+    void fetchPendingVisits();
+  }, [fetchPendingVisits]);
+
+  // Revalidate when the staff return to a stale tab (counter phones keep this
+  // page open for hours) so the queue count never lags behind new bills.
+  useRevalidateOnFocus(() => void fetchPendingVisits({ silent: true }), {
+    enabled: Boolean(token && activeBranchId),
+    pollMs: 60_000,
+  });
 
   // Build view data from API response
   const visitsWithDetails = useMemo(() => {
@@ -273,7 +263,7 @@ const DiagnosticsPendingResults = () => {
         return false;
       }
 
-      return matchesDateFilter(dateFilter, visit.createdAt);
+      return matchesDateRange(dateRange, visit.createdAt);
     });
 
     // Ranked, case-insensitive, phone-format-agnostic search (exact name first);
@@ -283,9 +273,9 @@ const DiagnosticsPendingResults = () => {
       phone: patient?.identifiers?.find((id: any) => id.type === "PHONE")?.value,
       billNumber: visit.billNumber,
     }));
-  }, [visitsWithDetails, dateFilter, search]);
+  }, [visitsWithDetails, dateRange, search]);
 
-  const paged = usePagedList(filteredVisits, `${search}|${dateFilter}`);
+  const paged = usePagedList(filteredVisits, `${search}|${dateRangeKey(dateRange)}`);
 
   // Whether any case is actually result-entry-eligible (passes the domain gate
   // above), independent of date/search. Lets the empty state tell "nothing to
@@ -480,20 +470,11 @@ const DiagnosticsPendingResults = () => {
         <Card>
           <CardContent className="pt-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap">
-              <div className="space-y-2">
-                <Label>Date</Label>
-                <Select value={dateFilter} onValueChange={setDateFilter}>
-                  <SelectTrigger className="w-full sm:w-[180px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="today">Today</SelectItem>
-                    <SelectItem value="yesterday">Yesterday</SelectItem>
-                    <SelectItem value="week">This Week</SelectItem>
-                    <SelectItem value="all">All Time</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <DateRangeFilter
+                value={dateRange}
+                onChange={setDateRange}
+                triggerClassName="w-full sm:w-[180px]"
+              />
               <div className="space-y-2 w-full flex-1 sm:max-w-sm">
                 <Label>Search</Label>
                 <div className="relative">
@@ -545,7 +526,7 @@ const DiagnosticsPendingResults = () => {
                     variant="outline"
                     size="sm"
                     onClick={() => {
-                      setDateFilter('all');
+                      setDateRange(makeDateRange('all'));
                       setSearch('');
                     }}
                   >

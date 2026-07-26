@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { API_BASE } from '@/lib/api';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -8,7 +8,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useBranchStore } from '@/store/branchStore';
 import { useAuthStore } from '@/store/authStore';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -18,6 +17,14 @@ import { openFinalizedReportWindow } from '@/lib/reportAccess';
 import { formatPatientName, compactAge, formatRefDoctor, formatCurrency } from '@/lib/patientDisplay';
 import { formatPaymentModes } from '@/lib/paymentDisplay';
 import { cn } from '@/lib/utils';
+import { useRevalidateOnFocus } from '@/hooks/useRevalidateOnFocus';
+import { DateRangeFilter } from '@/components/worklist/DateRangeFilter';
+import {
+  type DateRangeState,
+  makeDateRange,
+  matchesDateRange,
+  dateRangeKey,
+} from '@/lib/dateFilter';
 import { searchWorklist } from '@/lib/worklistSearch';
 import { usePagedList } from '@/hooks/usePagedList';
 import { WorklistPager } from '@/components/worklist/WorklistPager';
@@ -77,58 +84,30 @@ const formatDateTime = (value: string | null | undefined): string => {
   });
 };
 
-const matchesDateFilter = (filter: string, value: string | null | undefined) => {
-  if (filter === 'all') return true;
-
-  const source = value ? new Date(value) : null;
-  if (!source) return false;
-
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const tomorrowStart = new Date(todayStart);
-  tomorrowStart.setDate(todayStart.getDate() + 1);
-  const yesterdayStart = new Date(todayStart);
-  yesterdayStart.setDate(todayStart.getDate() - 1);
-  const weekStart = new Date(todayStart);
-  weekStart.setDate(todayStart.getDate() - 6);
-
-  if (filter === 'today') {
-    return source >= todayStart && source < tomorrowStart;
-  }
-
-  if (filter === 'yesterday') {
-    return source >= yesterdayStart && source < todayStart;
-  }
-
-  if (filter === 'week') {
-    return source >= weekStart && source < tomorrowStart;
-  }
-
-  return true;
-};
-
 const DiagnosticsFinalizedReports = () => {
   const navigate = useNavigate();
   const { activeBranchId } = useBranchStore();
   const { token } = useAuthStore();
-  const [dateFilter, setDateFilter] = useState('today');
+  const [dateRange, setDateRange] = useState<DateRangeState>(makeDateRange('today'));
   const [search, setSearch] = useState('');
   const [finalizedVisits, setFinalizedVisits] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [sendingVisitIds, setSendingVisitIds] = useState<Set<string>>(() => new Set());
 
-  // Fetch finalized visits from API
-  useEffect(() => {
-    const fetchFinalizedVisits = async () => {
+  // Fetch finalized visits from API. `silent` skips the full-page spinner so
+  // background revalidation swaps data in place.
+  const fetchFinalizedVisits = useCallback(
+    async ({ silent = false }: { silent?: boolean } = {}) => {
+      if (!token || !activeBranchId) return;
       try {
-        setLoading(true);
+        if (!silent) setLoading(true);
         const response = await fetch(`${API_BASE}/visits/diagnostic?status=COMPLETED`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'X-Branch-Id': activeBranchId
           }
         });
-        
+
         if (response.ok) {
           const data = await response.json();
           setFinalizedVisits(data);
@@ -136,14 +115,22 @@ const DiagnosticsFinalizedReports = () => {
       } catch (error) {
         console.error('Failed to fetch finalized visits:', error);
       } finally {
-        setLoading(false);
+        if (!silent) setLoading(false);
       }
-    };
+    },
+    [token, activeBranchId],
+  );
 
-    if (token && activeBranchId) {
-      fetchFinalizedVisits();
-    }
-  }, [token, activeBranchId]);
+  useEffect(() => {
+    void fetchFinalizedVisits();
+  }, [fetchFinalizedVisits]);
+
+  // Revalidate when the staff return to a stale tab so newly finalized reports
+  // show up without a manual refresh.
+  useRevalidateOnFocus(() => void fetchFinalizedVisits({ silent: true }), {
+    enabled: Boolean(token && activeBranchId),
+    pollMs: 60_000,
+  });
 
   // Build view data from API response.
   // Show a completed diagnostic visit when EITHER it has a finalized report
@@ -173,7 +160,7 @@ const DiagnosticsFinalizedReports = () => {
         visit.updatedAt ||
         visit.createdAt;
 
-      return matchesDateFilter(dateFilter, activityAt);
+      return matchesDateRange(dateRange, activityAt);
     });
 
     // Ranked, case-insensitive, phone-format-agnostic search (exact name first);
@@ -183,9 +170,9 @@ const DiagnosticsFinalizedReports = () => {
       phone: patient?.identifiers?.find((id: any) => id.type === 'PHONE')?.value,
       billNumber: visit.billNumber,
     }));
-  }, [visitsWithDetails, dateFilter, search]);
+  }, [visitsWithDetails, dateRange, search]);
 
-  const paged = usePagedList(filteredVisits, `${search}|${dateFilter}`);
+  const paged = usePagedList(filteredVisits, `${search}|${dateRangeKey(dateRange)}`);
 
   // Optimistically patch a visit in local state so its green Printed/Sent
   // indicators update immediately, before the next refetch.
@@ -277,20 +264,11 @@ const DiagnosticsFinalizedReports = () => {
         <Card>
           <CardContent className="pt-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap">
-              <div className="space-y-2">
-                <Label>Date</Label>
-                <Select value={dateFilter} onValueChange={setDateFilter}>
-                  <SelectTrigger className="w-full sm:w-[180px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="today">Today</SelectItem>
-                    <SelectItem value="yesterday">Yesterday</SelectItem>
-                    <SelectItem value="week">This Week</SelectItem>
-                    <SelectItem value="all">All Time</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <DateRangeFilter
+                value={dateRange}
+                onChange={setDateRange}
+                triggerClassName="w-full sm:w-[180px]"
+              />
               <div className="space-y-2 w-full flex-1 sm:max-w-sm">
                 <Label>Search</Label>
                 <div className="relative">
