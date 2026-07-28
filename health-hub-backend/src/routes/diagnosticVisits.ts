@@ -43,6 +43,10 @@ import { generateMergedReportPdf } from "../services/mergedReportPdfService";
 import prisma from "../lib/prisma";
 import { searchWorklist } from "../lib/worklistSearch";
 import {
+  getWorklistIndex,
+  setWorklistIndex,
+} from "../lib/worklistIndexCache";
+import {
   changeVisitReferral,
   swapVisitProduct,
   CorrectionError,
@@ -697,6 +701,126 @@ async function reevaluateVisitCompletion(
 
 // GET /api/visits/diagnostic - List diagnostic visits
 // When patientId is provided: Returns ALL visits for that patient across ALL branches (Patient 360 view)
+// COMPLETED visits accumulate forever (unlike DRAFT/WAITING, which clear out
+// as they resolve), so an unbounded status=COMPLETED fetch grows with the
+// branch's whole history — the cause of the Jul 2026 OOM restarts (see
+// project_oom_remediation_2026_07 memory). The Finalized worklist paginates
+// server-side; the expensive part is computing the ordered candidate set, so
+// we do it once (a LIGHT scan of only the fields the filter/sort/search need),
+// cache the ordered IDs (see worklistIndexCache), and hydrate only the page's
+// ~20 rows with the heavy includes. `from` bounds the light scan to the
+// worklist's selected date range (90-day default). SCAN_CAP is a hard backstop
+// on the light scan itself.
+const COMPLETED_INDEX_SCAN_CAP = 2000;
+
+/**
+ * Phase 1 for the Finalized diagnostics worklist: the ordered, filtered,
+ * ranked list of visit IDs (+ total), cached ~45s per (branch, from, q).
+ * Filtering reuses deriveDiagnosticVisitComposition (via getVisitComposition)
+ * so the "finalized report OR nothing to report" semantics are identical to
+ * the heavy path — no risk of a divergent WHERE hiding visits.
+ */
+async function computeCompletedDiagnosticIndex(
+  branchId: string,
+  from: string | undefined,
+  q: string,
+): Promise<{ ids: string[]; total: number }> {
+  const qNorm = q.trim().toLowerCase();
+  const cacheKey = `diag|${branchId}|${from ?? "90d"}|${qNorm}`;
+  const cached = getWorklistIndex(cacheKey);
+  if (cached) return cached;
+
+  const fromDate = from
+    ? new Date(`${from}T00:00:00`)
+    : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+
+  const where: any = { domain: "DIAGNOSTICS", branchId, status: "COMPLETED" };
+  // Lower-only bound: updatedAt keeps advancing after finalize (mark-printed,
+  // WhatsApp send), so an upper bound could wrongly hide an in-range visit.
+  if (!isNaN(fromDate.getTime())) where.updatedAt = { gte: fromDate };
+
+  const light = await prisma.visit.findMany({
+    where,
+    take: COMPLETED_INDEX_SCAN_CAP,
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      billNumber: true,
+      updatedAt: true,
+      createdAt: true,
+      bill: { select: { billedAt: true, createdAt: true } },
+      patient: {
+        select: { name: true, identifiers: { select: { type: true, value: true } } },
+      },
+      testOrders: {
+        select: { workflowMode: true, cancelledAt: true, noReportAt: true },
+      },
+      report: {
+        select: {
+          versions: {
+            orderBy: { versionNum: "desc" },
+            take: 1,
+            select: { status: true, finalizedAt: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (light.length >= COMPLETED_INDEX_SCAN_CAP) {
+    console.warn(
+      `[worklist] diagnostic COMPLETED index hit scan cap (${COMPLETED_INDEX_SCAN_CAP}) for branch ${branchId}; oldest in-window rows may be omitted — narrow the date range or raise the cap.`,
+    );
+  }
+
+  const rows = light.map((v) => {
+    const currentVersion = v.report?.versions[0] ?? null;
+    const comp = getVisitComposition(
+      v.testOrders,
+      "COMPLETED",
+      currentVersion ? [currentVersion] : [],
+    );
+    // Match the heavy path's row date: finalized-report time first, else the
+    // bill time, else the visit's own timestamps.
+    const reportFinalizedAt =
+      currentVersion?.status === "FINALIZED" ? currentVersion.finalizedAt : null;
+    const sortSource =
+      reportFinalizedAt ??
+      v.bill?.billedAt ??
+      v.bill?.createdAt ??
+      v.updatedAt ??
+      v.createdAt;
+    return {
+      id: v.id,
+      // Same completeness rule the client used to apply post-fetch: a finalized
+      // report, or nothing to report (pure bill-only / films-only).
+      keep: comp.hasFinalizedReport || !comp.hasReportInclusionOrders,
+      sortMs: sortSource ? new Date(sortSource).getTime() : 0,
+      name: v.patient?.name ?? null,
+      phone:
+        v.patient?.identifiers?.find((i) => i.type === "PHONE")?.value ?? null,
+      billNumber: v.billNumber ?? null,
+    };
+  });
+
+  let ordered = rows.filter((r) => r.keep);
+  // Finalized-time desc (restores the long-standing client sort). searchWorklist
+  // is stable, so applying it after the date sort keeps date-desc within a rank
+  // tier while floating exact/prefix name matches to the top.
+  ordered.sort((a, b) => b.sortMs - a.sortMs);
+  if (qNorm) {
+    ordered = searchWorklist(ordered, q, (r) => ({
+      name: r.name,
+      phone: r.phone,
+      billNumber: r.billNumber,
+    }));
+  }
+
+  const ids = ordered.map((r) => r.id);
+  setWorklistIndex(cacheKey, ids, ids.length);
+  return { ids, total: ids.length };
+}
+
 // When patientId is omitted: Returns visits for current branch only (daily operations)
 router.get("/", async (req: AuthRequest, res) => {
   try {
@@ -719,30 +843,38 @@ router.get("/", async (req: AuthRequest, res) => {
       where.status = status;
     }
 
-    // COMPLETED visits accumulate forever (unlike DRAFT/WAITING, which clear
-    // out as they resolve), so an unbounded status=COMPLETED fetch grows with
-    // the branch's entire history — this drove the repeated Jul 2026 OOM
-    // restarts (see project_oom_remediation_2026_07 memory). Bound it by a
-    // LOWER-only updatedAt cutoff: `from` when the worklist's date-range
-    // filter passes one (mirrors its selected preset), else a generous
-    // 90-day default. Deliberately no upper bound — a visit's updatedAt keeps
-    // advancing after finalize (mark-printed, WhatsApp send), so filtering
-    // the top edge could wrongly hide a visit whose true finalize date was
-    // in range. `take` is the hard backstop regardless of date logic.
-    let take: number | undefined;
+    // Finalized worklist: compute (or reuse a cached) ordered ID index for the
+    // whole filtered set, then narrow the heavy fetch below to just this page's
+    // ≤20 IDs. Everything else (DRAFT/WAITING, Patient 360) keeps the plain
+    // full-array behavior it already expects.
+    let paginated:
+      | { total: number; page: number; pageSize: number; totalPages: number; order: string[] }
+      | null = null;
     if (!patientId && status === "COMPLETED") {
-      const fromDate = from
-        ? new Date(`${from}T00:00:00`)
-        : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
-      if (!isNaN(fromDate.getTime())) {
-        where.updatedAt = { gte: fromDate };
-      }
-      take = 1000;
+      const qStr = typeof q === "string" ? q : "";
+      const { ids, total } = await computeCompletedDiagnosticIndex(
+        req.branchId!,
+        typeof from === "string" ? from : undefined,
+        qStr,
+      );
+      const pageNum = Math.max(1, parseInt(String(page ?? "1"), 10) || 1);
+      const size = Math.min(
+        100,
+        Math.max(1, parseInt(String(pageSize ?? "20"), 10) || 20),
+      );
+      const totalPages = Math.max(1, Math.ceil(total / size));
+      const clampedPage = Math.min(pageNum, totalPages);
+      const start = (clampedPage - 1) * size;
+      const pageIds = ids.slice(start, start + size);
+      paginated = { total, page: clampedPage, pageSize: size, totalPages, order: pageIds };
+      // Hydrate ONLY this page's rows below.
+      delete where.branchId;
+      delete where.status;
+      where.id = { in: pageIds };
     }
 
     const visits = await prisma.visit.findMany({
       where,
-      ...(take ? { take } : {}),
       include: {
         patient: {
           include: {
@@ -1096,42 +1228,21 @@ router.get("/", async (req: AuthRequest, res) => {
       };
     });
 
-    // Server-side pagination for the Finalized worklist (status=COMPLETED
-    // only — DRAFT/WAITING/Patient-360 callers keep the plain-array shape
-    // they already expect). Mirrors what DiagnosticsFinalizedReports.tsx
-    // used to do entirely client-side after an unbounded fetch: drop
-    // half-finished reportable visits, rank by search term, then page.
-    if (!patientId && status === "COMPLETED") {
-      const complete = transformed.filter(
-        (v) => v.hasFinalizedReport || !v.hasReportInclusionOrders,
-      );
-
-      const qStr = typeof q === "string" ? q : "";
-      const ranked = qStr.trim()
-        ? searchWorklist(complete, qStr, (v) => ({
-            name: v.patient?.name,
-            phone: (v.patient?.identifiers as any[] | undefined)?.find(
-              (id) => id.type === "PHONE",
-            )?.value,
-            billNumber: v.billNumber,
-          }))
-        : complete;
-
-      const pageNum = Math.max(1, parseInt(String(page ?? "1"), 10) || 1);
-      const size = Math.min(
-        100,
-        Math.max(1, parseInt(String(pageSize ?? "20"), 10) || 20),
-      );
-      const total = ranked.length;
-      const totalPages = Math.max(1, Math.ceil(total / size));
-      const start = (Math.min(pageNum, totalPages) - 1) * size;
-
+    // Finalized worklist: return the page in the cached index's order (a
+    // findMany with `id: { in: [...] }` doesn't preserve the id order), wrapped
+    // in the paginated envelope the client expects. `transformed` here is only
+    // this page's ≤20 rows, so their live Printed/Sent/Paid state is fresh.
+    if (paginated) {
+      const byId = new Map(transformed.map((t) => [t.id, t]));
+      const items = paginated.order
+        .map((id) => byId.get(id))
+        .filter((t): t is (typeof transformed)[number] => Boolean(t));
       return res.json({
-        items: ranked.slice(start, start + size),
-        total,
-        page: Math.min(pageNum, totalPages),
-        pageSize: size,
-        totalPages,
+        items,
+        total: paginated.total,
+        page: paginated.page,
+        pageSize: paginated.pageSize,
+        totalPages: paginated.totalPages,
       });
     }
 
