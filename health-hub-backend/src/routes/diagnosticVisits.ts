@@ -699,7 +699,7 @@ async function reevaluateVisitCompletion(
 // When patientId is omitted: Returns visits for current branch only (daily operations)
 router.get("/", async (req: AuthRequest, res) => {
   try {
-    const { status, patientId } = req.query;
+    const { status, patientId, from } = req.query;
 
     const where: any = {
       domain: "DIAGNOSTICS",
@@ -718,8 +718,30 @@ router.get("/", async (req: AuthRequest, res) => {
       where.status = status;
     }
 
+    // COMPLETED visits accumulate forever (unlike DRAFT/WAITING, which clear
+    // out as they resolve), so an unbounded status=COMPLETED fetch grows with
+    // the branch's entire history — this drove the repeated Jul 2026 OOM
+    // restarts (see project_oom_remediation_2026_07 memory). Bound it by a
+    // LOWER-only updatedAt cutoff: `from` when the worklist's date-range
+    // filter passes one (mirrors its selected preset), else a generous
+    // 90-day default. Deliberately no upper bound — a visit's updatedAt keeps
+    // advancing after finalize (mark-printed, WhatsApp send), so filtering
+    // the top edge could wrongly hide a visit whose true finalize date was
+    // in range. `take` is the hard backstop regardless of date logic.
+    let take: number | undefined;
+    if (!patientId && status === "COMPLETED") {
+      const fromDate = from
+        ? new Date(`${from}T00:00:00`)
+        : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      if (!isNaN(fromDate.getTime())) {
+        where.updatedAt = { gte: fromDate };
+      }
+      take = 1000;
+    }
+
     const visits = await prisma.visit.findMany({
       where,
+      ...(take ? { take } : {}),
       include: {
         patient: {
           include: {

@@ -42,6 +42,32 @@ export const dateRangeKey = (range: DateRangeState): string =>
     : range.preset;
 
 /**
+ * Lower-bound 'YYYY-MM-DD' for `range`, to pass to a server endpoint that
+ * bounds an otherwise-unbounded query (e.g. status=COMPLETED worklists —
+ * COMPLETED visits accumulate forever, unlike DRAFT/WAITING). Deliberately
+ * lower-bound only: the server filters by updatedAt, which keeps advancing
+ * after finalize, so an upper bound could wrongly hide an in-range visit
+ * touched again later (printed, WhatsApp send). `undefined` for "all" — the
+ * caller's own safety-net default applies.
+ */
+export const dateRangeFrom = (range: DateRangeState): string | undefined => {
+  const { preset } = range;
+  if (preset === "all") return undefined;
+  if (preset === "custom") return range.from || undefined;
+
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const start = new Date(todayStart);
+  if (preset === "yesterday") start.setDate(todayStart.getDate() - 1);
+  else if (preset === "week") start.setDate(todayStart.getDate() - 6);
+  // "today" leaves start at todayStart as-is.
+
+  const m = String(start.getMonth() + 1).padStart(2, "0");
+  const d = String(start.getDate()).padStart(2, "0");
+  return `${start.getFullYear()}-${m}-${d}`;
+};
+
+/**
  * Does `value` (an ISO timestamp) fall inside `range`?
  *
  * Presets are relative to "now"; `custom` is an inclusive local-calendar-day

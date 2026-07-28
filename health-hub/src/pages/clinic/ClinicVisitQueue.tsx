@@ -84,7 +84,12 @@ const ClinicVisitQueue = () => {
     }
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/visits/clinic`, {
+      // Only WAITING/IN_PROGRESS are ever shown here (see the filter below) —
+      // ask the server for just those instead of every clinic visit ever
+      // recorded for the branch. That fetch-then-discard was worse than the
+      // Finalized-worklist OOM bug: it reloaded the branch's entire clinic
+      // history on every queue load, not just the completed subset.
+      const res = await fetch(`${API_BASE}/visits/clinic?status=WAITING,IN_PROGRESS`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'x-branch-id': activeBranchId,

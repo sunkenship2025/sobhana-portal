@@ -23,6 +23,7 @@ import {
   makeDateRange,
   matchesDateRange,
   dateRangeKey,
+  dateRangeFrom,
 } from '@/lib/dateFilter';
 
 // Shape returned by GET /api/visits/clinic (mirrors ClinicVisitQueue's QueueVisit).
@@ -76,7 +77,10 @@ const ClinicFinalizedVisits = () => {
       }
       try {
         if (!silent) setLoading(true);
-        const res = await fetch(`${API_BASE}/visits/clinic?status=COMPLETED`, {
+        const params = new URLSearchParams({ status: 'COMPLETED' });
+        const from = dateRangeFrom(dateRange);
+        if (from) params.set('from', from);
+        const res = await fetch(`${API_BASE}/visits/clinic?${params.toString()}`, {
           headers: { 'Authorization': `Bearer ${token}`, 'x-branch-id': activeBranchId },
         });
         if (res.ok) {
@@ -88,7 +92,7 @@ const ClinicFinalizedVisits = () => {
         if (!silent) setLoading(false);
       }
     },
-    [token, activeBranchId],
+    [token, activeBranchId, dateRange],
   );
 
   useEffect(() => {

@@ -322,7 +322,7 @@ function transformClinicVisit(
 // When patientId is omitted: Returns visits for current branch only (daily operations)
 router.get("/", async (req: AuthRequest, res) => {
   try {
-    const { status, doctorId, patientId } = req.query;
+    const { status, doctorId, patientId, from } = req.query;
 
     const where: any = {
       domain: "CLINIC",
@@ -335,11 +335,32 @@ router.get("/", async (req: AuthRequest, res) => {
     }
 
     if (status) {
-      where.clinicVisit = { status };
+      // Comma-separated list support (e.g. "WAITING,IN_PROGRESS" for the live
+      // queue) so a caller never has to fetch every status just to combine two.
+      const statusList = String(status).split(",").map((s) => s.trim()).filter(Boolean);
+      where.clinicVisit = statusList.length > 1 ? { status: { in: statusList } } : { status: statusList[0] };
+    }
+
+    // Same unbounded-COMPLETED issue as diagnosticVisits.ts (see
+    // project_oom_remediation_2026_07 memory) — COMPLETED visits accumulate
+    // forever, so bound by a LOWER-only updatedAt cutoff (no upper bound:
+    // updatedAt keeps advancing after completion, e.g. re-prints, so an
+    // upper bound could hide an in-range visit touched again later). `take`
+    // is the hard backstop regardless of date logic.
+    let take: number | undefined;
+    if (!patientId && status === "COMPLETED") {
+      const fromDate = from
+        ? new Date(`${from}T00:00:00`)
+        : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      if (!isNaN(fromDate.getTime())) {
+        where.updatedAt = { gte: fromDate };
+      }
+      take = 1000;
     }
 
     const visits = await prisma.visit.findMany({
       where,
+      ...(take ? { take } : {}),
       include: {
         patient: {
           include: {

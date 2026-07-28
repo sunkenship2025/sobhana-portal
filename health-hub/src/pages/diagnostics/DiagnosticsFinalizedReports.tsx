@@ -24,6 +24,7 @@ import {
   makeDateRange,
   matchesDateRange,
   dateRangeKey,
+  dateRangeFrom,
 } from '@/lib/dateFilter';
 import { searchWorklist } from '@/lib/worklistSearch';
 import { usePagedList } from '@/hooks/usePagedList';
@@ -101,7 +102,10 @@ const DiagnosticsFinalizedReports = () => {
       if (!token || !activeBranchId) return;
       try {
         if (!silent) setLoading(true);
-        const response = await fetch(`${API_BASE}/visits/diagnostic?status=COMPLETED`, {
+        const params = new URLSearchParams({ status: 'COMPLETED' });
+        const from = dateRangeFrom(dateRange);
+        if (from) params.set('from', from);
+        const response = await fetch(`${API_BASE}/visits/diagnostic?${params.toString()}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'X-Branch-Id': activeBranchId
@@ -118,7 +122,7 @@ const DiagnosticsFinalizedReports = () => {
         if (!silent) setLoading(false);
       }
     },
-    [token, activeBranchId],
+    [token, activeBranchId, dateRange],
   );
 
   useEffect(() => {
