@@ -18,16 +18,13 @@ import { formatPatientName, compactAge, formatRefDoctor, formatCurrency } from '
 import { formatPaymentModes } from '@/lib/paymentDisplay';
 import { cn } from '@/lib/utils';
 import { useRevalidateOnFocus } from '@/hooks/useRevalidateOnFocus';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { DateRangeFilter } from '@/components/worklist/DateRangeFilter';
 import {
   type DateRangeState,
   makeDateRange,
-  matchesDateRange,
-  dateRangeKey,
   dateRangeFrom,
 } from '@/lib/dateFilter';
-import { searchWorklist } from '@/lib/worklistSearch';
-import { usePagedList } from '@/hooks/usePagedList';
 import { WorklistPager } from '@/components/worklist/WorklistPager';
 
 // Collapse a list of test orders into a readable summary for the visit row.
@@ -89,22 +86,47 @@ const DiagnosticsFinalizedReports = () => {
   const navigate = useNavigate();
   const { activeBranchId } = useBranchStore();
   const { token } = useAuthStore();
-  const [dateRange, setDateRange] = useState<DateRangeState>(makeDateRange('today'));
-  const [search, setSearch] = useState('');
+  const [dateRange, setDateRangeState] = useState<DateRangeState>(makeDateRange('today'));
+  const [search, setSearchState] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const [page, setPage] = useState(1);
   const [finalizedVisits, setFinalizedVisits] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [sendingVisitIds, setSendingVisitIds] = useState<Set<string>>(() => new Set());
 
-  // Fetch finalized visits from API. `silent` skips the full-page spinner so
+  // A new date range or search term always restarts on page 1 — otherwise a
+  // narrower filter could land on a now-nonexistent page.
+  const setDateRange = (value: DateRangeState) => {
+    setDateRangeState(value);
+    setPage(1);
+  };
+  const setSearch = (value: string) => {
+    setSearchState(value);
+    setPage(1);
+  };
+
+  // Fetch one page of finalized visits from the server. Search, date-range
+  // bounding, the completeness filter (finalized report OR nothing to
+  // report), and pagination all happen server-side now (see
+  // diagnosticVisits.ts GET "/" status=COMPLETED handling) — this used to
+  // fetch every COMPLETED visit ever and do all of that client-side, which
+  // drove the Jul 2026 OOM restarts. `silent` skips the full-page spinner so
   // background revalidation swaps data in place.
   const fetchFinalizedVisits = useCallback(
     async ({ silent = false }: { silent?: boolean } = {}) => {
       if (!token || !activeBranchId) return;
       try {
         if (!silent) setLoading(true);
-        const params = new URLSearchParams({ status: 'COMPLETED' });
+        const params = new URLSearchParams({
+          status: 'COMPLETED',
+          page: String(page),
+          pageSize: '20',
+        });
         const from = dateRangeFrom(dateRange);
         if (from) params.set('from', from);
+        if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim());
         const response = await fetch(`${API_BASE}/visits/diagnostic?${params.toString()}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -114,7 +136,9 @@ const DiagnosticsFinalizedReports = () => {
 
         if (response.ok) {
           const data = await response.json();
-          setFinalizedVisits(data);
+          setFinalizedVisits(data.items ?? []);
+          setTotal(data.total ?? 0);
+          setTotalPages(data.totalPages ?? 1);
         }
       } catch (error) {
         console.error('Failed to fetch finalized visits:', error);
@@ -122,7 +146,7 @@ const DiagnosticsFinalizedReports = () => {
         if (!silent) setLoading(false);
       }
     },
-    [token, activeBranchId, dateRange],
+    [token, activeBranchId, dateRange, debouncedSearch, page],
   );
 
   useEffect(() => {
@@ -136,47 +160,18 @@ const DiagnosticsFinalizedReports = () => {
     pollMs: 60_000,
   });
 
-  // Build view data from API response.
-  // Show a completed diagnostic visit when EITHER it has a finalized report
-  // (the classic case) OR it has nothing to report — i.e. a pure bill-only
-  // visit, or one where every reportable test was closed as "no report needed"
-  // (films only). Those have no report but were still billed, so staff need to
-  // find them here and (re)print the bill. Half-finished reportable visits
-  // (report-inclusion orders but not finalized) stay hidden as before.
-  const visitsWithDetails = useMemo(() => {
-    return finalizedVisits
-      .filter((visit) => visit.hasFinalizedReport || !visit.hasReportInclusionOrders)
-      .filter((visit) => visit.branchId === activeBranchId) // Branch-scoped
-      .map((visit) => ({
+  // Server already applied the completeness filter, search ranking, date
+  // bound and pagination — just reshape into the {visit, patient, testOrders}
+  // rows the render loop below expects.
+  const visitsWithDetails = useMemo(
+    () =>
+      finalizedVisits.map((visit) => ({
         visit,
-        patient: visit.patient, // API response includes patient data
-        testOrders: visit.testOrders || [], // API response includes test orders
-      }));
-  }, [finalizedVisits, activeBranchId]);
-
-  const filteredVisits = useMemo(() => {
-    const base = visitsWithDetails.filter(({ visit }) => {
-      // Report rows sort by finalize time; bill-only / films-only rows have no
-      // report, so fall back to when they were billed.
-      const activityAt =
-        visit.reportFinalizedAt ||
-        visit.billedAt ||
-        visit.updatedAt ||
-        visit.createdAt;
-
-      return matchesDateRange(dateRange, activityAt);
-    });
-
-    // Ranked, case-insensitive, phone-format-agnostic search (exact name first);
-    // returns `base` unchanged when the search box is empty.
-    return searchWorklist(base, search, ({ patient, visit }) => ({
-      name: patient?.name,
-      phone: patient?.identifiers?.find((id: any) => id.type === 'PHONE')?.value,
-      billNumber: visit.billNumber,
-    }));
-  }, [visitsWithDetails, dateRange, search]);
-
-  const paged = usePagedList(filteredVisits, `${search}|${dateRangeKey(dateRange)}`);
+        patient: visit.patient,
+        testOrders: visit.testOrders || [],
+      })),
+    [finalizedVisits],
+  );
 
   // Optimistically patch a visit in local state so its green Printed/Sent
   // indicators update immediately, before the next refetch.
@@ -294,14 +289,17 @@ const DiagnosticsFinalizedReports = () => {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-success" />
-              Reports ({filteredVisits.length})
+              Reports ({total})
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {filteredVisits.length === 0 ? (
+            {total === 0 ? (
               (() => {
                 // Tell "no reports at all" apart from "filters hid them all".
-                const hasData = visitsWithDetails.length > 0;
+                // Search/date-range filtering now happens server-side, so we
+                // can't distinguish the two from an already-empty page — use
+                // "any non-default filter active" as the proxy instead.
+                const hasData = Boolean(search.trim()) || dateRange.preset !== 'today';
                 return (
                   <div className="flex flex-col items-center justify-center gap-3 py-14 text-center">
                     <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
@@ -328,7 +326,7 @@ const DiagnosticsFinalizedReports = () => {
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          setDateFilter('all');
+                          setDateRange(makeDateRange('all'));
                           setSearch('');
                         }}
                       >
@@ -340,7 +338,7 @@ const DiagnosticsFinalizedReports = () => {
               })()
             ) : (
               <div className="space-y-3">
-                {paged.pageItems.map(({ visit, patient, testOrders }) => {
+                {visitsWithDetails.map(({ visit, patient, testOrders }) => {
                   const p: any = patient || {};
                   const ageStr = compactAge(p);
                   const genderStr = p.gender || '';
@@ -516,12 +514,12 @@ const DiagnosticsFinalizedReports = () => {
                   );
                 })}
                 <WorklistPager
-                  page={paged.page}
-                  totalPages={paged.totalPages}
-                  hasPrev={paged.hasPrev}
-                  hasNext={paged.hasNext}
-                  onPrev={paged.prev}
-                  onNext={paged.next}
+                  page={page}
+                  totalPages={totalPages}
+                  hasPrev={page > 1}
+                  hasNext={page < totalPages}
+                  onPrev={() => setPage((p) => Math.max(1, p - 1))}
+                  onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
                 />
               </div>
             )}

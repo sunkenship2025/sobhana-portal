@@ -41,6 +41,7 @@ import {
 import { renderReportHtml } from "../services/reportRendererService";
 import { generateMergedReportPdf } from "../services/mergedReportPdfService";
 import prisma from "../lib/prisma";
+import { searchWorklist } from "../lib/worklistSearch";
 import {
   changeVisitReferral,
   swapVisitProduct,
@@ -699,7 +700,7 @@ async function reevaluateVisitCompletion(
 // When patientId is omitted: Returns visits for current branch only (daily operations)
 router.get("/", async (req: AuthRequest, res) => {
   try {
-    const { status, patientId, from } = req.query;
+    const { status, patientId, from, q, page, pageSize } = req.query;
 
     const where: any = {
       domain: "DIAGNOSTICS",
@@ -1094,6 +1095,45 @@ router.get("/", async (req: AuthRequest, res) => {
         updatedAt: v.updatedAt,
       };
     });
+
+    // Server-side pagination for the Finalized worklist (status=COMPLETED
+    // only — DRAFT/WAITING/Patient-360 callers keep the plain-array shape
+    // they already expect). Mirrors what DiagnosticsFinalizedReports.tsx
+    // used to do entirely client-side after an unbounded fetch: drop
+    // half-finished reportable visits, rank by search term, then page.
+    if (!patientId && status === "COMPLETED") {
+      const complete = transformed.filter(
+        (v) => v.hasFinalizedReport || !v.hasReportInclusionOrders,
+      );
+
+      const qStr = typeof q === "string" ? q : "";
+      const ranked = qStr.trim()
+        ? searchWorklist(complete, qStr, (v) => ({
+            name: v.patient?.name,
+            phone: (v.patient?.identifiers as any[] | undefined)?.find(
+              (id) => id.type === "PHONE",
+            )?.value,
+            billNumber: v.billNumber,
+          }))
+        : complete;
+
+      const pageNum = Math.max(1, parseInt(String(page ?? "1"), 10) || 1);
+      const size = Math.min(
+        100,
+        Math.max(1, parseInt(String(pageSize ?? "20"), 10) || 20),
+      );
+      const total = ranked.length;
+      const totalPages = Math.max(1, Math.ceil(total / size));
+      const start = (Math.min(pageNum, totalPages) - 1) * size;
+
+      return res.json({
+        items: ranked.slice(start, start + size),
+        total,
+        page: Math.min(pageNum, totalPages),
+        pageSize: size,
+        totalPages,
+      });
+    }
 
     return res.json(transformed);
   } catch (err: any) {

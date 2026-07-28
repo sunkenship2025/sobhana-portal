@@ -8,6 +8,13 @@ import {
 import { categorize, categoryLabel, CATEGORY_ORDER, CAT_LAB, type PayoutCategory } from './payoutCategorize';
 import { isWhatsAppEnabled } from './whatsappCloudService';
 
+// Defensive fallback when a sync* caller omits `startDate`: the live Payouts
+// UI (PayoutsList.tsx) always sends a concrete range, but these are optional
+// route params, so an unbounded new Date(0) default would repeat the same
+// "scan every visit ever" pattern that caused the Jul 2026 worklist OOM (see
+// project_oom_remediation_2026_07 memory) for any direct/future API caller.
+const defaultSyncWindowStart = () => new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+
 
 // ===========================================================================
 // TYPES
@@ -840,7 +847,7 @@ async function syncReferralPayoutsForBranch(
         },
       },
       ...buildDiagnosticPayoutVisitWindow(
-        filters?.startDate ?? new Date(0),
+        filters?.startDate ?? defaultSyncWindowStart(),
         filters?.endDate ?? new Date('9999-12-31T23:59:59.999Z')
       ),
     },
@@ -937,7 +944,7 @@ async function syncDiagnosticCenterPayoutsForBranch(
       visit: {
         domain: 'DIAGNOSTICS',
         ...buildDiagnosticPayoutVisitWindow(
-          filters?.startDate ?? new Date(0),
+          filters?.startDate ?? defaultSyncWindowStart(),
           filters?.endDate ?? new Date('9999-12-31T23:59:59.999Z')
         ),
       },
@@ -1037,7 +1044,7 @@ async function syncExternalLabPayoutsForBranch(
         some: { externalLabId: filters?.doctorId ? filters.doctorId : { not: null } },
       },
       ...buildDiagnosticPayoutVisitWindow(
-        filters?.startDate ?? new Date(0),
+        filters?.startDate ?? defaultSyncWindowStart(),
         filters?.endDate ?? new Date('9999-12-31T23:59:59.999Z')
       ),
     },

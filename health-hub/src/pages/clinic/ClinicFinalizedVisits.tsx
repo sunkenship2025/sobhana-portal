@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '@/lib/api';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -13,16 +13,13 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { CheckCircle2, Search, Eye, Printer, FileText, Phone, Stethoscope, Loader2 } from 'lucide-react';
 import { formatPatientName, compactAge } from '@/lib/patientDisplay';
-import { searchWorklist } from '@/lib/worklistSearch';
-import { usePagedList } from '@/hooks/usePagedList';
 import { WorklistPager } from '@/components/worklist/WorklistPager';
 import { useRevalidateOnFocus } from '@/hooks/useRevalidateOnFocus';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { DateRangeFilter } from '@/components/worklist/DateRangeFilter';
 import {
   type DateRangeState,
   makeDateRange,
-  matchesDateRange,
-  dateRangeKey,
   dateRangeFrom,
 } from '@/lib/dateFilter';
 
@@ -60,15 +57,38 @@ const ClinicFinalizedVisits = () => {
   const navigate = useNavigate();
   const { token } = useAuthStore();
   const { activeBranchId } = useBranchStore();
-  const [dateRange, setDateRange] = useState<DateRangeState>(makeDateRange('today'));
-  const [visitTypeFilter, setVisitTypeFilter] = useState('all');
-  const [search, setSearch] = useState('');
+  const [dateRange, setDateRangeState] = useState<DateRangeState>(makeDateRange('today'));
+  const [visitTypeFilter, setVisitTypeFilterState] = useState('all');
+  const [search, setSearchState] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const [page, setPage] = useState(1);
   const [visits, setVisits] = useState<ClinicVisit[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [selectedVisit, setSelectedVisit] = useState<ClinicVisit | null>(null);
 
-  // `silent` skips the full-page spinner so background revalidation swaps data
-  // in place.
+  // A new date range, visit-type, or search term always restarts on page 1 —
+  // otherwise a narrower filter could land on a now-nonexistent page.
+  const setDateRange = (value: DateRangeState) => {
+    setDateRangeState(value);
+    setPage(1);
+  };
+  const setVisitTypeFilter = (value: string) => {
+    setVisitTypeFilterState(value);
+    setPage(1);
+  };
+  const setSearch = (value: string) => {
+    setSearchState(value);
+    setPage(1);
+  };
+
+  // Fetch one page of finalized OP/IP visits from the server. Search,
+  // date-range bounding, visit-type filter, sort, and pagination all happen
+  // server-side now (see clinicVisits.ts GET "/" status=COMPLETED handling)
+  // — this used to fetch every COMPLETED clinic visit ever and do all of
+  // that client-side. `silent` skips the full-page spinner so background
+  // revalidation swaps data in place.
   const fetchVisits = useCallback(
     async ({ silent = false }: { silent?: boolean } = {}) => {
       if (!token || !activeBranchId) {
@@ -77,14 +97,23 @@ const ClinicFinalizedVisits = () => {
       }
       try {
         if (!silent) setLoading(true);
-        const params = new URLSearchParams({ status: 'COMPLETED' });
+        const params = new URLSearchParams({
+          status: 'COMPLETED',
+          page: String(page),
+          pageSize: '20',
+        });
         const from = dateRangeFrom(dateRange);
         if (from) params.set('from', from);
+        if (visitTypeFilter !== 'all') params.set('visitType', visitTypeFilter);
+        if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim());
         const res = await fetch(`${API_BASE}/visits/clinic?${params.toString()}`, {
           headers: { 'Authorization': `Bearer ${token}`, 'x-branch-id': activeBranchId },
         });
         if (res.ok) {
-          setVisits(await res.json());
+          const data = await res.json();
+          setVisits(data.items ?? []);
+          setTotal(data.total ?? 0);
+          setTotalPages(data.totalPages ?? 1);
         }
       } catch (err) {
         console.error('Failed to fetch finalized clinic visits:', err);
@@ -92,7 +121,7 @@ const ClinicFinalizedVisits = () => {
         if (!silent) setLoading(false);
       }
     },
-    [token, activeBranchId, dateRange],
+    [token, activeBranchId, dateRange, visitTypeFilter, debouncedSearch, page],
   );
 
   useEffect(() => {
@@ -106,31 +135,8 @@ const ClinicFinalizedVisits = () => {
     pollMs: 60_000,
   });
 
-  const filteredVisits = useMemo(() => {
-    const base = visits
-      .filter((v) => v.status === 'COMPLETED' && v.branchId === activeBranchId)
-      .filter((v) => visitTypeFilter === 'all' || v.visitType === visitTypeFilter)
-      .filter((v) => matchesDateRange(dateRange, v.completedAt || v.updatedAt))
-      .sort((a, b) =>
-        new Date(b.completedAt || b.updatedAt).getTime() - new Date(a.completedAt || a.updatedAt).getTime(),
-      );
-
-    // Ranked, case-insensitive, phone-format-agnostic search (exact name first);
-    // returns `base` unchanged when the search box is empty.
-    return searchWorklist(base, search, (v) => ({
-      name: v.patient.name,
-      phone: v.patient.identifiers.find((i) => i.type === 'PHONE')?.value,
-      billNumber: v.billNumber,
-      visitRef: v.visitRef,
-    }));
-  }, [visits, activeBranchId, visitTypeFilter, dateRange, search]);
-
-  const paged = usePagedList(
-    filteredVisits,
-    `${search}|${visitTypeFilter}|${dateRangeKey(dateRange)}`,
-  );
-
-  const hasData = visits.some((v) => v.status === 'COMPLETED' && v.branchId === activeBranchId);
+  // Server already applied every filter, the search ranking, and pagination.
+  const hasData = Boolean(search.trim()) || visitTypeFilter !== 'all' || dateRange.preset !== 'today';
 
   if (loading) {
     return (
@@ -191,11 +197,11 @@ const ClinicFinalizedVisits = () => {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-success" />
-              Finalized ({filteredVisits.length})
+              Finalized ({total})
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {filteredVisits.length === 0 ? (
+            {total === 0 ? (
               <div className="flex flex-col items-center justify-center gap-3 py-14 text-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
                   {hasData ? <Search className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
@@ -211,14 +217,14 @@ const ClinicFinalizedVisits = () => {
                   </p>
                 </div>
                 {hasData && (
-                  <Button variant="outline" size="sm" onClick={() => { setDateFilter('all'); setVisitTypeFilter('all'); setSearch(''); }}>
+                  <Button variant="outline" size="sm" onClick={() => { setDateRange(makeDateRange('all')); setVisitTypeFilter('all'); setSearch(''); }}>
                     Clear filters
                   </Button>
                 )}
               </div>
             ) : (
               <div className="space-y-3">
-                {paged.pageItems.map((visit) => {
+                {visits.map((visit) => {
                   const ageStr = compactAge(visit.patient);
                   const genderStr = visit.patient.gender || '';
                   const phone = visit.patient.identifiers.find((i) => i.type === 'PHONE')?.value || '';
@@ -288,12 +294,12 @@ const ClinicFinalizedVisits = () => {
                   );
                 })}
                 <WorklistPager
-                  page={paged.page}
-                  totalPages={paged.totalPages}
-                  hasPrev={paged.hasPrev}
-                  hasNext={paged.hasNext}
-                  onPrev={paged.prev}
-                  onNext={paged.next}
+                  page={page}
+                  totalPages={totalPages}
+                  hasPrev={page > 1}
+                  hasNext={page < totalPages}
+                  onPrev={() => setPage((p) => Math.max(1, p - 1))}
+                  onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
                 />
               </div>
             )}

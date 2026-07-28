@@ -3,6 +3,7 @@ import { Router } from "express";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { branchContextMiddleware } from "../middleware/branch";
 import prisma from "../lib/prisma";
+import { searchWorklist } from "../lib/worklistSearch";
 import { logAction } from "../services/auditService";
 import { generateClinicBillNumber } from "../services/numberService";
 import {
@@ -322,7 +323,7 @@ function transformClinicVisit(
 // When patientId is omitted: Returns visits for current branch only (daily operations)
 router.get("/", async (req: AuthRequest, res) => {
   try {
-    const { status, doctorId, patientId, from } = req.query;
+    const { status, doctorId, patientId, from, visitType, q, page, pageSize } = req.query;
 
     const where: any = {
       domain: "CLINIC",
@@ -389,11 +390,58 @@ router.get("/", async (req: AuthRequest, res) => {
       );
     }
 
-    return res.json(
-      filteredVisits.map((visit) =>
-        transformClinicVisit(visit, originalVisitMap),
-      ),
+    const transformed = filteredVisits.map((visit) =>
+      transformClinicVisit(visit, originalVisitMap),
     );
+
+    // Server-side pagination for the Finalized OP/IP worklist (status=
+    // COMPLETED only — the live queue and Patient-360 callers keep the
+    // plain-array shape they already expect). Mirrors what
+    // ClinicFinalizedVisits.tsx used to do entirely client-side after an
+    // unbounded fetch: visit-type filter, sort by completedAt, rank by
+    // search term, then page.
+    if (!patientId && status === "COMPLETED") {
+      const byType =
+        visitType && visitType !== "all"
+          ? transformed.filter((v) => v.visitType === visitType)
+          : transformed;
+      const sorted = [...byType].sort(
+        (a, b) =>
+          new Date(b.completedAt || b.updatedAt).getTime() -
+          new Date(a.completedAt || a.updatedAt).getTime(),
+      );
+
+      const qStr = typeof q === "string" ? q : "";
+      const ranked = qStr.trim()
+        ? searchWorklist(sorted, qStr, (v) => ({
+            name: v.patient?.name,
+            phone: (v.patient?.identifiers as any[] | undefined)?.find(
+              (id) => id.type === "PHONE",
+            )?.value,
+            billNumber: v.billNumber,
+            visitRef: v.visitRef,
+          }))
+        : sorted;
+
+      const pageNum = Math.max(1, parseInt(String(page ?? "1"), 10) || 1);
+      const size = Math.min(
+        100,
+        Math.max(1, parseInt(String(pageSize ?? "20"), 10) || 20),
+      );
+      const total = ranked.length;
+      const totalPages = Math.max(1, Math.ceil(total / size));
+      const start = (Math.min(pageNum, totalPages) - 1) * size;
+
+      return res.json({
+        items: ranked.slice(start, start + size),
+        total,
+        page: Math.min(pageNum, totalPages),
+        pageSize: size,
+        totalPages,
+      });
+    }
+
+    return res.json(transformed);
   } catch (err: any) {
     console.error("List clinic visits error:", err);
     return res.status(500).json({
