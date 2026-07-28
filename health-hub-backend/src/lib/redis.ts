@@ -20,6 +20,11 @@ function createRedisClient(): Redis | null {
   const client = new Redis(redisUrl, {
     maxRetriesPerRequest: 1,
     enableOfflineQueue: false,
+    // Upstash (like most managed/serverless Redis) silently closes idle TCP
+    // connections; without keep-alive, ioredis only discovers this when it
+    // next tries to read/write, surfacing as "read ECONNABORTED". A 30s
+    // keep-alive probe refreshes the connection before the far end drops it.
+    keepAlive: 30_000,
   });
 
   client.on('error', (error) => {
@@ -34,6 +39,9 @@ function createRedisClient(): Redis | null {
   });
 
   client.on('ready', () => {
+    if (hasLoggedRedisError) {
+      console.log('[Redis] Reconnected.');
+    }
     hasLoggedRedisError = false;
   });
 
