@@ -28,14 +28,23 @@ import {
 import { WorklistPager } from '@/components/worklist/WorklistPager';
 
 // Collapse a list of test orders into a readable summary for the visit row.
-// Bill-only orders are hidden (they don't ship in a report). Orders that
-// belong to a panel collapse to a single entry per panel — so a Hemogram
-// ordered with 10 sub-tests shows as "HEMOGRAM" once, not 10 codes.
+// Bill-only orders are hidden (they don't ship in a report). Orders collapse
+// to the BILLED PRODUCT — so a Complete Blood Picture ordered as 13 sub-tests
+// shows as "COMPLETE BLOOD PICTURE" once, matching exactly what was billed.
+// Keying on productId (not panel) is what makes this immune to stray per-test
+// panel mappings: a constituent shared across sibling panels (e.g. Haemoglobin
+// belongs to HEMOGRAM, CBC and CBP) can otherwise resolve to a *different*
+// panel per test and leak phantom names like "HEMOGRAM, COMPLETE BLOOD COUNT,
+// COMPLETE BLOOD PICTURE" for one billed product. Orders with no product fall
+// back to their panel name, then the test name. Kept in sync with the Pending
+// worklist's formatTestList (DiagnosticsPendingResults.tsx).
 const formatTestList = (
   testOrders: Array<{
     workflowMode?: string;
     testName?: string;
     testCode?: string;
+    productId?: string | null;
+    productName?: string | null;
     panel?: { id: string; name: string; displayName?: string } | null;
   }>,
 ): string => {
@@ -43,12 +52,24 @@ const formatTestList = (
   const labels: string[] = [];
   for (const order of testOrders) {
     if (order.workflowMode === 'BILL_ONLY') continue;
-    const panel = order.panel;
-    const key = panel?.id ? `panel:${panel.id}` : `test:${order.testCode || order.testName || ''}`;
+    let key: string;
+    let label: string;
+    if (order.productId) {
+      key = `product:${order.productId}`;
+      label =
+        order.productName ||
+        order.panel?.displayName ||
+        order.panel?.name ||
+        order.testName ||
+        order.testCode ||
+        '';
+    } else {
+      const panel = order.panel;
+      key = panel?.id ? `panel:${panel.id}` : `test:${order.testCode || order.testName || ''}`;
+      label = panel?.displayName || panel?.name || order.testName || order.testCode || '';
+    }
     if (seen.has(key)) continue;
     seen.add(key);
-    const label =
-      panel?.displayName || panel?.name || order.testName || order.testCode || '';
     if (label) labels.push(label);
   }
   return labels.join(', ');
