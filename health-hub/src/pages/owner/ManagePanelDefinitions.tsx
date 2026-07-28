@@ -1562,17 +1562,27 @@ export default function ManagePanelDefinitions() {
                         {formItems.length > 0 ? formItems.map((item, i) => {
                           const td = availableDefs.find(d => d.id === item.testDefinitionId);
                           const method = item.showMethod ? (item.methodText || td?.method || null) : null;
+                          const addGap = formSpacedDefinitionsGap > 0 && i < formItems.length - 1;
                           return (
-                            <tr key={i} className="border-b border-dashed">
-                              <td className="align-top">
-                                {renderPreviewLabel(td?.name, {
-                                  isBold: item.isBold,
-                                  isItalic: item.isItalic,
-                                  method,
-                                })}
-                              </td>
-                              <td className="py-1 text-muted-foreground">\u2014</td>
-                            </tr>
+                            <Fragment key={i}>
+                              <tr className="border-b border-dashed">
+                                <td className="align-top">
+                                  {renderPreviewLabel(td?.name, {
+                                    isBold: item.isBold,
+                                    isItalic: item.isItalic,
+                                    method,
+                                  })}
+                                </td>
+                                <td className="py-1 text-muted-foreground">\u2014</td>
+                              </tr>
+                              {addGap && (
+                                <tr>
+                                  <td colSpan={2} style={{ padding: 0, border: 'none' }}>
+                                    <div style={{ height: `${formSpacedDefinitionsGap * 1.5}em` }}></div>
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
                           );
                         }) : (
                           <tr><td colSpan={2} className="text-center py-4 text-muted-foreground">No items</td></tr>
@@ -1815,20 +1825,33 @@ export default function ManagePanelDefinitions() {
                       </tr>
                     </thead>
                     <tbody>
-                      {previewData.tests?.map((test: any, i: number) => (
-                        <tr key={i} className="border-b border-dashed">
-                          <td className="align-top">
-                            {renderPreviewLabel(test.name, {
-                              isBold: test.isBold,
-                              isItalic: test.isItalic,
-                              method: test.method,
-                              paddingLeft: (test.indentLevel || 0) * 12,
-                              bodyClassName: 'py-1 text-xs',
-                            })}
-                          </td>
-                          <td className="py-1 text-muted-foreground">\u2014</td>
-                        </tr>
-                      ))}
+                      {previewData.tests?.map((test: any, i: number) => {
+                        const gap = previewData.panel?.spacedDefinitionsGap || 0;
+                        const addGap = gap > 0 && i < previewData.tests.length - 1;
+                        return (
+                          <Fragment key={i}>
+                            <tr className="border-b border-dashed">
+                              <td className="align-top">
+                                {renderPreviewLabel(test.name, {
+                                  isBold: test.isBold,
+                                  isItalic: test.isItalic,
+                                  method: test.method,
+                                  paddingLeft: (test.indentLevel || 0) * 12,
+                                  bodyClassName: 'py-1 text-xs',
+                                })}
+                              </td>
+                              <td className="py-1 text-muted-foreground">\u2014</td>
+                            </tr>
+                            {addGap && (
+                              <tr>
+                                <td colSpan={2} style={{ padding: 0, border: 'none' }}>
+                                  <div style={{ height: `${gap * 1.5}em` }}></div>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
                     </tbody>
                   </table>
                 ) : (

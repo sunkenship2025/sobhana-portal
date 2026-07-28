@@ -486,7 +486,8 @@ function renderImagingNarrative(panel: PanelSnapshot): string {
 }
 
 function renderProcedureStructured(panel: PanelSnapshot): string {
-  const rows = panel.tests.map((test: TestResultSnapshot) => {
+  const gap = panel.spacedDefinitionsGap ?? 0;
+  const rendered = panel.tests.map((test: TestResultSnapshot) => {
     const indent = test.indentLevel > 0 ? ' indent-1' : '';
     const displayValue = test.textValue || test.notes || formatNumericValue(test.value);
 
@@ -495,7 +496,9 @@ function renderProcedureStructured(panel: PanelSnapshot): string {
         <td class="col-param">${renderTestLabel(test)}</td>
         <td class="col-result">${escapeHtml(displayValue)}</td>
       </tr>`;
-  }).join('');
+  });
+  const gapRow = `<tr><td colspan="2" style="padding: 0; border: none;"><div style="height: ${gap * 1.5}em;"></div></td></tr>`;
+  const rows = gap > 0 && rendered.length > 1 ? rendered.join(gapRow) : rendered.join('');
 
   return `
     <table class="results-table procedure-table">
