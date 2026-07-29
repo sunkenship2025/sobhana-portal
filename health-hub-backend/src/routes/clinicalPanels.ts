@@ -554,6 +554,98 @@ router.delete('/:id', async (req: AuthRequest, res) => {
   }
 });
 
+// Report Builder "type on the report" editor. Appended to the REAL rendered
+// report HTML (renderer untouched) ONLY when the builder asks for editable mode.
+// Makes the title / panel method / test names / values contenteditable in place
+// and posts each committed edit to the parent window. The parent (ReportBuilder)
+// maps edits back to config and re-renders on structural change. This keeps ONE
+// renderer — the edit surface IS the server's own render, never a client copy.
+const REPORT_EDITOR_ASSETS = `
+<style id="rb-editor">
+  .rb-edit{outline:none;border-radius:2px;transition:background .1s,box-shadow .1s;cursor:text;}
+  .rb-edit:hover{background:rgba(43,100,171,.09);box-shadow:0 0 0 3px rgba(43,100,171,.09);}
+  .rb-edit:focus{background:#fff;box-shadow:0 0 0 2px #2b64ab;}
+  .rb-ph:empty:before{content:attr(data-ph);color:#b3b9c4;font-style:italic;font-weight:400;}
+  .results-table tbody td.col-ref{position:relative;}
+  .rb-rowtools{position:absolute;top:50%;right:2px;transform:translateY(-50%);display:none;gap:3px;white-space:nowrap;}
+  .results-table tbody tr.data-row:hover .rb-rowtools{display:inline-flex;}
+  .rb-tool{cursor:pointer;font:12px/1 Arial,sans-serif;padding:2px 5px;border-radius:3px;color:#8a93a5;background:#fff;border:1px solid #e2e6ee;user-select:none;}
+  .rb-tool:hover{color:#2b64ab;border-color:#2b64ab;}
+  .rb-del:hover{color:#c22;border-color:#c22;}
+  .rb-addbar{padding:7px 0 2px;}
+  .rb-addbtn{font:600 11px/1 Arial,sans-serif;color:#2b64ab;background:transparent;border:1px dashed rgba(43,100,171,.55);border-radius:20px;padding:6px 16px;cursor:pointer;}
+  .rb-addbtn:hover{background:rgba(43,100,171,.08);}
+  .rb-addmethod{font:italic 11px/1.4 Arial,sans-serif;color:#2b64ab;cursor:pointer;margin:3px 0;opacity:.75;}
+  .rb-addmethod:hover{opacity:1;text-decoration:underline;}
+</style>
+<script>
+(function(){
+  var post=function(m){try{parent.postMessage(Object.assign({__rbEdit:1},m),'*');}catch(e){}};
+  var norm=function(s){return (s||'').replace(/\\s+/g,' ').trim();};
+  var q=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s));};
+  function wire(el,commit,ph){
+    if(!el||el.__rb)return; el.__rb=1;
+    el.setAttribute('contenteditable','true'); el.classList.add('rb-edit');
+    if(ph){el.classList.add('rb-ph');el.setAttribute('data-ph',ph);}
+    el.addEventListener('mousedown',function(e){e.stopPropagation();});
+    el.addEventListener('focus',function(){el.__o=el.textContent;});
+    el.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();el.blur();}if(e.key==='Escape'){el.textContent=el.__o||'';el.blur();}});
+    el.addEventListener('blur',function(){var v=norm(el.textContent);if(v!==norm(el.__o))commit(v,el);});
+  }
+  function stripMethod(v){return v.replace(/^method\\s*:\\s*/i,'');}
+  try{
+    // Report title
+    wire(document.querySelector('.panel-title'),function(v){post({type:'panel',field:'label',value:v});},'Report name');
+    // Panel method (edit in place, or an inline affordance to add one when absent)
+    var pm=document.querySelector('.panel-method');
+    if(pm){ wire(pm,function(v){post({type:'panel',field:'panelMethodText',value:stripMethod(v)});}); }
+    else { var tt=document.querySelector('.panel-title'); if(tt){ var add=document.createElement('div'); add.className='rb-addmethod'; add.textContent='+ Add method'; add.addEventListener('click',function(){ add.parentNode.removeChild(add); var d=document.createElement('div'); d.className='panel-method'; d.textContent='Method : '; tt.parentNode.insertBefore(d,tt.nextSibling); wire(d,function(v){post({type:'panel',field:'panelMethodText',value:stripMethod(v)});}); d.focus(); }); tt.parentNode.insertBefore(add,tt.nextSibling); } }
+    // Test names + values, in item order (works across table + join-previous grid)
+    var names=q('.results-table tbody .test-name, .results-table tbody .grid-cell-label');
+    var values=q('.results-table tbody .col-value, .results-table tbody .grid-cell-value');
+    names.forEach(function(nm,i){ wire(nm,function(v){post({type:'item',index:i,field:'label',value:v});},'Test name'); });
+    values.forEach(function(vc,i){ wire(vc,function(v){post({type:'item',index:i,field:'value',value:v});},'\\u2014'); });
+    // Per-row tools (inspect + delete) for simple one-test rows
+    q('.results-table tbody tr.data-row').forEach(function(tr){
+      var nm=tr.querySelector('.test-name'); if(!nm)return; var i=names.indexOf(nm); if(i<0)return;
+      var ref=tr.querySelector('td.col-ref'); if(!ref)return;
+      var bar=document.createElement('span'); bar.className='rb-rowtools'; bar.setAttribute('contenteditable','false');
+      var insp=document.createElement('span'); insp.className='rb-tool'; insp.textContent='\\u2699'; insp.title='Edit clinical details';
+      insp.addEventListener('mousedown',function(e){e.preventDefault();e.stopPropagation();post({type:'inspect',index:i});});
+      var del=document.createElement('span'); del.className='rb-tool rb-del'; del.textContent='\\u00d7'; del.title='Remove test';
+      del.addEventListener('mousedown',function(e){e.preventDefault();e.stopPropagation();post({type:'delete',index:i});});
+      bar.appendChild(insp); bar.appendChild(del); ref.appendChild(bar);
+    });
+    // Add a new test by typing it onto the report
+    var tbl=document.querySelector('.results-table');
+    if(tbl && tbl.querySelector('tbody')){
+      var wrap=document.createElement('div'); wrap.className='rb-addbar';
+      var b=document.createElement('button'); b.type='button'; b.className='rb-addbtn'; b.textContent='+ Add test';
+      b.addEventListener('click',function(){
+        var tb=tbl.querySelector('tbody');
+        var tr=document.createElement('tr'); tr.className='data-row';
+        tr.innerHTML='<td class="col-test"><div class="test-name rb-edit rb-ph" data-ph="Type test name..." contenteditable="true"></div></td><td class="col-value">\\u2014</td><td class="col-unit"></td><td class="col-ref"></td>';
+        tb.appendChild(tr);
+        var span=tr.querySelector('.test-name'); span.focus();
+        span.addEventListener('mousedown',function(e){e.stopPropagation();});
+        span.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();span.blur();}});
+        var done=false;
+        span.addEventListener('blur',function(){ if(done)return; done=true; var v=norm(span.textContent); if(tr.parentNode)tr.parentNode.removeChild(tr); if(v)post({type:'create',name:v}); });
+      });
+      wrap.appendChild(b); tbl.parentNode.insertBefore(wrap,tbl.nextSibling);
+    }
+    var sendReady=function(){post({type:'ready',height:document.documentElement.scrollHeight});};
+    sendReady(); window.addEventListener('load',sendReady);
+  }catch(e){ post({type:'error',message:String(e&&e.message||e)}); }
+})();
+</script>`;
+
+function injectReportEditor(html: string): string {
+  return html.includes('</body>')
+    ? html.replace(/<\/body>(?![\s\S]*<\/body>)/, `${REPORT_EDITOR_ASSETS}</body>`)
+    : html + REPORT_EDITOR_ASSETS;
+}
+
 // ─── POST /preview-html — Report Builder live preview ────────────────
 // Renders an UNSAVED builder draft (in-progress panel + items + mock patient +
 // mock values) through the EXACT same renderer the finalized report uses, so
@@ -564,7 +656,7 @@ router.delete('/:id', async (req: AuthRequest, res) => {
 // so it never collides with the '/:id/preview' two-segment route.
 router.post('/preview-html', async (req: AuthRequest, res) => {
   try {
-    const { panel, items, patient, profile, format } = req.body;
+    const { panel, items, patient, profile, format, editable } = req.body;
     if (!panel || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'panel and at least one item are required' });
     }
@@ -636,7 +728,7 @@ router.post('/preview-html', async (req: AuthRequest, res) => {
     const html = renderReportHtml(snapshot, { profile: renderProfile, baseUrl });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
-    return res.send(html);
+    return res.send(editable ? injectReportEditor(html) : html);
   } catch (error: any) {
     console.error('Error rendering builder preview:', error);
     return res.status(500).json({ error: 'PREVIEW_FAILED', message: error.message });
