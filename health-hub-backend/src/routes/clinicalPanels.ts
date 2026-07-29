@@ -267,7 +267,7 @@ router.post('/', async (req: AuthRequest, res) => {
       name, displayName, departmentId, layoutType, sampleType,
       displayOrder, showMethodColumn, showSubgroups, showInterpretation, valueDisplayPrefix, spacedDefinitionsGap,
       summaryInterpretationTemplate, comments, interpretation, subgroupMethods, subgroupTableOverrides,
-      panelMethodText, panelMethodItalic, narrativeTemplateHtml, items,
+      panelMethodText, panelMethodItalic, narrativeTemplateHtml, isActive, items,
     } = req.body;
 
     if (!name || !displayName || !departmentId || !layoutType) {
@@ -372,7 +372,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
       name, displayName, departmentId, layoutType, sampleType,
       displayOrder, showMethodColumn, showSubgroups, showInterpretation, valueDisplayPrefix, spacedDefinitionsGap,
       summaryInterpretationTemplate, comments, interpretation, subgroupMethods, subgroupTableOverrides,
-      panelMethodText, panelMethodItalic, narrativeTemplateHtml, items,
+      panelMethodText, panelMethodItalic, narrativeTemplateHtml, isActive, items,
     } = req.body;
 
     const existing = await prisma.clinicalPanel.findUnique({
@@ -438,6 +438,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
           panelMethodText: panelMethodText !== undefined ? panelMethodText : existing.panelMethodText,
           panelMethodItalic: panelMethodItalic !== undefined ? panelMethodItalic : existing.panelMethodItalic,
           narrativeTemplateHtml: narrativeTemplateHtml !== undefined ? narrativeTemplateHtml : existing.narrativeTemplateHtml,
+          isActive: isActive !== undefined ? isActive : existing.isActive,
           items: resolvedItems ? {
             create: resolvedItems.map((item: any, idx: number) => ({
               testDefinitionId: item.testDefinitionId,
@@ -566,23 +567,39 @@ const REPORT_EDITOR_ASSETS = `
   .rb-edit:hover{background:rgba(43,100,171,.09);box-shadow:0 0 0 3px rgba(43,100,171,.09);}
   .rb-edit:focus{background:#fff;box-shadow:0 0 0 2px #2b64ab;}
   .rb-ph:empty:before{content:attr(data-ph);color:#b3b9c4;font-style:italic;font-weight:400;}
-  .results-table tbody td.col-ref{position:relative;}
-  .rb-rowtools{position:absolute;top:50%;right:2px;transform:translateY(-50%);display:none;gap:3px;white-space:nowrap;}
+  .results-table tbody td.col-ref,.results-table tbody td.col-result{position:relative;}
+  .results-table tbody td.col-ref{cursor:pointer;}
+  .rb-rowtools{position:absolute;top:50%;right:2px;transform:translateY(-50%);display:none;gap:3px;white-space:nowrap;z-index:2;}
   .results-table tbody tr.data-row:hover .rb-rowtools{display:inline-flex;}
   .rb-tool{cursor:pointer;font:12px/1 Arial,sans-serif;padding:2px 5px;border-radius:3px;color:#8a93a5;background:#fff;border:1px solid #e2e6ee;user-select:none;}
   .rb-tool:hover{color:#2b64ab;border-color:#2b64ab;}
   .rb-del:hover{color:#c22;border-color:#c22;}
-  .rb-addbar{padding:7px 0 2px;}
-  .rb-addbtn{font:600 11px/1 Arial,sans-serif;color:#2b64ab;background:transparent;border:1px dashed rgba(43,100,171,.55);border-radius:20px;padding:6px 16px;cursor:pointer;}
+  .rb-drag{cursor:grab;color:#c2c8d0;user-select:none;font:12px/1 Arial;opacity:0;display:inline-block;vertical-align:middle;margin-right:6px;}
+  tr.data-row:hover .rb-drag{opacity:1;}
+  tr.data-row.rb-dragging{opacity:.4;}
+  tr.data-row.rb-over-top>td{box-shadow:inset 0 3px 0 #2b64ab!important;}
+  tr.data-row.rb-over-bot>td{box-shadow:inset 0 -3px 0 #2b64ab!important;}
+  .rb-addbar{padding:7px 0 2px;display:flex;gap:8px;flex-wrap:wrap;}
+  .rb-addbtn{font:600 11px/1 Arial,sans-serif;color:#2b64ab;background:transparent;border:1px dashed rgba(43,100,171,.55);border-radius:20px;padding:6px 14px;cursor:pointer;}
   .rb-addbtn:hover{background:rgba(43,100,171,.08);}
   .rb-addmethod{font:italic 11px/1.4 Arial,sans-serif;color:#2b64ab;cursor:pointer;margin:3px 0;opacity:.75;}
   .rb-addmethod:hover{opacity:1;text-decoration:underline;}
+  .rb-kv{font:600 10px/1 Arial;color:#5a6472;background:#fff;border:1px solid #d8dce2;border-radius:20px;padding:3px 9px;margin-left:10px;cursor:pointer;vertical-align:middle;}
+  .rb-kv.on{color:#2b64ab;border-color:#2b64ab;background:rgba(43,100,171,.08);}
+  .rb-rt-bar{position:fixed;z-index:9999;display:none;gap:2px;background:#1f2430;border-radius:8px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.28);}
+  .rb-rt-bar button{font:600 12px/1 Arial;color:#e7eaf0;background:transparent;border:0;border-radius:5px;padding:6px 8px;cursor:pointer;}
+  .rb-rt-bar button:hover{background:rgba(255,255,255,.14);}
+  .rb-rt-bar .sep{width:1px;background:rgba(255,255,255,.18);margin:2px;}
+  .rb-richedit{outline:none;}
+  .rb-richedit:hover{box-shadow:0 0 0 3px rgba(43,100,171,.08);border-radius:3px;}
+  .rb-richedit:focus{box-shadow:0 0 0 2px #2b64ab;border-radius:3px;background:#fff;}
 </style>
 <script>
 (function(){
   var post=function(m){try{parent.postMessage(Object.assign({__rbEdit:1},m),'*');}catch(e){}};
   var norm=function(s){return (s||'').replace(/\\s+/g,' ').trim();};
   var q=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s));};
+  function stripMethod(v){return v.replace(/^method\\s*:\\s*/i,'');}
   function wire(el,commit,ph){
     if(!el||el.__rb)return; el.__rb=1;
     el.setAttribute('contenteditable','true'); el.classList.add('rb-edit');
@@ -592,55 +609,129 @@ const REPORT_EDITOR_ASSETS = `
     el.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();el.blur();}if(e.key==='Escape'){el.textContent=el.__o||'';el.blur();}});
     el.addEventListener('blur',function(){var v=norm(el.textContent);if(v!==norm(el.__o))commit(v,el);});
   }
-  function stripMethod(v){return v.replace(/^method\\s*:\\s*/i,'');}
+
+  /* ---- shared floating rich-text toolbar for notes / interpretation / narrative ---- */
+  var rtbar=null, rtEl=null;
+  function ensureBar(){
+    if(rtbar)return rtbar;
+    rtbar=document.createElement('div'); rtbar.className='rb-rt-bar';
+    var mk=function(html,cmd,val,title){ var b=document.createElement('button'); b.innerHTML=html; b.title=title||''; b.addEventListener('mousedown',function(e){e.preventDefault();document.execCommand(cmd,false,val||undefined); if(rtEl){rtEl.__emit&&rtEl.__emit();}}); return b; };
+    var sep=function(){var s=document.createElement('span');s.className='sep';return s;};
+    rtbar.appendChild(mk('H','formatBlock','H3','Heading'));
+    rtbar.appendChild(mk('Body','formatBlock','P','Body'));
+    rtbar.appendChild(sep());
+    rtbar.appendChild(mk('<b>B</b>','bold','','Bold'));
+    rtbar.appendChild(mk('<i>I</i>','italic','','Italic'));
+    rtbar.appendChild(mk('<u>U</u>','underline','','Underline'));
+    rtbar.appendChild(sep());
+    rtbar.appendChild(mk('&bull; List','insertUnorderedList','','Bulleted list'));
+    rtbar.appendChild(mk('1. List','insertOrderedList','','Numbered list'));
+    document.body.appendChild(rtbar);
+    return rtbar;
+  }
+  function positionBar(el){ var b=ensureBar(); var r=el.getBoundingClientRect(); b.style.display='flex'; b.style.left=Math.max(6,r.left)+'px'; b.style.top=Math.max(6,r.top-40)+'px'; }
+  function wireRich(el,field){
+    if(!el||el.__rb)return; el.__rb=1;
+    el.classList.add('rb-richedit'); el.setAttribute('contenteditable','true');
+    el.__emit=function(){ post({type:'panel',field:field,value:el.innerHTML}); };
+    el.addEventListener('mousedown',function(e){e.stopPropagation();});
+    el.addEventListener('focus',function(){ rtEl=el; positionBar(el); });
+    el.addEventListener('input',function(){ el.__emit(); });
+    el.addEventListener('blur',function(){ setTimeout(function(){ if(rtbar && document.activeElement!==el && (!rtEl||rtEl===el)){ rtbar.style.display='none'; } },150); });
+  }
+
+  /* ---- drag reorder (test rows) ---- */
+  var dragIdx=null;
+  function bindDrag(tr,idx){
+    tr.addEventListener('dragover',function(e){ if(dragIdx==null)return; e.preventDefault(); var rc=tr.getBoundingClientRect(); var before=(e.clientY-rc.top)<rc.height/2; tr.classList.toggle('rb-over-top',before); tr.classList.toggle('rb-over-bot',!before); });
+    tr.addEventListener('dragleave',function(){ tr.classList.remove('rb-over-top','rb-over-bot'); });
+    tr.addEventListener('drop',function(e){ if(dragIdx==null)return; e.preventDefault(); var before=tr.classList.contains('rb-over-top'); tr.classList.remove('rb-over-top','rb-over-bot'); if(dragIdx!==idx) post({type:'reorder',from:dragIdx,to:idx,before:before}); dragIdx=null; });
+  }
+
+  function sectionOf(tr){ var p=tr.previousElementSibling; while(p){ if(p.classList.contains('section-divider'))return p; p=p.previousElementSibling; } return null; }
+
   try{
     // Report title
     wire(document.querySelector('.panel-title'),function(v){post({type:'panel',field:'label',value:v});},'Report name');
-    // Panel method (edit in place, or an inline affordance to add one when absent)
+    // Panel method (edit in place, or add when absent)
     var pm=document.querySelector('.panel-method');
     if(pm){ wire(pm,function(v){post({type:'panel',field:'panelMethodText',value:stripMethod(v)});}); }
-    else { var tt=document.querySelector('.panel-title'); if(tt){ var add=document.createElement('div'); add.className='rb-addmethod'; add.textContent='+ Add method'; add.addEventListener('click',function(){ add.parentNode.removeChild(add); var d=document.createElement('div'); d.className='panel-method'; d.textContent='Method : '; tt.parentNode.insertBefore(d,tt.nextSibling); wire(d,function(v){post({type:'panel',field:'panelMethodText',value:stripMethod(v)});}); d.focus(); }); tt.parentNode.insertBefore(add,tt.nextSibling); } }
-    // Test names + values, in item order (works across table + join-previous grid)
+    else { var tt=document.querySelector('.panel-title'); if(tt){ var addm=document.createElement('div'); addm.className='rb-addmethod'; addm.textContent='+ Add method'; addm.addEventListener('click',function(){ addm.parentNode.removeChild(addm); var d=document.createElement('div'); d.className='panel-method'; d.textContent='Method : '; tt.parentNode.insertBefore(d,tt.nextSibling); wire(d,function(v){post({type:'panel',field:'panelMethodText',value:stripMethod(v)});}); d.focus(); }); tt.parentNode.insertBefore(addm,tt.nextSibling); } }
+
+    // Test names + values, in item order (table + procedure + join-previous grid)
     var names=q('.results-table tbody .test-name, .results-table tbody .grid-cell-label');
-    var values=q('.results-table tbody .col-value, .results-table tbody .grid-cell-value');
+    var values=q('.results-table tbody .col-value, .results-table tbody .col-result, .results-table tbody .grid-cell-value');
     names.forEach(function(nm,i){ wire(nm,function(v){post({type:'item',index:i,field:'label',value:v});},'Test name'); });
     values.forEach(function(vc,i){ wire(vc,function(v){post({type:'item',index:i,field:'value',value:v});},'\\u2014'); });
-    // Per-row tools (inspect + delete) for simple one-test rows
+
+    // Per test row: drag handle + tools + click-to-inspect + ref-cell → ranges
     q('.results-table tbody tr.data-row').forEach(function(tr){
-      var nm=tr.querySelector('.test-name'); if(!nm)return; var i=names.indexOf(nm); if(i<0)return;
-      var ref=tr.querySelector('td.col-ref'); if(!ref)return;
-      var bar=document.createElement('span'); bar.className='rb-rowtools'; bar.setAttribute('contenteditable','false');
-      var insp=document.createElement('span'); insp.className='rb-tool'; insp.textContent='\\u2699'; insp.title='Edit clinical details';
-      insp.addEventListener('mousedown',function(e){e.preventDefault();e.stopPropagation();post({type:'inspect',index:i});});
-      var del=document.createElement('span'); del.className='rb-tool rb-del'; del.textContent='\\u00d7'; del.title='Remove test';
-      del.addEventListener('mousedown',function(e){e.preventDefault();e.stopPropagation();post({type:'delete',index:i});});
-      bar.appendChild(insp); bar.appendChild(del); ref.appendChild(bar);
+      var nm=tr.querySelector('.test-name, .grid-cell-label'); if(!nm)return; var i=names.indexOf(nm); if(i<0)return;
+      var td0=tr.querySelector('td.col-test, td.col-param')||tr.firstElementChild;
+      if(td0){ var g=document.createElement('span'); g.className='rb-drag'; g.textContent='\\u283f'; g.title='Drag to reorder'; g.setAttribute('draggable','true'); g.setAttribute('contenteditable','false');
+        g.addEventListener('mousedown',function(e){e.stopPropagation();});
+        g.addEventListener('dragstart',function(e){ dragIdx=i; tr.classList.add('rb-dragging'); try{e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(i));}catch(_){} });
+        g.addEventListener('dragend',function(){ dragIdx=null; q('.data-row').forEach(function(x){x.classList.remove('rb-dragging','rb-over-top','rb-over-bot');}); });
+        td0.insertBefore(g,td0.firstChild); }
+      var lastCell=tr.querySelector('td.col-ref, td.col-result')||tr.lastElementChild;
+      if(lastCell){ var bar=document.createElement('span'); bar.className='rb-rowtools'; bar.setAttribute('contenteditable','false');
+        var insp=document.createElement('span'); insp.className='rb-tool'; insp.textContent='\\u2699'; insp.title='Edit clinical details';
+        insp.addEventListener('mousedown',function(e){e.preventDefault();e.stopPropagation();post({type:'inspect',index:i});});
+        var del=document.createElement('span'); del.className='rb-tool rb-del'; del.textContent='\\u00d7'; del.title='Remove test';
+        del.addEventListener('mousedown',function(e){e.preventDefault();e.stopPropagation();post({type:'delete',index:i});});
+        bar.appendChild(insp); bar.appendChild(del); lastCell.appendChild(bar); }
+      var ref=tr.querySelector('td.col-ref');
+      if(ref){ ref.addEventListener('click',function(e){ if(e.target.closest('[data-rb-edit],.rb-tool,.rb-drag,.rb-edit'))return; post({type:'inspect',index:i,focus:'ranges'}); }); }
+      tr.addEventListener('click',function(e){ if(e.target.closest('[data-rb-edit],.rb-tool,.rb-drag,.rb-edit,td.col-ref'))return; post({type:'inspect',index:i}); });
+      bindDrag(tr,i);
     });
-    // Add a new test by typing it onto the report
+
+    // Subgroup dividers: rename + key:value toggle + (add) method
+    q('.results-table tbody tr.section-divider').forEach(function(tr){
+      var td=tr.querySelector('td'); if(!td)return; var groupName=norm(td.textContent);
+      var span=document.createElement('span'); span.textContent=groupName; td.textContent=''; td.appendChild(span);
+      wire(span,function(v){ if(v&&v.toUpperCase()!==groupName.toUpperCase()) post({type:'sectionRename',from:groupName,to:v.toUpperCase()}); },'Subgroup name');
+      var kv=document.createElement('span'); kv.className='rb-kv'; kv.setAttribute('contenteditable','false'); kv.textContent='key : value'; kv.title='Render this subgroup as a compact key:value smear';
+      kv.addEventListener('mousedown',function(e){e.preventDefault();e.stopPropagation();post({type:'sectionKV',name:groupName});}); td.appendChild(kv);
+      // method row: edit if present, else offer to add
+      var next=tr.nextElementSibling;
+      if(next && next.classList.contains('method-row')){ var mtd=next.querySelector('td'); if(mtd){ var ms=document.createElement('span'); ms.textContent=stripMethod(norm(mtd.textContent)); mtd.textContent='Method : '; mtd.appendChild(ms); wire(ms,function(v){post({type:'sectionMethod',name:groupName,value:v});}); } }
+      else { var amr=document.createElement('span'); amr.className='rb-kv'; amr.setAttribute('contenteditable','false'); amr.textContent='+ method'; amr.title='Add a method line for this subgroup';
+        amr.addEventListener('mousedown',function(e){e.preventDefault();e.stopPropagation();post({type:'sectionMethod',name:groupName,value:'\\u2014'});}); td.appendChild(amr); }
+    });
+
+    // Clinical Notes / Interpretation boxes → rich-text editable
+    q('.interpretation-block').forEach(function(bl){ var strong=bl.querySelector('strong'); var lab=norm(strong?strong.textContent:''); var field=lab.indexOf('INTERPRET')>=0?'interpretation':'comments'; var body=bl.querySelector('.interpretation-body')||bl.querySelector('p'); if(body) wireRich(body,field); });
+    // Narrative / text-only body → rich-text editable (saved as the panel narrative template)
+    q('.imaging-narrative, .text-only-result .result-text').forEach(function(el){ wireRich(el,'narrativeTemplateHtml'); });
+
+    // Add affordances
     var tbl=document.querySelector('.results-table');
     if(tbl && tbl.querySelector('tbody')){
       var wrap=document.createElement('div'); wrap.className='rb-addbar';
-      var b=document.createElement('button'); b.type='button'; b.className='rb-addbtn'; b.textContent='+ Add test';
-      b.addEventListener('click',function(){
-        var tb=tbl.querySelector('tbody');
+      var mkAdd=function(txt,fn){ var b=document.createElement('button'); b.type='button'; b.className='rb-addbtn'; b.textContent=txt; b.addEventListener('click',fn); return b; };
+      wrap.appendChild(mkAdd('+ Add test',function(){
+        var tb=tbl.querySelector('tbody'); var isProc=!!tbl.querySelector('th.col-param');
         var tr=document.createElement('tr'); tr.className='data-row';
-        tr.innerHTML='<td class="col-test"><div class="test-name rb-edit rb-ph" data-ph="Type test name..." contenteditable="true"></div></td><td class="col-value">\\u2014</td><td class="col-unit"></td><td class="col-ref"></td>';
-        tb.appendChild(tr);
-        var span=tr.querySelector('.test-name'); span.focus();
+        tr.innerHTML=isProc?'<td class="col-param"><div class="test-name rb-edit rb-ph" data-ph="Type test name..." contenteditable="true"></div></td><td class="col-result">\\u2014</td>':'<td class="col-test"><div class="test-name rb-edit rb-ph" data-ph="Type test name..." contenteditable="true"></div></td><td class="col-value">\\u2014</td><td class="col-unit"></td><td class="col-ref"></td>';
+        tb.appendChild(tr); var span=tr.querySelector('.test-name'); span.focus();
         span.addEventListener('mousedown',function(e){e.stopPropagation();});
         span.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();span.blur();}});
-        var done=false;
-        span.addEventListener('blur',function(){ if(done)return; done=true; var v=norm(span.textContent); if(tr.parentNode)tr.parentNode.removeChild(tr); if(v)post({type:'create',name:v}); });
-      });
-      wrap.appendChild(b); tbl.parentNode.insertBefore(wrap,tbl.nextSibling);
+        var done=false; span.addEventListener('blur',function(){ if(done)return; done=true; var v=norm(span.textContent); if(tr.parentNode)tr.parentNode.removeChild(tr); if(v)post({type:'create',name:v}); });
+      }));
+      wrap.appendChild(mkAdd('+ Add subgroup',function(){ post({type:'addSection'}); }));
+      if(!document.querySelector('.interpretation-block')){ wrap.appendChild(mkAdd('+ Clinical notes',function(){ post({type:'panel',field:'comments',value:'&nbsp;'}); })); }
+      tbl.parentNode.insertBefore(wrap,tbl.nextSibling);
     }
+
+    document.addEventListener('scroll',function(){ if(rtbar&&rtEl&&rtbar.style.display==='flex')positionBar(rtEl); },true);
     var sendReady=function(){post({type:'ready',height:document.documentElement.scrollHeight});};
     sendReady(); window.addEventListener('load',sendReady);
   }catch(e){ post({type:'error',message:String(e&&e.message||e)}); }
 })();
 </script>`;
 
-function injectReportEditor(html: string): string {
+export function injectReportEditor(html: string): string {
   return html.includes('</body>')
     ? html.replace(/<\/body>(?![\s\S]*<\/body>)/, `${REPORT_EDITOR_ASSETS}</body>`)
     : html + REPORT_EDITOR_ASSETS;

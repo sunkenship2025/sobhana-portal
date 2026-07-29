@@ -16,21 +16,29 @@ import { API_BASE } from '@/lib/api';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import type { PreviewPayload } from './ReportPreviewFrame';
 
+export type PanelEditField = 'label' | 'panelMethodText' | 'comments' | 'interpretation' | 'narrativeTemplateHtml';
+
 interface Props {
   payload: PreviewPayload;
   profile: 'digital' | 'letterhead';
   reloadKey: number;
   headers: Record<string, string>;
-  onPanelEdit: (field: 'label' | 'panelMethodText', value: string) => void;
+  onPanelEdit: (field: PanelEditField, value: string) => void;
   onItemEdit: (index: number, field: 'label' | 'value', value: string) => void;
-  onInspect: (index: number) => void;
+  onInspect: (index: number, focus?: 'ranges') => void;
   onDelete: (index: number) => void;
   onCreate: (name: string) => void;
+  onReorder: (from: number, to: number, before: boolean) => void;
+  onSectionRename: (from: string, to: string) => void;
+  onSectionMethod: (name: string, value: string) => void;
+  onSectionKV: (name: string) => void;
+  onAddSection: () => void;
 }
 
 export function EditableReportFrame({
   payload, profile, reloadKey, headers,
   onPanelEdit, onItemEdit, onInspect, onDelete, onCreate,
+  onReorder, onSectionRename, onSectionMethod, onSectionKV, onAddSection,
 }: Props) {
   const [html, setHtml] = useState('');
   const [loading, setLoading] = useState(true);
@@ -39,8 +47,8 @@ export function EditableReportFrame({
 
   // Latest payload/callbacks without forcing a re-fetch (that's what reloadKey is for).
   const payloadRef = useRef(payload); payloadRef.current = payload;
-  const cb = useRef({ onPanelEdit, onItemEdit, onInspect, onDelete, onCreate });
-  cb.current = { onPanelEdit, onItemEdit, onInspect, onDelete, onCreate };
+  const cb = useRef({ onPanelEdit, onItemEdit, onInspect, onDelete, onCreate, onReorder, onSectionRename, onSectionMethod, onSectionKV, onAddSection });
+  cb.current = { onPanelEdit, onItemEdit, onInspect, onDelete, onCreate, onReorder, onSectionRename, onSectionMethod, onSectionKV, onAddSection };
 
   // Re-render the iframe only on structural change / profile flip.
   useEffect(() => {
@@ -72,9 +80,14 @@ export function EditableReportFrame({
       switch (d.type) {
         case 'panel': c.onPanelEdit(d.field, d.value); break;
         case 'item': c.onItemEdit(d.index, d.field, d.value); break;
-        case 'inspect': c.onInspect(d.index); break;
+        case 'inspect': c.onInspect(d.index, d.focus); break;
         case 'delete': c.onDelete(d.index); break;
         case 'create': c.onCreate(d.name); break;
+        case 'reorder': c.onReorder(d.from, d.to, d.before); break;
+        case 'sectionRename': c.onSectionRename(d.from, d.to); break;
+        case 'sectionMethod': c.onSectionMethod(d.name, d.value); break;
+        case 'sectionKV': c.onSectionKV(d.name); break;
+        case 'addSection': c.onAddSection(); break;
         case 'ready': if (typeof d.height === 'number' && d.height > 0) setFrameH(d.height); break;
       }
     };
