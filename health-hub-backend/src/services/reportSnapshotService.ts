@@ -1329,7 +1329,7 @@ function buildPanelsAndDepartments(
           testId: test.id,
           testDefinitionId: testDef.id,
           testCode: testDef.code || test.code,
-          testName: testDef.name || test.name,
+          testName: panelItem.displayLabel ?? (testDef.name || test.name),
           value: result.value,
           textValue: result.textValue ?? null,
           flag: result.flag,
@@ -1976,6 +1976,235 @@ export async function buildEphemeralSnapshot(
     patient: patientSnapshot,
     visit: visitSnapshot,
     externalUploads,
+  };
+}
+
+// ============================================================================
+// DRAFT PREVIEW (Report Builder) — render an UNSAVED panel through the EXACT
+// same pipeline the finalized report uses, seeded with a mock patient + values.
+// buildEphemeralSnapshot can't be reused (it reads the visit from the DB and
+// throws for unsaved drafts), so we assemble the ReportSnapshot literal here
+// and feed it into the shared buildPanelsAndDepartments + real signature
+// resolution. renderReportHtml(snapshot, {profile}) then produces byte-identical
+// HTML to production — screen for digital, pdf-physical for letterhead.
+// ============================================================================
+
+export interface DraftPanelPreviewInput {
+  branch: { id: string; name: string; code: string; address: string | null; phone: string | null };
+  department: { id: string; name: string; reportHeaderText: string; displayOrder?: number; showLabIncharge?: boolean };
+  panel: {
+    code: string;      // ClinicalPanel.name (unique code)
+    label: string;     // ClinicalPanel.displayName (human label)
+    layoutType: string;
+    sampleType?: string | null;
+    panelMethodText?: string | null;
+    panelMethodItalic?: boolean;
+    showSubgroups?: boolean;
+    showInterpretation?: boolean;
+    subgroupMethods?: Record<string, string> | null;
+    subgroupTableOverrides?: Record<string, boolean> | null;
+    valueDisplayPrefix?: string | null;
+    spacedDefinitionsGap?: number;
+    comments?: string | null;
+    interpretation?: string | null;
+    summaryInterpretationTemplate?: string | null;
+  };
+  items: Array<{
+    testDefinition: {
+      code: string;
+      name: string;
+      method?: string | null;
+      sampleType?: string | null;
+      referenceMin?: number | null;
+      referenceMax?: number | null;
+      referenceUnit?: string | null;
+      referenceText?: string | null;
+      criticalMin?: number | null;
+      criticalMax?: number | null;
+      interpretationRules?: any[];
+    };
+    displayOrder?: number;
+    showMethod?: boolean;
+    methodText?: string | null;
+    indentLevel?: number;
+    isBold?: boolean;
+    isItalic?: boolean;
+    subGroup?: string | null;
+    joinPrevious?: boolean;
+    gridWidth?: number | null;
+    displayLabel?: string | null;
+    mockValue?: number | null;
+    mockTextValue?: string | null;
+  }>;
+  patient?: {
+    name?: string;
+    title?: string | null;
+    gender?: string;
+    yearOfBirth?: number;
+    dateOfBirth?: string | null;
+    ageUnit?: string | null;
+    patientNumber?: string;
+    phone?: string | null;
+    address?: string | null;
+  };
+  billNumber?: string;
+}
+
+export async function buildDraftPanelSnapshot(input: DraftPanelPreviewInput): Promise<ReportSnapshot> {
+  const dept = {
+    id: input.department.id,
+    name: input.department.name,
+    reportHeaderText: input.department.reportHeaderText || input.department.name,
+    displayOrder: input.department.displayOrder ?? 0,
+    showLabIncharge: input.department.showLabIncharge ?? true,
+  };
+
+  // ONE synthetic ClinicalPanel shared by every item (mirrors panelItem.panel).
+  const SP: any = {
+    id: 'draft-panel',
+    name: input.panel.code,                          // → snapshot.panelName
+    displayName: input.panel.label || input.panel.code, // → snapshot.displayName (panel title)
+    layoutType: input.panel.layoutType,
+    panelMethodText: input.panel.panelMethodText ?? null,
+    panelMethodItalic: input.panel.panelMethodItalic ?? false,
+    sampleType: input.panel.sampleType ?? null,
+    displayOrder: 0,
+    showSubgroups: input.panel.showSubgroups ?? false,
+    showInterpretation: input.panel.showInterpretation ?? false,
+    subgroupMethods: input.panel.subgroupMethods ?? null,
+    subgroupTableOverrides: input.panel.subgroupTableOverrides ?? null,
+    valueDisplayPrefix: input.panel.valueDisplayPrefix ?? null,
+    spacedDefinitionsGap: input.panel.spacedDefinitionsGap ?? 0,
+    comments: input.panel.comments ?? null,
+    interpretation: input.panel.interpretation ?? null,
+    summaryInterpretationTemplate: input.panel.summaryInterpretationTemplate ?? null,
+    department: dept,
+  };
+
+  // Build synthetic results in the exact shape buildPanelsAndDepartments expects
+  // (new-chain: result.testDefinition.panelItems[].panel populated).
+  const results = input.items.map((item, idx) => {
+    const td = item.testDefinition;
+    const value = typeof item.mockValue === 'number' ? item.mockValue : null;
+    const flag =
+      value !== null
+        ? determineResultFlag(value, {
+            referenceMin: td.referenceMin ?? null,
+            referenceMax: td.referenceMax ?? null,
+            criticalMin: td.criticalMin ?? null,
+            criticalMax: td.criticalMax ?? null,
+          })
+        : null;
+
+    const panelItem: any = {
+      panel: SP,
+      displayOrder: item.displayOrder ?? idx,
+      showMethod: item.showMethod ?? false,
+      methodText: item.methodText ?? null,
+      indentLevel: item.indentLevel ?? 0,
+      isBold: item.isBold ?? false,
+      isItalic: item.isItalic ?? false,
+      subGroup: item.subGroup ?? null,
+      joinPrevious: item.joinPrevious ?? false,
+      gridWidth: item.gridWidth ?? null,
+      displayLabel: item.displayLabel ?? null,
+    };
+
+    const testDefinition: any = {
+      id: `draft-def-${idx}`,
+      code: td.code,
+      name: td.name,
+      method: td.method ?? null,
+      sampleType: td.sampleType ?? null,
+      referenceMin: td.referenceMin ?? null,
+      referenceMax: td.referenceMax ?? null,
+      referenceUnit: td.referenceUnit ?? null,
+      referenceText: td.referenceText ?? null,
+      criticalMin: td.criticalMin ?? null,
+      criticalMax: td.criticalMax ?? null,
+      interpretationRules: td.interpretationRules ?? [],
+      panelItems: [panelItem],
+    };
+
+    const test: any = {
+      id: `draft-test-${idx}`,
+      code: td.code,
+      referenceMin: td.referenceMin ?? null,
+      referenceMax: td.referenceMax ?? null,
+      referenceUnit: td.referenceUnit ?? null,
+      referenceText: td.referenceText ?? null,
+      sampleType: td.sampleType ?? null,
+      displayOrder: item.displayOrder ?? idx,
+      panelItems: [],
+    };
+
+    return {
+      testOrderId: undefined,
+      testDefinitionId: testDefinition.id,
+      test,
+      testDefinition,
+      value,
+      textValue: item.mockTextValue ?? null,
+      flag,
+      notes: null,
+    };
+  });
+
+  const departments = buildPanelsAndDepartments(results as any[], new Map(), undefined);
+
+  // Resolve REAL signatures + lab incharge for the department so the preview's
+  // signature block is exactly what a finalized report would show.
+  const deptIds = departments.map((d) => d.departmentId);
+  const signatures = await getLiveSignatureSnapshotsForDepartments(deptIds);
+  applyLabInchargeVisibility(departments, signatures);
+  const { byDepartment: labInchargeByDept, fallback: labIncharge } =
+    await resolveLabInchargesForReport(input.branch.id, deptIds);
+  for (const department of departments) {
+    department.labIncharge = labInchargeByDept.get(department.departmentId) ?? null;
+  }
+
+  const p = input.patient || {};
+  const currentYear = new Date().getFullYear();
+  const yearOfBirth = p.yearOfBirth ?? currentYear - 35;
+  const patient: PatientSnapshot = {
+    patientId: 'draft-patient',
+    patientNumber: p.patientNumber ?? 'PREVIEW-001',
+    name: p.name ?? 'Sample Patient',
+    title: p.title ?? null,
+    gender: p.gender ?? 'F',
+    yearOfBirth,
+    dateOfBirth: p.dateOfBirth ?? null,
+    age: currentYear - yearOfBirth,
+    ageDisplay: computeAgeDisplay(yearOfBirth, p.dateOfBirth ?? null, p.ageUnit ?? null),
+    phone: p.phone ?? null,
+    address: p.address ?? null,
+  };
+
+  const nowIso = new Date().toISOString();
+  const visit: VisitSnapshot = {
+    visitId: 'draft-visit',
+    billNumber: input.billNumber ?? 'PREVIEW',
+    branchId: input.branch.id,
+    branchName: input.branch.name,
+    branchCode: input.branch.code,
+    branchAddress: input.branch.address,
+    branchPhone: input.branch.phone,
+    referralDoctorName: null,
+    createdAt: nowIso,
+    collectedAt: nowIso,
+    finalizedAt: nowIso,
+  };
+
+  return {
+    snapshotVersion: 1,
+    reportVersionId: 'draft-preview',
+    versionNum: 1,
+    departments,
+    signatures,
+    labIncharge,
+    patient,
+    visit,
+    externalUploads: [],
   };
 }
 

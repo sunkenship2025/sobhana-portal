@@ -18,6 +18,9 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import prisma from '../lib/prisma';
 import { logAction } from '../services/auditService';
+import { renderReportHtml } from '../services/reportRendererService';
+import { generateMergedReportPdf } from '../services/mergedReportPdfService';
+import { buildDraftPanelSnapshot } from '../services/reportSnapshotService';
 
 const router = Router();
 
@@ -331,6 +334,7 @@ router.post('/', async (req: AuthRequest, res) => {
             subGroup: item.subGroup ?? null,
             joinPrevious: item.joinPrevious ?? false,
             gridWidth: item.gridWidth ?? null,
+            displayLabel: item.displayLabel ?? null,
           })),
         } : undefined,
       },
@@ -446,6 +450,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
               subGroup: item.subGroup ?? null,
               joinPrevious: item.joinPrevious ?? false,
               gridWidth: item.gridWidth ?? null,
+              displayLabel: item.displayLabel ?? null,
             })),
           } : undefined,
         },
@@ -546,6 +551,95 @@ router.delete('/:id', async (req: AuthRequest, res) => {
   } catch (error: any) {
     console.error('Error deleting panel:', error);
     return res.status(500).json({ error: 'DELETE_FAILED', message: error.message });
+  }
+});
+
+// ─── POST /preview-html — Report Builder live preview ────────────────
+// Renders an UNSAVED builder draft (in-progress panel + items + mock patient +
+// mock values) through the EXACT same renderer the finalized report uses, so
+// the builder preview is byte-identical to production. Stateless / persists
+// nothing. profile: 'digital' → screen HTML, 'letterhead' → pdf-physical HTML;
+// format: 'pdf' → the real merged digital PDF (byte-exact download preview).
+// Registered BEFORE '/:id/preview' — '/preview-html' is a single literal segment
+// so it never collides with the '/:id/preview' two-segment route.
+router.post('/preview-html', async (req: AuthRequest, res) => {
+  try {
+    const { panel, items, patient, profile, format } = req.body;
+    if (!panel || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'panel and at least one item are required' });
+    }
+
+    const branch = await prisma.branch.findUnique({ where: { id: req.branchId! } });
+    if (!branch) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Active branch not found' });
+    }
+
+    // Real department (READ-ONLY) so signature/lab-incharge resolution and the
+    // department header are accurate. Falls back to a placeholder when the
+    // builder hasn't picked a department yet.
+    const department = panel.departmentId
+      ? await prisma.department.findUnique({ where: { id: panel.departmentId } })
+      : null;
+
+    const snapshot = await buildDraftPanelSnapshot({
+      branch: { id: branch.id, name: branch.name, code: branch.code, address: branch.address, phone: branch.phone },
+      department: department
+        ? {
+            id: department.id,
+            name: department.name,
+            reportHeaderText: department.reportHeaderText,
+            displayOrder: department.displayOrder,
+            showLabIncharge: department.showLabIncharge,
+          }
+        : {
+            id: 'draft-dept',
+            name: panel.departmentName || 'DEPARTMENT',
+            reportHeaderText: panel.departmentName ? `DEPARTMENT OF ${String(panel.departmentName).toUpperCase()}` : 'DEPARTMENT',
+            displayOrder: 0,
+            showLabIncharge: true,
+          },
+      panel: {
+        code: panel.code ?? panel.name ?? 'PREVIEW',
+        label: panel.label ?? panel.displayName ?? panel.name ?? 'Preview',
+        layoutType: panel.layoutType ?? 'STANDARD_TABLE',
+        sampleType: panel.sampleType ?? null,
+        panelMethodText: panel.panelMethodText ?? null,
+        panelMethodItalic: panel.panelMethodItalic ?? false,
+        showSubgroups: panel.showSubgroups ?? false,
+        showInterpretation: panel.showInterpretation ?? false,
+        subgroupMethods: panel.subgroupMethods ?? null,
+        subgroupTableOverrides: panel.subgroupTableOverrides ?? null,
+        valueDisplayPrefix: panel.valueDisplayPrefix ?? null,
+        spacedDefinitionsGap: panel.spacedDefinitionsGap ?? 0,
+        comments: panel.comments ?? null,
+        interpretation: panel.interpretation ?? null,
+      },
+      items,
+      patient,
+    });
+
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+
+    // Byte-exact digital PDF (only when the builder explicitly opens the PDF tab
+    // — never on every keystroke, to keep Puppeteer load off the hot path).
+    if (format === 'pdf') {
+      const pdf = await generateMergedReportPdf(snapshot, { mode: 'digital', baseUrl, qrDataUrl: '', cache: false });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Cache-Control', 'no-store');
+      return res.send(pdf);
+    }
+
+    // HTML preview. 'letterhead' → the real physical/letterhead profile (header +
+    // footer hidden as pre-printed stationery); everything else → the screen
+    // profile (identical to the live staff report preview).
+    const renderProfile = (profile === 'letterhead' || profile === 'pdf-physical') ? 'pdf-physical' : 'screen';
+    const html = renderReportHtml(snapshot, { profile: renderProfile, baseUrl });
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    return res.send(html);
+  } catch (error: any) {
+    console.error('Error rendering builder preview:', error);
+    return res.status(500).json({ error: 'PREVIEW_FAILED', message: error.message });
   }
 });
 

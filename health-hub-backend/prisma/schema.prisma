@@ -1682,6 +1682,7 @@ model ClinicalPanelItem {
   displayOrder     Int      @default(0)
   showMethod       Boolean  @default(false)
   methodText       String? // Override method text for this panel context
+  displayLabel     String? // Per-panel row-label override; null = fall back to TestDefinition.name
   indentLevel      Int      @default(0)
   isBold           Boolean  @default(false)
   isItalic         Boolean  @default(false)

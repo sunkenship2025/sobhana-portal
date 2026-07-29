@@ -486,7 +486,9 @@ export default function ManageBillableProducts() {
     try {
       const res = await fetch(`${API_BASE}/billable-products/${product.id}/pricing`, { headers });
       if (!res.ok) throw new Error('Failed');
-      setPricingData(await res.json());
+      // GET returns rows in paise (priceInPaise); the editor works in rupees (price).
+      const rows = await res.json();
+      setPricingData((Array.isArray(rows) ? rows : []).map((r: any) => ({ ...r, price: (r.priceInPaise ?? 0) / 100 })));
       setPricingProduct(product);
       setPricingOpen(true);
     } catch {
@@ -519,8 +521,11 @@ export default function ManageBillableProducts() {
     try {
       const res = await fetch(`${API_BASE}/billable-products/${pricingProduct.id}/pricing`, {
         method: 'PUT', headers,
-        body: JSON.stringify({ pricingOverrides: pricingData.map(p => ({
-          branchId: p.branchId, price: p.price, isActive: p.isActive,
+        // Backend PUT /:id/pricing reads { pricing: [{ branchId, priceInPaise, isActive }] }.
+        // The old body used the wrong envelope key (pricingOverrides), the wrong
+        // field (price), and rupees instead of paise (100x off) — so pricing never saved.
+        body: JSON.stringify({ pricing: pricingData.map(p => ({
+          branchId: p.branchId, priceInPaise: Math.round((p.price ?? 0) * 100), isActive: p.isActive,
         })) }),
       });
       if (!res.ok) throw new Error('Save failed');
