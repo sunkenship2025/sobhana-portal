@@ -5,7 +5,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { LoadingState } from '@/components/ui/loading-state';
 import { useAuthStore, UserRole } from '@/store/authStore';
 import {
-  FlaskConical, LayoutGrid, Package, Building2, UserCheck, Users, ShieldCheck,
+  FlaskConical, LayoutGrid, Package, Building2, UserCheck, Users, ShieldCheck, FileText,
 } from 'lucide-react';
 
 const ManageDepartments = lazy(() => import('./ManageDepartments'));
@@ -13,6 +13,7 @@ const ManageSigningDoctors = lazy(() => import('./ManageSigningDoctors'));
 const ManageDoctorsAndReferrals = lazy(() => import('./ManageDoctorsAndReferrals'));
 const ManageClinicalDefinitions = lazy(() => import('./ManageClinicalDefinitions'));
 const ManagePanelDefinitions = lazy(() => import('./ManagePanelDefinitions'));
+const ReportBuilder = lazy(() => import('./ReportBuilder'));
 const ManageBillableProducts = lazy(() => import('./ManageBillableProducts'));
 const ManageRoles = lazy(() => import('./ManageRoles'));
 
@@ -20,6 +21,7 @@ const ManageRoles = lazy(() => import('./ManageRoles'));
 // Referrals; Sales sees only Referrals; Lab Incharge sees the full clinical
 // config; Roles (user management) is owner-only.
 const TABS = [
+  { value: 'report-builder', label: 'Report Builder', icon: FileText, roles: ['owner', 'lab_incharge'] },
   { value: 'clinical-defs', label: 'Clinical Definitions', icon: FlaskConical, roles: ['owner', 'lab_incharge'] },
   { value: 'panels', label: 'Panel Definitions', icon: LayoutGrid, roles: ['owner', 'lab_incharge'] },
   { value: 'products', label: 'Billable Products', icon: Package, roles: ['owner', 'lab_incharge', 'staff'] },
@@ -72,6 +74,14 @@ export default function AdminConfigCenter() {
               );
             })}
           </TabsList>
+
+          {canSee('report-builder') && (
+            <TabsContent value="report-builder">
+              <Suspense fallback={<Loading />}>
+                <ReportBuilder />
+              </Suspense>
+            </TabsContent>
+          )}
 
           {canSee('clinical-defs') && (
             <TabsContent value="clinical-defs">

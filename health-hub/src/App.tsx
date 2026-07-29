@@ -203,6 +203,7 @@ function AppRoutes() {
         </ProtectedRoute>
       } />
       <Route path="/owner/tests" element={<Navigate to="/owner/config?tab=clinical-defs" replace />} />
+      <Route path="/owner/report-builder" element={<Navigate to="/owner/config?tab=report-builder" replace />} />
       <Route path="/owner/payouts" element={
         <ProtectedRoute allowedRoles={['owner', 'staff', 'lab_incharge', 'sales']}>
           <PayoutsList />

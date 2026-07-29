@@ -143,7 +143,10 @@ function formatRange(def: TestDefinition) {
   return '—';
 }
 
-const INTERPRETATION_MODES = ['NONE', 'RANGE_BASED', 'CATEGORY_BASED', 'TEXT_ONLY'];
+// Must match the Prisma InterpretationMode enum exactly (schema: NONE | RANGE_BASED
+// | TEXT_MATCH | FORMULA). The old 'CATEGORY_BASED'/'TEXT_ONLY' values don't exist
+// in the enum and caused a 500 on save.
+const INTERPRETATION_MODES = ['NONE', 'RANGE_BASED', 'TEXT_MATCH', 'FORMULA'];
 const RULE_TYPES = ['NUMERIC_RANGE', 'CATEGORY_MATCH', 'TEXT_MATCH'];
 const OPERATORS = ['LT', 'LTE', 'GT', 'GTE', 'EQ', 'BETWEEN', 'MATCH'];
 const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
@@ -259,6 +262,8 @@ export default function ManageClinicalDefinitions() {
   const [formGeneralCriticalMin, setFormGeneralCriticalMin] = useState('');
   const [formGeneralCriticalMax, setFormGeneralCriticalMax] = useState('');
   const [formSampleType, setFormSampleType] = useState('');
+  const [formMethod, setFormMethod] = useState('');
+  const [formDepartmentId, setFormDepartmentId] = useState('');
 
   // Value-input config (separate sibling table — shared across versions)
   const [formInputConfig, setFormInputConfig] = useState<TestInputConfigPayload | null>(null);
@@ -340,6 +345,7 @@ export default function ManageClinicalDefinitions() {
     setFormShowCritical(false);
     setFormGeneralCriticalMin(''); setFormGeneralCriticalMax('');
     setFormSampleType('');
+    setFormMethod(''); setFormDepartmentId('');
     setFormInputConfig(null);
     setInputConfigDirty(false);
     setEditingDef(null);
@@ -357,6 +363,8 @@ export default function ManageClinicalDefinitions() {
     setFormDependsOn(def.dependsOnCodes ? def.dependsOnCodes.join(', ') : '');
     setFormInterpMode(def.interpretationMode || 'NONE');
     setFormSampleType(def.sampleType || '');
+    setFormMethod(def.method || '');
+    setFormDepartmentId(def.departmentId || '');
 
     // Populate ranges with inferred categories
     const ranges = (def.ranges || []).map(r => ({
@@ -441,6 +449,8 @@ export default function ManageClinicalDefinitions() {
         name: formName.trim(),
         code: formCode.trim(),
         sampleType: formSampleType || null,
+        method: formMethod || null,
+        departmentId: formDepartmentId || null,
         referenceUnit: formUnit || null,
         referenceMin: formRefMin ? parseFloat(formRefMin) : null,
         referenceMax: formRefMax ? parseFloat(formRefMax) : null,
@@ -680,9 +690,18 @@ export default function ManageClinicalDefinitions() {
 
   const statusActions = (def: TestDefinition) => {
     const actions: { label: string; status: string; variant: any }[] = [];
-    if (def.status === 'ACTIVE') actions.push({ label: 'Lock', status: 'LOCKED', variant: 'outline' });
-    if (def.status === 'LOCKED') actions.push({ label: 'Deprecate', status: 'DEPRECATED', variant: 'outline' });
-    if (def.status === 'DEPRECATED') actions.push({ label: 'Archive', status: 'ARCHIVED', variant: 'outline' });
+    // Mirror the backend VALID_TRANSITIONS exactly: ACTIVE→{LOCKED,DEPRECATED},
+    // LOCKED→{ACTIVE}, DEPRECATED→{ARCHIVED,ACTIVE}, ARCHIVED→{}. The old map
+    // offered LOCKED→DEPRECATED, which the backend rejects with a 400.
+    if (def.status === 'ACTIVE') {
+      actions.push({ label: 'Lock', status: 'LOCKED', variant: 'outline' });
+      actions.push({ label: 'Deprecate', status: 'DEPRECATED', variant: 'outline' });
+    }
+    if (def.status === 'LOCKED') actions.push({ label: 'Unlock', status: 'ACTIVE', variant: 'outline' });
+    if (def.status === 'DEPRECATED') {
+      actions.push({ label: 'Archive', status: 'ARCHIVED', variant: 'outline' });
+      actions.push({ label: 'Reactivate', status: 'ACTIVE', variant: 'outline' });
+    }
     return actions;
   };
 
@@ -972,6 +991,23 @@ export default function ManageClinicalDefinitions() {
                   <div className="space-y-1.5">
                     <Label>Test Name *</Label>
                     <Input value={formName} onChange={e => setFormName(e.target.value)} placeholder="e.g., Haemoglobin" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Sample Type</Label>
+                    <Input value={formSampleType} onChange={e => setFormSampleType(e.target.value)} placeholder="e.g., Serum" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Method</Label>
+                    <Input value={formMethod} onChange={e => setFormMethod(e.target.value)} placeholder="e.g., ECLIA" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Department</Label>
+                    <Select value={formDepartmentId || undefined} onValueChange={setFormDepartmentId}>
+                      <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
+                      <SelectContent>
+                        {departments.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               </AccordionContent>
