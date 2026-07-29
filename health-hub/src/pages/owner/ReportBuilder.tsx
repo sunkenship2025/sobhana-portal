@@ -16,7 +16,7 @@ import { API_BASE } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
 import {
-  Plus, Search, Trash2, ArrowUp, ArrowDown, Save, FilePlus2, Loader2, Sparkles,
+  Plus, Search, Trash2, ArrowUp, ArrowDown, Save, FilePlus2, Loader2, Sparkles, Package,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,6 +33,7 @@ import {
   Popover, PopoverContent, PopoverTrigger,
 } from '@/components/ui/popover';
 import { ReportPreviewFrame, type PreviewPayload } from '@/components/reportbuilder/ReportPreviewFrame';
+import { ItemInspector, type InspectorItem, type CanonicalPatch } from '@/components/reportbuilder/ItemInspector';
 
 const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
 
@@ -122,11 +123,24 @@ export default function ReportBuilder() {
   const [profile, setProfile] = useState<'digital' | 'letterhead'>('digital');
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [inspectUid, setInspectUid] = useState<string | null>(null);
+  const [pubOpen, setPubOpen] = useState(false);
 
   const setP = <K extends keyof PanelForm>(k: K, v: PanelForm[K]) => { setPanel((p) => ({ ...p, [k]: v })); setDirty(true); };
   const patchItem = (uid_: string, patch: Partial<BuilderItem>) => {
     setItems((xs) => xs.map((x) => (x._uid === uid_ ? { ...x, ...patch } : x)));
     setDirty(true);
+  };
+  // A versioned clinical-contract save re-points the item to the NEW version id
+  // and refreshes the reference fields the preview reads.
+  const onCanonicalSaved = (patch: CanonicalPatch) => {
+    if (!inspectUid) return;
+    patchItem(inspectUid, {
+      testDefinitionId: patch.testDefinitionId,
+      referenceUnit: patch.referenceUnit, referenceMin: patch.referenceMin, referenceMax: patch.referenceMax,
+      referenceText: patch.referenceText, criticalMin: patch.criticalMin, criticalMax: patch.criticalMax,
+      method: patch.method,
+    });
   };
 
   // ─── Data loads ────────────────────────────────────────────────────────
@@ -309,6 +323,13 @@ export default function ReportBuilder() {
 
   if (loading) return <LoadingState />;
 
+  const inspected = items.find((i) => i._uid === inspectUid) || null;
+  const inspectItem: InspectorItem | null = inspected ? {
+    testDefinitionId: inspected.testDefinitionId, code: inspected.code, name: inspected.name,
+    displayLabel: inspected.displayLabel, subGroup: inspected.subGroup, indentLevel: inspected.indentLevel,
+    isBold: inspected.isBold, isItalic: inspected.isItalic, methodText: inspected.methodText,
+  } : null;
+
   return (
     <div className="space-y-4">
       {/* Toolbar */}
@@ -328,6 +349,11 @@ export default function ReportBuilder() {
           <Button variant={profile === 'digital' ? 'secondary' : 'ghost'} size="sm" onClick={() => setProfile('digital')}>Digital</Button>
           <Button variant={profile === 'letterhead' ? 'secondary' : 'ghost'} size="sm" onClick={() => setProfile('letterhead')}>Letterhead</Button>
         </div>
+        {panel.id && (
+          <Button size="sm" variant="outline" onClick={() => setPubOpen(true)} disabled={dirty} title={dirty ? 'Save the report first' : 'Create a billable product for this report'}>
+            <Package className="h-4 w-4 mr-1" /> Publish as product
+          </Button>
+        )}
         <Button size="sm" onClick={save} disabled={saving || !dirty}>
           {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
           {panel.id ? 'Save' : 'Create'}
@@ -403,9 +429,9 @@ export default function ReportBuilder() {
                 <ItemRow
                   key={it._uid}
                   item={it}
-                  showSubgroup={panel.showSubgroups}
                   first={idx === 0} last={idx === items.length - 1}
-                  onPatch={(patch) => patchItem(it._uid, patch)}
+                  onInspect={() => setInspectUid(it._uid)}
+                  onMock={(v) => patchItem(it._uid, { mockValue: v })}
                   onRemove={() => removeItem(it._uid)}
                   onUp={() => moveItem(it._uid, -1)}
                   onDown={() => moveItem(it._uid, 1)}
@@ -420,14 +446,100 @@ export default function ReportBuilder() {
           <ReportPreviewFrame payload={previewPayload} profile={profile} />
         </div>
       </div>
+
+      <ItemInspector
+        item={inspectItem}
+        open={!!inspectUid}
+        onOpenChange={(v) => { if (!v) setInspectUid(null); }}
+        headers={headers}
+        showSubgroup={panel.showSubgroups}
+        onPatch={(patch) => { if (inspectUid) patchItem(inspectUid, patch); }}
+        onCanonicalSaved={onCanonicalSaved}
+      />
+
+      {panel.id && (
+        <PublishProductDialog open={pubOpen} onOpenChange={setPubOpen} panelId={panel.id} defaultName={panel.label} defaultCode={panel.code} headers={headers} />
+      )}
     </div>
   );
 }
 
+/* ───────── Publish as product (thin 1-panel = 1-product rail) ───────── */
+function PublishProductDialog({ open, onOpenChange, panelId, defaultName, defaultCode, headers }: {
+  open: boolean; onOpenChange: (v: boolean) => void; panelId: string;
+  defaultName: string; defaultCode: string; headers: Record<string, string>;
+}) {
+  const [name, setName] = useState('');
+  const [code, setCode] = useState('');
+  const [price, setPrice] = useState('');
+  const [workflow, setWorkflow] = useState('REPORTABLE');
+  const [category, setCategory] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { if (open) { setName(defaultName); setCode(defaultCode); setPrice(''); setWorkflow('REPORTABLE'); setCategory(''); } }, [open, defaultName, defaultCode]);
+
+  const create = async () => {
+    if (!name.trim() || !CODE_REGEX.test(code.trim().toUpperCase()) || price === '') { toast.error('Name, a valid code and a price are required'); return; }
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/billable-products`, {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          name: name.trim(), code: code.trim().toUpperCase(),
+          basePrice: Number(price),               // rupees; backend converts to paise
+          workflowMode: workflow, payoutCategory: category || null,
+          panels: [{ panelId }],
+        }),
+      });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || `Publish failed (${res.status})`); }
+      const p = await res.json();
+      toast.success(`Published product ${p.code}`);
+      onOpenChange(false);
+    } catch (e) {
+      toast.error((e as Error).message || 'Publish failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Publish as product</DialogTitle>
+          <DialogDescription>Creates a billable product for this report. Bundles, packages &amp; per-branch pricing live in the Billable Products tab.</DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2 space-y-1.5"><Label>Product name</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
+          <div className="space-y-1.5"><Label>Code</Label><Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} className="font-mono" /></div>
+          <div className="space-y-1.5"><Label>Price (₹)</Label><Input value={price} onChange={(e) => setPrice(e.target.value)} placeholder="450" /></div>
+          <div className="space-y-1.5">
+            <Label>Workflow</Label>
+            <Select value={workflow} onValueChange={setWorkflow}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="REPORTABLE">Reportable</SelectItem>
+                <SelectItem value="BILL_ONLY">Bill only</SelectItem>
+                <SelectItem value="EXTERNAL_UPLOAD">External upload</SelectItem>
+                <SelectItem value="EVENT">Event</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5"><Label>Payout category</Label><Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Laboratory" /></div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={create} disabled={busy}>{busy && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}Publish</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* ───────── Item row ───────── */
-function ItemRow({ item, showSubgroup, first, last, onPatch, onRemove, onUp, onDown }: {
-  item: BuilderItem; showSubgroup: boolean; first: boolean; last: boolean;
-  onPatch: (p: Partial<BuilderItem>) => void; onRemove: () => void; onUp: () => void; onDown: () => void;
+function ItemRow({ item, first, last, onInspect, onMock, onRemove, onUp, onDown }: {
+  item: BuilderItem; first: boolean; last: boolean;
+  onInspect: () => void; onMock: (v: number | null) => void; onRemove: () => void; onUp: () => void; onDown: () => void;
 }) {
   const refText = item.referenceText
     ? item.referenceText
@@ -441,54 +553,12 @@ function ItemRow({ item, showSubgroup, first, last, onPatch, onRemove, onUp, onD
           <button className="text-muted-foreground hover:text-foreground disabled:opacity-30" onClick={onUp} disabled={first}><ArrowUp className="h-3 w-3" /></button>
           <button className="text-muted-foreground hover:text-foreground disabled:opacity-30" onClick={onDown} disabled={last}><ArrowDown className="h-3 w-3" /></button>
         </div>
-        <div className="flex-1 min-w-0">
+        <button className="flex-1 min-w-0 text-left" onClick={onInspect}>
           <div className="text-sm font-medium truncate">{item.displayLabel || item.name} <span className="text-xs text-muted-foreground font-mono">{item.code}</span></div>
-          <div className="text-xs text-muted-foreground">{item.referenceUnit || '—'} · ref {refText}</div>
-        </div>
-        <Input className="w-24 h-8" placeholder="value" value={item.mockValue ?? ''} onChange={(e) => onPatch({ mockValue: e.target.value === '' ? null : Number(e.target.value) })} title="Sample value for the preview" />
-        <Popover>
-          <PopoverTrigger asChild><Button variant="ghost" size="sm" className="h-8">Edit</Button></PopoverTrigger>
-          <PopoverContent className="w-72 space-y-2">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Display label <span className="text-muted-foreground">(this report only)</span></Label>
-              <Input value={item.displayLabel ?? ''} onChange={(e) => onPatch({ displayLabel: e.target.value || null })} placeholder={item.name} />
-            </div>
-            {showSubgroup && (
-              <div className="space-y-1.5">
-                <Label className="text-xs">Subgroup</Label>
-                <Input value={item.subGroup ?? ''} onChange={(e) => onPatch({ subGroup: e.target.value || null })} placeholder="e.g. DIFFERENTIAL COUNT" />
-              </div>
-            )}
-            <div className="space-y-1.5">
-              <Label className="text-xs">Per-test method</Label>
-              <Input value={item.methodText ?? ''} onChange={(e) => onPatch({ methodText: e.target.value || null, showMethod: !!e.target.value })} placeholder="e.g. ECLIA" />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Indent</Label>
-                <Select value={String(item.indentLevel)} onValueChange={(v) => onPatch({ indentLevel: Number(v) })}>
-                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                  <SelectContent>{[0, 1, 2].map((n) => <SelectItem key={n} value={String(n)}>{n === 0 ? 'None' : n}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Style</Label>
-                <Select
-                  value={item.isBold ? 'bold' : item.isItalic ? 'italic' : 'normal'}
-                  onValueChange={(v) => onPatch({ isBold: v === 'bold', isItalic: v === 'italic' })}
-                >
-                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="normal">Normal</SelectItem>
-                    <SelectItem value="bold">Bold</SelectItem>
-                    <SelectItem value="italic">Italic</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <p className="text-[11px] text-muted-foreground pt-1">Ranges, formula &amp; critical values are the canonical clinical contract — edit them in Clinical Definitions (versioned).</p>
-          </PopoverContent>
-        </Popover>
+          <div className="text-xs text-muted-foreground">{item.referenceUnit || '—'} · ref {refText}{item.subGroup ? ` · ${item.subGroup}` : ''}</div>
+        </button>
+        <Input className="w-24 h-8" placeholder="value" value={item.mockValue ?? ''} onChange={(e) => onMock(e.target.value === '' ? null : Number(e.target.value))} title="Sample value for the preview" />
+        <Button variant="ghost" size="sm" className="h-8" onClick={onInspect}>Edit</Button>
         <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={onRemove}><Trash2 className="h-4 w-4" /></Button>
       </div>
     </div>
