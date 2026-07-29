@@ -25,7 +25,7 @@ import { ReportPreviewFrame, type PreviewPayload } from '@/components/reportbuil
 import { EditableReportFrame, type PanelEditField } from '@/components/reportbuilder/EditableReportFrame';
 import { ItemInspectorBody, type InspectorItem, type CanonicalPatch } from '@/components/reportbuilder/ItemInspector';
 import {
-  CODE_REGEX, LAYOUTS, type Department, type TestDef, type BuilderItem, type PanelForm,
+  CODE_REGEX, LAYOUTS, SAMPLE_TYPES, type Department, type TestDef, type BuilderItem, type PanelForm,
   blankPanel, uid, itemFromDef, autoCode,
 } from './reportBuilderShared';
 
@@ -85,7 +85,7 @@ export default function ReportBuilder() {
         id: p.id, code: p.code, label: p.name, departmentId: p.departmentId ?? '',
         layoutType: p.layoutType ?? 'STANDARD_TABLE', sampleType: p.sampleType ?? null,
         panelMethodText: p.panelMethodText ?? null, panelMethodItalic: !!p.panelMethodItalic,
-        showSubgroups: !!p.showSubgroups, showInterpretation: !!p.showInterpretation,
+        showMethodColumn: !!p.showMethodColumn, showSubgroups: !!p.showSubgroups, showInterpretation: !!p.showInterpretation,
         spacedDefinitionsGap: p.spacedDefinitionsGap ?? 0, valueDisplayPrefix: p.valueDisplayPrefix ?? null,
         comments: p.comments ?? null, interpretation: p.interpretation ?? null,
         narrativeTemplateHtml: p.narrativeTemplateHtml ?? null,
@@ -126,7 +126,7 @@ export default function ReportBuilder() {
       code: panel.code || 'PREVIEW', label: panel.label || 'Untitled report',
       departmentId: panel.departmentId || undefined, departmentName,
       layoutType: panel.layoutType, sampleType: panel.sampleType, panelMethodText: panel.panelMethodText,
-      panelMethodItalic: panel.panelMethodItalic, showSubgroups: panel.showSubgroups, showInterpretation: panel.showInterpretation,
+      panelMethodItalic: panel.panelMethodItalic, showMethodColumn: panel.showMethodColumn, showSubgroups: panel.showSubgroups, showInterpretation: panel.showInterpretation,
       spacedDefinitionsGap: panel.spacedDefinitionsGap, valueDisplayPrefix: panel.valueDisplayPrefix,
       comments: panel.comments, interpretation: panel.interpretation, narrativeTemplateHtml: panel.narrativeTemplateHtml,
       subgroupMethods: panel.subgroupMethods, subgroupTableOverrides: panel.subgroupTableOverrides,
@@ -239,7 +239,7 @@ export default function ReportBuilder() {
       const body = {
         name: panel.code.trim().toUpperCase(), displayName: panel.label.trim(), departmentId: panel.departmentId,
         layoutType: panel.layoutType, sampleType: panel.sampleType, panelMethodText: panel.panelMethodText,
-        panelMethodItalic: panel.panelMethodItalic, showSubgroups: panel.showSubgroups, showInterpretation: panel.showInterpretation,
+        panelMethodItalic: panel.panelMethodItalic, showMethodColumn: panel.showMethodColumn, showSubgroups: panel.showSubgroups, showInterpretation: panel.showInterpretation,
         spacedDefinitionsGap: panel.spacedDefinitionsGap, valueDisplayPrefix: panel.valueDisplayPrefix,
         comments: panel.comments, interpretation: panel.interpretation, narrativeTemplateHtml: panel.narrativeTemplateHtml,
         subgroupMethods: panel.subgroupMethods, subgroupTableOverrides: panel.subgroupTableOverrides, isActive: panel.isActive,
@@ -435,7 +435,15 @@ function PanelPane({ panel, departments, setP, setPReload }: {
           </div>
         </div>
         <div className="space-y-1.5 mt-3"><Label className="text-xs">Sample type</Label>
-          <Input value={panel.sampleType ?? ''} onChange={(e) => setPReload({ sampleType: e.target.value || null })} placeholder="e.g. Whole Blood (EDTA)" className="h-8" /></div>
+          <Select value={panel.sampleType || '__none__'} onValueChange={(v) => setPReload({ sampleType: v === '__none__' ? null : v })}>
+            <SelectTrigger className="h-8"><SelectValue placeholder="Select…" /></SelectTrigger>
+            <SelectContent><SelectItem value="__none__">None</SelectItem>{SAMPLE_TYPES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5 mt-3"><Label className="text-xs">Panel method</Label>
+          <Input value={panel.panelMethodText ?? ''} onChange={(e) => setP({ panelMethodText: e.target.value || null })} placeholder="Shown below the panel title" className="h-8" />
+          <div className="flex items-center justify-between pt-1"><Label className="text-xs cursor-pointer" htmlFor="p-mi">Italicize panel method</Label><Switch id="p-mi" checked={panel.panelMethodItalic} disabled={!panel.panelMethodText?.trim()} onCheckedChange={(v) => setPReload({ panelMethodItalic: v })} /></div>
+        </div>
         <div className="grid grid-cols-2 gap-3 mt-3">
           <div className="space-y-1.5"><Label className="text-xs">Spaced gap</Label>
             <Select value={String(panel.spacedDefinitionsGap)} onValueChange={(v) => setPReload({ spacedDefinitionsGap: Number(v) })}>
@@ -447,6 +455,7 @@ function PanelPane({ panel, departments, setP, setPReload }: {
         </div>
       </div>
       <div className="space-y-2">
+        <div className="flex items-center justify-between"><Label className="text-xs cursor-pointer" htmlFor="p-mc">Show Method column</Label><Switch id="p-mc" checked={panel.showMethodColumn} onCheckedChange={(v) => setPReload({ showMethodColumn: v })} /></div>
         <div className="flex items-center justify-between"><Label className="text-xs cursor-pointer" htmlFor="p-sg">Show subgroups</Label><Switch id="p-sg" checked={panel.showSubgroups} onCheckedChange={(v) => setPReload({ showSubgroups: v })} /></div>
         <div className="flex items-center justify-between"><Label className="text-xs cursor-pointer" htmlFor="p-cn">Clinical Notes box</Label><Switch id="p-cn" checked={panel.showInterpretation} onCheckedChange={(v) => setPReload({ showInterpretation: v })} /></div>
         <div className="flex items-center justify-between"><Label className="text-xs cursor-pointer" htmlFor="p-ac">Panel active <span className="text-muted-foreground">— live &amp; billable</span></Label><Switch id="p-ac" checked={panel.isActive} onCheckedChange={(v) => setP({ isActive: v })} /></div>
