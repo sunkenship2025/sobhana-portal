@@ -322,7 +322,10 @@ export default function ReportBuilder() {
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_370px]">
         <div>
           {liveItems.length === 0 ? (
-            <EmptyReport label={panel.label} defs={defs} used={new Set(items.map((i) => i.testDefinitionId))} onCreate={onCreate} onAdd={addExisting} />
+            <EmptyReport
+              panel={panel} departments={departments} panelCodes={new Set(panelsList.map((p) => p.code))}
+              defs={defs} used={new Set(items.map((i) => i.testDefinitionId))} setP={setP} onCreate={onCreate} onAdd={addExisting}
+            />
           ) : mode === 'edit' ? (
             <EditableReportFrame
               payload={previewPayload} profile={profile} reloadKey={reloadKey} headers={headers}
@@ -359,22 +362,53 @@ export default function ReportBuilder() {
   );
 }
 
-/* ───────── Empty report (no tests yet) ───────── */
-function EmptyReport({ label, defs, used, onCreate, onAdd }: {
-  label: string; defs: TestDef[]; used: Set<string>; onCreate: (name: string) => void; onAdd: (d: TestDef) => void;
+/* ───────── New report — name the panel first, then add tests ───────── */
+function EmptyReport({ panel, departments, panelCodes, defs, used, setP, onCreate, onAdd }: {
+  panel: PanelForm; departments: Department[]; panelCodes: Set<string>;
+  defs: TestDef[]; used: Set<string>; setP: (p: Partial<PanelForm>) => void;
+  onCreate: (name: string) => void; onAdd: (d: TestDef) => void;
 }) {
-  const [name, setName] = useState('');
-  const add = () => { const n = name.trim(); if (!n) return; onCreate(n); setName(''); };
+  const [testName, setTestName] = useState('');
+  const lastAuto = useRef('');
+  const setReportName = (v: string) => {
+    const patch: Partial<PanelForm> = { label: v };
+    // Auto-suggest the panel code from the name until the user overrides it (Panel tab).
+    if (!panel.code || panel.code === lastAuto.current) {
+      const c = v.trim() ? autoCode(v, panelCodes) : '';
+      patch.code = c; lastAuto.current = c;
+    }
+    setP(patch);
+  };
+  const ready = !!panel.label.trim() && !!panel.departmentId;
+  const add = () => { const n = testName.trim(); if (!n || !ready) return; onCreate(n); setTestName(''); };
   return (
     <div className="flex min-h-[80vh] items-center justify-center rounded-lg border bg-muted/40 p-6">
-      <div className="w-full max-w-md rounded-md border bg-background p-8 text-center shadow-sm">
-        <div className="text-lg font-semibold">{label.trim() || 'New report'}</div>
-        <p className="mt-1 mb-5 text-sm text-muted-foreground">Type your first test to start the report — it auto-creates the clinical definition. The paper appears as soon as there's a test.</p>
-        <div className="flex items-center gap-2">
-          <Input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} placeholder="e.g. Haemoglobin" autoFocus />
-          <Button size="sm" onClick={add}><Plus className="h-4 w-4 mr-1" /> Add</Button>
+      <div className="w-full max-w-md space-y-4 rounded-md border bg-background p-7 shadow-sm">
+        <div>
+          <div className="text-lg font-semibold">New report</div>
+          <p className="text-sm text-muted-foreground">Name the report and pick its department, then add tests. This becomes a panel with its clinical definitions underneath.</p>
         </div>
-        <div className="mt-3"><AddExistingButton defs={defs} used={used} onAdd={onAdd} /></div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Report name</Label>
+          <Input value={panel.label} onChange={(e) => setReportName(e.target.value)} placeholder="e.g. Complete Blood Picture" autoFocus />
+          {panel.code && <p className="text-[11px] text-muted-foreground">Code <span className="font-mono">{panel.code}</span> · change it in the Panel tab</p>}
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Department</Label>
+          <Select value={panel.departmentId || undefined} onValueChange={(v) => setP({ departmentId: v })}>
+            <SelectTrigger><SelectValue placeholder="Select department…" /></SelectTrigger>
+            <SelectContent>{departments.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div className={`space-y-1.5 border-t pt-4 ${ready ? '' : 'pointer-events-none opacity-50'}`}>
+          <Label className="text-xs">Add your first test</Label>
+          <div className="flex items-center gap-2">
+            <Input value={testName} onChange={(e) => setTestName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} placeholder="e.g. Haemoglobin" />
+            <Button size="sm" onClick={add}><Plus className="h-4 w-4 mr-1" /> Add</Button>
+          </div>
+          <div className="pt-1"><AddExistingButton defs={defs} used={used} onAdd={onAdd} /></div>
+        </div>
+        {!ready && <p className="text-[11px] text-muted-foreground">Enter a report name and department to start adding tests.</p>}
       </div>
     </div>
   );
