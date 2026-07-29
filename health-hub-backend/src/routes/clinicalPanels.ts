@@ -717,7 +717,7 @@ const REPORT_EDITOR_ASSETS = `
         tb.appendChild(tr); var span=tr.querySelector('.test-name'); span.focus();
         span.addEventListener('mousedown',function(e){e.stopPropagation();});
         span.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();span.blur();}});
-        var done=false; span.addEventListener('blur',function(){ if(done)return; done=true; var v=norm(span.textContent); if(tr.parentNode)tr.parentNode.removeChild(tr); if(v)post({type:'create',name:v}); });
+        var done=false; span.addEventListener('blur',function(){ if(done)return; done=true; var v=norm(span.textContent); if(v){ span.removeAttribute('contenteditable'); span.classList.remove('rb-edit','rb-ph'); span.textContent=v; tr.style.opacity='0.5'; post({type:'create',name:v}); } else if(tr.parentNode){ tr.parentNode.removeChild(tr); } });
       }));
       wrap.appendChild(mkAdd('+ Add subgroup',function(){ post({type:'addSection'}); }));
       if(!document.querySelector('.interpretation-block')){ wrap.appendChild(mkAdd('+ Clinical notes',function(){ post({type:'panel',field:'comments',value:'&nbsp;'}); })); }

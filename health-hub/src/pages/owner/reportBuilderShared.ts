@@ -9,6 +9,9 @@ export const LAYOUTS = [
   { value: 'TEXT_ONLY', label: 'Text only' },
 ];
 
+// Same canonical list as ManagePanelDefinitions.
+export const SAMPLE_TYPES = ['WB-EDTA', 'NaF WB', 'Serum', 'Plasma', 'Urine', 'CSF', 'Synovial Fluid', 'Semen', 'N/A', 'Other'];
+
 export interface Department { id: string; name: string }
 
 export interface TestDef {
@@ -45,6 +48,7 @@ export interface PanelForm {
   sampleType: string | null;
   panelMethodText: string | null;
   panelMethodItalic: boolean;
+  showMethodColumn: boolean;
   showSubgroups: boolean;
   showInterpretation: boolean;
   spacedDefinitionsGap: number;
@@ -59,7 +63,7 @@ export interface PanelForm {
 
 export const blankPanel = (): PanelForm => ({
   id: null, code: '', label: '', departmentId: '', layoutType: 'STANDARD_TABLE',
-  sampleType: null, panelMethodText: null, panelMethodItalic: false, showSubgroups: false, showInterpretation: false,
+  sampleType: null, panelMethodText: null, panelMethodItalic: false, showMethodColumn: false, showSubgroups: false, showInterpretation: false,
   spacedDefinitionsGap: 0, valueDisplayPrefix: null, comments: null, interpretation: null,
   narrativeTemplateHtml: null, subgroupMethods: {}, subgroupTableOverrides: {}, isActive: true,
 });
