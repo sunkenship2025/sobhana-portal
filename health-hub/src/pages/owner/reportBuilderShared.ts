@@ -44,18 +44,24 @@ export interface PanelForm {
   layoutType: string;
   sampleType: string | null;
   panelMethodText: string | null;
+  panelMethodItalic: boolean;
   showSubgroups: boolean;
   showInterpretation: boolean;
   spacedDefinitionsGap: number;
   valueDisplayPrefix: string | null;
   comments: string | null;
   interpretation: string | null;
+  narrativeTemplateHtml: string | null;
+  subgroupMethods: Record<string, string>;
+  subgroupTableOverrides: Record<string, boolean>;
+  isActive: boolean;
 }
 
 export const blankPanel = (): PanelForm => ({
   id: null, code: '', label: '', departmentId: '', layoutType: 'STANDARD_TABLE',
-  sampleType: null, panelMethodText: null, showSubgroups: false, showInterpretation: false,
+  sampleType: null, panelMethodText: null, panelMethodItalic: false, showSubgroups: false, showInterpretation: false,
   spacedDefinitionsGap: 0, valueDisplayPrefix: null, comments: null, interpretation: null,
+  narrativeTemplateHtml: null, subgroupMethods: {}, subgroupTableOverrides: {}, isActive: true,
 });
 
 export const uid = () => Math.random().toString(36).slice(2, 10);

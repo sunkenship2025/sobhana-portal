@@ -1,34 +1,38 @@
 /**
- * Report Builder — author a clinical report by typing ON the report.
+ * Report Builder — author a clinical report by typing ON the report, with a
+ * persistent right dock (Inspector · Panel · Pricing · Compiles-to).
  *
  * The edit surface (EditableReportFrame) is the REAL server-rendered report in an
  * iframe, made editable in place — one renderer, no client reproduction. Text
- * edits stream back and update config without reloading; structural changes (add
- * / delete / settings / layout) bump reloadKey and re-render through the same
- * renderer. Preview mode = the same render, read-only. Everything compiles down
- * to the existing ClinicalPanel / ClinicalPanelItem / TestDefinition / product
- * models.
+ * edits stream back and update config without reloading; structural changes
+ * (add/delete/reorder/subgroups/settings/layout) bump reloadKey and re-render
+ * through the same renderer. Existing panels autosave; everything compiles down
+ * to ClinicalPanel / ClinicalPanelItem / TestDefinition / BillableProduct.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
-import { Plus, Save, FilePlus2, Loader2, Package, Settings2, Pencil, Eye, Search, Sparkles } from 'lucide-react';
+import { Plus, Save, FilePlus2, Loader2, Search, Sparkles, Check, CircleDashed, Package, ArrowDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { LoadingState } from '@/components/ui/loading-state';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ReportPreviewFrame, type PreviewPayload } from '@/components/reportbuilder/ReportPreviewFrame';
-import { EditableReportFrame } from '@/components/reportbuilder/EditableReportFrame';
-import { ItemInspector, type InspectorItem, type CanonicalPatch } from '@/components/reportbuilder/ItemInspector';
+import { EditableReportFrame, type PanelEditField } from '@/components/reportbuilder/EditableReportFrame';
+import { ItemInspectorBody, type InspectorItem, type CanonicalPatch } from '@/components/reportbuilder/ItemInspector';
 import {
   CODE_REGEX, LAYOUTS, type Department, type TestDef, type BuilderItem, type PanelForm,
   blankPanel, uid, itemFromDef, autoCode,
 } from './reportBuilderShared';
+
+type DockTab = 'inspector' | 'panel' | 'pricing' | 'compile';
+const renameKey = (m: Record<string, any>, from: string, to: string) => {
+  if (!(from in m)) return m; const n = { ...m }; n[to] = n[from]; delete n[from]; return n;
+};
 
 export default function ReportBuilder() {
   const { token } = useAuthStore();
@@ -44,14 +48,17 @@ export default function ReportBuilder() {
   const [mode, setMode] = useState<'edit' | 'preview'>('edit');
   const [profile, setProfile] = useState<'digital' | 'letterhead'>('digital');
   const [reloadKey, setReloadKey] = useState(0);
-  const [saving, setSaving] = useState(false);
+  const [rev, setRev] = useState(0);
   const [dirty, setDirty] = useState(false);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [inspectUid, setInspectUid] = useState<string | null>(null);
-  const [pubOpen, setPubOpen] = useState(false);
+  const [rangesFocus, setRangesFocus] = useState(0);
+  const [dockTab, setDockTab] = useState<DockTab>('inspector');
 
   const bumpReload = useCallback(() => setReloadKey((k) => k + 1), []);
-  const setItems = useCallback((updater: (xs: BuilderItem[]) => BuilderItem[]) => { setItemsRaw(updater); setDirty(true); }, []);
-  const setP = (patch: Partial<PanelForm>) => { setPanel((p) => ({ ...p, ...patch })); setDirty(true); };
+  const touch = useCallback(() => { setDirty(true); setRev((r) => r + 1); }, []);
+  const setItems = useCallback((updater: (xs: BuilderItem[]) => BuilderItem[]) => { setItemsRaw(updater); touch(); }, [touch]);
+  const setP = useCallback((patch: Partial<PanelForm>) => { setPanel((p) => ({ ...p, ...patch })); touch(); }, [touch]);
   const setPReload = (patch: Partial<PanelForm>) => { setP(patch); bumpReload(); };
   const patchItem = (uid_: string, patch: Partial<BuilderItem>) => setItems((xs) => xs.map((x) => (x._uid === uid_ ? { ...x, ...patch } : x)));
 
@@ -77,9 +84,13 @@ export default function ReportBuilder() {
       setPanel({
         id: p.id, code: p.code, label: p.name, departmentId: p.departmentId ?? '',
         layoutType: p.layoutType ?? 'STANDARD_TABLE', sampleType: p.sampleType ?? null,
-        panelMethodText: p.panelMethodText ?? null, showSubgroups: !!p.showSubgroups,
-        showInterpretation: !!p.showInterpretation, spacedDefinitionsGap: p.spacedDefinitionsGap ?? 0,
-        valueDisplayPrefix: p.valueDisplayPrefix ?? null, comments: p.comments ?? null, interpretation: p.interpretation ?? null,
+        panelMethodText: p.panelMethodText ?? null, panelMethodItalic: !!p.panelMethodItalic,
+        showSubgroups: !!p.showSubgroups, showInterpretation: !!p.showInterpretation,
+        spacedDefinitionsGap: p.spacedDefinitionsGap ?? 0, valueDisplayPrefix: p.valueDisplayPrefix ?? null,
+        comments: p.comments ?? null, interpretation: p.interpretation ?? null,
+        narrativeTemplateHtml: p.narrativeTemplateHtml ?? null,
+        subgroupMethods: p.subgroupMethods ?? {}, subgroupTableOverrides: p.subgroupTableOverrides ?? {},
+        isActive: p.isActive ?? true,
       });
       const defById = new Map(defs.map((d) => [d.id, d]));
       setItemsRaw((p.items ?? []).map((it: any) => {
@@ -95,16 +106,14 @@ export default function ReportBuilder() {
           joinPrevious: !!it.joinPrevious, gridWidth: it.gridWidth ?? null, mockValue: null, mockTextValue: null,
         };
       }));
-      setDirty(false); bumpReload();
+      setDirty(false); setInspectUid(null); setDockTab('inspector'); bumpReload();
     } catch { toast.error('Failed to open panel'); }
   };
-  const newBlank = () => { setPanel(blankPanel()); setItemsRaw([]); setDirty(false); bumpReload(); };
+  const newBlank = () => { setPanel(blankPanel()); setItemsRaw([]); setDirty(false); setInspectUid(null); setDockTab('panel'); bumpReload(); };
 
   const departmentName = departments.find((d) => d.id === panel.departmentId)?.name ?? '';
-  const liveItems = useMemo(() => items.filter((i) => i.code), [items]); // committed rows only
-  // Rows in the exact order the renderer emits them: when subgroups are on,
-  // renderStandardTable regroups by subGroup (first-seen order). Mirror that so a
-  // rendered row index maps back to the right item for edit/inspect/delete.
+  const liveItems = useMemo(() => items.filter((i) => i.code), [items]);
+  // Order the renderer actually emits: subgroups regroup by first-seen order.
   const renderedItems = useMemo(() => {
     if (!panel.showSubgroups) return liveItems;
     const groups = new Map<string, BuilderItem[]>();
@@ -117,11 +126,12 @@ export default function ReportBuilder() {
       code: panel.code || 'PREVIEW', label: panel.label || 'Untitled report',
       departmentId: panel.departmentId || undefined, departmentName,
       layoutType: panel.layoutType, sampleType: panel.sampleType, panelMethodText: panel.panelMethodText,
-      showSubgroups: panel.showSubgroups, showInterpretation: panel.showInterpretation,
+      panelMethodItalic: panel.panelMethodItalic, showSubgroups: panel.showSubgroups, showInterpretation: panel.showInterpretation,
       spacedDefinitionsGap: panel.spacedDefinitionsGap, valueDisplayPrefix: panel.valueDisplayPrefix,
-      comments: panel.comments, interpretation: panel.interpretation,
+      comments: panel.comments, interpretation: panel.interpretation, narrativeTemplateHtml: panel.narrativeTemplateHtml,
+      subgroupMethods: panel.subgroupMethods, subgroupTableOverrides: panel.subgroupTableOverrides,
     },
-    items: liveItems.map((it, idx) => ({
+    items: renderedItems.map((it, idx) => ({
       testDefinition: {
         code: it.code, name: it.name, method: it.method, sampleType: it.sampleType,
         referenceMin: it.referenceMin, referenceMax: it.referenceMax, referenceUnit: it.referenceUnit,
@@ -132,12 +142,20 @@ export default function ReportBuilder() {
       gridWidth: it.gridWidth, displayLabel: it.displayLabel, mockValue: it.mockValue, mockTextValue: it.mockTextValue,
     })),
     patient: { name: 'Sample Patient', gender: 'F', yearOfBirth: new Date().getFullYear() - 34 },
-  }), [panel, liveItems, departmentName]);
+  }), [panel, renderedItems, departmentName]);
 
   /* ── Edits streamed back from inside the report ── */
-  const onPanelEdit = (field: 'label' | 'panelMethodText', value: string) => {
-    if (field === 'label') setP({ label: value });
-    else setP({ panelMethodText: value.trim() || null });
+  const onPanelEdit = (field: PanelEditField, value: string) => {
+    if (field === 'label') return setP({ label: value });
+    if (field === 'panelMethodText') return setP({ panelMethodText: value.trim() || null });
+    if (field === 'narrativeTemplateHtml') return setP({ narrativeTemplateHtml: value || null });
+    // comments / interpretation (rich text)
+    const prev = (field === 'comments' ? panel.comments : panel.interpretation) ?? '';
+    const wasEmpty = !prev.replace(/&nbsp;|\s/g, '');
+    const patch: Partial<PanelForm> = { [field]: value || null };
+    if (value && value.replace(/&nbsp;|\s/g, '')) patch.showInterpretation = true;
+    setP(patch);
+    if (wasEmpty) bumpReload();
   };
   const onItemEdit = (index: number, field: 'label' | 'value', value: string) => {
     const it = renderedItems[index]; if (!it) return;
@@ -146,8 +164,48 @@ export default function ReportBuilder() {
     if (value.trim() !== '' && !Number.isNaN(num)) patchItem(it._uid, { mockValue: num, mockTextValue: null });
     else patchItem(it._uid, { mockValue: null, mockTextValue: value.trim() || null });
   };
-  const onInspect = (index: number) => { const it = renderedItems[index]; if (it) setInspectUid(it._uid); };
+  const onInspect = (index: number, focus?: 'ranges') => {
+    const it = renderedItems[index]; if (!it) return;
+    setInspectUid(it._uid); setDockTab('inspector'); if (focus === 'ranges') setRangesFocus((n) => n + 1);
+  };
   const onDelete = (index: number) => { const it = renderedItems[index]; if (!it) return; setItems((xs) => xs.filter((x) => x._uid !== it._uid)); bumpReload(); };
+  const onReorder = (from: number, to: number, before: boolean) => {
+    const fromUid = renderedItems[from]?._uid, toUid = renderedItems[to]?._uid;
+    if (!fromUid || !toUid || fromUid === toUid) return;
+    const arr = renderedItems.slice();
+    const fi = arr.findIndex((x) => x._uid === fromUid); const [moved] = arr.splice(fi, 1);
+    let ti = arr.findIndex((x) => x._uid === toUid);
+    if (ti < 0) arr.push(moved); else arr.splice(before ? ti : ti + 1, 0, moved);
+    setItems((xs) => [...arr, ...xs.filter((i) => !i.code)]);
+    bumpReload();
+  };
+  const onSectionRename = (from: string, to: string) => {
+    if (!to || from === to) return;
+    setItems((xs) => xs.map((x) => ((x.subGroup || '') === from ? { ...x, subGroup: to } : x)));
+    setP({ subgroupMethods: renameKey(panel.subgroupMethods, from, to), subgroupTableOverrides: renameKey(panel.subgroupTableOverrides, from, to) });
+    bumpReload();
+  };
+  const onSectionMethod = (name: string, value: string) => {
+    const v = value.trim(); const m = { ...panel.subgroupMethods };
+    if (v) m[name] = v; else delete m[name];
+    setP({ subgroupMethods: m }); bumpReload();
+  };
+  const onSectionKV = (name: string) => {
+    const o = { ...panel.subgroupTableOverrides };
+    if (o[name]) delete o[name]; else o[name] = true;
+    setP({ subgroupTableOverrides: o }); bumpReload();
+  };
+  const onAddSection = () => {
+    if (!liveItems.length) { toast.info('Add a test first, then group it into a subgroup'); return; }
+    const existing = new Set(items.map((i) => i.subGroup).filter(Boolean) as string[]);
+    let name = 'SUBGROUP', n = 1; while (existing.has(name)) name = `SUBGROUP ${++n}`;
+    const last = liveItems[liveItems.length - 1];
+    setItems((xs) => xs.map((x) => (x._uid === last._uid ? { ...x, subGroup: name } : x)));
+    if (!panel.showSubgroups) setP({ showSubgroups: true });
+    bumpReload();
+    toast.success('Subgroup added — rename it on the report; move tests in via ⚙ Subgroup');
+  };
+
   const addExisting = (d: TestDef) => {
     if (items.some((i) => i.testDefinitionId === d.id)) { toast.info('Already in this report'); return; }
     setItems((xs) => [...xs, itemFromDef(d)]); bumpReload();
@@ -172,18 +230,19 @@ export default function ReportBuilder() {
   };
   const onCanonicalSaved = (p: CanonicalPatch) => { if (inspectUid) { patchItem(inspectUid, { ...p }); bumpReload(); } };
 
-  const canSave = panel.label.trim() && CODE_REGEX.test(panel.code.trim().toUpperCase()) && panel.departmentId && liveItems.length > 0;
+  const canSave = !!(panel.label.trim() && CODE_REGEX.test(panel.code.trim().toUpperCase()) && panel.departmentId && liveItems.length > 0);
 
-  const save = async () => {
-    if (!canSave) { toast.error('Name, a valid code, a department and at least one test are required'); return; }
-    setSaving(true);
+  const persist = useCallback(async (silent: boolean) => {
+    if (!canSave) { if (!silent) toast.error('Name, a valid code, a department and at least one test are required'); return; }
+    setSaveState('saving');
     try {
       const body = {
         name: panel.code.trim().toUpperCase(), displayName: panel.label.trim(), departmentId: panel.departmentId,
-        layoutType: panel.layoutType, sampleType: panel.sampleType, showSubgroups: panel.showSubgroups,
-        showInterpretation: panel.showInterpretation, spacedDefinitionsGap: panel.spacedDefinitionsGap,
-        valueDisplayPrefix: panel.valueDisplayPrefix, panelMethodText: panel.panelMethodText,
-        comments: panel.comments, interpretation: panel.interpretation,
+        layoutType: panel.layoutType, sampleType: panel.sampleType, panelMethodText: panel.panelMethodText,
+        panelMethodItalic: panel.panelMethodItalic, showSubgroups: panel.showSubgroups, showInterpretation: panel.showInterpretation,
+        spacedDefinitionsGap: panel.spacedDefinitionsGap, valueDisplayPrefix: panel.valueDisplayPrefix,
+        comments: panel.comments, interpretation: panel.interpretation, narrativeTemplateHtml: panel.narrativeTemplateHtml,
+        subgroupMethods: panel.subgroupMethods, subgroupTableOverrides: panel.subgroupTableOverrides, isActive: panel.isActive,
         items: liveItems.map((it, idx) => ({
           testDefinitionId: it.testDefinitionId, displayOrder: idx, showMethod: it.showMethod, methodText: it.methodText,
           indentLevel: it.indentLevel, isBold: it.isBold, isItalic: it.isItalic, subGroup: it.subGroup,
@@ -194,12 +253,21 @@ export default function ReportBuilder() {
       const res = await fetch(url, { method: panel.id ? 'PUT' : 'POST', headers, body: JSON.stringify(body) });
       if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || `Save failed (${res.status})`); }
       const saved = await res.json();
-      toast.success(panel.id ? 'Report updated' : 'Report created');
+      const isNew = !panel.id;
       setPanel((p) => ({ ...p, id: saved.id, code: saved.code }));
-      setDirty(false);
-      await loadAll();
-    } catch (e) { toast.error((e as Error).message || 'Save failed'); } finally { setSaving(false); }
-  };
+      setDirty(false); setSaveState('saved');
+      if (isNew) { toast.success('Report created'); setPanelsList((xs) => [{ id: saved.id, code: saved.code, name: saved.displayName ?? panel.label }, ...xs.filter((x) => x.id !== saved.id)]); }
+    } catch (e) { setSaveState('idle'); if (!silent) toast.error((e as Error).message || 'Save failed'); }
+  }, [canSave, panel, liveItems, headers]);
+
+  // Autosave existing panels (debounced). New panels need an explicit Create.
+  const revRef = useRef(0);
+  useEffect(() => {
+    if (!panel.id || !dirty || !canSave) return;
+    revRef.current = rev;
+    const t = setTimeout(() => { if (revRef.current === rev) persist(true); }, 900);
+    return () => clearTimeout(t);
+  }, [rev, dirty, canSave, panel.id, persist]);
 
   if (loading) return <LoadingState />;
 
@@ -210,72 +278,117 @@ export default function ReportBuilder() {
     isBold: inspected.isBold, isItalic: inspected.isItalic, methodText: inspected.methodText,
   } : null;
 
+  const DOCK_TABS: { k: DockTab; label: string }[] = [
+    { k: 'inspector', label: 'Inspector' }, { k: 'panel', label: 'Panel' }, { k: 'pricing', label: 'Pricing' }, { k: 'compile', label: 'Compiles to' },
+  ];
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3">
         <Select value={panel.id ?? '__new__'} onValueChange={(v) => (v === '__new__' ? newBlank() : openPanel(v))}>
-          <SelectTrigger className="w-[220px]"><SelectValue placeholder="Open a report…" /></SelectTrigger>
+          <SelectTrigger className="w-[210px]"><SelectValue placeholder="Open a report…" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="__new__"><span className="flex items-center gap-2"><FilePlus2 className="h-3.5 w-3.5" /> New blank report</span></SelectItem>
             {panelsList.map((p) => (<SelectItem key={p.id} value={p.id}>{p.name} <span className="text-muted-foreground">· {p.code}</span></SelectItem>))}
           </SelectContent>
         </Select>
         <Button variant="outline" size="sm" onClick={newBlank}><Plus className="h-4 w-4 mr-1" /> New</Button>
-
         <Select value={panel.layoutType} onValueChange={(v) => setPReload({ layoutType: v })}>
-          <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-[150px]"><SelectValue /></SelectTrigger>
           <SelectContent>{LAYOUTS.map((l) => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}</SelectContent>
         </Select>
-
-        <PanelSettings panel={panel} departments={departments} setP={setPReload} />
         <AddExistingButton defs={defs} used={new Set(items.map((i) => i.testDefinitionId))} onAdd={addExisting} />
 
         <div className="flex-1" />
 
+        <SaveChip id={panel.id} state={saveState} dirty={dirty} />
         <div className="inline-flex rounded-md border p-0.5">
-          <Button variant={mode === 'edit' ? 'secondary' : 'ghost'} size="sm" onClick={() => setMode('edit')}><Pencil className="h-3.5 w-3.5 mr-1" /> Edit</Button>
-          <Button variant={mode === 'preview' ? 'secondary' : 'ghost'} size="sm" onClick={() => setMode('preview')}><Eye className="h-3.5 w-3.5 mr-1" /> Preview</Button>
+          <Button variant={mode === 'edit' ? 'secondary' : 'ghost'} size="sm" onClick={() => setMode('edit')}>Edit</Button>
+          <Button variant={mode === 'preview' ? 'secondary' : 'ghost'} size="sm" onClick={() => setMode('preview')}>Preview</Button>
         </div>
         <div className="inline-flex rounded-md border p-0.5">
           <Button variant={profile === 'digital' ? 'secondary' : 'ghost'} size="sm" onClick={() => setProfile('digital')}>Digital</Button>
           <Button variant={profile === 'letterhead' ? 'secondary' : 'ghost'} size="sm" onClick={() => setProfile('letterhead')}>Letterhead</Button>
         </div>
-        {panel.id && (
-          <Button size="sm" variant="outline" onClick={() => setPubOpen(true)} disabled={dirty} title={dirty ? 'Save first' : 'Create a billable product'}>
-            <Package className="h-4 w-4 mr-1" /> Publish
+        {!panel.id && (
+          <Button size="sm" onClick={() => persist(false)} disabled={saveState === 'saving'}>
+            {saveState === 'saving' ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />} Create
           </Button>
         )}
-        <Button size="sm" onClick={save} disabled={saving || !dirty}>
-          {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
-          {panel.id ? 'Save' : 'Create'}
-        </Button>
       </div>
 
-      {/* The report — editable in place, or read-only preview */}
-      {mode === 'edit' ? (
-        <EditableReportFrame
-          payload={previewPayload} profile={profile} reloadKey={reloadKey} headers={headers}
-          onPanelEdit={onPanelEdit} onItemEdit={onItemEdit} onInspect={onInspect} onDelete={onDelete} onCreate={onCreate}
-        />
-      ) : (
-        <div className="h-[80vh]"><ReportPreviewFrame payload={previewPayload} profile={profile} /></div>
-      )}
+      {/* Stage: report + dock */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_370px]">
+        <div>
+          {liveItems.length === 0 ? (
+            <EmptyReport label={panel.label} defs={defs} used={new Set(items.map((i) => i.testDefinitionId))} onCreate={onCreate} onAdd={addExisting} />
+          ) : mode === 'edit' ? (
+            <EditableReportFrame
+              payload={previewPayload} profile={profile} reloadKey={reloadKey} headers={headers}
+              onPanelEdit={onPanelEdit} onItemEdit={onItemEdit} onInspect={onInspect} onDelete={onDelete} onCreate={onCreate}
+              onReorder={onReorder} onSectionRename={onSectionRename} onSectionMethod={onSectionMethod} onSectionKV={onSectionKV} onAddSection={onAddSection}
+            />
+          ) : (
+            <div className="h-[80vh]"><ReportPreviewFrame payload={previewPayload} profile={profile} /></div>
+          )}
+        </div>
 
-      <ItemInspector
-        item={inspectItem} open={!!inspectUid} onOpenChange={(v) => { if (!v) setInspectUid(null); }}
-        headers={headers} showSubgroup={panel.showSubgroups}
-        onPatch={(p) => { if (inspectUid) { patchItem(inspectUid, p); bumpReload(); } }} onCanonicalSaved={onCanonicalSaved}
-      />
-
-      {panel.id && (
-        <PublishProductDialog open={pubOpen} onOpenChange={setPubOpen} panelId={panel.id} defaultName={panel.label} defaultCode={panel.code} headers={headers} />
-      )}
+        {/* Dock */}
+        <aside className="rounded-lg border bg-card overflow-hidden flex flex-col max-h-[82vh]">
+          <div className="flex border-b shrink-0">
+            {DOCK_TABS.map((t) => (
+              <button key={t.k} onClick={() => setDockTab(t.k)}
+                className={`flex-1 py-2.5 text-xs font-medium border-b-2 ${dockTab === t.k ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="overflow-y-auto flex-1">
+            {dockTab === 'inspector' && (
+              <ItemInspectorBody item={inspectItem} headers={headers} showSubgroup={panel.showSubgroups} focusRanges={rangesFocus}
+                onPatch={(p) => { if (inspectUid) { patchItem(inspectUid, p); bumpReload(); } }} onCanonicalSaved={onCanonicalSaved} />
+            )}
+            {dockTab === 'panel' && <PanelPane panel={panel} departments={departments} setP={setP} setPReload={setPReload} />}
+            {dockTab === 'pricing' && <PricingPane panel={panel} headers={headers} />}
+            {dockTab === 'compile' && <CompilePane panel={panel} items={liveItems} departmentName={departmentName} />}
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }
 
-/* ───────── Add an existing test by reference ───────── */
+/* ───────── Empty report (no tests yet) ───────── */
+function EmptyReport({ label, defs, used, onCreate, onAdd }: {
+  label: string; defs: TestDef[]; used: Set<string>; onCreate: (name: string) => void; onAdd: (d: TestDef) => void;
+}) {
+  const [name, setName] = useState('');
+  const add = () => { const n = name.trim(); if (!n) return; onCreate(n); setName(''); };
+  return (
+    <div className="flex min-h-[80vh] items-center justify-center rounded-lg border bg-muted/40 p-6">
+      <div className="w-full max-w-md rounded-md border bg-background p-8 text-center shadow-sm">
+        <div className="text-lg font-semibold">{label.trim() || 'New report'}</div>
+        <p className="mt-1 mb-5 text-sm text-muted-foreground">Type your first test to start the report — it auto-creates the clinical definition. The paper appears as soon as there's a test.</p>
+        <div className="flex items-center gap-2">
+          <Input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} placeholder="e.g. Haemoglobin" autoFocus />
+          <Button size="sm" onClick={add}><Plus className="h-4 w-4 mr-1" /> Add</Button>
+        </div>
+        <div className="mt-3"><AddExistingButton defs={defs} used={used} onAdd={onAdd} /></div>
+      </div>
+    </div>
+  );
+}
+
+/* ───────── Save status chip ───────── */
+function SaveChip({ id, state, dirty }: { id: string | null; state: 'idle' | 'saving' | 'saved'; dirty: boolean }) {
+  if (!id) return <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><CircleDashed className="h-3.5 w-3.5" /> Draft — click Create</span>;
+  if (state === 'saving') return <span className="flex items-center gap-1.5 text-xs text-amber-600"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</span>;
+  if (dirty) return <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><CircleDashed className="h-3.5 w-3.5" /> Unsaved</span>;
+  return <span className="flex items-center gap-1.5 text-xs text-emerald-600"><Check className="h-3.5 w-3.5" /> All changes saved</span>;
+}
+
+/* ───────── Add existing test ───────── */
 function AddExistingButton({ defs, used, onAdd }: { defs: TestDef[]; used: Set<string>; onAdd: (d: TestDef) => void }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -304,84 +417,102 @@ function AddExistingButton({ defs, used, onAdd }: { defs: TestDef[]; used: Set<s
   );
 }
 
-/* ───────── Panel settings (non-inline fields) ───────── */
-function PanelSettings({ panel, departments, setP }: {
-  panel: PanelForm; departments: Department[]; setP: (patch: Partial<PanelForm>) => void;
+/* ───────── Panel pane ───────── */
+function PanelPane({ panel, departments, setP, setPReload }: {
+  panel: PanelForm; departments: Department[]; setP: (p: Partial<PanelForm>) => void; setPReload: (p: Partial<PanelForm>) => void;
 }) {
   return (
-    <Popover>
-      <PopoverTrigger asChild><Button variant="outline" size="sm"><Settings2 className="h-4 w-4 mr-1" /> Settings</Button></PopoverTrigger>
-      <PopoverContent className="w-80 space-y-3" align="start">
+    <div className="p-4 space-y-4">
+      <div>
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Panel settings · ClinicalPanel</h4>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5"><Label className="text-xs">Code</Label><Input value={panel.code} onChange={(e) => setP({ code: e.target.value.toUpperCase() })} disabled={!!panel.id} className="font-mono h-8" placeholder="CBP" /></div>
           <div className="space-y-1.5"><Label className="text-xs">Department</Label>
-            <Select value={panel.departmentId || undefined} onValueChange={(v) => setP({ departmentId: v })}>
+            <Select value={panel.departmentId || undefined} onValueChange={(v) => setPReload({ departmentId: v })}>
               <SelectTrigger className="h-8"><SelectValue placeholder="Select…" /></SelectTrigger>
               <SelectContent>{departments.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent>
             </Select>
           </div>
         </div>
-        {panel.layoutType === 'STANDARD_TABLE' && (
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5"><Label className="text-xs">Value prefix</Label><Input value={panel.valueDisplayPrefix ?? ''} maxLength={5} onChange={(e) => setP({ valueDisplayPrefix: e.target.value || null })} className="h-8" placeholder='"1:"' /></div>
-            <div className="space-y-1.5"><Label className="text-xs">Spaced gap</Label>
-              <Select value={String(panel.spacedDefinitionsGap)} onValueChange={(v) => setP({ spacedDefinitionsGap: Number(v) })}>
-                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                <SelectContent>{[0, 1, 2, 3].map((g) => <SelectItem key={g} value={String(g)}>{['None', 'Small', 'Medium', 'Large'][g]}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
+        <div className="space-y-1.5 mt-3"><Label className="text-xs">Sample type</Label>
+          <Input value={panel.sampleType ?? ''} onChange={(e) => setPReload({ sampleType: e.target.value || null })} placeholder="e.g. Whole Blood (EDTA)" className="h-8" /></div>
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <div className="space-y-1.5"><Label className="text-xs">Spaced gap</Label>
+            <Select value={String(panel.spacedDefinitionsGap)} onValueChange={(v) => setPReload({ spacedDefinitionsGap: Number(v) })}>
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>{[0, 1, 2, 3].map((g) => <SelectItem key={g} value={String(g)}>{['None', 'Small', 'Medium', 'Large'][g]}</SelectItem>)}</SelectContent>
+            </Select>
           </div>
-        )}
-        <div className="flex items-center justify-between"><Label className="text-xs cursor-pointer" htmlFor="rb-sg">Show subgroups</Label><Switch id="rb-sg" checked={panel.showSubgroups} onCheckedChange={(v) => setP({ showSubgroups: v })} /></div>
-        <div className="flex items-center justify-between"><Label className="text-xs cursor-pointer" htmlFor="rb-cn">Clinical Notes box</Label><Switch id="rb-cn" checked={panel.showInterpretation} onCheckedChange={(v) => setP({ showInterpretation: v })} /></div>
-      </PopoverContent>
-    </Popover>
+          <div className="space-y-1.5"><Label className="text-xs">Value prefix</Label><Input value={panel.valueDisplayPrefix ?? ''} maxLength={5} onChange={(e) => setPReload({ valueDisplayPrefix: e.target.value || null })} className="h-8" placeholder='"1:"' /></div>
+        </div>
+      </div>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between"><Label className="text-xs cursor-pointer" htmlFor="p-sg">Show subgroups</Label><Switch id="p-sg" checked={panel.showSubgroups} onCheckedChange={(v) => setPReload({ showSubgroups: v })} /></div>
+        <div className="flex items-center justify-between"><Label className="text-xs cursor-pointer" htmlFor="p-cn">Clinical Notes box</Label><Switch id="p-cn" checked={panel.showInterpretation} onCheckedChange={(v) => setPReload({ showInterpretation: v })} /></div>
+        <div className="flex items-center justify-between"><Label className="text-xs cursor-pointer" htmlFor="p-ac">Panel active <span className="text-muted-foreground">— live &amp; billable</span></Label><Switch id="p-ac" checked={panel.isActive} onCheckedChange={(v) => setP({ isActive: v })} /></div>
+      </div>
+      <p className="text-[11px] text-muted-foreground leading-relaxed">The method column, subgroups &amp; subgroup methods appear automatically when you add that content on the report. Clinical Notes has an explicit toggle so big reports can hide it.</p>
+    </div>
   );
 }
 
-/* ───────── Publish as product ───────── */
-function PublishProductDialog({ open, onOpenChange, panelId, defaultName, defaultCode, headers }: {
-  open: boolean; onOpenChange: (v: boolean) => void; panelId: string;
-  defaultName: string; defaultCode: string; headers: Record<string, string>;
-}) {
-  const [name, setName] = useState('');
-  const [code, setCode] = useState('');
+/* ───────── Pricing pane ───────── */
+function PricingPane({ panel, headers }: { panel: PanelForm; headers: Record<string, string> }) {
   const [price, setPrice] = useState('');
   const [workflow, setWorkflow] = useState('REPORTABLE');
   const [category, setCategory] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (open) { setName(defaultName); setCode(defaultCode); setPrice(''); setWorkflow('REPORTABLE'); setCategory(''); } }, [open, defaultName, defaultCode]);
-  const create = async () => {
-    if (!name.trim() || !CODE_REGEX.test(code.trim().toUpperCase()) || price === '') { toast.error('Name, a valid code and a price are required'); return; }
+  const [publishedCode, setPublishedCode] = useState<string | null>(null);
+  const publish = async () => {
+    if (!panel.id) { toast.error('Create the report first'); return; }
+    if (price === '' || Number.isNaN(Number(price))) { toast.error('Enter a price'); return; }
     setBusy(true);
     try {
       const res = await fetch(`${API_BASE}/billable-products`, {
         method: 'POST', headers,
-        body: JSON.stringify({ name: name.trim(), code: code.trim().toUpperCase(), basePrice: Number(price), workflowMode: workflow, payoutCategory: category || null, panels: [{ panelId }] }),
+        body: JSON.stringify({ name: panel.label.trim(), code: panel.code.trim().toUpperCase(), basePrice: Number(price), workflowMode: workflow, payoutCategory: category || null, panels: [{ panelId: panel.id }] }),
       });
       if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || `Publish failed (${res.status})`); }
-      const p = await res.json();
-      toast.success(`Published product ${p.code}`);
-      onOpenChange(false);
+      const p = await res.json(); setPublishedCode(p.code); toast.success(`Published product ${p.code}`);
     } catch (e) { toast.error((e as Error).message || 'Publish failed'); } finally { setBusy(false); }
   };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader><DialogTitle>Publish as product</DialogTitle><DialogDescription>Creates a billable product for this report. Bundles &amp; per-branch pricing live in the Billable Products tab.</DialogDescription></DialogHeader>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2 space-y-1.5"><Label>Product name</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
-          <div className="space-y-1.5"><Label>Code</Label><Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} className="font-mono" /></div>
-          <div className="space-y-1.5"><Label>Price (₹)</Label><Input value={price} onChange={(e) => setPrice(e.target.value)} placeholder="450" /></div>
-          <div className="space-y-1.5"><Label>Workflow</Label>
-            <Select value={workflow} onValueChange={setWorkflow}><SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="REPORTABLE">Reportable</SelectItem><SelectItem value="BILL_ONLY">Bill only</SelectItem><SelectItem value="EXTERNAL_UPLOAD">External upload</SelectItem><SelectItem value="EVENT">Event</SelectItem></SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5"><Label>Payout category</Label><Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Laboratory" /></div>
-        </div>
-        <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button onClick={create} disabled={busy}>{busy && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}Publish</Button></DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <div className="p-4 space-y-3">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sell this report · BillableProduct</h4>
+      {!panel.id && <p className="text-xs text-muted-foreground">Create the report first, then publish it as a billable product.</p>}
+      <div className="space-y-1.5"><Label className="text-xs">List price (₹)</Label><Input value={price} onChange={(e) => setPrice(e.target.value)} placeholder="450" className="h-8" /><p className="text-[11px] text-muted-foreground">Stored in paise. Product code <b>{panel.code || '—'}</b>.</p></div>
+      <div className="space-y-1.5"><Label className="text-xs">Workflow mode</Label>
+        <Select value={workflow} onValueChange={setWorkflow}><SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectItem value="REPORTABLE">Reportable</SelectItem><SelectItem value="BILL_ONLY">Bill only</SelectItem><SelectItem value="EXTERNAL_UPLOAD">External upload</SelectItem><SelectItem value="EVENT">Event</SelectItem></SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1.5"><Label className="text-xs">Payout category</Label><Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Laboratory" className="h-8" /><p className="text-[11px] text-muted-foreground">Referral commission is set per <b>category</b> (Referrals) — not per test.</p></div>
+      <Button size="sm" className="w-full" onClick={publish} disabled={busy || !panel.id}>{busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Package className="h-4 w-4 mr-1" />}{publishedCode ? 'Publish again' : 'Publish product'}</Button>
+      {publishedCode && <p className="text-xs text-emerald-600 flex items-center gap-1"><Check className="h-3.5 w-3.5" /> Live as {publishedCode}.</p>}
+      <p className="text-[11px] text-muted-foreground leading-relaxed">Per-branch prices, packages &amp; bundles live in the full <b>Billable Products</b> tab — this rail publishes the common one-panel = one-product case.</p>
+    </div>
+  );
+}
+
+/* ───────── Compiles-to pane ───────── */
+function CompilePane({ panel, items, departmentName }: { panel: PanelForm; items: BuilderItem[]; departmentName: string }) {
+  const Node = ({ title, tag, kv }: { title: string; tag: string; kv: string }) => (
+    <div className="rounded-lg border bg-muted/30 p-2.5">
+      <div className="flex items-center gap-2 mb-1"><span className="text-sm font-semibold">{title}</span><span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/10 text-primary">{tag}</span></div>
+      <div className="text-[11px] text-muted-foreground">{kv}</div>
+    </div>
+  );
+  const Arrow = () => <div className="flex justify-center text-muted-foreground py-0.5"><ArrowDown className="h-3.5 w-3.5" /></div>;
+  return (
+    <div className="p-4 space-y-1">
+      <p className="text-[11px] text-muted-foreground mb-2">Nothing new in the database. The report <b>compiles</b> to your existing models — like JSX to the DOM.</p>
+      <Node title={panel.label || 'Untitled report'} tag="BillableProduct" kv={`code ${panel.code || '—'} · 1 line → panel`} />
+      <Arrow />
+      <Node title={panel.code || '—'} tag="ClinicalPanel" kv={`layout ${panel.layoutType} · dept ${departmentName || '—'} · subgroups ${panel.showSubgroups ? 'on' : 'off'} · ${items.length} items`} />
+      <Arrow />
+      <Node title={`${items.length} × ClinicalPanelItem`} tag="layout" kv="order, indent, subgroup, displayLabel, join, width — presentation only" />
+      <Arrow />
+      <Node title={`${items.length} × TestDefinition`} tag="canonical" kv="code, unit, ranges, criticals, formula, input-config — versioned, shared" />
+    </div>
   );
 }

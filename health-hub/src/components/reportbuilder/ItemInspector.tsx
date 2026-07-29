@@ -10,10 +10,10 @@
  * backend's pick()/`?? current` fallback), then re-points the item to the new
  * version. Value-input (type/presets/default) is unversioned TestInputConfig.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { API_BASE } from '@/lib/api';
 import { toast } from 'sonner';
-import { Loader2, Plus, Trash2, AlertTriangle } from 'lucide-react';
+import { Loader2, Plus, Trash2, AlertTriangle, MousePointerClick } from 'lucide-react';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from '@/components/ui/sheet';
@@ -55,17 +55,18 @@ interface RangeRow {
 
 const numOrNull = (s: string) => (s.trim() === '' ? null : Number(s));
 
-export function ItemInspector({
-  item, open, onOpenChange, headers, showSubgroup, onPatch, onCanonicalSaved,
+/** The inspector CONTENT — embedded directly in the dock (no slide-over). */
+export function ItemInspectorBody({
+  item, headers, showSubgroup, onPatch, onCanonicalSaved, focusRanges,
 }: {
   item: InspectorItem | null;
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
   headers: Record<string, string>;
   showSubgroup: boolean;
   onPatch: (patch: Partial<InspectorItem>) => void;
   onCanonicalSaved: (patch: CanonicalPatch) => void;
+  focusRanges?: number;
 }) {
+  const rangesRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [def, setDef] = useState<any>(null); // full current definition
@@ -83,7 +84,7 @@ export function ItemInspector({
   const isActive = def?.status === 'ACTIVE';
 
   useEffect(() => {
-    if (!open || !item) return;
+    if (!item) return;
     let cancelled = false;
     setLoading(true);
     setCanonDirty(false); setCfgDirty(false); setInputCfg(null);
@@ -134,7 +135,9 @@ export function ItemInspector({
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, item?.testDefinitionId]);
+  }, [item?.testDefinitionId]);
+
+  useEffect(() => { if (focusRanges) rangesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [focusRanges]);
 
   const setC = (patch: Partial<typeof canon>) => { setCanon((c) => ({ ...c, ...patch })); setCanonDirty(true); };
   const patchRange = (i: number, patch: Partial<RangeRow>) => {
@@ -208,18 +211,24 @@ export function ItemInspector({
     }
   };
 
+  if (!item) {
+    return (
+      <div className="flex h-full min-h-[300px] flex-col items-center justify-center gap-3 p-8 text-center text-sm text-muted-foreground">
+        <MousePointerClick className="h-6 w-6 opacity-50" />
+        Select a test row on the report (or its ⚙) to edit its clinical contract — units, reference ranges, critical values, input type and formula.
+      </div>
+    );
+  }
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-md overflow-y-auto">
-        {item && (
-          <SheetHeader>
-            <SheetTitle>{item.displayLabel || item.name} <span className="text-xs font-mono text-muted-foreground">{item.code}</span></SheetTitle>
-            <SheetDescription>Presentation is per-report; unit/ranges/formula are the versioned clinical contract.</SheetDescription>
-          </SheetHeader>
-        )}
-        {loading && <div className="py-16 flex justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}
-        {!loading && item && (
-          <div className="space-y-5 py-4">
+    <div className="p-4">
+      <div className="mb-0.5 flex items-baseline gap-2">
+        <span className="font-semibold">{item.displayLabel || item.name}</span>
+        <span className="text-xs font-mono text-muted-foreground">{item.code}</span>
+      </div>
+      <p className="mb-3 text-xs text-muted-foreground">Presentation is per-report; unit/ranges/formula are the versioned clinical contract.</p>
+      {loading && <div className="py-16 flex justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}
+      {!loading && (
+          <div className="space-y-5">
             {/* Presentation */}
             <section className="space-y-3">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Layout in this panel · no version</h4>
@@ -288,7 +297,7 @@ export function ItemInspector({
               </div>
 
               {/* Age / gender variants */}
-              <div className="space-y-2">
+              <div className="space-y-2" ref={rangesRef}>
                 <Label className="text-xs">Age / gender variants</Label>
                 {ranges.map((r, i) => (
                   <div key={i} className="rounded-md border p-2 space-y-2">
@@ -332,7 +341,23 @@ export function ItemInspector({
               )}
             </section>
           </div>
-        )}
+      )}
+    </div>
+  );
+}
+
+/** Slide-over wrapper — kept for any non-dock use; the builder embeds the body directly. */
+export function ItemInspector(props: {
+  item: InspectorItem | null; open: boolean; onOpenChange: (v: boolean) => void;
+  headers: Record<string, string>; showSubgroup: boolean;
+  onPatch: (patch: Partial<InspectorItem>) => void; onCanonicalSaved: (patch: CanonicalPatch) => void;
+}) {
+  const { open, onOpenChange, ...body } = props;
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="w-full sm:max-w-md overflow-y-auto p-0">
+        <SheetHeader className="sr-only"><SheetTitle>Test inspector</SheetTitle><SheetDescription>Edit the clinical contract</SheetDescription></SheetHeader>
+        <ItemInspectorBody {...body} />
       </SheetContent>
     </Sheet>
   );
