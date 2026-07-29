@@ -1,17 +1,19 @@
 /**
- * Report Builder — author a clinical report as a document (report-first canvas),
- * with a pixel-true server-rendered Preview, compiling down to the existing
- * models (ClinicalPanel / ClinicalPanelItem / TestDefinition / BillableProduct).
+ * Report Builder — author a clinical report by typing ON the report.
  *
- * Edit mode = the report-styled editable canvas (ReportCanvas); Preview mode =
- * the real renderer (ReportPreviewFrame). Non-inline panel fields live in a
- * Settings popover; the clinical contract lives in the row Inspector.
+ * The edit surface (EditableReportFrame) is the REAL server-rendered report in an
+ * iframe, made editable in place — one renderer, no client reproduction. Text
+ * edits stream back and update config without reloading; structural changes (add
+ * / delete / settings / layout) bump reloadKey and re-render through the same
+ * renderer. Preview mode = the same render, read-only. Everything compiles down
+ * to the existing ClinicalPanel / ClinicalPanelItem / TestDefinition / product
+ * models.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { API_BASE } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
-import { Plus, Save, FilePlus2, Loader2, Package, Settings2, Pencil, Eye } from 'lucide-react';
+import { Plus, Save, FilePlus2, Loader2, Package, Settings2, Pencil, Eye, Search, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -21,11 +23,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ReportPreviewFrame, type PreviewPayload } from '@/components/reportbuilder/ReportPreviewFrame';
+import { EditableReportFrame } from '@/components/reportbuilder/EditableReportFrame';
 import { ItemInspector, type InspectorItem, type CanonicalPatch } from '@/components/reportbuilder/ItemInspector';
-import { ReportCanvas } from '@/components/reportbuilder/ReportCanvas';
 import {
   CODE_REGEX, LAYOUTS, type Department, type TestDef, type BuilderItem, type PanelForm,
-  blankPanel, uid, itemFromDef,
+  blankPanel, uid, itemFromDef, autoCode,
 } from './reportBuilderShared';
 
 export default function ReportBuilder() {
@@ -41,15 +43,17 @@ export default function ReportBuilder() {
   const [items, setItemsRaw] = useState<BuilderItem[]>([]);
   const [mode, setMode] = useState<'edit' | 'preview'>('edit');
   const [profile, setProfile] = useState<'digital' | 'letterhead'>('digital');
+  const [reloadKey, setReloadKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [inspectUid, setInspectUid] = useState<string | null>(null);
   const [pubOpen, setPubOpen] = useState(false);
 
+  const bumpReload = useCallback(() => setReloadKey((k) => k + 1), []);
   const setItems = useCallback((updater: (xs: BuilderItem[]) => BuilderItem[]) => { setItemsRaw(updater); setDirty(true); }, []);
-  const setP = <K extends keyof PanelForm>(patch: Partial<PanelForm>) => { setPanel((p) => ({ ...p, ...patch })); setDirty(true); };
+  const setP = (patch: Partial<PanelForm>) => { setPanel((p) => ({ ...p, ...patch })); setDirty(true); };
+  const setPReload = (patch: Partial<PanelForm>) => { setP(patch); bumpReload(); };
   const patchItem = (uid_: string, patch: Partial<BuilderItem>) => setItems((xs) => xs.map((x) => (x._uid === uid_ ? { ...x, ...patch } : x)));
-  const onCanonicalSaved = (p: CanonicalPatch) => { if (inspectUid) patchItem(inspectUid, { ...p }); };
 
   const loadAll = useCallback(async () => {
     try {
@@ -91,13 +95,22 @@ export default function ReportBuilder() {
           joinPrevious: !!it.joinPrevious, gridWidth: it.gridWidth ?? null, mockValue: null, mockTextValue: null,
         };
       }));
-      setDirty(false);
+      setDirty(false); bumpReload();
     } catch { toast.error('Failed to open panel'); }
   };
-  const newBlank = () => { setPanel(blankPanel()); setItemsRaw([]); setDirty(false); };
+  const newBlank = () => { setPanel(blankPanel()); setItemsRaw([]); setDirty(false); bumpReload(); };
 
   const departmentName = departments.find((d) => d.id === panel.departmentId)?.name ?? '';
-  const liveItems = items.filter((i) => i.code); // committed rows only (skip blank inline drafts)
+  const liveItems = useMemo(() => items.filter((i) => i.code), [items]); // committed rows only
+  // Rows in the exact order the renderer emits them: when subgroups are on,
+  // renderStandardTable regroups by subGroup (first-seen order). Mirror that so a
+  // rendered row index maps back to the right item for edit/inspect/delete.
+  const renderedItems = useMemo(() => {
+    if (!panel.showSubgroups) return liveItems;
+    const groups = new Map<string, BuilderItem[]>();
+    for (const it of liveItems) { const g = it.subGroup || '__default__'; if (!groups.has(g)) groups.set(g, []); groups.get(g)!.push(it); }
+    return Array.from(groups.values()).flat();
+  }, [liveItems, panel.showSubgroups]);
 
   const previewPayload: PreviewPayload = useMemo(() => ({
     panel: {
@@ -120,6 +133,44 @@ export default function ReportBuilder() {
     })),
     patient: { name: 'Sample Patient', gender: 'F', yearOfBirth: new Date().getFullYear() - 34 },
   }), [panel, liveItems, departmentName]);
+
+  /* ── Edits streamed back from inside the report ── */
+  const onPanelEdit = (field: 'label' | 'panelMethodText', value: string) => {
+    if (field === 'label') setP({ label: value });
+    else setP({ panelMethodText: value.trim() || null });
+  };
+  const onItemEdit = (index: number, field: 'label' | 'value', value: string) => {
+    const it = renderedItems[index]; if (!it) return;
+    if (field === 'label') { patchItem(it._uid, { displayLabel: value.trim() || null }); return; }
+    const num = Number(value);
+    if (value.trim() !== '' && !Number.isNaN(num)) patchItem(it._uid, { mockValue: num, mockTextValue: null });
+    else patchItem(it._uid, { mockValue: null, mockTextValue: value.trim() || null });
+  };
+  const onInspect = (index: number) => { const it = renderedItems[index]; if (it) setInspectUid(it._uid); };
+  const onDelete = (index: number) => { const it = renderedItems[index]; if (!it) return; setItems((xs) => xs.filter((x) => x._uid !== it._uid)); bumpReload(); };
+  const addExisting = (d: TestDef) => {
+    if (items.some((i) => i.testDefinitionId === d.id)) { toast.info('Already in this report'); return; }
+    setItems((xs) => [...xs, itemFromDef(d)]); bumpReload();
+  };
+  const onCreate = async (name: string) => {
+    const nm = name.trim(); if (!nm) return;
+    const existing = defs.find((d) => d.name.toLowerCase() === nm.toLowerCase());
+    if (existing) { addExisting(existing); return; }
+    const used = new Set([...defs.map((d) => d.code), ...items.map((i) => i.code)].filter(Boolean));
+    const code = autoCode(nm, used);
+    try {
+      const res = await fetch(`${API_BASE}/clinical-definitions`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ name: nm, code, departmentId: panel.departmentId || null, interpretationMode: 'NONE', ranges: [], interpretationRules: [] }),
+      });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || 'Create failed'); }
+      const d = await res.json();
+      setDefs((xs) => [d, ...xs]);
+      setItems((xs) => [...xs, itemFromDef(d)]); bumpReload();
+      toast.success(`Created ${d.code} (v1) — “${nm}”`);
+    } catch (e) { toast.error((e as Error).message); }
+  };
+  const onCanonicalSaved = (p: CanonicalPatch) => { if (inspectUid) { patchItem(inspectUid, { ...p }); bumpReload(); } };
 
   const canSave = panel.label.trim() && CODE_REGEX.test(panel.code.trim().toUpperCase()) && panel.departmentId && liveItems.length > 0;
 
@@ -172,12 +223,13 @@ export default function ReportBuilder() {
         </Select>
         <Button variant="outline" size="sm" onClick={newBlank}><Plus className="h-4 w-4 mr-1" /> New</Button>
 
-        <Select value={panel.layoutType} onValueChange={(v) => setP({ layoutType: v })}>
+        <Select value={panel.layoutType} onValueChange={(v) => setPReload({ layoutType: v })}>
           <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
           <SelectContent>{LAYOUTS.map((l) => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}</SelectContent>
         </Select>
 
-        <PanelSettings panel={panel} departments={departments} setP={setP} />
+        <PanelSettings panel={panel} departments={departments} setP={setPReload} />
+        <AddExistingButton defs={defs} used={new Set(items.map((i) => i.testDefinitionId))} onAdd={addExisting} />
 
         <div className="flex-1" />
 
@@ -200,13 +252,11 @@ export default function ReportBuilder() {
         </Button>
       </div>
 
-      {/* Main surface: edit canvas OR true preview */}
+      {/* The report — editable in place, or read-only preview */}
       {mode === 'edit' ? (
-        <ReportCanvas
-          panel={panel} items={items} defs={defs} profile={profile} departmentName={departmentName}
-          headers={headers} selectedUid={inspectUid}
-          setPanel={setP} setItems={setItems} onInspect={setInspectUid}
-          onCreatedDef={(d) => setDefs((xs) => [d, ...xs])}
+        <EditableReportFrame
+          payload={previewPayload} profile={profile} reloadKey={reloadKey} headers={headers}
+          onPanelEdit={onPanelEdit} onItemEdit={onItemEdit} onInspect={onInspect} onDelete={onDelete} onCreate={onCreate}
         />
       ) : (
         <div className="h-[80vh]"><ReportPreviewFrame payload={previewPayload} profile={profile} /></div>
@@ -215,13 +265,42 @@ export default function ReportBuilder() {
       <ItemInspector
         item={inspectItem} open={!!inspectUid} onOpenChange={(v) => { if (!v) setInspectUid(null); }}
         headers={headers} showSubgroup={panel.showSubgroups}
-        onPatch={(p) => { if (inspectUid) patchItem(inspectUid, p); }} onCanonicalSaved={onCanonicalSaved}
+        onPatch={(p) => { if (inspectUid) { patchItem(inspectUid, p); bumpReload(); } }} onCanonicalSaved={onCanonicalSaved}
       />
 
       {panel.id && (
         <PublishProductDialog open={pubOpen} onOpenChange={setPubOpen} panelId={panel.id} defaultName={panel.label} defaultCode={panel.code} headers={headers} />
       )}
     </div>
+  );
+}
+
+/* ───────── Add an existing test by reference ───────── */
+function AddExistingButton({ defs, used, onAdd }: { defs: TestDef[]; used: Set<string>; onAdd: (d: TestDef) => void }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const hits = defs.filter((d) => !q || d.name.toLowerCase().includes(q.toLowerCase()) || d.code.toLowerCase().includes(q.toLowerCase())).slice(0, 40);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild><Button variant="outline" size="sm"><Search className="h-4 w-4 mr-1" /> Add existing</Button></PopoverTrigger>
+      <PopoverContent className="w-80 p-2" align="start">
+        <div className="flex items-center gap-2 border rounded-md px-2 mb-2">
+          <Search className="h-4 w-4 text-muted-foreground" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search tests…" className="border-0 focus-visible:ring-0 px-0" />
+        </div>
+        <div className="max-h-72 overflow-auto space-y-0.5">
+          {hits.map((d) => (
+            <button key={d.id} disabled={used.has(d.id)}
+              className="w-full text-left px-2 py-1.5 rounded hover:bg-accent disabled:opacity-40 flex items-center justify-between"
+              onClick={() => { onAdd(d); setOpen(false); setQ(''); }}>
+              <span className="text-sm">{d.name} <span className="text-xs text-muted-foreground font-mono">{d.code}</span></span>
+              {used.has(d.id) && <span className="text-[11px] text-muted-foreground">added</span>}
+            </button>
+          ))}
+          {hits.length === 0 && <p className="text-sm text-muted-foreground py-3 text-center flex items-center justify-center gap-1"><Sparkles className="h-3.5 w-3.5" /> Type it on the report to create it.</p>}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
