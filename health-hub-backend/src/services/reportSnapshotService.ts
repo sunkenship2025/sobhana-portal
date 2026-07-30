@@ -2150,7 +2150,51 @@ export async function buildDraftPanelSnapshot(input: DraftPanelPreviewInput): Pr
     };
   });
 
-  const departments = buildPanelsAndDepartments(results as any[], new Map(), undefined);
+  // Builder-only: with tests, reconstruct structure from results (real path).
+  // With ZERO tests, buildPanelsAndDepartments would return [] (no panel/title),
+  // so emit the panel + department directly with an empty tests array — matching
+  // the exact snapshot shape buildPanelsAndDepartments produces — so the empty
+  // paper (title + empty table + signatures) still renders in the builder.
+  let departments: DepartmentSnapshot[];
+  if (results.length > 0) {
+    departments = buildPanelsAndDepartments(results as any[], new Map(), undefined);
+  } else {
+    const meaningful = (s?: string | null) =>
+      s && s.replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim() ? s : undefined;
+    const showBoxes = SP.showInterpretation === true;
+    departments = [{
+      departmentId: dept.id,
+      departmentName: dept.name,
+      departmentHeaderText: dept.reportHeaderText,
+      displayOrder: dept.displayOrder,
+      showLabIncharge: dept.showLabIncharge,
+      panels: [{
+        panelId: SP.id,
+        panelName: SP.name,
+        displayName: SP.displayName,
+        layoutType: SP.layoutType,
+        panelMethodText: SP.panelMethodText ?? null,
+        panelMethodItalic: SP.panelMethodItalic ?? false,
+        sampleType: SP.sampleType ?? null,
+        displayOrder: SP.displayOrder,
+        departmentId: dept.id,
+        departmentName: dept.name,
+        departmentHeaderText: dept.reportHeaderText,
+        showSubgroups: SP.showSubgroups ?? undefined,
+        showInterpretation: SP.showInterpretation ?? undefined,
+        subgroupMethods: SP.subgroupMethods ?? null,
+        subgroupTableOverrides: SP.subgroupTableOverrides ?? null,
+        valueDisplayPrefix: SP.valueDisplayPrefix ?? null,
+        spacedDefinitionsGap: SP.spacedDefinitionsGap ?? 0,
+        tests: [],
+        interpretationHtml: showBoxes ? meaningful(SP.interpretation) : undefined,
+        commentsHtml: showBoxes ? (meaningful(SP.comments) ?? meaningful(SP.summaryInterpretationTemplate)) : undefined,
+        signerNameOverride: null,
+        useSigningRule: null,
+        selectedSigningDoctorId: null,
+      }],
+    }];
+  }
 
   // Resolve REAL signatures + lab incharge for the department so the preview's
   // signature block is exactly what a finalized report would show.
