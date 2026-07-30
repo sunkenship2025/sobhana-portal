@@ -63,6 +63,7 @@ function transformPanel(panel: any) {
     name: panel.displayName || panel.name, // human label → name
     sampleType: panel.sampleType ?? null,
     itemCount: panel.items?.length ?? panel._count?.items ?? 0,
+    productCount: panel._count?.productPanels ?? 0,
   };
 }
 
@@ -201,7 +202,7 @@ router.get('/', async (req: AuthRequest, res) => {
       where,
       include: {
         department: { select: { id: true, name: true } },
-        _count: { select: { items: true } },
+        _count: { select: { items: true, productPanels: true } },
       },
       orderBy: [
         { department: { name: 'asc' } },

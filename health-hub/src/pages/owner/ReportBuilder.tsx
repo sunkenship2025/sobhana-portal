@@ -1,19 +1,22 @@
 /**
- * Report Builder — author a clinical report by typing ON the report, with a
- * persistent right dock (Inspector · Panel · Pricing · Compiles-to).
+ * Report Builder — a home of reports (Drafts + Live) that opens into an
+ * editable-report editor with a persistent dock (Inspector · Panel · Pricing ·
+ * Compiles-to).
  *
- * The edit surface (EditableReportFrame) is the REAL server-rendered report in an
- * iframe, made editable in place — one renderer, no client reproduction. Text
- * edits stream back and update config without reloading; structural changes
- * (add/delete/reorder/subgroups/settings/layout) bump reloadKey and re-render
- * through the same renderer. Existing panels autosave; everything compiles down
- * to ClinicalPanel / ClinicalPanelItem / TestDefinition / BillableProduct.
+ * A draft is an INACTIVE ClinicalPanel with no product — it can never be billed,
+ * and it autosaves as you build. Publish flips it live (+ optional product);
+ * Discard deletes it. The editor surface is the REAL server-rendered report in an
+ * iframe, edited in place; everything compiles down to ClinicalPanel /
+ * ClinicalPanelItem / TestDefinition / BillableProduct.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
-import { Plus, Save, FilePlus2, Loader2, Search, Sparkles, Check, CircleDashed, Package, ArrowDown } from 'lucide-react';
+import {
+  Plus, FilePlus2, Loader2, Search, Sparkles, Check, CircleDashed, Package, ArrowDown,
+  ArrowLeft, Trash2, Rocket, FileText,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -21,6 +24,7 @@ import { Switch } from '@/components/ui/switch';
 import { LoadingState } from '@/components/ui/loading-state';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { ReportPreviewFrame, type PreviewPayload } from '@/components/reportbuilder/ReportPreviewFrame';
 import { EditableReportFrame, type PanelEditField } from '@/components/reportbuilder/EditableReportFrame';
 import { ItemInspectorBody, type InspectorItem, type CanonicalPatch } from '@/components/reportbuilder/ItemInspector';
@@ -30,6 +34,7 @@ import {
 } from './reportBuilderShared';
 
 type DockTab = 'inspector' | 'panel' | 'pricing' | 'compile';
+interface PanelRow { id: string; code: string; name: string; isActive: boolean; itemCount: number; departmentName: string; productCount: number; }
 const renameKey = (m: Record<string, any>, from: string, to: string) => {
   if (!(from in m)) return m; const n = { ...m }; n[to] = n[from]; delete n[from]; return n;
 };
@@ -39,9 +44,11 @@ export default function ReportBuilder() {
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
 
   const [loading, setLoading] = useState(true);
-  const [panelsList, setPanelsList] = useState<{ id: string; code: string; name: string }[]>([]);
+  const [view, setView] = useState<'home' | 'editor'>('home');
+  const [panelsList, setPanelsList] = useState<PanelRow[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [defs, setDefs] = useState<TestDef[]>([]);
+  const [homeQuery, setHomeQuery] = useState('');
 
   const [panel, setPanel] = useState<PanelForm>(blankPanel());
   const [items, setItemsRaw] = useState<BuilderItem[]>([]);
@@ -53,8 +60,9 @@ export default function ReportBuilder() {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [inspectUid, setInspectUid] = useState<string | null>(null);
   const [rangesFocus, setRangesFocus] = useState(0);
-  const [dockTab, setDockTab] = useState<DockTab>('panel'); // empty report → Panel; adding/selecting a test → Inspector
-  // Auto-suggest the panel code from the report title until the user overrides it.
+  const [dockTab, setDockTab] = useState<DockTab>('panel');
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [discardTarget, setDiscardTarget] = useState<{ id: string; name: string; fromEditor?: boolean } | null>(null);
   const codeTouchedRef = useRef(false);
   const lastAutoCodeRef = useRef('');
 
@@ -72,7 +80,13 @@ export default function ReportBuilder() {
         fetch(`${API_BASE}/departments`, { headers }),
         fetch(`${API_BASE}/clinical-definitions?status=ACTIVE`, { headers }),
       ]);
-      if (pRes.ok) { const rows = await pRes.json(); setPanelsList(rows.map((r: any) => ({ id: r.id, code: r.code, name: r.name }))); }
+      if (pRes.ok) {
+        const rows = await pRes.json();
+        setPanelsList(rows.map((r: any) => ({
+          id: r.id, code: r.code, name: r.name, isActive: !!r.isActive,
+          itemCount: r.itemCount ?? 0, departmentName: r.department?.name ?? '', productCount: r.productCount ?? 0,
+        })));
+      }
       if (dRes.ok) setDepartments(await dRes.json());
       if (defRes.ok) setDefs(await defRes.json());
     } catch { toast.error('Failed to load builder data'); } finally { setLoading(false); }
@@ -93,7 +107,7 @@ export default function ReportBuilder() {
         comments: p.comments ?? null, interpretation: p.interpretation ?? null,
         narrativeTemplateHtml: p.narrativeTemplateHtml ?? null,
         subgroupMethods: p.subgroupMethods ?? {}, subgroupTableOverrides: p.subgroupTableOverrides ?? {},
-        isActive: p.isActive ?? true,
+        isActive: !!p.isActive,
       });
       const defById = new Map(defs.map((d) => [d.id, d]));
       setItemsRaw((p.items ?? []).map((it: any) => {
@@ -109,18 +123,18 @@ export default function ReportBuilder() {
           joinPrevious: !!it.joinPrevious, gridWidth: it.gridWidth ?? null, mockValue: null, mockTextValue: null,
         };
       }));
-      codeTouchedRef.current = true; // existing panel: keep its code
-      setDirty(false); setInspectUid(null); setDockTab('inspector'); bumpReload();
+      codeTouchedRef.current = true;
+      setDirty(false); setSaveState('saved'); setInspectUid(null); setDockTab('inspector'); setView('editor'); bumpReload();
     } catch { toast.error('Failed to open panel'); }
   };
-  const newBlank = () => {
+  const openNew = () => {
     codeTouchedRef.current = false; lastAutoCodeRef.current = '';
-    setPanel(blankPanel()); setItemsRaw([]); setDirty(false); setInspectUid(null); setDockTab('panel'); bumpReload();
+    setPanel(blankPanel()); setItemsRaw([]); setDirty(false); setSaveState('idle'); setInspectUid(null); setDockTab('panel'); setView('editor'); bumpReload();
   };
+  const backHome = () => { setView('home'); setPanel(blankPanel()); setItemsRaw([]); setDirty(false); loadAll(); };
 
   const departmentName = departments.find((d) => d.id === panel.departmentId)?.name ?? '';
   const liveItems = useMemo(() => items.filter((i) => i.code), [items]);
-  // Order the renderer actually emits: subgroups regroup by first-seen order.
   const renderedItems = useMemo(() => {
     if (!panel.showSubgroups) return liveItems;
     const groups = new Map<string, BuilderItem[]>();
@@ -163,7 +177,6 @@ export default function ReportBuilder() {
     }
     if (field === 'panelMethodText') return setP({ panelMethodText: value.trim() || null });
     if (field === 'narrativeTemplateHtml') return setP({ narrativeTemplateHtml: value || null });
-    // comments / interpretation (rich text)
     const prev = (field === 'comments' ? panel.comments : panel.interpretation) ?? '';
     const wasEmpty = !prev.replace(/&nbsp;|\s/g, '');
     const patch: Partial<PanelForm> = { [field]: value || null };
@@ -186,7 +199,7 @@ export default function ReportBuilder() {
     const it = renderedItems[index]; if (!it) return;
     setItems((xs) => xs.filter((x) => x._uid !== it._uid));
     if (inspectUid === it._uid) setInspectUid(null);
-    if (liveItems.length <= 1) setDockTab('panel'); // last test removed → back to Panel
+    if (liveItems.length <= 1) setDockTab('panel');
     bumpReload();
   };
   const onReorder = (from: number, to: number, before: boolean) => {
@@ -276,31 +289,58 @@ export default function ReportBuilder() {
       const res = await fetch(url, { method: panel.id ? 'PUT' : 'POST', headers, body: JSON.stringify(body) });
       if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || `Save failed (${res.status})`); }
       const saved = await res.json();
-      const isNew = !panel.id;
       setPanel((p) => ({ ...p, id: saved.id, code: saved.code }));
       setDirty(false); setSaveState('saved');
-      if (isNew) { toast.success('Report created'); setPanelsList((xs) => [{ id: saved.id, code: saved.code, name: saved.displayName ?? panel.label }, ...xs.filter((x) => x.id !== saved.id)]); }
     } catch (e) { setSaveState('idle'); if (!silent) toast.error((e as Error).message || 'Save failed'); }
   }, [canSave, panel, liveItems, headers]);
 
-  // Autosave existing panels (debounced). New panels need an explicit Create.
+  // Autosave in the editor (debounced). A valid new report saves as a DRAFT
+  // (blankPanel starts isActive=false), so nothing needs an explicit "Create".
   const revRef = useRef(0);
   useEffect(() => {
-    if (!panel.id || !dirty || !canSave) return;
+    if (view !== 'editor' || !dirty || !canSave) return;
     revRef.current = rev;
     const t = setTimeout(() => { if (revRef.current === rev) persist(true); }, 900);
     return () => clearTimeout(t);
-  }, [rev, dirty, canSave, panel.id, persist]);
+  }, [rev, dirty, canSave, view, persist]);
+
+  const onPublished = (productMade: boolean) => {
+    setPanel((p) => ({ ...p, isActive: true }));
+    if (productMade) setPanelsList((xs) => xs.map((x) => (x.id === panel.id ? { ...x, isActive: true, productCount: 1 } : x)));
+  };
+  const doDiscard = async () => {
+    const t = discardTarget; if (!t) return;
+    try {
+      const res = await fetch(`${API_BASE}/clinical-panels/${t.id}`, { method: 'DELETE', headers });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || 'Discard failed'); }
+      toast.success('Draft discarded');
+      setPanelsList((xs) => xs.filter((x) => x.id !== t.id));
+      setDiscardTarget(null);
+      if (t.fromEditor) backHome();
+    } catch (e) { toast.error((e as Error).message); }
+  };
 
   if (loading) return <LoadingState />;
 
+  /* ─────────────── HOME ─────────────── */
+  if (view === 'home') {
+    return (
+      <>
+        <ReportHome panels={panelsList} query={homeQuery} setQuery={setHomeQuery}
+          onOpen={openPanel} onNew={openNew}
+          onDiscard={(p) => setDiscardTarget({ id: p.id, name: p.name })} />
+        <DiscardDialog target={discardTarget} onCancel={() => setDiscardTarget(null)} onConfirm={doDiscard} />
+      </>
+    );
+  }
+
+  /* ─────────────── EDITOR ─────────────── */
   const inspected = items.find((i) => i._uid === inspectUid) || null;
   const inspectItem: InspectorItem | null = inspected ? {
     testDefinitionId: inspected.testDefinitionId, code: inspected.code, name: inspected.name,
     displayLabel: inspected.displayLabel, subGroup: inspected.subGroup, indentLevel: inspected.indentLevel,
     isBold: inspected.isBold, isItalic: inspected.isItalic, methodText: inspected.methodText,
   } : null;
-
   const DOCK_TABS: { k: DockTab; label: string }[] = [
     { k: 'inspector', label: 'Inspector' }, { k: 'panel', label: 'Panel' }, { k: 'pricing', label: 'Pricing' }, { k: 'compile', label: 'Compiles to' },
   ];
@@ -309,14 +349,11 @@ export default function ReportBuilder() {
     <div className="space-y-3">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3">
-        <Select value={panel.id ?? '__new__'} onValueChange={(v) => (v === '__new__' ? newBlank() : openPanel(v))}>
-          <SelectTrigger className="w-[210px]"><SelectValue placeholder="Open a report…" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__new__"><span className="flex items-center gap-2"><FilePlus2 className="h-3.5 w-3.5" /> New blank report</span></SelectItem>
-            {panelsList.map((p) => (<SelectItem key={p.id} value={p.id}>{p.name} <span className="text-muted-foreground">· {p.code}</span></SelectItem>))}
-          </SelectContent>
-        </Select>
-        <Button variant="outline" size="sm" onClick={newBlank}><Plus className="h-4 w-4 mr-1" /> New</Button>
+        <Button variant="ghost" size="sm" onClick={backHome}><ArrowLeft className="h-4 w-4 mr-1" /> Reports</Button>
+        <div className="h-5 w-px bg-border" />
+        <span className="text-sm font-medium truncate max-w-[190px]" title={panel.label}>{panel.label.trim() || 'Untitled report'}</span>
+        <StatusChip id={panel.id} isActive={panel.isActive} state={saveState} dirty={dirty} />
+        <div className="h-5 w-px bg-border" />
         <Select value={panel.layoutType} onValueChange={(v) => setPReload({ layoutType: v })}>
           <SelectTrigger className="w-[150px]"><SelectValue /></SelectTrigger>
           <SelectContent>{LAYOUTS.map((l) => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}</SelectContent>
@@ -325,7 +362,6 @@ export default function ReportBuilder() {
 
         <div className="flex-1" />
 
-        <SaveChip id={panel.id} state={saveState} dirty={dirty} />
         <div className="inline-flex rounded-md border p-0.5">
           <Button variant={mode === 'edit' ? 'secondary' : 'ghost'} size="sm" onClick={() => setMode('edit')}>Edit</Button>
           <Button variant={mode === 'preview' ? 'secondary' : 'ghost'} size="sm" onClick={() => setMode('preview')}>Preview</Button>
@@ -334,14 +370,19 @@ export default function ReportBuilder() {
           <Button variant={profile === 'digital' ? 'secondary' : 'ghost'} size="sm" onClick={() => setProfile('digital')}>Digital</Button>
           <Button variant={profile === 'letterhead' ? 'secondary' : 'ghost'} size="sm" onClick={() => setProfile('letterhead')}>Letterhead</Button>
         </div>
-        {!panel.id && (
-          <Button size="sm" onClick={() => persist(false)} disabled={saveState === 'saving'}>
-            {saveState === 'saving' ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />} Create
-          </Button>
+        {!panel.isActive ? (
+          <>
+            {panel.id && <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => setDiscardTarget({ id: panel.id!, name: panel.label || 'Untitled report', fromEditor: true })}><Trash2 className="h-4 w-4" /></Button>}
+            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setPublishOpen(true)} disabled={!panel.id || !canSave}>
+              <Rocket className="h-4 w-4 mr-1" /> Publish
+            </Button>
+          </>
+        ) : (
+          <Button size="sm" variant="outline" onClick={() => setDockTab('pricing')}><Package className="h-4 w-4 mr-1" /> Pricing</Button>
         )}
       </div>
 
-      {/* Stage: report + dock */}
+      {/* Stage */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_370px]">
         <div>
           {mode === 'edit' ? (
@@ -355,7 +396,6 @@ export default function ReportBuilder() {
           )}
         </div>
 
-        {/* Dock */}
         <aside className="rounded-lg border bg-card overflow-hidden flex flex-col max-h-[82vh]">
           <div className="flex border-b shrink-0">
             {DOCK_TABS.map((t) => (
@@ -378,16 +418,150 @@ export default function ReportBuilder() {
           </div>
         </aside>
       </div>
+
+      <PublishDialog open={publishOpen} onOpenChange={setPublishOpen} panel={panel} headers={headers} onPublished={onPublished} />
+      <DiscardDialog target={discardTarget} onCancel={() => setDiscardTarget(null)} onConfirm={doDiscard} />
     </div>
   );
 }
 
-/* ───────── Save status chip ───────── */
-function SaveChip({ id, state, dirty }: { id: string | null; state: 'idle' | 'saving' | 'saved'; dirty: boolean }) {
-  if (!id) return <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><CircleDashed className="h-3.5 w-3.5" /> Draft — click Create</span>;
+/* ───────── Home ───────── */
+function ReportHome({ panels, query, setQuery, onOpen, onNew, onDiscard }: {
+  panels: PanelRow[]; query: string; setQuery: (v: string) => void;
+  onOpen: (id: string) => void; onNew: () => void; onDiscard: (p: PanelRow) => void;
+}) {
+  const q = query.trim().toLowerCase();
+  const match = (p: PanelRow) => !q || p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q);
+  const drafts = panels.filter((p) => !p.isActive && match(p));
+  const live = panels.filter((p) => p.isActive && match(p));
+  return (
+    <div className="space-y-7">
+      <div className="flex flex-wrap items-center gap-3">
+        <div><h2 className="text-xl font-bold tracking-tight">Reports</h2><p className="text-sm text-muted-foreground">Build and manage your diagnostic report templates.</p></div>
+        <div className="flex-1" />
+        <div className="relative"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" /><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search reports…" className="pl-8 w-56" /></div>
+        <Button onClick={onNew}><Plus className="h-4 w-4 mr-1" /> New report</Button>
+      </div>
+
+      <section>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Drafts <span className="text-muted-foreground/70">· {drafts.length}</span></h3>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {drafts.map((p) => (
+            <button key={p.id} onClick={() => onOpen(p.id)} className="group text-left rounded-xl border bg-card p-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0"><div className="font-semibold truncate">{p.name}</div><div className="text-xs text-muted-foreground mt-0.5"><span className="font-mono">{p.code}</span> · {p.departmentName || '—'}</div></div>
+                <span className="shrink-0 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5">Draft</span>
+              </div>
+              <div className="flex items-center justify-between mt-4">
+                <span className="text-xs text-muted-foreground">{p.itemCount} test{p.itemCount === 1 ? '' : 's'}</span>
+                <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); onDiscard(p); }} className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive hover:border hover:border-destructive"><Trash2 className="h-3.5 w-3.5" /></span>
+              </div>
+            </button>
+          ))}
+          <button onClick={onNew} className="rounded-xl border-2 border-dashed bg-background hover:bg-muted/40 p-4 min-h-[120px] flex flex-col items-center justify-center text-center transition">
+            <span className="h-9 w-9 rounded-full bg-primary/10 grid place-items-center mb-2"><Plus className="h-5 w-5 text-primary" /></span>
+            <span className="font-semibold text-primary">New report</span><span className="text-xs text-muted-foreground">Blank template</span>
+          </button>
+        </div>
+      </section>
+
+      <section>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Live reports <span className="text-muted-foreground/70">· {live.length}</span></h3>
+        {live.length === 0 ? (
+          <p className="text-sm text-muted-foreground rounded-lg border border-dashed p-6 text-center">No live reports yet — build a draft and Publish it.</p>
+        ) : (
+          <div className="rounded-lg border bg-card divide-y overflow-hidden">
+            {live.map((p) => (
+              <button key={p.id} onClick={() => onOpen(p.id)} className="w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-muted/50">
+                <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="font-medium min-w-0 truncate flex-1">{p.name}</span>
+                <span className="font-mono text-xs text-muted-foreground w-20 shrink-0 hidden sm:block">{p.code}</span>
+                <span className="text-sm text-muted-foreground w-32 shrink-0 hidden md:block truncate">{p.departmentName}</span>
+                <span className="text-xs text-muted-foreground w-16 shrink-0 hidden md:block">{p.itemCount} test{p.itemCount === 1 ? '' : 's'}</span>
+                <span className={`shrink-0 rounded-full text-[10px] font-bold px-2 py-0.5 ${p.productCount > 0 ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>{p.productCount > 0 ? 'Billable' : 'Live'}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/* ───────── Status chip ───────── */
+function StatusChip({ id, isActive, state, dirty }: { id: string | null; isActive: boolean; state: 'idle' | 'saving' | 'saved'; dirty: boolean }) {
   if (state === 'saving') return <span className="flex items-center gap-1.5 text-xs text-amber-600"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</span>;
-  if (dirty) return <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><CircleDashed className="h-3.5 w-3.5" /> Unsaved</span>;
-  return <span className="flex items-center gap-1.5 text-xs text-emerald-600"><Check className="h-3.5 w-3.5" /> All changes saved</span>;
+  if (!id) return <span className="flex items-center gap-1.5 text-xs text-amber-600"><CircleDashed className="h-3.5 w-3.5" /> Draft · add a test to save</span>;
+  if (isActive) return <span className="flex items-center gap-1.5 text-xs text-emerald-600"><Check className="h-3.5 w-3.5" /> Live{dirty ? ' · saving…' : ''}</span>;
+  return <span className="flex items-center gap-1.5 text-xs text-amber-600"><CircleDashed className="h-3.5 w-3.5" /> Draft · {dirty ? 'unsaved' : 'autosaved'}</span>;
+}
+
+/* ───────── Publish dialog ───────── */
+function PublishDialog({ open, onOpenChange, panel, headers, onPublished }: {
+  open: boolean; onOpenChange: (v: boolean) => void; panel: PanelForm; headers: Record<string, string>; onPublished: (productMade: boolean) => void;
+}) {
+  const [sell, setSell] = useState(true);
+  const [price, setPrice] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (open) { setSell(true); setPrice(''); } }, [open]);
+  const confirm = async () => {
+    if (!panel.id) return;
+    if (sell && (price === '' || Number.isNaN(Number(price)))) { toast.error('Enter a price, or uncheck "also sell"'); return; }
+    setBusy(true);
+    try {
+      const r1 = await fetch(`${API_BASE}/clinical-panels/${panel.id}`, { method: 'PATCH', headers, body: JSON.stringify({ isActive: true }) });
+      if (!r1.ok) { const j = await r1.json().catch(() => ({})); throw new Error(j.message || 'Publish failed'); }
+      let productMade = false;
+      if (sell && price !== '') {
+        const r2 = await fetch(`${API_BASE}/billable-products`, {
+          method: 'POST', headers,
+          body: JSON.stringify({ name: panel.label.trim(), code: panel.code.trim().toUpperCase(), basePrice: Number(price), workflowMode: 'REPORTABLE', panels: [{ panelId: panel.id }] }),
+        });
+        if (r2.ok) productMade = true;
+        else { const j = await r2.json().catch(() => ({})); toast.error(j.message || 'Published live, but the product failed — add it in the Pricing tab'); }
+      }
+      toast.success(productMade ? 'Published — live & billable' : 'Published — now live');
+      onPublished(productMade);
+      onOpenChange(false);
+    } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Publish “{panel.label.trim() || 'Untitled report'}”?</DialogTitle>
+          <DialogDescription>Makes it live — usable in reports, result entry and ordering. It stays not billable unless you give it a price.</DialogDescription>
+        </DialogHeader>
+        <label className="flex items-center gap-3 rounded-lg border p-3 cursor-pointer">
+          <input type="checkbox" checked={sell} onChange={(e) => setSell(e.target.checked)} className="h-4 w-4" />
+          <span className="text-sm">Also sell it now at ₹</span>
+          <Input value={price} onChange={(e) => setPrice(e.target.value)} disabled={!sell} placeholder="450" className="h-8 w-24" />
+        </label>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={confirm} disabled={busy}>{busy && <Loader2 className="h-4 w-4 mr-1 animate-spin" />} Publish</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ───────── Discard dialog ───────── */
+function DiscardDialog({ target, onCancel, onConfirm }: { target: { id: string; name: string } | null; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <Dialog open={!!target} onOpenChange={(v) => { if (!v) onCancel(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Discard this draft?</DialogTitle>
+          <DialogDescription>Deletes “{target?.name}”. This can't be undone. (Definitions it created stay in Clinical Definitions and can be reused.)</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel}>Keep it</Button>
+          <Button variant="destructive" onClick={onConfirm}>Discard draft</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 /* ───────── Add existing test ───────── */
@@ -465,9 +639,8 @@ function PanelPane({ panel, departments, setP, setPReload, onCodeEdit, onNameEdi
         <div className="flex items-center justify-between"><Label className="text-xs cursor-pointer" htmlFor="p-mc">Show Method column</Label><Switch id="p-mc" checked={panel.showMethodColumn} onCheckedChange={(v) => setPReload({ showMethodColumn: v })} /></div>
         <div className="flex items-center justify-between"><Label className="text-xs cursor-pointer" htmlFor="p-sg">Show subgroups</Label><Switch id="p-sg" checked={panel.showSubgroups} onCheckedChange={(v) => setPReload({ showSubgroups: v })} /></div>
         <div className="flex items-center justify-between"><Label className="text-xs cursor-pointer" htmlFor="p-cn">Clinical Notes box</Label><Switch id="p-cn" checked={panel.showInterpretation} onCheckedChange={(v) => setPReload({ showInterpretation: v })} /></div>
-        <div className="flex items-center justify-between"><Label className="text-xs cursor-pointer" htmlFor="p-ac">Panel active <span className="text-muted-foreground">— live &amp; billable</span></Label><Switch id="p-ac" checked={panel.isActive} onCheckedChange={(v) => setP({ isActive: v })} /></div>
       </div>
-      <p className="text-[11px] text-muted-foreground leading-relaxed">The method column, subgroups &amp; subgroup methods appear automatically when you add that content on the report. Clinical Notes has an explicit toggle so big reports can hide it.</p>
+      <p className="text-[11px] text-muted-foreground leading-relaxed">The method column, subgroups &amp; subgroup methods appear automatically when you add that content on the report. Whether it's live &amp; billable is set by <b>Publish</b>.</p>
     </div>
   );
 }
@@ -480,7 +653,7 @@ function PricingPane({ panel, headers }: { panel: PanelForm; headers: Record<str
   const [busy, setBusy] = useState(false);
   const [publishedCode, setPublishedCode] = useState<string | null>(null);
   const publish = async () => {
-    if (!panel.id) { toast.error('Create the report first'); return; }
+    if (!panel.id) { toast.error('Save the report first'); return; }
     if (price === '' || Number.isNaN(Number(price))) { toast.error('Enter a price'); return; }
     setBusy(true);
     try {
@@ -495,7 +668,7 @@ function PricingPane({ panel, headers }: { panel: PanelForm; headers: Record<str
   return (
     <div className="p-4 space-y-3">
       <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sell this report · BillableProduct</h4>
-      {!panel.id && <p className="text-xs text-muted-foreground">Create the report first, then publish it as a billable product.</p>}
+      {!panel.id && <p className="text-xs text-muted-foreground">Add a test to save the draft first, then publish it as a billable product.</p>}
       <div className="space-y-1.5"><Label className="text-xs">List price (₹)</Label><Input value={price} onChange={(e) => setPrice(e.target.value)} placeholder="450" className="h-8" /><p className="text-[11px] text-muted-foreground">Stored in paise. Product code <b>{panel.code || '—'}</b>.</p></div>
       <div className="space-y-1.5"><Label className="text-xs">Workflow mode</Label>
         <Select value={workflow} onValueChange={setWorkflow}><SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
