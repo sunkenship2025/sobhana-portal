@@ -53,7 +53,7 @@ export default function ReportBuilder() {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [inspectUid, setInspectUid] = useState<string | null>(null);
   const [rangesFocus, setRangesFocus] = useState(0);
-  const [dockTab, setDockTab] = useState<DockTab>('inspector');
+  const [dockTab, setDockTab] = useState<DockTab>('panel'); // empty report → Panel; adding/selecting a test → Inspector
   // Auto-suggest the panel code from the report title until the user overrides it.
   const codeTouchedRef = useRef(false);
   const lastAutoCodeRef = useRef('');
@@ -182,7 +182,13 @@ export default function ReportBuilder() {
     const it = renderedItems[index]; if (!it) return;
     setInspectUid(it._uid); setDockTab('inspector'); if (focus === 'ranges') setRangesFocus((n) => n + 1);
   };
-  const onDelete = (index: number) => { const it = renderedItems[index]; if (!it) return; setItems((xs) => xs.filter((x) => x._uid !== it._uid)); bumpReload(); };
+  const onDelete = (index: number) => {
+    const it = renderedItems[index]; if (!it) return;
+    setItems((xs) => xs.filter((x) => x._uid !== it._uid));
+    if (inspectUid === it._uid) setInspectUid(null);
+    if (liveItems.length <= 1) setDockTab('panel'); // last test removed → back to Panel
+    bumpReload();
+  };
   const onReorder = (from: number, to: number, before: boolean) => {
     const fromUid = renderedItems[from]?._uid, toUid = renderedItems[to]?._uid;
     if (!fromUid || !toUid || fromUid === toUid) return;
@@ -222,7 +228,8 @@ export default function ReportBuilder() {
 
   const addExisting = (d: TestDef) => {
     if (items.some((i) => i.testDefinitionId === d.id)) { toast.info('Already in this report'); return; }
-    setItems((xs) => [...xs, itemFromDef(d)]); bumpReload();
+    const it = itemFromDef(d);
+    setItems((xs) => [...xs, it]); setInspectUid(it._uid); setDockTab('inspector'); bumpReload();
   };
   const onCreate = async (name: string) => {
     const nm = name.trim(); if (!nm) return;
@@ -239,7 +246,8 @@ export default function ReportBuilder() {
       if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || 'Create failed'); }
       const d = await res.json();
       setDefs((xs) => [d, ...xs]);
-      setItems((xs) => [...xs, itemFromDef(d)]); bumpReload();
+      const it = itemFromDef(d);
+      setItems((xs) => [...xs, it]); setInspectUid(it._uid); setDockTab('inspector'); bumpReload();
       toast.success(`Created ${d.code} (v1) — “${nm}”`);
     } catch (e) { toast.error((e as Error).message); }
   };
@@ -362,7 +370,9 @@ export default function ReportBuilder() {
               <ItemInspectorBody item={inspectItem} headers={headers} showSubgroup={panel.showSubgroups} focusRanges={rangesFocus}
                 onPatch={(p) => { if (inspectUid) { patchItem(inspectUid, p); bumpReload(); } }} onCanonicalSaved={onCanonicalSaved} />
             )}
-            {dockTab === 'panel' && <PanelPane panel={panel} departments={departments} setP={setP} setPReload={setPReload} onCodeEdit={(v) => { codeTouchedRef.current = true; setP({ code: v.toUpperCase() }); }} />}
+            {dockTab === 'panel' && <PanelPane panel={panel} departments={departments} setP={setP} setPReload={setPReload}
+              onCodeEdit={(v) => { codeTouchedRef.current = true; setP({ code: v.toUpperCase() }); }}
+              onNameEdit={(v) => onPanelEdit('label', v)} onNameBlur={bumpReload} />}
             {dockTab === 'pricing' && <PricingPane panel={panel} headers={headers} />}
             {dockTab === 'compile' && <CompilePane panel={panel} items={liveItems} departmentName={departmentName} />}
           </div>
@@ -410,13 +420,18 @@ function AddExistingButton({ defs, used, onAdd }: { defs: TestDef[]; used: Set<s
 }
 
 /* ───────── Panel pane ───────── */
-function PanelPane({ panel, departments, setP, setPReload, onCodeEdit }: {
-  panel: PanelForm; departments: Department[]; setP: (p: Partial<PanelForm>) => void; setPReload: (p: Partial<PanelForm>) => void; onCodeEdit: (v: string) => void;
+function PanelPane({ panel, departments, setP, setPReload, onCodeEdit, onNameEdit, onNameBlur }: {
+  panel: PanelForm; departments: Department[]; setP: (p: Partial<PanelForm>) => void; setPReload: (p: Partial<PanelForm>) => void;
+  onCodeEdit: (v: string) => void; onNameEdit: (v: string) => void; onNameBlur: () => void;
 }) {
   return (
     <div className="p-4 space-y-4">
       <div>
         <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Panel settings · ClinicalPanel</h4>
+        <div className="space-y-1.5 mb-3">
+          <Label className="text-xs">Report name</Label>
+          <Input value={panel.label} onChange={(e) => onNameEdit(e.target.value)} onBlur={onNameBlur} placeholder="e.g. Complete Blood Picture" className="h-8" />
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5"><Label className="text-xs">Code</Label><Input value={panel.code} onChange={(e) => onCodeEdit(e.target.value)} disabled={!!panel.id} className="font-mono h-8" placeholder="CBP" /></div>
           <div className="space-y-1.5"><Label className="text-xs">Department</Label>

@@ -1443,10 +1443,14 @@ const ClinicNewVisit = () => {
                         String(Math.round(doc.consultationFeeInPaise / 100)),
                       );
                     }
-                    // Doctor chosen → advance to the fee field (step 60).
-                    goToStep(60);
+                    // Doctor chosen → advance to the next FOCUSABLE field via
+                    // goToNext (not a hardcoded step). A hardcoded goToStep(60)
+                    // dead-stopped here whenever the Consultation Fee was
+                    // disabled (revisit) or not the true next field (IP ward,
+                    // revisit Visit Mode) — Enter then appeared to do nothing.
+                    goToNext(40);
                   }}
-                  onAdvance={() => goToStep(60)}
+                  onAdvance={() => goToNext(40)}
                   focusStep={40}
                   options={clinicDoctors.map((doctor) => {
                     const fee =

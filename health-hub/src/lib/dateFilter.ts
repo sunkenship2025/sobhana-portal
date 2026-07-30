@@ -44,11 +44,12 @@ export const dateRangeKey = (range: DateRangeState): string =>
 /**
  * Lower-bound 'YYYY-MM-DD' for `range`, to pass to a server endpoint that
  * bounds an otherwise-unbounded query (e.g. status=COMPLETED worklists —
- * COMPLETED visits accumulate forever, unlike DRAFT/WAITING). Deliberately
- * lower-bound only: the server filters by updatedAt, which keeps advancing
- * after finalize, so an upper bound could wrongly hide an in-range visit
- * touched again later (printed, WhatsApp send). `undefined` for "all" — the
- * caller's own safety-net default applies.
+ * COMPLETED visits accumulate forever, unlike DRAFT/WAITING). Pair with
+ * `dateRangeTo` for the upper bound: the server's cheap DB scan is bounded by
+ * updatedAt (which advances on reprint/WhatsApp resend), but it then bounds the
+ * VISIBLE set by each row's stable finalized/completed date using [from, to] —
+ * so an old report re-touched today can't leak into "Today". `undefined` for
+ * "all" — the caller's own safety-net default applies.
  */
 export const dateRangeFrom = (range: DateRangeState): string | undefined => {
   const { preset } = range;
@@ -65,6 +66,29 @@ export const dateRangeFrom = (range: DateRangeState): string | undefined => {
   const m = String(start.getMonth() + 1).padStart(2, "0");
   const d = String(start.getDate()).padStart(2, "0");
   return `${start.getFullYear()}-${m}-${d}`;
+};
+
+/**
+ * Inclusive upper-bound 'YYYY-MM-DD' for `range`, the counterpart to
+ * `dateRangeFrom`. Bounds a COMPLETED worklist's visible set by the row's stable
+ * date so presets stay tight on their upper edge ("Yesterday" excludes today,
+ * "Today" excludes older reports re-touched today). `undefined` for "all" and
+ * for the open-ended upper side of a custom range.
+ */
+export const dateRangeTo = (range: DateRangeState): string | undefined => {
+  const { preset } = range;
+  if (preset === "all") return undefined;
+  if (preset === "custom") return range.to || undefined;
+
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end = new Date(todayStart);
+  if (preset === "yesterday") end.setDate(todayStart.getDate() - 1);
+  // "today" and "week" both end at today (todayStart) as-is.
+
+  const m = String(end.getMonth() + 1).padStart(2, "0");
+  const d = String(end.getDate()).padStart(2, "0");
+  return `${end.getFullYear()}-${m}-${d}`;
 };
 
 /**

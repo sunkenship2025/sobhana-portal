@@ -24,6 +24,7 @@ import {
   type DateRangeState,
   makeDateRange,
   dateRangeFrom,
+  dateRangeTo,
 } from '@/lib/dateFilter';
 import { WorklistPager } from '@/components/worklist/WorklistPager';
 
@@ -147,6 +148,8 @@ const DiagnosticsFinalizedReports = () => {
         });
         const from = dateRangeFrom(dateRange);
         if (from) params.set('from', from);
+        const to = dateRangeTo(dateRange);
+        if (to) params.set('to', to);
         if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim());
         const response = await fetch(`${API_BASE}/visits/diagnostic?${params.toString()}`, {
           headers: {

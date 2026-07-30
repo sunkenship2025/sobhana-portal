@@ -21,6 +21,7 @@ import {
   type DateRangeState,
   makeDateRange,
   dateRangeFrom,
+  dateRangeTo,
 } from '@/lib/dateFilter';
 
 // Shape returned by GET /api/visits/clinic (mirrors ClinicVisitQueue's QueueVisit).
@@ -104,6 +105,8 @@ const ClinicFinalizedVisits = () => {
         });
         const from = dateRangeFrom(dateRange);
         if (from) params.set('from', from);
+        const to = dateRangeTo(dateRange);
+        if (to) params.set('to', to);
         if (visitTypeFilter !== 'all') params.set('visitType', visitTypeFilter);
         if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim());
         const res = await fetch(`${API_BASE}/visits/clinic?${params.toString()}`, {
