@@ -333,13 +333,14 @@ const COMPLETED_INDEX_SCAN_CAP = 2000;
 async function computeCompletedClinicIndex(
   branchId: string,
   from: string | undefined,
+  to: string | undefined,
   visitType: string | undefined,
   doctorId: string | undefined,
   q: string,
 ): Promise<{ ids: string[]; total: number }> {
   const qNorm = q.trim().toLowerCase();
   const typeKey = visitType && visitType !== "all" ? visitType : "all";
-  const cacheKey = `clinic|${branchId}|${from ?? "90d"}|${typeKey}|${doctorId ?? ""}|${qNorm}`;
+  const cacheKey = `clinic|${branchId}|${from ?? "90d"}|${to ?? ""}|${typeKey}|${doctorId ?? ""}|${qNorm}`;
   const cached = getWorklistIndex(cacheKey);
   if (cached) return cached;
 
@@ -352,7 +353,16 @@ async function computeCompletedClinicIndex(
     branchId,
     clinicVisit: { status: "COMPLETED" },
   };
+  // updatedAt scan is a cheap lower-bound superset (advances on reprint/resend);
+  // the real window is enforced on the stable completedAt date below.
   if (!isNaN(fromDate.getTime())) where.updatedAt = { gte: fromDate };
+
+  // Visible-set window on the row's STABLE completed date (the same date the row
+  // shows and sorts by) so an OP/IP visit completed earlier but re-touched today
+  // can't leak into "Today". Only when `from` is explicit; "all"/90d keeps the
+  // recently-active superset.
+  const stableFromMs = from ? fromDate.getTime() : null;
+  const stableToMs = to ? new Date(`${to}T23:59:59.999`).getTime() : null;
 
   const light = await prisma.visit.findMany({
     where,
@@ -396,7 +406,9 @@ async function computeCompletedClinicIndex(
   let ordered = rows.filter(
     (r) =>
       (typeKey === "all" || r.visitType === typeKey) &&
-      (!doctorId || r.doctorId === doctorId),
+      (!doctorId || r.doctorId === doctorId) &&
+      (stableFromMs == null || r.sortMs >= stableFromMs) &&
+      (stableToMs == null || r.sortMs <= stableToMs),
   );
   ordered.sort((a, b) => b.sortMs - a.sortMs);
   if (qNorm) {
@@ -418,7 +430,7 @@ async function computeCompletedClinicIndex(
 // When patientId is omitted: Returns visits for current branch only (daily operations)
 router.get("/", async (req: AuthRequest, res) => {
   try {
-    const { status, doctorId, patientId, from, visitType, q, page, pageSize } = req.query;
+    const { status, doctorId, patientId, from, to, visitType, q, page, pageSize } = req.query;
 
     const where: any = {
       domain: "CLINIC",
@@ -449,6 +461,7 @@ router.get("/", async (req: AuthRequest, res) => {
       const { ids, total } = await computeCompletedClinicIndex(
         req.branchId!,
         typeof from === "string" ? from : undefined,
+        typeof to === "string" ? to : undefined,
         typeof visitType === "string" ? visitType : undefined,
         typeof doctorId === "string" ? doctorId : undefined,
         qStr,

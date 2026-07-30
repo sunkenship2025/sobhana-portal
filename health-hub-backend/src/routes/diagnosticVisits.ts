@@ -723,10 +723,11 @@ const COMPLETED_INDEX_SCAN_CAP = 2000;
 async function computeCompletedDiagnosticIndex(
   branchId: string,
   from: string | undefined,
+  to: string | undefined,
   q: string,
 ): Promise<{ ids: string[]; total: number }> {
   const qNorm = q.trim().toLowerCase();
-  const cacheKey = `diag|${branchId}|${from ?? "90d"}|${qNorm}`;
+  const cacheKey = `diag|${branchId}|${from ?? "90d"}|${to ?? ""}|${qNorm}`;
   const cached = getWorklistIndex(cacheKey);
   if (cached) return cached;
 
@@ -735,9 +736,19 @@ async function computeCompletedDiagnosticIndex(
     : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
 
   const where: any = { domain: "DIAGNOSTICS", branchId, status: "COMPLETED" };
-  // Lower-only bound: updatedAt keeps advancing after finalize (mark-printed,
-  // WhatsApp send), so an upper bound could wrongly hide an in-range visit.
+  // The DB scan bounds on updatedAt (lower only): it keeps advancing after
+  // finalize (mark-printed, WhatsApp resend), so it's a cheap SUPERSET of the
+  // in-window rows — a row's stable date is always <= its updatedAt. We tighten
+  // to the real window on that stable date below.
   if (!isNaN(fromDate.getTime())) where.updatedAt = { gte: fromDate };
+
+  // Visible-set window on the row's STABLE date (finalized/bill time — the same
+  // date the row shows and sorts by). Without this, a report finalized on an
+  // earlier day but re-touched today (reprint/resend bumps updatedAt) leaks into
+  // "Today". Only applied when `from` is explicit — the "all"/90d default keeps
+  // the recently-active superset.
+  const stableFromMs = from ? fromDate.getTime() : null;
+  const stableToMs = to ? new Date(`${to}T23:59:59.999`).getTime() : null;
 
   const light = await prisma.visit.findMany({
     where,
@@ -803,7 +814,12 @@ async function computeCompletedDiagnosticIndex(
     };
   });
 
-  let ordered = rows.filter((r) => r.keep);
+  let ordered = rows.filter(
+    (r) =>
+      r.keep &&
+      (stableFromMs == null || r.sortMs >= stableFromMs) &&
+      (stableToMs == null || r.sortMs <= stableToMs),
+  );
   // Finalized-time desc (restores the long-standing client sort). searchWorklist
   // is stable, so applying it after the date sort keeps date-desc within a rank
   // tier while floating exact/prefix name matches to the top.
@@ -824,7 +840,7 @@ async function computeCompletedDiagnosticIndex(
 // When patientId is omitted: Returns visits for current branch only (daily operations)
 router.get("/", async (req: AuthRequest, res) => {
   try {
-    const { status, patientId, from, q, page, pageSize } = req.query;
+    const { status, patientId, from, to, q, page, pageSize } = req.query;
 
     const where: any = {
       domain: "DIAGNOSTICS",
@@ -855,6 +871,7 @@ router.get("/", async (req: AuthRequest, res) => {
       const { ids, total } = await computeCompletedDiagnosticIndex(
         req.branchId!,
         typeof from === "string" ? from : undefined,
+        typeof to === "string" ? to : undefined,
         qStr,
       );
       const pageNum = Math.max(1, parseInt(String(page ?? "1"), 10) || 1);
