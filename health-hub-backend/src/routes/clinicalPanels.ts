@@ -748,8 +748,11 @@ export function injectReportEditor(html: string): string {
 router.post('/preview-html', async (req: AuthRequest, res) => {
   try {
     const { panel, items, patient, profile, format, editable } = req.body;
-    if (!panel || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'panel and at least one item are required' });
+    // Builder-only allowance: a 0-test panel still renders (empty paper — title +
+    // empty table + signatures) so the Report Builder can show the report before
+    // any test is added. Real report paths are unaffected.
+    if (!panel || !Array.isArray(items)) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'panel and an items array are required' });
     }
 
     const branch = await prisma.branch.findUnique({ where: { id: req.branchId! } });
