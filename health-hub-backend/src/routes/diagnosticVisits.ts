@@ -4378,8 +4378,71 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
       return unambiguousContextByTestId.get(result.testId) ?? null;
     };
 
+    // Resolve age-aware reference ranges up front so each result's flag is written
+    // in the SAME upsert below, instead of a second per-row update pass afterward.
+    // Non-fatal: any failure falls back to the client-provided flag (prior behavior).
+    let resolvedFlagRanges: Awaited<
+      ReturnType<typeof resolveReferenceRanges>
+    > | null = null;
+    try {
+      const flagPatient = await prisma.patient.findUnique({
+        where: { id: visit.patientId },
+        select: { yearOfBirth: true, dateOfBirth: true, gender: true },
+      });
+      if (flagPatient) {
+        // Numeric results only (value, or a textValue that parses to a number).
+        const testIdsForFlags = uniqueResults
+          .filter((r: any) => {
+            if (!r.testId) return false;
+            let rawValue: string | number | null = null;
+            if (r.value !== null && r.value !== undefined) rawValue = r.value;
+            else if (r.textValue) rawValue = r.textValue;
+            if (rawValue === null) return false;
+            return !isNaN(parseFloat(String(rawValue)));
+          })
+          .map((r: any) => r.testId);
+        if (testIdsForFlags.length > 0) {
+          resolvedFlagRanges = await resolveReferenceRanges(
+            testIdsForFlags,
+            flagPatient.yearOfBirth,
+            flagPatient.gender as any,
+            undefined,
+            flagPatient.dateOfBirth,
+          );
+        }
+      }
+    } catch (flagErr) {
+      // Non-fatal: keep the client-provided flag, exactly as the old second pass did.
+      console.warn("Auto-flag calculation warning:", flagErr);
+      resolvedFlagRanges = null;
+    }
+
     // Upsert test results
     await prisma.$transaction(async (tx) => {
+      // Snapshot the draft's existing rows so we can skip no-op rewrites. Auto-save
+      // re-sends the whole panel every tick; rewriting an unchanged row still burns a
+      // tuple version. Nothing observes the write (TestResult has no updatedAt), so
+      // skipping an identical row is invisible downstream.
+      const existingRows = await tx.testResult.findMany({
+        where: { reportVersionId: draftVersion.id },
+        select: {
+          testOrderId: true,
+          testId: true,
+          value: true,
+          textValue: true,
+          flag: true,
+          notes: true,
+          testDefinitionId: true,
+          enteredByUserId: true,
+          signerNameOverride: true,
+          useSigningRule: true,
+          selectedSigningDoctorId: true,
+        },
+      });
+      const existingByKey = new Map(
+        existingRows.map((r) => [`${r.testOrderId}:${r.testId}`, r]),
+      );
+
       for (const result of uniqueResults) {
         const context = resolveResultContext(result);
         if (!context) {
@@ -4432,10 +4495,22 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
           (normalizedNotes && normalizedNotes.trim()) ||
           signerOverride
         ) {
+          // Fold the age-aware flag into this single upsert. The server-computed
+          // flag wins when the value is abnormal; otherwise keep the client's flag —
+          // identical to the old separate flag pass, but without a second write.
+          let computedFlag: any = result.flag || null;
+          if (resolvedFlagRanges && !isText) {
+            const range = resolvedFlagRanges.get(context.testId);
+            if (range) {
+              const serverFlag = determineResultFlag(numericValue, range);
+              if (serverFlag) computedFlag = serverFlag;
+            }
+          }
+
           const resultData = {
             value: isText ? null : numericValue,
             textValue: textVal || null,
-            flag: result.flag || null,
+            flag: computedFlag,
             notes: normalizedNotes,
             testDefinitionId: context.testDefinitionId,
             enteredByUserId: req.user!.id,
@@ -4443,6 +4518,23 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
             useSigningRule: useSigningRuleChoice,
             selectedSigningDoctorId: selectedSigningDoctorChoice,
           };
+
+          // Skip the write entirely when nothing about this row changed (the common
+          // auto-save case). Conservative: any field differing, or no existing row,
+          // falls through to the upsert — so a real edit is never dropped.
+          const prev = existingByKey.get(resultKey);
+          const unchanged =
+            prev !== undefined &&
+            prev.value === resultData.value &&
+            prev.textValue === resultData.textValue &&
+            prev.flag === resultData.flag &&
+            prev.notes === resultData.notes &&
+            prev.testDefinitionId === resultData.testDefinitionId &&
+            prev.enteredByUserId === resultData.enteredByUserId &&
+            prev.signerNameOverride === resultData.signerNameOverride &&
+            prev.useSigningRule === resultData.useSigningRule &&
+            prev.selectedSigningDoctorId === resultData.selectedSigningDoctorId;
+          if (unchanged) continue;
 
           await tx.testResult.upsert({
             where: {
@@ -4460,7 +4552,8 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
               ...resultData,
             },
           });
-        } else {
+        } else if (existingByKey.has(resultKey)) {
+          // Only issue the delete when a row actually exists to remove.
           await tx.testResult.deleteMany({
             where: {
               testOrderId: context.testOrderId,
@@ -4480,72 +4573,8 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
       }
     });
 
-    // --- Auto-flag results with age-aware reference ranges ---
-    try {
-      const patient = await prisma.patient.findUnique({
-        where: { id: visit.patientId },
-        select: { yearOfBirth: true, dateOfBirth: true, gender: true },
-      });
-
-      if (patient) {
-        // Collect test IDs that had numeric values (fall back to textValue)
-        const flaggableResults = uniqueResults.filter((r: any) => {
-          if (!r.testId) return false;
-          let rawValue: string | number | null = null;
-          if (r.value !== null && r.value !== undefined) {
-            rawValue = r.value;
-          } else if (r.textValue) {
-            rawValue = r.textValue;
-          }
-          if (rawValue === null) return false;
-          const numericValue = parseFloat(String(rawValue));
-          return !isNaN(numericValue);
-        });
-        const testIdsForFlags = flaggableResults.map((r: any) => r.testId);
-
-        if (testIdsForFlags.length > 0) {
-          const resolvedRanges = await resolveReferenceRanges(
-            testIdsForFlags,
-            patient.yearOfBirth,
-            patient.gender as any,
-            undefined,
-            patient.dateOfBirth,
-          );
-
-          // Batch-update flags based on resolved ranges
-          for (const r of flaggableResults) {
-            const context = resolveResultContext(r);
-            if (!context) continue;
-
-            const range = resolvedRanges.get(context.testId);
-            if (!range) continue;
-
-            const numValue = (() => {
-              if (r.value !== null && r.value !== undefined) return parseFloat(r.value);
-              if (r.textValue) return parseFloat(r.textValue);
-              return NaN;
-            })();
-            if (isNaN(numValue)) continue;
-
-            const flag = determineResultFlag(numValue, range);
-
-            if (flag) {
-              await prisma.testResult.updateMany({
-                where: {
-                  testOrderId: context.testOrderId,
-                  testId: context.testId,
-                  reportVersionId: draftVersion.id,
-                },
-                data: { flag },
-              });
-            }
-          }
-        }
-      }
-    } catch (flagErr) {
-      // Non-fatal: log but don't fail the whole request
-      console.warn("Auto-flag calculation warning:", flagErr);
-    }
+    // Age-aware flags are now written inline with each result's upsert above
+    // (see resolvedFlagRanges), so the separate second-pass flag update is gone.
 
     // --- Derived Parameters: auto-calculate formula-based values ---
     try {
