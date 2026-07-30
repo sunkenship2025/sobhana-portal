@@ -49,6 +49,7 @@ import {
 import {
   changeVisitReferral,
   swapVisitProduct,
+  addProductsToVisit,
   CorrectionError,
 } from "../services/visitCorrectionService";
 import { buildDiagnosticBillItems } from "../services/billItemService";
@@ -3986,264 +3987,51 @@ router.post("/:id/swap-product", async (req: AuthRequest, res) => {
   }
 });
 
-// POST /api/visits/diagnostic/:id/tests - Add tests to existing visit (E3-03)
-// Tests can only be added before report finalization
+// POST /api/visits/diagnostic/:id/tests - Add billable products to an existing,
+// NOT-yet-finalized diagnostic visit (a post-billing add-on). All exploit gating
+// (role, bill age, catalog-only price, HIGH audit) lives in addProductsToVisit so
+// it holds regardless of caller. Surfaced only from Patient 360.
 router.post("/:id/tests", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { testIds } = req.body;
-
-    // Validation
-    if (!testIds || !Array.isArray(testIds) || testIds.length === 0) {
+    const { productIds, note } = req.body;
+    const ids = Array.isArray(productIds)
+      ? productIds.filter((p: unknown): p is string => typeof p === "string")
+      : [];
+    if (ids.length === 0) {
       return res.status(400).json({
         error: "VALIDATION_ERROR",
-        message: "At least one test ID is required",
+        message: "At least one test is required",
       });
     }
 
-    // Get visit with report status
-    const visit = await prisma.visit.findFirst({
-      where: {
-        id,
-        branchId: req.branchId,
-        domain: "DIAGNOSTICS",
-      },
-      include: {
-        referrals: {
-          where: { deletedAt: null },
-          include: {
-            referralDoctor: true,
-          },
-        },
-        diagnosticCenterReferrals: {
-          include: {
-            diagnosticCenter: true,
-          },
-        },
-        testOrders: {
-          select: {
-            id: true,
-            testId: true,
-            workflowMode: true,
-            priceInPaise: true,
-          },
-        },
-        bill: { include: { transactions: true } },
-        report: {
-          include: {
-            versions: {
-              where: { status: "FINALIZED" },
-              take: 1,
-            },
-          },
-        },
-      },
-    });
-
-    if (!visit) {
-      return res.status(404).json({
-        error: "NOT_FOUND",
-        message: "Diagnostic visit not found",
-      });
-    }
-
-    // E3-03: Check if report is finalized - cannot add tests after finalization
-    const hasFinalized =
-      visit.report?.versions && visit.report.versions.length > 0;
-    if (hasFinalized) {
-      return res.status(400).json({
-        error: "REPORT_FINALIZED",
-        message: "Cannot add tests after report has been finalized",
-      });
-    }
-
-    if (isPureBillOnlyVisit(visit.testOrders)) {
-      return res.status(400).json({
-        error: "BILL_ONLY_VISIT",
-        message:
-          "Pure bill-only visits cannot be converted into reportable visits through add-tests.",
-      });
-    }
-
-    // Check if any requested tests are already ordered
-    const existingTestIds = visit.testOrders.map((to) => to.testId);
-    const duplicateTests = testIds.filter((id: string) =>
-      existingTestIds.includes(id),
-    );
-    if (duplicateTests.length > 0) {
-      return res.status(400).json({
-        error: "DUPLICATE_TESTS",
-        message: "Some tests are already ordered for this visit",
-        duplicateTestIds: duplicateTests,
-      });
-    }
-
-    // Get tests with prices
-    const tests = await prisma.labTest.findMany({
-      where: { id: { in: testIds }, isActive: true },
-    });
-
-    if (tests.length !== testIds.length) {
-      return res.status(400).json({
-        error: "VALIDATION_ERROR",
-        message: "One or more tests not found or inactive",
-      });
-    }
-
-    const defaultReferralRule =
-      visit.referrals.length > 0 && visit.referrals[0].referralDoctor
-        ? {
-            commissionType: visit.referrals[0].referralDoctor.commissionType,
-            commissionPercent:
-              visit.referrals[0].referralDoctor.commissionPercent,
-            commissionAmountInPaise:
-              visit.referrals[0].referralDoctor.commissionAmountInPaise,
-          }
-        : null;
-    const defaultDiagnosticCenterRule =
-      visit.diagnosticCenterReferrals.length > 0 &&
-      visit.diagnosticCenterReferrals[0].diagnosticCenter
-        ? {
-            commissionType:
-              visit.diagnosticCenterReferrals[0].diagnosticCenter
-                .commissionType,
-            commissionPercent:
-              visit.diagnosticCenterReferrals[0].diagnosticCenter
-                .commissionPercent,
-            commissionAmountInPaise:
-              visit.diagnosticCenterReferrals[0].diagnosticCenter
-                .commissionAmountInPaise,
-          }
-        : null;
-
-    // Calculate additional amount
-    const additionalAmountInPaise = tests.reduce(
-      (sum, t) => sum + t.priceInPaise,
-      0,
-    );
-    const newTotalAmountInPaise =
-      visit.totalAmountInPaise + additionalAmountInPaise;
-    const nextBillFinancials = visit.bill
-      ? recomputeBillFinancialsForSubtotal(visit.bill, newTotalAmountInPaise)
-      : null;
-    const referralSnapshots = tests.map(
-      (test) =>
-        applyReferralRuleToPrices([test.priceInPaise], defaultReferralRule)[0],
-    );
-    const diagnosticCenterSnapshots = tests.map(
-      (test) =>
-        applyOptionalReferralRuleToPrices(
-          [test.priceInPaise],
-          defaultDiagnosticCenterRule,
-        )[0],
-    );
-
-    // Create a map to preserve order
-    const testMap = new Map(tests.map(t => [t.id, t]));
-
-    // Create test orders with metadata snapshot in a transaction
-    const result = await prisma.$transaction(async (tx) => {
-      // Create test orders with snapshotted metadata (E3-03), preserving input order
-      await tx.testOrder.createMany({
-        data: testIds.map((testId: string, idx: number) => {
-          const test = testMap.get(testId)!;
-          const index = tests.findIndex(t => t.id === test.id);
-          return {
-            visitId: visit.id,
-            testId: test.id,
-            branchId: req.branchId!,
-            workflowMode: DiagnosticWorkflowMode.REPORTABLE,
-            priceInPaise: test.priceInPaise,
-            referralCommissionType: referralSnapshots[index].commissionType,
-            referralCommissionPercentage:
-              referralSnapshots[index].commissionPercentage,
-            referralCommissionAmountInPaise:
-              referralSnapshots[index].commissionAmountInPaise,
-            diagnosticCenterCommissionType:
-              diagnosticCenterSnapshots[index].commissionType,
-            diagnosticCenterCommissionPercentage:
-              diagnosticCenterSnapshots[index].commissionPercentage,
-            diagnosticCenterCommissionAmountInPaise:
-              diagnosticCenterSnapshots[index].commissionAmountInPaise,
-            testNameSnapshot: test.name,
-            testCodeSnapshot: test.code,
-            referenceMinSnapshot: test.referenceMin,
-            referenceMaxSnapshot: test.referenceMax,
-            referenceUnitSnapshot: test.referenceUnit,
-            displayOrder: idx,
-          };
-        }),
-      });
-
-      // Update visit total
-      await tx.visit.update({
-        where: { id },
-        data: { totalAmountInPaise: newTotalAmountInPaise },
-      });
-
-      // Update bill total
-      await tx.bill.updateMany({
-        where: { visitId: id },
-        data: {
-          totalAmountInPaise: newTotalAmountInPaise,
-          ...(nextBillFinancials
-            ? {
-                discountAmountInPaise: nextBillFinancials.discountAmountInPaise,
-                discountedByUserId:
-                  nextBillFinancials.discountAmountInPaise > 0
-                    ? req.user!.id
-                    : null,
-                paidAmountInPaise: nextBillFinancials.paidAmountInPaise,
-                paymentStatus: nextBillFinancials.paymentStatus,
-              }
-            : {}),
-        },
-      });
-
-      return tx.visit.findUnique({
-        where: { id },
-        include: {
-          testOrders: {
-            include: { test: true },
-          },
-          bill: { include: { transactions: true } },
-        },
-      });
-    });
-
-    // Audit log for test addition
-    await logAction({
-      userId: req.user?.id!,
-      actionType: "UPDATE",
-      entityType: "VISIT",
-      entityId: id,
+    const result = await addProductsToVisit({
+      visitId: id,
       branchId: req.branchId!,
-      oldValues: {
-        testCount: existingTestIds.length,
-        totalAmountInPaise: visit.totalAmountInPaise,
-      },
-      newValues: {
-        testCount: result!.testOrders.length,
-        totalAmountInPaise: newTotalAmountInPaise,
-        addedTestIds: testIds,
-      },
-      ipAddress: req.ip,
-      userAgent: req.get("user-agent"),
+      productIds: ids,
+      userId: req.user!.id,
+      userRole: req.user!.role,
+      note: typeof note === "string" ? note : undefined,
     });
 
     return res.status(201).json({
       message: "Tests added successfully",
-      addedCount: tests.length,
-      newTotal: newTotalAmountInPaise / 100,
-      testOrders: result!.testOrders.map((to) => ({
-        id: to.id,
-        testId: to.testId,
-        testName: to.testNameSnapshot || to.test.name,
-        testCode: to.testCodeSnapshot || to.test.code,
-        price: to.priceInPaise / 100,
-      })),
+      addedCount: result.addedProductNames.length,
+      addedProductNames: result.addedProductNames,
+      addedAmount: result.addedAmountInPaise / 100,
+      newTotal: result.newTotalInPaise / 100,
     });
   } catch (err: any) {
+    if (err instanceof CorrectionError) {
+      return res
+        .status(err.statusCode)
+        .json({ error: err.errorCode, message: err.message });
+    }
+    if (err instanceof ProductResolutionError) {
+      return res
+        .status(400)
+        .json({ error: err.code, message: err.message, details: err.details });
+    }
     console.error("Add tests to visit error:", err);
     return res.status(500).json({
       error: "INTERNAL_ERROR",

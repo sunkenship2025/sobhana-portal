@@ -896,6 +896,63 @@ export async function getOwnerOperations(
   // intentionally NOT surfaced as standalone events any more — off-hours is now
   // a modifier on the events that matter, which cuts noise.
   for (const a of auditOffHours) {
+    // Post-bill test additions (see addProductsToVisit): a staff adding tests to
+    // an already-billed visit moves money, so every one is surfaced HIGH — the
+    // primary anti-exploit control alongside the role/age gate. Off-hours or a
+    // bill older than a week each nudge it further up.
+    if (a.entityType === 'Visit' && a.actionType === 'UPDATE') {
+      let addParsed:
+        | {
+            action?: string;
+            billNumber?: string;
+            patientId?: string;
+            addedProductNames?: string[];
+            addedAmountInPaise?: number;
+            billAgeDays?: number;
+          }
+        | null = null;
+      try {
+        addParsed = a.newValues ? JSON.parse(a.newValues) : null;
+      } catch {
+        addParsed = null;
+      }
+      if (addParsed?.action === 'ADD_TESTS_TO_BILL') {
+        const reasons: string[] = [];
+        let score = 4; // post-bill add is a money-moving anomaly → HIGH
+        if ((Number(addParsed.billAgeDays) || 0) > 7) {
+          score += 1;
+          reasons.push('bill > 7 days old');
+        }
+        if (isOffHoursIst(a.createdAt)) {
+          score += 1;
+          reasons.push('off-hours');
+        }
+        const names = Array.isArray(addParsed.addedProductNames)
+          ? addParsed.addedProductNames.join(', ')
+          : '';
+        const addedRupees = `₹${Math.round(
+          (Number(addParsed.addedAmountInPaise) || 0) / 100,
+        ).toLocaleString('en-IN')}`;
+        const base =
+          `${addParsed.billNumber ?? a.entityId.slice(0, 8)} · +${addedRupees}` +
+          (names ? ` · ${names}` : '');
+        audit.push({
+          id: `addtests-${a.id}`,
+          severity: bandFromScore(score),
+          event: 'Tests added to bill',
+          who: a.userId
+            ? userNameById.get(a.userId) ?? `user ${a.userId.slice(0, 6)}`
+            : null,
+          detail: withReasons(base, reasons),
+          whenIso: a.createdAt.toISOString(),
+          drillTo: addParsed.patientId
+            ? `/clinic/patient-360/${addParsed.patientId}`
+            : null,
+        });
+        continue;
+      }
+    }
+
     // Catalog edits (billable products / clinical panels): informational, low
     // severity. Surfaced so owners see when the price list or report
     // definitions change. Delete is nudged to medium as it's more impactful.

@@ -26,6 +26,8 @@ import {
   resolveReducedReferralSnapshot,
 } from "./referralPayoutService";
 import { resolveProducts } from "./productOrderService";
+import { recomputeBillFinancialsForSubtotal } from "./billFinancialService";
+import { DiagnosticWorkflowMode } from "@prisma/client";
 
 export class CorrectionError extends Error {
   constructor(
@@ -562,5 +564,272 @@ export async function swapVisitProduct(params: {
     oldTestNames: targetOrders.map((order) => order.testNameSnapshot),
     newProductName: resolved.productName,
     resultsDeleted: resultsToDelete,
+  };
+}
+
+// Roles allowed to add tests to an already-billed visit. Front-desk `staff`
+// (and `sales`) are intentionally excluded — an add moves money on a bill they
+// collected, so it is kept to the lab incharge / owner. Bills older than a week
+// are owner-only (ADD_TESTS_OWNER_TIER). Enforced server-side, never trusting
+// the UI, so it holds no matter which client calls it.
+const ADD_TESTS_ROLES = new Set(["owner", "admin", "lab_incharge"]);
+const ADD_TESTS_OWNER_TIER = new Set(["owner", "admin"]);
+const ADD_TESTS_SELF_SERVE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * addProductsToVisit — add one or more billable products to an EXISTING,
+ * not-yet-finalized diagnostic visit (a post-billing add-on). Modelled on
+ * swapVisitProduct: same referral-snapshot rules billing uses, an immutable
+ * audit row, a covering-payout refresh. Unlike swap it is NOT money-neutral —
+ * the added catalog price raises the bill total and the delta becomes Due
+ * (collected via Collect Due). The exploit controls live here, server-side:
+ *   - role gate: only owner / admin / lab_incharge may add;
+ *   - age gate: bills > 7 days old are owner-only;
+ *   - catalog price only (the caller never supplies a price);
+ *   - a HIGH-severity audit row so the owner ops feed surfaces every add.
+ * Deliberately refuses finalized reports (see the product decision: adds are
+ * pre-finalization only).
+ */
+export async function addProductsToVisit(params: {
+  visitId: string;
+  branchId: string;
+  productIds: string[];
+  userId: string;
+  userRole: string;
+  note?: string | null;
+}) {
+  const { visitId, branchId, productIds, userId, userRole, note } = params;
+
+  if (!Array.isArray(productIds) || productIds.length === 0) {
+    throw new CorrectionError(400, "VALIDATION_ERROR", "At least one test is required");
+  }
+
+  // Role gate first — cheap, and it must hold regardless of caller.
+  if (!ADD_TESTS_ROLES.has(userRole)) {
+    throw new CorrectionError(
+      403,
+      "FORBIDDEN_ROLE",
+      "Only a lab incharge or owner can add tests to a billed visit.",
+    );
+  }
+
+  const visit = await loadVisitForCorrection(visitId, branchId);
+
+  // Pre-finalization only: a finalized report is immutable.
+  const hasFinalized = (visit.report?.versions ?? []).some(
+    (version) => version.status === "FINALIZED",
+  );
+  if (hasFinalized) {
+    throw new CorrectionError(
+      409,
+      "REPORT_FINALIZED",
+      "This report is already finalized — cancel/refund and re-bill, or start a new visit.",
+    );
+  }
+
+  const activeOrders = visit.testOrders.filter((order) => !order.cancelledAt);
+
+  // A pure bill-only visit must not be silently turned reportable by bolting a
+  // test on — same guard billing uses.
+  if (
+    activeOrders.length > 0 &&
+    activeOrders.every(
+      (order) => order.workflowMode === DiagnosticWorkflowMode.BILL_ONLY,
+    )
+  ) {
+    throw new CorrectionError(
+      400,
+      "BILL_ONLY_VISIT",
+      "Bill-only visits can't be converted into reportable ones by adding tests.",
+    );
+  }
+
+  // Age gate — adding to an old bill is the classic laundering vector, so past a
+  // week only an owner (or admin) can do it.
+  const billAnchor = visit.bill?.billedAt ?? visit.createdAt;
+  const billAgeMs = Date.now() - new Date(billAnchor).getTime();
+  const billAgeDays = Math.max(0, Math.floor(billAgeMs / (24 * 60 * 60 * 1000)));
+  if (
+    billAgeMs > ADD_TESTS_SELF_SERVE_WINDOW_MS &&
+    !ADD_TESTS_OWNER_TIER.has(userRole)
+  ) {
+    throw new CorrectionError(
+      403,
+      "OWNER_ONLY_OLD_BILL",
+      `This bill is ${billAgeDays} days old — only an owner can add tests to bills older than 7 days.`,
+    );
+  }
+
+  // Reject products already active on the visit — an accidental double-add would
+  // double-charge the patient.
+  const existingProductIds = new Set(
+    activeOrders
+      .map((order) => order.productId)
+      .filter((pid): pid is string => Boolean(pid)),
+  );
+  const duplicates = productIds.filter((pid) => existingProductIds.has(pid));
+  if (duplicates.length > 0) {
+    throw new CorrectionError(
+      409,
+      "DUPLICATE_PRODUCTS",
+      "Some of these tests are already on this bill.",
+    );
+  }
+
+  // Resolve at catalog price (packages expand, price spreads across leaves) — the
+  // caller never supplies a price. resolveProducts throws ProductResolutionError
+  // (mapped to a 400 by the route).
+  const resolved = await resolveProducts(productIds, branchId);
+  const addedAmountInPaise = resolved.reduce(
+    (sum, rp) => sum + rp.effectivePrice,
+    0,
+  );
+  const newTotalInPaise = visit.totalAmountInPaise + addedAmountInPaise;
+
+  // Commission snapshots under the CURRENT referral (mirror swapVisitProduct).
+  const currentReferral = visit.referrals[0] ?? null;
+  const anchorDate = payoutAnchorDate(visit);
+  const displayOrderBase =
+    Math.max(0, ...visit.testOrders.map((order) => order.displayOrder ?? 0)) + 1;
+
+  const orderRows: any[] = [];
+  let cursor = 0;
+  for (const rp of resolved) {
+    let rule: CommissionRule | null = null;
+    if (currentReferral?.referralDoctorId) {
+      const doctor = await prisma.referralDoctor.findUnique({
+        where: { id: currentReferral.referralDoctorId },
+        include: {
+          productRules: { where: { isActive: true, productId: rp.productId } },
+        },
+      });
+      if (doctor) {
+        const productRule = doctor.productRules[0];
+        rule = productRule
+          ? {
+              commissionType: productRule.commissionType,
+              commissionPercent: productRule.commissionPercent,
+              commissionAmountInPaise: productRule.commissionAmountInPaise,
+            }
+          : {
+              commissionType: doctor.commissionType,
+              commissionPercent: doctor.commissionPercent,
+              commissionAmountInPaise: doctor.commissionAmountInPaise,
+            };
+      }
+    }
+    const snapshots = snapshotsForRule(
+      rp.testOrders.map((order) => order.priceInPaise),
+      rule,
+    );
+    rp.testOrders.forEach((order, index) => {
+      orderRows.push({
+        visitId,
+        branchId,
+        testId: order.labTestId,
+        testDefinitionId: order.testDefinitionId,
+        productId: order.productId,
+        workflowMode: order.workflowMode,
+        priceInPaise: order.priceInPaise,
+        testNameSnapshot: order.testName,
+        testCodeSnapshot: order.testCode,
+        referenceMinSnapshot: order.referenceMin,
+        referenceMaxSnapshot: order.referenceMax,
+        referenceUnitSnapshot: order.referenceUnit,
+        displayOrder: displayOrderBase + cursor + index,
+        ...snapshots[index],
+      });
+    });
+    cursor += rp.testOrders.length;
+  }
+
+  if (orderRows.length === 0) {
+    throw new CorrectionError(
+      400,
+      "INVALID_PANEL_CONFIGURATION",
+      "The selected product has no reportable test items — fix its linked panel first.",
+    );
+  }
+
+  // Recompute the bill against the raised subtotal — paid stays, so the delta
+  // becomes Due. Load transactions so a previously-refunded bill recomputes paid
+  // correctly.
+  const billWithTx = visit.bill
+    ? await prisma.bill.findUnique({
+        where: { id: visit.bill.id },
+        include: { transactions: true },
+      })
+    : null;
+  const nextBillFinancials = billWithTx
+    ? recomputeBillFinancialsForSubtotal(billWithTx, newTotalInPaise)
+    : null;
+
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.testOrder.createMany({ data: orderRows });
+      await tx.visit.update({
+        where: { id: visitId },
+        data: { totalAmountInPaise: newTotalInPaise },
+      });
+      if (visit.bill) {
+        await tx.bill.updateMany({
+          where: { visitId },
+          data: {
+            totalAmountInPaise: newTotalInPaise,
+            ...(nextBillFinancials
+              ? {
+                  discountAmountInPaise: nextBillFinancials.discountAmountInPaise,
+                  paidAmountInPaise: nextBillFinancials.paidAmountInPaise,
+                  paymentStatus: nextBillFinancials.paymentStatus,
+                }
+              : {}),
+          },
+        });
+      }
+    },
+    { timeout: 30_000 },
+  );
+
+  // Immutable audit row — flagged HIGH so the owner ops feed and the anomalies
+  // page surface every post-bill add (who, role, bill age, money added).
+  await logAction({
+    branchId,
+    actionType: "UPDATE",
+    entityType: "Visit",
+    entityId: visitId,
+    userId,
+    oldValues: {
+      action: "ADD_TESTS_TO_BILL",
+      totalAmountInPaise: visit.totalAmountInPaise,
+      testCount: activeOrders.length,
+    },
+    newValues: {
+      action: "ADD_TESTS_TO_BILL",
+      severity: "HIGH",
+      billNumber: visit.billNumber,
+      patientId: visit.patientId,
+      addedProductNames: resolved.map((rp) => rp.productName),
+      addedAmountInPaise,
+      totalAmountInPaise: newTotalInPaise,
+      billAgeDays,
+      addedByRole: userRole,
+      note: note ?? null,
+    },
+  });
+
+  // The added tests earn the referrer commission, so refresh any covering run.
+  if (currentReferral?.referralDoctorId) {
+    await refreshCoveringReferralPayouts(
+      currentReferral.referralDoctorId,
+      branchId,
+      anchorDate,
+    );
+  }
+
+  return {
+    addedProductNames: resolved.map((rp) => rp.productName),
+    addedAmountInPaise,
+    newTotalInPaise,
+    billAgeDays,
   };
 }

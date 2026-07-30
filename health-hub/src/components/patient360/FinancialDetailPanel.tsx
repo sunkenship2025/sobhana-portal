@@ -105,7 +105,7 @@ export function FinancialDetailPanel({
             <KvRow
               label="Billed tests"
               onEdit={onEditTests}
-              editLabel="Replace a billed test"
+              editLabel="Edit billed tests"
             >
               {
                 new Set(
