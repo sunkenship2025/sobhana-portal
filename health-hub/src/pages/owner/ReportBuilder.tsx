@@ -438,10 +438,9 @@ function ReportHome({ panels, query, setQuery, onOpen, onNew, onDiscard }: {
   return (
     <div className="space-y-7">
       <div className="sticky top-0 z-20 -mx-1 flex flex-wrap items-center gap-3 border-b bg-background/95 px-1 py-3 backdrop-blur">
-        <div><h2 className="text-xl font-bold tracking-tight">Reports</h2><p className="text-sm text-muted-foreground">Build and manage your diagnostic report templates.</p></div>
-        <div className="flex-1" />
-        <div className="relative"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" /><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${panels.length} report${panels.length === 1 ? '' : 's'}…`} className="pl-8 w-64" /></div>
-        <Button onClick={onNew}><Plus className="h-4 w-4 mr-1" /> New report</Button>
+        <div className="shrink-0"><h2 className="text-xl font-bold tracking-tight">Reports</h2><p className="text-sm text-muted-foreground">Build and manage your diagnostic report templates.</p></div>
+        <div className="relative ml-auto flex-1 min-w-[220px] max-w-2xl"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" /><Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${panels.length} report${panels.length === 1 ? '' : 's'}…`} className="pl-8 w-full" /></div>
+        <Button onClick={onNew} className="shrink-0"><Plus className="h-4 w-4 mr-1" /> New report</Button>
       </div>
 
       <section>
