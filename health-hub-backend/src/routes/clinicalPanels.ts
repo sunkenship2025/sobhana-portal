@@ -568,14 +568,14 @@ const REPORT_EDITOR_ASSETS = `
   .rb-edit:hover{background:rgba(43,100,171,.09);box-shadow:0 0 0 3px rgba(43,100,171,.09);}
   .rb-edit:focus{background:#fff;box-shadow:0 0 0 2px #2b64ab;}
   .rb-ph:empty:before{content:attr(data-ph);color:#b3b9c4;font-style:italic;font-weight:400;}
-  .results-table tbody td.col-ref,.results-table tbody td.col-result{position:relative;}
+  .results-table tbody td.col-ref,.results-table tbody td.col-result,.results-table tbody td.col-test,.results-table tbody td.col-param{position:relative;}
   .results-table tbody td.col-ref{cursor:pointer;}
   .rb-rowtools{position:absolute;top:50%;right:2px;transform:translateY(-50%);display:none;gap:3px;white-space:nowrap;z-index:2;}
   .results-table tbody tr.data-row:hover .rb-rowtools{display:inline-flex;}
   .rb-tool{cursor:pointer;font:12px/1 Arial,sans-serif;padding:2px 5px;border-radius:3px;color:#8a93a5;background:#fff;border:1px solid #e2e6ee;user-select:none;}
   .rb-tool:hover{color:#2b64ab;border-color:#2b64ab;}
   .rb-del:hover{color:#c22;border-color:#c22;}
-  .rb-drag{cursor:grab;color:#c2c8d0;user-select:none;font:12px/1 Arial;opacity:0;display:inline-block;vertical-align:middle;margin-right:6px;}
+  .rb-drag{cursor:grab;color:#c2c8d0;user-select:none;font:12px/1 Arial;opacity:0;position:absolute;left:0;top:9px;}
   tr.data-row:hover .rb-drag{opacity:1;}
   tr.data-row.rb-dragging{opacity:.4;}
   tr.data-row.rb-over-top>td{box-shadow:inset 0 3px 0 #2b64ab!important;}
@@ -726,6 +726,8 @@ const REPORT_EDITOR_ASSETS = `
     }
 
     document.addEventListener('scroll',function(){ if(rtbar&&rtEl&&rtbar.style.display==='flex')positionBar(rtEl); },true);
+    // Click on empty report area (not a test row / editable / affordance) → deselect → parent shows Panel.
+    document.addEventListener('click',function(e){ try{ if(!e.target.closest('tr.data-row,.rb-edit,.rb-richedit,.rb-tool,.rb-drag,.rb-addbtn,.rb-kv,.rb-addmethod,.rb-rt-bar')) post({type:'deselect'}); }catch(_){} });
     var sendReady=function(){post({type:'ready',height:document.documentElement.scrollHeight});};
     sendReady(); window.addEventListener('load',sendReady);
   }catch(e){ post({type:'error',message:String(e&&e.message||e)}); }

@@ -33,12 +33,13 @@ interface Props {
   onSectionMethod: (name: string, value: string) => void;
   onSectionKV: (name: string) => void;
   onAddSection: () => void;
+  onDeselect: () => void;
 }
 
 export function EditableReportFrame({
   payload, profile, reloadKey, headers,
   onPanelEdit, onItemEdit, onInspect, onDelete, onCreate,
-  onReorder, onSectionRename, onSectionMethod, onSectionKV, onAddSection,
+  onReorder, onSectionRename, onSectionMethod, onSectionKV, onAddSection, onDeselect,
 }: Props) {
   const [html, setHtml] = useState('');
   const [loading, setLoading] = useState(true);
@@ -47,8 +48,8 @@ export function EditableReportFrame({
 
   // Latest payload/callbacks without forcing a re-fetch (that's what reloadKey is for).
   const payloadRef = useRef(payload); payloadRef.current = payload;
-  const cb = useRef({ onPanelEdit, onItemEdit, onInspect, onDelete, onCreate, onReorder, onSectionRename, onSectionMethod, onSectionKV, onAddSection });
-  cb.current = { onPanelEdit, onItemEdit, onInspect, onDelete, onCreate, onReorder, onSectionRename, onSectionMethod, onSectionKV, onAddSection };
+  const cb = useRef({ onPanelEdit, onItemEdit, onInspect, onDelete, onCreate, onReorder, onSectionRename, onSectionMethod, onSectionKV, onAddSection, onDeselect });
+  cb.current = { onPanelEdit, onItemEdit, onInspect, onDelete, onCreate, onReorder, onSectionRename, onSectionMethod, onSectionKV, onAddSection, onDeselect };
 
   // Re-render the iframe only on structural change / profile flip.
   useEffect(() => {
@@ -88,6 +89,7 @@ export function EditableReportFrame({
         case 'sectionMethod': c.onSectionMethod(d.name, d.value); break;
         case 'sectionKV': c.onSectionKV(d.name); break;
         case 'addSection': c.onAddSection(); break;
+        case 'deselect': c.onDeselect(); break;
         case 'ready': if (typeof d.height === 'number' && d.height > 0) setFrameH(d.height); break;
       }
     };

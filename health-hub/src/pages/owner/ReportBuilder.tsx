@@ -195,6 +195,7 @@ export default function ReportBuilder() {
     const it = renderedItems[index]; if (!it) return;
     setInspectUid(it._uid); setDockTab('inspector'); if (focus === 'ranges') setRangesFocus((n) => n + 1);
   };
+  const onDeselect = () => { setInspectUid(null); setDockTab('panel'); };
   const onDelete = (index: number) => {
     const it = renderedItems[index]; if (!it) return;
     setItems((xs) => xs.filter((x) => x._uid !== it._uid));
@@ -389,7 +390,7 @@ export default function ReportBuilder() {
             <EditableReportFrame
               payload={previewPayload} profile={profile} reloadKey={reloadKey} headers={headers}
               onPanelEdit={onPanelEdit} onItemEdit={onItemEdit} onInspect={onInspect} onDelete={onDelete} onCreate={onCreate}
-              onReorder={onReorder} onSectionRename={onSectionRename} onSectionMethod={onSectionMethod} onSectionKV={onSectionKV} onAddSection={onAddSection}
+              onReorder={onReorder} onSectionRename={onSectionRename} onSectionMethod={onSectionMethod} onSectionKV={onSectionKV} onAddSection={onAddSection} onDeselect={onDeselect}
             />
           ) : (
             <div className="h-[80vh]"><ReportPreviewFrame payload={previewPayload} profile={profile} /></div>
