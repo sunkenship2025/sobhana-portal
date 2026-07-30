@@ -65,7 +65,7 @@ export const blankPanel = (): PanelForm => ({
   id: null, code: '', label: '', departmentId: '', layoutType: 'STANDARD_TABLE',
   sampleType: null, panelMethodText: null, panelMethodItalic: false, showMethodColumn: false, showSubgroups: false, showInterpretation: false,
   spacedDefinitionsGap: 0, valueDisplayPrefix: null, comments: null, interpretation: null,
-  narrativeTemplateHtml: null, subgroupMethods: {}, subgroupTableOverrides: {}, isActive: true,
+  narrativeTemplateHtml: null, subgroupMethods: {}, subgroupTableOverrides: {}, isActive: false, // new report = draft
 });
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
