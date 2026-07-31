@@ -65,7 +65,7 @@ export interface AuditEventsResult {
       finalized: number;
       drafts: number;
       reportAccess: number;
-      topActor: { name: string; count: number } | null;
+      flaggedActor: { name: string; count: number } | null;
     };
   };
 }
@@ -279,17 +279,15 @@ export async function getAuditEvents(
   // Keep the recent window materialized (throttled per branch).
   await ensureProjected(params.branchId, from, to);
 
-  const and: Prisma.AnomalyEventWhereInput[] = [{ occurredAt: { gte: from, lte: to } }];
-  if (params.branchId) and.push({ branchId: params.branchId });
-  if (params.actor) and.push({ actorUserId: params.actor });
-  const sevs = parseList(params.severity).filter((s) =>
-    ["high", "medium", "low", "info"].includes(s));
-  if (sevs.length) and.push({ severity: { in: sevs } });
-  const cats = parseList(params.category);
-  if (cats.length) and.push({ category: { in: cats } });
+  // Facet base — branch / actor / q / date only (NOT the severity/category the
+  // user picked), so the rail always shows the TRUE distribution and you can see
+  // how many Low/Info you're currently hiding.
+  const windowAnd: Prisma.AnomalyEventWhereInput[] = [{ occurredAt: { gte: from, lte: to } }];
+  if (params.branchId) windowAnd.push({ branchId: params.branchId });
+  if (params.actor) windowAnd.push({ actorUserId: params.actor });
   const q = params.q?.trim();
   if (q) {
-    and.push({
+    windowAnd.push({
       OR: [
         { detail: { contains: q, mode: "insensitive" } },
         { event: { contains: q, mode: "insensitive" } },
@@ -299,32 +297,40 @@ export async function getAuditEvents(
     });
   }
 
-  // Facet + highlight aggregates over the whole filtered window.
+  // The severity / category the user selected — applied to the PAGE, not facets.
+  const sevs = parseList(params.severity).filter((s) =>
+    ["high", "medium", "low", "info"].includes(s));
+  const cats = parseList(params.category);
+  const selectAnd: Prisma.AnomalyEventWhereInput[] = [];
+  if (sevs.length) selectAnd.push({ severity: { in: sevs } });
+  if (cats.length) selectAnd.push({ category: { in: cats } });
+
+  // Facet + highlight aggregates over the FULL window (ignore the selection), plus
+  // the actor with the most FLAGGED (high/medium) events — "who to watch", not
+  // just who clicked the most.
   const [sevGroups, catGroups, eventGroups, actorGroups] = await Promise.all([
-    prisma.anomalyEvent.groupBy({ by: ["severity"], where: { AND: and }, _count: { _all: true } }),
-    prisma.anomalyEvent.groupBy({ by: ["category"], where: { AND: and }, _count: { _all: true } }),
-    prisma.anomalyEvent.groupBy({ by: ["event"], where: { AND: and }, _count: { _all: true } }),
+    prisma.anomalyEvent.groupBy({ by: ["severity"], where: { AND: windowAnd }, _count: { _all: true } }),
+    prisma.anomalyEvent.groupBy({ by: ["category"], where: { AND: windowAnd }, _count: { _all: true } }),
+    prisma.anomalyEvent.groupBy({ by: ["event"], where: { AND: windowAnd }, _count: { _all: true } }),
     prisma.anomalyEvent.groupBy({
       by: ["actorName"],
-      where: { AND: [...and, { actorName: { not: null } }] },
+      where: { AND: [...windowAnd, { actorName: { not: null } }, { severity: { in: ["high", "medium"] } }] },
       _count: { _all: true },
       orderBy: { _count: { actorName: "desc" } },
       take: 1,
     }),
   ]);
   const severityCounts: Record<AuditSeverity, number> = { high: 0, medium: 0, low: 0, info: 0 };
-  let total = 0;
-  for (const g of sevGroups) {
-    severityCounts[g.severity as AuditSeverity] = g._count._all;
-    total += g._count._all;
-  }
+  for (const g of sevGroups) severityCounts[g.severity as AuditSeverity] = g._count._all;
   const categoryCounts: Record<AuditCategory, number> = {
     money: 0, report: 0, drafts: 0, identity: 0, access: 0, destructive: 0, ops: 0,
   };
   for (const g of catGroups) categoryCounts[g.category as AuditCategory] = g._count._all;
+  const total =
+    severityCounts.high + severityCounts.medium + severityCounts.low + severityCounts.info;
   const ev = new Map(eventGroups.map((g) => [g.event, g._count._all]));
   const evc = (name: string) => ev.get(name) ?? 0;
-  const topActor =
+  const flaggedActor =
     actorGroups.length && actorGroups[0].actorName
       ? { name: actorGroups[0].actorName, count: actorGroups[0]._count._all }
       : null;
@@ -336,19 +342,20 @@ export async function getAuditEvents(
     finalized: evc("Report finalized"),
     drafts: categoryCounts.drafts,
     reportAccess: evc("Report accessed"),
-    topActor,
+    flaggedActor,
   };
 
-  // Keyset page.
+  // Keyset page — window + the severity/category selection + cursor.
   const cur = params.cursor ? decodeCursor(params.cursor) : null;
-  const pageAnd = cur
-    ? [...and, {
-        OR: [
-          { occurredAt: { lt: cur.at } },
-          { AND: [{ occurredAt: cur.at }, { id: { lt: cur.id } }] },
-        ],
-      } as Prisma.AnomalyEventWhereInput]
-    : and;
+  const pageAnd: Prisma.AnomalyEventWhereInput[] = [...windowAnd, ...selectAnd];
+  if (cur) {
+    pageAnd.push({
+      OR: [
+        { occurredAt: { lt: cur.at } },
+        { AND: [{ occurredAt: cur.at }, { id: { lt: cur.id } }] },
+      ],
+    });
+  }
   const rows = await prisma.anomalyEvent.findMany({
     where: { AND: pageAnd },
     orderBy: [{ occurredAt: "desc" }, { id: "desc" }],

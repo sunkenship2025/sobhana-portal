@@ -53,7 +53,7 @@ interface AuditEventsResponse {
       finalized: number;
       drafts: number;
       reportAccess: number;
-      topActor: { name: string; count: number } | null;
+      flaggedActor: { name: string; count: number } | null;
     };
   };
 }
@@ -119,21 +119,21 @@ const CSS = `
 .ap .search{cursor:text;min-width:210px}
 .ap .search:focus,.ap .dt:focus{outline:none;border-color:var(--accent)}
 .ap .btn:hover,.ap .sel:hover{border-color:#cdd2da}
-.ap .perfnote{display:inline-flex;align-items:center;gap:6px;font-size:11px;background:rgba(15,110,86,0.08);border:1px solid rgba(15,110,86,0.22);color:#0F6E56;border-radius:999px;padding:3px 10px}
+.ap .perfnote{font-size:11px;color:var(--ink3)}
 .ap .qr{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:-4px 0 14px}
-.ap .qr .rng{background:#fff;border:1px solid var(--border);border-radius:999px;padding:3px 11px;font-size:11.5px;color:var(--ink2);cursor:pointer}
-.ap .qr .rng:hover{border-color:#cbd5e1;color:var(--ink)}
+.ap .qr .rng{background:transparent;border:0;padding:2px 4px;font-size:11.5px;color:var(--ink2);cursor:pointer;text-decoration:underline;text-underline-offset:2px;text-decoration-color:var(--border)}
+.ap .qr .rng:hover{color:var(--ink)}
 .ap .kpis{display:grid;grid-template-columns:1.5fr 1fr 1.1fr;gap:12px;margin-bottom:14px}
-.ap .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow)}
+.ap .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow)}
 .ap .kpi{padding:12px 14px}
 .ap .kpi .lbl{font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px;font-weight:600}
 .ap .sevrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.ap .chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 9px;font-size:12px;font-weight:600;border:1px solid transparent;cursor:pointer;user-select:none}
+.ap .chip{display:inline-flex;align-items:center;gap:6px;border-radius:4px;padding:3px 9px;font-size:12px;font-weight:550;border:1px solid transparent;cursor:pointer;user-select:none}
 .ap .chip .n{font-variant-numeric:tabular-nums}
-.ap .chip.hi{background:var(--hi-b);color:var(--hi-t);border-color:#f7d3d3}
-.ap .chip.me{background:var(--me-b);color:var(--me-t);border-color:#f5e2b8}
-.ap .chip.lo{background:var(--lo-b);color:var(--lo-t);border-color:#dbe1ea}
-.ap .chip.in{background:var(--in-b);color:var(--in-t);border-color:#cfe0fd}
+.ap .chip.hi{background:var(--hi-b);color:var(--hi-t);border-color:transparent}
+.ap .chip.me{background:var(--me-b);color:var(--me-t);border-color:transparent}
+.ap .chip.lo{background:var(--lo-b);color:var(--lo-t);border-color:transparent}
+.ap .chip.in{background:var(--in-b);color:var(--in-t);border-color:transparent}
 .ap .chip.off{opacity:.4}
 .ap .kpi hr{border:0;border-top:1px solid var(--border2);margin:9px 0}
 .ap .kpi .sm{font-size:12px;color:var(--ink2)}
@@ -148,13 +148,13 @@ const CSS = `
 .ap .rail h4:first-child{margin-top:2px}
 .ap .facet{display:flex;align-items:center;justify-content:space-between;padding:5px 7px;border-radius:7px;cursor:pointer;font-size:12.5px}
 .ap .facet:hover{background:#f5f6f8}
-.ap .facet.on{background:var(--accent-b);color:var(--accent);font-weight:560}
+.ap .facet.on{background:rgba(0,0,0,0.045);color:var(--ink);font-weight:600}
 .ap .facet .l{display:flex;align-items:center;gap:8px}
 .ap .facet .sw{width:9px;height:9px;border-radius:3px;display:inline-block}
 .ap .facet .c{color:var(--ink3);font-variant-numeric:tabular-nums}
 .ap .clearall{margin-top:12px;width:100%;text-align:center;padding:6px;font-size:12px;color:var(--ink2);border:1px solid var(--border);border-radius:8px;background:#fff;cursor:pointer}
 .ap .active-chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:11px 14px 0}
-.ap .active-chips .ac{background:var(--accent-b);color:var(--accent);border:1px solid var(--accent-br);border-radius:999px;padding:3px 9px;font-size:11.5px;cursor:pointer}
+.ap .active-chips .ac{background:rgba(0,0,0,0.05);color:var(--ink2);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:11.5px;cursor:pointer}
 .ap .tbl{overflow:hidden}
 .ap .thead,.ap .trow{display:grid;grid-template-columns:66px 96px 1.4fr 130px 150px 88px;gap:10px;align-items:center}
 .ap .thead{padding:9px 14px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);border-bottom:1px solid var(--border);font-weight:650;background:#fbfbfc}
@@ -162,7 +162,7 @@ const CSS = `
 .ap .trow:hover{background:#fafbfd}
 .ap .trow.hi{border-left-color:var(--hi-br)} .ap .trow.me{border-left-color:var(--me-br)}
 .ap .trow.lo{border-left-color:var(--lo-br)} .ap .trow.in{border-left-color:var(--in-br)}
-.ap .sev{font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:6px;letter-spacing:.03em;text-align:center;display:inline-block}
+.ap .sev{font-size:10.5px;font-weight:650;padding:2px 7px;border-radius:3px;letter-spacing:.03em;text-align:center;display:inline-block}
 .ap .sev.hi{background:var(--hi-b);color:var(--hi-t)} .ap .sev.me{background:var(--me-b);color:var(--me-t)}
 .ap .sev.lo{background:var(--lo-b);color:var(--lo-t)} .ap .sev.in{background:var(--in-b);color:var(--in-t)}
 .ap .cat{font-size:11.5px;color:var(--ink2);font-weight:550;text-transform:capitalize}
@@ -411,14 +411,16 @@ export default function OwnerAuditPage() {
                   </div>
                 </div>
 
-                {/* Card 3 — Activity & throughput */}
+                {/* Card 3 — who to watch: most flagged (high/medium) events */}
                 <div className="card kpi">
-                  <div className="lbl">Activity today</div>
-                  <div className="big">{h?.topActor?.name ?? '—'}</div>
-                  <div className="sm">busiest actor{h?.topActor ? ` · ${h.topActor.count} actions` : ''}</div>
+                  <div className="lbl">Most flagged today</div>
+                  <div className="big">{h?.flaggedActor?.name ?? '—'}</div>
+                  <div className="sm">
+                    {h?.flaggedActor ? `${h.flaggedActor.count} high / medium events` : 'no flagged activity'}
+                  </div>
                   <hr />
                   <div className="sm">
-                    {h?.finalized ?? 0} finalized · {h?.drafts ?? 0} drafts in progress · {h?.reportAccess ?? 0} report views
+                    {h?.finalized ?? 0} finalized · {h?.drafts ?? 0} drafts · {h?.reportAccess ?? 0} report views
                   </div>
                 </div>
               </>
