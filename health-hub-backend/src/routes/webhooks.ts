@@ -29,9 +29,7 @@ const router = Router();
 // built. Toggle off without a deploy via WHATSAPP_AUTOREPLY_ENABLED=false.
 const GENERIC_AUTOREPLY_ENABLED = process.env.WHATSAPP_AUTOREPLY_ENABLED !== 'false';
 const GENERIC_AUTOREPLY_TEXT =
-  'Thanks for messaging Sobhana Diagnostics 🙏 We have received your message and our team will reply during working hours (8 AM to 8 PM). For anything urgent, please call 9490539006.';
-const CAMP_AUTOREPLY_TEXT =
-  "Thank you for your interest in Sobhana's *Be a Hero* Blood Donation Camp! 🩸 For details, please call us at 9490539006.";
+  'Thanks for messaging Sobhana Diagnostics 🙏 We have received your message and our team will reply during working hours (8 AM to 8 PM). For anything urgent, please call 040-2308 9999 or 9490 539006.';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -77,35 +75,17 @@ function extractInbound(msg: any): { body: string; messageType: string } {
 }
 
 /**
- * Send a free-form auto-reply, record it on the conversation, and stamp
- * autoRepliedAt. When `logTemplate` is given it also writes a MessageLog row
- * (the blood-camp campaign relies on that for its "already replied?" check).
- * Valid because the patient's inbound message just opened the 24h window.
+ * Send a free-form auto-reply and record it on the conversation. Valid because
+ * the patient's inbound message just opened the 24h customer-service window.
  */
 async function sendAutoReply(
   phone: string,
   text: string,
   conversationId: string,
-  opts?: { logTemplate?: string; contextId?: string },
 ): Promise<void> {
   const { sendText } = await import('../services/whatsappCloudService');
   const result = await sendText(phone, text);
   const now = new Date();
-
-  if (opts?.logTemplate) {
-    await prisma.messageLog.create({
-      data: {
-        phone,
-        channel: 'WHATSAPP',
-        templateName: opts.logTemplate,
-        status: 'SENT',
-        waMessageId: result.waMessageId,
-        sentAt: now,
-        contextType: 'CAMPAIGN',
-        contextId: opts.contextId ?? '',
-      },
-    });
-  }
 
   await prisma.conversationMessage.create({
     data: {
@@ -254,10 +234,9 @@ router.post(
           }
 
           // ── Inbound messages → capture + auto-reply ──
-          // Every patient reply is persisted to the Conversation inbox first (so
-          // it is never lost), then answered: blood-camp invitees get the campaign
-          // reply; everyone else gets a generic "we got your message" reply at most
-          // once per 24h, so no patient is ignored while the inbox UI is built.
+          // Every inbound is persisted to the Conversation inbox first (so it is
+          // never lost), then answered once with a generic "we got your message"
+          // reply, rate-limited to once per 24h per conversation.
           for (const msg of change.value?.messages || []) {
             const from = msg?.from;
             const waId: string | undefined = msg?.id;
@@ -320,29 +299,22 @@ router.post(
                 },
               });
 
-              // ── Auto-reply ──
-              const invited = await prisma.messageLog.findFirst({
-                where: { phone: from, templateName: 'blood_camp_invite' },
-                select: { id: true },
-              });
-
-              if (invited) {
-                const alreadyCamp = await prisma.messageLog.findFirst({
-                  where: { phone: from, templateName: 'camp_autoreply' },
-                  select: { id: true },
+              // ── Generic auto-reply (atomic once-per-24h claim) ──
+              // Compare-and-set on autoRepliedAt so concurrent inbound webhooks
+              // — e.g. a sender whose own number auto-replies — can't trigger a
+              // double, and two bots can't ping-pong.
+              if (GENERIC_AUTOREPLY_ENABLED) {
+                const claim = await prisma.conversation.updateMany({
+                  where: {
+                    id: convo.id,
+                    OR: [
+                      { autoRepliedAt: null },
+                      { autoRepliedAt: { lt: new Date(now.getTime() - DAY_MS) } },
+                    ],
+                  },
+                  data: { autoRepliedAt: now },
                 });
-                if (!alreadyCamp) {
-                  await sendAutoReply(from, CAMP_AUTOREPLY_TEXT, convo.id, {
-                    logTemplate: 'camp_autoreply',
-                    contextId: 'blood-camp-2026',
-                  });
-                  console.log(`[Webhook] Camp auto-reply sent to ${from}`);
-                }
-              } else if (GENERIC_AUTOREPLY_ENABLED) {
-                const recentlyReplied =
-                  convo.autoRepliedAt != null &&
-                  now.getTime() - convo.autoRepliedAt.getTime() < DAY_MS;
-                if (!recentlyReplied) {
+                if (claim.count === 1) {
                   await sendAutoReply(from, GENERIC_AUTOREPLY_TEXT, convo.id);
                   console.log(`[Webhook] Generic auto-reply sent to ${from}`);
                 }
