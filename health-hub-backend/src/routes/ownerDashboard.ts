@@ -13,7 +13,7 @@ import {
 import { buildDaySheetWorkbook } from '../services/moneyDaySheetExportService';
 import { getOwnerDoctors, PeriodKey as DoctorsPeriod } from '../services/ownerDoctorsService';
 import { getOwnerOperations } from '../services/ownerOperationsService';
-import { getAuditEvents } from '../services/ownerAuditService';
+import { getAuditEvents, getAuditEventDetail } from '../services/ownerAuditService';
 
 const router = Router();
 
@@ -58,6 +58,21 @@ router.get('/audit/events', requireRole('owner', 'lab_incharge'), async (req: Au
   } catch (err: any) {
     req.log.error({ err }, 'owner audit events load failed');
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to load audit events' });
+  }
+});
+
+// GET /api/owner/audit/events/:id — full detail for the drawer (before/after
+// diff + the entity's related-event timeline). Owner + lab_incharge.
+router.get('/audit/events/:id', requireRole('owner', 'lab_incharge'), async (req: AuthRequest, res) => {
+  try {
+    const rawBranch = (req.query.branch as string) || 'all';
+    const branchId = rawBranch === 'all' ? null : rawBranch;
+    const detail = await getAuditEventDetail(req.params.id, branchId);
+    if (!detail) return res.status(404).json({ error: 'NOT_FOUND', message: 'Audit event not found' });
+    return res.json(detail);
+  } catch (err: any) {
+    req.log.error({ err }, 'owner audit event detail load failed');
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to load audit event' });
   }
 });
 

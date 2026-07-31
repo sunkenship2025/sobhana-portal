@@ -43,7 +43,23 @@ interface AuditEventsResponse {
     total: number;
     severity: Record<Severity, number>;
     category: Record<Category, number>;
+    highlights: {
+      deletions: number;
+      payoutsPaid: number;
+      billChanges: number;
+      postFinalizeEdits: number;
+      finalized: number;
+      drafts: number;
+      reportAccess: number;
+      topActor: { name: string; count: number } | null;
+    };
   };
+}
+interface AuditDetail extends AuditEventRow {
+  ipAddress: string | null;
+  userAgent: string | null;
+  diff: Array<{ field: string; old: string | null; new: string | null }>;
+  related: Array<{ id: string; severity: Severity; event: string; who: string | null; whenIso: string; isThis: boolean }>;
 }
 
 const SEV_ABBR: Record<Severity, string> = { high: 'hi', medium: 'me', low: 'lo', info: 'in' };
@@ -62,12 +78,17 @@ const CATEGORIES: Array<{ key: Category; label: string }> = [
   { key: 'destructive', label: 'Destructive' },
   { key: 'ops', label: 'Operational' },
 ];
-const QUICK_RANGES: Array<{ label: string; ms: number }> = [
-  { label: 'Today', ms: 1 * 864e5 },
-  { label: '7d', ms: 7 * 864e5 },
-  { label: '30d', ms: 30 * 864e5 },
-  { label: '90d', ms: 90 * 864e5 },
-  { label: '1 year', ms: 365 * 864e5 },
+const startOfToday = (): Date => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+const QUICK_RANGES: Array<{ label: string; from: () => Date }> = [
+  { label: 'Today', from: startOfToday },
+  { label: '7d', from: () => new Date(Date.now() - 7 * 864e5) },
+  { label: '30d', from: () => new Date(Date.now() - 30 * 864e5) },
+  { label: '90d', from: () => new Date(Date.now() - 90 * 864e5) },
+  { label: '1 year', from: () => new Date(Date.now() - 365 * 864e5) },
 ];
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -194,12 +215,12 @@ export default function OwnerAuditPage() {
     });
 
   const [tab, setTab] = useState('feed');
-  const [fromLocal, setFromLocal] = useState(() => toLocalInput(new Date(Date.now() - 7 * 864e5)));
+  // Default to TODAY (start of the calendar day → now).
+  const [fromLocal, setFromLocal] = useState(() => toLocalInput(startOfToday()));
   const [toLocal, setToLocal] = useState(() => toLocalInput(new Date()));
-  const applyQuickRange = (ms: number) => {
-    const now = new Date();
-    setFromLocal(toLocalInput(new Date(now.getTime() - ms)));
-    setToLocal(toLocalInput(now));
+  const applyQuickRange = (from: () => Date) => {
+    setFromLocal(toLocalInput(from()));
+    setToLocal(toLocalInput(new Date()));
   };
 
   const [searchInput, setSearchInput] = useState('');
@@ -279,6 +300,16 @@ export default function OwnerAuditPage() {
   };
 
   const [openRow, setOpenRow] = useState<AuditEventRow | null>(null);
+  const detailQuery = useQuery<AuditDetail>({
+    queryKey: ['owner-audit-detail', openRow?.id, branchValue],
+    enabled: !!openRow,
+    queryFn: () =>
+      apiRequest<AuditDetail>(
+        `${API_BASE}/owner/audit/events/${openRow!.id}?branch=${encodeURIComponent(branchValue)}`,
+      ),
+    staleTime: 60 * 1000,
+  });
+  const detail = detailQuery.data;
   const clearAll = () => {
     setCats(new Set());
     setSevSel(new Set());
@@ -323,43 +354,69 @@ export default function OwnerAuditPage() {
           <span className="perfnote">⚡ Loads only the visible page · cursor-paginated · up to 1 year</span>
           <span className="faint" style={{ fontSize: 11, color: '#94a3b8' }}>Quick range:</span>
           {QUICK_RANGES.map((r) => (
-            <span key={r.label} className="rng" onClick={() => applyQuickRange(r.ms)}>{r.label}</span>
+            <span key={r.label} className="rng" onClick={() => applyQuickRange(r.from)}>{r.label}</span>
           ))}
         </div>
 
-        {/* KPI strip */}
+        {/* KPI strip — action-oriented: what should I check, is money moving,
+            who's most active. */}
         <div className="kpis">
-          <div className="card kpi">
-            <div className="lbl">Severity · window</div>
-            <div className="sevrow">
-              {SEVS.map((s) => {
-                const ab = SEV_ABBR[s.key];
-                const on = !sevSel.size || sevSel.has(s.key);
-                return (
-                  <span key={s.key} className={`chip ${ab} ${on ? '' : 'off'}`} onClick={() => toggleSev(s.key)}>
-                    {s.label} <span className="n">{summary?.severity[s.key] ?? 0}</span>
-                  </span>
-                );
-              })}
-            </div>
-            <hr />
-            <div className="sm">Click a severity to filter this page. Total <b>{summary?.total ?? 0}</b> in window.</div>
-          </div>
-          <div className="card kpi">
-            <div className="lbl">By category</div>
-            <div className="sm" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
-              {CATEGORIES.map((c) => (
-                <span key={c.key}>{c.label}: <b>{summary?.category[c.key] ?? 0}</b></span>
-              ))}
-            </div>
-          </div>
-          <div className="card kpi">
-            <div className="lbl">Window</div>
-            <div className="big">{summary?.total ?? 0}</div>
-            <div className="sm">events</div>
-            <hr />
-            <div className="sm">Page {pageNum} · 50 / page · only this page is fetched.</div>
-          </div>
+          {(() => {
+            const h = summary?.highlights;
+            const flagged = (h?.deletions ?? 0) + (h?.postFinalizeEdits ?? 0) + (h?.payoutsPaid ?? 0);
+            return (
+              <>
+                {/* Card 1 — Needs review (act-on-now) + severity filter chips */}
+                <div className="card kpi">
+                  <div className="lbl">Needs review</div>
+                  <div className="sevrow">
+                    {SEVS.map((s) => {
+                      const ab = SEV_ABBR[s.key];
+                      const on = !sevSel.size || sevSel.has(s.key);
+                      return (
+                        <span key={s.key} className={`chip ${ab} ${on ? '' : 'off'}`} onClick={() => toggleSev(s.key)}>
+                          {s.label} <span className="n">{summary?.severity[s.key] ?? 0}</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                  <hr />
+                  {flagged === 0 ? (
+                    <div className="sm" style={{ color: '#16a34a' }}>✓ Nothing flagged in this window.</div>
+                  ) : (
+                    <div className="sm">
+                      <b style={{ color: '#b91c1c' }}>{h?.deletions ?? 0}</b> deletions ·{' '}
+                      <b style={{ color: '#b91c1c' }}>{h?.postFinalizeEdits ?? 0}</b> edits after finalize ·{' '}
+                      <b>{h?.payoutsPaid ?? 0}</b> payouts paid
+                    </div>
+                  )}
+                </div>
+
+                {/* Card 2 — Money & payouts */}
+                <div className="card kpi">
+                  <div className="lbl">Money &amp; payouts</div>
+                  <div className="big">{h?.billChanges ?? 0}</div>
+                  <div className="sm">bill changes — discounts / refunds / edits</div>
+                  <hr />
+                  <div className="sm">
+                    {h?.payoutsPaid ?? 0} payouts paid · {h?.deletions ?? 0} deletions{' '}
+                    <span className="faint" style={{ color: '#94a3b8' }}>(₹ amounts land with the money slice)</span>
+                  </div>
+                </div>
+
+                {/* Card 3 — Activity & throughput */}
+                <div className="card kpi">
+                  <div className="lbl">Activity today</div>
+                  <div className="big">{h?.topActor?.name ?? '—'}</div>
+                  <div className="sm">busiest actor{h?.topActor ? ` · ${h.topActor.count} actions` : ''}</div>
+                  <hr />
+                  <div className="sm">
+                    {h?.finalized ?? 0} finalized · {h?.drafts ?? 0} drafts in progress · {h?.reportAccess ?? 0} report views
+                  </div>
+                </div>
+              </>
+            );
+          })()}
         </div>
 
         {/* tabs */}
@@ -489,14 +546,38 @@ export default function OwnerAuditPage() {
                     {openRow.detail && openRow.detail !== openRow.event && (
                       <><div className="k">Detail</div><div className="v">{openRow.detail}</div></>
                     )}
+                    {detail?.ipAddress && (<><div className="k">IP</div><div className="v">{detail.ipAddress}</div></>)}
                   </div>
                 </div>
                 <div className="sec">
                   <h5>Before → After</h5>
-                  <div className="sm" style={{ color: '#94a3b8', fontSize: 12 }}>
-                    The field-level diff loads from the detail endpoint in a later slice.
-                  </div>
+                  {detailQuery.isLoading && <div className="sm" style={{ color: '#94a3b8' }}>Loading…</div>}
+                  {detail && detail.diff.length === 0 && (
+                    <div className="sm" style={{ color: '#94a3b8' }}>No recorded field changes for this event.</div>
+                  )}
+                  {detail && detail.diff.map((d) => (
+                    <div key={d.field} style={{ marginBottom: 8 }}>
+                      <div style={{ color: '#94a3b8', fontSize: 11, marginBottom: 2 }}>{d.field}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                        <span style={{ background: '#fef2f2', color: '#b91c1c', borderRadius: 5, padding: '2px 7px', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.old ?? '—'}</span>
+                        <span style={{ color: '#94a3b8' }}>→</span>
+                        <span style={{ background: '#f0fdf4', color: '#166534', borderRadius: 5, padding: '2px 7px', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.new ?? '—'}</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
+                {detail && detail.related.length > 0 && (
+                  <div className="sec">
+                    <h5>Related events (same entity)</h5>
+                    {detail.related.map((r) => (
+                      <div key={r.id} style={{ display: 'flex', gap: 10, fontSize: 12, padding: '3px 0', color: r.isThis ? '#b91c1c' : '#475569', fontWeight: r.isThis ? 600 : 400 }}>
+                        <span style={{ color: '#94a3b8', width: 96, flex: 'none' }}>{formatIstDateTime(r.whenIso).split(' · ')[1] ?? ''}</span>
+                        <span>{r.event}{r.isThis ? ' (this)' : ''}</span>
+                        <span style={{ marginLeft: 'auto', color: '#94a3b8' }}>{r.who ?? 'system'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="sec" style={{ border: 0 }}>
                   <h5>Triage</h5>
                   <div className="triage-btns">
