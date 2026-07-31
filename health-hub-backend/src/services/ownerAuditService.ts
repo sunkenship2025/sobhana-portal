@@ -557,7 +557,8 @@ export async function getStaffScorecard(params: {
     row.byType[key] = (row.byType[key] ?? 0) + g._count._all;
     row.total += g._count._all;
   }
-  const actors = Array.from(byActor.values()).sort((a, b) => b.total - a.total);
+  // Least mistakes first — the scorecard celebrates the cleanest staff at the top.
+  const actors = Array.from(byActor.values()).sort((a, b) => a.total - b.total);
 
   return {
     from: from.toISOString(),

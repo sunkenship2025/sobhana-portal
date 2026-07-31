@@ -489,20 +489,40 @@ export default function OwnerAuditPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {scorecardQuery.data.actors.map((a, i) => (
-                    <tr key={a.name} style={{ borderTop: '1px solid var(--border2)' }}>
-                      <td style={{ padding: '11px 14px', fontWeight: 550 }}>
-                        {a.name}
-                        {i === 0 && <span style={{ color: 'var(--hi-t)', fontSize: 11, marginLeft: 6 }}>· most</span>}
-                      </td>
-                      <td style={{ padding: '11px 14px', textAlign: 'right', fontWeight: 650, fontVariantNumeric: 'tabular-nums' }}>{a.total}</td>
-                      {scorecardQuery.data!.types.map((t) => (
-                        <td key={t.key} style={{ padding: '11px 14px', textAlign: 'right', color: a.byType[t.key] ? 'var(--ink)' : 'var(--ink3)', fontVariantNumeric: 'tabular-nums' }}>
-                          {a.byType[t.key] ?? 0}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
+                  {(() => {
+                    const acts = scorecardQuery.data.actors;
+                    const maxTotal = Math.max(1, ...acts.map((a) => a.total));
+                    return acts.map((a, i) => {
+                      const best = i === 0;
+                      const worst = i === acts.length - 1 && a.total > 0 && acts.length > 1;
+                      const ratio = a.total / maxTotal;
+                      const barColor = a.total === 0 ? 'var(--ok)' : ratio >= 0.66 ? 'var(--hi-br)' : ratio >= 0.33 ? 'var(--me-br)' : 'var(--in-br)';
+                      const numColor = a.total === 0 ? 'var(--ok)' : ratio >= 0.66 ? 'var(--hi-t)' : 'var(--ink)';
+                      return (
+                        <tr key={a.name} style={{ borderTop: '1px solid var(--border2)' }}>
+                          <td style={{ padding: '11px 14px', fontWeight: 550 }}>
+                            <span style={{ color: 'var(--ink3)', marginRight: 9, fontVariantNumeric: 'tabular-nums' }}>{i + 1}</span>
+                            {a.name}
+                            {best && <span style={{ color: 'var(--ok)', fontSize: 11, marginLeft: 7, fontWeight: 600 }}>✓ cleanest</span>}
+                            {worst && <span style={{ color: 'var(--hi-t)', fontSize: 11, marginLeft: 7 }}>needs review</span>}
+                          </td>
+                          <td style={{ padding: '11px 14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 9 }}>
+                              <div style={{ width: 64, height: 6, background: 'var(--border2)', borderRadius: 3, overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${Math.round(ratio * 100)}%`, background: barColor, borderRadius: 3 }} />
+                              </div>
+                              <b style={{ color: numColor, fontVariantNumeric: 'tabular-nums', minWidth: 16, textAlign: 'right' }}>{a.total}</b>
+                            </div>
+                          </td>
+                          {scorecardQuery.data!.types.map((t) => (
+                            <td key={t.key} style={{ padding: '11px 14px', textAlign: 'right', color: a.byType[t.key] ? 'var(--ink)' : 'var(--ink3)', fontVariantNumeric: 'tabular-nums' }}>
+                              {a.byType[t.key] ?? 0}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
             )}
