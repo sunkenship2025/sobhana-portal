@@ -53,11 +53,13 @@ export interface AuditEventRow {
   whenIso: string;
   drillTo: string | null;
   actionType: string;
+  status: "new" | "ack" | "resolved";
 }
 export interface AuditEventsParams {
   branchId: string | null;
   severity?: string | null;
   category?: string | null;
+  status?: string | null;
   actor?: string | null;
   q?: string | null;
   from?: string | null;
@@ -84,6 +86,7 @@ export interface AuditEventsResult {
       reportAccess: number;
       mistakesActor: { name: string; count: number } | null;
     };
+    triage: { new: number; ack: number; resolved: number; open: number };
   };
 }
 export interface AuditDiffRow {
@@ -318,24 +321,41 @@ export async function getAuditEvents(
   const sevs = parseList(params.severity).filter((s) =>
     ["high", "medium", "low", "info"].includes(s));
   const cats = parseList(params.category);
+  const statuses = parseList(params.status).filter((s) => ["new", "ack", "resolved"].includes(s));
   const selectAnd: Prisma.AnomalyEventWhereInput[] = [];
   if (sevs.length) selectAnd.push({ severity: { in: sevs } });
   if (cats.length) selectAnd.push({ category: { in: cats } });
+  if (statuses.length) {
+    const or: Prisma.AnomalyEventWhereInput[] = [];
+    if (statuses.includes("new")) or.push({ triage: { is: null } });
+    if (statuses.includes("ack")) or.push({ triage: { status: "ack" } });
+    if (statuses.includes("resolved")) or.push({ triage: { status: "resolved" } });
+    selectAnd.push({ OR: or });
+  }
 
   // Facet + highlight aggregates over the FULL window (ignore the selection), plus
   // the actor with the most FLAGGED (high/medium) events — "who to watch", not
   // just who clicked the most.
-  const [sevGroups, catGroups, eventGroups, actorGroups] = await Promise.all([
+  const [sevGroups, catGroups, eventGroups, actorGroups, ackCount, resolvedCount] = await Promise.all([
     prisma.anomalyEvent.groupBy({ by: ["severity"], where: { AND: windowAnd }, _count: { _all: true } }),
     prisma.anomalyEvent.groupBy({ by: ["category"], where: { AND: windowAnd }, _count: { _all: true } }),
     prisma.anomalyEvent.groupBy({ by: ["event"], where: { AND: windowAnd }, _count: { _all: true } }),
     prisma.anomalyEvent.groupBy({
       by: ["actorName"],
-      where: { AND: [...windowAnd, { actorName: { not: null } }, { event: { in: MISTAKE_EVENTS } }] },
+      where: {
+        AND: [
+          ...windowAnd,
+          { actorName: { not: null } },
+          { actorRole: { not: "lab_incharge" } },
+          { event: { in: MISTAKE_EVENTS } },
+        ],
+      },
       _count: { _all: true },
       orderBy: { _count: { actorName: "desc" } },
       take: 1,
     }),
+    prisma.anomalyEvent.count({ where: { AND: [...windowAnd, { triage: { status: "ack" } }] } }),
+    prisma.anomalyEvent.count({ where: { AND: [...windowAnd, { triage: { status: "resolved" } }] } }),
   ]);
   const severityCounts: Record<AuditSeverity, number> = { high: 0, medium: 0, low: 0, info: 0 };
   for (const g of sevGroups) severityCounts[g.severity as AuditSeverity] = g._count._all;
@@ -381,6 +401,7 @@ export async function getAuditEvents(
       id: true, severity: true, category: true, event: true, actorName: true,
       actorRole: true, entityType: true, entityId: true, detail: true,
       amountInPaise: true, occurredAt: true, drillTo: true, sourceKind: true,
+      triage: { select: { status: true } },
     },
   });
   const hasMore = rows.length > limit;
@@ -400,6 +421,7 @@ export async function getAuditEvents(
     whenIso: r.occurredAt.toISOString(),
     drillTo: r.drillTo,
     actionType: r.sourceKind,
+    status: (r.triage?.status as "ack" | "resolved" | undefined) ?? "new",
   }));
   // Resolve entity ids → human labels (patient name / bill / entity name), one
   // batched query per type over just this page.
@@ -415,7 +437,18 @@ export async function getAuditEvents(
     nextCursor,
     from: from.toISOString(),
     to: to.toISOString(),
-    summary: { total, severity: severityCounts, category: categoryCounts, highlights },
+    summary: {
+      total,
+      severity: severityCounts,
+      category: categoryCounts,
+      highlights,
+      triage: {
+        new: Math.max(0, total - ackCount - resolvedCount),
+        ack: ackCount,
+        resolved: resolvedCount,
+        open: Math.max(0, total - resolvedCount),
+      },
+    },
   };
 }
 
@@ -423,10 +456,20 @@ function parseJson(value: string | null): any {
   if (!value) return null;
   try { return JSON.parse(value); } catch { return null; }
 }
+// Internal plumbing we never want to show in a human before→after diff: storage
+// keys, byte sizes, foreign-key ids, timestamps, the correction marker.
+const DIFF_NOISE = new Set([
+  "id", "r2Key", "fileSizeBytes", "pageCount", "displayOrder", "checksum",
+  "mimeType", "createdAt", "updatedAt", "action", "severity", "ordersResnapshotted",
+  "resultsDeleted",
+]);
+const isNoiseKey = (k: string): boolean =>
+  DIFF_NOISE.has(k) || /Id$/.test(k) || k.toLowerCase().includes("key");
+
 function buildDiff(oldV: any, newV: any): AuditDiffRow[] {
   const o = oldV && typeof oldV === "object" ? oldV : {};
   const n = newV && typeof newV === "object" ? newV : {};
-  const keys = Array.from(new Set([...Object.keys(o), ...Object.keys(n)]));
+  const keys = Array.from(new Set([...Object.keys(o), ...Object.keys(n)])).filter((k) => !isNoiseKey(k));
   const s = (v: any): string | null =>
     v === undefined || v === null ? null : typeof v === "object" ? JSON.stringify(v) : String(v);
   const rows: AuditDiffRow[] = [];
@@ -443,6 +486,7 @@ export async function getAuditEventDetail(
 ): Promise<AuditEventDetail | null> {
   const e = await prisma.anomalyEvent.findFirst({
     where: { id, ...(branchId ? { branchId } : {}) },
+    include: { triage: { select: { status: true } } },
   });
   if (!e) return null;
 
@@ -494,6 +538,7 @@ export async function getAuditEventDetail(
     whenIso: e.occurredAt.toISOString(),
     drillTo: e.drillTo,
     actionType: e.sourceKind,
+    status: (e.triage?.status as "ack" | "resolved" | undefined) ?? "new",
     ipAddress,
     userAgent,
     reason: e.reason,
@@ -516,6 +561,7 @@ export async function getAuditEventDetail(
 // ---------------------------------------------------------------------------
 export interface StaffScorecardRow {
   name: string;
+  role: string | null;
   total: number;
   byType: Record<string, number>;
 }
@@ -523,7 +569,8 @@ export interface StaffScorecardResult {
   from: string;
   to: string;
   types: Array<{ key: string; label: string }>;
-  actors: StaffScorecardRow[];
+  actors: StaffScorecardRow[]; // staff (front desk / diagnostics) — the leaderboard
+  labIncharge: StaffScorecardRow[]; // lab in-charges, listed separately (they edit/finalize)
 }
 
 export async function getStaffScorecard(params: {
@@ -538,7 +585,7 @@ export async function getStaffScorecard(params: {
   await ensureProjected(params.branchId, from, to);
 
   const groups = await prisma.anomalyEvent.groupBy({
-    by: ["actorName", "event"],
+    by: ["actorName", "actorRole", "event"],
     where: {
       AND: [
         { occurredAt: { gte: from, lte: to } },
@@ -556,19 +603,25 @@ export async function getStaffScorecard(params: {
     const name = g.actorName as string;
     const key = eventToKey.get(g.event);
     if (!key) continue;
-    if (!byActor.has(name)) byActor.set(name, { name, total: 0, byType: {} });
+    if (!byActor.has(name)) byActor.set(name, { name, role: g.actorRole ?? null, total: 0, byType: {} });
     const row = byActor.get(name)!;
+    if (g.actorRole && !row.role) row.role = g.actorRole;
     row.byType[key] = (row.byType[key] ?? 0) + g._count._all;
     row.total += g._count._all;
   }
-  // Least mistakes first — the scorecard celebrates the cleanest staff at the top.
-  const actors = Array.from(byActor.values()).sort((a, b) => a.total - b.total);
+  // Least mistakes first — celebrate the cleanest at the top. Lab in-charges are
+  // split out: they legitimately edit/finalize, so they don't belong in the
+  // front-desk staff leaderboard.
+  const all = Array.from(byActor.values()).sort((a, b) => a.total - b.total);
+  const actors = all.filter((a) => a.role !== "lab_incharge");
+  const labIncharge = all.filter((a) => a.role === "lab_incharge");
 
   return {
     from: from.toISOString(),
     to: to.toISOString(),
     types: MISTAKE_TYPES.map((m) => ({ key: m.key, label: m.label })),
     actors,
+    labIncharge,
   };
 }
 
@@ -681,4 +734,33 @@ export async function getReportAccess(params: {
   const nextCursor = hasMore && last ? encodeCursor(last.createdAt, last.id) : null;
 
   return { items, nextCursor, from: from.toISOString(), to: to.toISOString(), counts };
+}
+
+// ---------------------------------------------------------------------------
+// Triage — set an event's workqueue state. 'new' clears the row (back to new);
+// 'ack'/'resolved' upsert it. Lives in AnomalyTriage so re-projection can't wipe it.
+// ---------------------------------------------------------------------------
+export async function setEventTriage(params: {
+  eventId: string;
+  status: "new" | "ack" | "resolved";
+  note?: string | null;
+  actorUserId?: string | null;
+  actorName?: string | null;
+}): Promise<{ status: "new" | "ack" | "resolved" }> {
+  if (params.status === "new") {
+    await prisma.anomalyTriage.deleteMany({ where: { anomalyEventId: params.eventId } });
+    return { status: "new" };
+  }
+  const data = {
+    status: params.status,
+    note: params.note ?? null,
+    actorUserId: params.actorUserId ?? null,
+    actorName: params.actorName ?? null,
+  };
+  await prisma.anomalyTriage.upsert({
+    where: { anomalyEventId: params.eventId },
+    create: { anomalyEventId: params.eventId, ...data },
+    update: data,
+  });
+  return { status: params.status };
 }

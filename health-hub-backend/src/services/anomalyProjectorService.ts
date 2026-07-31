@@ -57,7 +57,9 @@ function classifyAudit(
       return { category: "ops", severity: "low", event: `Updated ${entityType}` };
     case AuditActionType.CREATE:
       if (entityType === "Patient")
-        return { category: "identity", severity: "low", event: "Patient created" };
+        return { category: "identity", severity: "low", event: "Patient registered" };
+      if (entityType === "Visit")
+        return { category: "money", severity: "low", event: "Visit billed" };
       return { category: "ops", severity: "low", event: `Created ${entityType}` };
     default:
       return { category: "ops", severity: "low", event: `${actionType} ${entityType}` };

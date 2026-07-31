@@ -1115,15 +1115,35 @@ model AnomalyEvent {
   amountInPaise Int?
   reason        String?
   drillTo       String?
-  sourceKind    String // audit | discount | refund
+  sourceKind    String // audit | discount | refund | reopen
   sourceId      String
   dedupeKey     String   @unique
   createdAt     DateTime @default(now())
+
+  triage AnomalyTriage?
 
   @@index([branchId, occurredAt])
   @@index([branchId, severity, occurredAt])
   @@index([branchId, category, occurredAt])
   @@index([branchId, actorUserId, occurredAt])
+}
+
+/// AnomalyTriage: per-event workqueue state (Acknowledge / Resolve). Kept in a
+/// SEPARATE table so re-projecting AnomalyEvent never wipes it; absence of a row
+/// = still "new". One row per event.
+model AnomalyTriage {
+  id             String   @id @default(cuid())
+  anomalyEventId String   @unique
+  status         String // ack | resolved
+  note           String?
+  actorUserId    String?
+  actorName      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  anomalyEvent AnomalyEvent @relation(fields: [anomalyEventId], references: [id], onDelete: Cascade)
+
+  @@index([status])
 }
 
 // ============================================================================

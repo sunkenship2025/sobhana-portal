@@ -8,7 +8,7 @@
  * leak into the rest of the app.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { API_BASE } from '@/lib/api';
@@ -35,6 +35,7 @@ interface AuditEventRow {
   whenIso: string;
   drillTo: string | null;
   actionType: string;
+  status: 'new' | 'ack' | 'resolved';
 }
 interface AuditEventsResponse {
   items: AuditEventRow[];
@@ -55,6 +56,7 @@ interface AuditEventsResponse {
       reportAccess: number;
       mistakesActor: { name: string; count: number } | null;
     };
+    triage: { new: number; ack: number; resolved: number; open: number };
   };
 }
 interface AuditDetail extends AuditEventRow {
@@ -63,11 +65,13 @@ interface AuditDetail extends AuditEventRow {
   diff: Array<{ field: string; old: string | null; new: string | null }>;
   related: Array<{ id: string; severity: Severity; event: string; who: string | null; whenIso: string; isThis: boolean }>;
 }
+interface ScorecardActor { name: string; role: string | null; total: number; byType: Record<string, number> }
 interface ScorecardResponse {
   from: string;
   to: string;
   types: Array<{ key: string; label: string }>;
-  actors: Array<{ name: string; total: number; byType: Record<string, number> }>;
+  actors: ScorecardActor[];
+  labIncharge: ScorecardActor[];
 }
 interface AccessResponse {
   items: Array<{ id: string; accessType: string; accessedVia: string; who: string | null; patient: string | null; ipAddress: string | null; whenIso: string }>;
@@ -138,6 +142,12 @@ const CSS = `
 .ap .sel,.ap .btn,.ap .dt,.ap .search{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:6px 11px;
   font-size:12px;color:var(--ink);cursor:pointer;display:inline-flex;gap:7px;align-items:center;box-shadow:var(--shadow);font-family:inherit}
 .ap .search{cursor:text;min-width:210px}
+.ap .searchbar{position:relative;margin:2px 0 14px}
+.ap .searchbig{width:100%;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 40px;font-size:14px;color:var(--ink);box-shadow:var(--shadow);font-family:inherit;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23888780' stroke-width='2.2'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:15px center}
+.ap .searchbig::placeholder{color:var(--ink3)}
+.ap .searchbig:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-b)}
+.ap .searchclear{position:absolute;right:13px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:var(--ink3);cursor:pointer;font-size:14px;line-height:1}
 .ap .search:focus,.ap .dt:focus{outline:none;border-color:var(--accent)}
 .ap .btn:hover,.ap .sel:hover{border-color:#cdd2da}
 .ap .perfnote{font-size:11px;color:var(--ink3)}
@@ -278,12 +288,25 @@ export default function OwnerAuditPage() {
     });
   const sevList = useMemo(() => Array.from(sevSel).sort().join(','), [sevSel]);
 
+  // Triage workqueue filter — default to open work (New + Acknowledged).
+  const [statusSel, setStatusSel] = useState<Set<'new' | 'ack' | 'resolved'>>(
+    new Set<'new' | 'ack' | 'resolved'>(['new', 'ack']),
+  );
+  const toggleStatus = (key: 'new' | 'ack' | 'resolved') =>
+    setStatusSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const statusList = useMemo(() => Array.from(statusSel).sort().join(','), [statusSel]);
+
   const fromIso = localToIso(fromLocal);
   const toIso = localToIso(toLocal);
 
   const [cursor, setCursor] = useState<string | null>(null);
   const [stack, setStack] = useState<string[]>([]);
-  const filterKey = `${branchValue}|${q}|${fromIso}|${toIso}|${catList}|${sevList}`;
+  const filterKey = `${branchValue}|${q}|${fromIso}|${toIso}|${catList}|${sevList}|${statusList}`;
   useEffect(() => {
     setCursor(null);
     setStack([]);
@@ -298,7 +321,11 @@ export default function OwnerAuditPage() {
       if (fromIso) p.set('from', fromIso);
       if (toIso) p.set('to', toIso);
       if (catList) p.set('category', catList);
-      if (sevList) p.set('severity', sevList);
+      // While searching, show the FULL timeline for that entity/patient (who
+      // billed, who finalized, drafts, access…) — don't hide it behind the
+      // severity default.
+      if (sevList && !q) p.set('severity', sevList);
+      if (statusList && !q) p.set('status', statusList);
       if (cursor) p.set('cursor', cursor);
       p.set('limit', '50');
       return apiRequest<AuditEventsResponse>(`${API_BASE}/owner/audit/events?${p.toString()}`);
@@ -338,6 +365,25 @@ export default function OwnerAuditPage() {
     staleTime: 60 * 1000,
   });
   const detail = detailQuery.data;
+
+  const qc = useQueryClient();
+  const [triaging, setTriaging] = useState(false);
+  const doTriage = async (status: 'new' | 'ack' | 'resolved') => {
+    if (!openRow) return;
+    setTriaging(true);
+    try {
+      await apiRequest(`${API_BASE}/owner/audit/events/${openRow.id}/triage`, {
+        method: 'POST',
+        body: JSON.stringify({ status }),
+      });
+      setOpenRow((prev) => (prev ? { ...prev, status } : prev));
+      qc.invalidateQueries({ queryKey: ['owner-audit'] });
+    } catch {
+      /* the row simply won't update on failure */
+    } finally {
+      setTriaging(false);
+    }
+  };
 
   // Staff scorecard — staff ranked by mistakes (rework), with its own period.
   const [scorePeriod, setScorePeriod] = useState('daily');
@@ -393,12 +439,6 @@ export default function OwnerAuditPage() {
             </div>
           </div>
           <div className="ctrls">
-            <input
-              className="search"
-              placeholder="Search entity / id…"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-            />
             <select className="sel" value={branchValue} onChange={(e) => setBranchValue(e.target.value)}>
               <option value="all">All branches</option>
               {branches.filter((b) => b.isActive).map((b) => (
@@ -410,6 +450,20 @@ export default function OwnerAuditPage() {
             <input className="dt" type="datetime-local" value={toLocal} onChange={(e) => setToLocal(e.target.value)} />
             <button className="btn" onClick={() => query.refetch()}>{query.isFetching ? '⟳…' : '⟳'}</button>
           </div>
+        </div>
+
+        {/* Prominent, intentional search — a patient / bill / staff / event
+            timeline lookup, not a corner box. */}
+        <div className="searchbar">
+          <input
+            className="searchbig"
+            placeholder="Search a patient, bill #, staff or event — shows their full timeline"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+          {searchInput && (
+            <button className="searchclear" onClick={() => setSearchInput('')} aria-label="Clear search">✕</button>
+          )}
         </div>
 
         <div className="qr">
@@ -428,9 +482,9 @@ export default function OwnerAuditPage() {
             const flagged = (h?.deletions ?? 0) + (h?.postFinalizeEdits ?? 0) + (h?.payoutsPaid ?? 0);
             return (
               <>
-                {/* Card 1 — Needs review (act-on-now) + severity filter chips */}
+                {/* Card 1 — Severity breakdown (click to filter) + the flagged subset */}
                 <div className="card kpi">
-                  <div className="lbl">Needs review</div>
+                  <div className="lbl">Severity · click to filter</div>
                   <div className="sevrow">
                     {SEVS.map((s) => {
                       const ab = SEV_ABBR[s.key];
@@ -447,7 +501,7 @@ export default function OwnerAuditPage() {
                     <div className="sm" style={{ color: '#0F6E56' }}>✓ Nothing flagged in this window.</div>
                   ) : (
                     <div className="sm">
-                      <b style={{ color: '#A32D2D' }}>{h?.deletions ?? 0}</b> deletions ·{' '}
+                      Flagged: <b style={{ color: '#A32D2D' }}>{h?.deletions ?? 0}</b> deletions ·{' '}
                       <b style={{ color: '#A32D2D' }}>{h?.postFinalizeEdits ?? 0}</b> edits after finalize ·{' '}
                       <b>{h?.payoutsPaid ?? 0}</b> payouts paid
                     </div>
@@ -575,6 +629,28 @@ export default function OwnerAuditPage() {
                       );
                     });
                   })()}
+                  {scorecardQuery.data.labIncharge.length > 0 && (
+                    <>
+                      <tr>
+                        <td colSpan={2 + scorecardQuery.data.types.length} style={{ padding: '10px 14px', borderTop: '1px solid var(--border)', background: 'rgba(0,0,0,0.02)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--ink3)', fontWeight: 650 }}>
+                          Lab in-charge <span style={{ textTransform: 'none', fontWeight: 400 }}>· edits / finalizes as part of the job — listed, not ranked</span>
+                        </td>
+                      </tr>
+                      {scorecardQuery.data.labIncharge.map((a) => (
+                        <tr key={a.name} style={{ borderTop: '1px solid var(--border2)' }}>
+                          <td style={{ padding: '11px 14px', fontWeight: 550 }}>
+                            {a.name} <span style={{ color: 'var(--ink3)', fontSize: 11 }}>· lab in-charge</span>
+                          </td>
+                          <td style={{ padding: '11px 14px', textAlign: 'right', fontWeight: 650, fontVariantNumeric: 'tabular-nums' }}>{a.total}</td>
+                          {scorecardQuery.data!.types.map((t) => (
+                            <td key={t.key} style={{ padding: '11px 14px', textAlign: 'right', color: a.byType[t.key] ? 'var(--ink)' : 'var(--ink3)', fontVariantNumeric: 'tabular-nums' }}>
+                              {a.byType[t.key] ?? 0}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </>
+                  )}
                 </tbody>
               </table>
             )}
@@ -658,6 +734,13 @@ export default function OwnerAuditPage() {
                   <span className="c">{summary?.category[c.key] ?? 0}</span>
                 </div>
               ))}
+              <h4>Triage</h4>
+              {([['new', 'New'], ['ack', 'Acknowledged'], ['resolved', 'Resolved']] as const).map(([key, label]) => (
+                <div key={key} className={`facet ${statusSel.has(key) ? 'on' : ''}`} onClick={() => toggleStatus(key)}>
+                  <span className="l">{label}</span>
+                  <span className="c">{summary?.triage[key] ?? 0}</span>
+                </div>
+              ))}
               <button className="clearall" onClick={clearAll}>Clear all filters</button>
             </div>
 
@@ -688,11 +771,13 @@ export default function OwnerAuditPage() {
               {data && items.map((r) => {
                 const ab = SEV_ABBR[r.severity];
                 return (
-                  <div key={r.id} className={`trow ${ab}`} onClick={() => setOpenRow(r)}>
+                  <div key={r.id} className={`trow ${ab}`} onClick={() => setOpenRow(r)} style={r.status === 'resolved' ? { opacity: 0.55 } : undefined}>
                     <div><span className={`sev ${ab}`}>{r.severity === 'medium' ? 'MED' : r.severity.toUpperCase()}</span></div>
                     <div className="cat">{r.category}</div>
                     <div className="ev">
                       {r.event}
+                      {r.status === 'ack' && <span style={{ color: 'var(--me-t)', fontSize: 10.5, marginLeft: 7, fontWeight: 600 }}>ACK</span>}
+                      {r.status === 'resolved' && <span style={{ color: 'var(--ok)', fontSize: 10.5, marginLeft: 7, fontWeight: 600 }}>✓ RESOLVED</span>}
                       {r.detail && r.detail !== r.event && <div className="sub">{r.detail}</div>}
                     </div>
                     <div className="who">
@@ -783,16 +868,29 @@ export default function OwnerAuditPage() {
                   </div>
                 )}
                 <div className="sec" style={{ border: 0 }}>
-                  <h5>Triage</h5>
+                  <h5>Triage — {openRow.status === 'new' ? 'New' : openRow.status === 'ack' ? 'Acknowledged' : 'Resolved'}</h5>
                   <div className="triage-btns">
-                    <button className="tb pri" disabled>Acknowledge</button>
-                    <button className="tb" disabled>Resolve</button>
+                    <button
+                      className={`tb ${openRow.status === 'new' ? 'pri' : ''}`}
+                      disabled={triaging || openRow.status === 'ack'}
+                      onClick={() => doTriage('ack')}
+                    >
+                      Acknowledge
+                    </button>
+                    <button
+                      className="tb"
+                      disabled={triaging || openRow.status === 'resolved'}
+                      onClick={() => doTriage('resolved')}
+                      style={openRow.status === 'resolved' ? undefined : { borderColor: 'var(--ok)', color: 'var(--ok)' }}
+                    >
+                      Resolve
+                    </button>
+                    {openRow.status !== 'new' && (
+                      <button className="tb" disabled={triaging} onClick={() => doTriage('new')}>Reopen</button>
+                    )}
                     {openRow.drillTo && (
                       <button className="tb" onClick={() => navigate(openRow.drillTo!)}>Open record ▸</button>
                     )}
-                  </div>
-                  <div className="sm" style={{ color: '#888780', fontSize: 11, marginTop: 6 }}>
-                    Acknowledge / resolve wiring lands with the triage-state slice.
                   </div>
                 </div>
               </div>

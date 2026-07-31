@@ -13,7 +13,7 @@ import {
 import { buildDaySheetWorkbook } from '../services/moneyDaySheetExportService';
 import { getOwnerDoctors, PeriodKey as DoctorsPeriod } from '../services/ownerDoctorsService';
 import { getOwnerOperations } from '../services/ownerOperationsService';
-import { getAuditEvents, getAuditEventDetail, getStaffScorecard, getReportAccess } from '../services/ownerAuditService';
+import { getAuditEvents, getAuditEventDetail, getStaffScorecard, getReportAccess, setEventTriage } from '../services/ownerAuditService';
 import { backfillProjection } from '../services/anomalyProjectorService';
 
 const router = Router();
@@ -114,6 +114,28 @@ router.get('/audit/access', requireRole('owner', 'lab_incharge'), async (req: Au
   } catch (err: any) {
     req.log.error({ err }, 'owner audit access load failed');
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to load report access log' });
+  }
+});
+
+// POST /api/owner/audit/events/:id/triage — set workqueue state on an event.
+// Owner + lab_incharge. { status: 'new' | 'ack' | 'resolved', note? }.
+router.post('/audit/events/:id/triage', requireRole('owner', 'lab_incharge'), async (req: AuthRequest, res) => {
+  try {
+    const status = String(req.body?.status ?? '');
+    if (!['new', 'ack', 'resolved'].includes(status)) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'status must be new, ack or resolved' });
+    }
+    const result = await setEventTriage({
+      eventId: req.params.id,
+      status: status as 'new' | 'ack' | 'resolved',
+      note: typeof req.body?.note === 'string' ? req.body.note : null,
+      actorUserId: req.user?.id ?? null,
+      actorName: null,
+    });
+    return res.json(result);
+  } catch (err: any) {
+    req.log.error({ err }, 'owner audit triage failed');
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to update triage' });
   }
 });
 
