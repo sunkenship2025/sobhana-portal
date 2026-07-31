@@ -101,6 +101,23 @@ function mapConversation(c: ConvForList) {
   };
 }
 
+/** Distinct test names for a visit → "CBP, LFT" (first 3, then "+N"). */
+function summarizeTests(
+  testOrders: Array<{
+    product: { name: string } | null;
+    testDefinition: { name: string } | null;
+    test: { name: string } | null;
+  }>,
+): string {
+  const names: string[] = [];
+  for (const o of testOrders) {
+    const n = o.product?.name || o.testDefinition?.name || o.test?.name;
+    if (n && !names.includes(n)) names.push(n);
+  }
+  if (names.length <= 3) return names.join(', ');
+  return `${names.slice(0, 3).join(', ')} +${names.length - 3}`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/inbox/conversations
 // ─────────────────────────────────────────────────────────────────────────────
@@ -196,7 +213,7 @@ router.get('/templates', async (_req: AuthRequest, res) => {
   } catch (err: any) {
     // Degrade gracefully — the composer falls back to a manual template-name field.
     console.error('[Inbox] templates error:', err?.response?.data || err?.message || err);
-    res.json({ templates: [], enabled: true, error: 'Could not load templates (check WHATSAPP_WABA_ID).' });
+    res.json({ templates: [], enabled: true, error: 'Could not load templates (check WHATSAPP_BUSINESS_ACCOUNT_ID / token).' });
   }
 });
 
@@ -262,6 +279,13 @@ router.get('/conversations/:id', async (req: AuthRequest, res) => {
               paymentStatus: true,
             },
           },
+          testOrders: {
+            select: {
+              product: { select: { name: true } },
+              testDefinition: { select: { name: true } },
+              test: { select: { name: true } },
+            },
+          },
         },
       });
 
@@ -274,6 +298,15 @@ router.get('/conversations/:id', async (req: AuthRequest, res) => {
       };
 
       const currentYear = new Date().getFullYear();
+
+      // Last report/bill we sent this number — powers the thread "Report sent" system line.
+      const lastNotif = await prisma.messageLog.findFirst({
+        where: { phone: convo.phone, contextType: { in: ['REPORT', 'BILL'] } },
+        orderBy: { createdAt: 'desc' },
+        select: { contextType: true, contextId: true, sentAt: true, createdAt: true },
+      });
+      const notifVisit = lastNotif ? visits.find((v) => v.id === lastNotif.contextId) : undefined;
+
       patientContext = {
         patient: patient
           ? {
@@ -291,6 +324,7 @@ router.get('/conversations/:id', async (req: AuthRequest, res) => {
               status: visits[0].status,
               createdAt: visits[0].createdAt,
               branchCode: visits[0].branch?.code ?? null,
+              tests: summarizeTests(visits[0].testOrders),
               ...money(visits[0].bill),
             }
           : null,
@@ -300,8 +334,16 @@ router.get('/conversations/:id', async (req: AuthRequest, res) => {
           status: v.status,
           createdAt: v.createdAt,
           branchCode: v.branch?.code ?? null,
+          tests: summarizeTests(v.testOrders),
           ...money(v.bill),
         })),
+        lastNotification: lastNotif
+          ? {
+              type: lastNotif.contextType,
+              at: lastNotif.sentAt ?? lastNotif.createdAt,
+              tests: notifVisit ? summarizeTests(notifVisit.testOrders) : '',
+            }
+          : null,
       };
     }
 
