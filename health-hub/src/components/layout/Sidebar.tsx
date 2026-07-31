@@ -269,7 +269,10 @@ export function Sidebar() {
     queryFn: () => branchRequest<{ count: number }>('/inbox/unread-count', activeBranchId ?? ''),
     branchScoped: true,
     enabled: canSeeMessages,
-    refetchInterval: 30000,
+    // Sidebar is mounted on every page, so keep this light: 60s, and react-query
+    // pauses interval polling on backgrounded tabs. A cheap COUNT on a small table.
+    refetchInterval: 60000,
+    refetchIntervalInBackground: false,
   });
   const messagesUnread = unreadData?.count ?? 0;
 
