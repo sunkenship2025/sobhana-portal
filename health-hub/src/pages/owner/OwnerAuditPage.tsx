@@ -65,7 +65,7 @@ interface AuditDetail extends AuditEventRow {
   diff: Array<{ field: string; old: string | null; new: string | null }>;
   related: Array<{ id: string; severity: Severity; event: string; who: string | null; whenIso: string; isThis: boolean }>;
 }
-interface ScorecardActor { name: string; role: string | null; total: number; byType: Record<string, number> }
+interface ScorecardActor { name: string; role: string | null; total: number; billed: number; rate: number; byType: Record<string, number> }
 interface ScorecardResponse {
   from: string;
   to: string;
@@ -151,6 +151,14 @@ const CSS = `
 .ap .search:focus,.ap .dt:focus{outline:none;border-color:var(--accent)}
 .ap .btn:hover,.ap .sel:hover{border-color:#cdd2da}
 .ap .perfnote{font-size:11px;color:var(--ink3)}
+.ap .qfilters{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0 2px 14px}
+.ap .qfilters .flabel{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);font-weight:650;margin-right:2px}
+.ap .qfilters .fdiv{width:1px;height:16px;background:var(--border);margin:0 4px}
+.ap .qchip{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:3px 9px;font-size:11.5px;color:var(--ink2);cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:5px}
+.ap .qchip:hover{border-color:var(--ink3);color:var(--ink)}
+.ap .qchip.on{background:rgba(0,0,0,0.05);border-color:var(--ink3);color:var(--ink);font-weight:600}
+.ap .qchip .sw{width:8px;height:8px;border-radius:2px;display:inline-block}
+.ap .qfilters .fclear{font-size:11px;color:var(--accent);cursor:pointer;background:none;border:0;padding:2px 4px;font-family:inherit}
 .ap .qr{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:-4px 0 14px}
 .ap .qr .rng{background:transparent;border:0;padding:2px 4px;font-size:11.5px;color:var(--ink2);cursor:pointer;text-decoration:underline;text-underline-offset:2px;text-decoration-color:var(--border)}
 .ap .qr .rng:hover{color:var(--ink)}
@@ -546,6 +554,30 @@ export default function OwnerAuditPage() {
           )}
         </div>
 
+        {/* Quick filters right under the search — same state as the rail, so the
+            useful cuts (severity + event type) are one click away up top. */}
+        {tab === 'feed' && (
+          <div className="qfilters">
+            <span className="flabel">Severity</span>
+            {SEVS.map((s) => (
+              <button key={s.key} className={`qchip ${sevSel.has(s.key) ? 'on' : ''}`} onClick={() => toggleSev(s.key)}>
+                <span className="sw" style={{ background: `var(--${SEV_ABBR[s.key]}-br)` }} />
+                {s.label}
+              </button>
+            ))}
+            <span className="fdiv" />
+            <span className="flabel">Type</span>
+            {CATEGORIES.map((c) => (
+              <button key={c.key} className={`qchip ${cats.has(c.key) ? 'on' : ''}`} onClick={() => toggleCat(c.key)}>
+                {c.label}
+              </button>
+            ))}
+            {(cats.size > 0 || sevSel.size !== 2 || !sevSel.has('high') || !sevSel.has('medium')) && (
+              <button className="fclear" onClick={clearAll}>Reset</button>
+            )}
+          </div>
+        )}
+
         {/* tabs */}
         <div className="tabs">
           {TABS.map((t) => (
@@ -559,7 +591,7 @@ export default function OwnerAuditPage() {
         {tab === 'score' ? (
           <div className="card" style={{ overflow: 'hidden' }}>
             <div style={{ padding: '11px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 600 }}>Staff scorecard — mistakes (rework)</span>
+              <span style={{ fontWeight: 600 }}>Staff scorecard — mistakes per 100 billed <span style={{ fontWeight: 400, color: 'var(--ink3)', fontSize: 12 }}>· ranked by rate, not raw count</span></span>
               <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
                 {SCORE_PERIODS.map((p) => (
                   <button
@@ -589,7 +621,7 @@ export default function OwnerAuditPage() {
                 <thead>
                   <tr style={{ color: 'var(--ink3)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '.04em' }}>
                     <th style={{ textAlign: 'left', padding: '9px 14px' }}>Staff</th>
-                    <th style={{ textAlign: 'right', padding: '9px 14px' }}>Mistakes</th>
+                    <th style={{ textAlign: 'right', padding: '9px 14px' }}>Mistake rate</th>
                     {scorecardQuery.data.types.map((t) => (
                       <th key={t.key} style={{ textAlign: 'right', padding: '9px 14px' }}>{t.label}</th>
                     ))}
@@ -598,12 +630,14 @@ export default function OwnerAuditPage() {
                 <tbody>
                   {(() => {
                     const acts = scorecardQuery.data.actors;
-                    const maxTotal = Math.max(1, ...acts.map((a) => a.total));
+                    const maxRate = Math.max(1, ...acts.map((a) => a.rate));
                     return acts.map((a, i) => {
                       const best = i === 0;
-                      const ratio = a.total / maxTotal;
+                      const ratio = a.rate / maxRate;
                       const barColor = a.total === 0 ? 'var(--ok)' : ratio >= 0.66 ? 'var(--hi-br)' : ratio >= 0.33 ? 'var(--me-br)' : 'var(--in-br)';
                       const numColor = a.total === 0 ? 'var(--ok)' : ratio >= 0.66 ? 'var(--hi-t)' : 'var(--ink)';
+                      // rate = mistakes per 100 billed; show it, with the raw n/denominator beneath.
+                      const rateLabel = a.billed === 0 ? '—' : a.rate.toFixed(a.rate < 10 ? 1 : 0);
                       return (
                         <tr key={a.name} style={{ borderTop: '1px solid var(--border2)' }}>
                           <td style={{ padding: '11px 14px', fontWeight: 550 }}>
@@ -611,13 +645,16 @@ export default function OwnerAuditPage() {
                             {a.name}
                             {best && a.total === 0 && <span style={{ color: 'var(--ok)', fontSize: 11, marginLeft: 7, fontWeight: 600 }}>✓ clean</span>}
                             {best && a.total > 0 && <span style={{ color: 'var(--ok)', fontSize: 11, marginLeft: 7, fontWeight: 600 }}>✓ cleanest</span>}
+                            <div style={{ color: 'var(--ink3)', fontSize: 11, marginTop: 2, fontWeight: 400 }}>
+                              {a.total} mistake{a.total === 1 ? '' : 's'} in {a.billed} billed
+                            </div>
                           </td>
                           <td style={{ padding: '11px 14px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 9 }}>
                               <div style={{ width: 64, height: 6, background: 'var(--border2)', borderRadius: 3, overflow: 'hidden' }}>
                                 <div style={{ height: '100%', width: `${Math.round(ratio * 100)}%`, background: barColor, borderRadius: 3 }} />
                               </div>
-                              <b style={{ color: numColor, fontVariantNumeric: 'tabular-nums', minWidth: 16, textAlign: 'right' }}>{a.total}</b>
+                              <b style={{ color: numColor, fontVariantNumeric: 'tabular-nums', minWidth: 34, textAlign: 'right' }} title="mistakes per 100 patients billed">{rateLabel}<span style={{ fontWeight: 400, color: 'var(--ink3)', fontSize: 10 }}>/100</span></b>
                             </div>
                           </td>
                           {scorecardQuery.data!.types.map((t) => (

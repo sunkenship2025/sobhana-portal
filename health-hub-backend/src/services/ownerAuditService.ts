@@ -307,12 +307,41 @@ export async function getAuditEvents(
   if (params.actor) windowAnd.push({ actorUserId: params.actor });
   const q = params.q?.trim();
   if (q) {
+    // A patient / bill lookup by an ID we don't store on the event row (phone,
+    // patient number, bill number) is resolved to the visits it touches — every
+    // patient-linked event drills to `/diagnostics/results/{visitId}`, so we
+    // match on that path. Only runs when the user actually searches.
+    const branchAnd = params.branchId ? { branchId: params.branchId } : {};
+    const [idPatients, billVisits] = await Promise.all([
+      prisma.patient.findMany({
+        where: {
+          OR: [
+            { patientNumber: { contains: q, mode: "insensitive" } },
+            { identifiers: { some: { value: { contains: q, mode: "insensitive" } } } },
+          ],
+        },
+        select: { visits: { where: branchAnd, select: { id: true }, take: 200 } },
+        take: 50,
+      }),
+      prisma.bill.findMany({
+        where: { billNumber: { contains: q, mode: "insensitive" }, ...branchAnd },
+        select: { visitId: true },
+        take: 200,
+      }),
+    ]);
+    const visitIds = new Set<string>();
+    for (const p of idPatients) for (const v of p.visits) visitIds.add(v.id);
+    for (const b of billVisits) if (b.visitId) visitIds.add(b.visitId);
+    const drillPaths = Array.from(visitIds).map((id) => `/diagnostics/results/${id}`);
+
     windowAnd.push({
       OR: [
         { detail: { contains: q, mode: "insensitive" } },
         { event: { contains: q, mode: "insensitive" } },
         { entityId: { contains: q, mode: "insensitive" } },
         { actorName: { contains: q, mode: "insensitive" } },
+        { patientName: { contains: q, mode: "insensitive" } },
+        ...(drillPaths.length ? [{ drillTo: { in: drillPaths } }] : []),
       ],
     });
   }
@@ -563,6 +592,8 @@ export interface StaffScorecardRow {
   name: string;
   role: string | null;
   total: number;
+  billed: number; // patients this staff billed in the window (the denominator)
+  rate: number; // mistakes per 100 billed — the fair ranking metric
   byType: Record<string, number>;
 }
 export interface StaffScorecardResult {
@@ -584,18 +615,37 @@ export async function getStaffScorecard(params: {
   const from = params.from && !Number.isNaN(new Date(params.from).getTime()) ? new Date(params.from) : new Date(0);
   await ensureProjected(params.branchId, from, to);
 
-  const groups = await prisma.anomalyEvent.groupBy({
-    by: ["actorName", "actorRole", "event"],
-    where: {
-      AND: [
-        { occurredAt: { gte: from, lte: to } },
-        ...(params.branchId ? [{ branchId: params.branchId }] : []),
-        { actorName: { not: null } },
-        { event: { in: MISTAKE_EVENTS } },
-      ],
-    },
-    _count: { _all: true },
-  });
+  const branchAnd = params.branchId ? [{ branchId: params.branchId }] : [];
+  const [groups, billedGroups] = await Promise.all([
+    prisma.anomalyEvent.groupBy({
+      by: ["actorName", "actorRole", "event"],
+      where: {
+        AND: [
+          { occurredAt: { gte: from, lte: to } },
+          ...branchAnd,
+          { actorName: { not: null } },
+          { event: { in: MISTAKE_EVENTS } },
+        ],
+      },
+      _count: { _all: true },
+    }),
+    // Denominator: patients each staff billed in the same window (CREATE Visit →
+    // "Visit billed"). Ranking on mistakes/billed is fair — a busy desk with 11
+    // slips in 400 bills beats a quiet one with 5 in 40.
+    prisma.anomalyEvent.groupBy({
+      by: ["actorName"],
+      where: {
+        AND: [
+          { occurredAt: { gte: from, lte: to } },
+          ...branchAnd,
+          { actorName: { not: null } },
+          { event: "Visit billed" },
+        ],
+      },
+      _count: { _all: true },
+    }),
+  ]);
+  const billedByName = new Map(billedGroups.map((g) => [g.actorName as string, g._count._all]));
 
   const eventToKey = new Map(MISTAKE_TYPES.map((m) => [m.event, m.key]));
   const byActor = new Map<string, StaffScorecardRow>();
@@ -603,16 +653,22 @@ export async function getStaffScorecard(params: {
     const name = g.actorName as string;
     const key = eventToKey.get(g.event);
     if (!key) continue;
-    if (!byActor.has(name)) byActor.set(name, { name, role: g.actorRole ?? null, total: 0, byType: {} });
+    if (!byActor.has(name)) byActor.set(name, { name, role: g.actorRole ?? null, total: 0, billed: 0, rate: 0, byType: {} });
     const row = byActor.get(name)!;
     if (g.actorRole && !row.role) row.role = g.actorRole;
     row.byType[key] = (row.byType[key] ?? 0) + g._count._all;
     row.total += g._count._all;
   }
-  // Least mistakes first — celebrate the cleanest at the top. Lab in-charges are
-  // split out: they legitimately edit/finalize, so they don't belong in the
-  // front-desk staff leaderboard.
-  const all = Array.from(byActor.values()).sort((a, b) => a.total - b.total);
+  // Fill in the denominator + rate (mistakes per 100 billed). No bills billed →
+  // fall back to raw count so they still sort sensibly and aren't rewarded for it.
+  for (const row of byActor.values()) {
+    row.billed = billedByName.get(row.name) ?? 0;
+    row.rate = row.billed > 0 ? (row.total / row.billed) * 100 : row.total * 100;
+  }
+  // Cleanest (lowest rate) first — celebrate the fairest, not just the quietest.
+  // Lab in-charges are split out: they legitimately edit/finalize, so they don't
+  // belong in the front-desk staff leaderboard.
+  const all = Array.from(byActor.values()).sort((a, b) => a.rate - b.rate || a.total - b.total);
   const actors = all.filter((a) => a.role !== "lab_incharge");
   const labIncharge = all.filter((a) => a.role === "lab_incharge");
 
