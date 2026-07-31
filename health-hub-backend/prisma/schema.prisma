@@ -1087,6 +1087,41 @@ model AuditLog {
   @@index([createdAt])
 }
 
+/// AnomalyEvent: materialized read-model for the Audit & Anomalies page. One row
+/// per surfaced incident, PROJECTED from the underlying sources (AuditLog, Bill
+/// discounts, OrderRefund, …) with severity/category/score/amount stored as
+/// columns — so the page can keyset-paginate and filter by severity/category in
+/// plain SQL over a 1-year window without merging six live queries. Idempotent
+/// upsert by dedupeKey; never the source of truth (safe to drop + reproject).
+model AnomalyEvent {
+  id            String   @id @default(cuid())
+  branchId      String
+  occurredAt    DateTime
+  severity      String // high | medium | low | info
+  category      String // money | report | drafts | identity | access | destructive | ops
+  score         Int      @default(0)
+  event         String
+  detail        String   @default("")
+  actorUserId   String?
+  actorName     String?
+  actorRole     String?
+  entityType    String
+  entityId      String
+  patientName   String?
+  amountInPaise Int?
+  reason        String?
+  drillTo       String?
+  sourceKind    String // audit | discount | refund
+  sourceId      String
+  dedupeKey     String   @unique
+  createdAt     DateTime @default(now())
+
+  @@index([branchId, occurredAt])
+  @@index([branchId, severity, occurredAt])
+  @@index([branchId, category, occurredAt])
+  @@index([branchId, actorUserId, occurredAt])
+}
+
 // ============================================================================
 // PATIENT CHANGE LOG (Identity Field Tracking)
 // ============================================================================

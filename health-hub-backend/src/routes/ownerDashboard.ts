@@ -46,6 +46,7 @@ router.get('/audit/events', requireRole('owner', 'lab_incharge'), async (req: Au
     const limitRaw = req.query.limit as string | undefined;
     const data = await getAuditEvents({
       branchId,
+      severity: (req.query.severity as string) ?? null,
       category: (req.query.category as string) ?? null,
       actor: (req.query.actor as string) ?? null,
       q: (req.query.q as string) ?? null,

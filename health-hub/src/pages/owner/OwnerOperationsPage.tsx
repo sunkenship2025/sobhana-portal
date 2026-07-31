@@ -467,7 +467,10 @@ function AuditFeedCard({ rows }: { rows: OperationsResponse['audit'] }) {
     return (
       <SectionCard label="Audit & anomalies">
         <div style={{ color: TOKENS.textTertiary, fontSize: 12 }}>
-          Nothing notable in the last 24h.
+          Nothing notable in the last 24h.{' '}
+          <Link to="/ops/audit" style={{ color: TOKENS.info, textDecoration: 'none' }}>
+            Open full page →
+          </Link>
         </div>
       </SectionCard>
     );
@@ -475,7 +478,7 @@ function AuditFeedCard({ rows }: { rows: OperationsResponse['audit'] }) {
   return (
     <SectionCard
       label="Audit & anomalies"
-      description="Last 20 high/medium/low events in 24h"
+      description="Top events in 24h — open the full page for search, filters & 1-year history"
     >
       <div className="overflow-x-auto">
         <table className="w-full" style={{ fontSize: 12 }}>
@@ -522,6 +525,11 @@ function AuditFeedCard({ rows }: { rows: OperationsResponse['audit'] }) {
             ))}
           </tbody>
         </table>
+      </div>
+      <div style={{ marginTop: 10, textAlign: 'right' }}>
+        <Link to="/ops/audit" style={{ color: TOKENS.info, fontSize: 12, textDecoration: 'none' }}>
+          Open full Audit &amp; Anomalies page →
+        </Link>
       </div>
     </SectionCard>
   );

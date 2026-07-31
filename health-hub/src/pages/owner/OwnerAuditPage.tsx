@@ -30,6 +30,7 @@ interface AuditEventRow {
   entityType: string;
   entityId: string;
   detail: string;
+  amountInPaise: number | null;
   whenIso: string;
   drillTo: string | null;
   actionType: string;
@@ -240,8 +241,7 @@ export default function OwnerAuditPage() {
     });
   const catList = useMemo(() => Array.from(cats).sort().join(','), [cats]);
 
-  // Severity is a display filter over the loaded page (it's a derived field —
-  // window-wide severity filtering waits for the projector).
+  // Severity is now a stored column on AnomalyEvent → filtered server-side.
   const [sevSel, setSevSel] = useState<Set<Severity>>(new Set());
   const toggleSev = (key: Severity) =>
     setSevSel((prev) => {
@@ -250,13 +250,14 @@ export default function OwnerAuditPage() {
       else next.add(key);
       return next;
     });
+  const sevList = useMemo(() => Array.from(sevSel).sort().join(','), [sevSel]);
 
   const fromIso = localToIso(fromLocal);
   const toIso = localToIso(toLocal);
 
   const [cursor, setCursor] = useState<string | null>(null);
   const [stack, setStack] = useState<string[]>([]);
-  const filterKey = `${branchValue}|${q}|${fromIso}|${toIso}|${catList}`;
+  const filterKey = `${branchValue}|${q}|${fromIso}|${toIso}|${catList}|${sevList}`;
   useEffect(() => {
     setCursor(null);
     setStack([]);
@@ -271,6 +272,7 @@ export default function OwnerAuditPage() {
       if (fromIso) p.set('from', fromIso);
       if (toIso) p.set('to', toIso);
       if (catList) p.set('category', catList);
+      if (sevList) p.set('severity', sevList);
       if (cursor) p.set('cursor', cursor);
       p.set('limit', '50');
       return apiRequest<AuditEventsResponse>(`${API_BASE}/owner/audit/events?${p.toString()}`);
@@ -282,8 +284,7 @@ export default function OwnerAuditPage() {
 
   const data = query.data;
   const summary = data?.summary;
-  const rawItems = data?.items ?? [];
-  const items = sevSel.size ? rawItems.filter((r) => sevSel.has(r.severity)) : rawItems;
+  const items = data?.items ?? [];
   const pageNum = stack.length + 1;
 
   const goNext = () => {
@@ -515,9 +516,9 @@ export default function OwnerAuditPage() {
         )}
 
         <div className="note-b">
-          Live feed reads only the fields shown for the current page (no full-table scans). Severity filtering is a
-          display filter over the loaded page for now; the detail before/after diff, staff scorecard and access tabs,
-          and the collapsed draft roll-ups arrive in later slices.
+          Reads the materialized AnomalyEvent model — severity / category / search / date-range all filter server-side,
+          keyset-paginated over up to 1 year, only the current page fetched. Discounts &amp; refunds show ₹ amount + reason.
+          Staff scorecard &amp; Access tabs and triage arrive next.
         </div>
       </div>
 
