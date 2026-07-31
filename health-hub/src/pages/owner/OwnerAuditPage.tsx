@@ -452,20 +452,6 @@ export default function OwnerAuditPage() {
           </div>
         </div>
 
-        {/* Prominent, intentional search — a patient / bill / staff / event
-            timeline lookup, not a corner box. */}
-        <div className="searchbar">
-          <input
-            className="searchbig"
-            placeholder="Search a patient, bill #, staff or event — shows their full timeline"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-          />
-          {searchInput && (
-            <button className="searchclear" onClick={() => setSearchInput('')} aria-label="Clear search">✕</button>
-          )}
-        </div>
-
         <div className="qr">
           <span className="perfnote">⚡ Loads only the visible page · cursor-paginated · up to 1 year</span>
           <span className="faint" style={{ fontSize: 11, color: '#888780' }}>Quick range:</span>
@@ -544,6 +530,20 @@ export default function OwnerAuditPage() {
               </>
             );
           })()}
+        </div>
+
+        {/* Prominent, intentional search — a patient / bill / staff / event
+            timeline lookup, sits right above the feed it drives. */}
+        <div className="searchbar">
+          <input
+            className="searchbig"
+            placeholder="Search a patient, bill #, staff or event — shows their full timeline"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+          {searchInput && (
+            <button className="searchclear" onClick={() => setSearchInput('')} aria-label="Clear search">✕</button>
+          )}
         </div>
 
         {/* tabs */}
