@@ -52,6 +52,7 @@ interface AuditEventsResponse {
 const CATEGORIES: Array<{ key: string; label: string }> = [
   { key: 'money', label: 'Money' },
   { key: 'report', label: 'Report' },
+  { key: 'drafts', label: 'Report drafts' },
   { key: 'identity', label: 'Identity' },
   { key: 'access', label: 'Access' },
   { key: 'destructive', label: 'Destructive' },
@@ -311,6 +312,9 @@ export default function OwnerAuditPage() {
                         </Link>
                       ) : (
                         r.event
+                      )}
+                      {r.detail && r.detail !== r.event && (
+                        <div style={{ color: TOKENS.textTertiary, fontSize: 11, fontWeight: 400 }}>{r.detail}</div>
                       )}
                     </td>
                     <td style={{ padding: '10px 14px' }}>

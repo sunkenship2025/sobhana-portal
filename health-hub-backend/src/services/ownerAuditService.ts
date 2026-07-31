@@ -29,6 +29,7 @@ export type AuditSeverity = "high" | "medium" | "low" | "info";
 export type AuditCategory =
   | "money"
   | "report"
+  | "drafts"
   | "identity"
   | "access"
   | "destructive"
@@ -122,6 +123,8 @@ function categoryPredicate(cat: string): Prisma.AuditLogWhereInput[] {
         { actionType: AuditActionType.FINALIZE },
         { entityType: "ReportVersion" },
       ];
+    case "drafts":
+      return [{ entityType: "ReportDraft" }];
     case "identity":
       return [{ entityType: "Patient" }];
     default:
@@ -152,6 +155,12 @@ function classify(
     case AuditActionType.REPORT_ACCESS:
       return { category: "access", severity: "medium", event: "Report accessed" };
     case AuditActionType.UPDATE:
+      if (entityType === "ReportDraft")
+        return {
+          category: "drafts",
+          severity: "info",
+          event: "Report draft written / edited",
+        };
       if (entityType === "ReportVersion")
         return { category: "report", severity: "high", event: "Report updated" };
       if (entityType === "Bill")
@@ -252,6 +261,10 @@ export async function getAuditEvents(
   const items: AuditEventRow[] = page.map((r) => {
     const c = classify(r.actionType, r.entityType);
     const u = r.userId ? userMap.get(r.userId) : null;
+    // Draft rows key their entityId to the visit, so they can deep-link to the
+    // result-entry screen for that report.
+    const drillTo =
+      c.category === "drafts" ? `/diagnostics/results/${r.entityId}` : null;
     return {
       id: r.id,
       severity: c.severity,
@@ -263,10 +276,30 @@ export async function getAuditEvents(
       entityId: r.entityId,
       detail: c.event,
       whenIso: r.createdAt.toISOString(),
-      drillTo: null,
+      drillTo,
       actionType: r.actionType,
     };
   });
+
+  // Enrich draft rows with the patient's name (their entityId is the visitId) so
+  // the feed reads "who wrote the draft · for which patient" — one batched join,
+  // never per-row.
+  const draftVisitIds = Array.from(
+    new Set(items.filter((i) => i.category === "drafts").map((i) => i.entityId)),
+  );
+  if (draftVisitIds.length) {
+    const visits = await prisma.visit.findMany({
+      where: { id: { in: draftVisitIds } },
+      select: { id: true, patient: { select: { name: true } } },
+    });
+    const nameMap = new Map(visits.map((v) => [v.id, v.patient?.name ?? null]));
+    for (const it of items) {
+      if (it.category === "drafts") {
+        const name = nameMap.get(it.entityId);
+        if (name) it.detail = name;
+      }
+    }
+  }
 
   const last = page[page.length - 1];
   const nextCursor =

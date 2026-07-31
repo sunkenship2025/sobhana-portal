@@ -4841,6 +4841,38 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
       console.warn("Derived parameter calculation warning:", derivedErr);
     }
 
+    // Draft authorship (audit slice 3): record ONE audit row per (visit, author)
+    // the first time a staff member saves results into this draft — deduped so
+    // the auto-save firing on every keystroke, or 10 edited parameters, never
+    // creates 10 rows. Surfaces in the Audit & Anomalies feed's "Report drafts"
+    // category (who wrote / edited a report and left it). Best-effort: it runs
+    // after the response and never blocks or fails the save.
+    if (Array.isArray(results) && results.length > 0 && req.user?.id && req.branchId) {
+      const branchId = req.branchId;
+      const userId = req.user.id;
+      const draftVersionId = draftVersion.id;
+      void (async () => {
+        try {
+          const existing = await prisma.auditLog.findFirst({
+            where: { branchId, entityType: "ReportDraft", entityId: id, userId },
+            select: { id: true },
+          });
+          if (!existing) {
+            await logAction({
+              branchId,
+              actionType: "UPDATE",
+              entityType: "ReportDraft",
+              entityId: id,
+              userId,
+              newValues: { reportVersionId: draftVersionId, kind: "draft-authorship" },
+            });
+          }
+        } catch (auditErr) {
+          console.warn("Draft authorship audit warning:", auditErr);
+        }
+      })();
+    }
+
     return res.json({ success: true });
   } catch (err: any) {
     console.error("Save test results error:", err);
