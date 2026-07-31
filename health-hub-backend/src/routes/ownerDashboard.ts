@@ -13,7 +13,8 @@ import {
 import { buildDaySheetWorkbook } from '../services/moneyDaySheetExportService';
 import { getOwnerDoctors, PeriodKey as DoctorsPeriod } from '../services/ownerDoctorsService';
 import { getOwnerOperations } from '../services/ownerOperationsService';
-import { getAuditEvents, getAuditEventDetail, getStaffScorecard } from '../services/ownerAuditService';
+import { getAuditEvents, getAuditEventDetail, getStaffScorecard, getReportAccess } from '../services/ownerAuditService';
+import { backfillProjection } from '../services/anomalyProjectorService';
 
 const router = Router();
 
@@ -95,7 +96,38 @@ router.get('/audit/scorecard', requireRole('owner', 'lab_incharge'), async (req:
   }
 });
 
+// GET /api/owner/audit/access — who VIEWED / DOWNLOADED / PRINTED reports.
+// Owner + lab_incharge; keyset-paginated over a date window.
+router.get('/audit/access', requireRole('owner', 'lab_incharge'), async (req: AuthRequest, res) => {
+  try {
+    const rawBranch = (req.query.branch as string) || 'all';
+    const branchId = rawBranch === 'all' ? null : rawBranch;
+    const data = await getReportAccess({
+      branchId,
+      from: (req.query.from as string) ?? null,
+      to: (req.query.to as string) ?? null,
+      type: (req.query.type as string) ?? null,
+      cursor: (req.query.cursor as string) ?? null,
+      limit: req.query.limit ? Number(req.query.limit) : null,
+    });
+    return res.json(data);
+  } catch (err: any) {
+    req.log.error({ err }, 'owner audit access load failed');
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to load report access log' });
+  }
+});
+
 router.use(requireRole('owner'));
+
+// POST /api/owner/audit/backfill?days=365 — owner-only. Materialize history so
+// the scorecard's Yearly / All-time are complete. Fire-and-forget (chunked).
+router.post('/audit/backfill', async (req: AuthRequest, res) => {
+  const rawBranch = (req.query.branch as string) || 'all';
+  const branchId = rawBranch === 'all' ? null : rawBranch;
+  const days = Math.min(366, Math.max(1, Number(req.query.days) || 365));
+  void backfillProjection(days, branchId);
+  return res.status(202).json({ started: true, days });
+});
 
 // GET /api/owner/dashboard-v2?period=today|yesterday|7d|30d|mtd|ytd|custom&branch=<id>
 //   custom also takes &start=YYYY-MM-DD&end=YYYY-MM-DD (IST calendar days, inclusive).

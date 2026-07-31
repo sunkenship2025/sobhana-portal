@@ -69,6 +69,13 @@ interface ScorecardResponse {
   types: Array<{ key: string; label: string }>;
   actors: Array<{ name: string; total: number; byType: Record<string, number> }>;
 }
+interface AccessResponse {
+  items: Array<{ id: string; accessType: string; accessedVia: string; who: string | null; patient: string | null; ipAddress: string | null; whenIso: string }>;
+  nextCursor: string | null;
+  from: string;
+  to: string;
+  counts: { view: number; download: number; print: number };
+}
 
 const SEV_ABBR: Record<Severity, string> = { high: 'hi', medium: 'me', low: 'lo', info: 'in' };
 const SEVS: Array<{ key: Severity; label: string }> = [
@@ -350,6 +357,21 @@ export default function OwnerAuditPage() {
     staleTime: 45 * 1000,
   });
 
+  // Access & disclosure — who viewed / printed / downloaded reports (header window).
+  const accessQuery = useQuery<AccessResponse>({
+    queryKey: ['owner-audit-access', branchValue, fromIso, toIso],
+    enabled: tab === 'access',
+    queryFn: () => {
+      const p = new URLSearchParams();
+      p.set('branch', branchValue);
+      if (fromIso) p.set('from', fromIso);
+      if (toIso) p.set('to', toIso);
+      p.set('limit', '100');
+      return apiRequest<AccessResponse>(`${API_BASE}/owner/audit/access?${p.toString()}`);
+    },
+    staleTime: 45 * 1000,
+  });
+
   const clearAll = () => {
     setCats(new Set());
     setSevSel(new Set<Severity>(['high', 'medium']));
@@ -559,6 +581,56 @@ export default function OwnerAuditPage() {
             <div className="note-b" style={{ textAlign: 'left', padding: '12px 16px' }}>
               Mistakes = cancelled tests, refunds, tests swapped, referral-doctor changes, and reports edited after
               finalize — attributed to whoever did them, over the selected date range.
+            </div>
+          </div>
+        ) : tab === 'access' ? (
+          <div className="card" style={{ overflow: 'hidden' }}>
+            <div style={{ padding: '11px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 600 }}>Access &amp; disclosure — who saw / printed / downloaded reports</span>
+              {accessQuery.data && (
+                <span style={{ display: 'flex', gap: 14, fontSize: 12, color: 'var(--ink2)' }}>
+                  <span><b>{accessQuery.data.counts.view}</b> viewed</span>
+                  <span><b>{accessQuery.data.counts.download}</b> downloaded</span>
+                  <span><b>{accessQuery.data.counts.print}</b> printed</span>
+                </span>
+              )}
+            </div>
+            {accessQuery.isLoading && <div className="empty">Loading…</div>}
+            {accessQuery.data && accessQuery.data.items.length === 0 && (
+              <div className="empty">No report access recorded in this window.</div>
+            )}
+            {accessQuery.data && accessQuery.data.items.length > 0 && (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                <thead>
+                  <tr style={{ color: 'var(--ink3)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                    <th style={{ textAlign: 'left', padding: '9px 14px' }}>Type</th>
+                    <th style={{ textAlign: 'left', padding: '9px 14px' }}>Who</th>
+                    <th style={{ textAlign: 'left', padding: '9px 14px' }}>Patient / report</th>
+                    <th style={{ textAlign: 'left', padding: '9px 14px' }}>Via</th>
+                    <th style={{ textAlign: 'left', padding: '9px 14px' }}>IP</th>
+                    <th style={{ textAlign: 'right', padding: '9px 14px' }}>When</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {accessQuery.data.items.map((r) => {
+                    const ab = r.accessType === 'DOWNLOAD' ? 'hi' : r.accessType === 'PRINT' ? 'in' : 'lo';
+                    return (
+                      <tr key={r.id} style={{ borderTop: '1px solid var(--border2)' }}>
+                        <td style={{ padding: '10px 14px' }}><span className={`sev ${ab}`}>{r.accessType}</span></td>
+                        <td style={{ padding: '10px 14px', fontWeight: 550 }}>{r.who ?? '—'}</td>
+                        <td style={{ padding: '10px 14px', color: 'var(--ink2)' }}>{r.patient ?? '—'}</td>
+                        <td style={{ padding: '10px 14px', color: 'var(--ink3)', fontSize: 12 }}>{r.accessedVia.replace('_', ' ').toLowerCase()}</td>
+                        <td style={{ padding: '10px 14px', color: 'var(--ink3)', fontSize: 12 }}>{r.ipAddress ?? '—'}</td>
+                        <td style={{ padding: '10px 14px', textAlign: 'right', color: 'var(--ink3)', fontSize: 12 }}>{formatIstDateTime(r.whenIso).split(' · ')[1] ?? formatIstTime(r.whenIso)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+            <div className="note-b" style={{ textAlign: 'left', padding: '12px 16px' }}>
+              Latest report accesses in the selected window (from ReportAccessLog). Backs the "who saw my report" /
+              DPDP disclosure request. Token = a patient/public link; staff-portal = a signed-in staff member.
             </div>
           </div>
         ) : tab !== 'feed' ? (

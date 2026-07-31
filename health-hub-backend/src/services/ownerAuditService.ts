@@ -29,6 +29,7 @@ const MISTAKE_TYPES: Array<{ event: string; label: string; key: string }> = [
   { event: "Order cancelled", label: "Cancelled", key: "cancelled" },
   { event: "Refund issued", label: "Refunds", key: "refunds" },
   { event: "Test swapped", label: "Tests edited", key: "swaps" },
+  { event: "Test reopened", label: "Reopened", key: "reopened" },
   { event: "Referral changed", label: "Referral edits", key: "referralChanges" },
   { event: "Report changed after finalize", label: "Post-finalize edits", key: "postFinalizeEdits" },
 ];
@@ -569,4 +570,115 @@ export async function getStaffScorecard(params: {
     types: MISTAKE_TYPES.map((m) => ({ key: m.key, label: m.label })),
     actors,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Access & disclosure — who VIEWED / DOWNLOADED / PRINTED patient reports.
+// Reads ReportAccessLog directly (branch via the reportVersion→report→visit
+// join), keyset-paginated. Backs the "who saw my report" / DPDP lens.
+// ---------------------------------------------------------------------------
+export interface ReportAccessRow {
+  id: string;
+  accessType: string; // VIEW | DOWNLOAD | PRINT
+  accessedVia: string; // TOKEN | STAFF_PORTAL | DIRECT
+  who: string | null;
+  patient: string | null;
+  ipAddress: string | null;
+  whenIso: string;
+}
+export interface ReportAccessResult {
+  items: ReportAccessRow[];
+  nextCursor: string | null;
+  from: string;
+  to: string;
+  counts: { view: number; download: number; print: number };
+}
+
+export async function getReportAccess(params: {
+  branchId: string | null;
+  from?: string | null;
+  to?: string | null;
+  type?: string | null;
+  cursor?: string | null;
+  limit?: number | null;
+}): Promise<ReportAccessResult> {
+  const limit = clampLimit(params.limit);
+  const { from, to } = resolveWindow(params.from, params.to);
+
+  const branchFilter: Prisma.ReportAccessLogWhereInput = params.branchId
+    ? { reportVersion: { report: { visit: { branchId: params.branchId } } } }
+    : {};
+  const baseAnd: Prisma.ReportAccessLogWhereInput[] = [
+    { createdAt: { gte: from, lte: to } },
+    branchFilter,
+  ];
+
+  const countGroups = await prisma.reportAccessLog.groupBy({
+    by: ["accessType"],
+    where: { AND: baseAnd },
+    _count: { _all: true },
+  });
+  const counts = { view: 0, download: 0, print: 0 };
+  for (const g of countGroups) {
+    if (g.accessType === "VIEW") counts.view = g._count._all;
+    else if (g.accessType === "DOWNLOAD") counts.download = g._count._all;
+    else if (g.accessType === "PRINT") counts.print = g._count._all;
+  }
+
+  const typeUpper = (params.type ?? "").trim().toUpperCase();
+  const cur = params.cursor ? decodeCursor(params.cursor) : null;
+  const pageAnd: Prisma.ReportAccessLogWhereInput[] = [...baseAnd];
+  if (["VIEW", "DOWNLOAD", "PRINT"].includes(typeUpper)) pageAnd.push({ accessType: typeUpper });
+  if (cur) {
+    pageAnd.push({
+      OR: [
+        { createdAt: { lt: cur.at } },
+        { AND: [{ createdAt: cur.at }, { id: { lt: cur.id } }] },
+      ],
+    });
+  }
+
+  const rows = await prisma.reportAccessLog.findMany({
+    where: { AND: pageAnd },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: limit + 1,
+    select: {
+      id: true, accessType: true, accessedVia: true, userId: true,
+      ipAddress: true, createdAt: true,
+      reportVersion: { select: { report: { select: { visit: { select: { billNumber: true, patient: { select: { name: true } } } } } } } },
+    },
+  });
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+
+  const userIds = Array.from(new Set(page.map((r) => r.userId).filter((v): v is string => Boolean(v))));
+  const users = userIds.length
+    ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })
+    : [];
+  const uMap = new Map(users.map((u) => [u.id, u.name]));
+
+  const items: ReportAccessRow[] = page.map((r) => {
+    const v = r.reportVersion?.report?.visit;
+    const patient = v
+      ? v.patient?.name
+        ? v.billNumber ? `${v.patient.name} · ${v.billNumber}` : v.patient.name
+        : v.billNumber ?? null
+      : null;
+    const who = r.userId
+      ? uMap.get(r.userId) ?? "staff"
+      : r.accessedVia === "TOKEN" ? "patient / public link" : "—";
+    return {
+      id: r.id,
+      accessType: r.accessType,
+      accessedVia: r.accessedVia,
+      who,
+      patient,
+      ipAddress: r.ipAddress ?? null,
+      whenIso: r.createdAt.toISOString(),
+    };
+  });
+  const last = page[page.length - 1];
+  const nextCursor = hasMore && last ? encodeCursor(last.createdAt, last.id) : null;
+
+  return { items, nextCursor, from: from.toISOString(), to: to.toISOString(), counts };
 }

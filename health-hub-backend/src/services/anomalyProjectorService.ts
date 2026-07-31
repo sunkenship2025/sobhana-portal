@@ -121,7 +121,7 @@ export async function projectWindow(
   const branchWhere = branchId ? { branchId } : {};
   const window = { gte: from, lte: to };
 
-  const [auditRows, bills, refunds] = await Promise.all([
+  const [auditRows, bills, refunds, reopens] = await Promise.all([
     prisma.auditLog.findMany({
       where: { createdAt: window, ...branchWhere },
       orderBy: { createdAt: "desc" },
@@ -152,6 +152,16 @@ export async function projectWindow(
         bill: { select: { billNumber: true, visit: { select: { id: true, patient: { select: { name: true } } } } } },
       },
     }),
+    prisma.testOrder.findMany({
+      where: { reopenedAt: window, reopenedByUserId: { not: null }, ...branchWhere },
+      orderBy: { reopenedAt: "desc" },
+      take: 5000,
+      select: {
+        id: true, branchId: true, reopenedAt: true, reopenedByUserId: true,
+        testNameSnapshot: true,
+        visit: { select: { id: true, patient: { select: { name: true } } } },
+      },
+    }),
   ]);
 
   // Batched actor-name lookup across all sources.
@@ -159,6 +169,7 @@ export async function projectWindow(
     ...auditRows.map((r) => r.userId),
     ...bills.map((b) => b.discountedByUserId),
     ...refunds.map((r) => r.createdByUserId),
+    ...reopens.map((r) => r.reopenedByUserId),
   ].filter((v): v is string => Boolean(v))));
   const users = userIds.length
     ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, role: true } })
@@ -253,9 +264,26 @@ export async function projectWindow(
     };
   });
 
-  // AuditLog rows are immutable → insert-only (createMany skipDuplicates).
+  // Film-only reopens (a correction/rework) — a point event, insert-only.
+  const reopenEvents: ProjRow[] = reopens.map((r) => {
+    const u = r.reopenedByUserId ? userMap.get(r.reopenedByUserId) : null;
+    const patientName = r.visit?.patient?.name ?? null;
+    return {
+      id: `reopen:${r.id}`, dedupeKey: `reopen:${r.id}`, branchId: r.branchId,
+      occurredAt: r.reopenedAt ?? new Date(), severity: "medium", category: "report", score: 2,
+      event: "Test reopened",
+      detail: `${r.testNameSnapshot ?? "test"}${patientName ? ` · ${patientName}` : ""}`,
+      actorUserId: r.reopenedByUserId, actorName: u?.name ?? null, actorRole: u?.role ?? null,
+      entityType: "TestOrder", entityId: r.id, patientName,
+      amountInPaise: null, reason: null,
+      drillTo: r.visit ? `/diagnostics/results/${r.visit.id}` : null,
+      sourceKind: "reopen", sourceId: r.id,
+    };
+  });
+
+  // Immutable point events → insert-only (createMany skipDuplicates).
   const inserted = await prisma.anomalyEvent.createMany({
-    data: auditEvents,
+    data: [...auditEvents, ...reopenEvents],
     skipDuplicates: true,
   });
 
@@ -294,5 +322,30 @@ export async function ensureProjected(
   } catch (err) {
     lastProjected.set(key, 0); // let the next read retry
     console.error("anomaly projection failed:", err);
+  }
+}
+
+/**
+ * One-off backfill — materialize up to `days` of history by walking backwards in
+ * weekly chunks (each chunk stays under the per-window row caps). Fire-and-forget
+ * from an owner endpoint; idempotent, so re-running is safe. Lets the scorecard's
+ * Yearly / All-time and long feed history be complete without waiting for the
+ * incremental on-read projection to accumulate.
+ */
+export async function backfillProjection(
+  days: number,
+  branchId: string | null,
+): Promise<void> {
+  const now = Date.now();
+  const totalMs = Math.min(Math.max(1, days), 366) * 864e5;
+  const chunkMs = 7 * 864e5;
+  for (let offset = 0; offset < totalMs; offset += chunkMs) {
+    const to = new Date(now - offset);
+    const from = new Date(Math.max(now - totalMs, now - offset - chunkMs));
+    try {
+      await projectWindow(from, to, branchId);
+    } catch (err) {
+      console.error("anomaly backfill chunk failed:", err);
+    }
   }
 }
