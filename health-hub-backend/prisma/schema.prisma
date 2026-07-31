@@ -287,6 +287,9 @@ model Patient {
   /// Message delivery history
   messages MessageLog[]
 
+  /// WhatsApp reply threads (patient messages inbox)
+  conversations Conversation[]
+
   @@index([createdAt])
 }
 
@@ -462,6 +465,7 @@ model Branch {
   productBranchPricing      ProductBranchPricing[]
   labInchargeRules          LabInchargeRule[]
   messageLogs               MessageLog[]
+  conversations             Conversation[]
 
   @@index([isActive])
   @@index([code])
@@ -1191,6 +1195,68 @@ model MessageLog {
   @@index([status])
   @@index([createdAt])
   @@index([branchId])
+}
+
+// ============================================================================
+// PATIENT MESSAGES INBOX (WhatsApp two-way)
+// Kept separate from MessageLog (the outbound template-send ledger) so the hot
+// notification write path is untouched and this stays an isolated, Axora-
+// toggleable module. Capture happens in routes/webhooks.ts; read/reply APIs
+// live under /api/messages (Phase 1).
+// ============================================================================
+
+/// A WhatsApp conversation thread with one phone number.
+model Conversation {
+  id            String             @id @default(cuid())
+  phone         String             @unique // normalized "919876543210"
+  patientId     String? // resolved from the last outbound message to this phone; null if no match
+  branchId      String? // branch the patient last messaged from
+  assignedToId  String? // staff user who claimed the thread (Phase 1)
+  status        ConversationStatus @default(OPEN)
+  lastInboundAt DateTime? // last time the patient messaged us — drives the 24h reply window
+  lastMessageAt DateTime? // last activity (in or out) — list sort key
+  lastPreview   String? // last message text, for the list preview
+  unreadCount   Int                @default(0)
+  autoRepliedAt DateTime? // last generic auto-reply time (rate-limits it to once per window)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  patient  Patient?              @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  branch   Branch?               @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  messages ConversationMessage[]
+
+  @@index([status, lastMessageAt])
+  @@index([branchId])
+  @@index([patientId])
+  @@index([lastMessageAt])
+}
+
+/// One message inside a Conversation (inbound patient message or outbound reply).
+model ConversationMessage {
+  id             String           @id @default(cuid())
+  conversationId String
+  direction      MessageDirection
+  body           String // text body, or a caption/placeholder for media
+  messageType    String           @default("text") // text | image | document | audio | video | location | other
+  mediaUrl       String? // R2 URL for stored inbound media (Phase 2)
+  waMessageId    String?          @unique // Meta message id; unique so webhook retries don't double-insert
+  staffUserId    String? // staff who sent an OUT message; null for inbound / auto-reply
+  isAutoReply    Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+enum ConversationStatus {
+  OPEN
+  CLOSED
+}
+
+enum MessageDirection {
+  IN
+  OUT
 }
 
 // ============================================================================

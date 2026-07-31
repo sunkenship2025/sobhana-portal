@@ -1,0 +1,787 @@
+/**
+ * Messages — Patient WhatsApp inbox (/messages).
+ *
+ * Three panes on desktop (conversation list · thread · patient context), a
+ * single pane on mobile (list → thread with a back button). Wired to
+ * /api/inbox. The 24-hour reply window is surfaced in the composer and enforced
+ * again server-side (a free-text send past the window returns 409 and the UI
+ * switches to the template sender).
+ */
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  ArrowLeft,
+  BadgeCheck,
+  Building2,
+  Check,
+  CheckCheck,
+  FileText,
+  Info,
+  Phone,
+  Receipt,
+  Search,
+  Send,
+  UserPlus,
+  Users,
+} from 'lucide-react';
+import { AppLayout } from '@/components/layout/AppLayout';
+import { useApiQuery, useApiMutation, branchRequest, useBranchId } from '@/lib/query';
+import { useAuthStore } from '@/store/authStore';
+import { ApiError } from '@/lib/utils';
+import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+
+// ── Types (mirror /api/inbox responses) ──────────────────────────────────────
+interface ConversationSummary {
+  id: string;
+  phone: string;
+  patientId: string | null;
+  patientName: string | null;
+  patientNumber: string | null;
+  branchId: string | null;
+  branchName: string | null;
+  branchCode: string | null;
+  assignedToId: string | null;
+  status: string;
+  unreadCount: number;
+  lastPreview: string | null;
+  lastMessageAt: string | null;
+  lastInboundAt: string | null;
+  windowOpen: boolean;
+  windowExpiresAt: string | null;
+}
+interface ListResponse {
+  conversations: ConversationSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  counts: { all: number; unread: number; mine: number; unlinked: number };
+}
+interface ThreadMessage {
+  id: string;
+  direction: 'IN' | 'OUT';
+  body: string;
+  messageType: string;
+  mediaUrl: string | null;
+  isAutoReply: boolean;
+  staffUserId: string | null;
+  createdAt: string;
+}
+interface VisitCtx {
+  id: string;
+  billNumber: string;
+  status: string;
+  createdAt: string;
+  branchCode: string | null;
+  netInPaise: number;
+  dueInPaise: number;
+  paymentStatus: string | null;
+}
+interface PatientContext {
+  patient: {
+    id: string;
+    name: string;
+    patientNumber: string;
+    gender: string;
+    age: number | null;
+  } | null;
+  latestVisit: VisitCtx | null;
+  recentVisits: VisitCtx[];
+}
+interface ThreadResponse {
+  conversation: ConversationSummary;
+  messages: ThreadMessage[];
+  patientContext: PatientContext | null;
+}
+
+type FilterKey = 'all' | 'unread' | 'mine' | 'unlinked';
+
+// ── Small helpers ─────────────────────────────────────────────────────────────
+const AVATAR_COLORS = [
+  '#7a4ea0', '#c0642a', '#2f7a4f', '#b0405f', '#3a6ea5', '#a56a06', '#5a5aa0', '#2a8a8a',
+];
+function avatarColor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+function initials(name: string | null): string {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/).slice(0, 2);
+  return parts.map((p) => p[0]?.toUpperCase() ?? '').join('') || '?';
+}
+function relativeTime(iso: string | null): string {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'now';
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  return `${d}d`;
+}
+function windowLabel(c: Pick<ConversationSummary, 'windowOpen' | 'windowExpiresAt'>): string {
+  if (!c.windowOpen || !c.windowExpiresAt) return 'Window closed';
+  const left = new Date(c.windowExpiresAt).getTime() - Date.now();
+  if (left <= 0) return 'Window closed';
+  const h = Math.floor(left / 3600000);
+  if (h >= 1) return `${h}h left`;
+  const m = Math.max(1, Math.floor(left / 60000));
+  return `${m}m left`;
+}
+function money(paise: number): string {
+  return `₹${(paise / 100).toLocaleString('en-IN')}`;
+}
+function clockTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+}
+
+const QUICK_REPLIES = [
+  'Your report is ready. You can view it using the link we sent you. Thank you.',
+  'Thank you for reaching out. How can we help you today?',
+  'Please visit your nearest Sobhana Diagnostics branch during working hours (8 AM to 8 PM).',
+  'Your test is available. Please call 9490539006 to book, or visit any Sobhana branch.',
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+export default function MessagesInbox() {
+  const navigate = useNavigate();
+  const branchId = useBranchId();
+  const meId = useAuthStore((s) => s.user?.id);
+
+  const [filter, setFilter] = useState<FilterKey>('all');
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Debounce search.
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // ── List query (polled) ──
+  const listQ = useApiQuery<ListResponse>({
+    queryKey: ['inbox', 'list', filter, search, branchId],
+    queryFn: () =>
+      branchRequest<ListResponse>(
+        `/inbox/conversations?filter=${filter}&search=${encodeURIComponent(search)}`,
+        branchId ?? '',
+      ),
+    branchScoped: true,
+    refetchInterval: 15000,
+    placeholderData: (prev) => prev,
+  });
+
+  // ── Thread query (polled while open) ──
+  const threadQ = useApiQuery<ThreadResponse>({
+    queryKey: ['inbox', 'thread', selectedId, branchId],
+    queryFn: () =>
+      branchRequest<ThreadResponse>(`/inbox/conversations/${selectedId}`, branchId ?? ''),
+    branchScoped: true,
+    enabled: !!selectedId,
+    refetchInterval: selectedId ? 10000 : false,
+  });
+
+  // ── Mutations ──
+  const readM = useApiMutation<unknown, string>({
+    mutationFn: (id) =>
+      branchRequest(`/inbox/conversations/${id}/read`, branchId ?? '', { method: 'POST' }),
+    invalidate: [['inbox', 'list'], ['inbox', 'unread']],
+  });
+  const assignM = useApiMutation<{ assignedToId: string | null }, { id: string; assign: boolean }>({
+    mutationFn: ({ id, assign }) =>
+      branchRequest(`/inbox/conversations/${id}/assign`, branchId ?? '', {
+        method: 'POST',
+        body: JSON.stringify({ assign }),
+      }),
+    invalidate: [['inbox']],
+  });
+  const replyM = useApiMutation<{ ok: boolean }, { id: string; text: string }>({
+    mutationFn: ({ id, text }) =>
+      branchRequest(`/inbox/conversations/${id}/reply`, branchId ?? '', {
+        method: 'POST',
+        body: JSON.stringify({ text }),
+      }),
+    invalidate: [['inbox']],
+  });
+  const templateM = useApiMutation<{ ok: boolean }, { id: string; templateName: string; preview: string }>({
+    mutationFn: ({ id, templateName, preview }) =>
+      branchRequest(`/inbox/conversations/${id}/template`, branchId ?? '', {
+        method: 'POST',
+        body: JSON.stringify({ templateName, preview }),
+      }),
+    invalidate: [['inbox']],
+  });
+
+  // Mark read when a conversation is opened with unread messages.
+  const lastReadRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!selectedId) return;
+    const conv = listQ.data?.conversations.find((c) => c.id === selectedId);
+    if (conv && conv.unreadCount > 0 && lastReadRef.current !== selectedId) {
+      lastReadRef.current = selectedId;
+      readM.mutate(selectedId);
+    }
+  }, [selectedId, listQ.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const conversations = listQ.data?.conversations ?? [];
+  const counts = listQ.data?.counts ?? { all: 0, unread: 0, mine: 0, unlinked: 0 };
+  const thread = threadQ.data;
+  const selectedConv = thread?.conversation ?? conversations.find((c) => c.id === selectedId);
+
+  return (
+    <AppLayout context="owner">
+      <div className="mb-4">
+        <h1 className="text-2xl font-bold tracking-tight">Messages</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">
+          Patient replies to reports, bills &amp; reminders. Reply inside the 24-hour window, or send an approved template.
+        </p>
+      </div>
+
+      <div className="flex overflow-hidden rounded-lg border bg-card h-[calc(100vh-210px)] min-h-[520px]">
+        {/* ── LIST ── */}
+        <div
+          className={cn(
+            'w-full flex-col border-r md:flex md:w-[340px] md:flex-shrink-0',
+            selectedId ? 'hidden' : 'flex',
+          )}
+        >
+          <div className="border-b p-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Name / Phone"
+                className="w-full rounded-lg border bg-card py-2 pl-9 pr-3 text-sm outline-none focus:border-ring/40 focus:ring-2 focus:ring-ring/10"
+              />
+            </div>
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              {([
+                ['all', 'All', counts.all],
+                ['unread', 'Unread', counts.unread],
+                ['mine', 'Mine', counts.mine],
+                ['unlinked', 'Unlinked', counts.unlinked],
+              ] as [FilterKey, string, number][]).map(([key, label, n]) => (
+                <button
+                  key={key}
+                  onClick={() => setFilter(key)}
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+                    filter === key
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'bg-card text-muted-foreground hover:bg-muted',
+                  )}
+                >
+                  {label} <span className="opacity-70">{n}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto">
+            {listQ.isLoading && (
+              <div className="p-6 text-center text-sm text-muted-foreground">Loading…</div>
+            )}
+            {!listQ.isLoading && conversations.length === 0 && (
+              <div className="flex flex-col items-center gap-2 p-10 text-center text-muted-foreground">
+                <Users className="h-6 w-6" />
+                <p className="text-sm">No conversations</p>
+              </div>
+            )}
+            {conversations.map((c) => (
+              <ConversationRow
+                key={c.id}
+                c={c}
+                selected={c.id === selectedId}
+                mine={c.assignedToId === meId}
+                onClick={() => setSelectedId(c.id)}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* ── THREAD ── */}
+        <div className={cn('flex-1 flex-col', selectedId ? 'flex' : 'hidden md:flex')}>
+          {!selectedConv ? (
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
+              <Send className="h-7 w-7" />
+              <p className="text-sm">Select a conversation to reply</p>
+            </div>
+          ) : (
+            <ThreadPane
+              conv={selectedConv}
+              thread={thread}
+              loading={threadQ.isLoading}
+              mine={selectedConv.assignedToId === meId}
+              onBack={() => setSelectedId(null)}
+              onAssign={(assign) => assignM.mutate({ id: selectedConv.id, assign })}
+              onOpen360={(pid) => navigate(`/clinic/patient-360/${pid}`)}
+              onReply={(text) =>
+                replyM.mutate(
+                  { id: selectedConv.id, text },
+                  {
+                    onError: (err) => {
+                      if (err instanceof ApiError && err.status === 409) {
+                        toast.error('The 24-hour window has closed. Send an approved template instead.');
+                      } else {
+                        toast.error(err.message || 'Failed to send');
+                      }
+                    },
+                  },
+                )
+              }
+              onTemplate={(templateName, preview) =>
+                templateM.mutate(
+                  { id: selectedConv.id, templateName, preview },
+                  { onError: (err) => toast.error(err.message || 'Template send failed') },
+                )
+              }
+              sending={replyM.isPending || templateM.isPending}
+            />
+          )}
+        </div>
+
+        {/* ── PATIENT CONTEXT (desktop wide only) ── */}
+        {selectedConv && (
+          <div className="hidden w-[320px] flex-shrink-0 flex-col border-l bg-muted/20 lg:flex">
+            <PatientRail ctx={thread?.patientContext ?? null} conv={selectedConv} onOpen360={(pid) => navigate(`/clinic/patient-360/${pid}`)} />
+          </div>
+        )}
+      </div>
+    </AppLayout>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+function ConversationRow({
+  c,
+  selected,
+  mine,
+  onClick,
+}: {
+  c: ConversationSummary;
+  selected: boolean;
+  mine: boolean;
+  onClick: () => void;
+}) {
+  const linked = !!c.patientName;
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'relative flex w-full gap-3 border-b p-3 text-left transition-colors hover:bg-muted',
+        selected && 'bg-accent',
+      )}
+    >
+      {selected && <span className="absolute inset-y-0 left-0 w-[3px] bg-primary" />}
+      <div
+        className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
+        style={{ backgroundColor: linked ? avatarColor(c.patientName!) : '#8a8a8a' }}
+      >
+        {linked ? initials(c.patientName) : '?'}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className={cn('flex-1 truncate text-sm font-semibold', !linked && 'font-medium italic text-muted-foreground')}>
+            {linked ? c.patientName : c.phone}
+          </span>
+          <span className="flex-shrink-0 text-[11px] text-muted-foreground">{relativeTime(c.lastMessageAt)}</span>
+        </div>
+        <div className="mt-0.5 truncate text-[12.5px] text-muted-foreground">{c.lastPreview ?? ''}</div>
+        <div className="mt-1.5 flex items-center gap-1.5">
+          {linked ? (
+            <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+              {c.branchCode ?? c.branchName ?? '—'}
+            </span>
+          ) : (
+            <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold text-destructive">
+              No patient match
+            </span>
+          )}
+          <span
+            className={cn(
+              'inline-flex items-center gap-1 text-[10px] font-semibold',
+              c.windowOpen ? 'text-success' : 'text-destructive',
+            )}
+          >
+            <span className={cn('h-[7px] w-[7px] rounded-full', c.windowOpen ? 'bg-success' : 'bg-destructive')} />
+            {windowLabel(c)}
+          </span>
+          {mine && !c.unreadCount && (
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-success/10 px-1.5 py-0.5 text-[10px] font-semibold text-success">
+              <BadgeCheck className="h-3 w-3" /> You
+            </span>
+          )}
+          {c.unreadCount > 0 && (
+            <span className="ml-auto flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-success px-1.5 text-[11px] font-bold text-white">
+              {c.unreadCount}
+            </span>
+          )}
+        </div>
+      </div>
+    </button>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+function ThreadPane({
+  conv,
+  thread,
+  loading,
+  mine,
+  onBack,
+  onAssign,
+  onOpen360,
+  onReply,
+  onTemplate,
+  sending,
+}: {
+  conv: ConversationSummary;
+  thread: ThreadResponse | undefined;
+  loading: boolean;
+  mine: boolean;
+  onBack: () => void;
+  onAssign: (assign: boolean) => void;
+  onOpen360: (patientId: string) => void;
+  onReply: (text: string) => void;
+  onTemplate: (templateName: string, preview: string) => void;
+  sending: boolean;
+}) {
+  const [text, setText] = useState('');
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const messages = thread?.messages ?? [];
+
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
+  }, [messages.length, conv.id]);
+
+  useEffect(() => {
+    setText('');
+  }, [conv.id]);
+
+  const linked = !!conv.patientName;
+  const send = () => {
+    const t = text.trim();
+    if (!t) return;
+    onReply(t);
+    setText('');
+  };
+
+  return (
+    <>
+      {/* header */}
+      <div className="flex items-center gap-3 border-b p-3">
+        <button onClick={onBack} className="rounded-md p-1 text-muted-foreground hover:bg-muted md:hidden">
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+        <div
+          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
+          style={{ backgroundColor: linked ? avatarColor(conv.patientName!) : '#8a8a8a' }}
+        >
+          {linked ? initials(conv.patientName) : '?'}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[15px] font-semibold">{linked ? conv.patientName : conv.phone}</div>
+          <div className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
+            <span className="truncate">
+              {conv.phone}
+              {conv.branchCode ? ` · ${conv.branchCode}` : ''}
+            </span>
+            <span
+              className={cn(
+                'inline-flex flex-shrink-0 items-center gap-1 font-semibold',
+                conv.windowOpen ? 'text-success' : 'text-destructive',
+              )}
+            >
+              <span className={cn('h-[7px] w-[7px] rounded-full', conv.windowOpen ? 'bg-success' : 'bg-destructive')} />
+              {conv.windowOpen ? `Free replies open · ${windowLabel(conv)}` : 'Window closed'}
+            </span>
+          </div>
+        </div>
+        <button
+          onClick={() => onAssign(!mine)}
+          className={cn(
+            'inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12.5px] font-medium hover:bg-muted',
+            mine && 'border-success/40 bg-success/10 text-success',
+          )}
+        >
+          {mine ? <Check className="h-3.5 w-3.5" /> : <UserPlus className="h-3.5 w-3.5" />}
+          {mine ? 'Assigned to you' : 'Assign to me'}
+        </button>
+        {conv.patientId && (
+          <button
+            onClick={() => onOpen360(conv.patientId!)}
+            className="hidden flex-shrink-0 items-center gap-1.5 rounded-lg border border-primary bg-primary px-2.5 py-1.5 text-[12.5px] font-medium text-primary-foreground hover:opacity-90 sm:inline-flex"
+          >
+            <Info className="h-3.5 w-3.5" /> Patient 360
+          </button>
+        )}
+      </div>
+
+      {/* body */}
+      <div ref={bodyRef} className="flex flex-1 flex-col gap-2.5 overflow-y-auto bg-muted/30 p-4">
+        {loading && <div className="text-center text-sm text-muted-foreground">Loading…</div>}
+        {messages.map((m) => (
+          <MessageBubble key={m.id} m={m} />
+        ))}
+      </div>
+
+      {/* composer */}
+      <Composer
+        conv={conv}
+        text={text}
+        setText={setText}
+        onSend={send}
+        onTemplate={onTemplate}
+        sending={sending}
+      />
+    </>
+  );
+}
+
+function MessageBubble({ m }: { m: ThreadMessage }) {
+  const out = m.direction === 'OUT';
+  return (
+    <div
+      className={cn(
+        'max-w-[74%] rounded-xl px-3 py-2 text-[13.5px] shadow-sm',
+        out
+          ? 'self-end rounded-tr-sm bg-[#e7f3e8] dark:bg-success/20'
+          : 'self-start rounded-tl-sm bg-card border',
+      )}
+    >
+      <div className="whitespace-pre-wrap break-words">{m.body}</div>
+      <div className="mt-1 flex items-center justify-end gap-1 text-[10.5px] text-muted-foreground">
+        {m.isAutoReply && <span className="italic">auto</span>}
+        {clockTime(m.createdAt)}
+        {out && <CheckCheck className="h-3 w-3 text-[#4a9be0]" />}
+      </div>
+    </div>
+  );
+}
+
+function Composer({
+  conv,
+  text,
+  setText,
+  onSend,
+  onTemplate,
+  sending,
+}: {
+  conv: ConversationSummary;
+  text: string;
+  setText: (t: string) => void;
+  onSend: () => void;
+  onTemplate: (templateName: string, preview: string) => void;
+  sending: boolean;
+}) {
+  const [showQuick, setShowQuick] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+
+  if (!conv.windowOpen) {
+    return (
+      <div className="border-t bg-card p-3.5">
+        <div className="mb-3 flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-[12px] font-medium text-destructive">
+          <Info className="h-4 w-4 flex-shrink-0" />
+          The 24-hour free-reply window has closed. Send an approved template, or wait for the patient to message again.
+        </div>
+        <div className="flex items-end gap-2">
+          <input
+            value={templateName}
+            onChange={(e) => setTemplateName(e.target.value)}
+            placeholder="Approved template name (e.g. lab_report_ready)"
+            className="flex-1 rounded-lg border bg-card px-3 py-2.5 text-sm outline-none focus:border-ring/40"
+          />
+          <button
+            disabled={!templateName.trim() || sending}
+            onClick={() => onTemplate(templateName.trim(), `[Template: ${templateName.trim()}]`)}
+            className="inline-flex h-11 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
+          >
+            <Send className="h-4 w-4" /> Send template
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t bg-card p-3">
+      <div className="mb-2.5 flex items-center gap-2 rounded-lg bg-success/10 px-3 py-1.5 text-[12px] font-medium text-success">
+        <Check className="h-3.5 w-3.5 flex-shrink-0" />
+        Free-text replies open · {windowLabel(conv)}
+      </div>
+
+      <div className="mb-2.5 flex flex-wrap gap-1.5">
+        <QuickBtn icon={FileText} label="Report ready" onClick={() => setText(QUICK_REPLIES[0])} />
+        <QuickBtn icon={Phone} label="Call us" onClick={() => setText(QUICK_REPLIES[3])} />
+        <QuickBtn icon={Receipt} label="Working hours" onClick={() => setText(QUICK_REPLIES[2])} />
+        <button
+          onClick={() => setShowQuick((v) => !v)}
+          className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium hover:bg-muted"
+        >
+          Canned replies
+        </button>
+      </div>
+      {showQuick && (
+        <div className="mb-2.5 space-y-1 rounded-lg border bg-muted/40 p-2">
+          {QUICK_REPLIES.map((q, i) => (
+            <button
+              key={i}
+              onClick={() => {
+                setText(q);
+                setShowQuick(false);
+              }}
+              className="block w-full truncate rounded px-2 py-1.5 text-left text-[12.5px] hover:bg-card"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-end gap-2.5">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              onSend();
+            }
+          }}
+          placeholder="Type a reply…  (Enter to send, Shift+Enter for a new line)"
+          rows={1}
+          className="max-h-32 min-h-[44px] flex-1 resize-none rounded-xl border bg-card px-3.5 py-3 text-[13.5px] outline-none focus:border-ring/40"
+        />
+        <button
+          disabled={!text.trim() || sending}
+          onClick={onSend}
+          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground disabled:opacity-50"
+          style={{ backgroundColor: 'var(--branch-sidebar-bg)' }}
+        >
+          <Send className="h-[18px] w-[18px]" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function QuickBtn({ icon: Icon, label, onClick }: { icon: any; label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium hover:bg-muted"
+    >
+      <Icon className="h-3.5 w-3.5" /> {label}
+    </button>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+function PatientRail({
+  ctx,
+  conv,
+  onOpen360,
+}: {
+  ctx: PatientContext | null;
+  conv: ConversationSummary;
+  onOpen360: (patientId: string) => void;
+}) {
+  if (!conv.patientId || !ctx?.patient) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground">
+        <Building2 className="h-6 w-6" />
+        <p className="text-sm">No patient matched to this number.</p>
+        <p className="text-xs">Register or link the patient to see their history here.</p>
+      </div>
+    );
+  }
+  const p = ctx.patient;
+  const lv = ctx.latestVisit;
+  const reportReady = lv?.status === 'COMPLETED';
+
+  return (
+    <div className="flex-1 overflow-y-auto p-4">
+      <Card title="Patient">
+        <div className="text-base font-bold">{p.name}</div>
+        <div className="mt-0.5 text-[12.5px] text-muted-foreground">
+          {p.gender}
+          {p.age != null ? ` · ${p.age}y` : ''} · {p.patientNumber}
+        </div>
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          {reportReady && <Pill tone="green">Report ready</Pill>}
+          {lv && lv.dueInPaise > 0 && <Pill tone="amber">Due {money(lv.dueInPaise)}</Pill>}
+          {lv && lv.dueInPaise === 0 && <Pill tone="green">Paid</Pill>}
+        </div>
+      </Card>
+
+      {lv && (
+        <Card title="Latest visit">
+          <Kv k="Bill no." v={lv.billNumber} />
+          <Kv k="Date" v={new Date(lv.createdAt).toLocaleDateString('en-IN')} />
+          <Kv k="Status" v={lv.status} />
+          <Kv k="Amount" v={money(lv.netInPaise)} />
+          <Kv k="Due" v={money(lv.dueInPaise)} tone={lv.dueInPaise > 0 ? 'amber' : undefined} />
+        </Card>
+      )}
+
+      {ctx.recentVisits.length > 1 && (
+        <Card title="Recent visits">
+          {ctx.recentVisits.slice(1).map((v) => (
+            <div key={v.id} className="flex items-center justify-between border-b py-2 text-[12.5px] last:border-b-0">
+              <div>
+                <div className="font-medium">{v.billNumber}</div>
+                <div className="text-[11.5px] text-muted-foreground">
+                  {new Date(v.createdAt).toLocaleDateString('en-IN')}
+                </div>
+              </div>
+              <Pill tone={v.status === 'COMPLETED' ? 'green' : 'amber'}>{v.status}</Pill>
+            </div>
+          ))}
+        </Card>
+      )}
+
+      <div className="flex flex-col gap-2">
+        <button
+          onClick={() => onOpen360(p.id)}
+          className="rounded-lg border border-primary bg-primary py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90"
+        >
+          Open full Patient 360
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-3 rounded-lg border bg-card p-3.5">
+      <div className="mb-2.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{title}</div>
+      {children}
+    </div>
+  );
+}
+function Kv({ k, v, tone }: { k: string; v: string; tone?: 'amber' }) {
+  return (
+    <div className="flex justify-between border-b border-dashed py-1.5 text-[12.5px] last:border-b-0">
+      <span className="text-muted-foreground">{k}</span>
+      <span className={cn('font-semibold', tone === 'amber' && 'text-warning')}>{v}</span>
+    </div>
+  );
+}
+function Pill({ tone, children }: { tone: 'green' | 'amber' | 'red'; children: React.ReactNode }) {
+  const map = {
+    green: 'bg-success/10 text-success',
+    amber: 'bg-warning/10 text-warning',
+    red: 'bg-destructive/10 text-destructive',
+  };
+  return (
+    <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold', map[tone])}>
+      {children}
+    </span>
+  );
+}

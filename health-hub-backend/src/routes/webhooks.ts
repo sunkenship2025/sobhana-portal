@@ -24,6 +24,106 @@ import { cleanWaReason } from '../services/whatsappErrors';
 
 const router = Router();
 
+// ── Auto-reply config ──
+// Generic auto-reply keeps patients from being ignored while the inbox UI is
+// built. Toggle off without a deploy via WHATSAPP_AUTOREPLY_ENABLED=false.
+const GENERIC_AUTOREPLY_ENABLED = process.env.WHATSAPP_AUTOREPLY_ENABLED !== 'false';
+const GENERIC_AUTOREPLY_TEXT =
+  'Thanks for messaging Sobhana Diagnostics 🙏 We have received your message and our team will reply during working hours (8 AM to 8 PM). For anything urgent, please call 9490539006.';
+const CAMP_AUTOREPLY_TEXT =
+  "Thank you for your interest in Sobhana's *Be a Hero* Blood Donation Camp! 🩸 For details, please call us at 9490539006.";
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Turn a Meta inbound message payload into a storable text body + type.
+ * Media bodies are placeholders for Phase 0; the actual file is fetched & stored
+ * to R2 in Phase 2.
+ */
+function extractInbound(msg: any): { body: string; messageType: string } {
+  const type: string = msg?.type || 'text';
+  switch (type) {
+    case 'text':
+      return { body: msg.text?.body || '', messageType: 'text' };
+    case 'image':
+      return { body: msg.image?.caption || '[Image]', messageType: 'image' };
+    case 'document':
+      return {
+        body: msg.document?.caption || `[Document: ${msg.document?.filename || 'file'}]`,
+        messageType: 'document',
+      };
+    case 'audio':
+      return { body: '[Voice message]', messageType: 'audio' };
+    case 'video':
+      return { body: msg.video?.caption || '[Video]', messageType: 'video' };
+    case 'location':
+      return { body: '[Location]', messageType: 'location' };
+    case 'contacts':
+      return { body: '[Contact card]', messageType: 'contacts' };
+    case 'sticker':
+      return { body: '[Sticker]', messageType: 'sticker' };
+    case 'button':
+      return { body: msg.button?.text || '[Button reply]', messageType: 'button' };
+    case 'interactive':
+      return {
+        body:
+          msg.interactive?.button_reply?.title ||
+          msg.interactive?.list_reply?.title ||
+          '[Interactive reply]',
+        messageType: 'interactive',
+      };
+    default:
+      return { body: `[${type} message]`, messageType: 'other' };
+  }
+}
+
+/**
+ * Send a free-form auto-reply, record it on the conversation, and stamp
+ * autoRepliedAt. When `logTemplate` is given it also writes a MessageLog row
+ * (the blood-camp campaign relies on that for its "already replied?" check).
+ * Valid because the patient's inbound message just opened the 24h window.
+ */
+async function sendAutoReply(
+  phone: string,
+  text: string,
+  conversationId: string,
+  opts?: { logTemplate?: string; contextId?: string },
+): Promise<void> {
+  const { sendText } = await import('../services/whatsappCloudService');
+  const result = await sendText(phone, text);
+  const now = new Date();
+
+  if (opts?.logTemplate) {
+    await prisma.messageLog.create({
+      data: {
+        phone,
+        channel: 'WHATSAPP',
+        templateName: opts.logTemplate,
+        status: 'SENT',
+        waMessageId: result.waMessageId,
+        sentAt: now,
+        contextType: 'CAMPAIGN',
+        contextId: opts.contextId ?? '',
+      },
+    });
+  }
+
+  await prisma.conversationMessage.create({
+    data: {
+      conversationId,
+      direction: 'OUT',
+      body: text,
+      messageType: 'text',
+      isAutoReply: true,
+      waMessageId: result.waMessageId,
+    },
+  });
+
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { autoRepliedAt: now, lastMessageAt: now },
+  });
+}
+
 /**
  * Verify Meta's `X-Hub-Signature-256` against the raw body.
  * If WHATSAPP_APP_SECRET is unset (dev / pre-onboarding), logs a warning and
@@ -153,44 +253,102 @@ router.post(
             }
           }
 
-          // ── Inbound messages → campaign auto-reply ──
-          // When someone replies after getting the blood-donation camp invite, send
-          // a one-time "call us for details" reply. Free-form is allowed inside the
-          // 24h window their inbound message just opened. Scoped to invited numbers.
+          // ── Inbound messages → capture + auto-reply ──
+          // Every patient reply is persisted to the Conversation inbox first (so
+          // it is never lost), then answered: blood-camp invitees get the campaign
+          // reply; everyone else gets a generic "we got your message" reply at most
+          // once per 24h, so no patient is ignored while the inbox UI is built.
           for (const msg of change.value?.messages || []) {
             const from = msg?.from;
+            const waId: string | undefined = msg?.id;
             if (!from || msg.type === 'reaction') continue;
+
             try {
+              // Idempotency: Meta retries webhooks — skip messages we've stored.
+              if (waId) {
+                const seen = await prisma.conversationMessage.findUnique({
+                  where: { waMessageId: waId },
+                  select: { id: true },
+                });
+                if (seen) continue;
+              }
+
+              const { body: inboundBody, messageType } = extractInbound(msg);
+              const preview = inboundBody.slice(0, 200);
+              const now = new Date();
+
+              // Derive patient + branch from the most recent message we sent here.
+              const lastOutbound = await prisma.messageLog.findFirst({
+                where: { phone: from },
+                orderBy: { createdAt: 'desc' },
+                select: { patientId: true, branchId: true },
+              });
+
+              // Upsert the conversation thread.
+              const convo = await prisma.conversation.upsert({
+                where: { phone: from },
+                create: {
+                  phone: from,
+                  patientId: lastOutbound?.patientId ?? null,
+                  branchId: lastOutbound?.branchId ?? null,
+                  status: 'OPEN',
+                  lastInboundAt: now,
+                  lastMessageAt: now,
+                  lastPreview: preview,
+                  unreadCount: 1,
+                },
+                update: {
+                  // Backfill patient/branch if a later send resolved them.
+                  ...(lastOutbound?.patientId ? { patientId: lastOutbound.patientId } : {}),
+                  ...(lastOutbound?.branchId ? { branchId: lastOutbound.branchId } : {}),
+                  status: 'OPEN',
+                  lastInboundAt: now,
+                  lastMessageAt: now,
+                  lastPreview: preview,
+                  unreadCount: { increment: 1 },
+                },
+              });
+
+              // Persist the inbound message (never lost, even if the reply fails).
+              await prisma.conversationMessage.create({
+                data: {
+                  conversationId: convo.id,
+                  direction: 'IN',
+                  body: inboundBody,
+                  messageType,
+                  waMessageId: waId ?? null,
+                },
+              });
+
+              // ── Auto-reply ──
               const invited = await prisma.messageLog.findFirst({
                 where: { phone: from, templateName: 'blood_camp_invite' },
                 select: { id: true },
               });
-              if (!invited) continue;
-              const already = await prisma.messageLog.findFirst({
-                where: { phone: from, templateName: 'camp_autoreply' },
-                select: { id: true },
-              });
-              if (already) continue;
-              const { sendText } = await import('../services/whatsappCloudService');
-              const result = await sendText(
-                from,
-                "Thank you for your interest in Sobhana's *Be a Hero* Blood Donation Camp! 🩸 For details, please call us at 9490539006.",
-              );
-              await prisma.messageLog.create({
-                data: {
-                  phone: from,
-                  channel: 'WHATSAPP',
-                  templateName: 'camp_autoreply',
-                  status: 'SENT',
-                  waMessageId: result.waMessageId,
-                  sentAt: new Date(),
-                  contextType: 'CAMPAIGN',
-                  contextId: 'blood-camp-2026',
-                },
-              });
-              console.log(`[Webhook] Camp auto-reply sent to ${from}`);
-            } catch (replyErr) {
-              console.error('[Webhook] Camp auto-reply failed:', replyErr);
+
+              if (invited) {
+                const alreadyCamp = await prisma.messageLog.findFirst({
+                  where: { phone: from, templateName: 'camp_autoreply' },
+                  select: { id: true },
+                });
+                if (!alreadyCamp) {
+                  await sendAutoReply(from, CAMP_AUTOREPLY_TEXT, convo.id, {
+                    logTemplate: 'camp_autoreply',
+                    contextId: 'blood-camp-2026',
+                  });
+                  console.log(`[Webhook] Camp auto-reply sent to ${from}`);
+                }
+              } else if (GENERIC_AUTOREPLY_ENABLED) {
+                const recentlyReplied =
+                  convo.autoRepliedAt != null &&
+                  now.getTime() - convo.autoRepliedAt.getTime() < DAY_MS;
+                if (!recentlyReplied) {
+                  await sendAutoReply(from, GENERIC_AUTOREPLY_TEXT, convo.id);
+                  console.log(`[Webhook] Generic auto-reply sent to ${from}`);
+                }
+              }
+            } catch (inboundErr) {
+              console.error('[Webhook] Inbound message handling failed:', inboundErr);
             }
           }
         }

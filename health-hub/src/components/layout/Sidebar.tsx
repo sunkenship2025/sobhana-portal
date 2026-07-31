@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  MessagesSquare,
   Microscope,
   ShieldAlert,
   Stethoscope,
@@ -19,6 +20,8 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuthStore, UserRole, ROLE_LABELS } from '@/store/authStore';
+import { useBranchStore } from '@/store/branchStore';
+import { useApiQuery, branchRequest } from '@/lib/query';
 import {
   Sheet,
   SheetContent,
@@ -81,6 +84,13 @@ const ownerNavItems: NavItem[] = [
     href: '/ops/audit',
     roles: ['owner'],
     matchPrefixes: ['/ops/audit'],
+  },
+  {
+    label: 'Messages',
+    icon: MessagesSquare,
+    href: '/messages',
+    roles: ['owner'],
+    matchPrefixes: ['/messages'],
   },
   {
     label: 'Workflows',
@@ -204,6 +214,13 @@ const staffNavItems: NavItem[] = [
     matchPrefixes: ['/ops/audit'],
   },
   {
+    label: 'Messages',
+    icon: MessagesSquare,
+    href: '/messages',
+    roles: ['staff', 'lab_incharge'],
+    matchPrefixes: ['/messages'],
+  },
+  {
     label: 'Admin',
     icon: Building2,
     href: '/owner/config',
@@ -243,6 +260,18 @@ export function Sidebar() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const activeBranchId = useBranchStore((s) => s.activeBranchId);
+
+  // Live unread badge for the Messages nav item.
+  const canSeeMessages = !!user && ['owner', 'lab_incharge', 'staff'].includes(user.role);
+  const { data: unreadData } = useApiQuery<{ count: number }>({
+    queryKey: ['inbox', 'unread', activeBranchId],
+    queryFn: () => branchRequest<{ count: number }>('/inbox/unread-count', activeBranchId ?? ''),
+    branchScoped: true,
+    enabled: canSeeMessages,
+    refetchInterval: 30000,
+  });
+  const messagesUnread = unreadData?.count ?? 0;
 
   const handleLogout = () => {
     logout();
@@ -299,6 +328,14 @@ export function Sidebar() {
               >
                 <Icon className="h-5 w-5 shrink-0" />
                 <span className="min-w-0 truncate">{item.label}</span>
+                {item.href === '/messages' && messagesUnread > 0 && (
+                  <span
+                    className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white"
+                    style={{ backgroundColor: 'var(--branch-accent)' }}
+                  >
+                    {messagesUnread}
+                  </span>
+                )}
               </Link>
             );
           }

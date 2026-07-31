@@ -58,6 +58,7 @@ import couponGatewayRoutes from './routes/couponGateway';
 import couponRoutes from './routes/coupons';
 import webhookRoutes from './routes/webhooks';
 import messageRoutes from './routes/messages';
+import inboxRoutes from './routes/inbox';
 import departmentRoutes from './routes/departments';
 import diagnosticCenterRoutes from './routes/diagnosticCenters';
 import externalLabRoutes from './routes/externalLabs';
@@ -340,6 +341,7 @@ app.use('/api/payouts', payoutRoutes);
 app.use('/api/audit-logs', auditLogRoutes);
 app.use('/api/bills', billRoutes);
 app.use('/api/messages', messageRoutes);
+app.use('/api/inbox', inboxRoutes); // Patient Messages inbox (WhatsApp two-way)
 app.use('/api/coupons', couponRoutes);
 app.use('/api/departments', departmentRoutes);
 app.use('/api/diagnostic-centers', diagnosticCenterRoutes);

@@ -26,6 +26,7 @@ import OwnerMoneyPage from "./pages/owner/OwnerMoneyPage";
 import OwnerDoctorsPage from "./pages/owner/OwnerDoctorsPage";
 import OwnerOperationsPage from "./pages/owner/OwnerOperationsPage";
 import OwnerAuditPage from "./pages/owner/OwnerAuditPage";
+import MessagesInbox from "./pages/messages/MessagesInbox";
 
 import AdminConfigCenter from "./pages/owner/AdminConfigCenter";
 import PayoutsList from "./pages/owner/PayoutsList";
@@ -194,6 +195,11 @@ function AppRoutes() {
       <Route path="/ops/audit" element={
         <ProtectedRoute allowedRoles={['owner', 'lab_incharge']}>
           <OwnerAuditPage />
+        </ProtectedRoute>
+      } />
+      <Route path="/messages" element={
+        <ProtectedRoute allowedRoles={['owner', 'lab_incharge', 'staff']}>
+          <MessagesInbox />
         </ProtectedRoute>
       } />
       <Route path="/owner/doctors" element={<Navigate to="/owner/config?tab=referrals" replace />} />
