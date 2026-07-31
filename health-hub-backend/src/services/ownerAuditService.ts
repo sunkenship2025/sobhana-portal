@@ -67,6 +67,13 @@ export interface AuditEventsResult {
   /** Echoed so the UI can show the effective (clamped) window. */
   from: string;
   to: string;
+  /** Real counts over the whole filtered window (one cheap grouped aggregate) —
+   *  powers the KPI strip + filter-rail facet counts without a full fetch. */
+  summary: {
+    total: number;
+    severity: Record<AuditSeverity, number>;
+    category: Record<AuditCategory, number>;
+  };
 }
 
 const parseList = (v?: string | null): string[] =>
@@ -219,18 +226,53 @@ export async function getAuditEvents(
     });
   }
 
-  const cur = params.cursor ? decodeCursor(params.cursor) : null;
-  if (cur) {
-    and.push({
-      OR: [
-        { createdAt: { lt: cur.at } },
-        { AND: [{ createdAt: cur.at }, { id: { lt: cur.id } }] },
-      ],
-    });
+  // Facet counts over the whole filtered window (before the cursor slice) — a
+  // single grouped aggregate on stored columns, so the KPI strip / rail counts
+  // are real without fetching every row.
+  const severityCounts: Record<AuditSeverity, number> = {
+    high: 0,
+    medium: 0,
+    low: 0,
+    info: 0,
+  };
+  const categoryCounts: Record<AuditCategory, number> = {
+    money: 0,
+    report: 0,
+    drafts: 0,
+    identity: 0,
+    access: 0,
+    destructive: 0,
+    ops: 0,
+  };
+  let total = 0;
+  const grouped = await prisma.auditLog.groupBy({
+    by: ["actionType", "entityType"],
+    where: { AND: and },
+    _count: { _all: true },
+  });
+  for (const g of grouped) {
+    const n = g._count._all;
+    const c = classify(g.actionType, g.entityType);
+    severityCounts[c.severity] += n;
+    categoryCounts[c.category] += n;
+    total += n;
   }
 
+  const cur = params.cursor ? decodeCursor(params.cursor) : null;
+  const pageAnd = cur
+    ? [
+        ...and,
+        {
+          OR: [
+            { createdAt: { lt: cur.at } },
+            { AND: [{ createdAt: cur.at }, { id: { lt: cur.id } }] },
+          ],
+        } as Prisma.AuditLogWhereInput,
+      ]
+    : and;
+
   const rows = await prisma.auditLog.findMany({
-    where: { AND: and },
+    where: { AND: pageAnd },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: limit + 1,
     select: {
@@ -310,5 +352,6 @@ export async function getAuditEvents(
     nextCursor,
     from: from.toISOString(),
     to: to.toISOString(),
+    summary: { total, severity: severityCounts, category: categoryCounts },
   };
 }
