@@ -23,7 +23,9 @@ function getConfig() {
   return {
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
     accessToken: process.env.WHATSAPP_ACCESS_TOKEN || '',
-    wabaId: process.env.WHATSAPP_WABA_ID || '', // WhatsApp Business Account id — for listing message templates
+    // WhatsApp Business Account id — for listing message templates. Existing env
+    // name is WHATSAPP_BUSINESS_ACCOUNT_ID; WHATSAPP_WABA_ID kept as a fallback.
+    wabaId: process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || process.env.WHATSAPP_WABA_ID || '',
     enabled: process.env.WHATSAPP_ENABLED === 'true',
   };
 }
@@ -201,7 +203,7 @@ const TEMPLATE_CACHE_MS = 5 * 60 * 1000;
 export async function listMessageTemplates(force = false): Promise<MessageTemplateSummary[]> {
   const config = getConfig();
   if (!config.wabaId || !config.accessToken) {
-    throw new Error('WhatsApp WABA id / access token not configured (set WHATSAPP_WABA_ID)');
+    throw new Error('WhatsApp WABA id / access token not configured (set WHATSAPP_BUSINESS_ACCOUNT_ID)');
   }
   if (!force && templateCache && Date.now() - templateCache.at < TEMPLATE_CACHE_MS) {
     return templateCache.data;

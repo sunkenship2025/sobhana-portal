@@ -16,6 +16,7 @@ import {
   Check,
   CheckCheck,
   FileText,
+  ImagePlus,
   Info,
   Phone,
   Receipt,
@@ -74,6 +75,7 @@ interface VisitCtx {
   status: string;
   createdAt: string;
   branchCode: string | null;
+  tests: string;
   netInPaise: number;
   dueInPaise: number;
   paymentStatus: string | null;
@@ -88,6 +90,7 @@ interface PatientContext {
   } | null;
   latestVisit: VisitCtx | null;
   recentVisits: VisitCtx[];
+  lastNotification: { type: string; at: string; tests: string } | null;
 }
 interface ThreadResponse {
   conversation: ConversationSummary;
@@ -144,6 +147,28 @@ const QUICK_REPLIES = [
   'Please visit your nearest Sobhana Diagnostics branch during working hours (8 AM to 8 PM).',
   'Your test is available. Please call 9490539006 to book, or visit any Sobhana branch.',
 ];
+const REPORT_DRAFT =
+  'Your report is ready ✅ Please open the secure link we shared with you to view and download it. — Sobhana Diagnostics';
+const BILL_DRAFT =
+  'Here are your bill details. Please reply here if you have any questions. — Sobhana Diagnostics';
+
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((startOf(now) - startOf(d)) / 86400000);
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+function dateTimeLabel(iso: string): string {
+  return new Date(iso).toLocaleString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function MessagesInbox() {
@@ -460,6 +485,7 @@ function ThreadPane({
   const [text, setText] = useState('');
   const bodyRef = useRef<HTMLDivElement>(null);
   const messages = thread?.messages ?? [];
+  const lastNotif = thread?.patientContext?.lastNotification ?? null;
 
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
@@ -523,7 +549,7 @@ function ThreadPane({
             onClick={() => onOpen360(conv.patientId!)}
             className="hidden flex-shrink-0 items-center gap-1.5 rounded-lg border border-primary bg-primary px-2.5 py-1.5 text-[12.5px] font-medium text-primary-foreground hover:opacity-90 sm:inline-flex"
           >
-            <Info className="h-3.5 w-3.5" /> Patient 360
+            <Info className="h-3.5 w-3.5" /> Open Patient 360
           </button>
         )}
       </div>
@@ -531,9 +557,33 @@ function ThreadPane({
       {/* body */}
       <div ref={bodyRef} className="flex flex-1 flex-col gap-2.5 overflow-y-auto bg-muted/30 p-4">
         {loading && <div className="text-center text-sm text-muted-foreground">Loading…</div>}
-        {messages.map((m) => (
-          <MessageBubble key={m.id} m={m} />
-        ))}
+        {lastNotif && (
+          <div className="inline-flex items-center gap-1.5 self-center rounded-full bg-black/[0.06] px-3 py-1 text-[11.5px] text-muted-foreground dark:bg-white/10">
+            <FileText className="h-3 w-3" />
+            {lastNotif.type === 'REPORT' ? 'Report sent' : 'Bill sent'}
+            {lastNotif.tests ? ` · ${lastNotif.tests}` : ''} · {dateTimeLabel(lastNotif.at)}
+          </div>
+        )}
+        {(() => {
+          const out: JSX.Element[] = [];
+          let prevDay = '';
+          messages.forEach((m) => {
+            const d = dayLabel(m.createdAt);
+            if (d !== prevDay) {
+              out.push(
+                <div
+                  key={`day-${m.id}`}
+                  className="my-1 self-center text-[11px] font-semibold text-muted-foreground"
+                >
+                  {d}
+                </div>,
+              );
+              prevDay = d;
+            }
+            out.push(<MessageBubble key={m.id} m={m} />);
+          });
+          return out;
+        })()}
       </div>
 
       {/* composer */}
@@ -729,15 +779,20 @@ function Composer({
       </div>
 
       <div className="mb-2.5 flex flex-wrap gap-1.5">
-        <QuickBtn icon={FileText} label="Report ready" onClick={() => setText(QUICK_REPLIES[0])} />
-        <QuickBtn icon={Phone} label="Call us" onClick={() => setText(QUICK_REPLIES[3])} />
-        <QuickBtn icon={Receipt} label="Working hours" onClick={() => setText(QUICK_REPLIES[2])} />
+        <QuickBtn icon={FileText} label="Send report link" onClick={() => setText(REPORT_DRAFT)} />
+        <QuickBtn icon={Receipt} label="Send bill" onClick={() => setText(BILL_DRAFT)} />
+        <QuickBtn icon={Phone} label="Call" onClick={() => window.open(`tel:${conv.phone}`)} />
         <button
           onClick={() => setShowQuick((v) => !v)}
           className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium hover:bg-muted"
         >
           Canned replies
         </button>
+        <QuickBtn
+          icon={ImagePlus}
+          label="Request image"
+          onClick={() => toast('Turn on image support in Messages settings to request images.')}
+        />
       </div>
       {showQuick && (
         <div className="mb-2.5 space-y-1 rounded-lg border bg-muted/40 p-2">
@@ -836,7 +891,12 @@ function PatientRail({
         <Card title="Latest visit">
           <Kv k="Bill no." v={lv.billNumber} />
           <Kv k="Date" v={new Date(lv.createdAt).toLocaleDateString('en-IN')} />
-          <Kv k="Status" v={lv.status} />
+          {lv.tests && <Kv k="Tests" v={lv.tests} />}
+          <Kv
+            k="Report"
+            v={lv.status === 'COMPLETED' ? 'Finalized' : lv.status}
+            tone={lv.status === 'COMPLETED' ? 'green' : undefined}
+          />
           <Kv k="Amount" v={money(lv.netInPaise)} />
           <Kv k="Due" v={money(lv.dueInPaise)} tone={lv.dueInPaise > 0 ? 'amber' : undefined} />
         </Card>
@@ -845,14 +905,16 @@ function PatientRail({
       {ctx.recentVisits.length > 1 && (
         <Card title="Recent visits">
           {ctx.recentVisits.slice(1).map((v) => (
-            <div key={v.id} className="flex items-center justify-between border-b py-2 text-[12.5px] last:border-b-0">
-              <div>
-                <div className="font-medium">{v.billNumber}</div>
+            <div key={v.id} className="flex items-center justify-between gap-2 border-b py-2 text-[12.5px] last:border-b-0">
+              <div className="min-w-0">
+                <div className="truncate font-medium">{v.tests || v.billNumber}</div>
                 <div className="text-[11.5px] text-muted-foreground">
                   {new Date(v.createdAt).toLocaleDateString('en-IN')}
                 </div>
               </div>
-              <Pill tone={v.status === 'COMPLETED' ? 'green' : 'amber'}>{v.status}</Pill>
+              <Pill tone={v.status === 'COMPLETED' ? 'green' : 'amber'}>
+                {v.status === 'COMPLETED' ? 'Sent' : v.status}
+              </Pill>
             </div>
           ))}
         </Card>
@@ -865,6 +927,14 @@ function PatientRail({
         >
           Open full Patient 360
         </button>
+        {lv && lv.dueInPaise > 0 && (
+          <button
+            onClick={() => onOpen360(p.id)}
+            className="rounded-lg border py-2.5 text-sm font-medium hover:bg-muted"
+          >
+            Collect due {money(lv.dueInPaise)}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -878,11 +948,19 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
     </div>
   );
 }
-function Kv({ k, v, tone }: { k: string; v: string; tone?: 'amber' }) {
+function Kv({ k, v, tone }: { k: string; v: string; tone?: 'amber' | 'green' }) {
   return (
-    <div className="flex justify-between border-b border-dashed py-1.5 text-[12.5px] last:border-b-0">
-      <span className="text-muted-foreground">{k}</span>
-      <span className={cn('font-semibold', tone === 'amber' && 'text-warning')}>{v}</span>
+    <div className="flex justify-between gap-3 border-b border-dashed py-1.5 text-[12.5px] last:border-b-0">
+      <span className="flex-shrink-0 text-muted-foreground">{k}</span>
+      <span
+        className={cn(
+          'text-right font-semibold',
+          tone === 'amber' && 'text-warning',
+          tone === 'green' && 'text-success',
+        )}
+      >
+        {v}
+      </span>
     </div>
   );
 }
