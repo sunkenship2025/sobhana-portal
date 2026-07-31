@@ -237,6 +237,25 @@
   .pthreadhead svg{width:20px; height:20px}
   .pctxstrip{display:flex; align-items:center; gap:7px; padding:9px 14px; background:#eef2fb; border-bottom:1px solid var(--border)}
   .pctxstrip .go{margin-left:auto; color:var(--navy); font-weight:600; display:flex; align-items:center; gap:2px; font-size:12px}
+
+  /* ===== Image handling section ===== */
+  .imgcards{display:grid; grid-template-columns:repeat(2,1fr); gap:20px; max-width:1040px}
+  @media(max-width:900px){ .imgcards{grid-template-columns:1fr} }
+  .imgcard{border:1px solid var(--border); border-radius:var(--radius); background:var(--card); overflow:hidden; display:flex; flex-direction:column}
+  .imgcard > .ic-body{padding:16px; flex:1}
+  .imgcard > .ic-cap{padding:10px 14px; border-top:1px solid var(--border); font-size:12px; color:var(--muted-fg); background:#fcfcfc}
+  .imgcard > .ic-cap b{color:var(--fg)}
+  .set-row{display:flex; align-items:center; justify-content:space-between; padding:9px 0; border-bottom:1px dashed var(--border); font-size:13px}
+  .set-row:last-child{border-bottom:none}
+  .mockselect{display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border); border-radius:8px; padding:7px 11px; font-size:12.5px; font-weight:500; background:var(--card)}
+  .mockselect svg{width:13px; height:13px; color:var(--muted-fg)}
+  .seg{display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden}
+  .seg span{padding:7px 15px; font-size:13px; font-weight:600; cursor:pointer; border-right:1px solid var(--border)}
+  .seg span:last-child{border-right:none}
+  .seg span.on{background:var(--navy); color:#fff}
+  .thumb{width:132px; height:98px; border-radius:8px; background:linear-gradient(135deg,#cdd6e6,#9fb0cc); display:flex; align-items:center; justify-content:center; font-size:30px}
+  .blocked-bubble{align-self:flex-start; max-width:82%; border:1px dashed var(--border); border-radius:12px; padding:10px 13px; background:var(--muted); color:var(--muted-fg); font-size:12.5px; display:flex; gap:8px; align-items:center}
+  .popmock{border:1px solid var(--border); border-radius:10px; background:var(--card); padding:14px; box-shadow:0 8px 24px rgba(0,0,0,.12); max-width:300px}
 </style>
 </head>
 <body>
@@ -422,6 +441,7 @@
               <button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/></svg>Send bill</button>
               <button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>Call</button>
               <button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>Canned replies</button>
+              <button class="btn" style="border-color:var(--navy);color:var(--navy)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>Request image<span class="anno" title="Sends the patient a message AND opens a capped image window for this thread. Only requested images are downloaded to R2 — unsolicited ones are dropped.">5</span></button>
             </div>
             <div class="compose-row">
               <textarea placeholder="Type a reply…"></textarea>
@@ -587,6 +607,77 @@
             </div>
           </div>
           <div class="phone-cap">Thread — context rail collapses to the blue strip</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ===== IMAGE HANDLING ===== -->
+    <div class="mobile-wrap">
+      <h2>Image handling — protecting R2</h2>
+      <p>You can't stop a patient sending an image, but you never have to download it. Unsolicited images are dropped at the webhook (a placeholder, no R2 write). R2 only ever stores images staff explicitly requested, capped per request.</p>
+      <div class="imgcards">
+
+        <!-- Card 1: Global setting -->
+        <div class="imgcard">
+          <div class="ic-body">
+            <div class="ctx-title" style="margin-bottom:12px">Admin → Messages settings</div>
+            <div class="set-row"><span>Patient image uploads</span><span class="mockselect">On request only <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></div>
+            <div class="set-row"><span>Images per request</span><span class="mockselect">3 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></div>
+            <div class="set-row"><span>Request expires after</span><span class="mockselect">1 hour <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></div>
+            <div class="set-row"><span>Max image size</span><span class="mockselect">5 MB</span></div>
+          </div>
+          <div class="ic-cap"><b>①  Global master switch.</b> <b>Off</b> = images are never downloaded (R2 untouched). Default: <b>On request only</b>. "Always (capped)" = auto-accept up to N/day per patient.</div>
+        </div>
+
+        <!-- Card 2: Request popover -->
+        <div class="imgcard">
+          <div class="ic-body" style="background:#f6f6f4">
+            <div class="qa" style="margin-bottom:12px">
+              <button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/></svg>Canned</button>
+              <button class="btn" style="border-color:var(--navy);color:var(--navy)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>Request image</button>
+            </div>
+            <div class="popmock">
+              <div style="font-weight:600;font-size:13px;margin-bottom:12px">Ask patient for images</div>
+              <div style="font-size:12px;color:var(--muted-fg);margin-bottom:6px">How many?</div>
+              <div class="seg" style="margin-bottom:12px"><span>1</span><span class="on">3</span><span>5</span></div>
+              <textarea style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font:inherit;font-size:12.5px;resize:none;color:var(--fg)" rows="2">Please send the image(s) now — e.g. an old report or prescription.</textarea>
+              <button class="btn primary" style="width:100%;justify-content:center;margin-top:10px">Send request</button>
+            </div>
+          </div>
+          <div class="ic-cap"><b>②  Per-conversation.</b> Only shown when uploads aren't Off and the 24h window is open. Sends the patient a message and opens the image window for the next N images.</div>
+        </div>
+
+        <!-- Card 3: Active request banner -->
+        <div class="imgcard">
+          <div class="ic-body">
+            <div class="win-banner" style="background:#eef2fb;color:var(--navy)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+              Waiting for images · 1 of 3 received · expires in 58m
+              <span style="margin-left:auto;font-weight:600;cursor:pointer">Cancel</span>
+            </div>
+            <div class="compose-row" style="margin-top:6px">
+              <textarea placeholder="Type a reply…"></textarea>
+              <button class="send-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>
+            </div>
+          </div>
+          <div class="ic-cap"><b>③  Live counter</b> while the window is open. Auto-closes at 3/3 or when it expires — after that, images are dropped again.</div>
+        </div>
+
+        <!-- Card 4: Thread rendering -->
+        <div class="imgcard">
+          <div class="ic-body" style="background:#f6f6f4; display:flex; flex-direction:column; gap:12px">
+            <div class="bubble in" style="max-width:82%">
+              <div class="thumb">🖼️</div>
+              <div style="font-size:12px;margin-top:6px">old-report.jpg</div>
+              <div class="t">2:15 PM</div>
+            </div>
+            <div class="blocked-bubble">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
+              Image not saved — no active request
+            </div>
+          </div>
+          <div class="ic-cap"><b>④  Requested images</b> render as thumbnails (stored in R2). Unsolicited ones show a placeholder and are <b>never downloaded</b>.</div>
         </div>
 
       </div>

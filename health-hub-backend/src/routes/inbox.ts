@@ -35,6 +35,7 @@ import {
   sendText,
   sendTemplate,
   isWhatsAppEnabled,
+  listMessageTemplates,
   TemplateComponent,
 } from '../services/whatsappCloudService';
 
@@ -178,6 +179,24 @@ router.get('/unread-count', async (req: AuthRequest, res) => {
   } catch (err) {
     console.error('[Inbox] unread-count error:', err);
     res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to load unread count' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/inbox/templates  (approved templates for out-of-window replies)
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/templates', async (_req: AuthRequest, res) => {
+  if (!isWhatsAppEnabled()) {
+    res.json({ templates: [], enabled: false });
+    return;
+  }
+  try {
+    const templates = await listMessageTemplates();
+    res.json({ templates, enabled: true });
+  } catch (err: any) {
+    // Degrade gracefully — the composer falls back to a manual template-name field.
+    console.error('[Inbox] templates error:', err?.response?.data || err?.message || err);
+    res.json({ templates: [], enabled: true, error: 'Could not load templates (check WHATSAPP_WABA_ID).' });
   }
 });
 

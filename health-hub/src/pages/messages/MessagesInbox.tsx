@@ -207,11 +207,14 @@ export default function MessagesInbox() {
       }),
     invalidate: [['inbox']],
   });
-  const templateM = useApiMutation<{ ok: boolean }, { id: string; templateName: string; preview: string }>({
-    mutationFn: ({ id, templateName, preview }) =>
+  const templateM = useApiMutation<
+    { ok: boolean },
+    { id: string; templateName: string; preview: string; languageCode: string; bodyParams: string[] }
+  >({
+    mutationFn: ({ id, templateName, preview, languageCode, bodyParams }) =>
       branchRequest(`/inbox/conversations/${id}/template`, branchId ?? '', {
         method: 'POST',
-        body: JSON.stringify({ templateName, preview }),
+        body: JSON.stringify({ templateName, preview, languageCode, bodyParams }),
       }),
     invalidate: [['inbox']],
   });
@@ -334,10 +337,13 @@ export default function MessagesInbox() {
                   },
                 )
               }
-              onTemplate={(templateName, preview) =>
+              onTemplate={(templateName, preview, languageCode, bodyParams) =>
                 templateM.mutate(
-                  { id: selectedConv.id, templateName, preview },
-                  { onError: (err) => toast.error(err.message || 'Template send failed') },
+                  { id: selectedConv.id, templateName, preview, languageCode, bodyParams },
+                  {
+                    onSuccess: () => toast.success('Template sent'),
+                    onError: (err) => toast.error(err.message || 'Template send failed'),
+                  },
                 )
               }
               sending={replyM.isPending || templateM.isPending}
@@ -448,7 +454,7 @@ function ThreadPane({
   onAssign: (assign: boolean) => void;
   onOpen360: (patientId: string) => void;
   onReply: (text: string) => void;
-  onTemplate: (templateName: string, preview: string) => void;
+  onTemplate: (templateName: string, preview: string, languageCode: string, bodyParams: string[]) => void;
   sending: boolean;
 }) {
   const [text, setText] = useState('');
@@ -564,6 +570,19 @@ function MessageBubble({ m }: { m: ThreadMessage }) {
   );
 }
 
+interface TemplateSummary {
+  name: string;
+  language: string;
+  category: string;
+  status: string;
+  bodyText: string;
+  paramCount: number;
+  hasHeaderMedia: boolean;
+}
+function renderTemplatePreview(bodyText: string, params: string[]): string {
+  return bodyText.replace(/\{\{\s*(\d+)\s*\}\}/g, (_m, n) => params[Number(n) - 1]?.trim() || `{{${n}}}`);
+}
+
 function Composer({
   conv,
   text,
@@ -576,34 +595,128 @@ function Composer({
   text: string;
   setText: (t: string) => void;
   onSend: () => void;
-  onTemplate: (templateName: string, preview: string) => void;
+  onTemplate: (templateName: string, preview: string, languageCode: string, bodyParams: string[]) => void;
   sending: boolean;
 }) {
+  const branchId = useBranchId();
   const [showQuick, setShowQuick] = useState(false);
-  const [templateName, setTemplateName] = useState('');
+  const [selectedName, setSelectedName] = useState('');
+  const [params, setParams] = useState<string[]>([]);
+  const [manualName, setManualName] = useState('');
+
+  // Approved templates, fetched only when the window is closed.
+  const templatesQ = useApiQuery<{ templates: TemplateSummary[]; enabled: boolean; error?: string }>({
+    queryKey: ['inbox', 'templates'],
+    queryFn: () => branchRequest('/inbox/templates', branchId ?? ''),
+    enabled: !conv.windowOpen,
+    staleTime: 5 * 60 * 1000,
+  });
+  const templates = templatesQ.data?.templates ?? [];
+  const selected = templates.find((t) => t.name === selectedName) ?? null;
+
+  useEffect(() => {
+    setSelectedName('');
+    setParams([]);
+    setManualName('');
+  }, [conv.id]);
 
   if (!conv.windowOpen) {
+    const needParams = selected?.paramCount ?? 0;
+    const missing = !selected || selected.hasHeaderMedia || Array.from({ length: needParams }).some((_, i) => !params[i]?.trim());
+    const hasTemplates = templates.length > 0;
+
     return (
       <div className="border-t bg-card p-3.5">
         <div className="mb-3 flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-[12px] font-medium text-destructive">
           <Info className="h-4 w-4 flex-shrink-0" />
           The 24-hour free-reply window has closed. Send an approved template, or wait for the patient to message again.
         </div>
-        <div className="flex items-end gap-2">
-          <input
-            value={templateName}
-            onChange={(e) => setTemplateName(e.target.value)}
-            placeholder="Approved template name (e.g. lab_report_ready)"
-            className="flex-1 rounded-lg border bg-card px-3 py-2.5 text-sm outline-none focus:border-ring/40"
-          />
-          <button
-            disabled={!templateName.trim() || sending}
-            onClick={() => onTemplate(templateName.trim(), `[Template: ${templateName.trim()}]`)}
-            className="inline-flex h-11 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
-          >
-            <Send className="h-4 w-4" /> Send template
-          </button>
-        </div>
+
+        {templatesQ.isLoading && <div className="text-sm text-muted-foreground">Loading templates…</div>}
+
+        {!templatesQ.isLoading && hasTemplates && (
+          <div className="space-y-2.5">
+            <select
+              value={selectedName}
+              onChange={(e) => {
+                setSelectedName(e.target.value);
+                setParams([]);
+              }}
+              className="w-full rounded-lg border bg-card px-3 py-2.5 text-sm outline-none focus:border-ring/40"
+            >
+              <option value="">Choose an approved template…</option>
+              {templates.map((t) => (
+                <option key={`${t.name}:${t.language}`} value={t.name}>
+                  {t.name} · {t.category.toLowerCase()} ({t.language})
+                </option>
+              ))}
+            </select>
+
+            {selected && (
+              <>
+                {selected.hasHeaderMedia && (
+                  <div className="rounded-lg bg-warning/10 px-3 py-2 text-[12px] font-medium text-warning">
+                    This template needs a media header — not supported here yet. Pick a text-only template.
+                  </div>
+                )}
+                {Array.from({ length: needParams }).map((_, i) => (
+                  <input
+                    key={i}
+                    value={params[i] ?? ''}
+                    onChange={(e) => {
+                      const next = [...params];
+                      next[i] = e.target.value;
+                      setParams(next);
+                    }}
+                    placeholder={`Value for {{${i + 1}}}`}
+                    className="w-full rounded-lg border bg-card px-3 py-2 text-sm outline-none focus:border-ring/40"
+                  />
+                ))}
+                <div className="rounded-lg border bg-muted/40 p-3 text-[13px]">
+                  <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Preview</div>
+                  <div className="whitespace-pre-wrap">{renderTemplatePreview(selected.bodyText, params)}</div>
+                </div>
+                <button
+                  disabled={missing || sending}
+                  onClick={() =>
+                    onTemplate(
+                      selected.name,
+                      renderTemplatePreview(selected.bodyText, params),
+                      selected.language,
+                      params.slice(0, needParams),
+                    )
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                >
+                  <Send className="h-4 w-4" /> Send template
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {!templatesQ.isLoading && !hasTemplates && (
+          <>
+            <div className="flex items-end gap-2">
+              <input
+                value={manualName}
+                onChange={(e) => setManualName(e.target.value)}
+                placeholder="Approved template name (e.g. lab_report_ready)"
+                className="flex-1 rounded-lg border bg-card px-3 py-2.5 text-sm outline-none focus:border-ring/40"
+              />
+              <button
+                disabled={!manualName.trim() || sending}
+                onClick={() => onTemplate(manualName.trim(), `[Template: ${manualName.trim()}]`, 'en', [])}
+                className="inline-flex h-11 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
+              >
+                <Send className="h-4 w-4" /> Send
+              </button>
+            </div>
+            {templatesQ.data?.error && (
+              <div className="mt-2 text-[11.5px] text-muted-foreground">{templatesQ.data.error}</div>
+            )}
+          </>
+        )}
       </div>
     );
   }

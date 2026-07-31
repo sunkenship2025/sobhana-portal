@@ -23,6 +23,7 @@ function getConfig() {
   return {
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
     accessToken: process.env.WHATSAPP_ACCESS_TOKEN || '',
+    wabaId: process.env.WHATSAPP_WABA_ID || '', // WhatsApp Business Account id — for listing message templates
     enabled: process.env.WHATSAPP_ENABLED === 'true',
   };
 }
@@ -174,4 +175,66 @@ export function formatPhoneForWhatsApp(phone: string): string {
 
   // Return as-is if we can't normalize
   return cleaned;
+}
+
+// ============================================================================
+// MESSAGE TEMPLATES (for the out-of-window reply picker)
+// ============================================================================
+
+export interface MessageTemplateSummary {
+  name: string;
+  language: string;
+  category: string; // UTILITY | MARKETING | AUTHENTICATION
+  status: string; // APPROVED (we only surface these)
+  bodyText: string; // raw body, may contain {{1}} placeholders
+  paramCount: number; // number of {{n}} placeholders in the body
+  hasHeaderMedia: boolean; // header needs an image/video/document — not fillable from the picker
+}
+
+let templateCache: { at: number; data: MessageTemplateSummary[] } | null = null;
+const TEMPLATE_CACHE_MS = 5 * 60 * 1000;
+
+/**
+ * List APPROVED message templates for the WABA. Cached in-memory for 5 min
+ * (Meta rate-limits this endpoint). Requires WHATSAPP_WABA_ID.
+ */
+export async function listMessageTemplates(force = false): Promise<MessageTemplateSummary[]> {
+  const config = getConfig();
+  if (!config.wabaId || !config.accessToken) {
+    throw new Error('WhatsApp WABA id / access token not configured (set WHATSAPP_WABA_ID)');
+  }
+  if (!force && templateCache && Date.now() - templateCache.at < TEMPLATE_CACHE_MS) {
+    return templateCache.data;
+  }
+
+  const response = await axios.get(`${WHATSAPP_API_BASE}/${config.wabaId}/message_templates`, {
+    params: { fields: 'name,status,category,language,components', limit: 200 },
+    headers: { Authorization: `Bearer ${config.accessToken}` },
+    timeout: 10000,
+  });
+
+  const raw: any[] = response.data?.data ?? [];
+  const parsed: MessageTemplateSummary[] = raw
+    .filter((t) => t.status === 'APPROVED')
+    .map((t) => {
+      const components: any[] = t.components || [];
+      const body = components.find((c) => c.type === 'BODY');
+      const header = components.find((c) => c.type === 'HEADER');
+      const bodyText: string = body?.text || '';
+      const paramCount = (bodyText.match(/\{\{\s*\d+\s*\}\}/g) || []).length;
+      const hasHeaderMedia =
+        !!header && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(String(header.format || '').toUpperCase());
+      return {
+        name: t.name,
+        language: t.language,
+        category: t.category,
+        status: t.status,
+        bodyText,
+        paramCount,
+        hasHeaderMedia,
+      };
+    });
+
+  templateCache = { at: Date.now(), data: parsed };
+  return parsed;
 }
