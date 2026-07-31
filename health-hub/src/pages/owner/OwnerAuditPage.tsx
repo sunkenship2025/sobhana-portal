@@ -29,6 +29,7 @@ interface AuditEventRow {
   role: string | null;
   entityType: string;
   entityId: string;
+  entityLabel: string | null;
   detail: string;
   amountInPaise: number | null;
   whenIso: string;
@@ -496,7 +497,7 @@ export default function OwnerAuditPage() {
                       <span className="nm">{r.who ?? 'system'}</span>
                       {r.role && <span className="rl"> · {r.role}</span>}
                     </div>
-                    <div className="ent">{r.entityType} <span className="id">#{r.entityId.slice(0, 8)}</span></div>
+                    <div className="ent">{r.entityType} <span className="id">{r.entityLabel ?? `#${r.entityId.slice(0, 8)}`}</span></div>
                     <div className="time">{formatIstTime(r.whenIso)}</div>
                   </div>
                 );
@@ -534,7 +535,7 @@ export default function OwnerAuditPage() {
                   <span className={`sev ${SEV_ABBR[openRow.severity]}`}>{openRow.severity}</span> · {openRow.category}
                 </div>
                 <div className="dr-title">{openRow.event}</div>
-                <div className="dr-ent">{openRow.entityType} #{openRow.entityId.slice(0, 12)}</div>
+                <div className="dr-ent">{openRow.entityType} {openRow.entityLabel ?? `#${openRow.entityId.slice(0, 12)}`}</div>
               </div>
               <div className="dr-body">
                 <div className="sec">
@@ -543,7 +544,7 @@ export default function OwnerAuditPage() {
                     <div className="k">Actor</div><div className="v">{openRow.who ?? 'system'}{openRow.role ? ` (${openRow.role})` : ''}</div>
                     <div className="k">When</div><div className="v">{formatIstDateTime(openRow.whenIso)}</div>
                     <div className="k">Action</div><div className="v">{openRow.actionType}</div>
-                    <div className="k">Entity</div><div className="v">{openRow.entityType} #{openRow.entityId.slice(0, 12)}</div>
+                    <div className="k">Entity</div><div className="v">{openRow.entityType} {openRow.entityLabel ?? `#${openRow.entityId.slice(0, 12)}`}</div>
                     {openRow.detail && openRow.detail !== openRow.event && (
                       <><div className="k">Detail</div><div className="v">{openRow.detail}</div></>
                     )}

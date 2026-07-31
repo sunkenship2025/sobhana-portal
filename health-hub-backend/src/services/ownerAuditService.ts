@@ -27,6 +27,10 @@ export interface AuditEventRow {
   role: string | null;
   entityType: string;
   entityId: string;
+  /** Human label for the entity — patient name (+ bill number) for visit-scoped
+   *  rows, or the entity's own name for people/catalog. null when the id can't be
+   *  resolved (deleted, or an unmapped type); the UI falls back to the raw id. */
+  entityLabel: string | null;
   detail: string;
   amountInPaise: number | null;
   whenIso: string;
@@ -111,6 +115,159 @@ function resolveWindow(fromRaw?: string | null, toRaw?: string | null) {
     from = new Date(now - DEFAULT_WINDOW_MS);
   if (to.getTime() - from.getTime() > YEAR_MS) from = new Date(to.getTime() - YEAR_MS);
   return { from, to };
+}
+
+/**
+ * Resolve audit entityType/entityId pairs → a human label: the patient's name
+ * (+ bill number) for visit-scoped entities, or the entity's own name for
+ * people / catalog. ONE batched query per entity type — never per row. Keyed
+ * `${entityType.toLowerCase()}:${entityId}`; unmapped or deleted ids are absent,
+ * so the UI falls back to the raw id.
+ */
+async function resolveEntityLabels(
+  pairs: Array<{ entityType: string; entityId: string }>,
+): Promise<Map<string, string>> {
+  const key = (type: string, id: string) => `${type.toLowerCase()}:${id}`;
+  const idsFor = (...types: string[]): string[] => {
+    const set = new Set<string>();
+    for (const p of pairs)
+      if (types.includes(p.entityType.toLowerCase())) set.add(p.entityId);
+    return [...set];
+  };
+  const withBill = (name?: string | null, bill?: string | null): string | null =>
+    name ? (bill ? `${name} · ${bill}` : name) : bill ?? null;
+
+  // entityId IS a visitId for visit / reportdraft rows.
+  const visitIds = idsFor("visit", "reportdraft");
+  const billIds = idsFor("bill");
+  const testOrderIds = idsFor("testorder");
+  const reportVersionIds = idsFor("report", "reportversion");
+  const uploadIds = idsFor("externalreportupload");
+  const refundIds = idsFor("orderrefund");
+  const patientIds = idsFor("patient");
+  const refDoctorIds = idsFor("referraldoctor");
+  const clinicDoctorIds = idsFor("clinicdoctor");
+  const externalLabIds = idsFor("externallab");
+  const centreIds = idsFor("diagnosticreferralcenter");
+  const panelIds = idsFor("clinicalpanel");
+  const productIds = idsFor("billableproduct");
+  const userIds = idsFor("user");
+
+  const [
+    visits, bills, testOrders, reportVersions, uploads, refunds, patients,
+    refDoctors, clinicDoctors, externalLabs, centres, panels, products, users,
+  ] = await Promise.all([
+    visitIds.length
+      ? prisma.visit.findMany({ where: { id: { in: visitIds } }, select: { id: true, billNumber: true, patient: { select: { name: true } } } })
+      : [],
+    billIds.length
+      ? prisma.bill.findMany({ where: { id: { in: billIds } }, select: { id: true, billNumber: true, visit: { select: { patient: { select: { name: true } } } } } })
+      : [],
+    testOrderIds.length
+      ? prisma.testOrder.findMany({ where: { id: { in: testOrderIds } }, select: { id: true, visit: { select: { billNumber: true, patient: { select: { name: true } } } } } })
+      : [],
+    reportVersionIds.length
+      ? prisma.reportVersion.findMany({ where: { id: { in: reportVersionIds } }, select: { id: true, report: { select: { visit: { select: { billNumber: true, patient: { select: { name: true } } } } } } } })
+      : [],
+    uploadIds.length
+      ? prisma.externalReportUpload.findMany({ where: { id: { in: uploadIds } }, select: { id: true, visit: { select: { billNumber: true, patient: { select: { name: true } } } } } })
+      : [],
+    refundIds.length
+      ? prisma.orderRefund.findMany({ where: { id: { in: refundIds } }, select: { id: true, visit: { select: { billNumber: true, patient: { select: { name: true } } } } } })
+      : [],
+    patientIds.length
+      ? prisma.patient.findMany({ where: { id: { in: patientIds } }, select: { id: true, name: true } })
+      : [],
+    refDoctorIds.length
+      ? prisma.referralDoctor.findMany({ where: { id: { in: refDoctorIds } }, select: { id: true, name: true } })
+      : [],
+    clinicDoctorIds.length
+      ? prisma.clinicDoctor.findMany({ where: { id: { in: clinicDoctorIds } }, select: { id: true, name: true } })
+      : [],
+    externalLabIds.length
+      ? prisma.externalLab.findMany({ where: { id: { in: externalLabIds } }, select: { id: true, name: true } })
+      : [],
+    centreIds.length
+      ? prisma.diagnosticReferralCenter.findMany({ where: { id: { in: centreIds } }, select: { id: true, name: true } })
+      : [],
+    panelIds.length
+      ? prisma.clinicalPanel.findMany({ where: { id: { in: panelIds } }, select: { id: true, name: true } })
+      : [],
+    productIds.length
+      ? prisma.billableProduct.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true } })
+      : [],
+    userIds.length
+      ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })
+      : [],
+  ]);
+
+  const vmap = new Map(visits.map((v) => [v.id, v]));
+  const bmap = new Map(bills.map((b) => [b.id, b]));
+  const tmap = new Map(testOrders.map((t) => [t.id, t]));
+  const rvmap = new Map(reportVersions.map((r) => [r.id, r]));
+  const umap = new Map(uploads.map((u) => [u.id, u]));
+  const rfmap = new Map(refunds.map((r) => [r.id, r]));
+  const pmap = new Map(patients.map((p) => [p.id, p]));
+  const nameMaps: Record<string, Map<string, string>> = {
+    referraldoctor: new Map(refDoctors.map((d) => [d.id, d.name])),
+    clinicdoctor: new Map(clinicDoctors.map((d) => [d.id, d.name])),
+    externallab: new Map(externalLabs.map((l) => [l.id, l.name])),
+    diagnosticreferralcenter: new Map(centres.map((c) => [c.id, c.name])),
+    clinicalpanel: new Map(panels.map((p) => [p.id, p.name])),
+    billableproduct: new Map(products.map((p) => [p.id, p.name])),
+    user: new Map(users.map((u) => [u.id, u.name])),
+  };
+
+  const labels = new Map<string, string>();
+  for (const p of pairs) {
+    const t = p.entityType.toLowerCase();
+    let label: string | null = null;
+    switch (t) {
+      case "visit":
+      case "reportdraft": {
+        const v = vmap.get(p.entityId);
+        label = v ? withBill(v.patient?.name, v.billNumber) : null;
+        break;
+      }
+      case "bill": {
+        const b = bmap.get(p.entityId);
+        label = b ? withBill(b.visit?.patient?.name, b.billNumber) : null;
+        break;
+      }
+      case "testorder": {
+        const o = tmap.get(p.entityId);
+        label = o ? withBill(o.visit?.patient?.name, o.visit?.billNumber) : null;
+        break;
+      }
+      case "report":
+      case "reportversion": {
+        const rv = rvmap.get(p.entityId);
+        label = rv
+          ? withBill(rv.report?.visit?.patient?.name, rv.report?.visit?.billNumber)
+          : null;
+        break;
+      }
+      case "externalreportupload": {
+        const u = umap.get(p.entityId);
+        label = u ? withBill(u.visit?.patient?.name, u.visit?.billNumber) : null;
+        break;
+      }
+      case "orderrefund": {
+        const r = rfmap.get(p.entityId);
+        label = r ? withBill(r.visit?.patient?.name, r.visit?.billNumber) : null;
+        break;
+      }
+      case "patient": {
+        label = pmap.get(p.entityId)?.name ?? null;
+        break;
+      }
+      default: {
+        label = nameMaps[t]?.get(p.entityId) ?? null;
+      }
+    }
+    if (label) labels.set(key(p.entityType, p.entityId), label);
+  }
+  return labels;
 }
 
 export async function getAuditEvents(
@@ -213,12 +370,19 @@ export async function getAuditEvents(
     role: r.actorRole,
     entityType: r.entityType,
     entityId: r.entityId,
+    entityLabel: null,
     detail: r.detail,
     amountInPaise: r.amountInPaise,
     whenIso: r.occurredAt.toISOString(),
     drillTo: r.drillTo,
     actionType: r.sourceKind,
   }));
+  // Resolve entity ids → human labels (patient name / bill / entity name), one
+  // batched query per type over just this page.
+  const labelMap = await resolveEntityLabels(items);
+  for (const it of items)
+    it.entityLabel =
+      labelMap.get(`${it.entityType.toLowerCase()}:${it.entityId}`) ?? null;
   const last = page[page.length - 1];
   const nextCursor = hasMore && last ? encodeCursor(last.occurredAt, last.id) : null;
 
@@ -286,6 +450,10 @@ export async function getAuditEventDetail(
     select: { id: true, severity: true, event: true, actorName: true, occurredAt: true },
   });
 
+  const labelMap = await resolveEntityLabels([
+    { entityType: e.entityType, entityId: e.entityId },
+  ]);
+
   return {
     id: e.id,
     severity: e.severity as AuditSeverity,
@@ -295,6 +463,8 @@ export async function getAuditEventDetail(
     role: e.actorRole,
     entityType: e.entityType,
     entityId: e.entityId,
+    entityLabel:
+      labelMap.get(`${e.entityType.toLowerCase()}:${e.entityId}`) ?? null,
     detail: e.detail,
     amountInPaise: e.amountInPaise,
     whenIso: e.occurredAt.toISOString(),
