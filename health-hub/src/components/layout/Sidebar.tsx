@@ -12,6 +12,7 @@ import {
   LogOut,
   Menu,
   Microscope,
+  ShieldAlert,
   Stethoscope,
   Users,
   UserRound,
@@ -72,7 +73,14 @@ const ownerNavItems: NavItem[] = [
     icon: Activity,
     href: '/ops/queue',
     roles: ['owner'],
-    matchPrefixes: ['/ops'],
+    matchPrefixes: ['/ops/queue', '/ops/pending'],
+  },
+  {
+    label: 'Audit & Anomalies',
+    icon: ShieldAlert,
+    href: '/ops/audit',
+    roles: ['owner'],
+    matchPrefixes: ['/ops/audit'],
   },
   {
     label: 'Workflows',
@@ -181,12 +189,19 @@ const staffNavItems: NavItem[] = [
     ],
   },
   {
-    // Ops oversight (queue / pending / audit) — lab in-charge only, not staff.
+    // Ops oversight (queue / pending) — lab in-charge only, not staff.
     label: 'Operations',
     icon: Activity,
     href: '/ops/queue',
     roles: ['lab_incharge'],
-    matchPrefixes: ['/ops'],
+    matchPrefixes: ['/ops/queue', '/ops/pending'],
+  },
+  {
+    label: 'Audit & Anomalies',
+    icon: ShieldAlert,
+    href: '/ops/audit',
+    roles: ['lab_incharge'],
+    matchPrefixes: ['/ops/audit'],
   },
   {
     label: 'Admin',
