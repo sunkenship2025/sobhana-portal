@@ -30,6 +30,7 @@ import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
+import { requireRole } from '../middleware/rbac';
 import prisma from '../lib/prisma';
 import {
   sendText,
@@ -214,6 +215,51 @@ router.get('/templates', async (_req: AuthRequest, res) => {
     // Degrade gracefully — the composer falls back to a manual template-name field.
     console.error('[Inbox] templates error:', err?.response?.data || err?.message || err);
     res.json({ templates: [], enabled: true, error: 'Could not load templates (check WHATSAPP_BUSINESS_ACCOUNT_ID / token).' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Default out-of-window template — GET (any role) / POST (OWNER ONLY)
+// ─────────────────────────────────────────────────────────────────────────────
+const DEFAULT_TEMPLATE_KEY = 'inbox_default_template';
+
+router.get('/default-template', async (_req: AuthRequest, res) => {
+  try {
+    const row = await prisma.appSetting.findUnique({ where: { key: DEFAULT_TEMPLATE_KEY } });
+    let parsed: { templateName: string; language: string } | null = null;
+    if (row) {
+      try {
+        parsed = JSON.parse(row.value);
+      } catch {
+        parsed = null;
+      }
+    }
+    res.json({ default: parsed });
+  } catch (err) {
+    console.error('[Inbox] get default-template error:', err);
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to load default template' });
+  }
+});
+
+// Only the owner may choose the default template.
+router.post('/default-template', requireRole('owner'), async (req: AuthRequest, res) => {
+  try {
+    const templateName = ((req.body?.templateName as string) || '').trim();
+    const language = ((req.body?.language as string) || 'en').trim();
+    if (!templateName) {
+      res.status(400).json({ error: 'NO_TEMPLATE', message: 'templateName is required' });
+      return;
+    }
+    const value = JSON.stringify({ templateName, language });
+    await prisma.appSetting.upsert({
+      where: { key: DEFAULT_TEMPLATE_KEY },
+      update: { value },
+      create: { key: DEFAULT_TEMPLATE_KEY, value },
+    });
+    res.json({ ok: true, default: { templateName, language } });
+  } catch (err) {
+    console.error('[Inbox] set default-template error:', err);
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to set default template' });
   }
 });
 

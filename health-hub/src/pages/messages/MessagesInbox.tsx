@@ -22,6 +22,7 @@ import {
   Receipt,
   Search,
   Send,
+  Star,
   UserPlus,
   Users,
 } from 'lucide-react';
@@ -662,7 +663,30 @@ function Composer({
     staleTime: 5 * 60 * 1000,
   });
   const templates = templatesQ.data?.templates ?? [];
-  const selected = templates.find((t) => t.name === selectedName) ?? null;
+
+  const role = useAuthStore((s) => s.user?.role);
+  const isOwner = role === 'owner';
+
+  // Default out-of-window template (owner-chosen). Staff are locked to it.
+  const defaultQ = useApiQuery<{ default: { templateName: string; language: string } | null }>({
+    queryKey: ['inbox', 'default-template'],
+    queryFn: () => branchRequest('/inbox/default-template', branchId ?? ''),
+    enabled: !conv.windowOpen,
+    staleTime: 5 * 60 * 1000,
+  });
+  const defaultName = defaultQ.data?.default?.templateName ?? null;
+  const setDefaultM = useApiMutation<unknown, { templateName: string; language: string }>({
+    mutationFn: (v) =>
+      branchRequest('/inbox/default-template', branchId ?? '', {
+        method: 'POST',
+        body: JSON.stringify(v),
+      }),
+    invalidate: [['inbox', 'default-template']],
+  });
+
+  // Owners pick freely; everyone else is locked to the owner-set default.
+  const effectiveName = isOwner ? selectedName : defaultName ?? '';
+  const selected = templates.find((t) => t.name === effectiveName) ?? null;
 
   useEffect(() => {
     setSelectedName('');
@@ -670,10 +694,18 @@ function Composer({
     setManualName('');
   }, [conv.id]);
 
+  // Owner: pre-select the saved default once templates load.
+  useEffect(() => {
+    if (isOwner && !selectedName && defaultName && templates.some((t) => t.name === defaultName)) {
+      setSelectedName(defaultName);
+    }
+  }, [isOwner, defaultName, templates, selectedName]);
+
   if (!conv.windowOpen) {
     const needParams = selected?.paramCount ?? 0;
     const missing = !selected || selected.hasHeaderMedia || Array.from({ length: needParams }).some((_, i) => !params[i]?.trim());
     const hasTemplates = templates.length > 0;
+    const noDefaultForStaff = !isOwner && !defaultName;
 
     return (
       <div className="border-t bg-card p-3.5">
@@ -684,23 +716,38 @@ function Composer({
 
         {templatesQ.isLoading && <div className="text-sm text-muted-foreground">Loading templates…</div>}
 
-        {!templatesQ.isLoading && hasTemplates && (
+        {!templatesQ.isLoading && noDefaultForStaff && (
+          <div className="rounded-lg bg-muted p-3 text-[12.5px] text-muted-foreground">
+            No default template is set. Ask an owner to choose one before sending out-of-window replies.
+          </div>
+        )}
+
+        {!templatesQ.isLoading && hasTemplates && !noDefaultForStaff && (
           <div className="space-y-2.5">
-            <select
-              value={selectedName}
-              onChange={(e) => {
-                setSelectedName(e.target.value);
-                setParams([]);
-              }}
-              className="w-full rounded-lg border bg-card px-3 py-2.5 text-sm outline-none focus:border-ring/40"
-            >
-              <option value="">Choose an approved template…</option>
-              {templates.map((t) => (
-                <option key={`${t.name}:${t.language}`} value={t.name}>
-                  {t.name} · {t.category.toLowerCase()} ({t.language})
-                </option>
-              ))}
-            </select>
+            {isOwner ? (
+              <select
+                value={selectedName}
+                onChange={(e) => {
+                  setSelectedName(e.target.value);
+                  setParams([]);
+                }}
+                className="w-full rounded-lg border bg-card px-3 py-2.5 text-sm outline-none focus:border-ring/40"
+              >
+                <option value="">Choose an approved template…</option>
+                {templates.map((t) => (
+                  <option key={`${t.name}:${t.language}`} value={t.name}>
+                    {t.name} · {t.category.toLowerCase()} ({t.language})
+                    {t.name === defaultName ? '  ★ default' : ''}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2.5 text-sm">
+                <BadgeCheck className="h-4 w-4 flex-shrink-0 text-success" />
+                <span className="font-medium">{defaultName}</span>
+                <span className="text-muted-foreground">· default template (set by owner)</span>
+              </div>
+            )}
 
             {selected && (
               <>
@@ -726,26 +773,49 @@ function Composer({
                   <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Preview</div>
                   <div className="whitespace-pre-wrap">{renderTemplatePreview(selected.bodyText, params)}</div>
                 </div>
-                <button
-                  disabled={missing || sending}
-                  onClick={() =>
-                    onTemplate(
-                      selected.name,
-                      renderTemplatePreview(selected.bodyText, params),
-                      selected.language,
-                      params.slice(0, needParams),
-                    )
-                  }
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
-                >
-                  <Send className="h-4 w-4" /> Send template
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    disabled={missing || sending}
+                    onClick={() =>
+                      onTemplate(
+                        selected.name,
+                        renderTemplatePreview(selected.bodyText, params),
+                        selected.language,
+                        params.slice(0, needParams),
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                  >
+                    <Send className="h-4 w-4" /> Send template
+                  </button>
+                  {isOwner && selected.name === defaultName && (
+                    <span className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-success">
+                      <Star className="h-3.5 w-3.5 fill-current" /> Default
+                    </span>
+                  )}
+                  {isOwner && selected.name !== defaultName && (
+                    <button
+                      onClick={() =>
+                        setDefaultM.mutate(
+                          { templateName: selected.name, language: selected.language },
+                          {
+                            onSuccess: () => toast.success('Default template set'),
+                            onError: (e) => toast.error(e.message || 'Failed to set default'),
+                          },
+                        )
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2.5 text-sm font-medium hover:bg-muted"
+                    >
+                      <Star className="h-4 w-4" /> Set as default
+                    </button>
+                  )}
+                </div>
               </>
             )}
           </div>
         )}
 
-        {!templatesQ.isLoading && !hasTemplates && (
+        {!templatesQ.isLoading && !hasTemplates && isOwner && (
           <>
             <div className="flex items-end gap-2">
               <input
