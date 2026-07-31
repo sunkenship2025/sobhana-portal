@@ -98,6 +98,14 @@ const QUICK_RANGES: Array<{ label: string; from: () => Date }> = [
   { label: '90d', from: () => new Date(Date.now() - 90 * 864e5) },
   { label: '1 year', from: () => new Date(Date.now() - 365 * 864e5) },
 ];
+// Staff-scorecard period toggles. `from: null` = all time (no lower bound).
+const SCORE_PERIODS: Array<{ key: string; label: string; from: (() => Date) | null }> = [
+  { key: 'daily', label: 'Daily', from: startOfToday },
+  { key: 'weekly', label: 'Weekly', from: () => new Date(Date.now() - 7 * 864e5) },
+  { key: 'monthly', label: 'Monthly', from: () => new Date(Date.now() - 30 * 864e5) },
+  { key: 'yearly', label: 'Yearly', from: () => new Date(Date.now() - 365 * 864e5) },
+  { key: 'all', label: 'All time', from: null },
+];
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const toLocalInput = (d: Date) =>
@@ -324,15 +332,19 @@ export default function OwnerAuditPage() {
   });
   const detail = detailQuery.data;
 
-  // Staff scorecard — staff ranked by mistakes (rework) over the same window.
+  // Staff scorecard — staff ranked by mistakes (rework), with its own period.
+  const [scorePeriod, setScorePeriod] = useState('daily');
+  const scoreFromIso = useMemo(() => {
+    const def = SCORE_PERIODS.find((p) => p.key === scorePeriod);
+    return def?.from ? def.from().toISOString() : null;
+  }, [scorePeriod]);
   const scorecardQuery = useQuery<ScorecardResponse>({
-    queryKey: ['owner-audit-scorecard', branchValue, fromIso, toIso],
+    queryKey: ['owner-audit-scorecard', branchValue, scorePeriod],
     enabled: tab === 'score',
     queryFn: () => {
       const p = new URLSearchParams();
       p.set('branch', branchValue);
-      if (fromIso) p.set('from', fromIso);
-      if (toIso) p.set('to', toIso);
+      if (scoreFromIso) p.set('from', scoreFromIso);
       return apiRequest<ScorecardResponse>(`${API_BASE}/owner/audit/scorecard?${p.toString()}`);
     },
     staleTime: 45 * 1000,
@@ -470,8 +482,27 @@ export default function OwnerAuditPage() {
 
         {tab === 'score' ? (
           <div className="card" style={{ overflow: 'hidden' }}>
-            <div style={{ padding: '13px 16px', borderBottom: '1px solid var(--border)', fontWeight: 600 }}>
-              Staff scorecard — mistakes (rework) this window
+            <div style={{ padding: '11px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 600 }}>Staff scorecard — mistakes (rework)</span>
+              <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                {SCORE_PERIODS.map((p) => (
+                  <button
+                    key={p.key}
+                    onClick={() => setScorePeriod(p.key)}
+                    style={{
+                      border: 0,
+                      borderLeft: '1px solid var(--border)',
+                      background: scorePeriod === p.key ? '#1F1F1E' : 'transparent',
+                      color: scorePeriod === p.key ? '#fff' : 'var(--ink2)',
+                      padding: '5px 12px',
+                      fontSize: 12,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
             </div>
             {scorecardQuery.isLoading && <div className="empty">Loading…</div>}
             {scorecardQuery.data && scorecardQuery.data.actors.length === 0 && (
@@ -494,7 +525,6 @@ export default function OwnerAuditPage() {
                     const maxTotal = Math.max(1, ...acts.map((a) => a.total));
                     return acts.map((a, i) => {
                       const best = i === 0;
-                      const worst = i === acts.length - 1 && a.total > 0 && acts.length > 1;
                       const ratio = a.total / maxTotal;
                       const barColor = a.total === 0 ? 'var(--ok)' : ratio >= 0.66 ? 'var(--hi-br)' : ratio >= 0.33 ? 'var(--me-br)' : 'var(--in-br)';
                       const numColor = a.total === 0 ? 'var(--ok)' : ratio >= 0.66 ? 'var(--hi-t)' : 'var(--ink)';
@@ -503,8 +533,8 @@ export default function OwnerAuditPage() {
                           <td style={{ padding: '11px 14px', fontWeight: 550 }}>
                             <span style={{ color: 'var(--ink3)', marginRight: 9, fontVariantNumeric: 'tabular-nums' }}>{i + 1}</span>
                             {a.name}
-                            {best && <span style={{ color: 'var(--ok)', fontSize: 11, marginLeft: 7, fontWeight: 600 }}>✓ cleanest</span>}
-                            {worst && <span style={{ color: 'var(--hi-t)', fontSize: 11, marginLeft: 7 }}>needs review</span>}
+                            {best && a.total === 0 && <span style={{ color: 'var(--ok)', fontSize: 11, marginLeft: 7, fontWeight: 600 }}>✓ clean</span>}
+                            {best && a.total > 0 && <span style={{ color: 'var(--ok)', fontSize: 11, marginLeft: 7, fontWeight: 600 }}>✓ cleanest</span>}
                           </td>
                           <td style={{ padding: '11px 14px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 9 }}>

@@ -530,7 +530,10 @@ export async function getStaffScorecard(params: {
   from?: string | null;
   to?: string | null;
 }): Promise<StaffScorecardResult> {
-  const { from, to } = resolveWindow(params.from, params.to);
+  // Unlike the feed, the scorecard is a single aggregate — allow an unbounded
+  // window (no 1-year clamp) so "All time" works; absent `from` = everything.
+  const to = params.to && !Number.isNaN(new Date(params.to).getTime()) ? new Date(params.to) : new Date();
+  const from = params.from && !Number.isNaN(new Date(params.from).getTime()) ? new Date(params.from) : new Date(0);
   await ensureProjected(params.branchId, from, to);
 
   const groups = await prisma.anomalyEvent.groupBy({
