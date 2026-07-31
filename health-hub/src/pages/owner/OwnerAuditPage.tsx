@@ -282,11 +282,9 @@ export default function OwnerAuditPage() {
     });
   const catList = useMemo(() => Array.from(cats).sort().join(','), [cats]);
 
-  // Severity is a stored column on AnomalyEvent → filtered server-side. Default
-  // to High+Medium so the feed shows what needs attention, not the flood of
-  // routine Low/Info (uploads, views, creates). The rail shows all counts; click
-  // Low / Info to include them.
-  const [sevSel, setSevSel] = useState<Set<Severity>>(new Set<Severity>(['high', 'medium']));
+  // Severity is a stored column on AnomalyEvent → filtered server-side. No
+  // default — show everything; the user filters when they want to.
+  const [sevSel, setSevSel] = useState<Set<Severity>>(new Set<Severity>());
   const toggleSev = (key: Severity) =>
     setSevSel((prev) => {
       const next = new Set(prev);
@@ -428,7 +426,7 @@ export default function OwnerAuditPage() {
 
   const clearAll = () => {
     setCats(new Set());
-    setSevSel(new Set<Severity>(['high', 'medium']));
+    setSevSel(new Set<Severity>());
     setSearchInput('');
   };
 
@@ -572,7 +570,7 @@ export default function OwnerAuditPage() {
                 {c.label}
               </button>
             ))}
-            {(cats.size > 0 || sevSel.size !== 2 || !sevSel.has('high') || !sevSel.has('medium')) && (
+            {(cats.size > 0 || sevSel.size > 0) && (
               <button className="fclear" onClick={clearAll}>Reset</button>
             )}
           </div>
