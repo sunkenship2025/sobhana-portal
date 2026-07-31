@@ -13,6 +13,7 @@ import {
 import { buildDaySheetWorkbook } from '../services/moneyDaySheetExportService';
 import { getOwnerDoctors, PeriodKey as DoctorsPeriod } from '../services/ownerDoctorsService';
 import { getOwnerOperations } from '../services/ownerOperationsService';
+import { getAuditEvents } from '../services/ownerAuditService';
 
 const router = Router();
 
@@ -31,6 +32,32 @@ router.get('/operations', requireRole('owner', 'lab_incharge'), async (req: Auth
   } catch (err: any) {
     req.log.error({ err }, 'owner operations load failed');
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to load operations page' });
+  }
+});
+
+// GET /api/owner/audit/events — paginated Audit & Anomalies feed for /ops/audit.
+// Owner AND lab_incharge (like /operations); registered BEFORE the owner-only
+// gate. Keyset (cursor) paginated, date-time range up to 1 year, branch / actor
+// / category / free-text filterable; returns only display fields (no blobs).
+router.get('/audit/events', requireRole('owner', 'lab_incharge'), async (req: AuthRequest, res) => {
+  try {
+    const rawBranch = (req.query.branch as string) || 'all';
+    const branchId = rawBranch === 'all' ? null : rawBranch;
+    const limitRaw = req.query.limit as string | undefined;
+    const data = await getAuditEvents({
+      branchId,
+      category: (req.query.category as string) ?? null,
+      actor: (req.query.actor as string) ?? null,
+      q: (req.query.q as string) ?? null,
+      from: (req.query.from as string) ?? null,
+      to: (req.query.to as string) ?? null,
+      cursor: (req.query.cursor as string) ?? null,
+      limit: limitRaw ? Number(limitRaw) : null,
+    });
+    return res.json(data);
+  } catch (err: any) {
+    req.log.error({ err }, 'owner audit events load failed');
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to load audit events' });
   }
 });
 
