@@ -216,7 +216,7 @@ export async function projectWindow(
 
 // Freshness: re-project a bounded recent window on read, throttled per branch.
 const lastProjected = new Map<string, number>();
-const THROTTLE_MS = 30_000;
+const THROTTLE_MS = 120_000; // re-scan sources at most once / 2 min per branch
 const CAP_DAYS = 45;
 
 export async function ensureProjected(

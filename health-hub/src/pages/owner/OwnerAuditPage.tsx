@@ -103,22 +103,23 @@ const localToIso = (local: string): string | null => {
 };
 
 const CSS = `
-.ap{--panel:#fff;--border:#e6e8ec;--border2:#eef0f3;--ink:#0f172a;--ink2:#475569;--ink3:#94a3b8;--link:#2563eb;
-  --hi-t:#b91c1c;--hi-b:#fef2f2;--hi-br:#dc2626;--me-t:#b45309;--me-b:#fffbeb;--me-br:#f59e0b;
-  --lo-t:#475569;--lo-b:#f1f5f9;--lo-br:#cbd5e1;--in-t:#1d4ed8;--in-b:#eff6ff;--in-br:#60a5fa;--ok:#16a34a;
-  --shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);--shadow-lg:0 10px 40px rgba(16,24,40,.18);
+.ap{--panel:#fff;--border:rgba(0,0,0,0.08);--border2:rgba(0,0,0,0.05);--ink:#1F1F1E;--ink2:#5F5E5A;--ink3:#888780;--link:#185FA5;
+  --hi-t:#A32D2D;--hi-b:rgba(163,45,45,0.08);--hi-br:#A32D2D;--me-t:#854F0B;--me-b:rgba(133,79,11,0.08);--me-br:#B7793C;
+  --lo-t:#5F5E5A;--lo-b:rgba(0,0,0,0.04);--lo-br:#B8B6AE;--in-t:#185FA5;--in-b:rgba(24,95,165,0.08);--in-br:#4E8FC7;--ok:#0F6E56;
+  --accent:#185FA5;--accent-b:rgba(24,95,165,0.08);--accent-br:rgba(24,95,165,0.28);
+  --shadow:0 1px 2px rgba(16,24,40,.03),0 1px 2px rgba(16,24,40,.05);--shadow-lg:0 10px 40px rgba(16,24,40,.16);
   color:var(--ink);font-size:13px;line-height:1.45}
 .ap *{box-sizing:border-box}
 .ap .top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:14px;flex-wrap:wrap}
-.ap .title h1{font-size:20px;margin:0;font-weight:650;letter-spacing:-.01em}
+.ap .title h1{font-size:20px;margin:0;font-weight:550;letter-spacing:-.01em}
 .ap .title .sub{color:var(--ink3);font-size:12px;margin-top:2px}
 .ap .ctrls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .ap .sel,.ap .btn,.ap .dt,.ap .search{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:6px 11px;
   font-size:12px;color:var(--ink);cursor:pointer;display:inline-flex;gap:7px;align-items:center;box-shadow:var(--shadow);font-family:inherit}
 .ap .search{cursor:text;min-width:210px}
-.ap .search:focus,.ap .dt:focus{outline:none;border-color:#c7d2fe}
+.ap .search:focus,.ap .dt:focus{outline:none;border-color:var(--accent)}
 .ap .btn:hover,.ap .sel:hover{border-color:#cdd2da}
-.ap .perfnote{display:inline-flex;align-items:center;gap:6px;font-size:11px;background:#f0fdf4;border:1px solid #d1fae5;color:#15803d;border-radius:999px;padding:3px 10px}
+.ap .perfnote{display:inline-flex;align-items:center;gap:6px;font-size:11px;background:rgba(15,110,86,0.08);border:1px solid rgba(15,110,86,0.22);color:#0F6E56;border-radius:999px;padding:3px 10px}
 .ap .qr{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:-4px 0 14px}
 .ap .qr .rng{background:#fff;border:1px solid var(--border);border-radius:999px;padding:3px 11px;font-size:11.5px;color:var(--ink2);cursor:pointer}
 .ap .qr .rng:hover{border-color:#cbd5e1;color:var(--ink)}
@@ -139,7 +140,7 @@ const CSS = `
 .ap .kpi .big{font-size:19px;font-weight:650;font-variant-numeric:tabular-nums}
 .ap .tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin:2px 2px 14px}
 .ap .tabs button{border:0;background:transparent;padding:9px 14px;font-size:13px;color:var(--ink2);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:520}
-.ap .tabs button.on{color:var(--ink);border-bottom-color:#0f172a;font-weight:620}
+.ap .tabs button.on{color:var(--ink);border-bottom-color:#1F1F1E;font-weight:620}
 .ap .tabs .cnt{font-size:11px;color:var(--ink3);margin-left:5px}
 .ap .body{display:grid;grid-template-columns:212px 1fr;gap:14px;align-items:start}
 .ap .rail{padding:12px}
@@ -147,13 +148,13 @@ const CSS = `
 .ap .rail h4:first-child{margin-top:2px}
 .ap .facet{display:flex;align-items:center;justify-content:space-between;padding:5px 7px;border-radius:7px;cursor:pointer;font-size:12.5px}
 .ap .facet:hover{background:#f5f6f8}
-.ap .facet.on{background:#eef2ff;color:#3730a3;font-weight:560}
+.ap .facet.on{background:var(--accent-b);color:var(--accent);font-weight:560}
 .ap .facet .l{display:flex;align-items:center;gap:8px}
 .ap .facet .sw{width:9px;height:9px;border-radius:3px;display:inline-block}
 .ap .facet .c{color:var(--ink3);font-variant-numeric:tabular-nums}
 .ap .clearall{margin-top:12px;width:100%;text-align:center;padding:6px;font-size:12px;color:var(--ink2);border:1px solid var(--border);border-radius:8px;background:#fff;cursor:pointer}
 .ap .active-chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:11px 14px 0}
-.ap .active-chips .ac{background:#eef2ff;color:#3730a3;border:1px solid #dbe2ff;border-radius:999px;padding:3px 9px;font-size:11.5px;cursor:pointer}
+.ap .active-chips .ac{background:var(--accent-b);color:var(--accent);border:1px solid var(--accent-br);border-radius:999px;padding:3px 9px;font-size:11.5px;cursor:pointer}
 .ap .tbl{overflow:hidden}
 .ap .thead,.ap .trow{display:grid;grid-template-columns:66px 96px 1.4fr 130px 150px 88px;gap:10px;align-items:center}
 .ap .thead{padding:9px 14px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);border-bottom:1px solid var(--border);font-weight:650;background:#fbfbfc}
@@ -193,7 +194,7 @@ const CSS = `
 .ap .kv .k{color:var(--ink3)} .ap .kv .v{color:var(--ink)}
 .ap .triage-btns{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0}
 .ap .tb{border:1px solid var(--border);background:#fff;border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;font-weight:550}
-.ap .tb.pri{background:#0f172a;color:#fff;border-color:#0f172a}
+.ap .tb.pri{background:#1F1F1E;color:#fff;border-color:#1F1F1E}
 @media(max-width:900px){.ap .body{grid-template-columns:1fr}.ap .kpis{grid-template-columns:1fr}
   .ap .thead{display:none}.ap .trow{grid-template-columns:1fr auto}.ap .trow .cat{display:none}.ap .drawer{width:100vw}}
 `;
@@ -242,8 +243,11 @@ export default function OwnerAuditPage() {
     });
   const catList = useMemo(() => Array.from(cats).sort().join(','), [cats]);
 
-  // Severity is now a stored column on AnomalyEvent → filtered server-side.
-  const [sevSel, setSevSel] = useState<Set<Severity>>(new Set());
+  // Severity is a stored column on AnomalyEvent → filtered server-side. Default
+  // to High+Medium so the feed shows what needs attention, not the flood of
+  // routine Low/Info (uploads, views, creates). The rail shows all counts; click
+  // Low / Info to include them.
+  const [sevSel, setSevSel] = useState<Set<Severity>>(new Set<Severity>(['high', 'medium']));
   const toggleSev = (key: Severity) =>
     setSevSel((prev) => {
       const next = new Set(prev);
@@ -278,8 +282,9 @@ export default function OwnerAuditPage() {
       p.set('limit', '50');
       return apiRequest<AuditEventsResponse>(`${API_BASE}/owner/audit/events?${p.toString()}`);
     },
-    refetchInterval: 30 * 1000,
-    staleTime: 15 * 1000,
+    refetchInterval: 60 * 1000,
+    staleTime: 45 * 1000,
+    refetchOnWindowFocus: false,
   });
   useRevalidateOnFocus(() => query.refetch(), { enabled: true });
 
@@ -314,7 +319,7 @@ export default function OwnerAuditPage() {
   const detail = detailQuery.data;
   const clearAll = () => {
     setCats(new Set());
-    setSevSel(new Set());
+    setSevSel(new Set<Severity>(['high', 'medium']));
     setSearchInput('');
   };
 
@@ -346,7 +351,7 @@ export default function OwnerAuditPage() {
               ))}
             </select>
             <input className="dt" type="datetime-local" value={fromLocal} onChange={(e) => setFromLocal(e.target.value)} />
-            <span className="faint" style={{ color: '#94a3b8' }}>→</span>
+            <span className="faint" style={{ color: '#888780' }}>→</span>
             <input className="dt" type="datetime-local" value={toLocal} onChange={(e) => setToLocal(e.target.value)} />
             <button className="btn" onClick={() => query.refetch()}>{query.isFetching ? '⟳…' : '⟳'}</button>
           </div>
@@ -354,7 +359,7 @@ export default function OwnerAuditPage() {
 
         <div className="qr">
           <span className="perfnote">⚡ Loads only the visible page · cursor-paginated · up to 1 year</span>
-          <span className="faint" style={{ fontSize: 11, color: '#94a3b8' }}>Quick range:</span>
+          <span className="faint" style={{ fontSize: 11, color: '#888780' }}>Quick range:</span>
           {QUICK_RANGES.map((r) => (
             <span key={r.label} className="rng" onClick={() => applyQuickRange(r.from)}>{r.label}</span>
           ))}
@@ -384,11 +389,11 @@ export default function OwnerAuditPage() {
                   </div>
                   <hr />
                   {flagged === 0 ? (
-                    <div className="sm" style={{ color: '#16a34a' }}>✓ Nothing flagged in this window.</div>
+                    <div className="sm" style={{ color: '#0F6E56' }}>✓ Nothing flagged in this window.</div>
                   ) : (
                     <div className="sm">
-                      <b style={{ color: '#b91c1c' }}>{h?.deletions ?? 0}</b> deletions ·{' '}
-                      <b style={{ color: '#b91c1c' }}>{h?.postFinalizeEdits ?? 0}</b> edits after finalize ·{' '}
+                      <b style={{ color: '#A32D2D' }}>{h?.deletions ?? 0}</b> deletions ·{' '}
+                      <b style={{ color: '#A32D2D' }}>{h?.postFinalizeEdits ?? 0}</b> edits after finalize ·{' '}
                       <b>{h?.payoutsPaid ?? 0}</b> payouts paid
                     </div>
                   )}
@@ -402,7 +407,7 @@ export default function OwnerAuditPage() {
                   <hr />
                   <div className="sm">
                     {h?.payoutsPaid ?? 0} payouts paid · {h?.deletions ?? 0} deletions{' '}
-                    <span className="faint" style={{ color: '#94a3b8' }}>(₹ amounts land with the money slice)</span>
+                    <span className="faint" style={{ color: '#888780' }}>(₹ amounts land with the money slice)</span>
                   </div>
                 </div>
 
@@ -432,7 +437,7 @@ export default function OwnerAuditPage() {
         </div>
 
         {tab !== 'feed' ? (
-          <div className="card" style={{ padding: 28, color: '#94a3b8', fontSize: 13 }}>
+          <div className="card" style={{ padding: 28, color: '#888780', fontSize: 13 }}>
             {TABS.find((t) => t.key === tab)?.label} — arrives in a later slice.
           </div>
         ) : (
@@ -463,7 +468,7 @@ export default function OwnerAuditPage() {
             <div className="card tbl">
               {(cats.size > 0 || sevSel.size > 0 || q) && (
                 <div className="active-chips">
-                  <span className="faint" style={{ fontSize: 11.5, color: '#94a3b8' }}>Filters:</span>
+                  <span className="faint" style={{ fontSize: 11.5, color: '#888780' }}>Filters:</span>
                   {Array.from(sevSel).map((s) => (
                     <span key={s} className="ac" onClick={() => toggleSev(s)}>{s} ✕</span>
                   ))}
@@ -504,7 +509,7 @@ export default function OwnerAuditPage() {
               })}
 
               <div className="pager">
-                <span className="faint" style={{ color: '#94a3b8' }}>
+                <span className="faint" style={{ color: '#888780' }}>
                   Page {pageNum} · 50 / page · keyset cursor · only this page is fetched
                 </span>
                 <span style={{ display: 'flex', gap: 10 }}>
@@ -553,17 +558,17 @@ export default function OwnerAuditPage() {
                 </div>
                 <div className="sec">
                   <h5>Before → After</h5>
-                  {detailQuery.isLoading && <div className="sm" style={{ color: '#94a3b8' }}>Loading…</div>}
+                  {detailQuery.isLoading && <div className="sm" style={{ color: '#888780' }}>Loading…</div>}
                   {detail && detail.diff.length === 0 && (
-                    <div className="sm" style={{ color: '#94a3b8' }}>No recorded field changes for this event.</div>
+                    <div className="sm" style={{ color: '#888780' }}>No recorded field changes for this event.</div>
                   )}
                   {detail && detail.diff.map((d) => (
                     <div key={d.field} style={{ marginBottom: 8 }}>
-                      <div style={{ color: '#94a3b8', fontSize: 11, marginBottom: 2 }}>{d.field}</div>
+                      <div style={{ color: '#888780', fontSize: 11, marginBottom: 2 }}>{d.field}</div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-                        <span style={{ background: '#fef2f2', color: '#b91c1c', borderRadius: 5, padding: '2px 7px', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.old ?? '—'}</span>
-                        <span style={{ color: '#94a3b8' }}>→</span>
-                        <span style={{ background: '#f0fdf4', color: '#166534', borderRadius: 5, padding: '2px 7px', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.new ?? '—'}</span>
+                        <span style={{ background: '#fef2f2', color: '#A32D2D', borderRadius: 5, padding: '2px 7px', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.old ?? '—'}</span>
+                        <span style={{ color: '#888780' }}>→</span>
+                        <span style={{ background: 'rgba(15,110,86,0.08)', color: '#0F6E56', borderRadius: 5, padding: '2px 7px', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.new ?? '—'}</span>
                       </div>
                     </div>
                   ))}
@@ -572,10 +577,10 @@ export default function OwnerAuditPage() {
                   <div className="sec">
                     <h5>Related events (same entity)</h5>
                     {detail.related.map((r) => (
-                      <div key={r.id} style={{ display: 'flex', gap: 10, fontSize: 12, padding: '3px 0', color: r.isThis ? '#b91c1c' : '#475569', fontWeight: r.isThis ? 600 : 400 }}>
-                        <span style={{ color: '#94a3b8', width: 96, flex: 'none' }}>{formatIstDateTime(r.whenIso).split(' · ')[1] ?? ''}</span>
+                      <div key={r.id} style={{ display: 'flex', gap: 10, fontSize: 12, padding: '3px 0', color: r.isThis ? '#A32D2D' : '#475569', fontWeight: r.isThis ? 600 : 400 }}>
+                        <span style={{ color: '#888780', width: 96, flex: 'none' }}>{formatIstDateTime(r.whenIso).split(' · ')[1] ?? ''}</span>
                         <span>{r.event}{r.isThis ? ' (this)' : ''}</span>
-                        <span style={{ marginLeft: 'auto', color: '#94a3b8' }}>{r.who ?? 'system'}</span>
+                        <span style={{ marginLeft: 'auto', color: '#888780' }}>{r.who ?? 'system'}</span>
                       </div>
                     ))}
                   </div>
@@ -589,7 +594,7 @@ export default function OwnerAuditPage() {
                       <button className="tb" onClick={() => navigate(openRow.drillTo!)}>Open record ▸</button>
                     )}
                   </div>
-                  <div className="sm" style={{ color: '#94a3b8', fontSize: 11, marginTop: 6 }}>
+                  <div className="sm" style={{ color: '#888780', fontSize: 11, marginTop: 6 }}>
                     Acknowledge / resolve wiring lands with the triage-state slice.
                   </div>
                 </div>
