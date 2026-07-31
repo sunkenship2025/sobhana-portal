@@ -13,7 +13,7 @@ import {
 import { buildDaySheetWorkbook } from '../services/moneyDaySheetExportService';
 import { getOwnerDoctors, PeriodKey as DoctorsPeriod } from '../services/ownerDoctorsService';
 import { getOwnerOperations } from '../services/ownerOperationsService';
-import { getAuditEvents, getAuditEventDetail } from '../services/ownerAuditService';
+import { getAuditEvents, getAuditEventDetail, getStaffScorecard } from '../services/ownerAuditService';
 
 const router = Router();
 
@@ -74,6 +74,24 @@ router.get('/audit/events/:id', requireRole('owner', 'lab_incharge'), async (req
   } catch (err: any) {
     req.log.error({ err }, 'owner audit event detail load failed');
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to load audit event' });
+  }
+});
+
+// GET /api/owner/audit/scorecard — staff ranked by "mistakes" (rework) in the
+// window, broken down by type. Owner + lab_incharge.
+router.get('/audit/scorecard', requireRole('owner', 'lab_incharge'), async (req: AuthRequest, res) => {
+  try {
+    const rawBranch = (req.query.branch as string) || 'all';
+    const branchId = rawBranch === 'all' ? null : rawBranch;
+    const data = await getStaffScorecard({
+      branchId,
+      from: (req.query.from as string) ?? null,
+      to: (req.query.to as string) ?? null,
+    });
+    return res.json(data);
+  } catch (err: any) {
+    req.log.error({ err }, 'owner audit scorecard load failed');
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to load staff scorecard' });
   }
 });
 

@@ -53,7 +53,7 @@ interface AuditEventsResponse {
       finalized: number;
       drafts: number;
       reportAccess: number;
-      flaggedActor: { name: string; count: number } | null;
+      mistakesActor: { name: string; count: number } | null;
     };
   };
 }
@@ -62,6 +62,12 @@ interface AuditDetail extends AuditEventRow {
   userAgent: string | null;
   diff: Array<{ field: string; old: string | null; new: string | null }>;
   related: Array<{ id: string; severity: Severity; event: string; who: string | null; whenIso: string; isThis: boolean }>;
+}
+interface ScorecardResponse {
+  from: string;
+  to: string;
+  types: Array<{ key: string; label: string }>;
+  actors: Array<{ name: string; total: number; byType: Record<string, number> }>;
 }
 
 const SEV_ABBR: Record<Severity, string> = { high: 'hi', medium: 'me', low: 'lo', info: 'in' };
@@ -317,6 +323,21 @@ export default function OwnerAuditPage() {
     staleTime: 60 * 1000,
   });
   const detail = detailQuery.data;
+
+  // Staff scorecard — staff ranked by mistakes (rework) over the same window.
+  const scorecardQuery = useQuery<ScorecardResponse>({
+    queryKey: ['owner-audit-scorecard', branchValue, fromIso, toIso],
+    enabled: tab === 'score',
+    queryFn: () => {
+      const p = new URLSearchParams();
+      p.set('branch', branchValue);
+      if (fromIso) p.set('from', fromIso);
+      if (toIso) p.set('to', toIso);
+      return apiRequest<ScorecardResponse>(`${API_BASE}/owner/audit/scorecard?${p.toString()}`);
+    },
+    staleTime: 45 * 1000,
+  });
+
   const clearAll = () => {
     setCats(new Set());
     setSevSel(new Set<Severity>(['high', 'medium']));
@@ -411,12 +432,21 @@ export default function OwnerAuditPage() {
                   </div>
                 </div>
 
-                {/* Card 3 — who to watch: most flagged (high/medium) events */}
+                {/* Card 3 — who to watch: most mistakes (rework/corrections) */}
                 <div className="card kpi">
-                  <div className="lbl">Most flagged today</div>
-                  <div className="big">{h?.flaggedActor?.name ?? '—'}</div>
+                  <div className="lbl">Most mistakes today</div>
+                  <div className="big">{h?.mistakesActor?.name ?? '—'}</div>
                   <div className="sm">
-                    {h?.flaggedActor ? `${h.flaggedActor.count} high / medium events` : 'no flagged activity'}
+                    {h?.mistakesActor
+                      ? `${h.mistakesActor.count} corrections — cancels / edits / swaps`
+                      : 'no corrections'}
+                    {' · '}
+                    <span
+                      style={{ color: 'var(--accent)', cursor: 'pointer' }}
+                      onClick={() => setTab('score')}
+                    >
+                      scorecard →
+                    </span>
                   </div>
                   <hr />
                   <div className="sm">
@@ -438,7 +468,50 @@ export default function OwnerAuditPage() {
           ))}
         </div>
 
-        {tab !== 'feed' ? (
+        {tab === 'score' ? (
+          <div className="card" style={{ overflow: 'hidden' }}>
+            <div style={{ padding: '13px 16px', borderBottom: '1px solid var(--border)', fontWeight: 600 }}>
+              Staff scorecard — mistakes (rework) this window
+            </div>
+            {scorecardQuery.isLoading && <div className="empty">Loading…</div>}
+            {scorecardQuery.data && scorecardQuery.data.actors.length === 0 && (
+              <div className="empty">No corrections by any staff in this window.</div>
+            )}
+            {scorecardQuery.data && scorecardQuery.data.actors.length > 0 && (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                <thead>
+                  <tr style={{ color: 'var(--ink3)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                    <th style={{ textAlign: 'left', padding: '9px 14px' }}>Staff</th>
+                    <th style={{ textAlign: 'right', padding: '9px 14px' }}>Mistakes</th>
+                    {scorecardQuery.data.types.map((t) => (
+                      <th key={t.key} style={{ textAlign: 'right', padding: '9px 14px' }}>{t.label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {scorecardQuery.data.actors.map((a, i) => (
+                    <tr key={a.name} style={{ borderTop: '1px solid var(--border2)' }}>
+                      <td style={{ padding: '11px 14px', fontWeight: 550 }}>
+                        {a.name}
+                        {i === 0 && <span style={{ color: 'var(--hi-t)', fontSize: 11, marginLeft: 6 }}>· most</span>}
+                      </td>
+                      <td style={{ padding: '11px 14px', textAlign: 'right', fontWeight: 650, fontVariantNumeric: 'tabular-nums' }}>{a.total}</td>
+                      {scorecardQuery.data!.types.map((t) => (
+                        <td key={t.key} style={{ padding: '11px 14px', textAlign: 'right', color: a.byType[t.key] ? 'var(--ink)' : 'var(--ink3)', fontVariantNumeric: 'tabular-nums' }}>
+                          {a.byType[t.key] ?? 0}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <div className="note-b" style={{ textAlign: 'left', padding: '12px 16px' }}>
+              Mistakes = cancelled tests, refunds, tests swapped, referral-doctor changes, and reports edited after
+              finalize — attributed to whoever did them, over the selected date range.
+            </div>
+          </div>
+        ) : tab !== 'feed' ? (
           <div className="card" style={{ padding: 28, color: '#888780', fontSize: 13 }}>
             {TABS.find((t) => t.key === tab)?.label} — arrives in a later slice.
           </div>

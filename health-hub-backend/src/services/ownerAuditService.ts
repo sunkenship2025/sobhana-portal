@@ -18,6 +18,22 @@ export type AuditSeverity = "high" | "medium" | "low" | "info";
 export type AuditCategory =
   | "money" | "report" | "drafts" | "identity" | "access" | "destructive" | "ops";
 
+/**
+ * "Mistakes" = staff rework / corrections (things that shouldn't have needed to
+ * happen): a cancelled test, a refund, a swapped test, a changed referral doctor,
+ * a report edited after it was finalized. The KPI + the Staff scorecard rank
+ * staff by these. Keyed by the projected event name; the label is what the
+ * scorecard column shows.
+ */
+const MISTAKE_TYPES: Array<{ event: string; label: string; key: string }> = [
+  { event: "Order cancelled", label: "Cancelled", key: "cancelled" },
+  { event: "Refund issued", label: "Refunds", key: "refunds" },
+  { event: "Test swapped", label: "Tests edited", key: "swaps" },
+  { event: "Referral changed", label: "Referral edits", key: "referralChanges" },
+  { event: "Report changed after finalize", label: "Post-finalize edits", key: "postFinalizeEdits" },
+];
+const MISTAKE_EVENTS = MISTAKE_TYPES.map((m) => m.event);
+
 export interface AuditEventRow {
   id: string;
   severity: AuditSeverity;
@@ -65,7 +81,7 @@ export interface AuditEventsResult {
       finalized: number;
       drafts: number;
       reportAccess: number;
-      flaggedActor: { name: string; count: number } | null;
+      mistakesActor: { name: string; count: number } | null;
     };
   };
 }
@@ -314,7 +330,7 @@ export async function getAuditEvents(
     prisma.anomalyEvent.groupBy({ by: ["event"], where: { AND: windowAnd }, _count: { _all: true } }),
     prisma.anomalyEvent.groupBy({
       by: ["actorName"],
-      where: { AND: [...windowAnd, { actorName: { not: null } }, { severity: { in: ["high", "medium"] } }] },
+      where: { AND: [...windowAnd, { actorName: { not: null } }, { event: { in: MISTAKE_EVENTS } }] },
       _count: { _all: true },
       orderBy: { _count: { actorName: "desc" } },
       take: 1,
@@ -330,7 +346,7 @@ export async function getAuditEvents(
     severityCounts.high + severityCounts.medium + severityCounts.low + severityCounts.info;
   const ev = new Map(eventGroups.map((g) => [g.event, g._count._all]));
   const evc = (name: string) => ev.get(name) ?? 0;
-  const flaggedActor =
+  const mistakesActor =
     actorGroups.length && actorGroups[0].actorName
       ? { name: actorGroups[0].actorName, count: actorGroups[0]._count._all }
       : null;
@@ -342,7 +358,7 @@ export async function getAuditEvents(
     finalized: evc("Report finalized"),
     drafts: categoryCounts.drafts,
     reportAccess: evc("Report accessed"),
-    flaggedActor,
+    mistakesActor,
   };
 
   // Keyset page — window + the severity/category selection + cursor.
@@ -489,5 +505,64 @@ export async function getAuditEventDetail(
       whenIso: r.occurredAt.toISOString(),
       isThis: r.id === e.id,
     })),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Staff scorecard — staff ranked by "mistakes" (rework/corrections) in the
+// window, broken down by type. Reads the materialized model (stored `event`),
+// so it's one grouped aggregate. Powers the Staff scorecard tab.
+// ---------------------------------------------------------------------------
+export interface StaffScorecardRow {
+  name: string;
+  total: number;
+  byType: Record<string, number>;
+}
+export interface StaffScorecardResult {
+  from: string;
+  to: string;
+  types: Array<{ key: string; label: string }>;
+  actors: StaffScorecardRow[];
+}
+
+export async function getStaffScorecard(params: {
+  branchId: string | null;
+  from?: string | null;
+  to?: string | null;
+}): Promise<StaffScorecardResult> {
+  const { from, to } = resolveWindow(params.from, params.to);
+  await ensureProjected(params.branchId, from, to);
+
+  const groups = await prisma.anomalyEvent.groupBy({
+    by: ["actorName", "event"],
+    where: {
+      AND: [
+        { occurredAt: { gte: from, lte: to } },
+        ...(params.branchId ? [{ branchId: params.branchId }] : []),
+        { actorName: { not: null } },
+        { event: { in: MISTAKE_EVENTS } },
+      ],
+    },
+    _count: { _all: true },
+  });
+
+  const eventToKey = new Map(MISTAKE_TYPES.map((m) => [m.event, m.key]));
+  const byActor = new Map<string, StaffScorecardRow>();
+  for (const g of groups) {
+    const name = g.actorName as string;
+    const key = eventToKey.get(g.event);
+    if (!key) continue;
+    if (!byActor.has(name)) byActor.set(name, { name, total: 0, byType: {} });
+    const row = byActor.get(name)!;
+    row.byType[key] = (row.byType[key] ?? 0) + g._count._all;
+    row.total += g._count._all;
+  }
+  const actors = Array.from(byActor.values()).sort((a, b) => b.total - a.total);
+
+  return {
+    from: from.toISOString(),
+    to: to.toISOString(),
+    types: MISTAKE_TYPES.map((m) => ({ key: m.key, label: m.label })),
+    actors,
   };
 }

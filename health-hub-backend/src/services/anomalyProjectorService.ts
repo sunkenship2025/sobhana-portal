@@ -70,6 +70,46 @@ const band = (score: number): Severity =>
 const rupees = (paise: number) =>
   `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 
+function parseJson(v: string | null): any {
+  if (!v) return null;
+  try { return JSON.parse(v); } catch { return null; }
+}
+
+/**
+ * A post-bill visit correction is logged as `UPDATE Visit` with the real action
+ * inside newValues.action. These are the staff "mistakes" (rework): a wrong
+ * referral fixed, the wrong test swapped, tests added after billing. Returns the
+ * classification, or null for a plain visit update.
+ */
+function correctionEvent(nv: any): {
+  event: string; category: Category; severity: Severity;
+  detail: string; reason: string | null; amountInPaise: number | null;
+} | null {
+  const reason = (nv?.reason as string) ?? null;
+  switch (nv?.action) {
+    case "REFERRAL_CHANGE":
+      return {
+        event: "Referral changed", category: "money", severity: "medium",
+        detail: `${nv?.referralDoctorName ?? "—"}${reason ? ` · ${reason}` : ""}`,
+        reason, amountInPaise: null,
+      };
+    case "PRODUCT_SWAP":
+      return {
+        event: "Test swapped", category: "report", severity: "medium",
+        detail: `→ ${nv?.productName ?? "—"}${reason ? ` · ${reason}` : ""}`,
+        reason, amountInPaise: null,
+      };
+    case "ADD_TESTS_TO_BILL":
+      return {
+        event: "Tests added to bill", category: "money", severity: "high",
+        detail: reason ?? "post-bill add", reason,
+        amountInPaise: typeof nv?.totalAmountInPaise === "number" ? nv.totalAmountInPaise : null,
+      };
+    default:
+      return null;
+  }
+}
+
 type ProjRow = Prisma.AnomalyEventCreateManyInput;
 
 /** Project one window (idempotent upsert by dedupeKey). Bounded by `take` caps. */
@@ -88,7 +128,7 @@ export async function projectWindow(
       take: 20000,
       select: {
         id: true, branchId: true, actionType: true, entityType: true,
-        entityId: true, userId: true, createdAt: true,
+        entityId: true, userId: true, createdAt: true, newValues: true,
       },
     }),
     prisma.bill.findMany({
@@ -135,6 +175,25 @@ export async function projectWindow(
   const draftPatient = new Map(draftVisits.map((v) => [v.id, v.patient?.name ?? null]));
 
   const auditEvents: ProjRow[] = auditRows.map((r) => {
+    const u0 = r.userId ? userMap.get(r.userId) : null;
+    // Post-bill visit corrections (staff "mistakes") — the real action is in
+    // newValues.action, not the actionType.
+    if (r.actionType === "UPDATE" && r.entityType === "Visit") {
+      const m = correctionEvent(parseJson(r.newValues));
+      if (m) {
+        return {
+          id: `al:${r.id}`, dedupeKey: `al:${r.id}`, branchId: r.branchId,
+          occurredAt: r.createdAt, severity: m.severity, category: m.category,
+          score: m.severity === "high" ? 4 : m.severity === "medium" ? 2 : 1,
+          event: m.event, detail: m.detail,
+          actorUserId: r.userId, actorName: u0?.name ?? null, actorRole: u0?.role ?? null,
+          entityType: "Visit", entityId: r.entityId, patientName: null,
+          amountInPaise: m.amountInPaise, reason: m.reason,
+          drillTo: `/diagnostics/results/${r.entityId}`,
+          sourceKind: "audit", sourceId: r.id,
+        };
+      }
+    }
     const c = classifyAudit(r.actionType, r.entityType);
     const u = r.userId ? userMap.get(r.userId) : null;
     const isDraft = c.category === "drafts";
