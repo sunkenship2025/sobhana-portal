@@ -169,6 +169,13 @@ const staffNavItems: NavItem[] = [
     matchPrefixes: ['/clinic/patient-search', '/clinic/patient-360/'],
   },
   {
+    label: 'Messages',
+    icon: MessagesSquare,
+    href: '/messages',
+    roles: ['staff', 'lab_incharge'],
+    matchPrefixes: ['/messages'],
+  },
+  {
     label: 'Diagnostics',
     icon: FlaskConical,
     href: '/diagnostics',
@@ -212,13 +219,6 @@ const staffNavItems: NavItem[] = [
     href: '/ops/audit',
     roles: ['lab_incharge'],
     matchPrefixes: ['/ops/audit'],
-  },
-  {
-    label: 'Messages',
-    icon: MessagesSquare,
-    href: '/messages',
-    roles: ['staff', 'lab_incharge'],
-    matchPrefixes: ['/messages'],
   },
   {
     label: 'Admin',
