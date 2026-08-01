@@ -43,6 +43,8 @@ import {
   toReferralPayoutPayload,
   type ReferralPayoutDraft,
 } from '@/lib/referralPayouts';
+import { ReferralCategoryRateCard } from '@/components/owner/ReferralCategoryRateCard';
+import { PAYOUT_CATEGORIES } from '@/lib/payoutCategories';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -57,6 +59,10 @@ function branchHeaders(token: string | null) {
 
 type ReferralRuleFormItem = ReferralPayoutDraft & {
   productId: string;
+};
+
+type ReferralCategoryFormItem = ReferralPayoutDraft & {
+  category: string;
 };
 
 type CenterRuleFormItem = ReferralPayoutDraft & {
@@ -78,10 +84,13 @@ const EMPTY_CENTER_FORM = {
 const EMPTY_REFERRAL_FORM = {
   name: '',
   phone: '',
+  // No flat default anymore — the base rate comes from the Category Rate Card.
+  // These stay 0/unused; the resolver never falls back to them.
   commissionType: 'PERCENTAGE' as const,
-  commissionPercent: '50',
+  commissionPercent: '0',
   commissionAmount: '',
   productRules: [] as ReferralRuleFormItem[],
+  categoryRules: [] as ReferralCategoryFormItem[],
 };
 
 // ─── main component ──────────────────────────────────────────────────────────
@@ -266,6 +275,38 @@ export default function ManageDoctorsAndReferrals() {
     }));
   };
 
+  const addCategoryRule = (category: string) => {
+    if (!category) return;
+    setRefForm((current) => {
+      if (current.categoryRules.some((rule) => rule.category === category)) {
+        return current;
+      }
+      return {
+        ...current,
+        categoryRules: [
+          ...current.categoryRules,
+          { category, commissionType: 'PERCENTAGE', commissionPercent: '', commissionAmount: '' },
+        ],
+      };
+    });
+  };
+
+  const updateCategoryRule = (category: string, patch: Partial<ReferralCategoryFormItem>) => {
+    setRefForm((current) => ({
+      ...current,
+      categoryRules: current.categoryRules.map((rule) =>
+        rule.category === category ? { ...rule, ...patch } : rule
+      ),
+    }));
+  };
+
+  const removeCategoryRule = (category: string) => {
+    setRefForm((current) => ({
+      ...current,
+      categoryRules: current.categoryRules.filter((rule) => rule.category !== category),
+    }));
+  };
+
   const refResetForm = () => {
     setRefForm({ ...EMPTY_REFERRAL_FORM });
     setRefShowForm(false);
@@ -305,6 +346,20 @@ export default function ManageDoctorsAndReferrals() {
       }
     }
 
+    for (const rule of refForm.categoryRules) {
+      if (rule.commissionType === 'PERCENTAGE') {
+        const commission = parseFloat(rule.commissionPercent);
+        if (isNaN(commission) || commission < 0 || commission > 100) {
+          toast.error('Each category percentage must be between 0 and 100'); return;
+        }
+      } else {
+        const amount = parseFloat(rule.commissionAmount);
+        if (isNaN(amount) || amount < 0) {
+          toast.error('Each category amount must be a non-negative number'); return;
+        }
+      }
+    }
+
     const payload = {
       name: refForm.name,
       phone: refForm.phone,
@@ -312,6 +367,10 @@ export default function ManageDoctorsAndReferrals() {
       ...toReferralPayoutPayload(refForm),
       productRules: refForm.productRules.map((rule) => ({
         productId: rule.productId,
+        ...toReferralPayoutPayload(rule),
+      })),
+      categoryRules: refForm.categoryRules.map((rule) => ({
+        category: rule.category,
         ...toReferralPayoutPayload(rule),
       })),
     };
@@ -350,6 +409,10 @@ export default function ManageDoctorsAndReferrals() {
       ...toReferralPayoutDraft(doc),
       productRules: (doc.productRules || []).map((rule: any) => ({
         productId: rule.productId,
+        ...toReferralPayoutDraft(rule),
+      })),
+      categoryRules: (doc.categoryRules || []).map((rule: any) => ({
+        category: rule.category,
         ...toReferralPayoutDraft(rule),
       })),
     });
@@ -700,9 +763,12 @@ export default function ManageDoctorsAndReferrals() {
 
       {/* ════════════════════════════════ REFERRAL DOCTORS ══════════════════ */}
       <TabsContent value="referral" className="space-y-4">
+        <ReferralCategoryRateCard />
+
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
-            Set a saved default payout for each referral doctor and override it for specific billable products.
+            Commission defaults come from the Category Rate Card above. Override a doctor's rate by
+            category, or for specific billable products.
           </p>
           {!refShowForm && (
             <Button onClick={() => setRefShowForm(true)}>
@@ -717,89 +783,20 @@ export default function ManageDoctorsAndReferrals() {
               <CardTitle>{refEditingId ? 'Edit Doctor' : 'Add Referral Doctor'}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Doctor Name *</Label>
-                    <Input placeholder="Dr. Name (type to search)" value={refForm.name}
-                      onChange={(e) => handleRefNameChange(e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Phone</Label>
-                    <Input placeholder="10-digit phone (optional)" value={refForm.phone} maxLength={10}
-                      onChange={(e) => {
-                        const next = e.target.value.replace(/\D/g, '').slice(0, 10);
-                        setRefForm((f) => ({ ...f, phone: next }));
-                        refCheckPhone(next);
-                      }} />
-                  </div>
+              <div className="grid gap-4 md:grid-cols-2 md:max-w-2xl">
+                <div className="space-y-2">
+                  <Label>Doctor Name *</Label>
+                  <Input placeholder="Dr. Name (type to search)" value={refForm.name}
+                    onChange={(e) => handleRefNameChange(e.target.value)} />
                 </div>
-
-                <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
-                  <div>
-                    <p className="text-sm font-medium">Default Payout</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Used for future bills unless a product-specific value is saved below.
-                    </p>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-[160px_minmax(0,1fr)]">
-                    <Select
-                      value={refForm.commissionType}
-                      onValueChange={(value) =>
-                        setRefForm((current) => ({
-                          ...current,
-                          commissionType: value as ReferralPayoutDraft['commissionType'],
-                        }))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="PERCENTAGE">Percentage</SelectItem>
-                        <SelectItem value="FIXED_AMOUNT">Amount</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={refForm.commissionType === 'PERCENTAGE' ? 100 : undefined}
-                      step={refForm.commissionType === 'PERCENTAGE' ? '0.01' : '1'}
-                      placeholder={refForm.commissionType === 'PERCENTAGE' ? 'e.g. 10' : 'e.g. 150'}
-                      value={
-                        refForm.commissionType === 'PERCENTAGE'
-                          ? refForm.commissionPercent
-                          : refForm.commissionAmount
-                      }
-                      onChange={(e) => {
-                        const next = e.target.value;
-                        setRefForm((current) => ({
-                          ...current,
-                          commissionPercent:
-                            current.commissionType === 'PERCENTAGE'
-                              ? next
-                              : current.commissionPercent,
-                          commissionAmount:
-                            current.commissionType === 'FIXED_AMOUNT'
-                              ? next
-                              : current.commissionAmount,
-                        }));
-                      }}
-                    />
-                  </div>
-                  <p className="text-sm font-medium">
-                    {formatReferralPayout({
-                      commissionType: refForm.commissionType,
-                      commissionPercent:
-                        refForm.commissionType === 'PERCENTAGE'
-                          ? Number(refForm.commissionPercent || 0)
-                          : null,
-                      commissionAmountInPaise:
-                        refForm.commissionType === 'FIXED_AMOUNT'
-                          ? Math.round(Number(refForm.commissionAmount || 0) * 100)
-                          : null,
-                    })}
-                  </p>
+                <div className="space-y-2">
+                  <Label>Phone</Label>
+                  <Input placeholder="10-digit phone (optional)" value={refForm.phone} maxLength={10}
+                    onChange={(e) => {
+                      const next = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setRefForm((f) => ({ ...f, phone: next }));
+                      refCheckPhone(next);
+                    }} />
                 </div>
               </div>
 
@@ -825,6 +822,86 @@ export default function ManageDoctorsAndReferrals() {
                   </AlertDescription>
                 </Alert>
               )}
+
+              <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <p className="font-medium">Category Rates</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Override the rate card for this doctor, by category. Leave empty to use the
+                      centre defaults.
+                    </p>
+                  </div>
+                  <div className="w-full max-w-md">
+                    <SearchableSelect
+                      onValueChange={addCategoryRule}
+                      options={PAYOUT_CATEGORIES
+                        .filter((category) => !refForm.categoryRules.some((rule) => rule.category === category))
+                        .map((category) => ({ value: category, label: category, keywords: category }))}
+                      placeholder="Add category override"
+                      searchPlaceholder="Search category"
+                      emptyText="Every category already has an override."
+                    />
+                  </div>
+                </div>
+
+                {refForm.categoryRules.length === 0 ? (
+                  <div className="rounded-lg border border-dashed bg-background px-4 py-6 text-sm text-muted-foreground">
+                    No category overrides. This doctor uses the centre rate card for every category.
+                  </div>
+                ) : (
+                  <div className="grid gap-3">
+                    {refForm.categoryRules.map((rule) => (
+                      <div key={rule.category} className="rounded-lg border bg-background p-4">
+                        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px_160px_auto] md:items-center">
+                          <p className="font-medium">{rule.category}</p>
+                          <Select
+                            value={rule.commissionType}
+                            onValueChange={(value) =>
+                              updateCategoryRule(rule.category, {
+                                commissionType: value as ReferralPayoutDraft['commissionType'],
+                              })
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="PERCENTAGE">Percentage</SelectItem>
+                              <SelectItem value="FIXED_AMOUNT">Amount</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={rule.commissionType === 'PERCENTAGE' ? 100 : undefined}
+                            step={rule.commissionType === 'PERCENTAGE' ? '0.01' : '1'}
+                            placeholder={rule.commissionType === 'PERCENTAGE' ? 'Enter %' : 'Enter amount'}
+                            value={rule.commissionType === 'PERCENTAGE' ? rule.commissionPercent : rule.commissionAmount}
+                            onChange={(e) =>
+                              updateCategoryRule(rule.category, {
+                                commissionPercent:
+                                  rule.commissionType === 'PERCENTAGE' ? e.target.value : rule.commissionPercent,
+                                commissionAmount:
+                                  rule.commissionType === 'FIXED_AMOUNT' ? e.target.value : rule.commissionAmount,
+                              })
+                            }
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeCategoryRule(rule.category)}
+                            aria-label="Remove category rule"
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -940,7 +1017,7 @@ export default function ManageDoctorsAndReferrals() {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Phone</TableHead>
-                <TableHead>Default Payout</TableHead>
+                <TableHead>Category Rates</TableHead>
                 <TableHead>Product Rules</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -953,7 +1030,22 @@ export default function ManageDoctorsAndReferrals() {
                     <div className="text-xs text-muted-foreground">{doc.doctorNumber}</div>
                   </TableCell>
                   <TableCell>{doc.phone || '—'}</TableCell>
-                  <TableCell className="font-medium">{formatReferralPayout(doc)}</TableCell>
+                  <TableCell>
+                    {doc.categoryRules?.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {doc.categoryRules.slice(0, 3).map((rule) => (
+                          <Badge key={rule.id} variant="secondary" className="font-normal">
+                            {rule.category}: {formatReferralPayout(rule)}
+                          </Badge>
+                        ))}
+                        {doc.categoryRules.length > 3 && (
+                          <Badge variant="outline">+{doc.categoryRules.length - 3} more</Badge>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">Uses rate card</span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     {doc.productRules?.length ? (
                       <div className="flex flex-wrap gap-2">

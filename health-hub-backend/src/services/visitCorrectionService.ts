@@ -26,6 +26,7 @@ import {
   resolveReducedReferralSnapshot,
 } from "./referralPayoutService";
 import { resolveProducts } from "./productOrderService";
+import { categorize } from "./payoutCategorize";
 import { recomputeBillFinancialsForSubtotal } from "./billFinancialService";
 import { DiagnosticWorkflowMode } from "@prisma/client";
 
@@ -80,6 +81,53 @@ function snapshotsForRule(
     referralCommissionPercentage: rule.commissionPercent ?? 0,
     referralCommissionAmountInPaise: null,
   }));
+}
+
+/** The centre-wide default referral rate card, as a category → rule map. */
+async function loadCenterCategoryRates(): Promise<Map<string, CommissionRule>> {
+  const rates = await prisma.referralCategoryRate.findMany({
+    where: { isActive: true },
+  });
+  return new Map(
+    rates.map((rate) => [
+      rate.category,
+      {
+        commissionType: rate.commissionType,
+        commissionPercent: rate.commissionPercent,
+        commissionAmountInPaise: rate.commissionAmountInPaise,
+      },
+    ]),
+  );
+}
+
+/**
+ * Resolve a per-order commission snapshot from its frozen payout category:
+ * per-doctor category rule > centre category rate card > SELF (zero). Each order
+ * earns the FULL flat amount for a FIXED_AMOUNT category (per-test, never
+ * distributed). Mirrors billing's resolveCategoryReferralSnapshot.
+ */
+function categoryCommissionSnapshot(
+  category: string | null,
+  doctorCategoryRules: Map<string, CommissionRule>,
+  centerCategoryRates: Map<string, CommissionRule>,
+): CommissionSnapshot {
+  const rule =
+    (category ? doctorCategoryRules.get(category) : undefined) ??
+    (category ? centerCategoryRates.get(category) : undefined) ??
+    null;
+  if (!rule) return { ...SELF_SNAPSHOT };
+  if (rule.commissionType === "FIXED_AMOUNT") {
+    return {
+      referralCommissionType: "FIXED_AMOUNT",
+      referralCommissionPercentage: null,
+      referralCommissionAmountInPaise: rule.commissionAmountInPaise ?? 0,
+    };
+  }
+  return {
+    referralCommissionType: "PERCENTAGE",
+    referralCommissionPercentage: rule.commissionPercent ?? 0,
+    referralCommissionAmountInPaise: null,
+  };
 }
 
 /**
@@ -204,21 +252,31 @@ export async function changeVisitReferral(params: {
       commissionPercent: number | null;
       commissionAmountInPaise: number | null;
     }[];
+    categoryRules: {
+      category: string;
+      commissionType: "PERCENTAGE" | "FIXED_AMOUNT";
+      commissionPercent: number | null;
+      commissionAmountInPaise: number | null;
+    }[];
   } | null = null;
 
   if (referralDoctorId) {
     newDoctor = (await prisma.referralDoctor.findUnique({
       where: { id: referralDoctorId },
-      include: { productRules: { where: { isActive: true } } },
+      include: {
+        productRules: { where: { isActive: true } },
+        categoryRules: { where: { isActive: true } },
+      },
     })) as any;
     if (!newDoctor) {
       throw new CorrectionError(400, "VALIDATION_ERROR", "Referral doctor not found");
     }
   }
 
-  // Re-freeze commission snapshots exactly like billing: per product group,
-  // product rule ?? doctor default; outsourced orders get the lab's reduced
-  // referral rate when configured.
+  // Re-freeze commission snapshots exactly like billing: a per-product rule
+  // covers the whole product (distributed); otherwise each order resolves from
+  // its frozen panel category (doctor category rule > centre rate card > none).
+  // Outsourced orders still get the lab's reduced referral rate when configured.
   const activeOrders = visit.testOrders.filter((order) => !order.cancelledAt);
   const ruleByProductId = new Map<string, CommissionRule>(
     (newDoctor?.productRules ?? []).map((rule) => [
@@ -230,13 +288,19 @@ export async function changeVisitReferral(params: {
       },
     ]),
   );
-  const defaultRule: CommissionRule | null = newDoctor
-    ? {
-        commissionType: newDoctor.commissionType,
-        commissionPercent: newDoctor.commissionPercent,
-        commissionAmountInPaise: newDoctor.commissionAmountInPaise,
-      }
-    : null;
+  const doctorCategoryRuleByCategory = new Map<string, CommissionRule>(
+    (newDoctor?.categoryRules ?? []).map((rule) => [
+      rule.category,
+      {
+        commissionType: rule.commissionType,
+        commissionPercent: rule.commissionPercent,
+        commissionAmountInPaise: rule.commissionAmountInPaise,
+      },
+    ]),
+  );
+  const centerCategoryRateByCategory = newDoctor
+    ? await loadCenterCategoryRates()
+    : new Map<string, CommissionRule>();
 
   // Reduced-referral rules for outsourced orders (lab+product specific).
   const outsourcedPairs = activeOrders
@@ -270,13 +334,25 @@ export async function changeVisitReferral(params: {
   const orderSnapshots = new Map<string, CommissionSnapshot>();
   for (const [key, orders] of groups) {
     const productId = key.startsWith("__order__") ? null : key;
-    const rule = newDoctor
-      ? ((productId && ruleByProductId.get(productId)) || defaultRule)
-      : null;
-    const snapshots = snapshotsForRule(
-      orders.map((order) => order.priceInPaise),
-      rule,
-    );
+    const productRule =
+      newDoctor && productId ? ruleByProductId.get(productId) ?? null : null;
+    // Product rule → whole product, distributed. Otherwise each order resolves
+    // from its own frozen category. No referral doctor → SELF (zero).
+    const snapshots = productRule
+      ? snapshotsForRule(orders.map((order) => order.priceInPaise), productRule)
+      : newDoctor
+        ? orders.map((order) =>
+            categoryCommissionSnapshot(
+              // Pre-migration orders have no frozen category — infer from the
+              // test name (as payout grouping does) so re-attribution doesn't
+              // silently zero their commission.
+              order.payoutCategorySnapshot ??
+                categorize({ testName: order.testNameSnapshot }),
+              doctorCategoryRuleByCategory,
+              centerCategoryRateByCategory,
+            ),
+          )
+        : orders.map(() => ({ ...SELF_SNAPSHOT }));
     orders.forEach((order, index) => {
       let snapshot = snapshots[index];
       if (newDoctor && order.externalLabId && order.productId) {
@@ -462,36 +538,55 @@ export async function swapVisitProduct(params: {
     );
   }
 
-  // Commission snapshots for the new orders under the CURRENT referral.
+  // Commission snapshots for the new orders under the CURRENT referral: a
+  // per-product rule covers the whole product (distributed), otherwise each new
+  // order resolves from its own panel category (doctor rule > centre rate card).
   const currentReferral = visit.referrals[0] ?? null;
   const anchorDate = payoutAnchorDate(visit);
-  let rule: CommissionRule | null = null;
+  let snapshots: CommissionSnapshot[];
   if (currentReferral?.referralDoctorId) {
     const doctor = await prisma.referralDoctor.findUnique({
       where: { id: currentReferral.referralDoctorId },
       include: {
         productRules: { where: { isActive: true, productId: newProductId } },
+        categoryRules: { where: { isActive: true } },
       },
     });
-    if (doctor) {
-      const productRule = doctor.productRules[0];
-      rule = productRule
-        ? {
-            commissionType: productRule.commissionType,
-            commissionPercent: productRule.commissionPercent,
-            commissionAmountInPaise: productRule.commissionAmountInPaise,
-          }
-        : {
-            commissionType: doctor.commissionType,
-            commissionPercent: doctor.commissionPercent,
-            commissionAmountInPaise: doctor.commissionAmountInPaise,
-          };
+    const productRule = doctor?.productRules[0];
+    if (productRule) {
+      snapshots = snapshotsForRule(
+        resolved.testOrders.map((order) => order.priceInPaise),
+        {
+          commissionType: productRule.commissionType,
+          commissionPercent: productRule.commissionPercent,
+          commissionAmountInPaise: productRule.commissionAmountInPaise,
+        },
+      );
+    } else if (doctor) {
+      const doctorCategoryRules = new Map<string, CommissionRule>(
+        doctor.categoryRules.map((r) => [
+          r.category,
+          {
+            commissionType: r.commissionType,
+            commissionPercent: r.commissionPercent,
+            commissionAmountInPaise: r.commissionAmountInPaise,
+          },
+        ]),
+      );
+      const centerCategoryRates = await loadCenterCategoryRates();
+      snapshots = resolved.testOrders.map((order) =>
+        categoryCommissionSnapshot(
+          order.payoutCategory,
+          doctorCategoryRules,
+          centerCategoryRates,
+        ),
+      );
+    } else {
+      snapshots = resolved.testOrders.map(() => ({ ...SELF_SNAPSHOT }));
     }
+  } else {
+    snapshots = resolved.testOrders.map(() => ({ ...SELF_SNAPSHOT }));
   }
-  const snapshots = snapshotsForRule(
-    resolved.testOrders.map((order) => order.priceInPaise),
-    rule,
-  );
 
   const resultsToDelete = await prisma.testResult.count({
     where: { testOrderId: { in: targetOrders.map((order) => order.id) } },
@@ -508,6 +603,8 @@ export async function swapVisitProduct(params: {
         testId: order.labTestId,
         testDefinitionId: order.testDefinitionId,
         productId: order.productId,
+        panelId: order.panelId,
+        payoutCategorySnapshot: order.payoutCategory,
         workflowMode: order.workflowMode,
         priceInPaise: order.priceInPaise,
         testNameSnapshot: order.testName,
@@ -692,36 +789,54 @@ export async function addProductsToVisit(params: {
   const displayOrderBase =
     Math.max(0, ...visit.testOrders.map((order) => order.displayOrder ?? 0)) + 1;
 
+  // Load the current referrer's rules once (not per product): per-product rule
+  // covers a whole product; otherwise each leaf resolves from its panel category
+  // (doctor category rule > centre rate card > none).
+  const doctorProductRules = new Map<string, CommissionRule>();
+  const doctorCategoryRules = new Map<string, CommissionRule>();
+  let centerCategoryRates = new Map<string, CommissionRule>();
+  if (currentReferral?.referralDoctorId) {
+    const doctor = await prisma.referralDoctor.findUnique({
+      where: { id: currentReferral.referralDoctorId },
+      include: {
+        productRules: { where: { isActive: true } },
+        categoryRules: { where: { isActive: true } },
+      },
+    });
+    if (doctor) {
+      for (const r of doctor.productRules) {
+        doctorProductRules.set(r.productId, {
+          commissionType: r.commissionType,
+          commissionPercent: r.commissionPercent,
+          commissionAmountInPaise: r.commissionAmountInPaise,
+        });
+      }
+      for (const r of doctor.categoryRules) {
+        doctorCategoryRules.set(r.category, {
+          commissionType: r.commissionType,
+          commissionPercent: r.commissionPercent,
+          commissionAmountInPaise: r.commissionAmountInPaise,
+        });
+      }
+      centerCategoryRates = await loadCenterCategoryRates();
+    }
+  }
+
   const orderRows: any[] = [];
   let cursor = 0;
   for (const rp of resolved) {
-    let rule: CommissionRule | null = null;
-    if (currentReferral?.referralDoctorId) {
-      const doctor = await prisma.referralDoctor.findUnique({
-        where: { id: currentReferral.referralDoctorId },
-        include: {
-          productRules: { where: { isActive: true, productId: rp.productId } },
-        },
-      });
-      if (doctor) {
-        const productRule = doctor.productRules[0];
-        rule = productRule
-          ? {
-              commissionType: productRule.commissionType,
-              commissionPercent: productRule.commissionPercent,
-              commissionAmountInPaise: productRule.commissionAmountInPaise,
-            }
-          : {
-              commissionType: doctor.commissionType,
-              commissionPercent: doctor.commissionPercent,
-              commissionAmountInPaise: doctor.commissionAmountInPaise,
-            };
-      }
-    }
-    const snapshots = snapshotsForRule(
-      rp.testOrders.map((order) => order.priceInPaise),
-      rule,
-    );
+    const productRule = doctorProductRules.get(rp.productId) ?? null;
+    const snapshots = productRule
+      ? snapshotsForRule(rp.testOrders.map((order) => order.priceInPaise), productRule)
+      : currentReferral?.referralDoctorId
+        ? rp.testOrders.map((order) =>
+            categoryCommissionSnapshot(
+              order.payoutCategory,
+              doctorCategoryRules,
+              centerCategoryRates,
+            ),
+          )
+        : rp.testOrders.map(() => ({ ...SELF_SNAPSHOT }));
     rp.testOrders.forEach((order, index) => {
       orderRows.push({
         visitId,
@@ -729,6 +844,8 @@ export async function addProductsToVisit(params: {
         testId: order.labTestId,
         testDefinitionId: order.testDefinitionId,
         productId: order.productId,
+        panelId: order.panelId,
+        payoutCategorySnapshot: order.payoutCategory,
         workflowMode: order.workflowMode,
         priceInPaise: order.priceInPaise,
         testNameSnapshot: order.testName,

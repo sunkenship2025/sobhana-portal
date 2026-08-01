@@ -1,13 +1,16 @@
 /**
- * Resolves the payout-statement category for a test order.
+ * Resolves the payout-statement / referral category for a test order.
  *
  * Categories are NOT a fixed enum. Resolution order:
- *   1. BillableProduct.payoutCategory — explicit owner override (highest).
- *   2. Inferred from the product / test NAME (USG, ECG, X-Ray, CT/MRI). This is
+ *   1. ClinicalPanel.payoutCategory — the category set on the panel in Report
+ *      Builder / panel definitions. Highest, because it's the modality of the
+ *      actual test and is where owners now maintain categories.
+ *   2. BillableProduct.payoutCategory — explicit owner override on the product.
+ *   3. Inferred from the product / test NAME (USG, ECG, X-Ray, CT/MRI). This is
  *      what makes existing data categorise correctly without any setup, because
  *      the names are reliable even when departments aren't linked.
- *   3. Default to "Laboratory" — in a diagnostic centre everything that isn't
- *      imaging/cardiology is lab work. (Owner can override per product.)
+ *   4. Default to "Laboratory" — in a diagnostic centre everything that isn't
+ *      imaging/cardiology is lab work. (Owner can override on the panel.)
  *
  * There is deliberately no "SPL / Other" catch-all.
  */
@@ -38,10 +41,14 @@ function inferFromName(name?: string | null): PayoutCategory | null {
 }
 
 export function categorize(input: {
+  panelPayoutCategory?: string | null;
   productPayoutCategory?: string | null;
   productName?: string | null;
   testName?: string | null;
 }): PayoutCategory {
+  const panelExplicit = (input.panelPayoutCategory || '').trim();
+  if (panelExplicit) return panelExplicit;
+
   const explicit = (input.productPayoutCategory || '').trim();
   if (explicit) return explicit;
 

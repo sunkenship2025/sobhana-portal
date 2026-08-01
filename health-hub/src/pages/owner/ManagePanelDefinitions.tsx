@@ -37,6 +37,7 @@ import {
   type TestInputConfigPayload,
 } from '@/components/diagnostics/TestInputConfigEditor';
 import { Settings2 } from 'lucide-react';
+import { PAYOUT_CATEGORIES } from '@/lib/payoutCategories';
 
 /* ───────── Types ───────── */
 
@@ -331,6 +332,7 @@ export default function ManagePanelDefinitions() {
   const [formLayout, setFormLayout] = useState('STANDARD_TABLE');
   const [formDeptId, setFormDeptId] = useState('');
   const [formSampleType, setFormSampleType] = useState('');
+  const [formPayoutCategory, setFormPayoutCategory] = useState('');
   const [formActive, setFormActive] = useState(true);
   const [formItems, setFormItems] = useState<ClinicalPanelItem[]>([]);
 
@@ -483,7 +485,7 @@ export default function ManagePanelDefinitions() {
 
   const resetForm = () => {
     setFormName(''); setFormCode(''); setFormLayout('STANDARD_TABLE'); setFormDeptId('');
-    setFormSampleType(''); setFormActive(true); setFormItems([]);
+    setFormSampleType(''); setFormPayoutCategory(''); setFormActive(true); setFormItems([]);
     setFormShowMethod(false); setFormShowSubgroups(false);
     setFormShowInterpretation(false); setFormSpacedDefinitionsGap(0); setFormValuePrefix('');
     setFormPanelMethodText(''); setFormPanelMethodItalic(false);
@@ -503,6 +505,7 @@ export default function ManagePanelDefinitions() {
     setFormLayout(p.layoutType);
     setFormDeptId(p.departmentId || '');
     setFormSampleType(p.sampleType || '');
+    setFormPayoutCategory(p.payoutCategory || '');
     setFormActive(p.isActive);
     setFormShowMethod(p.showMethodColumn ?? false);
     setFormShowSubgroups(p.showSubgroups ?? false);
@@ -726,6 +729,7 @@ export default function ManagePanelDefinitions() {
         layoutType: formLayout,
         departmentId: formDeptId,
         sampleType: formSampleType || null,
+        payoutCategory: formPayoutCategory || null,
         isActive: formActive,
         showMethodColumn: formShowMethod,
         showSubgroups: formShowSubgroups,
@@ -1028,6 +1032,18 @@ export default function ManagePanelDefinitions() {
                   <SelectContent>
                     <SelectItem value="__none__">None</SelectItem>
                     {SAMPLE_TYPES.map(st => <SelectItem key={st} value={st}>{st}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Category (drives referral commission + payout grouping) */}
+              <div className="max-w-xs">
+                <Label>Category</Label>
+                <Select value={formPayoutCategory || '__none__'} onValueChange={v => setFormPayoutCategory(v === '__none__' ? '' : v)}>
+                  <SelectTrigger><SelectValue placeholder="Select category..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
+                    {PAYOUT_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

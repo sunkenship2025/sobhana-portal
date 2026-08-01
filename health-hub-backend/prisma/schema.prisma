@@ -332,11 +332,54 @@ model ReferralDoctor {
   referrals ReferralDoctor_Visit[]
 
   /// Payout ledger
-  payoutLedger DoctorPayoutLedger[]
-  productRules ReferralDoctorProductRule[]
+  payoutLedger  DoctorPayoutLedger[]
+  productRules  ReferralDoctorProductRule[]
+  categoryRules ReferralDoctorCategoryRule[]
 
   @@index([isActive])
   @@index([createdAt])
+}
+
+/// ReferralCategoryRate: centre-wide DEFAULT referral rate per payout category
+/// (Laboratory, X-Ray, Ultrasound, ECG / Cardiology, CT / MRI). One row per
+/// category. This is the base commission for a referred test — resolved from the
+/// test's panel category — and replaces the old per-doctor flat default. A
+/// per-doctor rate (ReferralDoctorCategoryRule) or per-product rule overrides it.
+/// `category` stores the same free-text taxonomy as BillableProduct.payoutCategory
+/// and payoutCategorize.ts, so referral rates and the payout statement share one
+/// vocabulary. No FK — categories are centre-defined strings, not an enum.
+model ReferralCategoryRate {
+  id                      String             @id @default(cuid())
+  category                String             @unique
+  commissionType          ReferralPayoutType @default(PERCENTAGE)
+  commissionPercent       Float? // 0-100 when type = PERCENTAGE
+  commissionAmountInPaise Int? // per-test flat payout when type = FIXED_AMOUNT
+  isActive                Boolean            @default(true)
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+
+  @@index([isActive])
+}
+
+/// ReferralDoctorCategoryRule: per-doctor override of a category's referral rate.
+/// Only set when a specific doctor negotiated a different rate for a modality
+/// (e.g. "Dr X gets 35% on Lab"). Overrides ReferralCategoryRate; itself
+/// overridden by a per-product rule or an ad-hoc bill override.
+model ReferralDoctorCategoryRule {
+  id                      String             @id @default(cuid())
+  referralDoctorId        String
+  category                String
+  commissionType          ReferralPayoutType @default(PERCENTAGE)
+  commissionPercent       Float?
+  commissionAmountInPaise Int?
+  isActive                Boolean            @default(true)
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+
+  referralDoctor ReferralDoctor @relation(fields: [referralDoctorId], references: [id], onDelete: Cascade)
+
+  @@unique([referralDoctorId, category])
+  @@index([referralDoctorId])
 }
 
 model ReferralDoctorProductRule {
@@ -485,16 +528,16 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  activeBranch         Branch                 @relation(fields: [activeBranchId], references: [id], onDelete: Restrict)
-  PaymentTransaction   PaymentTransaction[]
-  ExternalReportUpload ExternalReportUpload[]
-  TestResultEntered    TestResult[]           @relation("TestResultEnteredBy")
-  discountedBills      Bill[]                 @relation("BillDiscountedBy")
-  refundedBills        Bill[]                 @relation("BillRefundedBy")
-  orderRefunds         OrderRefund[]          @relation("OrderRefundCreatedBy")
-  noReportTestOrders   TestOrder[]            @relation("TestOrderNoReportBy")
-  reopenedTestOrders   TestOrder[]            @relation("TestOrderReopenedBy")
-  uploadInsteadTestOrders TestOrder[]         @relation("TestOrderUploadInsteadBy")
+  activeBranch            Branch                 @relation(fields: [activeBranchId], references: [id], onDelete: Restrict)
+  PaymentTransaction      PaymentTransaction[]
+  ExternalReportUpload    ExternalReportUpload[]
+  TestResultEntered       TestResult[]           @relation("TestResultEnteredBy")
+  discountedBills         Bill[]                 @relation("BillDiscountedBy")
+  refundedBills           Bill[]                 @relation("BillRefundedBy")
+  orderRefunds            OrderRefund[]          @relation("OrderRefundCreatedBy")
+  noReportTestOrders      TestOrder[]            @relation("TestOrderNoReportBy")
+  reopenedTestOrders      TestOrder[]            @relation("TestOrderReopenedBy")
+  uploadInsteadTestOrders TestOrder[]            @relation("TestOrderUploadInsteadBy")
 
   @@index([role])
   @@index([activeBranchId])
@@ -532,8 +575,8 @@ model Visit {
   // Drives the green "Printed · time" affordance so staff can see at a glance
   // that a bill-only / films-only bill (or a finalized report) was already
   // printed. Purely a staff-facing signal; no bearing on report content.
-  billPrintedAt      DateTime?
-  reportPrintedAt    DateTime?
+  billPrintedAt   DateTime?
+  reportPrintedAt DateTime?
 
   // Relations
   branch  Branch  @relation(fields: [branchId], references: [id], onDelete: Restrict)
@@ -805,14 +848,23 @@ model TestOrder {
   testDefinitionId String? // New-arch FK (nullable during migration)
   productId        String? // Which BillableProduct was ordered
 
-  visit          Visit            @relation(fields: [visitId], references: [id], onDelete: Cascade)
-  test           LabTest          @relation(fields: [testId], references: [id], onDelete: Restrict)
-  testDefinition TestDefinition?  @relation(fields: [testDefinitionId], references: [id], onDelete: Restrict)
-  product        BillableProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
-  externalLab    ExternalLab?     @relation(fields: [externalLabId], references: [id], onDelete: Restrict)
-  noReportByUser User?            @relation("TestOrderNoReportBy", fields: [noReportByUserId], references: [id], onDelete: SetNull)
-  reopenedByUser User?            @relation("TestOrderReopenedBy", fields: [reopenedByUserId], references: [id], onDelete: SetNull)
-  uploadInsteadByUser User?       @relation("TestOrderUploadInsteadBy", fields: [uploadInsteadByUserId], references: [id], onDelete: SetNull)
+  // Panel + payout-category snapshot (frozen at order time). panelId is the
+  // ClinicalPanel this leaf came from (audit/trace; no FK — panels are editable
+  // and a leaf must survive panel edits). payoutCategorySnapshot is the resolved
+  // referral/payout category (Laboratory, X-Ray, …) used to pick the commission
+  // rate at billing time and to group the payout statement. Both null for legacy
+  // orders and for bill-only/upload/event placeholders with no backing panel.
+  panelId                String?
+  payoutCategorySnapshot String?
+
+  visit               Visit            @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  test                LabTest          @relation(fields: [testId], references: [id], onDelete: Restrict)
+  testDefinition      TestDefinition?  @relation(fields: [testDefinitionId], references: [id], onDelete: Restrict)
+  product             BillableProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  externalLab         ExternalLab?     @relation(fields: [externalLabId], references: [id], onDelete: Restrict)
+  noReportByUser      User?            @relation("TestOrderNoReportBy", fields: [noReportByUserId], references: [id], onDelete: SetNull)
+  reopenedByUser      User?            @relation("TestOrderReopenedBy", fields: [reopenedByUserId], references: [id], onDelete: SetNull)
+  uploadInsteadByUser User?            @relation("TestOrderUploadInsteadBy", fields: [uploadInsteadByUserId], references: [id], onDelete: SetNull)
 
   /// Results for this test
   testResults TestResult[]
@@ -940,13 +992,13 @@ model TestResult {
   // name above the department designation — no degrees / reg-no — overriding
   // any configured SigningRule for that page. Nullable: only narrative reports
   // surface the input today.
-  signerNameOverride String?
+  signerNameOverride      String?
   // Narrative/text reports only. When the department has a configured
   // SigningRule, this per-report choice decides the signature: true = use the
   // rule's full signing-doctor block (like tabular reports); false/null = the
   // typed signerNameOverride + "Consultant <Dept>" designation. NULL on old
   // rows preserves the previous "rule always wins" behavior at render time.
-  useSigningRule Boolean?
+  useSigningRule          Boolean?
   // Narrative/text reports whose department has MULTIPLE SigningRules (e.g.
   // radiology, where several radiologists each have a rule). When useSigningRule
   // is true, this pins the ONE signing doctor (SigningDoctor.id) that actually
@@ -1766,6 +1818,12 @@ model ClinicalPanel {
   layoutType            PanelLayoutType @default(STANDARD_TABLE)
   displayOrder          Int             @default(0)
   showMethodColumn      Boolean         @default(false)
+  // Payout / referral category (e.g. "Laboratory", "X-Ray", "Ultrasound",
+  // "ECG / Cardiology", "CT / MRI"). Set in Report Builder / panel definitions.
+  // Freezes onto each TestOrder at billing (payoutCategorySnapshot) and drives
+  // both the referral commission rate and the payout statement grouping. When
+  // null the system falls back to name-inference (payoutCategorize.ts).
+  payoutCategory        String?
   sampleType            String? // e.g., "WB-EDTA", "Serum", "Urine"
   panelMethodText       String?
   panelMethodItalic     Boolean         @default(false)
@@ -1848,7 +1906,7 @@ model BillableProduct {
   referralDoctorRules   ReferralDoctorProductRule[]
   diagnosticCenterRules DiagnosticCenterProductRule[]
   externalLabRules      ExternalLabProductRule[]
-  couponCampaign        CouponCampaign?              @relation(fields: [couponCampaignId], references: [id], onDelete: SetNull)
+  couponCampaign        CouponCampaign?               @relation(fields: [couponCampaignId], references: [id], onDelete: SetNull)
 
   @@index([code])
   @@index([isActive])

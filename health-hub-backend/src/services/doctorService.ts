@@ -11,6 +11,11 @@ export interface ReferralDoctorProductRuleInput extends NormalizedReferralPayout
   productId: string;
 }
 
+export interface ReferralDoctorCategoryRuleInput
+  extends Pick<NormalizedReferralPayout, 'commissionType' | 'commissionPercent' | 'commissionAmountInPaise'> {
+  category: string;
+}
+
 export interface CreateReferralDoctorInput {
   name: string;
   phone?: string;
@@ -19,6 +24,7 @@ export interface CreateReferralDoctorInput {
   commissionPercent: number | null;
   commissionAmountInPaise: number | null;
   productRules?: ReferralDoctorProductRuleInput[];
+  categoryRules?: ReferralDoctorCategoryRuleInput[];
   clinicDoctorId?: string; // Link if already exists as clinic doctor
   branchId: string;
   userId?: string;
@@ -57,10 +63,41 @@ function validateProductRules(productRules?: ReferralDoctorProductRuleInput[]) {
   }
 }
 
+function validateCategoryRules(categoryRules?: ReferralDoctorCategoryRuleInput[]) {
+  if (!categoryRules) return;
+
+  const seen = new Set<string>();
+  for (const rule of categoryRules) {
+    const category = rule.category?.trim();
+    if (!category) {
+      throw new ValidationError('Each category rule must include a category');
+    }
+    if (seen.has(category)) {
+      throw new ValidationError('Duplicate category rule found');
+    }
+    seen.add(category);
+    validateReferralPayout(rule);
+  }
+}
+
+// Shared include for returning a referral doctor with its overrides.
+const REFERRAL_DOCTOR_INCLUDE = {
+  productRules: {
+    where: { isActive: true },
+    include: { product: { select: { id: true, name: true, code: true } } },
+    orderBy: { createdAt: 'asc' },
+  },
+  categoryRules: {
+    where: { isActive: true },
+    orderBy: { category: 'asc' },
+  },
+} as const;
+
 export async function createReferralDoctor(input: CreateReferralDoctorInput) {
   // Validation
   validateReferralPayout(input);
   validateProductRules(input.productRules);
+  validateCategoryRules(input.categoryRules);
 
   // Check for duplicates by phone/email
   if (input.phone) {
@@ -125,19 +162,22 @@ export async function createReferralDoctor(input: CreateReferralDoctorInput) {
       });
     }
 
+    if (input.categoryRules?.length) {
+      await tx.referralDoctorCategoryRule.createMany({
+        data: input.categoryRules.map((rule) => ({
+          referralDoctorId: created.id,
+          category: rule.category.trim(),
+          commissionType: rule.commissionType,
+          commissionPercent: rule.commissionPercent,
+          commissionAmountInPaise: rule.commissionAmountInPaise,
+          isActive: true,
+        })),
+      });
+    }
+
     return tx.referralDoctor.findUniqueOrThrow({
       where: { id: created.id },
-      include: {
-        productRules: {
-          where: { isActive: true },
-          include: {
-            product: {
-              select: { id: true, name: true, code: true },
-            },
-          },
-          orderBy: { createdAt: 'asc' },
-        },
-      },
+      include: REFERRAL_DOCTOR_INCLUDE,
     });
   });
 
@@ -157,17 +197,7 @@ export async function createReferralDoctor(input: CreateReferralDoctorInput) {
 export async function listReferralDoctors(includeInactive = false) {
   return prisma.referralDoctor.findMany({
     where: includeInactive ? {} : { isActive: true },
-    include: {
-      productRules: {
-        where: { isActive: true },
-        include: {
-          product: {
-            select: { id: true, name: true, code: true },
-          },
-        },
-        orderBy: { createdAt: 'asc' },
-      },
-    },
+    include: REFERRAL_DOCTOR_INCLUDE,
     orderBy: { createdAt: 'desc' }
   });
 }
@@ -182,6 +212,7 @@ export async function updateReferralDoctor(
     commissionPercent?: number | null;
     commissionAmountInPaise?: number | null;
     productRules?: ReferralDoctorProductRuleInput[];
+    categoryRules?: ReferralDoctorCategoryRuleInput[];
     isActive?: boolean;
   },
   branchId: string,
@@ -211,6 +242,7 @@ export async function updateReferralDoctor(
   }
 
   validateProductRules(updates.productRules);
+  validateCategoryRules(updates.categoryRules);
 
   if (updates.productRules) {
     const productCount = await prisma.billableProduct.count({
@@ -258,19 +290,28 @@ export async function updateReferralDoctor(
       }
     }
 
+    if (updates.categoryRules !== undefined) {
+      await tx.referralDoctorCategoryRule.deleteMany({
+        where: { referralDoctorId: id },
+      });
+
+      if (updates.categoryRules.length > 0) {
+        await tx.referralDoctorCategoryRule.createMany({
+          data: updates.categoryRules.map((rule) => ({
+            referralDoctorId: id,
+            category: rule.category.trim(),
+            commissionType: rule.commissionType,
+            commissionPercent: rule.commissionPercent,
+            commissionAmountInPaise: rule.commissionAmountInPaise,
+            isActive: true,
+          })),
+        });
+      }
+    }
+
     return tx.referralDoctor.findUniqueOrThrow({
       where: { id },
-      include: {
-        productRules: {
-          where: { isActive: true },
-          include: {
-            product: {
-              select: { id: true, name: true, code: true },
-            },
-          },
-          orderBy: { createdAt: 'asc' },
-        },
-      },
+      include: REFERRAL_DOCTOR_INCLUDE,
     });
   });
 
@@ -336,6 +377,80 @@ export async function searchReferralDoctorByContact(
       isActive: true,
     },
   });
+}
+
+// ==================== REFERRAL CATEGORY RATE CARD ====================
+// Centre-wide default referral rate per payout category (the base commission for
+// a referred test, resolved from the test's panel category). Replaces the old
+// per-doctor flat default. A per-doctor category rule / per-product rule / ad-hoc
+// bill override takes precedence at billing time.
+
+export interface ReferralCategoryRateInput
+  extends Pick<NormalizedReferralPayout, 'commissionType' | 'commissionPercent' | 'commissionAmountInPaise'> {
+  category: string;
+}
+
+export async function listReferralCategoryRates() {
+  return prisma.referralCategoryRate.findMany({
+    where: { isActive: true },
+    orderBy: { category: 'asc' },
+  });
+}
+
+/**
+ * Upsert the whole rate card in one shot (the owner edits every row together in
+ * the UI). Upsert-only — a category absent from the payload is left untouched
+ * rather than deleted, so a partial save can never silently zero a live rate.
+ */
+export async function setReferralCategoryRates(
+  rates: ReferralCategoryRateInput[],
+  branchId: string,
+  userId?: string,
+) {
+  const seen = new Set<string>();
+  for (const rate of rates) {
+    const category = rate.category?.trim();
+    if (!category) {
+      throw new ValidationError('Each category rate must include a category');
+    }
+    if (seen.has(category)) {
+      throw new ValidationError(`Duplicate category rate for "${category}"`);
+    }
+    seen.add(category);
+    validateReferralPayout(rate);
+  }
+
+  const results = await prisma.$transaction(
+    rates.map((rate) =>
+      prisma.referralCategoryRate.upsert({
+        where: { category: rate.category.trim() },
+        update: {
+          commissionType: rate.commissionType,
+          commissionPercent: rate.commissionPercent,
+          commissionAmountInPaise: rate.commissionAmountInPaise,
+          isActive: true,
+        },
+        create: {
+          category: rate.category.trim(),
+          commissionType: rate.commissionType,
+          commissionPercent: rate.commissionPercent,
+          commissionAmountInPaise: rate.commissionAmountInPaise,
+          isActive: true,
+        },
+      }),
+    ),
+  );
+
+  await logAction({
+    branchId,
+    actionType: 'UPDATE',
+    entityType: 'ReferralCategoryRate',
+    entityId: 'rate-card',
+    userId,
+    newValues: results,
+  });
+
+  return results;
 }
 
 // ==================== CLINIC DOCTORS ====================

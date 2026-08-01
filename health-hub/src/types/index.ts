@@ -77,6 +77,14 @@ export interface ReferralProductRule {
   };
 }
 
+export interface ReferralCategoryRule {
+  id: string;
+  category: string;
+  commissionType: ReferralPayoutType;
+  commissionPercent?: number | null;
+  commissionAmountInPaise?: number | null;
+}
+
 export interface ReferralDoctor {
   id: string;
   doctorNumber: string; // RD-00001, RD-00002, etc.
@@ -87,6 +95,17 @@ export interface ReferralDoctor {
   commissionAmountInPaise?: number | null;
   clinicDoctorId?: string; // Link if also a clinic doctor
   productRules?: ReferralProductRule[];
+  categoryRules?: ReferralCategoryRule[];
+}
+
+// Centre-wide default referral rate per payout category (the base rate card).
+export interface ReferralCategoryRate {
+  id: string;
+  category: string;
+  commissionType: ReferralPayoutType;
+  commissionPercent?: number | null;
+  commissionAmountInPaise?: number | null;
+  isActive?: boolean;
 }
 
 export interface DiagnosticCenterProductRule {
@@ -232,6 +251,8 @@ export interface ClinicalPanel {
   code: string;
   layoutType: string;
   departmentId: string | null;
+  payoutCategory?: string | null;
+  sampleType?: string | null;
   isActive: boolean;
   panelMethodText: string | null;
   panelMethodItalic: boolean;

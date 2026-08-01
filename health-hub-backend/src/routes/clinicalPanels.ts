@@ -265,7 +265,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
 router.post('/', async (req: AuthRequest, res) => {
   try {
     const {
-      name, displayName, departmentId, layoutType, sampleType,
+      name, displayName, departmentId, layoutType, sampleType, payoutCategory,
       displayOrder, showMethodColumn, showSubgroups, showInterpretation, valueDisplayPrefix, spacedDefinitionsGap,
       summaryInterpretationTemplate, comments, interpretation, subgroupMethods, subgroupTableOverrides,
       panelMethodText, panelMethodItalic, narrativeTemplateHtml, isActive, items,
@@ -309,6 +309,7 @@ router.post('/', async (req: AuthRequest, res) => {
         departmentId,
         layoutType,
         sampleType: sampleType ?? null,
+        payoutCategory: payoutCategory ?? null,
         displayOrder: displayOrder ?? 0,
         showMethodColumn: showMethodColumn ?? false,
         showSubgroups: showSubgroups ?? false,
@@ -370,7 +371,7 @@ router.post('/', async (req: AuthRequest, res) => {
 router.put('/:id', async (req: AuthRequest, res) => {
   try {
     const {
-      name, displayName, departmentId, layoutType, sampleType,
+      name, displayName, departmentId, layoutType, sampleType, payoutCategory,
       displayOrder, showMethodColumn, showSubgroups, showInterpretation, valueDisplayPrefix, spacedDefinitionsGap,
       summaryInterpretationTemplate, comments, interpretation, subgroupMethods, subgroupTableOverrides,
       panelMethodText, panelMethodItalic, narrativeTemplateHtml, isActive, items,
@@ -423,6 +424,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
           departmentId: departmentId ?? existing.departmentId,
           layoutType: layoutType ?? existing.layoutType,
           sampleType: sampleType !== undefined ? sampleType : existing.sampleType,
+          payoutCategory: payoutCategory !== undefined ? payoutCategory : existing.payoutCategory,
           displayOrder: displayOrder ?? existing.displayOrder,
           showMethodColumn: showMethodColumn ?? existing.showMethodColumn,
           showSubgroups: showSubgroups ?? existing.showSubgroups,

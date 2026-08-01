@@ -11,6 +11,7 @@
 import { DiagnosticWorkflowMode } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { ensureBillOnlyPlaceholderLabTest } from './diagnosticWorkflowService';
+import { categorize } from './payoutCategorize';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,8 @@ export interface ResolvedTestOrder {
   referenceUnit: string | null;
   priceInPaise: number;             // Allocated portion of product price
   productId: string;
+  panelId: string | null;           // ClinicalPanel this leaf came from (null for placeholders)
+  payoutCategory: string | null;    // Resolved referral/payout category, frozen at order time
   workflowMode: DiagnosticWorkflowMode;
   priceSource: 'BASE' | 'BRANCH_OVERRIDE';
 }
@@ -279,7 +282,7 @@ export async function resolveProducts(
 
   const placeholderLeaf = (
     mode: DiagnosticWorkflowMode,
-    p: { name: string; code: string },
+    p: { name: string; code: string; payoutCategory?: string | null },
   ): Leaf => ({
     labTestId: placeholder.id,
     testName: p.name,
@@ -287,6 +290,14 @@ export async function resolveProducts(
     referenceMin: null,
     referenceMax: null,
     referenceUnit: null,
+    panelId: null,
+    // No backing panel — infer the category from the product name so an
+    // outsourced/upload modality (USG, X-Ray, …) still carries a category for
+    // referral rates + payout grouping. Product override wins if set.
+    payoutCategory: categorize({
+      productPayoutCategory: p.payoutCategory,
+      productName: p.name,
+    }),
     workflowMode: mode,
   });
 
@@ -328,6 +339,14 @@ export async function resolveProducts(
     const leaves: Leaf[] = [];
     for (const pp of product.panels) {
       if (pp.panel) {
+        // Freeze the panel's category (panel > product > name-inference) onto
+        // every leaf so referral rates + payout grouping resolve per modality,
+        // even inside a mixed bundle where each panel is a different category.
+        const panelCategory = categorize({
+          panelPayoutCategory: pp.panel.payoutCategory,
+          productPayoutCategory: product.payoutCategory,
+          productName: product.name,
+        });
         for (const item of pp.panel.items) {
           const labTest = labTestByCode.get(item.testDefinition.code);
           if (!labTest) continue;
@@ -339,6 +358,8 @@ export async function resolveProducts(
             referenceMin: labTest.referenceMin,
             referenceMax: labTest.referenceMax,
             referenceUnit: labTest.referenceUnit,
+            panelId: pp.panel.id,
+            payoutCategory: panelCategory,
             workflowMode: DiagnosticWorkflowMode.REPORTABLE,
           });
         }

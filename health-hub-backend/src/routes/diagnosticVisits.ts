@@ -66,6 +66,7 @@ import {
   type NormalizedReferralPayout,
 } from "../services/referralPayoutService";
 import { derivePayout } from "../services/payoutService";
+import { categorize } from "../services/payoutCategorize";
 import {
   allocateBillDiscountAcrossOrders,
   buildBillFinancialResponse,
@@ -2197,8 +2198,13 @@ router.post("/", async (req: AuthRequest, res) => {
       });
     }
 
-    let defaultReferralRule: NormalizedReferralPayout | null = null;
     const referralRuleByProductId = new Map<string, NormalizedReferralPayout>();
+    // Per-doctor per-category overrides + the centre-wide category rate card.
+    // Together these replace the old per-doctor flat default: a referred test's
+    // base commission now comes from its panel category (doctor rule > centre
+    // rate card). A per-product rule / ad-hoc override still takes priority.
+    const doctorCategoryRuleByCategory = new Map<string, NormalizedReferralPayout>();
+    const centerCategoryRateByCategory = new Map<string, NormalizedReferralPayout>();
     let defaultDiagnosticCenterRule: NormalizedReferralPayout | null = null;
     const diagnosticCenterRuleByProductId = new Map<
       string,
@@ -2209,9 +2215,8 @@ router.post("/", async (req: AuthRequest, res) => {
       const referralDoc = await prisma.referralDoctor.findUnique({
         where: { id: referralDoctorId },
         include: {
-          productRules: {
-            where: { isActive: true },
-          },
+          productRules: { where: { isActive: true } },
+          categoryRules: { where: { isActive: true } },
         },
       });
 
@@ -2222,17 +2227,32 @@ router.post("/", async (req: AuthRequest, res) => {
         });
       }
 
-      defaultReferralRule = {
-        commissionType: referralDoc.commissionType,
-        commissionPercent: referralDoc.commissionPercent,
-        commissionAmountInPaise: referralDoc.commissionAmountInPaise,
-      };
-
       for (const rule of referralDoc.productRules) {
         referralRuleByProductId.set(rule.productId, {
           commissionType: rule.commissionType,
           commissionPercent: rule.commissionPercent,
           commissionAmountInPaise: rule.commissionAmountInPaise,
+        });
+      }
+
+      for (const rule of referralDoc.categoryRules) {
+        doctorCategoryRuleByCategory.set(rule.category, {
+          commissionType: rule.commissionType,
+          commissionPercent: rule.commissionPercent,
+          commissionAmountInPaise: rule.commissionAmountInPaise,
+        });
+      }
+
+      // Centre-wide default rate card — the base commission for every referred
+      // test, keyed by the test's panel category.
+      const categoryRates = await prisma.referralCategoryRate.findMany({
+        where: { isActive: true },
+      });
+      for (const rate of categoryRates) {
+        centerCategoryRateByCategory.set(rate.category, {
+          commissionType: rate.commissionType,
+          commissionPercent: rate.commissionPercent,
+          commissionAmountInPaise: rate.commissionAmountInPaise,
         });
       }
     }
@@ -2270,6 +2290,35 @@ router.post("/", async (req: AuthRequest, res) => {
         });
       }
     }
+
+    // Resolve a referred test's commission from its frozen payout category:
+    // per-doctor category override > centre category rate card > none. A
+    // per-product rule or ad-hoc bill override (handled at the call site) wins
+    // over this. Returns a zero snapshot when nothing is configured for the
+    // category (e.g. an uncategorised panel) — never the old flat default.
+    const resolveCategoryReferralSnapshot = (
+      category: string | null,
+    ): PayoutSnapshot => {
+      const rule =
+        (category ? doctorCategoryRuleByCategory.get(category) : undefined) ??
+        (category ? centerCategoryRateByCategory.get(category) : undefined) ??
+        null;
+      if (!rule) return zeroPayoutSnapshot();
+      if (rule.commissionType === "FIXED_AMOUNT") {
+        return {
+          commissionType: "FIXED_AMOUNT",
+          commissionPercentage: null,
+          // Per-test flat: each order in this category earns the full amount
+          // (NOT distributed — that's product-level fixed-amount behaviour).
+          commissionAmountInPaise: rule.commissionAmountInPaise ?? 0,
+        };
+      }
+      return {
+        commissionType: "PERCENTAGE",
+        commissionPercentage: rule.commissionPercent ?? 0,
+        commissionAmountInPaise: null,
+      };
+    };
 
     // ── Outside-lab outsourcing (optional): which products/tests go to a lab ──
     const labByProduct: Record<string, string> =
@@ -2354,6 +2403,8 @@ router.post("/", async (req: AuthRequest, res) => {
       testId: string;
       testDefinitionId?: string;
       productId?: string;
+      panelId: string | null;
+      payoutCategorySnapshot: string | null;
       workflowMode: DiagnosticWorkflowMode;
       priceInPaise: number;
       testNameSnapshot: string;
@@ -2428,18 +2479,28 @@ router.post("/", async (req: AuthRequest, res) => {
         const resolved = await resolveProducts(productIds, req.branchId!);
 
         for (const rp of resolved) {
-          const effectiveRule =
+          // A product-level rule (ad-hoc bill override or per-doctor per-product
+          // rule) covers the whole product and is distributed across its leaves.
+          // With no product-level rule, each leaf resolves from its own panel
+          // category (per-modality rates work inside a mixed bundle this way).
+          const productLevelRule =
             overrides.get(rp.productId) ??
             referralRuleByProductId.get(rp.productId) ??
-            defaultReferralRule;
+            null;
           const effectiveDiagnosticCenterRule =
             diagnosticCenterOverrideMap.get(rp.productId) ??
             diagnosticCenterRuleByProductId.get(rp.productId) ??
             defaultDiagnosticCenterRule;
-          const referralSnapshots = applyReferralRuleToPrices(
-            rp.testOrders.map((to) => to.priceInPaise),
-            effectiveRule,
-          );
+          const referralSnapshots = productLevelRule
+            ? applyReferralRuleToPrices(
+                rp.testOrders.map((to) => to.priceInPaise),
+                productLevelRule,
+              )
+            : referralDoctorId
+              ? rp.testOrders.map((to) =>
+                  resolveCategoryReferralSnapshot(to.payoutCategory),
+                )
+              : rp.testOrders.map(() => zeroPayoutSnapshot());
           const diagnosticCenterSnapshots = applyOptionalReferralRuleToPrices(
             rp.testOrders.map((to) => to.priceInPaise),
             effectiveDiagnosticCenterRule,
@@ -2459,6 +2520,8 @@ router.post("/", async (req: AuthRequest, res) => {
               testId: to.labTestId,
               testDefinitionId: to.testDefinitionId,
               productId: to.productId,
+              panelId: to.panelId ?? null,
+              payoutCategorySnapshot: to.payoutCategory ?? null,
               workflowMode: to.workflowMode,
               priceInPaise: to.priceInPaise,
               testNameSnapshot: to.testName,
@@ -2512,11 +2575,17 @@ router.post("/", async (req: AuthRequest, res) => {
 
       testOrderData = testIds.map((testId: string) => {
         const test = testMap.get(testId)!;
-        const effectiveRule = overrides.get(test.id) ?? defaultReferralRule;
-        const referralSnapshot = applyReferralRuleToPrices(
-          [test.priceInPaise],
-          effectiveRule,
-        )[0];
+        // Legacy LabTests have no panel, so infer the category from the name.
+        const legacyCategory = categorize({
+          testName: test.name,
+          productName: test.name,
+        });
+        const overrideRule = overrides.get(test.id) ?? null;
+        const referralSnapshot = overrideRule
+          ? applyReferralRuleToPrices([test.priceInPaise], overrideRule)[0]
+          : referralDoctorId
+            ? resolveCategoryReferralSnapshot(legacyCategory)
+            : zeroPayoutSnapshot();
         const diagnosticCenterSnapshot = applyOptionalReferralRuleToPrices(
           [test.priceInPaise],
           diagnosticCenterOverrideMap.get(test.id) ??
@@ -2534,6 +2603,8 @@ router.post("/", async (req: AuthRequest, res) => {
         );
         return {
           testId: test.id,
+          panelId: null,
+          payoutCategorySnapshot: legacyCategory,
           workflowMode: DiagnosticWorkflowMode.REPORTABLE,
           priceInPaise: test.priceInPaise,
           testNameSnapshot: test.name,
@@ -2771,16 +2842,10 @@ router.post("/", async (req: AuthRequest, res) => {
             const override = overrides.get(productId);
             if (!override) continue;
 
-            if (areReferralPayoutsEqual(override, defaultReferralRule)) {
-              await tx.referralDoctorProductRule.deleteMany({
-                where: {
-                  referralDoctorId,
-                  productId,
-                },
-              });
-              continue;
-            }
-
+            // An explicit ad-hoc override always persists as a per-product rule.
+            // (There is no longer a flat doctor default to compare it against —
+            // the base is the category rate card, which a per-product rule
+            // deliberately overrides.)
             await tx.referralDoctorProductRule.upsert({
               where: {
                 referralDoctorId_productId: {
@@ -2882,6 +2947,8 @@ router.post("/", async (req: AuthRequest, res) => {
             referenceUnitSnapshot: tod.referenceUnitSnapshot,
             testDefinitionId: tod.testDefinitionId ?? null,
             productId: tod.productId ?? null,
+            panelId: tod.panelId ?? null,
+            payoutCategorySnapshot: tod.payoutCategorySnapshot ?? null,
             displayOrder: idx,
           })),
         });

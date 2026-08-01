@@ -319,7 +319,7 @@ async function deriveReferralPayout(
             ? testOrder.referralCommissionAmountInPaise ?? undefined
             : undefined,
         derivedCommissionInPaise: commissionInPaise,
-        category: categorize({
+        category: testOrder.payoutCategorySnapshot || categorize({
           productPayoutCategory: testOrder.product?.payoutCategory,
           productName: testOrder.product?.name,
           testName: testOrder.testNameSnapshot || testOrder.test?.name,
@@ -553,7 +553,7 @@ async function deriveDiagnosticCenterPayout(
             ? testOrder.diagnosticCenterCommissionAmountInPaise ?? undefined
             : undefined,
         derivedCommissionInPaise: commissionInPaise,
-        category: categorize({
+        category: testOrder.payoutCategorySnapshot || categorize({
           productPayoutCategory: testOrder.product?.payoutCategory,
           productName: testOrder.product?.name,
           testName: testOrder.testNameSnapshot || testOrder.test?.name,
@@ -670,7 +670,7 @@ async function deriveExternalLabPayout(
       const centerMarginInPaise = postDiscountPriceInPaise - labCostInPaise;
       totalDerivedInPaise += labCostInPaise;
 
-      const category = categorize({
+      const category = testOrder.payoutCategorySnapshot || categorize({
           productPayoutCategory: testOrder.product?.payoutCategory,
           productName: testOrder.product?.name,
           testName: testOrder.testNameSnapshot || testOrder.test?.name,
