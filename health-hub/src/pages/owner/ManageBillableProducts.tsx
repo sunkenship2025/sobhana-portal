@@ -25,6 +25,7 @@ import { Separator } from '@/components/ui/separator';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { PAYOUT_CATEGORIES } from '@/lib/payoutCategories';
 import {
   Tabs, TabsContent, TabsList, TabsTrigger,
 } from '@/components/ui/tabs';
@@ -203,6 +204,7 @@ export default function ManageBillableProducts() {
   const [formBasePrice, setFormBasePrice] = useState('');
   const [formActive, setFormActive] = useState(true);
   const [formDescription, setFormDescription] = useState('');
+  const [formPayoutCategory, setFormPayoutCategory] = useState('');
   const [formPanels, setFormPanels] = useState<ProductPanel[]>([]);
 
   // Code validation
@@ -286,7 +288,7 @@ export default function ManageBillableProducts() {
   const resetForm = () => {
     setFormName(''); setFormCode(''); setFormType('INDIVIDUAL_TEST');
     setFormWorkflowMode('REPORTABLE');
-    setFormBasePrice(''); setFormActive(true); setFormDescription('');
+    setFormBasePrice(''); setFormActive(true); setFormDescription(''); setFormPayoutCategory('');
     setFormPanels([]); setEditingProduct(null);
     setCodeAvailable(null); setCodeChecking(false);
   };
@@ -301,6 +303,7 @@ export default function ManageBillableProducts() {
     setFormBasePrice(p.basePrice.toString());
     setFormActive(p.isActive);
     setFormDescription(p.description || '');
+    setFormPayoutCategory(p.payoutCategory || '');
     setFormPanels((p.panels || []).map(pp => ({
       panelId: pp.panelId ?? pp.panel?.id ?? null,
       childProductId: pp.childProductId ?? pp.childProduct?.id ?? null,
@@ -407,6 +410,7 @@ export default function ManageBillableProducts() {
         basePrice: parseFloat(formBasePrice),
         isActive: formActive,
         description: formDescription || null,
+        payoutCategory: formPayoutCategory || null,
         panels: formPanels
           .filter(p => p.panelId || p.childProductId)
           .map((p, i) => ({
@@ -896,6 +900,16 @@ export default function ManageBillableProducts() {
             <div className="col-span-2">
               <Label>Description</Label>
               <Input value={formDescription} onChange={e => setFormDescription(e.target.value)} />
+            </div>
+            <div className="col-span-2">
+              <Label>Category</Label>
+              <Select value={formPayoutCategory || '__none__'} onValueChange={v => setFormPayoutCategory(v === '__none__' ? '' : v)}>
+                <SelectTrigger><SelectValue placeholder="Auto-detect from name" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Auto-detect from name</SelectItem>
+                  {PAYOUT_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
