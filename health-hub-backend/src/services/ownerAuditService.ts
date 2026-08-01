@@ -31,9 +31,28 @@ const MISTAKE_TYPES: Array<{ event: string; label: string; key: string }> = [
   { event: "Test swapped", label: "Tests edited", key: "swaps" },
   { event: "Test reopened", label: "Reopened", key: "reopened" },
   { event: "Referral changed", label: "Referral edits", key: "referralChanges" },
-  { event: "Report changed after finalize", label: "Post-finalize edits", key: "postFinalizeEdits" },
+  // NB: "Report changed after finalize" is intentionally absent — no code path
+  // writes that audit (there's no in-app amend-a-finalized-report feature yet),
+  // so the column was always 0. Re-add it the day that audit is written.
 ];
 const MISTAKE_EVENTS = MISTAKE_TYPES.map((m) => m.event);
+
+// Staff scorecard = "billing accuracy": of the patients a staff BILLED, how many
+// later needed a data-entry fix. Every slip is charged to whoever billed the
+// patient (their mis-key), never to whoever corrected it. Read from raw
+// AuditLog + PatientChangeLog so it's immune to projection lag.
+const IDENTITY_SLIP_FIELDS = ["name", "age", "title", "gender", "phone"]; // email excluded (not used for delivery)
+const VISIT_ENTITY = ["Visit", "VISIT"]; // entityType casing is inconsistent in the audit log
+const SCORED_TYPES: Array<{ key: string; label: string }> = [
+  { key: "identity", label: "Identity fixes" },
+  { key: "referral", label: "Referral edits" },
+  { key: "swap", label: "Tests edited" },
+];
+const INFO_TYPES: Array<{ key: string; label: string }> = [
+  { key: "refunds", label: "Refunds" },
+  { key: "cancels", label: "Cancelled" },
+  { key: "reopened", label: "Reopened" },
+];
 
 export interface AuditEventRow {
   id: string;
@@ -584,99 +603,203 @@ export async function getAuditEventDetail(
 }
 
 // ---------------------------------------------------------------------------
-// Staff scorecard — staff ranked by "mistakes" (rework/corrections) in the
-// window, broken down by type. Reads the materialized model (stored `event`),
-// so it's one grouped aggregate. Powers the Staff scorecard tab.
+// Staff scorecard — "billing accuracy". Of the patients a staff BILLED, how many
+// later needed a data-entry fix (name/age/title/gender/phone, referral, test
+// swap). Every slip is charged to whoever BILLED the patient — their mis-key —
+// never to whoever corrected it. Reads raw AuditLog + PatientChangeLog directly
+// (not the projected model), so it's immune to projection lag and always exact.
+//   • denominator = bills that person made in the window (CREATE Visit audit)
+//   • numerator   = fixes whose FIX happened in the window, charged to the biller
+//   • all slips ×1; refunds / cancels / reopens shown for context, NOT scored
 // ---------------------------------------------------------------------------
 export interface StaffScorecardRow {
+  userId: string;
   name: string;
   role: string | null;
-  total: number;
-  billed: number; // patients this staff billed in the window (the denominator)
-  rate: number; // mistakes per 100 billed — the fair ranking metric
-  byType: Record<string, number>;
+  billed: number; // bills this staff made in the window (the denominator)
+  slips: number; // scored data-entry slips charged to them (identity + referral + swap)
+  accuracy: number; // 1 − slips/billed, as a percentage (clamped 0..100); -1 = no bills to rate
+  byType: Record<string, number>; // identity / referral / swap (scored) + refunds / cancels / reopened (info)
+  identityBreak: Record<string, number>; // name / age / title / gender / phone
 }
 export interface StaffScorecardResult {
   from: string;
   to: string;
-  types: Array<{ key: string; label: string }>;
-  actors: StaffScorecardRow[]; // staff (front desk / diagnostics) — the leaderboard
-  labIncharge: StaffScorecardRow[]; // lab in-charges, listed separately (they edit/finalize)
+  scored: Array<{ key: string; label: string }>;
+  info: Array<{ key: string; label: string }>;
+  actors: StaffScorecardRow[]; // billers with bills in the window — ranked by accuracy (cleanest first)
+  noWindowBills: StaffScorecardRow[]; // slips landed here but they billed nothing this window — context, unranked
+  labIncharge: StaffScorecardRow[]; // billers whose role is lab in-charge — listed, not ranked
 }
+
+const parseAction = (nv: string | null): string | null => {
+  if (!nv) return null;
+  try { return (JSON.parse(nv)?.action as string) ?? null; } catch { return null; }
+};
 
 export async function getStaffScorecard(params: {
   branchId: string | null;
   from?: string | null;
   to?: string | null;
 }): Promise<StaffScorecardResult> {
-  // Unlike the feed, the scorecard is a single aggregate — allow an unbounded
-  // window (no 1-year clamp) so "All time" works; absent `from` = everything.
+  // Single aggregate — allow an unbounded window (no 1-year clamp) so "All time"
+  // works; absent `from` = everything.
   const to = params.to && !Number.isNaN(new Date(params.to).getTime()) ? new Date(params.to) : new Date();
   const from = params.from && !Number.isNaN(new Date(params.from).getTime()) ? new Date(params.from) : new Date(0);
-  await ensureProjected(params.branchId, from, to);
+  const window = { gte: from, lte: to };
+  const branchId = params.branchId;
+  const branchWhere = branchId ? { branchId } : {};
 
-  const branchAnd = params.branchId ? [{ branchId: params.branchId }] : [];
-  const [groups, billedGroups] = await Promise.all([
-    prisma.anomalyEvent.groupBy({
-      by: ["actorName", "actorRole", "event"],
-      where: {
-        AND: [
-          { occurredAt: { gte: from, lte: to } },
-          ...branchAnd,
-          { actorName: { not: null } },
-          { event: { in: MISTAKE_EVENTS } },
-        ],
-      },
+  const [billedGroups, updateVisitAudits, identityLogs, refunds, reopens] = await Promise.all([
+    // Denominator — bills each person made in the window. AuditLog carries branchId
+    // natively, so this is branch-scoped for free.
+    prisma.auditLog.groupBy({
+      by: ["userId"],
+      where: { actionType: "CREATE", entityType: { in: VISIT_ENTITY }, createdAt: window, userId: { not: null }, ...branchWhere },
       _count: { _all: true },
     }),
-    // Denominator: patients each staff billed in the same window (CREATE Visit →
-    // "Visit billed"). Ranking on mistakes/billed is fair — a busy desk with 11
-    // slips in 400 bills beats a quiet one with 5 in 40.
-    prisma.anomalyEvent.groupBy({
-      by: ["actorName"],
-      where: {
-        AND: [
-          { occurredAt: { gte: from, lte: to } },
-          ...branchAnd,
-          { actorName: { not: null } },
-          { event: "Visit billed" },
-        ],
-      },
-      _count: { _all: true },
+    // Referral changes + test swaps — logged as UPDATE Visit with newValues.action.
+    // action lives inside a JSON string, so filter in JS.
+    prisma.auditLog.findMany({
+      where: { actionType: "UPDATE", entityType: { in: VISIT_ENTITY }, createdAt: window, ...branchWhere },
+      select: { entityId: true, newValues: true },
+      take: 20000,
+    }),
+    // Identity fixes — one row PER FIELD (name+age fixed together = 2). No branchId
+    // on PatientChangeLog; we branch-scope via the patient's billing visit below.
+    prisma.patientChangeLog.findMany({
+      where: { changeType: "IDENTITY", fieldName: { in: IDENTITY_SLIP_FIELDS }, createdAt: window },
+      select: { patientId: true, fieldName: true },
+      take: 20000,
+    }),
+    // Info-only (not scored): refunds / cancels, and reopens.
+    prisma.orderRefund.findMany({
+      where: { createdAt: window, ...branchWhere },
+      select: { kind: true, visitId: true },
+      take: 10000,
+    }),
+    prisma.testOrder.findMany({
+      where: { reopenedAt: window, reopenedByUserId: { not: null }, ...branchWhere },
+      select: { visitId: true },
+      take: 10000,
     }),
   ]);
-  const billedByName = new Map(billedGroups.map((g) => [g.actorName as string, g._count._all]));
 
-  const eventToKey = new Map(MISTAKE_TYPES.map((m) => [m.event, m.key]));
-  const byActor = new Map<string, StaffScorecardRow>();
-  for (const g of groups) {
-    const name = g.actorName as string;
-    const key = eventToKey.get(g.event);
-    if (!key) continue;
-    if (!byActor.has(name)) byActor.set(name, { name, role: g.actorRole ?? null, total: 0, billed: 0, rate: 0, byType: {} });
-    const row = byActor.get(name)!;
-    if (g.actorRole && !row.role) row.role = g.actorRole;
-    row.byType[key] = (row.byType[key] ?? 0) + g._count._all;
-    row.total += g._count._all;
+  const swapRefAudits = updateVisitAudits
+    .map((a) => ({ visitId: a.entityId, action: parseAction(a.newValues) }))
+    .filter((a) => a.action === "REFERRAL_CHANGE" || a.action === "PRODUCT_SWAP");
+
+  // Identity fixes are patient-level → charge to whoever billed (registered) the
+  // patient = the actor on that patient's EARLIEST visit.
+  const patientIds = Array.from(new Set(identityLogs.map((l) => l.patientId)));
+  const firstVisits = patientIds.length
+    ? await prisma.visit.findMany({
+        where: { patientId: { in: patientIds } },
+        select: { id: true, patientId: true, branchId: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
+      })
+    : [];
+  const firstVisitOf = new Map<string, { id: string; branchId: string }>();
+  for (const v of firstVisits) if (!firstVisitOf.has(v.patientId)) firstVisitOf.set(v.patientId, { id: v.id, branchId: v.branchId });
+
+  // Every visit whose biller we need to look up (slips + info events).
+  const neededVisitIds = new Set<string>();
+  for (const s of swapRefAudits) neededVisitIds.add(s.visitId);
+  for (const pid of patientIds) { const fv = firstVisitOf.get(pid); if (fv) neededVisitIds.add(fv.id); }
+  for (const r of refunds) if (r.visitId) neededVisitIds.add(r.visitId);
+  for (const r of reopens) if (r.visitId) neededVisitIds.add(r.visitId);
+
+  // visitId → { biller, branch } from the CREATE Visit audit (may pre-date the window).
+  const billerAudits = neededVisitIds.size
+    ? await prisma.auditLog.findMany({
+        where: { actionType: "CREATE", entityType: { in: VISIT_ENTITY }, entityId: { in: Array.from(neededVisitIds) }, userId: { not: null } },
+        select: { entityId: true, userId: true, branchId: true },
+      })
+    : [];
+  const billerOfVisit = new Map<string, { userId: string; branchId: string }>();
+  for (const b of billerAudits) if (b.userId && !billerOfVisit.has(b.entityId)) billerOfVisit.set(b.entityId, { userId: b.userId, branchId: b.branchId });
+
+  // Resolve names/roles for every biller we'll show.
+  const billerUserIds = new Set<string>();
+  for (const g of billedGroups) if (g.userId) billerUserIds.add(g.userId);
+  for (const b of billerOfVisit.values()) billerUserIds.add(b.userId);
+  const users = billerUserIds.size
+    ? await prisma.user.findMany({ where: { id: { in: Array.from(billerUserIds) } }, select: { id: true, name: true, role: true } })
+    : [];
+  const userMap = new Map(users.map((u) => [u.id, u]));
+
+  const rows = new Map<string, StaffScorecardRow>();
+  const rowFor = (userId: string): StaffScorecardRow => {
+    let r = rows.get(userId);
+    if (!r) {
+      const u = userMap.get(userId);
+      r = { userId, name: u?.name ?? "Unknown", role: u?.role ?? null, billed: 0, slips: 0, accuracy: -1, byType: {}, identityBreak: {} };
+      rows.set(userId, r);
+    }
+    return r;
+  };
+  const bump = (userId: string, key: string, scored: boolean) => {
+    const r = rowFor(userId);
+    r.byType[key] = (r.byType[key] ?? 0) + 1;
+    if (scored) r.slips += 1;
+  };
+
+  // Denominator.
+  for (const g of billedGroups) if (g.userId) rowFor(g.userId).billed += g._count._all;
+
+  // Scored slips → the biller. Untraceable biller (no CREATE audit / null actor)
+  // is dropped, never misattributed.
+  for (const s of swapRefAudits) {
+    const b = billerOfVisit.get(s.visitId);
+    if (!b) continue;
+    if (branchId && b.branchId !== branchId) continue;
+    bump(b.userId, s.action === "PRODUCT_SWAP" ? "swap" : "referral", true);
   }
-  // Fill in the denominator + rate (mistakes per 100 billed). No bills billed →
-  // fall back to raw count so they still sort sensibly and aren't rewarded for it.
-  for (const row of byActor.values()) {
-    row.billed = billedByName.get(row.name) ?? 0;
-    row.rate = row.billed > 0 ? (row.total / row.billed) * 100 : row.total * 100;
+  for (const l of identityLogs) {
+    const fv = firstVisitOf.get(l.patientId);
+    if (!fv) continue;
+    if (branchId && fv.branchId !== branchId) continue; // branch-scope identity via the billing visit
+    const b = billerOfVisit.get(fv.id);
+    if (!b) continue;
+    const r = rowFor(b.userId);
+    r.byType["identity"] = (r.byType["identity"] ?? 0) + 1;
+    r.identityBreak[l.fieldName] = (r.identityBreak[l.fieldName] ?? 0) + 1;
+    r.slips += 1;
   }
-  // Cleanest (lowest rate) first — celebrate the fairest, not just the quietest.
-  // Lab in-charges are split out: they legitimately edit/finalize, so they don't
-  // belong in the front-desk staff leaderboard.
-  const all = Array.from(byActor.values()).sort((a, b) => a.rate - b.rate || a.total - b.total);
-  const actors = all.filter((a) => a.role !== "lab_incharge");
-  const labIncharge = all.filter((a) => a.role === "lab_incharge");
+
+  // Info-only (not scored) → the biller, for context.
+  for (const r of refunds) {
+    if (!r.visitId) continue;
+    const b = billerOfVisit.get(r.visitId); if (!b) continue;
+    bump(b.userId, r.kind === "CANCEL" ? "cancels" : "refunds", false);
+  }
+  for (const r of reopens) {
+    if (!r.visitId) continue;
+    const b = billerOfVisit.get(r.visitId); if (!b) continue;
+    bump(b.userId, "reopened", false);
+  }
+
+  // Accuracy = 1 − slips/billed (clamped). billed 0 → unratable (-1) → context list.
+  for (const r of rows.values()) {
+    r.accuracy = r.billed > 0 ? Math.max(0, (1 - r.slips / r.billed) * 100) : -1;
+  }
+
+  const all = Array.from(rows.values());
+  // Cleanest first = highest accuracy; ties broken by more volume (more impressive
+  // to stay clean at high billing).
+  const byAccuracy = (a: StaffScorecardRow, b: StaffScorecardRow) => b.accuracy - a.accuracy || b.billed - a.billed;
+  const isLab = (r: StaffScorecardRow) => r.role === "lab_incharge";
+  const actors = all.filter((r) => r.billed > 0 && !isLab(r)).sort(byAccuracy);
+  const noWindowBills = all.filter((r) => r.billed === 0 && r.slips > 0 && !isLab(r)).sort((a, b) => b.slips - a.slips);
+  const labIncharge = all.filter(isLab).sort((a, b) => (b.billed - a.billed) || (b.slips - a.slips));
 
   return {
     from: from.toISOString(),
     to: to.toISOString(),
-    types: MISTAKE_TYPES.map((m) => ({ key: m.key, label: m.label })),
+    scored: SCORED_TYPES,
+    info: INFO_TYPES,
     actors,
+    noWindowBills,
     labIncharge,
   };
 }

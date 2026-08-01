@@ -65,12 +65,23 @@ interface AuditDetail extends AuditEventRow {
   diff: Array<{ field: string; old: string | null; new: string | null }>;
   related: Array<{ id: string; severity: Severity; event: string; who: string | null; whenIso: string; isThis: boolean }>;
 }
-interface ScorecardActor { name: string; role: string | null; total: number; billed: number; rate: number; byType: Record<string, number> }
+interface ScorecardActor {
+  userId: string;
+  name: string;
+  role: string | null;
+  billed: number;
+  slips: number;
+  accuracy: number; // percent, -1 = no bills to rate
+  byType: Record<string, number>;
+  identityBreak: Record<string, number>;
+}
 interface ScorecardResponse {
   from: string;
   to: string;
-  types: Array<{ key: string; label: string }>;
+  scored: Array<{ key: string; label: string }>;
+  info: Array<{ key: string; label: string }>;
   actors: ScorecardActor[];
+  noWindowBills: ScorecardActor[];
   labIncharge: ScorecardActor[];
 }
 interface AccessResponse {
@@ -512,15 +523,16 @@ export default function OwnerAuditPage() {
                   </div>
                 </div>
 
-                {/* Card 3 — who to watch: most mistakes (rework/corrections) */}
+                {/* Card 3 — activity: who PERFORMED the most corrections today (the
+                    fixer, not who caused it — accountability lives in the scorecard). */}
                 <div className="card kpi">
-                  <div className="lbl">Most mistakes today</div>
+                  <div className="lbl">Most corrections done today</div>
                   <div className="big">{h?.mistakesActor?.name ?? '—'}</div>
                   <div className="sm">
                     {h?.mistakesActor
-                      ? `${h.mistakesActor.count} corrections — cancels / edits / swaps`
-                      : 'no corrections'}
-                    {' · '}
+                      ? `${h.mistakesActor.count} fixes performed — for who's accountable, see`
+                      : 'no corrections · see'}
+                    {' '}
                     <span
                       style={{ color: 'var(--accent)', cursor: 'pointer' }}
                       onClick={() => setTab('score')}
@@ -589,7 +601,7 @@ export default function OwnerAuditPage() {
         {tab === 'score' ? (
           <div className="card" style={{ overflow: 'hidden' }}>
             <div style={{ padding: '11px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 600 }}>Staff scorecard — mistakes per 100 billed <span style={{ fontWeight: 400, color: 'var(--ink3)', fontSize: 12 }}>· ranked by rate, not raw count</span></span>
+              <span style={{ fontWeight: 600 }}>Staff scorecard — billing accuracy <span style={{ fontWeight: 400, color: 'var(--ink3)', fontSize: 12 }}>· data-entry fixes charged to whoever billed the patient</span></span>
               <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
                 {SCORE_PERIODS.map((p) => (
                   <button
@@ -611,87 +623,129 @@ export default function OwnerAuditPage() {
               </div>
             </div>
             {scorecardQuery.isLoading && <div className="empty">Loading…</div>}
-            {scorecardQuery.data && scorecardQuery.data.actors.length === 0 && (
-              <div className="empty">No corrections by any staff in this window.</div>
+            {scorecardQuery.data && scorecardQuery.data.actors.length === 0 && scorecardQuery.data.noWindowBills.length === 0 && (
+              <div className="empty">No bills in this window.</div>
             )}
-            {scorecardQuery.data && scorecardQuery.data.actors.length > 0 && (
+            {scorecardQuery.data && (scorecardQuery.data.actors.length > 0 || scorecardQuery.data.noWindowBills.length > 0) && (() => {
+              const data = scorecardQuery.data;
+              const scored = data.scored;
+              const info = data.info;
+              const colCount = 2 + scored.length + info.length;
+              const identityTip = (a: ScorecardActor) => {
+                const b = a.identityBreak || {};
+                const parts = Object.keys(b).filter((k) => b[k]).map((k) => `${k} ${b[k]}`);
+                return parts.length ? `Identity fixes: ${parts.join(' · ')}` : 'Identity fixes';
+              };
+              const accColor = (acc: number) => acc >= 99 ? 'var(--ok)' : acc >= 95 ? 'var(--in-t)' : acc >= 90 ? 'var(--me-t)' : 'var(--hi-t)';
+              // shared cell renderers for scored + info columns
+              const typeCells = (a: ScorecardActor) => (
+                <>
+                  {scored.map((t) => (
+                    <td key={t.key} title={t.key === 'identity' ? identityTip(a) : undefined}
+                        style={{ padding: '11px 14px', textAlign: 'right', color: a.byType[t.key] ? 'var(--ink)' : 'var(--ink3)', fontVariantNumeric: 'tabular-nums', fontWeight: a.byType[t.key] ? 600 : 400 }}>
+                      {a.byType[t.key] ?? 0}
+                    </td>
+                  ))}
+                  {info.map((t, idx) => (
+                    <td key={t.key}
+                        style={{ padding: '11px 14px', textAlign: 'right', color: 'var(--ink3)', fontVariantNumeric: 'tabular-nums', borderLeft: idx === 0 ? '1px solid var(--border2)' : undefined }}>
+                      {a.byType[t.key] ?? 0}
+                    </td>
+                  ))}
+                </>
+              );
+              return (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                 <thead>
                   <tr style={{ color: 'var(--ink3)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '.04em' }}>
                     <th style={{ textAlign: 'left', padding: '9px 14px' }}>Staff</th>
-                    <th style={{ textAlign: 'right', padding: '9px 14px' }}>Mistake rate</th>
-                    {scorecardQuery.data.types.map((t) => (
+                    <th style={{ textAlign: 'right', padding: '9px 14px' }}>Accuracy</th>
+                    {scored.map((t) => (
                       <th key={t.key} style={{ textAlign: 'right', padding: '9px 14px' }}>{t.label}</th>
+                    ))}
+                    {info.map((t, idx) => (
+                      <th key={t.key} style={{ textAlign: 'right', padding: '9px 14px', color: 'var(--ink3)', fontWeight: 500, borderLeft: idx === 0 ? '1px solid var(--border2)' : undefined }}>{t.label}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {(() => {
-                    const acts = scorecardQuery.data.actors;
-                    const maxRate = Math.max(1, ...acts.map((a) => a.rate));
-                    return acts.map((a, i) => {
-                      const best = i === 0;
-                      const ratio = a.rate / maxRate;
-                      const barColor = a.total === 0 ? 'var(--ok)' : ratio >= 0.66 ? 'var(--hi-br)' : ratio >= 0.33 ? 'var(--me-br)' : 'var(--in-br)';
-                      const numColor = a.total === 0 ? 'var(--ok)' : ratio >= 0.66 ? 'var(--hi-t)' : 'var(--ink)';
-                      // rate = mistakes per 100 billed; show it, with the raw n/denominator beneath.
-                      const rateLabel = a.billed === 0 ? '—' : a.rate.toFixed(a.rate < 10 ? 1 : 0);
-                      return (
-                        <tr key={a.name} style={{ borderTop: '1px solid var(--border2)' }}>
-                          <td style={{ padding: '11px 14px', fontWeight: 550 }}>
-                            <span style={{ color: 'var(--ink3)', marginRight: 9, fontVariantNumeric: 'tabular-nums' }}>{i + 1}</span>
-                            {a.name}
-                            {best && a.total === 0 && <span style={{ color: 'var(--ok)', fontSize: 11, marginLeft: 7, fontWeight: 600 }}>✓ clean</span>}
-                            {best && a.total > 0 && <span style={{ color: 'var(--ok)', fontSize: 11, marginLeft: 7, fontWeight: 600 }}>✓ cleanest</span>}
-                            <div style={{ color: 'var(--ink3)', fontSize: 11, marginTop: 2, fontWeight: 400 }}>
-                              {a.total} mistake{a.total === 1 ? '' : 's'} in {a.billed} billed
+                  {data.actors.map((a, i) => {
+                    const best = i === 0;
+                    const acc = a.accuracy;
+                    const col = accColor(acc);
+                    return (
+                      <tr key={a.userId} style={{ borderTop: '1px solid var(--border2)' }}>
+                        <td style={{ padding: '11px 14px', fontWeight: 550 }}>
+                          <span style={{ color: 'var(--ink3)', marginRight: 9, fontVariantNumeric: 'tabular-nums' }}>{i + 1}</span>
+                          {a.name}
+                          {best && a.slips === 0 && <span style={{ color: 'var(--ok)', fontSize: 11, marginLeft: 7, fontWeight: 600 }}>✓ cleanest</span>}
+                          <div style={{ color: 'var(--ink3)', fontSize: 11, marginTop: 2, fontWeight: 400 }}>
+                            {a.slips} slip{a.slips === 1 ? '' : 's'} in {a.billed} billed
+                          </div>
+                        </td>
+                        <td style={{ padding: '11px 14px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 9 }}>
+                            <div style={{ width: 56, height: 6, background: 'var(--border2)', borderRadius: 3, overflow: 'hidden' }}>
+                              <div style={{ height: '100%', width: `${Math.round(acc)}%`, background: col, borderRadius: 3 }} />
                             </div>
-                          </td>
-                          <td style={{ padding: '11px 14px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 9 }}>
-                              <div style={{ width: 64, height: 6, background: 'var(--border2)', borderRadius: 3, overflow: 'hidden' }}>
-                                <div style={{ height: '100%', width: `${Math.round(ratio * 100)}%`, background: barColor, borderRadius: 3 }} />
-                              </div>
-                              <b style={{ color: numColor, fontVariantNumeric: 'tabular-nums', minWidth: 34, textAlign: 'right' }} title="mistakes per 100 patients billed">{rateLabel}<span style={{ fontWeight: 400, color: 'var(--ink3)', fontSize: 10 }}>/100</span></b>
-                            </div>
-                          </td>
-                          {scorecardQuery.data!.types.map((t) => (
-                            <td key={t.key} style={{ padding: '11px 14px', textAlign: 'right', color: a.byType[t.key] ? 'var(--ink)' : 'var(--ink3)', fontVariantNumeric: 'tabular-nums' }}>
-                              {a.byType[t.key] ?? 0}
-                            </td>
-                          ))}
-                        </tr>
-                      );
-                    });
-                  })()}
-                  {scorecardQuery.data.labIncharge.length > 0 && (
+                            <b style={{ color: col, fontVariantNumeric: 'tabular-nums', minWidth: 44, textAlign: 'right' }} title="share of your bills that needed no data-entry fix">{acc.toFixed(1)}%</b>
+                          </div>
+                        </td>
+                        {typeCells(a)}
+                      </tr>
+                    );
+                  })}
+
+                  {data.noWindowBills.length > 0 && (
                     <>
                       <tr>
-                        <td colSpan={2 + scorecardQuery.data.types.length} style={{ padding: '10px 14px', borderTop: '1px solid var(--border)', background: 'rgba(0,0,0,0.02)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--ink3)', fontWeight: 650 }}>
-                          Lab in-charge <span style={{ textTransform: 'none', fontWeight: 400 }}>· edits / finalizes as part of the job — listed, not ranked</span>
+                        <td colSpan={colCount} style={{ padding: '10px 14px', borderTop: '1px solid var(--border)', background: 'rgba(0,0,0,0.02)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--ink3)', fontWeight: 650 }}>
+                          Fixes on earlier bills <span style={{ textTransform: 'none', fontWeight: 400 }}>· these staff billed nothing this period, so there's no rate — shown for the record</span>
                         </td>
                       </tr>
-                      {scorecardQuery.data.labIncharge.map((a) => (
-                        <tr key={a.name} style={{ borderTop: '1px solid var(--border2)' }}>
+                      {data.noWindowBills.map((a) => (
+                        <tr key={a.userId} style={{ borderTop: '1px solid var(--border2)' }}>
+                          <td style={{ padding: '11px 14px', fontWeight: 550 }}>
+                            {a.name}
+                            <div style={{ color: 'var(--ink3)', fontSize: 11, marginTop: 2, fontWeight: 400 }}>{a.slips} slip{a.slips === 1 ? '' : 's'} · billed 0 this period</div>
+                          </td>
+                          <td style={{ padding: '11px 14px', textAlign: 'right', color: 'var(--ink3)' }}>—</td>
+                          {typeCells(a)}
+                        </tr>
+                      ))}
+                    </>
+                  )}
+
+                  {data.labIncharge.length > 0 && (
+                    <>
+                      <tr>
+                        <td colSpan={colCount} style={{ padding: '10px 14px', borderTop: '1px solid var(--border)', background: 'rgba(0,0,0,0.02)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--ink3)', fontWeight: 650 }}>
+                          Lab in-charge <span style={{ textTransform: 'none', fontWeight: 400 }}>· listed, not ranked</span>
+                        </td>
+                      </tr>
+                      {data.labIncharge.map((a) => (
+                        <tr key={a.userId} style={{ borderTop: '1px solid var(--border2)' }}>
                           <td style={{ padding: '11px 14px', fontWeight: 550 }}>
                             {a.name} <span style={{ color: 'var(--ink3)', fontSize: 11 }}>· lab in-charge</span>
+                            <div style={{ color: 'var(--ink3)', fontSize: 11, marginTop: 2, fontWeight: 400 }}>{a.slips} slip{a.slips === 1 ? '' : 's'} in {a.billed} billed</div>
                           </td>
-                          <td style={{ padding: '11px 14px', textAlign: 'right', fontWeight: 650, fontVariantNumeric: 'tabular-nums' }}>{a.total}</td>
-                          {scorecardQuery.data!.types.map((t) => (
-                            <td key={t.key} style={{ padding: '11px 14px', textAlign: 'right', color: a.byType[t.key] ? 'var(--ink)' : 'var(--ink3)', fontVariantNumeric: 'tabular-nums' }}>
-                              {a.byType[t.key] ?? 0}
-                            </td>
-                          ))}
+                          <td style={{ padding: '11px 14px', textAlign: 'right', color: a.accuracy < 0 ? 'var(--ink3)' : accColor(a.accuracy), fontWeight: 650, fontVariantNumeric: 'tabular-nums' }}>
+                            {a.accuracy < 0 ? '—' : `${a.accuracy.toFixed(1)}%`}
+                          </td>
+                          {typeCells(a)}
                         </tr>
                       ))}
                     </>
                   )}
                 </tbody>
               </table>
-            )}
+              );
+            })()}
             <div className="note-b" style={{ textAlign: 'left', padding: '12px 16px' }}>
-              Mistakes = cancelled tests, refunds, tests swapped, referral-doctor changes, and reports edited after
-              finalize — attributed to whoever did them, over the selected date range.
+              Accuracy = share of the bills a staff made that needed no later data-entry fix. A slip = a name / age / title /
+              gender / phone correction, a referral-doctor change, or a test swap — each charged to whoever <b>billed</b> the
+              patient (their mis-key), never the person who fixed it. Refunds, cancels and reopens are shown for context but
+              don't affect the score. Counted in the period the fix happened.
             </div>
           </div>
         ) : tab === 'access' ? (
