@@ -46,6 +46,7 @@ export interface PanelForm {
   departmentId: string;
   layoutType: string;
   sampleType: string | null;
+  payoutCategory: string | null;
   panelMethodText: string | null;
   panelMethodItalic: boolean;
   showMethodColumn: boolean;
@@ -63,7 +64,7 @@ export interface PanelForm {
 
 export const blankPanel = (): PanelForm => ({
   id: null, code: '', label: '', departmentId: '', layoutType: 'STANDARD_TABLE',
-  sampleType: null, panelMethodText: null, panelMethodItalic: false, showMethodColumn: false, showSubgroups: false, showInterpretation: false,
+  sampleType: null, payoutCategory: null, panelMethodText: null, panelMethodItalic: false, showMethodColumn: false, showSubgroups: false, showInterpretation: false,
   spacedDefinitionsGap: 0, valueDisplayPrefix: null, comments: null, interpretation: null,
   narrativeTemplateHtml: null, subgroupMethods: {}, subgroupTableOverrides: {}, isActive: false, // new report = draft
 });

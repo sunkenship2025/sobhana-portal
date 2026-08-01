@@ -32,6 +32,7 @@ import {
   CODE_REGEX, LAYOUTS, SAMPLE_TYPES, type Department, type TestDef, type BuilderItem, type PanelForm,
   blankPanel, uid, itemFromDef, autoCode,
 } from './reportBuilderShared';
+import { PAYOUT_CATEGORIES } from '@/lib/payoutCategories';
 
 type DockTab = 'inspector' | 'panel' | 'pricing' | 'compile';
 interface PanelRow { id: string; code: string; name: string; isActive: boolean; itemCount: number; departmentName: string; productCount: number; }
@@ -101,6 +102,7 @@ export default function ReportBuilder() {
       setPanel({
         id: p.id, code: p.code, label: p.name, departmentId: p.departmentId ?? '',
         layoutType: p.layoutType ?? 'STANDARD_TABLE', sampleType: p.sampleType ?? null,
+        payoutCategory: p.payoutCategory ?? null,
         panelMethodText: p.panelMethodText ?? null, panelMethodItalic: !!p.panelMethodItalic,
         showMethodColumn: !!p.showMethodColumn, showSubgroups: !!p.showSubgroups, showInterpretation: !!p.showInterpretation,
         spacedDefinitionsGap: p.spacedDefinitionsGap ?? 0, valueDisplayPrefix: p.valueDisplayPrefix ?? null,
@@ -275,7 +277,7 @@ export default function ReportBuilder() {
     try {
       const body = {
         name: panel.code.trim().toUpperCase(), displayName: panel.label.trim(), departmentId: panel.departmentId,
-        layoutType: panel.layoutType, sampleType: panel.sampleType, panelMethodText: panel.panelMethodText,
+        layoutType: panel.layoutType, sampleType: panel.sampleType, payoutCategory: panel.payoutCategory, panelMethodText: panel.panelMethodText,
         panelMethodItalic: panel.panelMethodItalic, showMethodColumn: panel.showMethodColumn, showSubgroups: panel.showSubgroups, showInterpretation: panel.showInterpretation,
         spacedDefinitionsGap: panel.spacedDefinitionsGap, valueDisplayPrefix: panel.valueDisplayPrefix,
         comments: panel.comments, interpretation: panel.interpretation, narrativeTemplateHtml: panel.narrativeTemplateHtml,
@@ -615,11 +617,19 @@ function PanelPane({ panel, departments, setP, setPReload, onCodeEdit, onNameEdi
             </Select>
           </div>
         </div>
-        <div className="space-y-1.5 mt-3"><Label className="text-xs">Sample type</Label>
-          <Select value={panel.sampleType || '__none__'} onValueChange={(v) => setPReload({ sampleType: v === '__none__' ? null : v })}>
-            <SelectTrigger className="h-8"><SelectValue placeholder="Select…" /></SelectTrigger>
-            <SelectContent><SelectItem value="__none__">None</SelectItem>{SAMPLE_TYPES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-          </Select>
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <div className="space-y-1.5"><Label className="text-xs">Sample type</Label>
+            <Select value={panel.sampleType || '__none__'} onValueChange={(v) => setPReload({ sampleType: v === '__none__' ? null : v })}>
+              <SelectTrigger className="h-8"><SelectValue placeholder="Select…" /></SelectTrigger>
+              <SelectContent><SelectItem value="__none__">None</SelectItem>{SAMPLE_TYPES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5"><Label className="text-xs">Category</Label>
+            <Select value={panel.payoutCategory || '__none__'} onValueChange={(v) => setP({ payoutCategory: v === '__none__' ? null : v })}>
+              <SelectTrigger className="h-8"><SelectValue placeholder="Select…" /></SelectTrigger>
+              <SelectContent><SelectItem value="__none__">None</SelectItem>{PAYOUT_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
         </div>
         <div className="space-y-1.5 mt-3"><Label className="text-xs">Panel method</Label>
           <Input value={panel.panelMethodText ?? ''} onChange={(e) => setP({ panelMethodText: e.target.value || null })} placeholder="Shown below the panel title" className="h-8" />
