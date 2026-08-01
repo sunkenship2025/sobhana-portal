@@ -34,6 +34,10 @@ function classifyAudit(
   actionType: AuditActionType,
   entityType: string,
 ): { category: Category; severity: Severity; event: string } {
+  // entityType casing is inconsistent across the codebase ("Visit" vs "VISIT",
+  // "Bill" vs "BILL") — match on a normalized form so "Visit billed" et al. are
+  // never silently dropped.
+  const et = entityType.toLowerCase();
   switch (actionType) {
     case AuditActionType.DELETE:
       return { category: "destructive", severity: "high", event: `Deleted ${entityType}` };
@@ -48,17 +52,17 @@ function classifyAudit(
     case AuditActionType.REPORT_ACCESS:
       return { category: "access", severity: "info", event: "Report accessed" };
     case AuditActionType.UPDATE:
-      if (entityType === "ReportDraft")
+      if (et === "reportdraft")
         return { category: "drafts", severity: "info", event: "Report draft written / edited" };
-      if (entityType === "ReportVersion")
+      if (et === "reportversion")
         return { category: "report", severity: "high", event: "Report changed after finalize" };
-      if (entityType === "Bill")
+      if (et === "bill")
         return { category: "money", severity: "medium", event: "Bill updated" };
       return { category: "ops", severity: "low", event: `Updated ${entityType}` };
     case AuditActionType.CREATE:
-      if (entityType === "Patient")
+      if (et === "patient")
         return { category: "identity", severity: "low", event: "Patient registered" };
-      if (entityType === "Visit")
+      if (et === "visit")
         return { category: "money", severity: "low", event: "Visit billed" };
       return { category: "ops", severity: "low", event: `Created ${entityType}` };
     default:
@@ -191,7 +195,7 @@ export async function projectWindow(
     const u0 = r.userId ? userMap.get(r.userId) : null;
     // Post-bill visit corrections (staff "mistakes") — the real action is in
     // newValues.action, not the actionType.
-    if (r.actionType === "UPDATE" && r.entityType === "Visit") {
+    if (r.actionType === "UPDATE" && r.entityType.toLowerCase() === "visit") {
       const m = correctionEvent(parseJson(r.newValues));
       if (m) {
         return {
