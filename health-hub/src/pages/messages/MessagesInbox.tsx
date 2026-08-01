@@ -148,10 +148,12 @@ const QUICK_REPLIES = [
   'Please visit your nearest Sobhana Diagnostics branch during working hours (8 AM to 8 PM).',
   'Your test is available. Please call 9490539006 to book, or visit any Sobhana branch.',
 ];
-const REPORT_DRAFT =
-  'Your report is ready ✅ Please open the secure link we shared with you to view and download it. — Sobhana Diagnostics';
-const BILL_DRAFT =
-  'Here are your bill details. Please reply here if you have any questions. — Sobhana Diagnostics';
+function formatPhone(p: string): string {
+  const d = (p || '').replace(/\D/g, '');
+  if (d.length === 12 && d.startsWith('91')) return `+91 ${d.slice(2, 7)} ${d.slice(7)}`;
+  if (d.length === 10) return `+91 ${d.slice(0, 5)} ${d.slice(5)}`;
+  return d ? `+${d}` : '';
+}
 
 function dayLabel(iso: string): string {
   const d = new Date(iso);
@@ -242,6 +244,16 @@ export default function MessagesInbox() {
         method: 'POST',
         body: JSON.stringify({ templateName, preview, languageCode, bodyParams }),
       }),
+    invalidate: [['inbox']],
+  });
+  const sendReportM = useApiMutation<{ ok: boolean; billNumber: string }, string>({
+    mutationFn: (id) =>
+      branchRequest(`/inbox/conversations/${id}/send-report`, branchId ?? '', { method: 'POST' }),
+    invalidate: [['inbox']],
+  });
+  const sendBillM = useApiMutation<{ ok: boolean; billNumber: string }, string>({
+    mutationFn: (id) =>
+      branchRequest(`/inbox/conversations/${id}/send-bill`, branchId ?? '', { method: 'POST' }),
     invalidate: [['inbox']],
   });
 
@@ -372,6 +384,18 @@ export default function MessagesInbox() {
                   },
                 )
               }
+              onSendReport={() =>
+                sendReportM.mutate(selectedConv.id, {
+                  onSuccess: (d) => toast.success(`Report sent (Bill ${d.billNumber})`),
+                  onError: (err) => toast.error(err.message || 'Failed to send report'),
+                })
+              }
+              onSendBill={() =>
+                sendBillM.mutate(selectedConv.id, {
+                  onSuccess: (d) => toast.success(`Bill sent (Bill ${d.billNumber})`),
+                  onError: (err) => toast.error(err.message || 'Failed to send bill'),
+                })
+              }
               sending={replyM.isPending || templateM.isPending}
             />
           )}
@@ -470,6 +494,8 @@ function ThreadPane({
   onOpen360,
   onReply,
   onTemplate,
+  onSendReport,
+  onSendBill,
   sending,
 }: {
   conv: ConversationSummary;
@@ -481,6 +507,8 @@ function ThreadPane({
   onOpen360: (patientId: string) => void;
   onReply: (text: string) => void;
   onTemplate: (templateName: string, preview: string, languageCode: string, bodyParams: string[]) => void;
+  onSendReport: () => void;
+  onSendBill: () => void;
   sending: boolean;
 }) {
   const [text, setText] = useState('');
@@ -594,6 +622,8 @@ function ThreadPane({
         setText={setText}
         onSend={send}
         onTemplate={onTemplate}
+        onSendReport={onSendReport}
+        onSendBill={onSendBill}
         sending={sending}
       />
     </>
@@ -640,6 +670,8 @@ function Composer({
   setText,
   onSend,
   onTemplate,
+  onSendReport,
+  onSendBill,
   sending,
 }: {
   conv: ConversationSummary;
@@ -647,6 +679,8 @@ function Composer({
   setText: (t: string) => void;
   onSend: () => void;
   onTemplate: (templateName: string, preview: string, languageCode: string, bodyParams: string[]) => void;
+  onSendReport: () => void;
+  onSendBill: () => void;
   sending: boolean;
 }) {
   const branchId = useBranchId();
@@ -849,9 +883,14 @@ function Composer({
       </div>
 
       <div className="mb-2.5 flex flex-wrap gap-1.5">
-        <QuickBtn icon={FileText} label="Send report link" onClick={() => setText(REPORT_DRAFT)} />
-        <QuickBtn icon={Receipt} label="Send bill" onClick={() => setText(BILL_DRAFT)} />
-        <QuickBtn icon={Phone} label="Call" onClick={() => window.open(`tel:${conv.phone}`)} />
+        <QuickBtn icon={FileText} label="Send report link" onClick={onSendReport} />
+        <QuickBtn icon={Receipt} label="Send bill" onClick={onSendBill} />
+        <a
+          href={`tel:+${conv.phone}`}
+          className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium text-foreground hover:bg-muted"
+        >
+          <Phone className="h-3.5 w-3.5" /> {formatPhone(conv.phone)}
+        </a>
         <button
           onClick={() => setShowQuick((v) => !v)}
           className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium hover:bg-muted"

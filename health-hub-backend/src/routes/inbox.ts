@@ -39,6 +39,7 @@ import {
   listMessageTemplates,
   TemplateComponent,
 } from '../services/whatsappCloudService';
+import { resendReportNotification, resendBillNotification } from '../services/notificationService';
 
 const router = Router();
 
@@ -581,6 +582,108 @@ router.post('/conversations/:id/read', async (req: AuthRequest, res) => {
   } catch (err) {
     console.error('[Inbox] read error:', err);
     res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to mark read' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/inbox/conversations/:id/send-report  (send the patient's LATEST finalized report)
+// ─────────────────────────────────────────────────────────────────────────────
+router.post('/conversations/:id/send-report', async (req: AuthRequest, res) => {
+  try {
+    if (!isWhatsAppEnabled()) {
+      res.status(400).json({ error: 'WA_DISABLED', message: 'WhatsApp messaging is disabled' });
+      return;
+    }
+    const convo = await loadForAction(req, res);
+    if (!convo) return;
+    if (!convo.patientId) {
+      res.status(400).json({ error: 'NO_PATIENT', message: 'No patient linked to this conversation' });
+      return;
+    }
+    // Most recent visit with a finalized report.
+    const visit = await prisma.visit.findFirst({
+      where: { patientId: convo.patientId, status: 'COMPLETED' },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, billNumber: true },
+    });
+    if (!visit) {
+      res.status(400).json({ error: 'NO_REPORT', message: 'No finalized report to send for this patient' });
+      return;
+    }
+    const result = await resendReportNotification(visit.id, req.user?.id);
+    if (!result.success) {
+      res.status(400).json({ error: 'SEND_FAILED', message: result.error || 'Failed to send report' });
+      return;
+    }
+    const now = new Date();
+    await prisma.conversationMessage.create({
+      data: {
+        conversationId: convo.id,
+        direction: 'OUT',
+        body: `📄 Report link sent (Bill ${visit.billNumber})`,
+        messageType: 'system',
+        staffUserId: req.user?.id ?? null,
+      },
+    });
+    await prisma.conversation.update({
+      where: { id: convo.id },
+      data: { lastMessageAt: now, lastPreview: `Report link sent (${visit.billNumber})`, unreadCount: 0 },
+    });
+    res.json({ ok: true, billNumber: visit.billNumber });
+  } catch (err) {
+    console.error('[Inbox] send-report error:', err);
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to send report' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/inbox/conversations/:id/send-bill  (send the patient's LATEST bill)
+// ─────────────────────────────────────────────────────────────────────────────
+router.post('/conversations/:id/send-bill', async (req: AuthRequest, res) => {
+  try {
+    if (!isWhatsAppEnabled()) {
+      res.status(400).json({ error: 'WA_DISABLED', message: 'WhatsApp messaging is disabled' });
+      return;
+    }
+    const convo = await loadForAction(req, res);
+    if (!convo) return;
+    if (!convo.patientId) {
+      res.status(400).json({ error: 'NO_PATIENT', message: 'No patient linked to this conversation' });
+      return;
+    }
+    // Most recent visit that has a bill.
+    const visit = await prisma.visit.findFirst({
+      where: { patientId: convo.patientId, bill: { isNot: null } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, billNumber: true },
+    });
+    if (!visit) {
+      res.status(400).json({ error: 'NO_BILL', message: 'No bill to send for this patient' });
+      return;
+    }
+    const result = await resendBillNotification(visit.id, req.user?.id);
+    if (!result.success) {
+      res.status(400).json({ error: 'SEND_FAILED', message: result.error || 'Failed to send bill' });
+      return;
+    }
+    const now = new Date();
+    await prisma.conversationMessage.create({
+      data: {
+        conversationId: convo.id,
+        direction: 'OUT',
+        body: `🧾 Bill sent (Bill ${visit.billNumber})`,
+        messageType: 'system',
+        staffUserId: req.user?.id ?? null,
+      },
+    });
+    await prisma.conversation.update({
+      where: { id: convo.id },
+      data: { lastMessageAt: now, lastPreview: `Bill sent (${visit.billNumber})`, unreadCount: 0 },
+    });
+    res.json({ ok: true, billNumber: visit.billNumber });
+  } catch (err) {
+    console.error('[Inbox] send-bill error:', err);
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to send bill' });
   }
 });
 
