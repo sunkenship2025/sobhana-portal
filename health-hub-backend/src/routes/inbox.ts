@@ -45,6 +45,10 @@ const router = Router();
 
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
+// Marketing (sales) has no business in patient conversations — hard-block every
+// inbox endpoint at the API, not just the nav. Owner is further-gated per-route
+// where needed (e.g. setting the default template).
+router.use(requireRole('owner', 'lab_incharge', 'staff'));
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PAGE_SIZE = 30;
