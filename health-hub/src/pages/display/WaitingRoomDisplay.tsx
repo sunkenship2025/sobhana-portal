@@ -64,6 +64,7 @@ const CSS = `
 .wrd-top{ height:12vh; flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; padding:0 4.4vw; }
 .wrd-brand{ display:flex; align-items:center; gap:1.1vw; }
 .wrd-mark{ width:3.2vw; height:3.2vw; border-radius:.8vw; background:linear-gradient(145deg,#1B2B58,#2c4488); }
+.wrd-logo{ height:7vh; width:auto; display:block; }
 .wrd-name{ font-size:1.8vw; font-weight:900; color:var(--navy); letter-spacing:.04em; line-height:1; }
 .wrd-sub{ font-size:.8vw; color:var(--muted); letter-spacing:.2em; text-transform:uppercase; font-weight:700; margin-top:.4vh; }
 .wrd-clock{ font-family:'Space Grotesk','Inter',sans-serif; font-size:2.4vw; font-weight:600; color:var(--navy); font-variant-numeric:tabular-nums; }
@@ -92,22 +93,25 @@ const CSS = `
 /* ticker */
 .wrd-tick{ height:17vh; flex:0 0 auto; background:#fff; border-top:1px solid var(--hairline);
   display:flex; align-items:stretch; box-shadow:0 -1vh 4vh rgba(20,34,68,.05); }
-.wrd-tlab{ flex:0 0 16vw; display:flex; flex-direction:column; justify-content:center; padding:0 2.4vw; border-right:1px solid var(--hairline); }
-.wrd-tlab .a{ font-size:1.3vw; letter-spacing:.25em; text-transform:uppercase; font-weight:800; color:var(--navy); }
-.wrd-tlab .b{ font-size:.95vw; color:var(--muted); font-weight:600; margin-top:.5vh; }
+.wrd-tlab{ flex:0 0 18vw; display:flex; flex-direction:column; justify-content:center; padding:0 2vw; border-right:1px solid var(--hairline); }
+.wrd-tlab .a{ font-size:1.2vw; letter-spacing:.2em; text-transform:uppercase; font-weight:800; color:var(--navy); }
+.wrd-tlab .b{ font-size:.9vw; color:var(--muted); font-weight:600; margin-top:.5vh; }
 .wrd-track{ display:flex; align-items:center; gap:1vw; }
-.wrd-trackqr{ height:11vh; width:11vh; border-radius:1vh; background:#fff; padding:.4vh; box-shadow:0 1vh 3vh rgba(20,34,68,.12); }
-.wrd-cells{ flex:1 1 auto; display:flex; }
-.wrd-cell{ flex:1 1 0; display:flex; align-items:center; justify-content:center; gap:1.3vw;
-  border-right:1px solid var(--hairline); position:relative; padding:0 1.2vw; }
+.wrd-trackqr{ height:11vh; width:11vh; border-radius:1vh; background:#fff; padding:.4vh; box-shadow:0 1vh 3vh rgba(20,34,68,.12); flex:0 0 auto; }
+.wrd-track .tt{ font-size:1.05vw; font-weight:800; color:var(--navy); line-height:1.15; white-space:nowrap; }
+.wrd-track .ts{ font-size:.8vw; color:var(--muted); font-weight:600; margin-top:.3vh; white-space:nowrap; }
+.wrd-cells{ flex:1 1 auto; display:flex; min-width:0; }
+.wrd-cell{ flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.4vh;
+  border-right:1px solid var(--hairline); position:relative; padding:0 .8vw; text-align:center; }
 .wrd-cell:last-child{ border-right:none; }
-.wrd-cinfo{ display:flex; flex-direction:column; gap:.4vh; }
-.wrd-cn{ font-size:1.5vw; font-weight:700; color:var(--navy); }
-.wrd-cr{ font-size:.9vw; color:var(--muted); font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
-.wrd-cnum{ font-family:'Space Grotesk','Inter',sans-serif; font-size:3.6vw; font-weight:700; line-height:1; color:var(--navy);
-  font-variant-numeric:tabular-nums; min-width:2.6vw; text-align:right; }
+.wrd-cn{ font-size:1.1vw; font-weight:700; color:var(--navy); line-height:1.12; max-width:100%;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.wrd-crm{ font-size:.78vw; color:var(--muted); font-weight:700; letter-spacing:.05em; text-transform:uppercase; }
+.wrd-cnum{ font-family:'Space Grotesk','Inter',sans-serif; font-size:3vw; font-weight:700; line-height:1; color:var(--navy);
+  font-variant-numeric:tabular-nums; }
+.wrd-cnum.empty{ color:var(--faint); font-size:1.9vw; }
 .wrd-cell.act{ background:rgba(27,43,88,.05); }
-.wrd-cell.act::after{ content:''; position:absolute; left:14%; right:14%; bottom:1.4vh; height:.35vh; border-radius:.35vh; background:var(--navy); }
+.wrd-cell.act::after{ content:''; position:absolute; left:18%; right:18%; bottom:1vh; height:.35vh; border-radius:.35vh; background:var(--navy); }
 /* chips / states */
 .wrd-chip{ position:absolute; bottom:19vh; left:4.4vw; display:flex; align-items:center; gap:.7vw;
   background:var(--navy); color:#fff; font-size:1.2vw; font-weight:600; padding:.9vh 1.4vw; border-radius:999px; }
@@ -252,6 +256,19 @@ export default function WaitingRoomDisplay() {
     };
   }, [poll]);
 
+  // Rotate the ticker in pages of 6 when there are more doctors than fit cleanly.
+  const [tickPage, setTickPage] = useState(0);
+  const doctorCount = state?.doctors?.length ?? 0;
+  const tickPages = Math.max(1, Math.ceil(doctorCount / 6));
+  useEffect(() => {
+    if (tickPages <= 1) {
+      setTickPage(0);
+      return;
+    }
+    const id = window.setInterval(() => setTickPage((p) => (p + 1) % tickPages), 8000);
+    return () => window.clearInterval(id);
+  }, [tickPages]);
+
   if (status === 'notfound') {
     return (
       <>
@@ -279,6 +296,10 @@ export default function WaitingRoomDisplay() {
   }
 
   const doctors = state?.doctors ?? [];
+  const sortedDoctors = [...doctors].sort(
+    (a, b) => (b.currentToken != null ? 1 : 0) - (a.currentToken != null ? 1 : 0),
+  );
+  const visibleDoctors = sortedDoctors.slice(tickPage * 6, tickPage * 6 + 6);
 
   return (
     <>
@@ -286,11 +307,7 @@ export default function WaitingRoomDisplay() {
       <div className="wrd-root">
         <header className="wrd-top">
           <div className="wrd-brand">
-            <div className="wrd-mark" />
-            <div>
-              <div className="wrd-name">SOBHANA</div>
-              <div className="wrd-sub">Diagnostics &amp; Polyclinic</div>
-            </div>
+            <img className="wrd-logo" src="/sobhana-logo-cropped.png" alt="Sobhana Diagnostic Centre" />
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '1.4vw' }}>
             <div className="wrd-clock">{clock}</div>
@@ -337,8 +354,8 @@ export default function WaitingRoomDisplay() {
               <div className="wrd-track">
                 <img className="wrd-trackqr" src={state.trackQr} alt="Scan to follow your token" />
                 <div>
-                  <div className="a">Track your token</div>
-                  <div className="b">Scan to follow on your phone</div>
+                  <div className="tt">Track your token</div>
+                  <div className="ts">Scan to follow on your phone</div>
                 </div>
               </div>
             ) : (
@@ -349,18 +366,16 @@ export default function WaitingRoomDisplay() {
             )}
           </div>
           <div className="wrd-cells">
-            {doctors.length === 0 ? (
-              <div className="wrd-cell" style={{ color: 'var(--muted)', fontSize: '1.3vw', fontWeight: 600 }}>
-                No consultations yet today
+            {visibleDoctors.length === 0 ? (
+              <div className="wrd-cell" style={{ color: 'var(--muted)', fontSize: '1.2vw', fontWeight: 600 }}>
+                Tokens appear here as patients are called
               </div>
             ) : (
-              doctors.map((d) => (
+              visibleDoctors.map((d) => (
                 <div className={`wrd-cell${d.serving ? ' act' : ''}`} key={d.id}>
-                  <div className="wrd-cinfo">
-                    <div className="wrd-cn">{d.name}</div>
-                    {d.room && <div className="wrd-cr">{d.room}</div>}
-                  </div>
-                  <div className="wrd-cnum">{two(d.currentToken)}</div>
+                  <div className="wrd-cn">{d.name}</div>
+                  <div className={`wrd-cnum${d.currentToken == null ? ' empty' : ''}`}>{two(d.currentToken)}</div>
+                  {d.room && <div className="wrd-crm">{d.room}</div>}
                 </div>
               ))
             )}
