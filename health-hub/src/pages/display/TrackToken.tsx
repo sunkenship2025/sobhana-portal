@@ -38,7 +38,8 @@ const CSS = `
   font-family:'Inter',system-ui,-apple-system,sans-serif; -webkit-font-smoothing:antialiased; }
 .trk .wrap{ max-width:480px; margin:0 auto; padding:20px 16px 40px; }
 .trk .top{ display:flex; align-items:center; justify-content:space-between; padding:6px 2px 18px; }
-.trk .brand{ display:flex; align-items:center; gap:10px; }
+.trk .brand{ display:flex; flex-direction:column; align-items:flex-start; gap:5px; }
+.trk .logo{ height:34px; width:auto; display:block; }
 .trk .mark{ width:34px; height:34px; border-radius:9px; background:linear-gradient(145deg,#1B2B58,#2c4488); }
 .trk .bname{ font-size:18px; font-weight:900; color:#1B2B58; letter-spacing:.02em; line-height:1; }
 .trk .bsub{ font-size:11px; color:#66738f; font-weight:700; text-transform:uppercase; letter-spacing:.12em; margin-top:3px; }
@@ -68,7 +69,7 @@ function two(n: number | null): string {
 }
 
 export default function TrackToken() {
-  const { code } = useParams<{ code: string }>();
+  const { branch, screen: screenSlug } = useParams<{ branch: string; screen: string }>();
   const [state, setState] = useState<State | null>(null);
   const [status, setStatus] = useState<'loading' | 'ok' | 'offline' | 'notfound'>('loading');
 
@@ -76,7 +77,7 @@ export default function TrackToken() {
     let alive = true;
     const poll = async () => {
       try {
-        const r = await fetch(`${API_BASE}/display/${code}/state`, { headers: { Accept: 'application/json' } });
+        const r = await fetch(`${API_BASE}/display/${branch}/${screenSlug}/state`, { headers: { Accept: 'application/json' } });
         if (r.status === 404) {
           if (alive) setStatus('notfound');
           return;
@@ -97,7 +98,7 @@ export default function TrackToken() {
       alive = false;
       window.clearInterval(id);
     };
-  }, [code]);
+  }, [branch, screenSlug]);
 
   if (status === 'notfound') {
     return (
@@ -121,7 +122,7 @@ export default function TrackToken() {
   }
 
   const ns = state?.nowServing;
-  const doctors = state?.doctors ?? [];
+  const doctors = (state?.doctors ?? []).filter((d) => d.currentToken != null);
 
   return (
     <>
@@ -130,11 +131,8 @@ export default function TrackToken() {
         <div className="wrap">
           <div className="top">
             <div className="brand">
-              <div className="mark" />
-              <div>
-                <div className="bname">SOBHANA</div>
-                <div className="bsub">{state?.branch?.name || 'Diagnostics & Polyclinic'}</div>
-              </div>
+              <img className="logo" src="/sobhana-logo-cropped.png" alt="Sobhana Diagnostic Centre" />
+              {state?.branch?.name && <div className="bsub">{state.branch.name}</div>}
             </div>
             <div className="live">
               <i /> {status === 'offline' ? 'Reconnecting' : 'Live'}

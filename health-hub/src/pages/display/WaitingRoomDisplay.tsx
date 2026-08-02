@@ -45,7 +45,7 @@ type Ad = {
   media: AdMedia[];
 };
 type DisplayState = {
-  screen: { id?: string; name: string; holdSeconds?: number; showTrackQr?: boolean };
+  screen: { id?: string; name: string; holdSeconds?: number; showTrackQr?: boolean; chimeSound?: string };
   branch: { name: string; code: string };
   scope: string;
   serverTime: string;
@@ -64,6 +64,7 @@ const CSS = `
 .wrd-top{ height:12vh; flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; padding:0 4.4vw; }
 .wrd-brand{ display:flex; align-items:center; gap:1.1vw; }
 .wrd-mark{ width:3.2vw; height:3.2vw; border-radius:.8vw; background:linear-gradient(145deg,#1B2B58,#2c4488); }
+.wrd-logo{ height:7vh; width:auto; display:block; }
 .wrd-name{ font-size:1.8vw; font-weight:900; color:var(--navy); letter-spacing:.04em; line-height:1; }
 .wrd-sub{ font-size:.8vw; color:var(--muted); letter-spacing:.2em; text-transform:uppercase; font-weight:700; margin-top:.4vh; }
 .wrd-clock{ font-family:'Space Grotesk','Inter',sans-serif; font-size:2.4vw; font-weight:600; color:var(--navy); font-variant-numeric:tabular-nums; }
@@ -92,22 +93,25 @@ const CSS = `
 /* ticker */
 .wrd-tick{ height:17vh; flex:0 0 auto; background:#fff; border-top:1px solid var(--hairline);
   display:flex; align-items:stretch; box-shadow:0 -1vh 4vh rgba(20,34,68,.05); }
-.wrd-tlab{ flex:0 0 16vw; display:flex; flex-direction:column; justify-content:center; padding:0 2.4vw; border-right:1px solid var(--hairline); }
-.wrd-tlab .a{ font-size:1.3vw; letter-spacing:.25em; text-transform:uppercase; font-weight:800; color:var(--navy); }
-.wrd-tlab .b{ font-size:.95vw; color:var(--muted); font-weight:600; margin-top:.5vh; }
+.wrd-tlab{ flex:0 0 18vw; display:flex; flex-direction:column; justify-content:center; padding:0 2vw; border-right:1px solid var(--hairline); }
+.wrd-tlab .a{ font-size:1.2vw; letter-spacing:.2em; text-transform:uppercase; font-weight:800; color:var(--navy); }
+.wrd-tlab .b{ font-size:.9vw; color:var(--muted); font-weight:600; margin-top:.5vh; }
 .wrd-track{ display:flex; align-items:center; gap:1vw; }
-.wrd-trackqr{ height:11vh; width:11vh; border-radius:1vh; background:#fff; padding:.4vh; box-shadow:0 1vh 3vh rgba(20,34,68,.12); }
-.wrd-cells{ flex:1 1 auto; display:flex; }
-.wrd-cell{ flex:1 1 0; display:flex; align-items:center; justify-content:center; gap:1.3vw;
-  border-right:1px solid var(--hairline); position:relative; padding:0 1.2vw; }
+.wrd-trackqr{ height:11vh; width:11vh; border-radius:1vh; background:#fff; padding:.4vh; box-shadow:0 1vh 3vh rgba(20,34,68,.12); flex:0 0 auto; }
+.wrd-track .tt{ font-size:1.05vw; font-weight:800; color:var(--navy); line-height:1.15; white-space:nowrap; }
+.wrd-track .ts{ font-size:.8vw; color:var(--muted); font-weight:600; margin-top:.3vh; white-space:nowrap; }
+.wrd-cells{ flex:1 1 auto; display:flex; min-width:0; }
+.wrd-cell{ flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.4vh;
+  border-right:1px solid var(--hairline); position:relative; padding:0 .8vw; text-align:center; }
 .wrd-cell:last-child{ border-right:none; }
-.wrd-cinfo{ display:flex; flex-direction:column; gap:.4vh; }
-.wrd-cn{ font-size:1.5vw; font-weight:700; color:var(--navy); }
-.wrd-cr{ font-size:.9vw; color:var(--muted); font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
-.wrd-cnum{ font-family:'Space Grotesk','Inter',sans-serif; font-size:3.6vw; font-weight:700; line-height:1; color:var(--navy);
-  font-variant-numeric:tabular-nums; min-width:2.6vw; text-align:right; }
+.wrd-cn{ font-size:1.1vw; font-weight:700; color:var(--navy); line-height:1.12; max-width:100%;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.wrd-crm{ font-size:.78vw; color:var(--muted); font-weight:700; letter-spacing:.05em; text-transform:uppercase; }
+.wrd-cnum{ font-family:'Space Grotesk','Inter',sans-serif; font-size:3vw; font-weight:700; line-height:1; color:var(--navy);
+  font-variant-numeric:tabular-nums; }
+.wrd-cnum.empty{ color:var(--faint); font-size:1.9vw; }
 .wrd-cell.act{ background:rgba(27,43,88,.05); }
-.wrd-cell.act::after{ content:''; position:absolute; left:14%; right:14%; bottom:1.4vh; height:.35vh; border-radius:.35vh; background:var(--navy); }
+.wrd-cell.act::after{ content:''; position:absolute; left:18%; right:18%; bottom:1vh; height:.35vh; border-radius:.35vh; background:var(--navy); }
 /* chips / states */
 .wrd-chip{ position:absolute; bottom:19vh; left:4.4vw; display:flex; align-items:center; gap:.7vw;
   background:var(--navy); color:#fff; font-size:1.2vw; font-weight:600; padding:.9vh 1.4vw; border-radius:999px; }
@@ -125,6 +129,45 @@ const CSS = `
 
 function two(n: number | null): string {
   return n == null ? '—' : String(n).padStart(2, '0');
+}
+
+// Ding-dong call chime via Web Audio (no asset needed). On a TV, Fully Kiosk
+// must allow audio/autoplay; a first touch also unlocks it.
+let _actx: AudioContext | null = null;
+function audioCtx(): AudioContext | null {
+  try {
+    const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    _actx = _actx || new Ctor();
+    if (_actx.state === 'suspended') void _actx.resume();
+    return _actx;
+  } catch {
+    return null;
+  }
+}
+function bell(c: AudioContext, freq: number, t0: number, dur: number, gain: number) {
+  const partial = (f: number, g: number, d: number) => {
+    const o = c.createOscillator();
+    const gn = c.createGain();
+    o.type = 'sine';
+    o.frequency.value = f;
+    o.connect(gn);
+    gn.connect(c.destination);
+    gn.gain.setValueAtTime(0.0001, t0);
+    gn.gain.exponentialRampToValueAtTime(g, t0 + 0.006);
+    gn.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
+    o.start(t0);
+    o.stop(t0 + d + 0.03);
+  };
+  partial(freq, gain, dur);
+  partial(freq * 2.01, gain * 0.35, dur * 0.7);
+  partial(freq * 3.02, gain * 0.16, dur * 0.45);
+}
+function playDingDong() {
+  const c = audioCtx();
+  if (!c) return;
+  const t = c.currentTime + 0.02;
+  bell(c, 659.25, t, 0.9, 0.24);
+  bell(c, 523.25, t + 0.3, 1.1, 0.24);
 }
 
 /** Rotates uploaded creatives in the idle state: photos held, slideshows cycled, videos to their end. */
@@ -192,7 +235,7 @@ function AdRotator({ ads }: { ads: Ad[] }) {
 }
 
 export default function WaitingRoomDisplay() {
-  const { code } = useParams<{ code: string }>();
+  const { branch, screen: screenSlug } = useParams<{ branch: string; screen: string }>();
   const [state, setState] = useState<DisplayState | null>(null);
   const [status, setStatus] = useState<'loading' | 'ok' | 'offline' | 'notfound'>('loading');
   const [mode, setMode] = useState<'resting' | 'serving'>('resting');
@@ -201,6 +244,7 @@ export default function WaitingRoomDisplay() {
   const [today, setToday] = useState('');
   const shownStartedAt = useRef<string>('');
   const holdTimer = useRef<number | undefined>(undefined);
+  const booted = useRef(false);
 
   useEffect(() => {
     const tick = () => {
@@ -219,7 +263,9 @@ export default function WaitingRoomDisplay() {
 
   const poll = useCallback(async () => {
     try {
-      const r = await fetch(`${API_BASE}/display/${code}/state`, { headers: { Accept: 'application/json' } });
+      const r = await fetch(`${API_BASE}/display/${branch}/${screenSlug}/state`, {
+        headers: { Accept: 'application/json' },
+      });
       if (r.status === 404) {
         setStatus('notfound');
         return;
@@ -229,6 +275,7 @@ export default function WaitingRoomDisplay() {
       setState(data);
       setStatus('ok');
       const ns = data.nowServing;
+      const isNewCall = booted.current; // don't chime for whatever's already in progress on boot
       if (ns?.startedAt && ns.startedAt > shownStartedAt.current) {
         shownStartedAt.current = ns.startedAt;
         setNow(ns);
@@ -236,12 +283,14 @@ export default function WaitingRoomDisplay() {
         window.clearTimeout(holdTimer.current);
         const holdMs = (data.screen?.holdSeconds ?? 18) * 1000;
         holdTimer.current = window.setTimeout(() => setMode('resting'), holdMs);
+        if (isNewCall && data.screen?.chimeSound !== 'none') playDingDong();
       }
+      booted.current = true;
     } catch {
       // Keep the last known queue on screen; just flag reconnecting.
       setStatus((s) => (s === 'loading' ? 'loading' : 'offline'));
     }
-  }, [code]);
+  }, [branch, screenSlug]);
 
   useEffect(() => {
     poll();
@@ -252,6 +301,30 @@ export default function WaitingRoomDisplay() {
     };
   }, [poll]);
 
+  // Rotate the ticker in pages of 6 when there are more doctors than fit cleanly.
+  const [tickPage, setTickPage] = useState(0);
+  const doctorCount = (state?.doctors ?? []).filter((d) => d.currentToken != null).length;
+  const tickPages = Math.max(1, Math.ceil(doctorCount / 6));
+  useEffect(() => {
+    if (tickPages <= 1) {
+      setTickPage(0);
+      return;
+    }
+    const id = window.setInterval(() => setTickPage((p) => (p + 1) % tickPages), 8000);
+    return () => window.clearInterval(id);
+  }, [tickPages]);
+
+  // Unlock audio on the first interaction (kiosks that don't allow autoplay).
+  useEffect(() => {
+    const resume = () => audioCtx();
+    window.addEventListener('pointerdown', resume, { once: true });
+    window.addEventListener('keydown', resume, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', resume);
+      window.removeEventListener('keydown', resume);
+    };
+  }, []);
+
   if (status === 'notfound') {
     return (
       <>
@@ -260,7 +333,7 @@ export default function WaitingRoomDisplay() {
           <h1>This screen isn't paired</h1>
           <p>
             Ask the owner to add this screen in Admin → Waiting Room Display, then reopen the link.
-            <br />Screen code: <code>{code}</code>
+            <br />Link: <code>/display/{branch}/{screenSlug}</code>
           </p>
         </div>
       </>
@@ -278,7 +351,10 @@ export default function WaitingRoomDisplay() {
     );
   }
 
-  const doctors = state?.doctors ?? [];
+  // Only doctors with a real token — no dashes on the ticker.
+  const doctors = (state?.doctors ?? []).filter((d) => d.currentToken != null);
+  const sortedDoctors = [...doctors].sort((a, b) => (b.serving ? 1 : 0) - (a.serving ? 1 : 0));
+  const visibleDoctors = sortedDoctors.slice(tickPage * 6, tickPage * 6 + 6);
 
   return (
     <>
@@ -286,11 +362,7 @@ export default function WaitingRoomDisplay() {
       <div className="wrd-root">
         <header className="wrd-top">
           <div className="wrd-brand">
-            <div className="wrd-mark" />
-            <div>
-              <div className="wrd-name">SOBHANA</div>
-              <div className="wrd-sub">Diagnostics &amp; Polyclinic</div>
-            </div>
+            <img className="wrd-logo" src="/sobhana-logo-cropped.png" alt="Sobhana Diagnostic Centre" />
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '1.4vw' }}>
             <div className="wrd-clock">{clock}</div>
@@ -337,8 +409,8 @@ export default function WaitingRoomDisplay() {
               <div className="wrd-track">
                 <img className="wrd-trackqr" src={state.trackQr} alt="Scan to follow your token" />
                 <div>
-                  <div className="a">Track your token</div>
-                  <div className="b">Scan to follow on your phone</div>
+                  <div className="tt">Track your token</div>
+                  <div className="ts">Scan to follow on your phone</div>
                 </div>
               </div>
             ) : (
@@ -349,18 +421,16 @@ export default function WaitingRoomDisplay() {
             )}
           </div>
           <div className="wrd-cells">
-            {doctors.length === 0 ? (
-              <div className="wrd-cell" style={{ color: 'var(--muted)', fontSize: '1.3vw', fontWeight: 600 }}>
-                No consultations yet today
+            {visibleDoctors.length === 0 ? (
+              <div className="wrd-cell" style={{ color: 'var(--muted)', fontSize: '1.2vw', fontWeight: 600 }}>
+                Tokens appear here as patients are called
               </div>
             ) : (
-              doctors.map((d) => (
+              visibleDoctors.map((d) => (
                 <div className={`wrd-cell${d.serving ? ' act' : ''}`} key={d.id}>
-                  <div className="wrd-cinfo">
-                    <div className="wrd-cn">{d.name}</div>
-                    {d.room && <div className="wrd-cr">{d.room}</div>}
-                  </div>
-                  <div className="wrd-cnum">{two(d.currentToken)}</div>
+                  <div className="wrd-cn">{d.name}</div>
+                  <div className={`wrd-cnum${d.currentToken == null ? ' empty' : ''}`}>{two(d.currentToken)}</div>
+                  {d.room && <div className="wrd-crm">{d.room}</div>}
                 </div>
               ))
             )}

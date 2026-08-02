@@ -529,6 +529,8 @@ model DisplayScreen {
   doctorIds String[]  @default([]) // which doctors show; empty = all with OP visits today
   holdSeconds Int     @default(18) // how long a "Now Serving" call holds before returning to ads
   showTrackQr Boolean @default(true) // show the "track your token" QR on the ticker
+  slug        String? // readable URL segment, unique per branch (e.g. "op" → /display/chintal/op)
+  chimeSound  String  @default("dingdong") // call sound played on the TV: dingdong | none
   isActive  Boolean   @default(true)
   revokedAt DateTime?
   createdAt DateTime  @default(now())

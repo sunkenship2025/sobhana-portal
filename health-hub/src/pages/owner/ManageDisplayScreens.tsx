@@ -38,10 +38,13 @@ type Screen = {
   id: string;
   name: string;
   code: string;
+  slug: string | null;
+  branchSlug?: string;
   scope: string;
   doctorIds: string[];
   holdSeconds: number;
   showTrackQr: boolean;
+  chimeSound: string;
   isActive: boolean;
   revokedAt: string | null;
   createdAt: string;
@@ -68,10 +71,11 @@ export default function ManageDisplayScreens() {
   const [doctorIds, setDoctorIds] = useState<string[]>([]);
   const [holdSeconds, setHoldSeconds] = useState(18);
   const [showTrackQr, setShowTrackQr] = useState(true);
+  const [chimeOn, setChimeOn] = useState(true);
 
   const createM = useApiMutation<
     Screen,
-    { name: string; scope: string; doctorIds: string[]; holdSeconds: number; showTrackQr: boolean }
+    { name: string; scope: string; doctorIds: string[]; holdSeconds: number; showTrackQr: boolean; chimeSound: string }
   >({
     mutationFn: (v) =>
       branchRequest<Screen>('/display-screens', branchId!, {
@@ -88,6 +92,7 @@ export default function ManageDisplayScreens() {
       setDoctorIds([]);
       setHoldSeconds(18);
       setShowTrackQr(true);
+      setChimeOn(true);
     },
     onError: (e) => toast.error(e.message || 'Failed to add screen'),
   });
@@ -138,9 +143,17 @@ export default function ManageDisplayScreens() {
     patchM.mutate({ id: s.id, data: { holdSeconds: v } });
   };
 
-  const urlFor = (code: string) => `${window.location.origin}/display/${code}`;
-  const copyLink = (code: string) => {
-    navigator.clipboard?.writeText(urlFor(code));
+  const [slugs, setSlugs] = useState<Record<string, string>>({});
+  const slugEdit = (s: Screen) => (slugs[s.id] !== undefined ? slugs[s.id] : s.slug || '');
+  const saveSlug = (s: Screen) => {
+    const v = (slugs[s.id] ?? s.slug ?? '').trim();
+    if (!v || v === (s.slug || '')) return;
+    patchM.mutate({ id: s.id, data: { slug: v } });
+  };
+
+  const urlFor = (s: Screen) => `${window.location.origin}/display/${s.branchSlug || ''}/${s.slug || s.code}`;
+  const copyLink = (s: Screen) => {
+    navigator.clipboard?.writeText(urlFor(s));
     toast.success('Display link copied');
   };
   const toggleDoc = (id: string) =>
@@ -200,18 +213,27 @@ export default function ManageDisplayScreens() {
               </div>
 
               <div className="flex items-center gap-2 rounded-md bg-muted/40 px-3 py-2">
-                <code className="text-xs sm:text-sm font-mono truncate flex-1">{urlFor(s.code)}</code>
-                <Button size="sm" variant="ghost" onClick={() => copyLink(s.code)}>
+                <code className="text-xs sm:text-sm font-mono truncate flex-1">{urlFor(s)}</code>
+                <Button size="sm" variant="ghost" onClick={() => copyLink(s)}>
                   <Copy className="h-4 w-4" />
                 </Button>
                 <Button size="sm" variant="ghost" asChild>
-                  <a href={urlFor(s.code)} target="_blank" rel="noreferrer">
+                  <a href={urlFor(s)} target="_blank" rel="noreferrer">
                     <ExternalLink className="h-4 w-4" />
                   </a>
                 </Button>
               </div>
 
               <div className="flex flex-wrap items-center gap-5 text-sm">
+                <label className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Address</span>
+                  <Input
+                    className="w-32 h-8"
+                    value={slugEdit(s)}
+                    onChange={(e) => setSlugs((m) => ({ ...m, [s.id]: e.target.value }))}
+                    onBlur={() => saveSlug(s)}
+                  />
+                </label>
                 <label className="flex items-center gap-2">
                   <span className="text-muted-foreground">Hold</span>
                   <Input
@@ -228,6 +250,10 @@ export default function ManageDisplayScreens() {
                 <label className="flex items-center gap-2 cursor-pointer">
                   <Switch checked={s.showTrackQr} onCheckedChange={(v) => patchM.mutate({ id: s.id, data: { showTrackQr: v } })} />
                   <span className="text-muted-foreground">Track-token QR</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Switch checked={s.chimeSound !== 'none'} onCheckedChange={(v) => patchM.mutate({ id: s.id, data: { chimeSound: v ? 'dingdong' : 'none' } })} />
+                  <span className="text-muted-foreground">Chime</span>
                 </label>
               </div>
 
@@ -353,13 +379,17 @@ export default function ManageDisplayScreens() {
                 <span className="text-sm">Show "track your token" QR</span>
               </label>
             </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <Switch checked={chimeOn} onCheckedChange={setChimeOn} />
+              <span className="text-sm">Play call chime (ding-dong)</span>
+            </label>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button
-              onClick={() => createM.mutate({ name: name.trim(), scope, doctorIds, holdSeconds, showTrackQr })}
+              onClick={() => createM.mutate({ name: name.trim(), scope, doctorIds, holdSeconds, showTrackQr, chimeSound: chimeOn ? 'dingdong' : 'none' })}
               disabled={!name.trim() || createM.isPending}
             >
               {createM.isPending ? 'Adding…' : 'Add screen'}

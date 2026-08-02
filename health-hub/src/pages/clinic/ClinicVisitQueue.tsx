@@ -5,11 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuthStore } from '@/store/authStore';
 import { useBranchStore } from '@/store/branchStore';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { Search, Users, RotateCcw, Loader2, Plus, Phone, Stethoscope } from 'lucide-react';
+import { Search, Users, RotateCcw, Loader2, Plus, Phone, Stethoscope, Volume2, VolumeX } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
 import { toast } from 'sonner';
 import {
@@ -77,6 +78,8 @@ const ClinicVisitQueue = () => {
   const [search, setSearch] = useState('');
   const [selectedVisit, setSelectedVisit] = useState<QueueVisit | null>(null);
   const [updatingVisitId, setUpdatingVisitId] = useState<string | null>(null);
+  const [chimeOn, setChimeOn] = useState<boolean | null>(null);
+  const [chimeScreens, setChimeScreens] = useState(0);
 
   const fetchVisits = async () => {
     if (!activeBranchId) {
@@ -111,6 +114,38 @@ const ClinicVisitQueue = () => {
   useEffect(() => {
     fetchVisits();
   }, [activeBranchId, token]);
+
+  // Waiting-room chime state (quick on/off for the branch's display screens)
+  useEffect(() => {
+    if (!activeBranchId) return;
+    fetch(`${API_BASE}/display-chime`, {
+      headers: { Authorization: `Bearer ${token}`, 'x-branch-id': activeBranchId },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) {
+          setChimeOn(!!d.on);
+          setChimeScreens(d.screenCount || 0);
+        }
+      })
+      .catch(() => {});
+  }, [activeBranchId, token]);
+
+  const toggleChime = async (on: boolean) => {
+    setChimeOn(on);
+    try {
+      const r = await fetch(`${API_BASE}/display-chime`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'X-Branch-Id': activeBranchId || '' },
+        body: JSON.stringify({ on }),
+      });
+      if (!r.ok) throw new Error();
+      toast.success(on ? 'Waiting-room sound on' : 'Waiting-room sound off');
+    } catch {
+      setChimeOn(!on);
+      toast.error('Could not change the sound setting');
+    }
+  };
 
   // Get unique doctors for filter dropdown
   const doctorOptions = useMemo(() => {
@@ -240,9 +275,22 @@ const ClinicVisitQueue = () => {
   return (
     <AppLayout context="clinic" subContext="Reception">
       <div className="space-y-6 animate-fade-in">
-        <div>
-          <h1 className="text-2xl font-bold">Visit Queue</h1>
-          <p className="text-muted-foreground">Who is waiting or active in the clinic today?</p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold">Visit Queue</h1>
+            <p className="text-muted-foreground">Who is waiting or active in the clinic today?</p>
+          </div>
+          {chimeScreens > 0 && (
+            <label className="flex items-center gap-2 text-sm cursor-pointer shrink-0 pt-1">
+              {chimeOn ? (
+                <Volume2 className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <VolumeX className="h-4 w-4 text-muted-foreground" />
+              )}
+              <span className="text-muted-foreground hidden sm:inline">Waiting-room sound</span>
+              <Switch checked={!!chimeOn} onCheckedChange={toggleChime} />
+            </label>
+          )}
         </div>
 
         {/* Filters */}

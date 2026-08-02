@@ -11,6 +11,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import { requireRole } from '../middleware/rbac';
 import prisma from '../lib/prisma';
+import { slugify, branchSlug } from '../lib/displaySlug';
 
 const router = Router();
 router.use(authMiddleware);
@@ -28,6 +29,27 @@ function clampHold(v: unknown, def: number): number {
   return Math.min(40, Math.max(8, n));
 }
 
+async function branchSlugFor(branchId: string): Promise<string> {
+  const b = await prisma.branch.findUnique({ where: { id: branchId }, select: { name: true, code: true } });
+  return b ? branchSlug(b.name, b.code) : '';
+}
+
+/** A screen slug unique within its branch (append -2, -3, … on clash). */
+async function uniqueSlug(branchId: string, base: string, excludeId?: string): Promise<string> {
+  const root = slugify(base) || 'screen';
+  let slug = root;
+  let n = 1;
+  while (
+    await prisma.displayScreen.findFirst({
+      where: { branchId, slug, ...(excludeId ? { id: { not: excludeId } } : {}) },
+      select: { id: true },
+    })
+  ) {
+    slug = `${root}-${++n}`;
+  }
+  return slug;
+}
+
 // GET / — screens for the active branch
 router.get('/', async (req: AuthRequest, res) => {
   try {
@@ -35,7 +57,8 @@ router.get('/', async (req: AuthRequest, res) => {
       where: { branchId: req.branchId! },
       orderBy: { createdAt: 'desc' },
     });
-    return res.json(screens);
+    const bSlug = await branchSlugFor(req.branchId!);
+    return res.json(screens.map((s) => ({ ...s, branchSlug: bSlug })));
   } catch (err: any) {
     console.error('List display screens error:', err);
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to list screens' });
@@ -45,24 +68,31 @@ router.get('/', async (req: AuthRequest, res) => {
 // POST / — create + pair a new screen
 router.post('/', async (req: AuthRequest, res) => {
   try {
-    const { name, scope, doctorIds, holdSeconds, showTrackQr } = req.body || {};
+    const { name, scope, doctorIds, holdSeconds, showTrackQr, slug, chimeSound } = req.body || {};
     if (!name || typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Screen name is required' });
     }
+    const finalSlug = await uniqueSlug(
+      req.branchId!,
+      typeof slug === 'string' && slug.trim() ? slug : name,
+    );
     const screen = await prisma.displayScreen.create({
       data: {
         branchId: req.branchId!,
         name: name.trim(),
         code: newCode(),
+        slug: finalSlug,
         scope: scope === 'OP_IP' ? 'OP_IP' : 'OP',
         doctorIds: Array.isArray(doctorIds)
           ? doctorIds.filter((x: unknown) => typeof x === 'string')
           : [],
         holdSeconds: clampHold(holdSeconds, 18),
         showTrackQr: typeof showTrackQr === 'boolean' ? showTrackQr : true,
+        chimeSound: chimeSound === 'none' ? 'none' : 'dingdong',
       },
     });
-    return res.status(201).json(screen);
+    const bSlug = await branchSlugFor(req.branchId!);
+    return res.status(201).json({ ...screen, branchSlug: bSlug });
   } catch (err: any) {
     console.error('Create display screen error:', err);
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to create screen' });
@@ -78,7 +108,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     });
     if (!existing) return res.status(404).json({ error: 'NOT_FOUND', message: 'Screen not found' });
 
-    const { name, scope, doctorIds, isActive, holdSeconds, showTrackQr } = req.body || {};
+    const { name, scope, doctorIds, isActive, holdSeconds, showTrackQr, slug, chimeSound } = req.body || {};
     const data: Record<string, unknown> = {};
     if (typeof name === 'string' && name.trim()) data.name = name.trim();
     if (scope === 'OP' || scope === 'OP_IP') data.scope = scope;
@@ -88,9 +118,12 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     if (typeof isActive === 'boolean') data.isActive = isActive;
     if (holdSeconds !== undefined) data.holdSeconds = clampHold(holdSeconds, existing.holdSeconds);
     if (typeof showTrackQr === 'boolean') data.showTrackQr = showTrackQr;
+    if (typeof slug === 'string' && slug.trim()) data.slug = await uniqueSlug(req.branchId!, slug, id);
+    if (chimeSound === 'dingdong' || chimeSound === 'none') data.chimeSound = chimeSound;
 
     const screen = await prisma.displayScreen.update({ where: { id }, data });
-    return res.json(screen);
+    const bSlug = await branchSlugFor(req.branchId!);
+    return res.json({ ...screen, branchSlug: bSlug });
   } catch (err: any) {
     console.error('Update display screen error:', err);
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to update screen' });
