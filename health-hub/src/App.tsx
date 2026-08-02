@@ -36,6 +36,7 @@ import BillPrintPage from "./pages/BillPrintPage";
 import PrescriptionPrintPage from "./pages/PrescriptionPrintPage";
 import ReportViewPage from "./pages/ReportViewPage";
 import WaitingRoomDisplay from "./pages/display/WaitingRoomDisplay";
+import TrackToken from "./pages/display/TrackToken";
 import PrivacyPolicy from "./pages/legal/PrivacyPolicy";
 import TermsOfService from "./pages/legal/TermsOfService";
 import DataDeletion from "./pages/legal/DataDeletion";
@@ -233,6 +234,8 @@ function AppRoutes() {
 
       {/* Public fullscreen waiting-room TV — paired by its :code (kiosk, no login) */}
       <Route path="/display/:code" element={<WaitingRoomDisplay />} />
+      {/* Public mobile companion — patient scans the ticker QR to track their token */}
+      <Route path="/track/:code" element={<TrackToken />} />
       
       {/* Legal / compliance pages (public) */}
       <Route path="/privacy" element={<PrivacyPolicy />} />

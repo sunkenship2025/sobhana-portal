@@ -13,6 +13,22 @@ import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { createRateLimiter, getClientIp } from '../middleware/rateLimit';
 import { getObjectStream } from '../services/r2StorageService';
+import QRCode from 'qrcode';
+
+// The track-your-token QR is stable per URL — generate once, then serve from cache.
+const trackQrCache = new Map<string, string>();
+async function trackQrDataUrl(url: string): Promise<string> {
+  const cached = trackQrCache.get(url);
+  if (cached) return cached;
+  const dataUrl = await QRCode.toDataURL(url, {
+    width: 240,
+    margin: 1,
+    color: { dark: '#1B2B58', light: '#ffffff' },
+  });
+  if (trackQrCache.size > 200) trackQrCache.clear();
+  trackQrCache.set(url, dataUrl);
+  return dataUrl;
+}
 
 const router = Router();
 
@@ -197,6 +213,7 @@ router.get('/:code/state', displayRateLimit, async (req: Request, res: Response)
         AND: [
           { OR: [{ startDate: null }, { startDate: { lte: nowD } }] },
           { OR: [{ endDate: null }, { endDate: { gte: nowD } }] },
+          { OR: [{ screenIds: { isEmpty: true } }, { screenIds: { has: screen.id } }] },
         ],
       },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
@@ -214,15 +231,30 @@ router.get('/:code/state', displayRateLimit, async (req: Request, res: Response)
       })),
     }));
 
+    // "Track your token" QR → the mobile companion at <frontend>/track/<code>.
+    // The display's own origin (request Origin header) is the right frontend to
+    // point at; fall back to FRONTEND_URL for non-browser callers.
+    const origin =
+      (req.headers.origin as string | undefined) || process.env.FRONTEND_URL || '';
+    const trackUrl = origin ? `${origin.replace(/\/$/, '')}/track/${code}` : '';
+    const trackQr = screen.showTrackQr && trackUrl ? await trackQrDataUrl(trackUrl) : '';
+
     res.setHeader('Cache-Control', 'no-store');
     return res.json({
-      screen: { name: screen.name },
+      screen: {
+        id: screen.id,
+        name: screen.name,
+        holdSeconds: screen.holdSeconds,
+        showTrackQr: screen.showTrackQr,
+      },
       branch: { name: screen.branch.name, code: screen.branch.code },
       scope: screen.scope,
       serverTime: new Date().toISOString(),
       doctors: doctors.map(({ _at, ...d }) => d),
       nowServing,
       ads: adsOut,
+      trackUrl,
+      trackQr,
     });
   } catch (err: any) {
     console.error('Display state error:', err);

@@ -14,7 +14,6 @@ import { useParams } from 'react-router-dom';
 import { API_BASE } from '@/lib/api';
 
 const POLL_MS = 2500;
-const HOLD_MS = 18000; // how long a "Now Serving" call stays up before resting
 
 type DoctorState = {
   id: string;
@@ -46,13 +45,15 @@ type Ad = {
   media: AdMedia[];
 };
 type DisplayState = {
-  screen: { name: string };
+  screen: { id?: string; name: string; holdSeconds?: number; showTrackQr?: boolean };
   branch: { name: string; code: string };
   scope: string;
   serverTime: string;
   doctors: DoctorState[];
   nowServing: NowServing;
   ads: Ad[];
+  trackUrl?: string;
+  trackQr?: string;
 };
 
 const CSS = `
@@ -94,6 +95,8 @@ const CSS = `
 .wrd-tlab{ flex:0 0 16vw; display:flex; flex-direction:column; justify-content:center; padding:0 2.4vw; border-right:1px solid var(--hairline); }
 .wrd-tlab .a{ font-size:1.3vw; letter-spacing:.25em; text-transform:uppercase; font-weight:800; color:var(--navy); }
 .wrd-tlab .b{ font-size:.95vw; color:var(--muted); font-weight:600; margin-top:.5vh; }
+.wrd-track{ display:flex; align-items:center; gap:1vw; }
+.wrd-trackqr{ height:11vh; width:11vh; border-radius:1vh; background:#fff; padding:.4vh; box-shadow:0 1vh 3vh rgba(20,34,68,.12); }
 .wrd-cells{ flex:1 1 auto; display:flex; }
 .wrd-cell{ flex:1 1 0; display:flex; align-items:center; justify-content:center; gap:1.3vw;
   border-right:1px solid var(--hairline); position:relative; padding:0 1.2vw; }
@@ -231,7 +234,8 @@ export default function WaitingRoomDisplay() {
         setNow(ns);
         setMode('serving');
         window.clearTimeout(holdTimer.current);
-        holdTimer.current = window.setTimeout(() => setMode('resting'), HOLD_MS);
+        const holdMs = (data.screen?.holdSeconds ?? 18) * 1000;
+        holdTimer.current = window.setTimeout(() => setMode('resting'), holdMs);
       }
     } catch {
       // Keep the last known queue on screen; just flag reconnecting.
@@ -301,7 +305,7 @@ export default function WaitingRoomDisplay() {
 
         <div className="wrd-main">
           {mode === 'serving' && now ? (
-            <div className="wrd-screen" key={now.startedAt || 'ns'} style={{ ['--hold' as any]: `${HOLD_MS}ms` }}>
+            <div className="wrd-screen" key={now.startedAt || 'ns'} style={{ ['--hold' as any]: `${(state?.screen?.holdSeconds ?? 18) * 1000}ms` }}>
               <div className="wrd-eye">Now Serving</div>
               <div className="wrd-token">{two(now.token)}</div>
               {now.patientName && <div className="wrd-pname">{now.patientName}</div>}
@@ -329,8 +333,20 @@ export default function WaitingRoomDisplay() {
 
         <footer className="wrd-tick">
           <div className="wrd-tlab">
-            <div className="a">Live Queue</div>
-            <div className="b">Current token by doctor</div>
+            {state?.screen?.showTrackQr && state?.trackQr ? (
+              <div className="wrd-track">
+                <img className="wrd-trackqr" src={state.trackQr} alt="Scan to follow your token" />
+                <div>
+                  <div className="a">Track your token</div>
+                  <div className="b">Scan to follow on your phone</div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="a">Live Queue</div>
+                <div className="b">Current token by doctor</div>
+              </>
+            )}
           </div>
           <div className="wrd-cells">
             {doctors.length === 0 ? (

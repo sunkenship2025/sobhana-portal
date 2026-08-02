@@ -40,6 +40,8 @@ type Screen = {
   code: string;
   scope: string;
   doctorIds: string[];
+  holdSeconds: number;
+  showTrackQr: boolean;
   isActive: boolean;
   revokedAt: string | null;
   createdAt: string;
@@ -64,8 +66,13 @@ export default function ManageDisplayScreens() {
   const [name, setName] = useState('');
   const [scope, setScope] = useState<'OP' | 'OP_IP'>('OP');
   const [doctorIds, setDoctorIds] = useState<string[]>([]);
+  const [holdSeconds, setHoldSeconds] = useState(18);
+  const [showTrackQr, setShowTrackQr] = useState(true);
 
-  const createM = useApiMutation<Screen, { name: string; scope: string; doctorIds: string[] }>({
+  const createM = useApiMutation<
+    Screen,
+    { name: string; scope: string; doctorIds: string[]; holdSeconds: number; showTrackQr: boolean }
+  >({
     mutationFn: (v) =>
       branchRequest<Screen>('/display-screens', branchId!, {
         method: 'POST',
@@ -79,6 +86,8 @@ export default function ManageDisplayScreens() {
       setName('');
       setScope('OP');
       setDoctorIds([]);
+      setHoldSeconds(18);
+      setShowTrackQr(true);
     },
     onError: (e) => toast.error(e.message || 'Failed to add screen'),
   });
@@ -119,6 +128,14 @@ export default function ManageDisplayScreens() {
     const val = (rooms[d.id] ?? d.roomLabel ?? '').trim();
     if (val === (d.roomLabel || '')) return; // unchanged — skip the write
     roomM.mutate({ id: d.id, roomLabel: val });
+  };
+
+  const [holds, setHolds] = useState<Record<string, number>>({});
+  const holdEdit = (s: Screen) => (holds[s.id] !== undefined ? holds[s.id] : s.holdSeconds);
+  const saveHold = (s: Screen) => {
+    const v = holds[s.id];
+    if (v === undefined || v === s.holdSeconds) return;
+    patchM.mutate({ id: s.id, data: { holdSeconds: v } });
   };
 
   const urlFor = (code: string) => `${window.location.origin}/display/${code}`;
@@ -192,6 +209,26 @@ export default function ManageDisplayScreens() {
                     <ExternalLink className="h-4 w-4" />
                   </a>
                 </Button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-5 text-sm">
+                <label className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Hold</span>
+                  <Input
+                    type="number"
+                    min={8}
+                    max={40}
+                    className="w-20 h-8"
+                    value={holdEdit(s)}
+                    onChange={(e) => setHolds((h) => ({ ...h, [s.id]: Number(e.target.value) }))}
+                    onBlur={() => saveHold(s)}
+                  />
+                  <span className="text-muted-foreground">sec</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Switch checked={s.showTrackQr} onCheckedChange={(v) => patchM.mutate({ id: s.id, data: { showTrackQr: v } })} />
+                  <span className="text-muted-foreground">Track-token QR</span>
+                </label>
               </div>
 
               <div className="flex justify-end">
@@ -306,13 +343,23 @@ export default function ManageDisplayScreens() {
                 )}
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Now-Serving hold (seconds)</Label>
+                <Input type="number" min={8} max={40} value={holdSeconds} onChange={(e) => setHoldSeconds(Number(e.target.value))} />
+              </div>
+              <label className="flex items-center gap-2 pt-7 cursor-pointer">
+                <Switch checked={showTrackQr} onCheckedChange={setShowTrackQr} />
+                <span className="text-sm">Show "track your token" QR</span>
+              </label>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button
-              onClick={() => createM.mutate({ name: name.trim(), scope, doctorIds })}
+              onClick={() => createM.mutate({ name: name.trim(), scope, doctorIds, holdSeconds, showTrackQr })}
               disabled={!name.trim() || createM.isPending}
             >
               {createM.isPending ? 'Adding…' : 'Add screen'}

@@ -62,6 +62,7 @@ function shape(ad: {
   kind: string;
   mediaKeys: string[];
   mimeTypes: string[];
+  screenIds: string[];
   fit: string;
   durationSec: number;
   enabled: boolean;
@@ -79,6 +80,7 @@ function shape(ad: {
     enabled: ad.enabled,
     weight: ad.weight,
     sortOrder: ad.sortOrder,
+    screenIds: ad.screenIds,
     startDate: ad.startDate,
     endDate: ad.endDate,
     media: ad.mediaKeys.map((_k, i) => ({
@@ -114,6 +116,13 @@ router.post('/', upload.array('files', 12), async (req: AuthRequest, res) => {
     const weight = clampInt(req.body.weight, 1, 1, 10);
     const startDate = parseDate(req.body.startDate);
     const endDate = parseDate(req.body.endDate);
+    let screenIds: string[] = [];
+    try {
+      const parsed = JSON.parse(req.body.screenIds || '[]');
+      if (Array.isArray(parsed)) screenIds = parsed.filter((x) => typeof x === 'string');
+    } catch {
+      screenIds = [];
+    }
 
     if (!name) return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Name is required' });
     if (!files.length) return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'At least one file is required' });
@@ -150,6 +159,7 @@ router.post('/', upload.array('files', 12), async (req: AuthRequest, res) => {
         kind,
         mediaKeys,
         mimeTypes,
+        screenIds,
         fit,
         durationSec,
         weight,
@@ -182,6 +192,9 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     if (req.body.sortOrder !== undefined) data.sortOrder = clampInt(req.body.sortOrder, existing.sortOrder, 0, 9999);
     if ('startDate' in req.body) data.startDate = parseDate(req.body.startDate);
     if ('endDate' in req.body) data.endDate = parseDate(req.body.endDate);
+    if (Array.isArray(req.body.screenIds)) {
+      data.screenIds = req.body.screenIds.filter((x: unknown) => typeof x === 'string');
+    }
 
     const ad = await prisma.displayAd.update({ where: { id }, data });
     return res.json(shape(ad));

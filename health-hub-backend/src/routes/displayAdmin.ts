@@ -22,6 +22,12 @@ function newCode(): string {
   return crypto.randomBytes(12).toString('base64url');
 }
 
+function clampHold(v: unknown, def: number): number {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return def;
+  return Math.min(40, Math.max(8, n));
+}
+
 // GET / — screens for the active branch
 router.get('/', async (req: AuthRequest, res) => {
   try {
@@ -39,7 +45,7 @@ router.get('/', async (req: AuthRequest, res) => {
 // POST / — create + pair a new screen
 router.post('/', async (req: AuthRequest, res) => {
   try {
-    const { name, scope, doctorIds } = req.body || {};
+    const { name, scope, doctorIds, holdSeconds, showTrackQr } = req.body || {};
     if (!name || typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Screen name is required' });
     }
@@ -52,6 +58,8 @@ router.post('/', async (req: AuthRequest, res) => {
         doctorIds: Array.isArray(doctorIds)
           ? doctorIds.filter((x: unknown) => typeof x === 'string')
           : [],
+        holdSeconds: clampHold(holdSeconds, 18),
+        showTrackQr: typeof showTrackQr === 'boolean' ? showTrackQr : true,
       },
     });
     return res.status(201).json(screen);
@@ -70,7 +78,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     });
     if (!existing) return res.status(404).json({ error: 'NOT_FOUND', message: 'Screen not found' });
 
-    const { name, scope, doctorIds, isActive } = req.body || {};
+    const { name, scope, doctorIds, isActive, holdSeconds, showTrackQr } = req.body || {};
     const data: Record<string, unknown> = {};
     if (typeof name === 'string' && name.trim()) data.name = name.trim();
     if (scope === 'OP' || scope === 'OP_IP') data.scope = scope;
@@ -78,6 +86,8 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       data.doctorIds = doctorIds.filter((x: unknown) => typeof x === 'string');
     }
     if (typeof isActive === 'boolean') data.isActive = isActive;
+    if (holdSeconds !== undefined) data.holdSeconds = clampHold(holdSeconds, existing.holdSeconds);
+    if (typeof showTrackQr === 'boolean') data.showTrackQr = showTrackQr;
 
     const screen = await prisma.displayScreen.update({ where: { id }, data });
     return res.json(screen);

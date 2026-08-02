@@ -527,6 +527,8 @@ model DisplayScreen {
   code      String    @unique // pairing/display token, random, lives in the TV URL
   scope     String    @default("OP") // OP | OP_IP (display filter; OP-only for now)
   doctorIds String[]  @default([]) // which doctors show; empty = all with OP visits today
+  holdSeconds Int     @default(18) // how long a "Now Serving" call holds before returning to ads
+  showTrackQr Boolean @default(true) // show the "track your token" QR on the ticker
   isActive  Boolean   @default(true)
   revokedAt DateTime?
   createdAt DateTime  @default(now())
@@ -547,6 +549,7 @@ model DisplayAd {
   kind        String    @default("IMAGE") // IMAGE | VIDEO | SLIDESHOW
   mediaKeys   String[]  @default([]) // R2 keys; 1 for IMAGE/VIDEO, N (ordered) for SLIDESHOW
   mimeTypes   String[]  @default([]) // parallel to mediaKeys, for Content-Type on serve
+  screenIds   String[]  @default([]) // which screens show this ad; empty = all screens in the branch
   fit         String    @default("cover") // cover (fill) | contain (letterbox)
   durationSec Int       @default(10) // IMAGE hold / SLIDESHOW per-slide; VIDEO plays to its end
   enabled     Boolean   @default(true)

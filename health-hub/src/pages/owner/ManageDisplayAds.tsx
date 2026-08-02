@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -40,6 +41,7 @@ type Ad = {
   enabled: boolean;
   weight: number;
   sortOrder: number;
+  screenIds: string[];
   media: AdMedia[];
 };
 
@@ -59,6 +61,12 @@ export default function ManageDisplayAds() {
     () => (adsQ.data ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder),
     [adsQ.data],
   );
+  const screensQ = useApiQuery<{ id: string; name: string }[]>({
+    branchScoped: true,
+    queryKey: qk.displayScreens(branchId),
+    queryFn: () => branchRequest<{ id: string; name: string }[]>('/display-screens', branchId!),
+  });
+  const screens = screensQ.data ?? [];
 
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
@@ -67,11 +75,12 @@ export default function ManageDisplayAds() {
   const [durationSec, setDurationSec] = useState(10);
   const [weight, setWeight] = useState(1);
   const [files, setFiles] = useState<FileList | null>(null);
+  const [screenIds, setScreenIds] = useState<string[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
   const reset = () => {
-    setName(''); setKind('IMAGE'); setFit('cover'); setDurationSec(10); setWeight(1); setFiles(null);
+    setName(''); setKind('IMAGE'); setFit('cover'); setDurationSec(10); setWeight(1); setFiles(null); setScreenIds([]);
     if (fileRef.current) fileRef.current.value = '';
   };
 
@@ -85,6 +94,7 @@ export default function ManageDisplayAds() {
     fd.append('fit', fit);
     fd.append('durationSec', String(durationSec));
     fd.append('weight', String(weight));
+    fd.append('screenIds', JSON.stringify(screenIds));
     Array.from(files).forEach((f) => fd.append('files', f));
     setUploading(true);
     try {
@@ -180,6 +190,8 @@ export default function ManageDisplayAds() {
                     {ad.kind === 'VIDEO' ? 'Plays to end' : `${ad.durationSec}s${ad.kind === 'SLIDESHOW' ? '/slide' : ''}`}
                     {' · '}weight {ad.weight}
                     {ad.kind === 'SLIDESHOW' ? ` · ${ad.media.length} slides` : ''}
+                    {' · '}
+                    {ad.screenIds?.length ? `${ad.screenIds.length} screen${ad.screenIds.length > 1 ? 's' : ''}` : 'All screens'}
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -292,6 +304,25 @@ export default function ManageDisplayAds() {
               <div className="space-y-2 w-1/2">
                 <Label>Weight (frequency)</Label>
                 <Input type="number" min={1} max={10} value={weight} onChange={(e) => setWeight(Number(e.target.value))} />
+              </div>
+            )}
+            {screens.length > 0 && (
+              <div className="space-y-2">
+                <Label>Show on</Label>
+                <p className="text-xs text-muted-foreground">Leave all unchecked to show on every screen in this branch.</p>
+                <div className="max-h-32 overflow-y-auto rounded-md border p-2 space-y-1">
+                  {screens.map((sc) => (
+                    <label key={sc.id} className="flex items-center gap-2 rounded px-1 py-1.5 hover:bg-muted/50 cursor-pointer">
+                      <Checkbox
+                        checked={screenIds.includes(sc.id)}
+                        onCheckedChange={() =>
+                          setScreenIds((cur) => (cur.includes(sc.id) ? cur.filter((x) => x !== sc.id) : [...cur, sc.id]))
+                        }
+                      />
+                      <span className="text-sm">{sc.name}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
             )}
           </div>
