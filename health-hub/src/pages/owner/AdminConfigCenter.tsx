@@ -5,10 +5,11 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { LoadingState } from '@/components/ui/loading-state';
 import { useAuthStore, UserRole } from '@/store/authStore';
 import {
-  FlaskConical, LayoutGrid, Package, Building2, UserCheck, Users, ShieldCheck, FileText,
+  FlaskConical, LayoutGrid, Package, Building2, UserCheck, Users, ShieldCheck, FileText, Tv,
 } from 'lucide-react';
 
 const ManageDepartments = lazy(() => import('./ManageDepartments'));
+const ManageDisplayScreens = lazy(() => import('./ManageDisplayScreens'));
 const ManageSigningDoctors = lazy(() => import('./ManageSigningDoctors'));
 const ManageDoctorsAndReferrals = lazy(() => import('./ManageDoctorsAndReferrals'));
 const ManageClinicalDefinitions = lazy(() => import('./ManageClinicalDefinitions'));
@@ -28,6 +29,7 @@ const TABS = [
   { value: 'departments', label: 'Departments', icon: Building2, roles: ['owner', 'lab_incharge'] },
   { value: 'signing', label: 'Signers & Rules', icon: UserCheck, roles: ['owner', 'lab_incharge'] },
   { value: 'referrals', label: 'Referrals', icon: Users, roles: ['owner', 'lab_incharge', 'staff', 'sales'] },
+  { value: 'signage', label: 'Waiting Room Display', icon: Tv, roles: ['owner'] },
   { value: 'roles', label: 'Roles', icon: ShieldCheck, roles: ['owner'] },
 ] as const satisfies readonly { value: string; label: string; icon: unknown; roles: readonly UserRole[] }[];
 
@@ -127,6 +129,14 @@ export default function AdminConfigCenter() {
             <TabsContent value="referrals">
               <Suspense fallback={<Loading />}>
                 <ManageDoctorsAndReferrals />
+              </Suspense>
+            </TabsContent>
+          )}
+
+          {canSee('signage') && (
+            <TabsContent value="signage">
+              <Suspense fallback={<Loading />}>
+                <ManageDisplayScreens />
               </Suspense>
             </TabsContent>
           )}

@@ -128,4 +128,5 @@ export const qk = {
     ["diagnostic-centers", branchId] as const,
   externalLabs: (branchId: string | null) => ["external-labs", branchId] as const,
   departments: (branchId: string | null) => ["departments", branchId] as const,
+  displayScreens: (branchId: string | null) => ["display-screens", branchId] as const,
 } as const;
