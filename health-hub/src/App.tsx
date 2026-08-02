@@ -232,10 +232,10 @@ function AppRoutes() {
       {/* Public routes for secure document access */}
       <Route path="/report/view" element={<ReportViewPage />} />
 
-      {/* Public fullscreen waiting-room TV — paired by its :code (kiosk, no login) */}
-      <Route path="/display/:code" element={<WaitingRoomDisplay />} />
+      {/* Public fullscreen waiting-room TV — readable link e.g. /display/chintal/op (kiosk, no login) */}
+      <Route path="/display/:branch/:screen" element={<WaitingRoomDisplay />} />
       {/* Public mobile companion — patient scans the ticker QR to track their token */}
-      <Route path="/track/:code" element={<TrackToken />} />
+      <Route path="/track/:branch/:screen" element={<TrackToken />} />
       
       {/* Legal / compliance pages (public) */}
       <Route path="/privacy" element={<PrivacyPolicy />} />

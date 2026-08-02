@@ -69,7 +69,7 @@ function two(n: number | null): string {
 }
 
 export default function TrackToken() {
-  const { code } = useParams<{ code: string }>();
+  const { branch, screen: screenSlug } = useParams<{ branch: string; screen: string }>();
   const [state, setState] = useState<State | null>(null);
   const [status, setStatus] = useState<'loading' | 'ok' | 'offline' | 'notfound'>('loading');
 
@@ -77,7 +77,7 @@ export default function TrackToken() {
     let alive = true;
     const poll = async () => {
       try {
-        const r = await fetch(`${API_BASE}/display/${code}/state`, { headers: { Accept: 'application/json' } });
+        const r = await fetch(`${API_BASE}/display/${branch}/${screenSlug}/state`, { headers: { Accept: 'application/json' } });
         if (r.status === 404) {
           if (alive) setStatus('notfound');
           return;
@@ -98,7 +98,7 @@ export default function TrackToken() {
       alive = false;
       window.clearInterval(id);
     };
-  }, [code]);
+  }, [branch, screenSlug]);
 
   if (status === 'notfound') {
     return (
@@ -122,7 +122,7 @@ export default function TrackToken() {
   }
 
   const ns = state?.nowServing;
-  const doctors = state?.doctors ?? [];
+  const doctors = (state?.doctors ?? []).filter((d) => d.currentToken != null);
 
   return (
     <>

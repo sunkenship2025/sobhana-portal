@@ -14,6 +14,7 @@ import prisma from '../lib/prisma';
 import { createRateLimiter, getClientIp } from '../middleware/rateLimit';
 import { getObjectStream } from '../services/r2StorageService';
 import QRCode from 'qrcode';
+import { branchSlug } from '../lib/displaySlug';
 
 // The track-your-token QR is stable per URL — generate once, then serve from cache.
 const trackQrCache = new Map<string, string>();
@@ -69,19 +70,29 @@ type Doc = {
   _at: number; // internal ranking timestamp, stripped before responding
 };
 
-router.get('/:code/state', displayRateLimit, async (req: Request, res: Response) => {
+router.get('/:branchSlug/:screenSlug/state', displayRateLimit, async (req: Request, res: Response) => {
   try {
-    const code = String(req.params.code || '');
+    const bSlug = String(req.params.branchSlug || '').toLowerCase();
+    const sSlug = String(req.params.screenSlug || '');
 
+    const branches = await prisma.branch.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, code: true },
+    });
+    const branch = branches.find((b) => branchSlug(b.name, b.code) === bSlug);
+    if (!branch) {
+      return res.status(404).json({ error: 'SCREEN_NOT_FOUND', message: "This screen link isn't recognized." });
+    }
     const screen = await prisma.displayScreen.findFirst({
-      where: { code, isActive: true, revokedAt: null },
-      include: { branch: { select: { name: true, code: true } } },
+      where: {
+        branchId: branch.id,
+        isActive: true,
+        revokedAt: null,
+        OR: [{ slug: sSlug }, { code: sSlug }],
+      },
     });
     if (!screen) {
-      return res.status(404).json({
-        error: 'SCREEN_NOT_FOUND',
-        message: 'This screen is not paired, or it has been removed.',
-      });
+      return res.status(404).json({ error: 'SCREEN_NOT_FOUND', message: "This screen link isn't recognized." });
     }
 
     const { start, end } = istDayRangeUtc();
@@ -236,7 +247,9 @@ router.get('/:code/state', displayRateLimit, async (req: Request, res: Response)
     // point at; fall back to FRONTEND_URL for non-browser callers.
     const origin =
       (req.headers.origin as string | undefined) || process.env.FRONTEND_URL || '';
-    const trackUrl = origin ? `${origin.replace(/\/$/, '')}/track/${code}` : '';
+    const trackUrl = origin
+      ? `${origin.replace(/\/$/, '')}/track/${bSlug}/${screen.slug || screen.code}`
+      : '';
     const trackQr = screen.showTrackQr && trackUrl ? await trackQrDataUrl(trackUrl) : '';
 
     res.setHeader('Cache-Control', 'no-store');
@@ -246,8 +259,9 @@ router.get('/:code/state', displayRateLimit, async (req: Request, res: Response)
         name: screen.name,
         holdSeconds: screen.holdSeconds,
         showTrackQr: screen.showTrackQr,
+        chimeSound: screen.chimeSound,
       },
-      branch: { name: screen.branch.name, code: screen.branch.code },
+      branch: { name: branch.name, code: branch.code },
       scope: screen.scope,
       serverTime: new Date().toISOString(),
       doctors: doctors.map(({ _at, ...d }) => d),

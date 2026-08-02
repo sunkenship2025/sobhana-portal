@@ -45,7 +45,7 @@ type Ad = {
   media: AdMedia[];
 };
 type DisplayState = {
-  screen: { id?: string; name: string; holdSeconds?: number; showTrackQr?: boolean };
+  screen: { id?: string; name: string; holdSeconds?: number; showTrackQr?: boolean; chimeSound?: string };
   branch: { name: string; code: string };
   scope: string;
   serverTime: string;
@@ -131,6 +131,45 @@ function two(n: number | null): string {
   return n == null ? '—' : String(n).padStart(2, '0');
 }
 
+// Ding-dong call chime via Web Audio (no asset needed). On a TV, Fully Kiosk
+// must allow audio/autoplay; a first touch also unlocks it.
+let _actx: AudioContext | null = null;
+function audioCtx(): AudioContext | null {
+  try {
+    const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    _actx = _actx || new Ctor();
+    if (_actx.state === 'suspended') void _actx.resume();
+    return _actx;
+  } catch {
+    return null;
+  }
+}
+function bell(c: AudioContext, freq: number, t0: number, dur: number, gain: number) {
+  const partial = (f: number, g: number, d: number) => {
+    const o = c.createOscillator();
+    const gn = c.createGain();
+    o.type = 'sine';
+    o.frequency.value = f;
+    o.connect(gn);
+    gn.connect(c.destination);
+    gn.gain.setValueAtTime(0.0001, t0);
+    gn.gain.exponentialRampToValueAtTime(g, t0 + 0.006);
+    gn.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
+    o.start(t0);
+    o.stop(t0 + d + 0.03);
+  };
+  partial(freq, gain, dur);
+  partial(freq * 2.01, gain * 0.35, dur * 0.7);
+  partial(freq * 3.02, gain * 0.16, dur * 0.45);
+}
+function playDingDong() {
+  const c = audioCtx();
+  if (!c) return;
+  const t = c.currentTime + 0.02;
+  bell(c, 659.25, t, 0.9, 0.24);
+  bell(c, 523.25, t + 0.3, 1.1, 0.24);
+}
+
 /** Rotates uploaded creatives in the idle state: photos held, slideshows cycled, videos to their end. */
 function AdRotator({ ads }: { ads: Ad[] }) {
   const playlist = useMemo(
@@ -196,7 +235,7 @@ function AdRotator({ ads }: { ads: Ad[] }) {
 }
 
 export default function WaitingRoomDisplay() {
-  const { code } = useParams<{ code: string }>();
+  const { branch, screen: screenSlug } = useParams<{ branch: string; screen: string }>();
   const [state, setState] = useState<DisplayState | null>(null);
   const [status, setStatus] = useState<'loading' | 'ok' | 'offline' | 'notfound'>('loading');
   const [mode, setMode] = useState<'resting' | 'serving'>('resting');
@@ -205,6 +244,7 @@ export default function WaitingRoomDisplay() {
   const [today, setToday] = useState('');
   const shownStartedAt = useRef<string>('');
   const holdTimer = useRef<number | undefined>(undefined);
+  const booted = useRef(false);
 
   useEffect(() => {
     const tick = () => {
@@ -223,7 +263,9 @@ export default function WaitingRoomDisplay() {
 
   const poll = useCallback(async () => {
     try {
-      const r = await fetch(`${API_BASE}/display/${code}/state`, { headers: { Accept: 'application/json' } });
+      const r = await fetch(`${API_BASE}/display/${branch}/${screenSlug}/state`, {
+        headers: { Accept: 'application/json' },
+      });
       if (r.status === 404) {
         setStatus('notfound');
         return;
@@ -233,6 +275,7 @@ export default function WaitingRoomDisplay() {
       setState(data);
       setStatus('ok');
       const ns = data.nowServing;
+      const isNewCall = booted.current; // don't chime for whatever's already in progress on boot
       if (ns?.startedAt && ns.startedAt > shownStartedAt.current) {
         shownStartedAt.current = ns.startedAt;
         setNow(ns);
@@ -240,12 +283,14 @@ export default function WaitingRoomDisplay() {
         window.clearTimeout(holdTimer.current);
         const holdMs = (data.screen?.holdSeconds ?? 18) * 1000;
         holdTimer.current = window.setTimeout(() => setMode('resting'), holdMs);
+        if (isNewCall && data.screen?.chimeSound !== 'none') playDingDong();
       }
+      booted.current = true;
     } catch {
       // Keep the last known queue on screen; just flag reconnecting.
       setStatus((s) => (s === 'loading' ? 'loading' : 'offline'));
     }
-  }, [code]);
+  }, [branch, screenSlug]);
 
   useEffect(() => {
     poll();
@@ -258,7 +303,7 @@ export default function WaitingRoomDisplay() {
 
   // Rotate the ticker in pages of 6 when there are more doctors than fit cleanly.
   const [tickPage, setTickPage] = useState(0);
-  const doctorCount = state?.doctors?.length ?? 0;
+  const doctorCount = (state?.doctors ?? []).filter((d) => d.currentToken != null).length;
   const tickPages = Math.max(1, Math.ceil(doctorCount / 6));
   useEffect(() => {
     if (tickPages <= 1) {
@@ -269,6 +314,17 @@ export default function WaitingRoomDisplay() {
     return () => window.clearInterval(id);
   }, [tickPages]);
 
+  // Unlock audio on the first interaction (kiosks that don't allow autoplay).
+  useEffect(() => {
+    const resume = () => audioCtx();
+    window.addEventListener('pointerdown', resume, { once: true });
+    window.addEventListener('keydown', resume, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', resume);
+      window.removeEventListener('keydown', resume);
+    };
+  }, []);
+
   if (status === 'notfound') {
     return (
       <>
@@ -277,7 +333,7 @@ export default function WaitingRoomDisplay() {
           <h1>This screen isn't paired</h1>
           <p>
             Ask the owner to add this screen in Admin → Waiting Room Display, then reopen the link.
-            <br />Screen code: <code>{code}</code>
+            <br />Link: <code>/display/{branch}/{screenSlug}</code>
           </p>
         </div>
       </>
@@ -295,10 +351,9 @@ export default function WaitingRoomDisplay() {
     );
   }
 
-  const doctors = state?.doctors ?? [];
-  const sortedDoctors = [...doctors].sort(
-    (a, b) => (b.currentToken != null ? 1 : 0) - (a.currentToken != null ? 1 : 0),
-  );
+  // Only doctors with a real token — no dashes on the ticker.
+  const doctors = (state?.doctors ?? []).filter((d) => d.currentToken != null);
+  const sortedDoctors = [...doctors].sort((a, b) => (b.serving ? 1 : 0) - (a.serving ? 1 : 0));
   const visibleDoctors = sortedDoctors.slice(tickPage * 6, tickPage * 6 + 6);
 
   return (
