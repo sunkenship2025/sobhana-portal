@@ -21,6 +21,7 @@ import {
   DeleteObjectCommand,
   HeadBucketCommand,
 } from '@aws-sdk/client-s3';
+import type { Readable } from 'stream';
 
 let cachedClient: S3Client | null = null;
 
@@ -112,6 +113,66 @@ export async function deleteObject(key: string): Promise<void> {
 
 export function buildExternalUploadKey(visitId: string, uploadId: string): string {
   return `visits/${visitId}/uploads/${uploadId}.pdf`;
+}
+
+/** Generic object put (any content type) — used for display ad photos/videos. */
+export async function putObject(input: {
+  key: string;
+  body: Buffer;
+  contentType: string;
+  contentDisposition?: string;
+}): Promise<void> {
+  const client = getClient();
+  await client.send(
+    new PutObjectCommand({
+      Bucket: getBucket(),
+      Key: input.key,
+      Body: input.body,
+      ContentType: input.contentType,
+      ContentDisposition: input.contentDisposition
+        ? input.contentDisposition.replace(/[\r\n"]/g, '')
+        : undefined,
+    }),
+  );
+}
+
+export interface ObjectStream {
+  body: Readable;
+  contentType?: string;
+  contentLength?: number;
+  contentRange?: string;
+  status: number; // 200 full, 206 partial
+}
+
+/**
+ * Stream an object straight from R2 (optionally a byte range). Returns the SDK
+ * body stream to pipe to the response — never buffers the whole object, so a
+ * large ad video can't OOM the 512MB instance. Pass the request's Range header
+ * to support <video> seeking.
+ */
+export async function getObjectStream(key: string, range?: string): Promise<ObjectStream> {
+  const client = getClient();
+  const result = await client.send(
+    new GetObjectCommand({ Bucket: getBucket(), Key: key, Range: range }),
+  );
+  return {
+    body: result.Body as Readable,
+    contentType: result.ContentType,
+    contentLength: result.ContentLength,
+    contentRange: result.ContentRange,
+    status: range && result.ContentRange ? 206 : 200,
+  };
+}
+
+/** Best-effort bulk delete (e.g. removing an ad's media). Never throws. */
+export async function deleteObjects(keys: string[]): Promise<void> {
+  for (const key of keys) {
+    try {
+      await deleteObject(key);
+    } catch (err) {
+      console.error('R2 deleteObjects: failed to delete', key, err);
+    }
+  }
 }
 
 /**

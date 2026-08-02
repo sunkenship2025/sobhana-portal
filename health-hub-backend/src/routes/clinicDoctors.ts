@@ -130,7 +130,7 @@ router.get('/', async (req: AuthRequest, res) => {
 router.patch('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { name, qualification, specialty, phone, email, letterheadNote, consultationFeeInPaise } = req.body;
+    const { name, qualification, specialty, phone, email, letterheadNote, consultationFeeInPaise, roomLabel } = req.body;
 
     // Normalize commission fields if provided
     let normalizedPayout;
@@ -164,6 +164,8 @@ router.patch('/:id', async (req: AuthRequest, res) => {
         email,
         letterheadNote,
         consultationFeeInPaise,
+        roomLabel:
+          typeof roomLabel === 'string' ? roomLabel.trim() || null : undefined,
         ...(normalizedPayout ? toClinicDoctorPayoutInput(normalizedPayout) : {}),
       },
       req.branchId!,

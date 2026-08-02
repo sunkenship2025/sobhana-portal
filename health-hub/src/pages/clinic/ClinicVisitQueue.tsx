@@ -43,6 +43,7 @@ interface QueueVisit {
   domain: string;
   status: string;
   visitType: string;
+  tokenNumber?: number | null;
   hospitalWard?: string | null;
   doctorId: string | null;
   doctor?: {
@@ -366,6 +367,11 @@ const ClinicVisitQueue = () => {
                     >
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
+                          {visit.tokenNumber != null && (
+                            <span className="text-sm font-mono font-bold px-2 py-0.5 rounded bg-muted">
+                              Token {visit.tokenNumber}
+                            </span>
+                          )}
                           <span className="font-semibold">{formatPatientName(visit.patient.name, (visit.patient as any).title)}</span>
                           {(ageStr || genderStr) && (
                             <span className="text-muted-foreground">

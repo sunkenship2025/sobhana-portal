@@ -413,6 +413,7 @@ model ClinicDoctor {
   phone                   String?
   email                   String?
   letterheadNote          String?
+  roomLabel               String? // Optional room/cabin shown on the waiting-room display; blank = hidden
   consultationFeeInPaise  Int?
   commissionType          ReferralPayoutType @default(PERCENTAGE)
   commissionPercent       Float              @default(100.0) // 0-100, percentage of consultation fee
@@ -509,10 +510,59 @@ model Branch {
   labInchargeRules          LabInchargeRule[]
   messageLogs               MessageLog[]
   conversations             Conversation[]
+  displayScreens            DisplayScreen[]
+  displayAds                DisplayAd[]
 
   @@index([isActive])
   @@index([code])
   @@index([createdAt])
+}
+
+/// DisplayScreen: a physical waiting-room TV paired to a branch.
+/// Reached unauthenticated via /api/display/:code — the random code IS the credential.
+model DisplayScreen {
+  id        String    @id @default(cuid())
+  branchId  String
+  name      String // e.g. "Ground-floor OP"
+  code      String    @unique // pairing/display token, random, lives in the TV URL
+  scope     String    @default("OP") // OP | OP_IP (display filter; OP-only for now)
+  doctorIds String[]  @default([]) // which doctors show; empty = all with OP visits today
+  holdSeconds Int     @default(18) // how long a "Now Serving" call holds before returning to ads
+  showTrackQr Boolean @default(true) // show the "track your token" QR on the ticker
+  isActive  Boolean   @default(true)
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+}
+
+/// DisplayAd: a promotional creative shown on the waiting-room display when idle.
+/// kind IMAGE/VIDEO = one media object; SLIDESHOW = several images cycled.
+/// Media lives in R2 (keys), streamed to the TV via the public display route.
+model DisplayAd {
+  id          String    @id @default(cuid())
+  branchId    String
+  name        String
+  kind        String    @default("IMAGE") // IMAGE | VIDEO | SLIDESHOW
+  mediaKeys   String[]  @default([]) // R2 keys; 1 for IMAGE/VIDEO, N (ordered) for SLIDESHOW
+  mimeTypes   String[]  @default([]) // parallel to mediaKeys, for Content-Type on serve
+  screenIds   String[]  @default([]) // which screens show this ad; empty = all screens in the branch
+  fit         String    @default("cover") // cover (fill) | contain (letterbox)
+  durationSec Int       @default(10) // IMAGE hold / SLIDESHOW per-slide; VIDEO plays to its end
+  enabled     Boolean   @default(true)
+  weight      Int       @default(1) // rotation frequency
+  sortOrder   Int       @default(0)
+  startDate   DateTime? // optional schedule window
+  endDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
 }
 
 /// User: Staff, doctor, owner
@@ -1038,6 +1088,7 @@ model ClinicVisit {
   status                 VisitStatus     @default(WAITING) // Queue state: WAITING | IN_PROGRESS | COMPLETED
   startedAt              DateTime? // First transition to IN_PROGRESS
   completedAt            DateTime? // First transition to COMPLETED
+  tokenNumber            Int? // Daily branch OP queue token shown on the waiting-room display (null for IP)
   createdAt              DateTime        @default(now())
   updatedAt              DateTime        @updatedAt
 
