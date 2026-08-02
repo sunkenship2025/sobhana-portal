@@ -43,7 +43,7 @@ type Screen = {
   revokedAt: string | null;
   createdAt: string;
 };
-type Doc = { id: string; name: string; specialty?: string; isActive?: boolean };
+type Doc = { id: string; name: string; specialty?: string; isActive?: boolean; roomLabel?: string | null };
 
 export default function ManageDisplayScreens() {
   const branchId = useBranchId();
@@ -100,6 +100,25 @@ export default function ManageDisplayScreens() {
     onSuccess: () => toast.success('Screen unpaired'),
     onError: (e) => toast.error(e.message || 'Failed to unpair screen'),
   });
+
+  const roomM = useApiMutation<Doc, { id: string; roomLabel: string }>({
+    mutationFn: ({ id, roomLabel }) =>
+      branchRequest<Doc>(`/clinic-doctors/${id}`, branchId!, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomLabel }),
+      }),
+    invalidate: [qk.clinicDoctors()],
+    onSuccess: () => toast.success('Room saved'),
+    onError: (e) => toast.error(e.message || 'Failed to save room'),
+  });
+  const [rooms, setRooms] = useState<Record<string, string>>({});
+  const roomValue = (d: Doc) => (rooms[d.id] !== undefined ? rooms[d.id] : d.roomLabel || '');
+  const saveRoom = (d: Doc) => {
+    const val = (rooms[d.id] ?? d.roomLabel ?? '').trim();
+    if (val === (d.roomLabel || '')) return; // unchanged — skip the write
+    roomM.mutate({ id: d.id, roomLabel: val });
+  };
 
   const urlFor = (code: string) => `${window.location.origin}/display/${code}`;
   const copyLink = (code: string) => {
@@ -205,6 +224,34 @@ export default function ManageDisplayScreens() {
           ))}
         </div>
       )}
+
+      <div className="pt-2">
+        <h3 className="text-base font-semibold">Doctors &amp; rooms</h3>
+        <p className="text-sm text-muted-foreground mb-3">
+          Optional. The room shows on the display when a patient is called; leave blank to hide it.
+        </p>
+        <div className="rounded-lg border divide-y">
+          {doctors.length === 0 ? (
+            <div className="p-4 text-sm text-muted-foreground">No clinic doctors found.</div>
+          ) : (
+            doctors.map((d) => (
+              <div key={d.id} className="flex items-center justify-between gap-4 p-3">
+                <div className="min-w-0">
+                  <div className="font-medium truncate">{d.name}</div>
+                  {d.specialty && <div className="text-xs text-muted-foreground truncate">{d.specialty}</div>}
+                </div>
+                <Input
+                  className="w-40"
+                  placeholder="Room / Cabin"
+                  value={roomValue(d)}
+                  onChange={(e) => setRooms((r) => ({ ...r, [d.id]: e.target.value }))}
+                  onBlur={() => saveRoom(d)}
+                />
+              </div>
+            ))
+          )}
+        </div>
+      </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>

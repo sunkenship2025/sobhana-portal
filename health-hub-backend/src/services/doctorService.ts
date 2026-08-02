@@ -567,6 +567,7 @@ export async function updateClinicDoctor(
     email?: string;
     letterheadNote?: string;
     consultationFeeInPaise?: number;
+    roomLabel?: string | null;
     commissionType?: 'PERCENTAGE' | 'FIXED_AMOUNT';
     commissionPercent?: number;
     commissionAmountInPaise?: number;
