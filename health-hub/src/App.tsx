@@ -35,6 +35,7 @@ import OutsideLabs from "./pages/owner/OutsideLabs";
 import BillPrintPage from "./pages/BillPrintPage";
 import PrescriptionPrintPage from "./pages/PrescriptionPrintPage";
 import ReportViewPage from "./pages/ReportViewPage";
+import WaitingRoomDisplay from "./pages/display/WaitingRoomDisplay";
 import PrivacyPolicy from "./pages/legal/PrivacyPolicy";
 import TermsOfService from "./pages/legal/TermsOfService";
 import DataDeletion from "./pages/legal/DataDeletion";
@@ -229,6 +230,9 @@ function AppRoutes() {
       
       {/* Public routes for secure document access */}
       <Route path="/report/view" element={<ReportViewPage />} />
+
+      {/* Public fullscreen waiting-room TV — paired by its :code (kiosk, no login) */}
+      <Route path="/display/:code" element={<WaitingRoomDisplay />} />
       
       {/* Legal / compliance pages (public) */}
       <Route path="/privacy" element={<PrivacyPolicy />} />

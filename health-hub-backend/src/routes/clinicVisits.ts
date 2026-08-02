@@ -304,6 +304,7 @@ function transformClinicVisit(
     domain: visit.domain,
     status: visit.clinicVisit?.status || visit.status,
     visitType: visit.clinicVisit?.visitType || "OP",
+    tokenNumber: visit.clinicVisit?.tokenNumber ?? null,
     hospitalWard: visit.clinicVisit?.hospitalWard || null,
     doctorId: visit.clinicVisit?.clinicDoctorId || null,
     doctor: visit.clinicVisit?.clinicDoctor || null,
