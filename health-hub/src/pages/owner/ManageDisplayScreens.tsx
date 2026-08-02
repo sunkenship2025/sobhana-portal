@@ -108,12 +108,12 @@ export default function ManageDisplayScreens() {
     onError: (e) => toast.error(e.message || 'Failed to update screen'),
   });
 
-  const revokeM = useApiMutation<Screen, string>({
+  const revokeM = useApiMutation<{ ok: boolean }, string>({
     mutationFn: (id) =>
-      branchRequest<Screen>(`/display-screens/${id}/revoke`, branchId!, { method: 'POST' }),
+      branchRequest<{ ok: boolean }>(`/display-screens/${id}`, branchId!, { method: 'DELETE' }),
     invalidate: [qk.displayScreens(branchId)],
-    onSuccess: () => toast.success('Screen unpaired'),
-    onError: (e) => toast.error(e.message || 'Failed to unpair screen'),
+    onSuccess: () => toast.success('Screen removed'),
+    onError: (e) => toast.error(e.message || 'Failed to remove screen'),
   });
 
   const roomM = useApiMutation<Doc, { id: string; roomLabel: string }>({
@@ -266,10 +266,10 @@ export default function ManageDisplayScreens() {
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Unpair this screen?</AlertDialogTitle>
+                      <AlertDialogTitle>Remove this screen?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        The current link for “{s.name}” will stop working. Use this if the TV was lost or replaced.
-                        You can add a new screen to get a fresh link.
+                        This permanently deletes “{s.name}” and its link. This can't be undone —
+                        add a new screen to pair a TV again.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
