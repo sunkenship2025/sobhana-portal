@@ -9,7 +9,10 @@ import {
   setWorklistIndex,
 } from "../lib/worklistIndexCache";
 import { logAction } from "../services/auditService";
-import { generateClinicBillNumber } from "../services/numberService";
+import {
+  generateClinicBillNumber,
+  generateOpTokenNumber,
+} from "../services/numberService";
 import {
   DUPLICATE_VISIT_WINDOW_MS,
   DuplicateVisitError,
@@ -697,6 +700,13 @@ router.post("/", async (req: AuthRequest, res) => {
     );
     const visitRef = await generateClinicBillNumber(branch.code);
 
+    // Waiting-room queue token — assigned at registration, resets daily per
+    // branch. Only OP visits appear on the waiting-room display, so IP visits
+    // get no token. Generated before the main transaction (like visitRef)
+    // because the sequence helper opens its own transaction.
+    const opTokenNumber =
+      visitType === "OP" ? await generateOpTokenNumber(branch.code) : null;
+
     const result = await prisma.$transaction(async (tx) => {
       // Idempotency guard — same reasoning as the diagnostic registration:
       // one run creates Visit + Bill + PaymentTransaction, and nothing else
@@ -784,6 +794,7 @@ router.post("/", async (req: AuthRequest, res) => {
           isRevisit,
           originalVisitId: isRevisit ? anchorVisit?.id || null : null,
           status: "WAITING",
+          tokenNumber: opTokenNumber,
         },
       });
 

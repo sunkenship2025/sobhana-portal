@@ -149,3 +149,76 @@ export async function generateClinicBillNumber(branchCode: string): Promise<stri
   const prefix = `C-${branchCode}`;
   return generateNextNumber(sequenceId, prefix);
 }
+
+/**
+ * IST business-date key (YYYYMMDD). The waiting-room token resets each day, and
+ * the clinic runs on IST, so the day boundary is Asia/Kolkata, not UTC.
+ */
+function istDateKey(): string {
+  const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  return istNow.toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+/**
+ * Generate the next waiting-room OP token for a branch, resetting daily.
+ *
+ * The sequence id embeds the IST date, so the first token of a new day hits a
+ * sequence that doesn't exist yet and is auto-created starting at 1 — no cron or
+ * reset job needed. Returns a plain integer (the number shown on the TV), not a
+ * formatted string, since the display renders it big and bare.
+ *
+ * Reuses the same SELECT ... FOR UPDATE NOWAIT + retry pattern as
+ * generateNextNumber to stay concurrency-safe under a busy front desk.
+ */
+export async function generateOpTokenNumber(branchCode: string): Promise<number> {
+  const sequenceId = `optoken-${branchCode}-${istDateKey()}`;
+  const maxRetries = 10;
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        let result = await tx.$queryRaw<Array<{ lastValue: number }>>`
+          SELECT "lastValue" FROM "NumberSequence" WHERE id = ${sequenceId} FOR UPDATE NOWAIT
+        `;
+
+        if (result.length === 0) {
+          await tx.$executeRaw`
+            INSERT INTO "NumberSequence" (id, prefix, "lastValue", "updatedAt")
+            VALUES (${sequenceId}, ${'OPTOKEN'}, 0, NOW())
+            ON CONFLICT (id) DO NOTHING
+          `;
+          result = await tx.$queryRaw<Array<{ lastValue: number }>>`
+            SELECT "lastValue" FROM "NumberSequence" WHERE id = ${sequenceId} FOR UPDATE NOWAIT
+          `;
+          if (result.length === 0) {
+            throw new Error('Failed to create or find OP token sequence');
+          }
+        }
+
+        const nextValue = result[0].lastValue + 1;
+        await tx.$executeRaw`
+          UPDATE "NumberSequence" SET "lastValue" = ${nextValue}, "updatedAt" = NOW() WHERE id = ${sequenceId}
+        `;
+        return nextValue;
+      });
+    } catch (error: any) {
+      lastError = error;
+      if (
+        error.code === '55P03' ||
+        error.code === '40001' ||
+        error.code === '40P01' ||
+        error.message?.includes('could not obtain lock') ||
+        error.message?.includes('deadlock') ||
+        error.message?.includes('write conflict')
+      ) {
+        const backoffMs = Math.min(50 * Math.pow(2, attempt - 1) + Math.random() * 50, 2000);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error(`Failed to generate OP token after ${maxRetries} attempts: ${lastError?.message}`);
+}
