@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Tv, Plus, Copy, ExternalLink, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import ManageDisplayAds from './ManageDisplayAds';
 
 type Screen = {
   id: string;
@@ -252,6 +253,8 @@ export default function ManageDisplayScreens() {
           )}
         </div>
       </div>
+
+      <ManageDisplayAds />
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>

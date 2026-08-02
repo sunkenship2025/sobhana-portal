@@ -129,4 +129,5 @@ export const qk = {
   externalLabs: (branchId: string | null) => ["external-labs", branchId] as const,
   departments: (branchId: string | null) => ["departments", branchId] as const,
   displayScreens: (branchId: string | null) => ["display-screens", branchId] as const,
+  displayAds: (branchId: string | null) => ["display-ads", branchId] as const,
 } as const;

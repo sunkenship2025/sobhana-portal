@@ -9,7 +9,7 @@
  * fixed-scale stage. Ads (Phase 2) will replace the resting card; the queue and
  * call behaviour work today off the real OP ClinicVisit queue.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { API_BASE } from '@/lib/api';
 
@@ -35,6 +35,16 @@ type NowServing = {
   patientName: string | null;
   startedAt: string | null;
 } | null;
+type AdMedia = { path: string; mimeType: string };
+type Ad = {
+  id: string;
+  name: string;
+  kind: string; // IMAGE | VIDEO | SLIDESHOW
+  fit: string; // cover | contain
+  durationSec: number;
+  weight: number;
+  media: AdMedia[];
+};
 type DisplayState = {
   screen: { name: string };
   branch: { name: string; code: string };
@@ -42,6 +52,7 @@ type DisplayState = {
   serverTime: string;
   doctors: DoctorState[];
   nowServing: NowServing;
+  ads: Ad[];
 };
 
 const CSS = `
@@ -104,11 +115,77 @@ const CSS = `
 .wrd-center h1{ font-size:3vw; font-weight:800; color:#1B2B58; }
 .wrd-center p{ font-size:1.5vw; color:#66738f; margin-top:1.5vh; }
 .wrd-center code{ font-family:'Space Grotesk',monospace; background:#eef2f9; padding:.4vh 1vw; border-radius:.6vh; }
-@media (prefers-reduced-motion: reduce){ .wrd-screen,.wrd-token{ animation:none } }
+.wrd-ad{ width:92%; height:86%; border-radius:2.2vh; box-shadow:0 3vh 8vh rgba(20,34,68,.18); background:#0c1830; display:block;
+  animation:wrdIn .55s cubic-bezier(.16,1,.3,1) both; }
+@media (prefers-reduced-motion: reduce){ .wrd-screen,.wrd-token,.wrd-ad{ animation:none } }
 `;
 
 function two(n: number | null): string {
   return n == null ? '—' : String(n).padStart(2, '0');
+}
+
+/** Rotates uploaded creatives in the idle state: photos held, slideshows cycled, videos to their end. */
+function AdRotator({ ads }: { ads: Ad[] }) {
+  const playlist = useMemo(
+    () => ads.flatMap((a) => Array.from({ length: Math.max(1, Math.min(10, a.weight || 1)) }, () => a)),
+    [ads],
+  );
+  const [pos, setPos] = useState(0);
+  const [slide, setSlide] = useState(0);
+  const ad = playlist.length ? playlist[pos % playlist.length] : null;
+
+  const next = useCallback(() => {
+    setSlide(0);
+    setPos((p) => p + 1);
+  }, []);
+
+  useEffect(() => {
+    if (!ad) return;
+    if (ad.kind === 'VIDEO') {
+      // Safety cap in case 'ended' never fires (stall/bad encode).
+      const t = window.setTimeout(next, 180 * 1000);
+      return () => window.clearTimeout(t);
+    }
+    if (ad.kind === 'SLIDESHOW' && ad.media.length > 1) {
+      const t = window.setTimeout(() => {
+        if (slide < ad.media.length - 1) setSlide(slide + 1);
+        else next();
+      }, Math.max(3, ad.durationSec) * 1000);
+      return () => window.clearTimeout(t);
+    }
+    const t = window.setTimeout(next, Math.max(3, ad.durationSec) * 1000);
+    return () => window.clearTimeout(t);
+  }, [ad, slide, next]);
+
+  if (!ad || !ad.media.length) return null;
+  const fit = ad.fit === 'contain' ? 'contain' : 'cover';
+  const url = (m: AdMedia) => `${API_BASE}${m.path}`;
+
+  if (ad.kind === 'VIDEO') {
+    return (
+      <video
+        key={`${ad.id}-${pos}`}
+        className="wrd-ad"
+        style={{ objectFit: fit }}
+        src={url(ad.media[0])}
+        autoPlay
+        muted
+        playsInline
+        onEnded={next}
+        onError={next}
+      />
+    );
+  }
+  const m = ad.media[Math.min(slide, ad.media.length - 1)] || ad.media[0];
+  return (
+    <img
+      key={`${ad.id}-${pos}-${slide}`}
+      className="wrd-ad"
+      style={{ objectFit: fit }}
+      src={url(m)}
+      alt={ad.name}
+    />
+  );
 }
 
 export default function WaitingRoomDisplay() {
@@ -234,6 +311,8 @@ export default function WaitingRoomDisplay() {
               </div>
               <div className="wrd-hold" />
             </div>
+          ) : state?.ads && state.ads.length > 0 ? (
+            <AdRotator ads={state.ads} key="ads" />
           ) : (
             <div className="wrd-rest" key="rest">
               <div className="hi">Welcome</div>

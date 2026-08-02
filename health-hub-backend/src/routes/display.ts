@@ -12,6 +12,7 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { createRateLimiter, getClientIp } from '../middleware/rateLimit';
+import { getObjectStream } from '../services/r2StorageService';
 
 const router = Router();
 
@@ -187,6 +188,32 @@ router.get('/:code/state', displayRateLimit, async (req: Request, res: Response)
         }
       : null;
 
+    // Ads to rotate in the idle state: enabled + within any schedule window.
+    const nowD = new Date();
+    const ads = await prisma.displayAd.findMany({
+      where: {
+        branchId: screen.branchId,
+        enabled: true,
+        AND: [
+          { OR: [{ startDate: null }, { startDate: { lte: nowD } }] },
+          { OR: [{ endDate: null }, { endDate: { gte: nowD } }] },
+        ],
+      },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+    const adsOut = ads.map((a) => ({
+      id: a.id,
+      name: a.name,
+      kind: a.kind,
+      fit: a.fit,
+      durationSec: a.durationSec,
+      weight: a.weight,
+      media: a.mediaKeys.map((_k, i) => ({
+        path: `/display/ads/media/${a.id}/${i}`,
+        mimeType: a.mimeTypes[i] || 'application/octet-stream',
+      })),
+    }));
+
     res.setHeader('Cache-Control', 'no-store');
     return res.json({
       screen: { name: screen.name },
@@ -195,10 +222,45 @@ router.get('/:code/state', displayRateLimit, async (req: Request, res: Response)
       serverTime: new Date().toISOString(),
       doctors: doctors.map(({ _at, ...d }) => d),
       nowServing,
+      ads: adsOut,
     });
   } catch (err: any) {
     console.error('Display state error:', err);
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to load display state' });
+  }
+});
+
+/**
+ * PUBLIC ad media stream. Pipes the R2 object straight to the TV with Range
+ * support (never buffers — safe for large videos). Long cache since a replaced
+ * ad gets a new id/key.
+ *
+ *   GET /api/display/ads/media/:adId/:index
+ */
+router.get('/ads/media/:adId/:index', async (req: Request, res: Response) => {
+  try {
+    const idx = parseInt(String(req.params.index), 10);
+    const ad = await prisma.displayAd.findUnique({ where: { id: String(req.params.adId) } });
+    if (!ad || !ad.enabled || Number.isNaN(idx) || idx < 0 || idx >= ad.mediaKeys.length) {
+      return res.status(404).end();
+    }
+    const obj = await getObjectStream(ad.mediaKeys[idx], req.headers.range);
+    res.status(obj.status);
+    if (obj.contentType) res.setHeader('Content-Type', obj.contentType);
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    if (obj.contentRange) res.setHeader('Content-Range', obj.contentRange);
+    if (obj.contentLength != null) res.setHeader('Content-Length', String(obj.contentLength));
+    obj.body.on('error', () => {
+      if (!res.headersSent) res.status(500);
+      res.destroy();
+    });
+    obj.body.pipe(res);
+    return;
+  } catch (err: any) {
+    console.error('Display media stream error:', err);
+    if (!res.headersSent) res.status(500).end();
+    return;
   }
 });
 

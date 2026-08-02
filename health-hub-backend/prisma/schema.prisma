@@ -511,6 +511,7 @@ model Branch {
   messageLogs               MessageLog[]
   conversations             Conversation[]
   displayScreens            DisplayScreen[]
+  displayAds                DisplayAd[]
 
   @@index([isActive])
   @@index([code])
@@ -530,6 +531,31 @@ model DisplayScreen {
   revokedAt DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+}
+
+/// DisplayAd: a promotional creative shown on the waiting-room display when idle.
+/// kind IMAGE/VIDEO = one media object; SLIDESHOW = several images cycled.
+/// Media lives in R2 (keys), streamed to the TV via the public display route.
+model DisplayAd {
+  id          String    @id @default(cuid())
+  branchId    String
+  name        String
+  kind        String    @default("IMAGE") // IMAGE | VIDEO | SLIDESHOW
+  mediaKeys   String[]  @default([]) // R2 keys; 1 for IMAGE/VIDEO, N (ordered) for SLIDESHOW
+  mimeTypes   String[]  @default([]) // parallel to mediaKeys, for Content-Type on serve
+  fit         String    @default("cover") // cover (fill) | contain (letterbox)
+  durationSec Int       @default(10) // IMAGE hold / SLIDESHOW per-slide; VIDEO plays to its end
+  enabled     Boolean   @default(true)
+  weight      Int       @default(1) // rotation frequency
+  sortOrder   Int       @default(0)
+  startDate   DateTime? // optional schedule window
+  endDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 

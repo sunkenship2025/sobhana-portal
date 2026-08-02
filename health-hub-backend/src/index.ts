@@ -56,6 +56,7 @@ import statementDownloadRoutes from './routes/statementDownload';
 import reportGatewayRoutes from './routes/reportGateway';
 import displayRoutes from './routes/display';
 import displayAdminRoutes from './routes/displayAdmin';
+import displayAdRoutes from './routes/displayAds';
 import couponGatewayRoutes from './routes/couponGateway';
 import couponRoutes from './routes/coupons';
 import webhookRoutes from './routes/webhooks';
@@ -341,6 +342,7 @@ app.use('/api/visits/diagnostic', diagnosticVisitRoutes);
 app.use('/api/visits/clinic', clinicVisitRoutes);
 app.use('/api/display', displayRoutes); // PUBLIC — kiosk queue state, no user auth
 app.use('/api/display-screens', displayAdminRoutes); // owner: pair/manage TVs
+app.use('/api/display-ads', displayAdRoutes); // owner: ad creatives (photo/video/slideshow)
 app.use('/api/payouts', payoutRoutes);
 app.use('/api/audit-logs', auditLogRoutes);
 app.use('/api/bills', billRoutes);
