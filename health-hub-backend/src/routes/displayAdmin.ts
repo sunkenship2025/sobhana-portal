@@ -130,7 +130,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
   }
 });
 
-// POST /:id/revoke — unpair a lost / decommissioned TV
+// POST /:id/revoke — unpair a lost / decommissioned TV (soft; kept for API compat)
 router.post('/:id/revoke', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
@@ -147,6 +147,23 @@ router.post('/:id/revoke', async (req: AuthRequest, res) => {
   } catch (err: any) {
     console.error('Revoke display screen error:', err);
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to revoke screen' });
+  }
+});
+
+// DELETE /:id — permanently remove a screen (what "Unpair" does in the UI)
+router.delete('/:id', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await prisma.displayScreen.findFirst({
+      where: { id, branchId: req.branchId! },
+    });
+    if (!existing) return res.status(404).json({ error: 'NOT_FOUND', message: 'Screen not found' });
+
+    await prisma.displayScreen.delete({ where: { id } });
+    return res.json({ ok: true });
+  } catch (err: any) {
+    console.error('Delete display screen error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to remove screen' });
   }
 });
 
