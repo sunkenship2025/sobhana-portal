@@ -85,6 +85,20 @@ function docTitle(s: Statement): string {
 // one-day ledger row.
 const RANGE_ID_RE = /^(REFERRAL|CLINIC|DIAGNOSTIC_CENTER|LAB)\.(.+)$/;
 
+// A per-doctor statement is opened with the selected range in the URL (?from/?to).
+// If the URL carries no range — e.g. opened from a stale/cached link, a refresh
+// on a query-less statement URL, or a bookmark — fall back to the current
+// calendar month (the Pay-Run default) instead of erroring or sending "null".
+function currentMonthRange(): { from: string; to: string } {
+  const now = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return {
+    from: `${now.getFullYear()}-${p(now.getMonth() + 1)}-01`,
+    to: `${last.getFullYear()}-${p(last.getMonth() + 1)}-${p(last.getDate())}`,
+  };
+}
+
 export default function PayoutStatement() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -96,8 +110,10 @@ export default function PayoutStatement() {
   const rangeMode = Boolean(rangeMatch);
   const rangePayeeType = rangeMatch?.[1];
   const rangePayeeId = rangeMatch?.[2];
-  const rangeFrom = searchParams.get("from");
-  const rangeTo = searchParams.get("to");
+  // Default to the current month when the URL has no explicit range, so a
+  // query-less statement URL still loads (and Excel never sends "null" dates).
+  const rangeFrom = searchParams.get("from") || currentMonthRange().from;
+  const rangeTo = searchParams.get("to") || currentMonthRange().to;
   // Sales can view/manage payouts but must never send WhatsApp. Range statements
   // are also not tokenised for WhatsApp, so the button is hidden in that mode.
   const canSendWhatsApp = user?.role !== "sales" && !rangeMode;
@@ -124,11 +140,6 @@ export default function PayoutStatement() {
 
   const fetchStatement = async () => {
     if (!token || !activeBranchId || !id) return;
-    if (rangeMode && (!rangeFrom || !rangeTo)) {
-      setError(true);
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     setError(false);
     try {
