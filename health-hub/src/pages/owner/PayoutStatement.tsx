@@ -79,14 +79,28 @@ function docTitle(s: Statement): string {
   return s.isLab ? "OUTSIDE LAB STATEMENT" : "PAYOUT STATEMENT";
 }
 
+// A worklist row now carries a synthetic id `TYPE.payeeId` (a per-doctor
+// aggregate over the selected range) instead of a single ledger id. Detect it
+// so the statement is derived over the whole range (?from/?to) rather than the
+// one-day ledger row.
+const RANGE_ID_RE = /^(REFERRAL|CLINIC|DIAGNOSTIC_CENTER|LAB)\.(.+)$/;
+
 export default function PayoutStatement() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { token, user } = useAuthStore();
-  // Sales can view/manage payouts but must never send WhatsApp.
-  const canSendWhatsApp = user?.role !== 'sales';
   const { activeBranchId } = useBranchStore();
+
+  const rangeMatch = id ? id.match(RANGE_ID_RE) : null;
+  const rangeMode = Boolean(rangeMatch);
+  const rangePayeeType = rangeMatch?.[1];
+  const rangePayeeId = rangeMatch?.[2];
+  const rangeFrom = searchParams.get("from");
+  const rangeTo = searchParams.get("to");
+  // Sales can view/manage payouts but must never send WhatsApp. Range statements
+  // are also not tokenised for WhatsApp, so the button is hidden in that mode.
+  const canSendWhatsApp = user?.role !== "sales" && !rangeMode;
 
   const [stmt, setStmt] = useState<Statement | null>(null);
   const [loading, setLoading] = useState(true);
@@ -110,10 +124,20 @@ export default function PayoutStatement() {
 
   const fetchStatement = async () => {
     if (!token || !activeBranchId || !id) return;
+    if (rangeMode && (!rangeFrom || !rangeTo)) {
+      setError(true);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(false);
     try {
-      const res = await fetch(`${API_BASE}/payouts/${id}/statement`, { headers: headers() });
+      const url = rangeMode
+        ? `${API_BASE}/payouts/statement?payeeType=${rangePayeeType}&payeeId=${encodeURIComponent(
+            rangePayeeId!
+          )}&startDate=${rangeFrom}&endDate=${rangeTo}T23:59:59.999Z`
+        : `${API_BASE}/payouts/${id}/statement`;
+      const res = await fetch(url, { headers: headers() });
       if (!res.ok) {
         setError(true);
         return;
@@ -129,7 +153,7 @@ export default function PayoutStatement() {
   useEffect(() => {
     fetchStatement();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, activeBranchId, id]);
+  }, [token, activeBranchId, id, rangeFrom, rangeTo]);
 
   // Deep-link reprint: /owner/payouts/:id?print=1 opens straight to the print
   // dialog (used by the "reprint" shortcut on PAID rows). Consume the param so a
@@ -172,8 +196,13 @@ export default function PayoutStatement() {
   // the whole statement (top-of-page Excel button).
   const exportExcel = async (visitIds?: string[]) => {
     if (!id || !token || !activeBranchId) return;
-    const qs = visitIds && visitIds.length ? `?visitIds=${visitIds.join(",")}` : "";
-    const res = await fetch(`${API_BASE}/payouts/${id}/export${qs}`, {
+    const visitQs = visitIds && visitIds.length ? `visitIds=${visitIds.join(",")}` : "";
+    const exportUrl = rangeMode
+      ? `${API_BASE}/payouts/export/doctor?payeeType=${rangePayeeType}&payeeId=${encodeURIComponent(
+          rangePayeeId!
+        )}&startDate=${rangeFrom}&endDate=${rangeTo}T23:59:59.999Z${visitQs ? `&${visitQs}` : ""}`
+      : `${API_BASE}/payouts/${id}/export${visitQs ? `?${visitQs}` : ""}`;
+    const res = await fetch(exportUrl, {
       headers: { Authorization: `Bearer ${token}`, "X-Branch-Id": activeBranchId },
     });
     if (!res.ok) {
@@ -416,17 +445,15 @@ export default function PayoutStatement() {
                   Line items
                 </div>
                 <div style={{ overflowX: "auto" }}>
-                  <table className="w-full table-fixed" style={{ fontSize: 12, minWidth: 900 }}>
+                  <table className="w-full table-fixed" style={{ fontSize: 12, minWidth: 720 }}>
                     <colgroup>
                       {selectMode && <col style={{ width: 40 }} />}
                       <col style={{ width: 112 }} />
                       <col style={{ width: 122 }} />
-                      <col style={{ width: 150 }} />
+                      <col style={{ width: 160 }} />
                       <col />
-                      <col style={{ width: 90 }} />
-                      <col style={{ width: 78 }} />
-                      <col style={{ width: 90 }} />
-                      <col style={{ width: 98 }} />
+                      <col style={{ width: 110 }} />
+                      <col style={{ width: 110 }} />
                     </colgroup>
                     <thead>
                       <tr style={{ color: TOKENS.textTertiary, textAlign: "left" }}>
@@ -434,11 +461,9 @@ export default function PayoutStatement() {
                         <th className="py-2 pl-3 pr-3 font-normal whitespace-nowrap">Date</th>
                         <th className="py-2 pr-3 font-normal whitespace-nowrap">Bill #</th>
                         <th className="py-2 pr-3 font-normal">Patient</th>
-                        <th className="py-2 pr-3 font-normal">Tests</th>
-                        <th className="py-2 pr-3 text-right font-normal whitespace-nowrap">T Amt</th>
-                        <th className="py-2 pr-3 text-right font-normal whitespace-nowrap">Disc</th>
-                        <th className="py-2 pr-3 text-right font-normal whitespace-nowrap">P Amt</th>
-                        <th className="py-2 pr-3 text-right font-normal whitespace-nowrap">Payable</th>
+                        <th className="py-2 pr-3 font-normal">Investigation</th>
+                        <th className="py-2 pr-3 text-right font-normal whitespace-nowrap">Amount</th>
+                        <th className="py-2 pr-3 text-right font-normal whitespace-nowrap">Ref</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -457,10 +482,8 @@ export default function PayoutStatement() {
                           <td className="py-2 pr-3 align-top whitespace-nowrap" style={{ color: TOKENS.textTertiary }}>{g.billNumber}</td>
                           <td className="py-2 pr-3 align-top">{g.patient}</td>
                           <td className="py-2 pr-3 align-top" style={{ color: TOKENS.textSecondary }}>
-                            {g.items.map((it) => `${it.testOrFee} (${it.basisLabel})`).join(", ")}
+                            {g.items.map((it) => it.testOrFee).join(", ")}
                           </td>
-                          <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">{formatRupees(g.tAmt)}</td>
-                          <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">{formatRupees(g.disc)}</td>
                           <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">{formatRupees(g.pAmt)}</td>
                           <td className="py-2 pr-3 text-right font-medium tabular-nums whitespace-nowrap">{formatRupees(g.fin)}</td>
                         </tr>
@@ -478,11 +501,9 @@ export default function PayoutStatement() {
             >
               <span className="font-medium">GRAND TOTAL</span>
               <span style={{ color: "#bdbbb3" }}>|</span>
-              <span>T Amt <b>{formatRupees(stmt.grandTotal.tAmtInPaise)}</b></span>
-              <span>Disc <b>{formatRupees(stmt.grandTotal.discInPaise)}</b></span>
-              <span>P Amt <b>{formatRupees(stmt.grandTotal.pAmtInPaise)}</b></span>
+              <span>Amount <b>{formatRupees(stmt.grandTotal.pAmtInPaise)}</b></span>
               <span className="ml-auto" style={{ fontSize: 15 }}>
-                Payable <b>{formatRupees(stmt.grandTotal.finAmtInPaise)}</b>
+                {isLab ? "Payable" : "Ref"} <b>{formatRupees(stmt.grandTotal.finAmtInPaise)}</b>
               </span>
             </div>
 
@@ -575,7 +596,7 @@ function groupBillsAcrossBands(bands: StatementBand[]) {
       g.disc += r.discInPaise;
       g.pAmt += r.pAmtInPaise;
       g.fin += r.finAmtInPaise;
-      g.tests.push(`${r.testOrFee} (${r.basisLabel})`);
+      g.tests.push(r.testOrFee);
       if (new Date(r.date) < new Date(g.date)) g.date = r.date;
     }
   }
@@ -599,7 +620,6 @@ function StatementPrint({
   const th: CSSProperties = { ...td, background: "#eee", fontWeight: 600 };
   const lt: CSSProperties = { textAlign: "left" };
   const rt: CSSProperties = { textAlign: "right", fontVariantNumeric: "tabular-nums" };
-  const r0 = (p: number) => (p ? formatRupees(p) : "—");
 
   // When printing a selection, restrict rows to the chosen visits and recompute
   // the grand total from them so the printed footer stays consistent.
@@ -692,11 +712,9 @@ function StatementPrint({
               <th style={th}>Bill #</th>
               <th style={{ ...th, ...lt }}>Date</th>
               <th style={{ ...th, ...lt }}>Patient</th>
-              <th style={{ ...th, ...lt }}>Tests</th>
-              <th style={th}>T Amt</th>
-              <th style={th}>Disc</th>
-              <th style={th}>P Amt</th>
-              <th style={th}>Payable</th>
+              <th style={{ ...th, ...lt }}>Investigation</th>
+              <th style={th}>Amount</th>
+              <th style={th}>Ref</th>
             </tr>
           </thead>
           <tbody>
@@ -707,8 +725,6 @@ function StatementPrint({
                 <td style={{ ...td, ...lt }}>{formatIstDate(p.date)}</td>
                 <td style={{ ...td, ...lt }}>{p.patient}</td>
                 <td style={{ ...td, ...lt, fontSize: 8, color: "#555" }}>{p.tests.join(", ")}</td>
-                <td style={{ ...td, ...rt }}>{formatRupees(p.tAmt)}</td>
-                <td style={{ ...td, ...rt }}>{r0(p.disc)}</td>
                 <td style={{ ...td, ...rt }}>{formatRupees(p.pAmt)}</td>
                 <td style={{ ...td, ...rt, fontWeight: 700 }}>{formatRupees(p.fin)}</td>
               </tr>
@@ -717,8 +733,6 @@ function StatementPrint({
           <tfoot>
             <tr style={{ fontWeight: 700, background: "#f0f0f0" }}>
               <td style={{ ...td, ...lt }} colSpan={5}>GRAND TOTAL — {bills.length} bills</td>
-              <td style={{ ...td, ...rt }}>{formatRupees(total.tAmtInPaise)}</td>
-              <td style={{ ...td, ...rt }}>{r0(total.discInPaise)}</td>
               <td style={{ ...td, ...rt }}>{formatRupees(total.pAmtInPaise)}</td>
               <td style={{ ...td, ...rt }}>{formatRupees(total.finAmtInPaise)}</td>
             </tr>

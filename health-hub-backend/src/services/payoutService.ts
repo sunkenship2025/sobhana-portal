@@ -279,21 +279,32 @@ async function deriveReferralPayout(
     for (const testOrder of visit.testOrders) {
       // Cancelled orders earn no payout — their charge was voided off the bill.
       if (testOrder.cancelledAt) continue;
-      const referralAmountInPaise =
+      // This order's share of the bill discount (allocated proportionally by
+      // price across every order on the bill). Used both to show the
+      // post-discount "Amount" and to reduce the commission.
+      const discountShareInPaise = discountAllocations.get(testOrder.id) ?? 0;
+      // The "Amount" shown on the statement is the post-discount price the
+      // patient actually paid for this order.
+      const postDiscountPriceInPaise = Math.max(
+        0,
+        testOrder.priceInPaise - discountShareInPaise
+      );
+      // Commission rule (owner, Aug 2026): the FULL bill discount is borne by
+      // the referrer. Percentage commission = (percentage of the GROSS price)
+      // minus the whole discount allocated to this order, floored at 0.
+      // e.g. ₹1000 @ 50% with a ₹100 discount → 500 − 100 = ₹400.
+      // Fixed-amount commissions are flat and unaffected by any discount.
+      const commissionInPaise =
         testOrder.referralCommissionType === 'PERCENTAGE'
           ? Math.max(
               0,
-              testOrder.priceInPaise - (discountAllocations.get(testOrder.id) ?? 0)
+              computeCommissionInPaise({
+                priceInPaise: testOrder.priceInPaise,
+                commissionType: 'PERCENTAGE',
+                commissionPercentage: testOrder.referralCommissionPercentage,
+                commissionAmountInPaise: testOrder.referralCommissionAmountInPaise,
+              }) - discountShareInPaise
             )
-          : testOrder.priceInPaise;
-      const commissionInPaise =
-        testOrder.referralCommissionType === 'PERCENTAGE'
-          ? computeCommissionInPaise({
-              priceInPaise: referralAmountInPaise,
-              commissionType: testOrder.referralCommissionType,
-              commissionPercentage: testOrder.referralCommissionPercentage,
-              commissionAmountInPaise: testOrder.referralCommissionAmountInPaise,
-            })
           : computeReferralPayoutInPaise(testOrder);
       totalDerivedInPaise += commissionInPaise;
 
@@ -308,7 +319,7 @@ async function deriveReferralPayout(
           testOrder.product?.name ||
           testOrder.testNameSnapshot ||
           testOrder.test.name,
-        amountInPaise: referralAmountInPaise,
+        amountInPaise: postDiscountPriceInPaise,
         commissionType: testOrder.referralCommissionType,
         commissionPercentage:
           testOrder.referralCommissionType === 'PERCENTAGE'
@@ -328,10 +339,7 @@ async function deriveReferralPayout(
           testOrder.referralCommissionType === 'FIXED_AMOUNT'
             ? `Flat ${rupeesShort(commissionInPaise)}`
             : `${testOrder.referralCommissionPercentage ?? 0}% → ${rupeesShort(commissionInPaise)}`,
-        discountInPaise:
-          testOrder.referralCommissionType === 'PERCENTAGE'
-            ? discountAllocations.get(testOrder.id) ?? 0
-            : 0,
+        discountInPaise: discountShareInPaise,
         departmentName: testOrder.test?.department?.name ?? null,
         productCode: testOrder.product?.code ?? testOrder.testCodeSnapshot ?? null,
       });
@@ -1691,6 +1699,82 @@ export async function getPayoutStatement(
   return statement;
 }
 
+// ===========================================================================
+// RANGE-BASED STATEMENT / DETAIL (per doctor, over the selected date range)
+// ---------------------------------------------------------------------------
+// The Pay-Run worklist groups per doctor and links to the date range at the
+// top of the page, so a statement must cover the WHOLE selected range (not a
+// single day's ledger row). These helpers derive line items live over
+// [startDate, endDate] and reshape them, bypassing the per-day ledger. The
+// synthetic id `TYPE.payeeId` lets the frontend round-trip a doctor identity
+// through the same statement page without a persisted ledger row.
+// ===========================================================================
+
+async function buildRangeDetail(
+  payeeType: PayoutDoctorType,
+  payeeId: string,
+  branchId: string,
+  startDate: Date,
+  endDate: Date
+): Promise<PayoutDetail> {
+  const [derivation, branch] = await Promise.all([
+    deriveByType(payeeType, payeeId, branchId, startDate, endDate),
+    prisma.branch.findUnique({ where: { id: branchId }, select: { name: true } }),
+  ]);
+
+  return {
+    id: `${payeeType}.${payeeId}`,
+    doctorType: payeeType,
+    doctorId: payeeId,
+    doctorName: derivation.doctorName,
+    branchId,
+    branchName: branch?.name ?? '',
+    periodStartDate: startDate,
+    periodEndDate: endDate,
+    derivedAmountInPaise: derivation.derivedAmountInPaise,
+    derivedAt: startDate,
+    paidAt: null,
+    paymentMethod: null,
+    paymentReferenceId: null,
+    notes: null,
+    reviewedAt: null,
+    lineItems: derivation.lineItems,
+  };
+}
+
+/**
+ * Per-doctor payout detail for an arbitrary date range (drives the range Excel
+ * export). Throws if the doctor/lab id is unknown.
+ */
+export async function getPayoutDetailForDoctorRange(
+  payeeType: PayoutDoctorType,
+  payeeId: string,
+  branchId: string,
+  startDate: Date,
+  endDate: Date
+): Promise<PayoutDetail> {
+  return buildRangeDetail(payeeType, payeeId, branchId, startDate, endDate);
+}
+
+/**
+ * Per-doctor banded statement for an arbitrary date range. Range statements are
+ * not tokenised for WhatsApp, so whatsappEnabled/payeeHasPhone are false (the
+ * UI hides the WhatsApp button in this mode).
+ */
+export async function getPayoutStatementForDoctorRange(
+  payeeType: PayoutDoctorType,
+  payeeId: string,
+  branchId: string,
+  startDate: Date,
+  endDate: Date
+): Promise<PayoutStatement> {
+  const detail = await buildRangeDetail(payeeType, payeeId, branchId, startDate, endDate);
+  const statement = buildPayoutStatementDetail(detail);
+  statement.whatsappEnabled = false;
+  statement.payeeHasPhone = false;
+  return statement;
+}
+
 /**
  * Resolve the payee's phone for a payout (referral doctor / clinic / diagnostic
  * center / outside lab), by doctorType. Returns null if not set.
@@ -1820,20 +1904,80 @@ export async function getPayRunWorklist(
     orderBy: [{ derivedAmountInPaise: 'desc' }],
   });
 
-  const rows: PayoutWorklistRow[] = payouts.map((p) => {
-    const isLab = p.doctorType === 'LAB';
-    return {
-      id: p.id,
-      payeeType: p.doctorType,
-      direction: (isLab ? 'OUTBOUND' : 'INBOUND') as PayoutDirection,
-      kind: (isLab ? 'PAYABLE' : 'COMMISSION') as PayoutKind,
-      payeeId: extractDoctorId(p),
-      payeeName: extractDoctorName(p),
-      periodStartDate: p.periodStartDate,
-      periodEndDate: p.periodEndDate,
-      amountInPaise: p.derivedAmountInPaise,
-    };
-  });
+  // Collapse the per-day ledger rows to the distinct payees active in the range.
+  // The ledger stores a row per (doctor, day) for audit/soft-delete and serves
+  // as the fast index of "who had activity this period".
+  const payeeIndex = new Map<
+    string,
+    { payeeType: PayoutDoctorType; payeeId: string; payeeName: string; storedSumInPaise: number }
+  >();
+  for (const p of payouts) {
+    const payeeId = extractDoctorId(p);
+    const key = `${p.doctorType}.${payeeId}`;
+    const entry = payeeIndex.get(key);
+    if (entry) {
+      entry.storedSumInPaise += p.derivedAmountInPaise;
+    } else {
+      payeeIndex.set(key, {
+        payeeType: p.doctorType,
+        payeeId,
+        payeeName: extractDoctorName(p),
+        storedSumInPaise: p.derivedAmountInPaise,
+      });
+    }
+  }
+
+  // The worklist is grouped per doctor and linked to the date range at the top,
+  // so each payee shows exactly once. Derive every payee's amount FRESH over the
+  // whole range so the list total matches the statement and Excel exactly (both
+  // derive live) — the stored per-day ledger amounts can lag a rate/discount
+  // rule change until a row is re-derived. Bounded concurrency keeps the DB from
+  // being hit with one burst per payee.
+  const fallbackStart = filters?.startDate ?? payouts[0]?.periodStartDate ?? new Date();
+  const fallbackEnd = filters?.endDate ?? payouts[0]?.periodEndDate ?? new Date();
+  const canDeriveRange = Boolean(filters?.startDate && filters?.endDate);
+  const entries = Array.from(payeeIndex.values());
+  const amounts = new Array<number>(entries.length);
+  const CONCURRENCY = 6;
+  for (let i = 0; i < entries.length; i += CONCURRENCY) {
+    const slice = entries.slice(i, i + CONCURRENCY);
+    const sliceAmounts = await Promise.all(
+      slice.map(async (e) => {
+        if (!canDeriveRange) return e.storedSumInPaise;
+        try {
+          const d = await deriveByType(
+            e.payeeType,
+            e.payeeId,
+            branchId,
+            filters!.startDate!,
+            filters!.endDate!
+          );
+          return d.derivedAmountInPaise;
+        } catch {
+          // A missing/renamed payee must not sink the whole worklist.
+          return e.storedSumInPaise;
+        }
+      })
+    );
+    for (let j = 0; j < sliceAmounts.length; j++) amounts[i + j] = sliceAmounts[j];
+  }
+
+  const rows: PayoutWorklistRow[] = entries
+    .map((e, idx) => {
+      const isLab = e.payeeType === 'LAB';
+      return {
+        id: `${e.payeeType}.${e.payeeId}`,
+        payeeType: e.payeeType,
+        direction: (isLab ? 'OUTBOUND' : 'INBOUND') as PayoutDirection,
+        kind: (isLab ? 'PAYABLE' : 'COMMISSION') as PayoutKind,
+        payeeId: e.payeeId,
+        payeeName: e.payeeName,
+        periodStartDate: fallbackStart,
+        periodEndDate: fallbackEnd,
+        amountInPaise: amounts[idx],
+      };
+    })
+    .sort((a, b) => b.amountInPaise - a.amountInPaise);
 
   // Totals are simply what's owed for the period (no paid/unpaid concept).
   const byType = Object.fromEntries(
@@ -2052,6 +2196,36 @@ export async function bulkSoftDeletePayouts(
   if (payoutIds.length === 0) return { deletedCount: 0 };
   const result = await prisma.doctorPayoutLedger.updateMany({
     where: { id: { in: payoutIds }, branchId, deletedAt: null },
+    data: { deletedAt: new Date() },
+  });
+  return { deletedCount: result.count };
+}
+
+/**
+ * Soft-delete every ledger row for the given payees within a date range. The
+ * Pay-Run worklist rows are now per-doctor aggregates over a range (no single
+ * ledger id), so deleting a selected doctor means voiding all of that doctor's
+ * per-day rows that fall inside the selected period.
+ */
+export async function bulkSoftDeletePayoutsByDoctorRange(
+  payees: { payeeType: PayoutDoctorType; payeeId: string }[],
+  branchId: string,
+  startDate: Date,
+  endDate: Date
+): Promise<{ deletedCount: number }> {
+  if (payees.length === 0) return { deletedCount: 0 };
+  const or = payees.map(({ payeeType, payeeId }) => ({
+    doctorType: payeeType,
+    ...doctorIdWhereClause(payeeType, payeeId),
+  }));
+  const result = await prisma.doctorPayoutLedger.updateMany({
+    where: {
+      branchId,
+      deletedAt: null,
+      periodStartDate: { gte: startDate },
+      periodEndDate: { lte: endDate },
+      OR: or,
+    },
     data: { deletedAt: new Date() },
   });
   return { deletedCount: result.count };

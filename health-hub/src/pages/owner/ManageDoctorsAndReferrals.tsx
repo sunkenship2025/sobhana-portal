@@ -6,7 +6,7 @@
  *  - Diagnostic Centers (ex-ManageDiagnosticCenters)
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type RefObject } from 'react';
 import { API_BASE } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -119,6 +119,18 @@ export default function ManageDoctorsAndReferrals() {
   const [refLinkedDoctorId, setRefLinkedDoctorId] = useState<string | null>(null);
   const refSearchTimeout = useRef<NodeJS.Timeout | null>(null);
   const [refForm, setRefForm] = useState({ ...EMPTY_REFERRAL_FORM });
+
+  // Edit forms render above their (long) lists, so bring the form into view when
+  // it opens instead of leaving the user scrolled at the row they clicked.
+  const refFormRef = useRef<HTMLDivElement>(null);
+  const clinicFormRef = useRef<HTMLDivElement>(null);
+  const centerFormRef = useRef<HTMLDivElement>(null);
+  const scrollFormIntoView = (ref: RefObject<HTMLDivElement>) => {
+    window.setTimeout(
+      () => ref.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      60
+    );
+  };
 
   // ── Clinic Doctors state ──────────────────────────────────────────────────
   const [clinicDoctors, setClinicDoctors] = useState<any[]>([]);
@@ -418,6 +430,7 @@ export default function ManageDoctorsAndReferrals() {
     });
     setRefEditingId(doc.id);
     setRefShowForm(true);
+    scrollFormIntoView(refFormRef);
   };
 
   const handleRefDelete = async () => {
@@ -555,6 +568,7 @@ export default function ManageDoctorsAndReferrals() {
     });
     setClinicEditingId(doc.id);
     setClinicShowForm(true);
+    scrollFormIntoView(clinicFormRef);
   };
 
   const handleClinicDelete = async () => {
@@ -719,6 +733,7 @@ export default function ManageDoctorsAndReferrals() {
     });
     setCenterEditingId(center.id);
     setCenterShowForm(true);
+    scrollFormIntoView(centerFormRef);
   };
 
   const handleCenterToggle = async (center: DiagnosticCenter) => {
@@ -778,7 +793,7 @@ export default function ManageDoctorsAndReferrals() {
         </div>
 
         {refShowForm && (
-          <Card className="border-primary/30">
+          <Card ref={refFormRef} className="border-primary/30">
             <CardHeader>
               <CardTitle>{refEditingId ? 'Edit Doctor' : 'Add Referral Doctor'}</CardTitle>
             </CardHeader>
@@ -1111,7 +1126,7 @@ export default function ManageDoctorsAndReferrals() {
         </div>
 
         {clinicShowForm && (
-          <Card className="border-primary/30">
+          <Card ref={clinicFormRef} className="border-primary/30">
             <CardHeader>
               <CardTitle>{clinicEditingId ? 'Edit Doctor' : 'Add Clinic Doctor'}</CardTitle>
             </CardHeader>
@@ -1309,7 +1324,7 @@ export default function ManageDoctorsAndReferrals() {
         </div>
 
         {centerShowForm && (
-          <Card className="border-primary/30">
+          <Card ref={centerFormRef} className="border-primary/30">
             <CardHeader>
               <CardTitle>{centerEditingId ? 'Edit Diagnostic Center' : 'Add Diagnostic Center'}</CardTitle>
             </CardHeader>

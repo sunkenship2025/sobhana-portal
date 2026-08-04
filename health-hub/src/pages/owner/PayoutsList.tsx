@@ -270,11 +270,17 @@ export default function PayoutsList() {
     if (!isOwner || selectedRows.length === 0) return;
     setDeleteBusy(true);
     try {
-      const ids = selectedRows.map((r) => r.id);
-      const res = await fetch(`${API_BASE}/payouts/bulk`, {
+      // Rows are per-doctor aggregates, so delete every ledger row these payees
+      // have inside the selected range (not a single ledger id).
+      const payees = selectedRows.map((r) => ({ payeeType: r.payeeType, payeeId: r.payeeId }));
+      const res = await fetch(`${API_BASE}/payouts/by-doctor`, {
         method: "DELETE",
         headers: headers(),
-        body: JSON.stringify({ ids }),
+        body: JSON.stringify({
+          payees,
+          startDate: range.start,
+          endDate: range.end + "T23:59:59.999Z",
+        }),
       });
       const body = await res.json();
       if (!res.ok) toast.error(body.message ?? "Failed to delete");
@@ -313,17 +319,25 @@ export default function PayoutsList() {
     return () => clearTimeout(t);
   }, [printIds]);
 
+  // Worklist rows are now per-doctor aggregates keyed by `TYPE.payeeId`. The
+  // statement page reads that identity plus the range below to derive the whole
+  // period, so both are threaded through the URL.
+  const rangeQuery = `from=${range.start}&to=${range.end}`;
+  const openStatement = (id: string) => navigate(`/owner/payouts/${id}?${rangeQuery}`);
+  const openPrintStatement = (id: string) =>
+    navigate(`/owner/payouts/${id}?print=1&${rangeQuery}`);
+
   // ── Export ──
-  // Pass `ids` to scope the export to the selected payouts; omit for the whole
-  // period (top-of-page Excel button).
-  const exportExcel = async (ids?: string[]) => {
+  // Pass `payeeIds` to scope the export to the selected doctors; omit for the
+  // whole period (top-of-page Excel button).
+  const exportExcel = async (payeeIds?: string[]) => {
     if (!token || !activeBranchId) return;
     const params = new URLSearchParams();
     params.set("startDate", range.start);
     params.set("endDate", range.end + "T23:59:59.999Z");
     if (typeFilter !== "all") params.set("doctorType", typeFilter);
     if (q) params.set("q", q);
-    if (ids && ids.length) params.set("ids", ids.join(","));
+    if (payeeIds && payeeIds.length) params.set("payeeIds", payeeIds.join(","));
     const res = await fetch(`${API_BASE}/payouts/export?${params.toString()}`, {
       headers: { Authorization: `Bearer ${token}`, "X-Branch-Id": activeBranchId },
     });
@@ -589,8 +603,8 @@ export default function PayoutsList() {
                   selected={selected}
                   selectMode={selectMode}
                   onToggle={toggleRow}
-                  onStatement={(id) => navigate(`/owner/payouts/${id}`)}
-                  onPrint={(id) => navigate(`/owner/payouts/${id}?print=1`)}
+                  onStatement={openStatement}
+                  onPrint={openPrintStatement}
                   showType
                 />
               </SectionCard>
@@ -686,7 +700,7 @@ export default function PayoutsList() {
         isOwner={isOwner}
         onDelete={() => isOwner && selected.size > 0 && setDeleteOpen(true)}
         onPrint={printSelected}
-        onExport={() => exportExcel(selectedRows.map((r) => r.id))}
+        onExport={() => exportExcel(selectedRows.map((r) => r.payeeId))}
         onClear={() => setSelected(new Set())}
       />
 
