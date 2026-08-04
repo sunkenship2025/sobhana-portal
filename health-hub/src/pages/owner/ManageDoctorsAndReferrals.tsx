@@ -22,7 +22,7 @@ import { useDoctorLookup } from '@/hooks/use-doctor-lookup';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import {
-  Plus, Pencil, Trash2, X, Check, AlertTriangle, Link as LinkIcon, IndianRupee,
+  Plus, Pencil, Trash2, X, Check, AlertTriangle, Link as LinkIcon, IndianRupee, Search,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -119,6 +119,16 @@ export default function ManageDoctorsAndReferrals() {
   const [refLinkedDoctorId, setRefLinkedDoctorId] = useState<string | null>(null);
   const refSearchTimeout = useRef<NodeJS.Timeout | null>(null);
   const [refForm, setRefForm] = useState({ ...EMPTY_REFERRAL_FORM });
+  const [refSearch, setRefSearch] = useState('');
+  const refQuery = refSearch.trim().toLowerCase();
+  const filteredReferralDoctors = refQuery
+    ? referralDoctors.filter(
+        (d) =>
+          (d.name || '').toLowerCase().includes(refQuery) ||
+          (d.phone || '').toLowerCase().includes(refQuery) ||
+          ((d as { doctorNumber?: string }).doctorNumber || '').toLowerCase().includes(refQuery),
+      )
+    : referralDoctors;
 
   // Edit forms render above their (long) lists, so bring the form into view when
   // it opens instead of leaving the user scrolled at the row they clicked.
@@ -1022,10 +1032,26 @@ export default function ManageDoctorsAndReferrals() {
           </Card>
         )}
 
+        {!refLoading && referralDoctors.length > 0 && (
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search doctors by name, phone, or ID"
+              value={refSearch}
+              onChange={(e) => setRefSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+        )}
+
         {refLoading ? (
           <p className="text-center text-muted-foreground py-6">Loading...</p>
         ) : referralDoctors.length === 0 ? (
           <EmptyState title="No referral doctors yet" />
+        ) : filteredReferralDoctors.length === 0 ? (
+          <p className="text-center text-muted-foreground py-6">
+            No doctors match “{refSearch}”.
+          </p>
         ) : (
           <Table>
             <TableHeader>
@@ -1038,7 +1064,7 @@ export default function ManageDoctorsAndReferrals() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {referralDoctors.map((doc) => (
+              {filteredReferralDoctors.map((doc) => (
                 <TableRow key={doc.id}>
                   <TableCell className="font-medium">
                     <div>{doc.name}</div>
