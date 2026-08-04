@@ -64,6 +64,9 @@ export const ClinicPrescriptionPrint = ({
                 ) : (
                   <p className="clinic-rx-doctor-meta clinic-rx-placeholder">Qualification</p>
                 )}
+                {clinicDoctor?.specialty ? (
+                  <p className="clinic-rx-doctor-meta">{clinicDoctor.specialty}</p>
+                ) : null}
                 <p className="clinic-rx-doctor-meta">
                   Reg No: {clinicDoctor?.registrationNumber || '________________'}
                 </p>
