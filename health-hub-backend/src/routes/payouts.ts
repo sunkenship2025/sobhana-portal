@@ -37,6 +37,37 @@ function parseDoctorType(value: unknown): PayoutDoctorType | undefined {
     : undefined;
 }
 
+// The Pay-Run worklist rows now carry a per-doctor id `TYPE.payeeId` (an
+// aggregate over a date range) instead of a single ledger id. The current
+// frontend opens these via the dedicated range endpoints, but a browser still
+// running a CACHED older bundle (or one loaded mid-deploy) calls the legacy
+// `/:id/statement` and `/:id/export` routes with this id. Detect that shape here
+// so those routes derive over a range instead of 404-ing on a missing ledger row.
+const SYNTHETIC_PAYEE_ID_RE = /^(REFERRAL|CLINIC|DIAGNOSTIC_CENTER|LAB)\.(.+)$/;
+
+function parseSyntheticPayeeId(
+  id: string
+): { payeeType: PayoutDoctorType; payeeId: string } | null {
+  const m = id.match(SYNTHETIC_PAYEE_ID_RE);
+  return m ? { payeeType: m[1] as PayoutDoctorType, payeeId: m[2] } : null;
+}
+
+// Range for a synthetic-id request: prefer explicit query dates (startDate/
+// endDate or from/to), else fall back to the current calendar month — which is
+// what the worklist defaults to, so a cached old frontend lands on the right
+// period in the common case.
+function resolveSyntheticRange(query: Record<string, unknown>): { start: Date; end: Date } {
+  const start =
+    parseDate(query.startDate) ?? parseDate(query.from);
+  const end = parseDate(query.endDate) ?? parseDate(query.to);
+  if (start && end) return { start, end };
+  const now = new Date();
+  return {
+    start: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0)),
+    end: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999)),
+  };
+}
+
 // ============================================================================
 // GET /api/payouts — list (server-side: q, page, sort, totals)
 // Access: owner + staff
@@ -732,6 +763,21 @@ router.get('/:id', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async
   try {
     const { id } = req.params;
     const branchId = req.branchId!;
+
+    // Cached-old-frontend compatibility: a per-doctor id → derive over a range.
+    const synthetic = parseSyntheticPayeeId(id);
+    if (synthetic) {
+      const { start, end } = resolveSyntheticRange(req.query as Record<string, unknown>);
+      const detail = await payoutService.getPayoutDetailForDoctorRange(
+        synthetic.payeeType,
+        synthetic.payeeId,
+        branchId,
+        start,
+        end
+      );
+      return res.json({ data: detail });
+    }
+
     const payout = await payoutService.getPayoutDetail(id);
 
     if (!payout) {
@@ -755,13 +801,33 @@ router.get('/:id', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async
 // ============================================================================
 router.get('/:id/statement', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
   try {
-    const statement = await payoutService.getPayoutStatement(req.params.id, req.branchId!);
+    const branchId = req.branchId!;
+
+    // Cached-old-frontend compatibility: a per-doctor id → derive over a range
+    // instead of 404-ing on a missing single-day ledger row.
+    const synthetic = parseSyntheticPayeeId(req.params.id);
+    if (synthetic) {
+      const { start, end } = resolveSyntheticRange(req.query as Record<string, unknown>);
+      const statement = await payoutService.getPayoutStatementForDoctorRange(
+        synthetic.payeeType,
+        synthetic.payeeId,
+        branchId,
+        start,
+        end
+      );
+      return res.json({ data: statement });
+    }
+
+    const statement = await payoutService.getPayoutStatement(req.params.id, branchId);
     if (!statement) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Payout not found' });
     }
     return res.json({ data: statement });
   } catch (err: any) {
     console.error('Get payout statement error:', err);
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: err.message });
+    }
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to get statement' });
   }
 });
@@ -808,7 +874,18 @@ router.get('/:id/export', requireRole('owner', 'staff', 'lab_incharge', 'sales')
   try {
     const { id } = req.params;
     const branchId = req.branchId!;
-    const payout = await payoutService.getPayoutDetail(id);
+
+    // Cached-old-frontend compatibility: a per-doctor id → derive over a range.
+    const synthetic = parseSyntheticPayeeId(id);
+    const payout = synthetic
+      ? await payoutService.getPayoutDetailForDoctorRange(
+          synthetic.payeeType,
+          synthetic.payeeId,
+          branchId,
+          resolveSyntheticRange(req.query as Record<string, unknown>).start,
+          resolveSyntheticRange(req.query as Record<string, unknown>).end
+        )
+      : await payoutService.getPayoutDetail(id);
     if (!payout) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Payout not found' });
     }
