@@ -86,8 +86,13 @@ function buildDateWindow(startDate?: Date, endDate?: Date) {
 }
 
 function buildDiagnosticPayoutVisitWindow(startDate: Date, endDate: Date): Prisma.VisitWhereInput {
+  const noFinalizedReport: Prisma.VisitWhereInput['OR'] = [
+    { report: { is: null } },
+    { report: { is: { versions: { none: { status: ReportStatus.FINALIZED } } } } },
+  ];
   return {
     OR: [
+      // 1) Reportable — counted when its report is FINALIZED within the window.
       {
         report: {
           is: {
@@ -100,6 +105,7 @@ function buildDiagnosticPayoutVisitWindow(startDate: Date, endDate: Date): Prism
           },
         },
       },
+      // 2) Bill-only — no report expected; counted at completion.
       {
         status: 'COMPLETED',
         updatedAt: buildDateWindow(startDate, endDate),
@@ -108,24 +114,21 @@ function buildDiagnosticPayoutVisitWindow(startDate: Date, endDate: Date): Prism
             workflowMode: DiagnosticWorkflowMode.BILL_ONLY,
           },
         },
-        OR: [
-          {
-            report: {
-              is: null,
-            },
+        OR: noFinalizedReport,
+      },
+      // 3) Films-only ("no report needed") — patient paid, doctor referred, no
+      //    written report. Owner rule: referral IS earned on films. Counted in
+      //    the month the order was closed films-only (noReportAt), when the
+      //    visit has no finalized report. Per-order payability is enforced in
+      //    the derive loops so a mixed visit only pays its resolved orders.
+      {
+        testOrders: {
+          some: {
+            noReportAt: buildDateWindow(startDate, endDate),
+            cancelledAt: null,
           },
-          {
-            report: {
-              is: {
-                versions: {
-                  none: {
-                    status: ReportStatus.FINALIZED,
-                  },
-                },
-              },
-            },
-          },
-        ],
+        },
+        OR: noFinalizedReport,
       },
     ],
   };
@@ -279,6 +282,17 @@ async function deriveReferralPayout(
     for (const testOrder of visit.testOrders) {
       // Cancelled orders earn no payout — their charge was voided off the bill.
       if (testOrder.cancelledAt) continue;
+      // An order earns commission once it's "delivered": the visit's report is
+      // finalized, OR it's a bill-only order, OR it was closed films-only ("no
+      // report needed" — owner: referral is earned on films). Reportable orders
+      // still awaiting finalization do not earn yet. This makes a mixed visit
+      // pay only its resolved orders even when it matched via the films-only
+      // window branch.
+      const isPayable =
+        Boolean(finalizedAt) ||
+        testOrder.workflowMode === DiagnosticWorkflowMode.BILL_ONLY ||
+        testOrder.noReportAt != null;
+      if (!isPayable) continue;
       // This order's share of the bill discount (allocated proportionally by
       // price across every order on the bill). Used both to show the
       // post-discount "Amount" and to reduce the commission.
@@ -314,7 +328,7 @@ async function deriveReferralPayout(
         billNumber: visit.billNumber,
         patientName: visit.patient.name,
         patientTitle: visit.patient.title,
-        date: finalizedAt || visit.updatedAt || visit.createdAt,
+        date: finalizedAt || testOrder.noReportAt || visit.updatedAt || visit.createdAt,
         testOrFee:
           testOrder.product?.name ||
           testOrder.testNameSnapshot ||
@@ -523,6 +537,13 @@ async function deriveDiagnosticCenterPayout(
     const finalizedAt = visit.report?.versions[0]?.finalizedAt;
     for (const testOrder of visit.testOrders) {
       if (testOrder.cancelledAt) continue;
+      // Only pay resolved orders (finalized report / bill-only / films-only) —
+      // mirrors the referral derive so films-only referrals earn here too.
+      const isPayable =
+        Boolean(finalizedAt) ||
+        testOrder.workflowMode === DiagnosticWorkflowMode.BILL_ONLY ||
+        testOrder.noReportAt != null;
+      if (!isPayable) continue;
       const hasSnapshot = testOrder.diagnosticCenterCommissionType !== null;
       const commissionInPaise = hasSnapshot
         ? computeCommissionInPaise({
@@ -541,7 +562,7 @@ async function deriveDiagnosticCenterPayout(
         billNumber: visit.billNumber,
         patientName: visit.patient.name,
         patientTitle: visit.patient.title,
-        date: finalizedAt || visit.updatedAt || visit.createdAt,
+        date: finalizedAt || testOrder.noReportAt || visit.updatedAt || visit.createdAt,
         testOrFee:
           testOrder.product?.name ||
           testOrder.testNameSnapshot ||
@@ -666,6 +687,13 @@ async function deriveExternalLabPayout(
     for (const testOrder of visit.testOrders) {
       if (testOrder.externalLabId !== externalLabId) continue;
       if (testOrder.cancelledAt) continue;
+      // Only owe the lab for delivered orders (finalized / bill-only / films-only),
+      // consistent with the referral & diagnostic-center derives.
+      const isPayable =
+        Boolean(finalizedAt) ||
+        testOrder.workflowMode === DiagnosticWorkflowMode.BILL_ONLY ||
+        testOrder.noReportAt != null;
+      if (!isPayable) continue;
 
       const discountInPaise = discountAllocations.get(testOrder.id) ?? 0;
       const postDiscountPriceInPaise = Math.max(0, testOrder.priceInPaise - discountInPaise);
