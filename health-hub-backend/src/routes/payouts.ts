@@ -655,22 +655,23 @@ router.get('/statement', requireRole('owner', 'staff', 'lab_incharge', 'sales'),
     const branchId = req.branchId!;
     const payeeType = parseDoctorType(req.query.payeeType);
     const payeeId = typeof req.query.payeeId === 'string' ? req.query.payeeId : undefined;
-    const startDate = parseDate(req.query.startDate);
-    const endDate = parseDate(req.query.endDate);
 
-    if (!payeeType || !payeeId || !startDate || !endDate) {
+    if (!payeeType || !payeeId) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'payeeType, payeeId, startDate and endDate are required',
+        message: 'payeeType and payeeId are required',
       });
     }
 
+    // Missing / unparseable dates (e.g. a stale frontend sending "null") fall
+    // back to the current month rather than 400-ing.
+    const { start, end } = resolveSyntheticRange(req.query as Record<string, unknown>);
     const statement = await payoutService.getPayoutStatementForDoctorRange(
       payeeType,
       payeeId,
       branchId,
-      startDate,
-      endDate
+      start,
+      end
     );
     return res.json({ data: statement });
   } catch (err: any) {
@@ -691,22 +692,23 @@ router.get('/export/doctor', requireRole('owner', 'staff', 'lab_incharge', 'sale
     const branchId = req.branchId!;
     const payeeType = parseDoctorType(req.query.payeeType);
     const payeeId = typeof req.query.payeeId === 'string' ? req.query.payeeId : undefined;
-    const startDate = parseDate(req.query.startDate);
-    const endDate = parseDate(req.query.endDate);
 
-    if (!payeeType || !payeeId || !startDate || !endDate) {
+    if (!payeeType || !payeeId) {
       return res.status(400).json({
         error: 'VALIDATION_ERROR',
-        message: 'payeeType, payeeId, startDate and endDate are required',
+        message: 'payeeType and payeeId are required',
       });
     }
 
+    // Missing / unparseable dates (e.g. a stale frontend sending "null") fall
+    // back to the current month rather than 400-ing.
+    const { start, end } = resolveSyntheticRange(req.query as Record<string, unknown>);
     const payout = await payoutService.getPayoutDetailForDoctorRange(
       payeeType,
       payeeId,
       branchId,
-      startDate,
-      endDate
+      start,
+      end
     );
 
     // Optional selection: export only the chosen patients' visits.
@@ -727,7 +729,7 @@ router.get('/export/doctor', requireRole('owner', 'staff', 'lab_incharge', 'sale
     }
 
     const buffer = await buildSinglePayoutWorkbook(exportPayout);
-    const filename = `payout-${payout.doctorName.replace(/\s+/g, '_')}-${new Date(startDate)
+    const filename = `payout-${payout.doctorName.replace(/\s+/g, '_')}-${new Date(start)
       .toISOString()
       .slice(0, 10)}.xlsx`;
     res.setHeader(
