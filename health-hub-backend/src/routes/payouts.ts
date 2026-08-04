@@ -6,7 +6,7 @@ import { PayoutDoctorType, PaymentType } from '@prisma/client';
 import * as payoutService from '../services/payoutService';
 import { logAction } from '../services/auditService';
 import {
-  buildPayoutListWorkbook,
+  buildPayoutAggregateWorkbook,
   buildSinglePayoutWorkbook,
 } from '../services/payoutExportService';
 import * as externalLabService from '../services/externalLabService';
@@ -447,13 +447,68 @@ router.delete('/bulk', requireRole('owner'), async (req: AuthRequest, res) => {
 });
 
 // ============================================================================
-// GET /api/payouts/export — Excel export of the filtered list
-// Access: owner + staff
+// DELETE /api/payouts/by-doctor — soft-delete a payee's rows in a range (OWNER)
+// Body: { payees: [{ payeeType, payeeId }], startDate, endDate }
+// The grouped worklist rows are per-doctor aggregates, so deleting selected
+// doctors voids every ledger row they have inside the selected period.
+// ============================================================================
+router.delete('/by-doctor', requireRole('owner'), async (req: AuthRequest, res) => {
+  try {
+    const branchId = req.branchId!;
+    const { payees, startDate, endDate } = req.body;
+
+    const start = parseDate(startDate);
+    const end = parseDate(endDate);
+    if (!Array.isArray(payees) || payees.length === 0 || !start || !end) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'payees (non-empty), startDate and endDate are required',
+      });
+    }
+
+    const cleanPayees = payees
+      .filter((p: any) => p && parseDoctorType(p.payeeType) && typeof p.payeeId === 'string')
+      .map((p: any) => ({ payeeType: parseDoctorType(p.payeeType)!, payeeId: p.payeeId as string }));
+    if (cleanPayees.length === 0) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'No valid payees' });
+    }
+
+    const result = await payoutService.bulkSoftDeletePayoutsByDoctorRange(
+      cleanPayees,
+      branchId,
+      start,
+      end
+    );
+
+    if (result.deletedCount > 0) {
+      await logAction({
+        branchId,
+        actionType: 'PAYOUT_DELETE',
+        entityType: 'Payout',
+        entityId: 'BY_DOCTOR',
+        userId: req.user?.id!,
+        oldValues: { payees: cleanPayees, startDate, endDate },
+        newValues: { mode: 'by-doctor', deletedCount: result.deletedCount },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+    }
+
+    return res.json({ data: result });
+  } catch (err: any) {
+    console.error('Delete payouts by doctor error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to delete payouts' });
+  }
+});
+
+// ============================================================================
+// GET /api/payouts/export — Excel of the pay-run (ONE row per doctor, ranged)
+// Access: owner + staff. Optional ?payeeIds= restricts to the ticked doctors.
 // ============================================================================
 router.get('/export', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
   try {
     const branchId = req.branchId!;
-    const { doctorType, doctorId, isPaid, startDate, endDate, q, sortBy, sortDir } = req.query;
+    const { doctorType, startDate, endDate, q } = req.query;
 
     const validatedDoctorType = doctorType ? parseDoctorType(doctorType) : undefined;
     if (doctorType && !validatedDoctorType) {
@@ -463,31 +518,32 @@ router.get('/export', requireRole('owner', 'staff', 'lab_incharge', 'sales'), as
       });
     }
 
-    const result = await payoutService.listPayouts(branchId, {
-      doctorType: validatedDoctorType,
-      doctorId: typeof doctorId === 'string' ? doctorId : undefined,
-      isPaid: isPaid === 'true' ? true : isPaid === 'false' ? false : undefined,
+    // Reuse the worklist aggregation so the export matches the grouped screen
+    // exactly (one row per doctor for the range, no per-day duplicates).
+    const worklist = await payoutService.getPayRunWorklist(branchId, {
+      payeeType: validatedDoctorType,
       startDate: parseDate(startDate),
       endDate: parseDate(endDate),
       q: typeof q === 'string' ? q : undefined,
-      sortBy: typeof sortBy === 'string' ? (sortBy as any) : undefined,
-      sortDir: sortDir === 'asc' || sortDir === 'desc' ? sortDir : undefined,
-      page: 1,
-      pageSize: 5000, // export caps at 5k rows; adjust if your branch ever exceeds
     });
 
-    // Optional selection: restrict the export to the ticked payout rows.
-    const rawIds = req.query.ids;
-    const idList =
-      typeof rawIds === 'string' && rawIds.trim()
-        ? rawIds.split(',').map((s) => s.trim()).filter(Boolean)
+    // Optional selection: restrict the export to the ticked doctors.
+    const rawPayeeIds = req.query.payeeIds;
+    const payeeIdList =
+      typeof rawPayeeIds === 'string' && rawPayeeIds.trim()
+        ? rawPayeeIds.split(',').map((s) => s.trim()).filter(Boolean)
         : [];
-    const rows =
-      idList.length > 0
-        ? result.rows.filter((r) => idList.includes(r.id))
-        : result.rows;
+    const wanted = payeeIdList.length > 0 ? new Set(payeeIdList) : null;
 
-    const buffer = await buildPayoutListWorkbook(rows);
+    const rows = worklist.rows
+      .filter((r) => !wanted || wanted.has(r.payeeId))
+      .map((r) => ({
+        doctorName: r.payeeName,
+        doctorType: r.payeeType,
+        amountInPaise: r.amountInPaise,
+      }));
+
+    const buffer = await buildPayoutAggregateWorkbook(rows);
     const filename = `payouts-${new Date().toISOString().slice(0, 10)}.xlsx`;
     res.setHeader(
       'Content-Type',
@@ -554,6 +610,107 @@ router.get('/worklist', requireRole('owner', 'staff', 'lab_incharge', 'sales'), 
   } catch (err: any) {
     console.error('Get pay-run worklist error:', err);
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to get worklist' });
+  }
+});
+
+// ============================================================================
+// GET /api/payouts/statement — per-doctor banded statement over a date range
+// Query: payeeType, payeeId, startDate, endDate. Used by the grouped worklist,
+// whose rows are per-doctor aggregates (no single ledger id) linked to the
+// range at the top of the page.
+// ============================================================================
+router.get('/statement', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
+  try {
+    const branchId = req.branchId!;
+    const payeeType = parseDoctorType(req.query.payeeType);
+    const payeeId = typeof req.query.payeeId === 'string' ? req.query.payeeId : undefined;
+    const startDate = parseDate(req.query.startDate);
+    const endDate = parseDate(req.query.endDate);
+
+    if (!payeeType || !payeeId || !startDate || !endDate) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'payeeType, payeeId, startDate and endDate are required',
+      });
+    }
+
+    const statement = await payoutService.getPayoutStatementForDoctorRange(
+      payeeType,
+      payeeId,
+      branchId,
+      startDate,
+      endDate
+    );
+    return res.json({ data: statement });
+  } catch (err: any) {
+    console.error('Get range statement error:', err);
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: err.message });
+    }
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to get statement' });
+  }
+});
+
+// ============================================================================
+// GET /api/payouts/export/doctor — per-doctor statement xlsx over a date range
+// Query: payeeType, payeeId, startDate, endDate, [visitIds]
+// ============================================================================
+router.get('/export/doctor', requireRole('owner', 'staff', 'lab_incharge', 'sales'), async (req: AuthRequest, res) => {
+  try {
+    const branchId = req.branchId!;
+    const payeeType = parseDoctorType(req.query.payeeType);
+    const payeeId = typeof req.query.payeeId === 'string' ? req.query.payeeId : undefined;
+    const startDate = parseDate(req.query.startDate);
+    const endDate = parseDate(req.query.endDate);
+
+    if (!payeeType || !payeeId || !startDate || !endDate) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'payeeType, payeeId, startDate and endDate are required',
+      });
+    }
+
+    const payout = await payoutService.getPayoutDetailForDoctorRange(
+      payeeType,
+      payeeId,
+      branchId,
+      startDate,
+      endDate
+    );
+
+    // Optional selection: export only the chosen patients' visits.
+    const rawVisitIds = req.query.visitIds;
+    const visitIdList =
+      typeof rawVisitIds === 'string' && rawVisitIds.trim()
+        ? rawVisitIds.split(',').map((s) => s.trim()).filter(Boolean)
+        : [];
+    let exportPayout = payout;
+    if (visitIdList.length > 0) {
+      const wanted = new Set(visitIdList);
+      const lineItems = payout.lineItems.filter((li) => wanted.has(li.visitId));
+      exportPayout = {
+        ...payout,
+        lineItems,
+        derivedAmountInPaise: lineItems.reduce((s, li) => s + li.derivedCommissionInPaise, 0),
+      };
+    }
+
+    const buffer = await buildSinglePayoutWorkbook(exportPayout);
+    const filename = `payout-${payout.doctorName.replace(/\s+/g, '_')}-${new Date(startDate)
+      .toISOString()
+      .slice(0, 10)}.xlsx`;
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(buffer);
+  } catch (err: any) {
+    console.error('Export range payout error:', err);
+    if (err.message?.includes('not found')) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: err.message });
+    }
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to export payout' });
   }
 });
 

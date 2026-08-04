@@ -2,8 +2,8 @@
  * Excel export for payouts.
  *
  * Two workbooks:
- *   - buildPayoutListWorkbook(rows)        — the filtered list view
- *   - buildSinglePayoutWorkbook(detail)    — one payout's summary + line items
+ *   - buildPayoutAggregateWorkbook(rows)   — the pay-run, one row per doctor
+ *   - buildSinglePayoutWorkbook(detail)    — one doctor's statement (per bill)
  *
  * Format conventions:
  *   - Indian rupee number format (#,##,##0.00)
@@ -12,7 +12,13 @@
  *   - Currency stored as a number (rupees, not paise) so Excel sums work
  */
 import ExcelJS from 'exceljs';
-import { PayoutSummary, PayoutDetail } from './payoutService';
+import { PayoutDetail } from './payoutService';
+
+export interface PayoutAggregateRow {
+  doctorName: string;
+  doctorType: string;
+  amountInPaise: number;
+}
 
 const RUPEE_FMT = '#,##,##0.00';
 const DATE_FMT = 'dd-mmm-yyyy';
@@ -38,27 +44,25 @@ function formatPeriod(start: Date | string, end: Date | string): string {
   return `${s.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', timeZone: 'UTC' })} – ${e.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })}`;
 }
 
-export async function buildPayoutListWorkbook(rows: PayoutSummary[]): Promise<Buffer> {
+/**
+ * Pay-run workbook: ONE row per doctor for the whole period (matches the
+ * grouped worklist — no per-day duplicate rows, no dormant paid/status columns).
+ */
+export async function buildPayoutAggregateWorkbook(
+  rows: PayoutAggregateRow[]
+): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Sobhana Diagnostics';
   wb.created = new Date();
 
-  const ws = wb.addWorksheet('Payouts', {
+  const ws = wb.addWorksheet('Pay-Run', {
     views: [{ state: 'frozen', ySplit: 1 }],
   });
 
   ws.columns = [
-    { header: 'Doctor', key: 'doctorName', width: 28 },
-    { header: 'Type', key: 'doctorType', width: 18 },
-    { header: 'Period', key: 'period', width: 22 },
-    { header: 'Period Start', key: 'periodStart', width: 14, style: { numFmt: DATE_FMT } },
-    { header: 'Period End', key: 'periodEnd', width: 14, style: { numFmt: DATE_FMT } },
-    { header: 'Amount (₹)', key: 'amount', width: 14, style: { numFmt: RUPEE_FMT } },
-    { header: 'Status', key: 'status', width: 10 },
-    { header: 'Derived On', key: 'derivedAt', width: 14, style: { numFmt: DATE_FMT } },
-    { header: 'Paid On', key: 'paidAt', width: 14, style: { numFmt: DATE_FMT } },
-    { header: 'Method', key: 'paymentMethod', width: 10 },
-    { header: 'Branch', key: 'branchName', width: 16 },
+    { header: 'Payee', key: 'doctorName', width: 32 },
+    { header: 'Type', key: 'doctorType', width: 20 },
+    { header: 'Amount (₹)', key: 'amount', width: 16, style: { numFmt: RUPEE_FMT } },
   ];
 
   ws.getRow(1).font = { bold: true };
@@ -68,39 +72,65 @@ export async function buildPayoutListWorkbook(rows: PayoutSummary[]): Promise<Bu
     ws.addRow({
       doctorName: r.doctorName,
       doctorType: formatDoctorType(r.doctorType),
-      period: formatPeriod(r.periodStartDate, r.periodEndDate),
-      periodStart: new Date(r.periodStartDate),
-      periodEnd: new Date(r.periodEndDate),
-      amount: paiseToRupees(r.derivedAmountInPaise),
-      status: r.paidAt ? 'Paid' : 'Pending',
-      derivedAt: new Date(r.derivedAt),
-      paidAt: r.paidAt ? new Date(r.paidAt) : null,
-      paymentMethod: r.paymentMethod ?? '',
-      branchName: r.branchName,
+      amount: paiseToRupees(r.amountInPaise),
     });
   }
 
   // Totals row
   if (rows.length > 0) {
-    const total = rows.reduce((sum, r) => sum + r.derivedAmountInPaise, 0);
+    const total = rows.reduce((sum, r) => sum + r.amountInPaise, 0);
     const lastRow = ws.addRow({
-      doctorName: '',
+      doctorName: `${rows.length} payees`,
       doctorType: '',
-      period: '',
-      periodStart: '',
-      periodEnd: '',
       amount: paiseToRupees(total),
-      status: `${rows.length} rows`,
     });
     lastRow.font = { bold: true };
     lastRow.getCell('amount').numFmt = RUPEE_FMT;
   }
 
-  // Right-align currency column data
   ws.getColumn('amount').alignment = { horizontal: 'right' };
 
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf);
+}
+
+/**
+ * Collapse a payout's line items into one row per bill (a bill with several
+ * tests becomes a single row whose Investigation lists them). Amount is the
+ * post-discount price; Ref is the referral commission.
+ */
+function groupLineItemsByBill(payout: PayoutDetail) {
+  const map = new Map<
+    string,
+    {
+      date: Date;
+      billNumber: string;
+      patient: string;
+      tests: string[];
+      amountInPaise: number;
+      refInPaise: number;
+    }
+  >();
+  for (const li of payout.lineItems) {
+    const key = `${li.billNumber}|${li.patientName}`;
+    let g = map.get(key);
+    if (!g) {
+      g = {
+        date: new Date(li.date),
+        billNumber: li.billNumber,
+        patient: `${li.patientTitle ? li.patientTitle + ' ' : ''}${li.patientName}`,
+        tests: [],
+        amountInPaise: 0,
+        refInPaise: 0,
+      };
+      map.set(key, g);
+    }
+    g.tests.push(li.testOrFee);
+    g.amountInPaise += li.amountInPaise;
+    g.refInPaise += li.derivedCommissionInPaise;
+    if (new Date(li.date) < g.date) g.date = new Date(li.date);
+  }
+  return Array.from(map.values()).sort((a, b) => a.date.getTime() - b.date.getTime());
 }
 
 export async function buildSinglePayoutWorkbook(payout: PayoutDetail): Promise<Buffer> {
@@ -108,90 +138,71 @@ export async function buildSinglePayoutWorkbook(payout: PayoutDetail): Promise<B
   wb.creator = 'Sobhana Diagnostics';
   wb.created = new Date();
 
-  // Sheet 1: Summary
-  const summary = wb.addWorksheet('Summary');
-  summary.getColumn(1).width = 22;
-  summary.getColumn(2).width = 36;
+  const isLab = payout.doctorType === 'LAB';
+  const refHeader = isLab ? 'Payable (₹)' : 'Ref (₹)';
 
-  const meta: [string, string | number | Date | null][] = [
-    ['Doctor', payout.doctorName],
-    ['Type', formatDoctorType(payout.doctorType)],
-    ['Period', formatPeriod(payout.periodStartDate, payout.periodEndDate)],
-    ['Total Amount (₹)', paiseToRupees(payout.derivedAmountInPaise)],
-    ['Status', payout.paidAt ? 'Paid' : 'Pending'],
-    ['Derived On', new Date(payout.derivedAt)],
-    ['Paid On', payout.paidAt ? new Date(payout.paidAt) : null],
-    ['Payment Method', payout.paymentMethod ?? ''],
-    ['Reference ID', payout.paymentReferenceId ?? ''],
-    ['Notes', payout.notes ?? ''],
-    ['Branch', payout.branchName],
-    ['Payout ID', payout.id],
-  ];
-  meta.forEach(([label, value], i) => {
-    const row = summary.addRow([label, value]);
-    row.getCell(1).font = { bold: true };
-    if (label.includes('₹')) row.getCell(2).numFmt = RUPEE_FMT;
-    if (label.includes('On') && value instanceof Date) row.getCell(2).numFmt = DATE_FMT;
-    void i;
+  // Single statement sheet: one row per bill, matching the printed statement.
+  //   Date | Bill # | Patient | Investigation | Amount (post-discount) | Ref
+  const ws = wb.addWorksheet('Statement', {
+    views: [{ state: 'frozen', ySplit: 3 }],
   });
 
-  // Sheet 2: Line Items
-  const items = wb.addWorksheet('Line Items', {
-    views: [{ state: 'frozen', ySplit: 1 }],
-  });
-  items.columns = [
-    { header: 'Date', key: 'date', width: 14, style: { numFmt: DATE_FMT } },
-    { header: 'Bill #', key: 'billNumber', width: 16 },
-    { header: 'Patient', key: 'patientName', width: 28 },
-    { header: 'Title', key: 'patientTitle', width: 16 },
-    { header: 'Service / Product', key: 'testOrFee', width: 32 },
-    { header: 'Amount (₹)', key: 'amount', width: 14, style: { numFmt: RUPEE_FMT } },
-    { header: 'Commission %/₹', key: 'commission', width: 16 },
-    { header: 'Earned (₹)', key: 'earned', width: 14, style: { numFmt: RUPEE_FMT } },
-  ];
-  items.getRow(1).font = { bold: true };
+  // Header block (payee + period), then the table header on row 3.
+  ws.mergeCells('A1:F1');
+  const titleCell = ws.getCell('A1');
+  titleCell.value = `${payout.doctorName} — ${formatDoctorType(payout.doctorType)}`;
+  titleCell.font = { bold: true, size: 13 };
 
-  for (const li of payout.lineItems) {
-    items.addRow({
-      date: new Date(li.date),
-      billNumber: li.billNumber,
-      patientName: li.patientName,
-      patientTitle: li.patientTitle || '',
-      testOrFee: li.testOrFee,
-      amount: paiseToRupees(li.amountInPaise),
-      commission:
-        li.commissionLabel ??
-        (li.commissionType === 'PERCENTAGE'
-          ? `${li.commissionPercentage ?? 0}%`
-          : li.commissionAmountInPaise != null
-            ? `₹${paiseToRupees(li.commissionAmountInPaise)}`
-            : '-'),
-      earned: paiseToRupees(li.derivedCommissionInPaise),
+  ws.mergeCells('A2:F2');
+  ws.getCell('A2').value = `Period: ${formatPeriod(
+    payout.periodStartDate,
+    payout.periodEndDate
+  )}   ·   Branch: ${payout.branchName}`;
+  ws.getCell('A2').font = { color: { argb: 'FF666666' } };
+
+  ws.columns = [
+    { key: 'date', width: 14, style: { numFmt: DATE_FMT } },
+    { key: 'billNumber', width: 16 },
+    { key: 'patient', width: 28 },
+    { key: 'investigation', width: 40 },
+    { key: 'amount', width: 14, style: { numFmt: RUPEE_FMT } },
+    { key: 'ref', width: 14, style: { numFmt: RUPEE_FMT } },
+  ];
+
+  const headerRow = ws.getRow(3);
+  headerRow.values = ['Date', 'Bill #', 'Patient', 'Investigation', 'Amount (₹)', refHeader];
+  headerRow.font = { bold: true };
+
+  const bills = groupLineItemsByBill(payout);
+  for (const b of bills) {
+    ws.addRow({
+      date: b.date,
+      billNumber: b.billNumber,
+      patient: b.patient,
+      investigation: b.tests.join(', '),
+      amount: paiseToRupees(b.amountInPaise),
+      ref: paiseToRupees(b.refInPaise),
     });
   }
 
-  if (payout.lineItems.length > 0) {
-    const totalEarned = payout.lineItems.reduce(
-      (s, li) => s + li.derivedCommissionInPaise,
-      0
-    );
-    const totalAmount = payout.lineItems.reduce(
-      (s, li) => s + li.amountInPaise,
-      0
-    );
-    const totalRow = items.addRow({
+  if (bills.length > 0) {
+    const totalAmount = bills.reduce((s, b) => s + b.amountInPaise, 0);
+    const totalRef = bills.reduce((s, b) => s + b.refInPaise, 0);
+    const totalRow = ws.addRow({
       date: '',
       billNumber: '',
-      patientName: '',
-      testOrFee: `${payout.lineItems.length} items`,
+      patient: '',
+      investigation: `TOTAL — ${bills.length} bills`,
       amount: paiseToRupees(totalAmount),
-      commission: '',
-      earned: paiseToRupees(totalEarned),
+      ref: paiseToRupees(totalRef),
     });
     totalRow.font = { bold: true };
     totalRow.getCell('amount').numFmt = RUPEE_FMT;
-    totalRow.getCell('earned').numFmt = RUPEE_FMT;
+    totalRow.getCell('ref').numFmt = RUPEE_FMT;
   }
+
+  ws.getColumn('amount').alignment = { horizontal: 'right' };
+  ws.getColumn('ref').alignment = { horizontal: 'right' };
 
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf);
