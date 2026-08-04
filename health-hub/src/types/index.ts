@@ -1110,6 +1110,7 @@ export interface BillReceiptData {
   date: string | Date; // ISO string or Date object
   domain: "CLINIC" | "DIAGNOSTICS";
   visitType?: string; // 'OP' | 'IP' for clinic
+  tokenNumber?: number | null; // OP queue token, shown on the clinic bill
   isRevisit?: boolean;
   originalBillNumber?: string | null;
   originalVisitDate?: string | Date | null;

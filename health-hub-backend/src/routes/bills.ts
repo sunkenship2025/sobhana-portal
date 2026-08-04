@@ -124,6 +124,7 @@ router.get("/:domain/:visitId", async (req: AuthRequest, res) => {
         totalAmount: visit.totalAmountInPaise / 100,
         ...billFinancials,
         visitType: visit.clinicVisit?.visitType,
+        tokenNumber: visit.clinicVisit?.tokenNumber ?? null,
         isRevisit: visit.clinicVisit?.isRevisit ?? false,
         originalVisitBillNumber: originalVisitSummary?.billNumber || null,
         originalVisitDate: originalVisitSummary?.createdAt || null,

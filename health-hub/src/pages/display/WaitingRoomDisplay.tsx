@@ -69,7 +69,7 @@ const CSS = `
 .wrd-sub{ font-size:.8vw; color:var(--muted); letter-spacing:.2em; text-transform:uppercase; font-weight:700; margin-top:.4vh; }
 .wrd-clock{ font-family:'Space Grotesk','Inter',sans-serif; font-size:2.4vw; font-weight:600; color:var(--navy); font-variant-numeric:tabular-nums; }
 .wrd-date{ font-size:1vw; color:var(--muted); font-weight:600; text-align:right; }
-.wrd-main{ flex:1 1 auto; position:relative; display:flex; align-items:center; justify-content:center; padding:0 4vw; }
+.wrd-main{ flex:1 1 auto; position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center; }
 .wrd-screen{ display:flex; flex-direction:column; align-items:center; text-align:center;
   animation:wrdIn .55s cubic-bezier(.16,1,.3,1) both; }
 @keyframes wrdIn{ 0%{opacity:0; transform:translateY(1.4vh)} 100%{opacity:1; transform:none} }
@@ -104,8 +104,9 @@ const CSS = `
 .wrd-cell{ flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.4vh;
   border-right:1px solid var(--hairline); position:relative; padding:0 .8vw; text-align:center; }
 .wrd-cell:last-child{ border-right:none; }
-.wrd-cn{ font-size:1.1vw; font-weight:700; color:var(--navy); line-height:1.12; max-width:100%;
+.wrd-cn{ font-size:1.05vw; font-weight:700; color:var(--navy); line-height:1.1; max-width:100%;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.wrd-cpt{ font-size:.9vw; font-weight:600; color:var(--muted); max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .wrd-crm{ font-size:.78vw; color:var(--muted); font-weight:700; letter-spacing:.05em; text-transform:uppercase; }
 .wrd-cnum{ font-family:'Space Grotesk','Inter',sans-serif; font-size:3vw; font-weight:700; line-height:1; color:var(--navy);
   font-variant-numeric:tabular-nums; }
@@ -122,7 +123,10 @@ const CSS = `
 .wrd-center h1{ font-size:3vw; font-weight:800; color:#1B2B58; }
 .wrd-center p{ font-size:1.5vw; color:#66738f; margin-top:1.5vh; }
 .wrd-center code{ font-family:'Space Grotesk',monospace; background:#eef2f9; padding:.4vh 1vw; border-radius:.6vh; }
-.wrd-ad{ width:92%; height:86%; border-radius:2.2vh; box-shadow:0 3vh 8vh rgba(20,34,68,.18); background:#0c1830; display:block;
+/* Ad fills the whole main area (never the ticker). object-fit makes fill vs
+   letterbox actually differ: cover crops to fill edge-to-edge, contain shows
+   black bars. */
+.wrd-ad{ position:absolute; inset:0; width:100%; height:100%; background:#000; display:block;
   animation:wrdIn .55s cubic-bezier(.16,1,.3,1) both; }
 @media (prefers-reduced-motion: reduce){ .wrd-screen,.wrd-token,.wrd-ad{ animation:none } }
 `;
@@ -131,43 +135,66 @@ function two(n: number | null): string {
   return n == null ? '—' : String(n).padStart(2, '0');
 }
 
-// Ding-dong call chime via Web Audio (no asset needed). On a TV, Fully Kiosk
-// must allow audio/autoplay; a first touch also unlocks it.
-let _actx: AudioContext | null = null;
-function audioCtx(): AudioContext | null {
-  try {
-    const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    _actx = _actx || new Ctor();
-    if (_actx.state === 'suspended') void _actx.resume();
-    return _actx;
-  } catch {
-    return null;
-  }
-}
-function bell(c: AudioContext, freq: number, t0: number, dur: number, gain: number) {
-  const partial = (f: number, g: number, d: number) => {
-    const o = c.createOscillator();
-    const gn = c.createGain();
-    o.type = 'sine';
-    o.frequency.value = f;
-    o.connect(gn);
-    gn.connect(c.destination);
-    gn.gain.setValueAtTime(0.0001, t0);
-    gn.gain.exponentialRampToValueAtTime(g, t0 + 0.006);
-    gn.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
-    o.start(t0);
-    o.stop(t0 + d + 0.03);
+// Ding-dong call chime as an <audio> element (a synthesized WAV data URI, no
+// asset). We use a media element — not Web Audio — because the Android WebView's
+// setMediaPlaybackRequiresUserGesture(false) lets a media element autoplay,
+// whereas an AudioContext stays suspended on a kiosk with no touch.
+let _chimeUri: string | null = null;
+function chimeDataUri(): string {
+  if (_chimeUri) return _chimeUri;
+  const sr = 44100;
+  const dur = 1.4;
+  const n = Math.floor(sr * dur);
+  const data = new Float32Array(n);
+  const bell = (freq: number, start: number, len: number, amp: number) => {
+    const s0 = Math.floor(start * sr);
+    for (let i = 0; i < len * sr && s0 + i < n; i++) {
+      const t = i / sr;
+      const env = Math.exp(-t * 3);
+      data[s0 + i] +=
+        amp * env * (Math.sin(2 * Math.PI * freq * t)
+          + 0.35 * Math.sin(2 * Math.PI * freq * 2.01 * t)
+          + 0.16 * Math.sin(2 * Math.PI * freq * 3.02 * t));
+    }
   };
-  partial(freq, gain, dur);
-  partial(freq * 2.01, gain * 0.35, dur * 0.7);
-  partial(freq * 3.02, gain * 0.16, dur * 0.45);
+  bell(659.25, 0, 0.9, 0.5);
+  bell(523.25, 0.3, 1.1, 0.5);
+  const buf = new ArrayBuffer(44 + n * 2);
+  const dv = new DataView(buf);
+  const ws = (o: number, s: string) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  ws(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); ws(8, 'WAVE'); ws(12, 'fmt ');
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, sr, true); dv.setUint32(28, sr * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+  ws(36, 'data'); dv.setUint32(40, n * 2, true);
+  let off = 44;
+  for (let i = 0; i < n; i++) {
+    const v = Math.max(-1, Math.min(1, data[i]));
+    dv.setInt16(off, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+    off += 2;
+  }
+  let bin = '';
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  _chimeUri = 'data:audio/wav;base64,' + btoa(bin);
+  return _chimeUri;
+}
+let _chime: HTMLAudioElement | null = null;
+function getChime(): HTMLAudioElement {
+  if (!_chime) {
+    _chime = new Audio(chimeDataUri());
+    _chime.preload = 'auto';
+  }
+  return _chime;
 }
 function playDingDong() {
-  const c = audioCtx();
-  if (!c) return;
-  const t = c.currentTime + 0.02;
-  bell(c, 659.25, t, 0.9, 0.24);
-  bell(c, 523.25, t + 0.3, 1.1, 0.24);
+  try {
+    const a = getChime();
+    a.currentTime = 0;
+    const p = a.play();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Rotates uploaded creatives in the idle state: photos held, slideshows cycled, videos to their end. */
@@ -275,15 +302,21 @@ export default function WaitingRoomDisplay() {
       setState(data);
       setStatus('ok');
       const ns = data.nowServing;
-      const isNewCall = booted.current; // don't chime for whatever's already in progress on boot
-      if (ns?.startedAt && ns.startedAt > shownStartedAt.current) {
-        shownStartedAt.current = ns.startedAt;
+      const holdMs = (data.screen?.holdSeconds ?? 18) * 1000;
+      if (ns) {
+        const isNew = !!ns.startedAt && ns.startedAt > shownStartedAt.current;
+        if (isNew) {
+          shownStartedAt.current = ns.startedAt as string;
+          // Don't chime for whatever was already in progress on boot.
+          if (booted.current && data.screen?.chimeSound !== 'none') playDingDong();
+        }
         setNow(ns);
         setMode('serving');
+        // Keep the call on screen while the patient is being served; only fall
+        // back to ads/welcome once nobody is in progress (hold from the last poll
+        // that still saw a served patient).
         window.clearTimeout(holdTimer.current);
-        const holdMs = (data.screen?.holdSeconds ?? 18) * 1000;
         holdTimer.current = window.setTimeout(() => setMode('resting'), holdMs);
-        if (isNewCall && data.screen?.chimeSound !== 'none') playDingDong();
       }
       booted.current = true;
     } catch {
@@ -314,14 +347,25 @@ export default function WaitingRoomDisplay() {
     return () => window.clearInterval(id);
   }, [tickPages]);
 
-  // Unlock audio on the first interaction (kiosks that don't allow autoplay).
+  // Unlock audio on the first interaction (browsers / kiosks that block autoplay).
   useEffect(() => {
-    const resume = () => audioCtx();
-    window.addEventListener('pointerdown', resume, { once: true });
-    window.addEventListener('keydown', resume, { once: true });
+    const prime = () => {
+      try {
+        const a = getChime();
+        a.muted = true;
+        const p = a.play();
+        if (p && typeof p.then === 'function') {
+          p.then(() => { a.pause(); a.currentTime = 0; a.muted = false; }).catch(() => { a.muted = false; });
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener('pointerdown', prime, { once: true });
+    window.addEventListener('keydown', prime, { once: true });
     return () => {
-      window.removeEventListener('pointerdown', resume);
-      window.removeEventListener('keydown', resume);
+      window.removeEventListener('pointerdown', prime);
+      window.removeEventListener('keydown', prime);
     };
   }, []);
 
@@ -429,6 +473,7 @@ export default function WaitingRoomDisplay() {
               visibleDoctors.map((d) => (
                 <div className={`wrd-cell${d.serving ? ' act' : ''}`} key={d.id}>
                   <div className="wrd-cn">{d.name}</div>
+                  {d.patientName && <div className="wrd-cpt">{d.patientName}</div>}
                   <div className={`wrd-cnum${d.currentToken == null ? ' empty' : ''}`}>{two(d.currentToken)}</div>
                   {d.room && <div className="wrd-crm">{d.room}</div>}
                 </div>

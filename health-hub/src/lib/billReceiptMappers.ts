@@ -21,6 +21,7 @@ export interface ApiBillData {
     netAmountInPaise?: number;
     dueAmountInPaise?: number;
     visitType?: string;
+    tokenNumber?: number | null;
     isRevisit?: boolean;
     originalVisitBillNumber?: string | null;
     originalVisitDate?: string | null;
@@ -70,6 +71,7 @@ export function mapApiBillToReceiptData(api: ApiBillData): BillReceiptData {
     date: api.visit.createdAt,
     domain: api.visit.domain,
     visitType: api.visit.visitType,
+    tokenNumber: api.visit.tokenNumber ?? null,
     isRevisit: api.visit.isRevisit,
     originalBillNumber: api.visit.originalVisitBillNumber,
     originalVisitDate: api.visit.originalVisitDate,
@@ -132,6 +134,7 @@ export function mapClinicVisitViewToReceiptData(
     date: visit.createdAt,
     domain: "CLINIC",
     visitType: visit.visitType,
+    tokenNumber: (visit as { tokenNumber?: number | null }).tokenNumber ?? null,
     isRevisit: visit.isRevisit,
     originalBillNumber: visit.originalVisitBillNumber || null,
     originalVisitDate: visit.originalVisitDate || null,

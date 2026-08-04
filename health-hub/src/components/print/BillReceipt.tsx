@@ -88,6 +88,16 @@ export const BillReceipt = ({
     ? data.billNumber || data.visitRef || "—"
     : data.visitRef || data.billNumber || "—";
 
+  // ── OP queue token (top-left badge): first 3 letters of the doctor + number ──
+  const tokenLabel =
+    data.domain === "CLINIC" && data.tokenNumber != null
+      ? `${(data.doctor?.name || "")
+          .replace(/^\s*dr\.?\s*/i, "")
+          .replace(/[^a-zA-Z]/g, "")
+          .slice(0, 3)
+          .toUpperCase()}-${String(data.tokenNumber).padStart(2, "0")}`
+      : null;
+
   // ── Payment status + method ──
   // Distinct methods actually used across the payment ledger (CASH / ONLINE / CHEQUE).
   const paymentMethodLabel =
@@ -236,7 +246,13 @@ export const BillReceipt = ({
         )}
 
         {/* ─── 1. HEADER ─── */}
-        <div className="border-b border-black px-4 py-1.5 text-center">
+        <div className="relative border-b border-black px-4 py-1.5 text-center">
+          {tokenLabel && (
+            <div className="absolute text-left" style={{ top: "6px", left: "10px", lineHeight: 1 }}>
+              <div style={{ fontSize: "9px", fontWeight: 700, letterSpacing: "1.5px" }}>TOKEN NO</div>
+              <div style={{ fontSize: "20px", fontWeight: 800 }}>{tokenLabel}</div>
+            </div>
+          )}
           <div className="flex justify-center mb-1">
             <img
               src={BILL_LOGO_URL}

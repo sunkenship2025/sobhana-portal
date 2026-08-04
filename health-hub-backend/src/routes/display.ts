@@ -153,21 +153,14 @@ router.get('/:branchSlug/:screenSlug/state', displayRateLimit, async (req: Reque
       }
 
       if (cv.status === 'IN_PROGRESS') {
-        // Being served now — this wins over any completed row for the doctor.
+        // Only doctors actively serving appear on the board. A cleared queue
+        // (nobody in progress) shows nothing — no stale "last served" token.
         const t = cv.startedAt ? cv.startedAt.getTime() : 0;
         if (!d.serving || t >= d._at) {
           d.serving = true;
           d.currentToken = cv.tokenNumber ?? null;
           d.patientName = v.patient?.name || null;
           d.startedAt = cv.startedAt ? cv.startedAt.toISOString() : null;
-          d._at = t;
-        }
-      } else if (cv.status === 'COMPLETED' && !d.serving) {
-        // Nobody in progress yet — show the most recently finished token so the
-        // ticker isn't blank.
-        const t = cv.completedAt ? cv.completedAt.getTime() : 0;
-        if (t >= d._at) {
-          d.currentToken = cv.tokenNumber ?? d.currentToken;
           d._at = t;
         }
       }
