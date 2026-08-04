@@ -4,11 +4,17 @@ import { useApiQuery, apiCall } from '@/lib/query';
 import { toast } from 'sonner';
 import {
   ShieldCheck, Lock, Crown, FlaskConical, Users, Megaphone, GripVertical,
+  UserMinus, UserX,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { ROLE_LABELS, UserRole } from '@/store/authStore';
 
 /* ───────── Types ───────── */
@@ -44,6 +50,7 @@ export default function ManageRoles() {
   const qc = useQueryClient();
   const [dragId, setDragId] = useState<string | null>(null);
   const [overRole, setOverRole] = useState<UserRole | null>(null);
+  const [deactivateTarget, setDeactivateTarget] = useState<TeamMember | null>(null);
 
   const { data: members = [], isLoading } = useApiQuery<TeamMember[]>({
     queryKey: ['users'],
@@ -86,6 +93,38 @@ export default function ManageRoles() {
     roleMutation.mutate({ id: m.id, role, name: m.name });
   };
 
+  // Deactivate / reactivate a member. Deactivating blocks login and revokes
+  // any live session; the account (and its history) is kept and can be
+  // reactivated. Optimistic — the card leaves its lane immediately.
+  const activeMutation = useMutation<
+    TeamMember,
+    Error,
+    { id: string; isActive: boolean; name: string },
+    { prev?: TeamMember[] }
+  >({
+    mutationFn: ({ id, isActive }) =>
+      apiCall<{ data: TeamMember }>(`/users/${id}/active`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive }),
+      }).then((r) => r.data),
+    onMutate: async ({ id, isActive }) => {
+      await qc.cancelQueries({ queryKey: ['users'] });
+      const prev = qc.getQueryData<TeamMember[]>(['users']);
+      qc.setQueryData<TeamMember[]>(['users'], (old) =>
+        old?.map((m) => (m.id === id ? { ...m, isActive } : m)),
+      );
+      return { prev };
+    },
+    onError: (err, vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(['users'], ctx.prev);
+      toast.error(err.message || `Couldn't update ${vars.name}`);
+    },
+    onSuccess: (updated, vars) =>
+      toast.success(vars.isActive ? `${updated.name} reactivated` : `${updated.name} deactivated`),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
+
   const handleDrop = (role: UserRole) => {
     setOverRole(null);
     const m = members.find((x) => x.id === dragId);
@@ -114,7 +153,7 @@ export default function ManageRoles() {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {LANES.map((lane) => {
             const Icon = lane.icon;
-            const laneMembers = members.filter((m) => m.role === lane.role);
+            const laneMembers = members.filter((m) => m.role === lane.role && m.isActive);
             const isOwnerLane = lane.role === 'owner';
             const isDropTarget = overRole === lane.role;
             const canDropHere = !isOwnerLane;
@@ -202,6 +241,17 @@ export default function ManageRoles() {
                                 </p>
                               )}
                             </div>
+                            {!locked && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 shrink-0 text-muted-foreground/60 hover:text-destructive"
+                                onClick={() => setDeactivateTarget(m)}
+                                aria-label={`Deactivate ${m.name}`}
+                              >
+                                <UserMinus className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                           </div>
 
                           {/* Fallback toggle — same action as dragging */}
@@ -236,6 +286,90 @@ export default function ManageRoles() {
           })}
         </div>
       )}
+
+      {/* Deactivated members — kept for their history, blocked from access. */}
+      {(() => {
+        const deactivated = members.filter((m) => !m.isActive);
+        if (deactivated.length === 0) return null;
+        return (
+          <div className="rounded-xl border bg-muted/20">
+            <div className="border-b px-3 py-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <UserX className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-semibold">Deactivated</span>
+                </div>
+                <span className="text-muted-foreground rounded-full bg-background px-2 py-0.5 text-xs font-medium">
+                  {deactivated.length}
+                </span>
+              </div>
+              <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
+                Signed out and blocked from logging in. Reactivate to restore access.
+              </p>
+            </div>
+            <div className="grid gap-2 p-2 md:grid-cols-2 xl:grid-cols-4">
+              {deactivated.map((m) => (
+                <div
+                  key={m.id}
+                  className="flex items-start gap-2 rounded-lg border bg-background p-2.5 shadow-sm"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{m.name}</p>
+                    <p className="text-muted-foreground truncate text-xs">{m.email}</p>
+                    <p className="text-muted-foreground/80 truncate text-xs">
+                      {ROLE_LABELS[m.role]}
+                      {m.activeBranch?.name ? ` · ${m.activeBranch.name}` : ''}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 shrink-0 text-xs"
+                    disabled={activeMutation.isPending}
+                    onClick={() => activeMutation.mutate({ id: m.id, isActive: true, name: m.name })}
+                  >
+                    Reactivate
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      <AlertDialog
+        open={!!deactivateTarget}
+        onOpenChange={(open) => !open && setDeactivateTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Deactivate {deactivateTarget?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              They'll be signed out and blocked from logging in. Their reports, visits and
+              history stay intact, and you can reactivate them any time.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={activeMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground"
+              disabled={activeMutation.isPending}
+              onClick={() => {
+                if (deactivateTarget) {
+                  activeMutation.mutate({
+                    id: deactivateTarget.id,
+                    isActive: false,
+                    name: deactivateTarget.name,
+                  });
+                }
+                setDeactivateTarget(null);
+              }}
+            >
+              Deactivate
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
