@@ -89,6 +89,14 @@ const RANGE_ID_RE = /^(REFERRAL|CLINIC|DIAGNOSTIC_CENTER|LAB)\.(.+)$/;
 // If the URL carries no range — e.g. opened from a stale/cached link, a refresh
 // on a query-less statement URL, or a bookmark — fall back to the current
 // calendar month (the Pay-Run default) instead of erroring or sending "null".
+// Format a plain YYYY-MM-DD as a local date (no UTC/timezone shift), so
+// "2026-08-31" reads "31 Aug 2026" and never drifts to "1 Sept".
+function fmtYmd(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  if (!y || !m || !d) return ymd;
+  return new Date(y, m - 1, d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
 function currentMonthRange(): { from: string; to: string } {
   const now = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
@@ -114,6 +122,10 @@ export default function PayoutStatement() {
   // query-less statement URL still loads (and Excel never sends "null" dates).
   const rangeFrom = searchParams.get("from") || currentMonthRange().from;
   const rangeTo = searchParams.get("to") || currentMonthRange().to;
+  // The Pay-Run passes its exact period label (e.g. "August 2026" or a custom
+  // range label) so the statement/print/Excel headers read identically to the
+  // range chosen up top — no UTC→IST "1 Sept" drift, no format mismatch.
+  const periodLabel = searchParams.get("plabel") || `${fmtYmd(rangeFrom)} – ${fmtYmd(rangeTo)}`;
   // Sales can view/manage payouts but must never send WhatsApp. Range statements
   // are also not tokenised for WhatsApp, so the button is hidden in that mode.
   const canSendWhatsApp = user?.role !== "sales" && !rangeMode;
@@ -208,11 +220,12 @@ export default function PayoutStatement() {
   const exportExcel = async (visitIds?: string[]) => {
     if (!id || !token || !activeBranchId) return;
     const visitQs = visitIds && visitIds.length ? `visitIds=${visitIds.join(",")}` : "";
+    const labelQs = `periodLabel=${encodeURIComponent(periodLabel)}`;
     const exportUrl = rangeMode
       ? `${API_BASE}/payouts/export/doctor?payeeType=${rangePayeeType}&payeeId=${encodeURIComponent(
           rangePayeeId!
-        )}&startDate=${rangeFrom}&endDate=${rangeTo}T23:59:59.999Z${visitQs ? `&${visitQs}` : ""}`
-      : `${API_BASE}/payouts/${id}/export${visitQs ? `?${visitQs}` : ""}`;
+        )}&startDate=${rangeFrom}&endDate=${rangeTo}T23:59:59.999Z&${labelQs}${visitQs ? `&${visitQs}` : ""}`
+      : `${API_BASE}/payouts/${id}/export?${labelQs}${visitQs ? `&${visitQs}` : ""}`;
     const res = await fetch(exportUrl, {
       headers: { Authorization: `Bearer ${token}`, "X-Branch-Id": activeBranchId },
     });
@@ -299,9 +312,7 @@ export default function PayoutStatement() {
     }
   };
 
-  const period = stmt
-    ? `${formatIstDate(stmt.periodStartDate)} – ${formatIstDate(stmt.periodEndDate)}`
-    : "";
+  const period = periodLabel;
   const isLab = stmt?.isLab ?? false;
   const accent = isLab ? TOKENS.caution : TOKENS.textPrimary;
 
@@ -538,6 +549,7 @@ export default function PayoutStatement() {
           </div>
           <StatementPrint
             stmt={stmt}
+            periodLabel={period}
             onlyVisitIds={printSelectionOn ? selectedVisitIds : null}
           />
           </>
@@ -620,13 +632,15 @@ function groupBillsAcrossBands(bands: StatementBand[]) {
 // Legacy-style layout: per-bill rows with category columns + tests underneath.
 function StatementPrint({
   stmt,
+  periodLabel,
   onlyVisitIds,
 }: {
   stmt: Statement;
+  periodLabel: string;
   onlyVisitIds?: string[] | null;
 }) {
   const isLab = stmt.isLab;
-  const period = `${formatIstDate(stmt.periodStartDate)} – ${formatIstDate(stmt.periodEndDate)}`;
+  const period = periodLabel;
   const td: CSSProperties = { border: "1px solid #999", padding: "3px 4px", fontSize: 9, textAlign: "center" };
   const th: CSSProperties = { ...td, background: "#eee", fontWeight: 600 };
   const lt: CSSProperties = { textAlign: "left" };

@@ -133,7 +133,7 @@ function groupLineItemsByBill(payout: PayoutDetail) {
   return Array.from(map.values()).sort((a, b) => a.date.getTime() - b.date.getTime());
 }
 
-export async function buildSinglePayoutWorkbook(payout: PayoutDetail): Promise<Buffer> {
+export async function buildSinglePayoutWorkbook(payout: PayoutDetail, periodLabel?: string): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Sobhana Diagnostics';
   wb.created = new Date();
@@ -154,7 +154,7 @@ export async function buildSinglePayoutWorkbook(payout: PayoutDetail): Promise<B
   titleCell.font = { bold: true, size: 13 };
 
   ws.mergeCells('A2:F2');
-  ws.getCell('A2').value = `Period: ${formatPeriod(
+  ws.getCell('A2').value = `Period: ${periodLabel ?? formatPeriod(
     payout.periodStartDate,
     payout.periodEndDate
   )}   ·   Branch: ${payout.branchName}`;

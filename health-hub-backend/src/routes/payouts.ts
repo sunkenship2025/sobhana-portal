@@ -728,7 +728,10 @@ router.get('/export/doctor', requireRole('owner', 'staff', 'lab_incharge', 'sale
       };
     }
 
-    const buffer = await buildSinglePayoutWorkbook(exportPayout);
+    const buffer = await buildSinglePayoutWorkbook(
+      exportPayout,
+      typeof req.query.periodLabel === 'string' ? req.query.periodLabel : undefined
+    );
     const filename = `payout-${payout.doctorName.replace(/\s+/g, '_')}-${new Date(start)
       .toISOString()
       .slice(0, 10)}.xlsx`;
@@ -917,7 +920,10 @@ router.get('/:id/export', requireRole('owner', 'staff', 'lab_incharge', 'sales')
       };
     }
 
-    const buffer = await buildSinglePayoutWorkbook(exportPayout);
+    const buffer = await buildSinglePayoutWorkbook(
+      exportPayout,
+      typeof req.query.periodLabel === 'string' ? req.query.periodLabel : undefined
+    );
     const filename = `payout-${payout.doctorName.replace(/\s+/g, '_')}-${new Date(payout.periodStartDate)
       .toISOString()
       .slice(0, 10)}.xlsx`;
