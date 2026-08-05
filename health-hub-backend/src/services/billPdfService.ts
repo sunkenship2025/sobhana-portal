@@ -138,6 +138,7 @@ export interface BillData {
     netAmountInPaise?: number;
     dueAmountInPaise?: number;
     visitType?: string;
+    tokenNumber?: number | null;
     isRevisit?: boolean;
     originalBillNumber?: string | null;
     originalVisitDate?: Date | null;
@@ -245,6 +246,7 @@ export async function fetchBillData(visitId: string, domain: 'CLINIC' | 'DIAGNOS
       totalAmount: visit.totalAmountInPaise / 100,
       ...billFinancials,
       visitType: visit.clinicVisit?.visitType,
+      tokenNumber: visit.clinicVisit?.tokenNumber ?? null,
       isRevisit: visit.clinicVisit?.isRevisit ?? false,
       originalBillNumber: originalVisitSummary?.billNumber || null,
       originalVisitDate: originalVisitSummary?.createdAt || null,
@@ -369,6 +371,27 @@ export function renderBillHtml(
       )
     : '—';
 
+  // ── OP queue token badge (top-left) — doctor initials + per-doctor number ──
+  let tokenHtml = '';
+  if (!isDiagnostic && data.visit.tokenNumber != null && data.doctor?.name) {
+    const parts = data.doctor.name
+      .replace(/^\s*dr\.?\s*/i, '')
+      .trim()
+      .split(/\s+/);
+    const initials =
+      parts.length === 0 || !parts[0]
+        ? 'DR'
+        : parts.length === 1
+          ? parts[0].slice(0, 2).toUpperCase()
+          : (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    const tokenLabel = `${initials}-${String(data.visit.tokenNumber).padStart(2, '0')}`;
+    tokenHtml = `
+      <div style="position:absolute; top:6px; left:10px; line-height:1; text-align:left;">
+        <div style="font-size:9px; font-weight:700; letter-spacing:1.5px;">TOKEN NO</div>
+        <div style="font-size:20px; font-weight:800;">${escapeHtml(tokenLabel)}</div>
+      </div>`;
+  }
+
   // ── Address ──
   const branchAddress = escapeHtml(getBranchAddress(data.branch.name));
   const branchPhone = escapeHtml(getBranchPhone(data.branch.name));
@@ -476,6 +499,7 @@ export function renderBillHtml(
 </head>
 <body>
   <div class="bill-wrap">
+    ${tokenHtml}
 
     <!-- 1. HEADER -->
     <div class="section header">

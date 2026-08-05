@@ -88,14 +88,18 @@ export const BillReceipt = ({
     ? data.billNumber || data.visitRef || "—"
     : data.visitRef || data.billNumber || "—";
 
-  // ── OP queue token (top-left badge): first 3 letters of the doctor + number ──
+  // ── OP queue token (top-left badge): doctor initials + per-doctor number ──
   const tokenLabel =
     data.domain === "CLINIC" && data.tokenNumber != null
-      ? `${(data.doctor?.name || "")
-          .replace(/^\s*dr\.?\s*/i, "")
-          .replace(/[^a-zA-Z]/g, "")
-          .slice(0, 3)
-          .toUpperCase()}-${String(data.tokenNumber).padStart(2, "0")}`
+      ? `${(() => {
+          const parts = (data.doctor?.name || "")
+            .replace(/^\s*dr\.?\s*/i, "")
+            .trim()
+            .split(/\s+/);
+          if (parts.length === 0 || !parts[0]) return "DR";
+          if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+          return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+        })()}-${String(data.tokenNumber).padStart(2, "0")}`
       : null;
 
   // ── Payment status + method ──

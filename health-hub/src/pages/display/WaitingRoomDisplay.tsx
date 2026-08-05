@@ -21,6 +21,7 @@ type DoctorState = {
   specialty: string;
   room: string | null;
   currentToken: number | null;
+  tokenLabel: string | null;
   serving: boolean;
   patientName: string | null;
   startedAt: string | null;
@@ -31,6 +32,7 @@ type NowServing = {
   specialty: string;
   room: string | null;
   token: number | null;
+  tokenLabel: string | null;
   patientName: string | null;
   startedAt: string | null;
 } | null;
@@ -423,7 +425,7 @@ export default function WaitingRoomDisplay() {
           {mode === 'serving' && now ? (
             <div className="wrd-screen" key={now.startedAt || 'ns'} style={{ ['--hold' as any]: `${(state?.screen?.holdSeconds ?? 18) * 1000}ms` }}>
               <div className="wrd-eye">Now Serving</div>
-              <div className="wrd-token">{two(now.token)}</div>
+              <div className="wrd-token">{now.tokenLabel ?? two(now.token)}</div>
               {now.patientName && <div className="wrd-pname">{now.patientName}</div>}
               {now.room && <div className="wrd-room">{now.room}</div>}
               <div className="wrd-doc">
@@ -474,7 +476,7 @@ export default function WaitingRoomDisplay() {
                 <div className={`wrd-cell${d.serving ? ' act' : ''}`} key={d.id}>
                   <div className="wrd-cn">{d.name}</div>
                   {d.patientName && <div className="wrd-cpt">{d.patientName}</div>}
-                  <div className={`wrd-cnum${d.currentToken == null ? ' empty' : ''}`}>{two(d.currentToken)}</div>
+                  <div className={`wrd-cnum${d.currentToken == null ? ' empty' : ''}`}>{d.tokenLabel ?? '—'}</div>
                   {d.room && <div className="wrd-crm">{d.room}</div>}
                 </div>
               ))

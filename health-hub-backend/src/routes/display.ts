@@ -64,11 +64,24 @@ type Doc = {
   specialty: string;
   room: string | null;
   currentToken: number | null;
+  tokenLabel: string | null;
   serving: boolean;
   patientName: string | null;
   startedAt: string | null;
   _at: number; // internal ranking timestamp, stripped before responding
 };
+
+function doctorInitials(name: string): string {
+  const parts = name.replace(/^\s*dr\.?\s*/i, '').trim().split(/\s+/);
+  if (parts.length === 0 || !parts[0]) return 'DR';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function fmtTokenLabel(name: string, token: number | null): string | null {
+  if (token == null) return null;
+  return `${doctorInitials(name)}-${String(token).padStart(2, '0')}`;
+}
 
 router.get('/:branchSlug/:screenSlug/state', displayRateLimit, async (req: Request, res: Response) => {
   try {
@@ -138,12 +151,14 @@ router.get('/:branchSlug/:screenSlug/state', displayRateLimit, async (req: Reque
 
       let d = map.get(docId);
       if (!d) {
+        const docName = cv.clinicDoctor.name;
         d = {
           id: docId,
-          name: cv.clinicDoctor.name,
+          name: docName,
           specialty: cv.clinicDoctor.specialty,
           room: cv.clinicDoctor.roomLabel || null,
           currentToken: null,
+          tokenLabel: null,
           serving: false,
           patientName: null,
           startedAt: null,
@@ -159,6 +174,7 @@ router.get('/:branchSlug/:screenSlug/state', displayRateLimit, async (req: Reque
         if (!d.serving || t >= d._at) {
           d.serving = true;
           d.currentToken = cv.tokenNumber ?? null;
+          d.tokenLabel = fmtTokenLabel(d.name, cv.tokenNumber ?? null);
           d.patientName = v.patient?.name || null;
           d.startedAt = cv.startedAt ? cv.startedAt.toISOString() : null;
           d._at = t;
@@ -183,6 +199,7 @@ router.get('/:branchSlug/:screenSlug/state', displayRateLimit, async (req: Reque
             specialty: p.specialty,
             room: p.roomLabel || null,
             currentToken: null,
+            tokenLabel: null,
             serving: false,
             patientName: null,
             startedAt: null,
@@ -203,6 +220,7 @@ router.get('/:branchSlug/:screenSlug/state', displayRateLimit, async (req: Reque
           specialty: top.specialty,
           room: top.room,
           token: top.currentToken,
+          tokenLabel: top.tokenLabel,
           patientName: top.patientName,
           startedAt: top.startedAt,
         }

@@ -160,18 +160,20 @@ function istDateKey(): string {
 }
 
 /**
- * Generate the next waiting-room OP token for a branch, resetting daily.
+ * Generate the next waiting-room OP token for a specific doctor within a branch,
+ * resetting daily. Each doctor gets their own independent sequence so queues
+ * are per-doctor (e.g. SC-01, SC-02 for Dr. Sai Chandra).
  *
- * The sequence id embeds the IST date, so the first token of a new day hits a
- * sequence that doesn't exist yet and is auto-created starting at 1 — no cron or
- * reset job needed. Returns a plain integer (the number shown on the TV), not a
- * formatted string, since the display renders it big and bare.
+ * The sequence id embeds the IST date and doctor, so the first token of a new
+ * day hits a sequence that doesn't exist yet and is auto-created starting at 1
+ * — no cron or reset job needed. Returns a plain integer (the number shown on
+ * the TV), not a formatted string, since the display renders it big and bare.
  *
  * Reuses the same SELECT ... FOR UPDATE NOWAIT + retry pattern as
  * generateNextNumber to stay concurrency-safe under a busy front desk.
  */
-export async function generateOpTokenNumber(branchCode: string): Promise<number> {
-  const sequenceId = `optoken-${branchCode}-${istDateKey()}`;
+export async function generateOpTokenNumber(branchCode: string, doctorId: string): Promise<number> {
+  const sequenceId = `optoken-${branchCode}-${doctorId}-${istDateKey()}`;
   const maxRetries = 10;
   let lastError: Error | null = null;
 

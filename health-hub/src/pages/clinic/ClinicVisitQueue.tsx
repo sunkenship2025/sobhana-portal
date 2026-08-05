@@ -417,7 +417,19 @@ const ClinicVisitQueue = () => {
                         <div className="flex flex-wrap items-center gap-2">
                           {visit.tokenNumber != null && (
                             <span className="text-sm font-mono font-bold px-2 py-0.5 rounded bg-muted">
-                              Token {visit.tokenNumber}
+                              {(() => {
+                                const parts = (visit.doctor?.name || "")
+                                  .replace(/^\s*dr\.?\s*/i, "")
+                                  .trim()
+                                  .split(/\s+/);
+                                const initials =
+                                  parts.length === 0 || !parts[0]
+                                    ? "DR"
+                                    : parts.length === 1
+                                      ? parts[0].slice(0, 2).toUpperCase()
+                                      : (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+                                return `${initials}-${String(visit.tokenNumber).padStart(2, "0")}`;
+                              })()}
                             </span>
                           )}
                           <span className="font-semibold">{formatPatientName(visit.patient.name, (visit.patient as any).title)}</span>

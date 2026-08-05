@@ -702,11 +702,14 @@ router.post("/", async (req: AuthRequest, res) => {
     const visitRef = await generateClinicBillNumber(branch.code);
 
     // Waiting-room queue token — assigned at registration, resets daily per
-    // branch. Only OP visits appear on the waiting-room display, so IP visits
-    // get no token. Generated before the main transaction (like visitRef)
-    // because the sequence helper opens its own transaction.
+    // doctor. Each doctor gets their own independent queue (e.g. SC-01, SC-02).
+    // Only OP visits appear on the waiting-room display, so IP visits get no
+    // token. Generated before the main transaction (like visitRef) because the
+    // sequence helper opens its own transaction.
     const opTokenNumber =
-      visitType === "OP" ? await generateOpTokenNumber(branch.code) : null;
+      visitType === "OP"
+        ? await generateOpTokenNumber(branch.code, doctorId)
+        : null;
 
     const result = await prisma.$transaction(async (tx) => {
       // Idempotency guard — same reasoning as the diagnostic registration:

@@ -17,6 +17,7 @@ type Doc = {
   specialty: string;
   room: string | null;
   currentToken: number | null;
+  tokenLabel: string | null;
   serving: boolean;
 };
 type NS = {
@@ -24,6 +25,7 @@ type NS = {
   specialty: string;
   room: string | null;
   token: number | null;
+  tokenLabel: string | null;
   patientName: string | null;
 } | null;
 type State = {
@@ -142,7 +144,7 @@ export default function TrackToken() {
           {ns ? (
             <div className="ns">
               <div className="eye">Now Serving</div>
-              <div className="tok">{two(ns.token)}</div>
+              <div className="tok">{ns.tokenLabel ?? two(ns.token)}</div>
               {ns.room && <div className="room">{ns.room}</div>}
               <div className="doc">{ns.doctorName} · {ns.specialty}</div>
             </div>
@@ -163,7 +165,7 @@ export default function TrackToken() {
                   <div className="dn">{d.name}</div>
                   {d.room ? <div className="rm">{d.room}</div> : <div className="rm">{d.specialty}</div>}
                 </div>
-                <div className="num">{two(d.currentToken)}</div>
+                <div className="num">{d.tokenLabel ?? two(d.currentToken)}</div>
               </div>
             ))
           )}
