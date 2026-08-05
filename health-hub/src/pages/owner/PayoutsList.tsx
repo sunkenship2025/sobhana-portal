@@ -322,7 +322,10 @@ export default function PayoutsList() {
   // Worklist rows are now per-doctor aggregates keyed by `TYPE.payeeId`. The
   // statement page reads that identity plus the range below to derive the whole
   // period, so both are threaded through the URL.
-  const rangeQuery = `from=${range.start}&to=${range.end}`;
+  // Carry the exact period label ("August 2026" / custom label) into the
+  // statement so its header (screen, print, Excel) reads identically to the
+  // range chosen up top.
+  const rangeQuery = `from=${range.start}&to=${range.end}&plabel=${encodeURIComponent(periodLabel)}`;
   const openStatement = (id: string) => navigate(`/owner/payouts/${id}?${rangeQuery}`);
   const openPrintStatement = (id: string) =>
     navigate(`/owner/payouts/${id}?print=1&${rangeQuery}`);
