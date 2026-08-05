@@ -230,7 +230,7 @@ function AdRotator({ ads }: { ads: Ad[] }) {
     }
     const t = window.setTimeout(next, Math.max(3, ad.durationSec) * 1000);
     return () => window.clearTimeout(t);
-  }, [ad, slide, next]);
+  }, [ad?.id, slide, next]);
 
   if (!ad || !ad.media.length) return null;
   const fit = ad.fit === 'contain' ? 'contain' : 'cover';
