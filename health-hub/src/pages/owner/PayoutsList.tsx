@@ -165,6 +165,20 @@ export default function PayoutsList() {
   const monthLabel = monthDate.toLocaleString("en-IN", { month: "long", year: "numeric" });
   const periodLabel = custom ? custom.label : monthLabel;
 
+  // Persist the picked period so a statement opened afterwards — even from a
+  // bare/cached URL that lost ?from/?to — reflects THIS range instead of
+  // silently defaulting to the current month.
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "payout-period",
+        JSON.stringify({ from: range.start, to: range.end, plabel: periodLabel })
+      );
+    } catch {
+      /* localStorage unavailable — URL still carries the range */
+    }
+  }, [range.start, range.end, periodLabel]);
+
   const headers = (): Record<string, string> => ({
     Authorization: `Bearer ${token}`,
     "X-Branch-Id": activeBranchId ?? "",

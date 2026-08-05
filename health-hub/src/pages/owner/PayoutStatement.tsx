@@ -89,6 +89,16 @@ const RANGE_ID_RE = /^(REFERRAL|CLINIC|DIAGNOSTIC_CENTER|LAB)\.(.+)$/;
 // If the URL carries no range — e.g. opened from a stale/cached link, a refresh
 // on a query-less statement URL, or a bookmark — fall back to the current
 // calendar month (the Pay-Run default) instead of erroring or sending "null".
+// Last period picked on the Pay-Run (persisted there), so a statement opened
+// from a bare/cached URL still reflects that range instead of the current month.
+function storedPeriod(): { from?: string; to?: string; plabel?: string } {
+  try {
+    return JSON.parse(localStorage.getItem("payout-period") || "{}");
+  } catch {
+    return {};
+  }
+}
+
 // Format a plain YYYY-MM-DD as a local date (no UTC/timezone shift), so
 // "2026-08-31" reads "31 Aug 2026" and never drifts to "1 Sept".
 function fmtYmd(ymd: string): string {
@@ -118,14 +128,16 @@ export default function PayoutStatement() {
   const rangeMode = Boolean(rangeMatch);
   const rangePayeeType = rangeMatch?.[1];
   const rangePayeeId = rangeMatch?.[2];
-  // Default to the current month when the URL has no explicit range, so a
-  // query-less statement URL still loads (and Excel never sends "null" dates).
-  const rangeFrom = searchParams.get("from") || currentMonthRange().from;
-  const rangeTo = searchParams.get("to") || currentMonthRange().to;
-  // The Pay-Run passes its exact period label (e.g. "August 2026" or a custom
-  // range label) so the statement/print/Excel headers read identically to the
-  // range chosen up top — no UTC→IST "1 Sept" drift, no format mismatch.
-  const periodLabel = searchParams.get("plabel") || `${fmtYmd(rangeFrom)} – ${fmtYmd(rangeTo)}`;
+  // Range resolution: explicit URL ?from/?to  →  the period last picked on the
+  // Pay-Run (persisted)  →  current month. This makes the statement reflect the
+  // range chosen up top even when a cached/bare URL dropped the query params.
+  const stored = storedPeriod();
+  const rangeFrom = searchParams.get("from") || stored.from || currentMonthRange().from;
+  const rangeTo = searchParams.get("to") || stored.to || currentMonthRange().to;
+  // Same precedence for the label so the statement/print/Excel headers read
+  // identically to the range up top — no UTC→IST "1 Sept" drift, no mismatch.
+  const periodLabel =
+    searchParams.get("plabel") || stored.plabel || `${fmtYmd(rangeFrom)} – ${fmtYmd(rangeTo)}`;
   // Sales can view/manage payouts but must never send WhatsApp. Range statements
   // are also not tokenised for WhatsApp, so the button is hidden in that mode.
   const canSendWhatsApp = user?.role !== "sales" && !rangeMode;
