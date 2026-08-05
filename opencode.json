@@ -1,13 +1,5 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "provider": {
-    "opencode-go": {
-      "options": {
-        "apiKey": "sk-v8m1kedtasFe0kB0RgpteHN6UlWCoVd58NlmVpD9Wh1UaOeYAcgwCcWn1MwbY4dX",
-        "baseURL": "https://opencode.ai/zen/go/v1"
-      }
-    }
-  },
   "mcp": {
     "neon": {
       "type": "remote",

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OP Bill — Token placement preview</title>
+<style>
+  body{ background:#eef1f7; margin:0; font-family:Arial, Helvetica, sans-serif; color:#111;
+    display:flex; flex-direction:column; align-items:center; padding:32px 16px 60px; }
+  .note{ max-width:520px; font-size:14px; color:#44506a; margin-bottom:18px; text-align:center; }
+  .note b{ color:#1B2B58; }
+  .paper{ width:520px; background:#fff; border:1px solid #000; font-size:12px; }
+  .head{ position:relative; text-align:center; padding:10px 12px 8px; border-bottom:1px solid #000; }
+  .tokencorner{ position:absolute; top:8px; left:10px; text-align:left; line-height:1; }
+  .tokencorner .lbl{ font-size:9px; font-weight:700; letter-spacing:2px; color:#1B2B58; }
+  .tokencorner .num{ font-size:22px; font-weight:800; color:#1B2B58; }
+  .brand{ display:flex; align-items:center; justify-content:center; gap:8px; }
+  .brand .dot{ width:16px;height:16px;border-radius:50%;background:#D91C2B; }
+  .brand .nm{ font-weight:800; font-size:18px; color:#D91C2B; letter-spacing:.5px; }
+  .brand .nm small{ display:block; font-size:9px; color:#1B2B58; letter-spacing:2px; font-weight:700; }
+  .addr{ font-size:10px; color:#333; margin-top:4px; }
+  .rcpt{ font-weight:700; font-size:11px; margin-top:3px; }
+  .details{ border-bottom:1px solid #000; padding:5px 14px; }
+  table{ width:100%; border-collapse:collapse; font-size:12px; }
+  td{ padding:1px 0; vertical-align:top; }
+  .w100{ display:inline-block; width:100px; }
+  .w50{ display:inline-block; width:50px; }
+  .right{ text-align:right; white-space:nowrap; }
+  .mid{ padding:0 16px; white-space:nowrap; }
+  .token{ font-weight:800; font-size:14px; padding:2px 0 4px; }
+  .hl{ background:#fff7cc; outline:2px dashed #D91C2B; outline-offset:1px; }
+  .inv th{ text-align:left; border-bottom:1px solid #000; padding:4px 0; font-size:11px; }
+  .inv td{ padding:5px 0; }
+  .tot{ padding:6px 14px; border-top:1px solid #000; }
+  .tot .row{ display:flex; justify-content:space-between; }
+  .tot .grand{ font-weight:800; font-size:14px; }
+  .arrow{ max-width:520px; font-size:13px; color:#D91C2B; font-weight:700; margin-top:14px; text-align:center; }
+</style>
+</head>
+<body>
+  <div class="note">This is a preview of the printed OP bill. The <b>Token No</b> line (highlighted) is the new bit — bold, at the very top of the patient box. It only shows for OP/clinic bills.</div>
+
+  <div class="paper">
+    <div class="head">
+      <div class="tokencorner hl"><div class="lbl">TOKEN NO</div><div class="num">DSR-02</div></div>
+      <div class="brand"><span class="dot"></span><span class="nm">SOBHANA<small>DIAGNOSTIC CENTRE</small></span></div>
+      <div class="addr">Chintal, Hyderabad · 040-23089999, 9490539006.</div>
+      <div class="rcpt">Requisition cum Receipt</div>
+    </div>
+
+    <div class="details">
+      <table>
+        <tbody>
+          <tr>
+            <td><span class="w100">Bill No</span>: C-CNT-000431</td>
+            <td class="mid"><span class="w50">Age</span>: 4 Y</td>
+            <td class="right">Payment : CASH</td>
+          </tr>
+          <tr>
+            <td><span class="w100">Patient Name</span><b>: Master Kethan</b></td>
+            <td class="mid"><span class="w50">Sex</span>: Male</td>
+            <td class="right">Date : 04 Aug 2026</td>
+          </tr>
+          <tr>
+            <td><span class="w100">Doctor</span>: Dr. D.S. Reddy</td>
+            <td class="mid"><span class="w50">Phone</span>: 83742 00742</td>
+            <td class="right">Time : 8:57 PM</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="padding:0 14px;">
+      <table class="inv">
+        <thead><tr><th>#</th><th>Investigation</th><th style="text-align:right;">Amount</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>OP Consultation</td><td style="text-align:right;">₹500.00</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="tot">
+      <div class="row"><span>Total</span><span>₹500.00</span></div>
+      <div class="row grand"><span>Net Payable</span><span>₹500.00</span></div>
+      <div class="row"><span>Paid (CASH)</span><span>₹500.00</span></div>
+    </div>
+  </div>
+
+  <div class="arrow">↑ The highlighted "Token No : 02" is the only addition. Rest of the bill is unchanged.</div>
+</body>
+</html>

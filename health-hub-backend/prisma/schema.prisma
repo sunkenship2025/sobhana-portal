@@ -2085,6 +2085,34 @@ model BillAccessToken {
   @@index([expiresAt])
 }
 
+/// LinkAccessLog: unified access log for every public WhatsApp link click.
+/// Captures IP, device, OS, browser, referrer, and Accept-Language from the
+/// incoming HTTP request — no external services needed. One row per access.
+/// For coupons that lack a contextId (no visit/payout), store the coupon code.
+/// Backfilled by trackLinkAccess() in linkAccessService.ts.
+model LinkAccessLog {
+  id              String   @id @default(cuid())
+  linkType        String // BILL | REPORT | COUPON | STATEMENT
+  linkToken       String // the raw public token (bearer, not hashed — already public)
+  contextId       String? // visitId (bill/report), payoutId (statement), null (coupon)
+  ipAddress       String?
+  userAgentRaw    String?
+  deviceModel     String?
+  deviceVendor    String?
+  osName          String?
+  osVersion       String?
+  browserName     String?
+  browserVersion  String?
+  referrer        String?
+  acceptLanguage  String?
+  createdAt       DateTime @default(now())
+
+  @@index([linkType, createdAt])
+  @@index([linkToken])
+  @@index([contextId])
+  @@index([createdAt])
+}
+
 /// StatementAccessToken: token-gated public access to a payout statement (sent to
 /// referral doctors / clinics / diagnostic centers / outside labs on WhatsApp).
 /// Mirrors BillAccessToken — SHA-256 hash stored; raw token is the bearer link.

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sobhana Display — Call Sound Picker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --navy:#1B2B58; --ink:#172244; --muted:#66738f; --line:#e5e9f2; --bg:#eef1f7; }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--bg); color:var(--ink); font-family:'Inter',system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
+  .wrap{ max-width:760px; margin:0 auto; padding:48px 24px 80px; }
+  .kicker{ font-size:13px; letter-spacing:4px; text-transform:uppercase; color:var(--navy); font-weight:800; }
+  h1{ font-size:34px; font-weight:900; color:var(--navy); letter-spacing:-.5px; margin-top:12px; }
+  p.sub{ font-size:16px; color:var(--muted); margin-top:12px; }
+  .hint{ margin-top:16px; font-size:13px; color:var(--muted); background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 16px; }
+  .grid{ margin-top:28px; display:flex; flex-direction:column; gap:14px; }
+  .opt{ background:#fff; border:1px solid var(--line); border-radius:16px; padding:18px 20px; display:flex; align-items:center; gap:18px; }
+  .opt .n{ width:34px; height:34px; border-radius:10px; background:var(--navy); color:#fff; font-family:'Space Grotesk'; font-weight:700;
+    display:grid; place-items:center; font-size:16px; flex:0 0 34px; }
+  .opt .meta{ flex:1 1 auto; }
+  .opt .meta .t{ font-size:18px; font-weight:800; color:var(--navy); }
+  .opt .meta .d{ font-size:13.5px; color:var(--muted); margin-top:3px; }
+  .opt button{ flex:0 0 auto; background:var(--navy); color:#fff; border:none; border-radius:999px; padding:12px 22px;
+    font-size:15px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:8px; }
+  .opt button:hover{ background:#25397a; }
+  .opt button:active{ transform:scale(.97); }
+  .playall{ margin-top:22px; }
+  .playall button{ background:#fff; color:var(--navy); border:1px solid var(--navy); border-radius:999px; padding:12px 24px; font-size:15px; font-weight:700; cursor:pointer; }
+  .foot{ margin-top:34px; font-size:14px; color:var(--muted); line-height:1.6; }
+  .foot b{ color:var(--navy); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Sobhana Waiting Room Display</div>
+  <h1>Pick the call sound</h1>
+  <p class="sub">This plays on the TV the moment a patient is called (right before the token appears). Tap ▶ to hear each — tell me the number you want, or say "no sound".</p>
+  <div class="hint">Turn your volume up. On the real TV the sound comes through the HDMI speakers; in Fully Kiosk enable audio/autoplay so it plays without a tap.</div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="playall"><button onclick="playAll()">▶ Play all in order</button></div>
+
+  <div class="foot">
+    Whichever you pick becomes a <b>per-screen setting</b> (each TV can differ, or be silent). It also plays a soft version on the phone companion. Say the option number (or "mix", e.g. "1 but softer") and I'll wire it in.
+  </div>
+</div>
+
+<script>
+  let actx = null;
+  function ctx(){ actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); return actx; }
+
+  // One enveloped oscillator.
+  function tone(c, { type='sine', freq, t0, dur, gain=0.2, attack=0.006 }){
+    const o=c.createOscillator(), g=c.createGain();
+    o.type=type; o.frequency.setValueAtTime(freq, t0); o.connect(g); g.connect(c.destination);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gain, t0+attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
+    o.start(t0); o.stop(t0+dur+0.03);
+  }
+  // A bell = fundamental + a couple of soft partials with a long decay.
+  function bell(c, freq, t0, dur=0.9, gain=0.24){
+    tone(c,{type:'sine',freq,t0,dur,gain});
+    tone(c,{type:'sine',freq:freq*2.01,t0,dur:dur*0.7,gain:gain*0.35});
+    tone(c,{type:'sine',freq:freq*3.02,t0,dur:dur*0.45,gain:gain*0.16});
+  }
+  // A mallet/marimba note = triangle with a fast woody decay + octave shimmer.
+  function mallet(c, freq, t0, dur=0.4, gain=0.26){
+    tone(c,{type:'triangle',freq,t0,dur,gain});
+    tone(c,{type:'sine',freq:freq*2,t0,dur:dur*0.5,gain:gain*0.18});
+  }
+
+  const OPTIONS = [
+    { name:'Ding-dong', desc:'Classic two-tone doorbell. Warm and unmistakable.',
+      play(c,t){ bell(c,659.25,t,0.9); bell(c,523.25,t+0.30,1.1); } },
+    { name:'Soft bell', desc:'A single gentle bell. Calm, not startling.',
+      play(c,t){ bell(c,587.33,t,1.3,0.26); } },
+    { name:'Triple beep', desc:'Three quick rising beeps. Clear "attention" cue.',
+      play(c,t){ [784,880,1046.5].forEach((f,i)=> tone(c,{type:'triangle',freq:f,t0:t+i*0.16,dur:0.14,gain:0.2})); } },
+    { name:'Marimba', desc:'Three wooden notes rising. Pleasant, modern (iOS-ish).',
+      play(c,t){ [523.25,659.25,783.99].forEach((f,i)=> mallet(c,f,t+i*0.13,0.42)); } },
+    { name:'Rising chime', desc:'Two soft bell notes climbing. Reassuring.',
+      play(c,t){ bell(c,523.25,t,0.8); bell(c,783.99,t+0.20,1.0); } },
+    { name:'Airport bong', desc:'One warm low bong. The lounge/airport announce tone.',
+      play(c,t){ bell(c,440,t,1.4,0.28); tone(c,{type:'sine',freq:220,t0:t,dur:1.2,gain:0.08}); } },
+  ];
+
+  function playOne(i){ const c=ctx(); OPTIONS[i].play(c, c.currentTime+0.03); }
+  function playAll(){ const c=ctx(); let t=c.currentTime+0.05; OPTIONS.forEach((o)=>{ o.play(c,t); t+=1.6; }); }
+
+  const grid=document.getElementById('grid');
+  OPTIONS.forEach((o,i)=>{
+    const el=document.createElement('div'); el.className='opt';
+    el.innerHTML=`<div class="n">${i+1}</div><div class="meta"><div class="t">${o.name}</div><div class="d">${o.desc}</div></div><button>▶ Play</button>`;
+    el.querySelector('button').onclick=()=>playOne(i);
+    grid.appendChild(el);
+  });
+  window.playAll=playAll;
+</script>
+</body>
+</html>

@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Report Builder · page with drafts (mock)</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --surface:#ffffff; --sunken:#f1f3f6; --line:#eaecf0; --line-strong:#d8dce2;
+    --ink:#0f172a; --ink-2:#475467; --ink-3:#98a2b3;
+    --dark:#111827; --dark-hover:#000;
+    --blue:#2563eb; --blue-tint:#eef4ff;
+    --green:#067a52; --green-tint:#e6f6ee;
+    --amber:#b7791f; --amber-tint:#fdf6e6;
+    --red:#cc2222; --red-tint:#fdecec;
+    --navy:#1f3e6e; --desk:#e9ebef;
+    --radius:11px; --radius-sm:8px;
+    --shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.06);
+    --shadow-md:0 1px 2px rgba(16,24,40,.06),0 8px 22px rgba(16,24,40,.08);
+    --shadow-pop:0 12px 34px rgba(16,24,40,.18);
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .topbar{height:4px;background:var(--navy)}
+  .head{padding:20px 34px 4px}
+  .head h1{font-size:25px;font-weight:800;letter-spacing:-.5px;margin:0}
+  .head p{margin:5px 0 0;color:var(--ink-2);font-size:14px}
+  .tabs{display:flex;gap:2px;margin:15px 34px 0;flex-wrap:wrap}
+  .tab{display:inline-flex;align-items:center;gap:7px;padding:8px 13px;border-radius:8px;font-size:13.5px;font-weight:600;color:var(--ink-2)}
+  .tab.on{background:#eef0f3;color:var(--ink)}
+
+  /* toolbar */
+  .toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:14px 34px 0;padding:11px 12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);position:relative;z-index:20}
+  .ctl{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line-strong);background:var(--surface);border-radius:8px;padding:7px 11px;font-size:12.5px;font-weight:600;color:var(--ink);white-space:nowrap;cursor:pointer;position:relative}
+  .ctl.ghost{border-color:transparent}
+  .ctl:hover{border-color:var(--ink-3)}
+  .spacer{flex:1}
+  .seg{display:inline-flex;background:var(--sunken);border-radius:9px;padding:3px;gap:2px}
+  .seg span{padding:5px 10px;border-radius:6px;font-size:12px;font-weight:600;color:var(--ink-2);cursor:pointer}
+  .seg span.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+  .chip{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600}
+  .chip.draft{color:var(--amber)} .chip.live{color:var(--green)}
+  .dot{width:7px;height:7px;border-radius:50%}
+  .dot.draft{background:var(--amber)} .dot.live{background:var(--green)}
+  .btn{border:1px solid var(--dark);background:var(--dark);color:#fff;border-radius:9px;padding:8px 15px;font-size:13px;font-weight:700;display:inline-flex;align-items:center;gap:7px;cursor:pointer}
+  .btn.green{background:var(--green);border-color:var(--green)}
+  .btn.ghost{background:transparent;color:var(--ink);border-color:var(--line-strong)}
+  .btn.danger{background:var(--red);border-color:var(--red)}
+
+  /* picker dropdown */
+  .pop{position:absolute;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-pop);overflow:hidden;z-index:40;display:none}
+  .pop.show{display:block}
+  .picker{top:44px;left:0;width:320px}
+  .p-item{display:flex;align-items:center;gap:9px;padding:9px 12px;cursor:pointer}
+  .p-item:hover{background:var(--sunken)}
+  .p-new{font-weight:600;color:var(--blue)}
+  .p-group{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-3);padding:9px 12px 4px}
+  .p-item .nm{font-weight:600;font-size:13px}
+  .p-item .cd{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+  .p-item .meta{margin-left:auto;display:flex;align-items:center;gap:7px}
+  .p-item .time{font-size:10.5px;color:var(--ink-3)}
+  .p-x{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;color:var(--ink-3);border:1px solid transparent;font-weight:700;visibility:hidden}
+  .p-item:hover .p-x{visibility:visible;border-color:var(--line-strong)}
+  .p-x:hover{color:var(--red);border-color:var(--red)}
+  .pill{display:inline-flex;align-items:center;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px}
+  .pill.draft{background:var(--amber-tint);color:var(--amber)} .pill.live{background:var(--green-tint);color:var(--green)} .pill.bill{background:var(--blue-tint);color:var(--blue)}
+  .divide{height:1px;background:var(--line)}
+  /* ⋯ menu */
+  .menu{top:44px;right:0;width:210px;padding:5px}
+  .menu button{display:flex;width:100%;align-items:center;gap:9px;background:none;border:0;text-align:left;padding:8px 10px;border-radius:7px;font-size:13px;color:var(--ink);cursor:pointer;font-family:inherit}
+  .menu button:hover{background:var(--sunken)}
+  .menu button.danger{color:var(--red)} .menu .sep{height:1px;background:var(--line);margin:4px 0}
+
+  /* stage */
+  .stage{display:grid;grid-template-columns:1fr 366px;gap:14px;margin:14px 34px 40px}
+  @media(max-width:1080px){.stage{grid-template-columns:1fr}}
+  .desk{background:var(--desk);border:1px solid var(--line);border-radius:var(--radius);padding:22px;overflow:hidden;min-height:70vh}
+
+  /* report paper */
+  .paper{max-width:640px;margin:0 auto;background:#fff;box-shadow:0 1px 3px rgba(16,24,40,.12),0 12px 30px rgba(16,24,40,.14);font-family:'Arimo',Arial,Helvetica,sans-serif;color:#1a202c;font-size:12px;line-height:1.35}
+  .paper .pad{padding:16px 22px}
+  .lo{display:flex;align-items:center;gap:9px}
+  .lo .cross{color:#c1121f;font-size:26px;font-weight:900;line-height:.8}
+  .lo .nm{font-weight:900;font-size:21px;letter-spacing:.5px;color:#c1121f}
+  .lo .nm small{display:block;font-size:8.5px;letter-spacing:3px;color:var(--navy);font-weight:800}
+  .band{height:8px;display:flex;flex-direction:column;justify-content:space-between;margin:6px 0 0}
+  .band>div{height:2.4px;background:var(--navy)}
+  .badge-row{text-align:center;padding:9px 0 6px}
+  .badge{display:inline-block;background:#b1201f;color:#fff;font-weight:700;font-size:10.5px;letter-spacing:3px;padding:5px 22px}
+  .pinfo{border:1px solid #d8d8d8;display:flex;font-size:11px;margin-top:4px}
+  .pinfo .col{flex:1;padding:9px 12px} .pinfo .col+.col{border-left:0}
+  .pinfo .r{display:flex;margin-bottom:5px} .pinfo .r:last-child{margin:0}
+  .pinfo .k{width:96px;font-weight:700;color:#333} .pinfo .v{color:#222}
+  .dept{text-align:center;font-weight:800;color:var(--navy);letter-spacing:.4px;border-bottom:1.5px solid var(--navy);padding:9px 0 5px;margin-top:12px;font-size:13px}
+  .ptitle{text-align:center;font-weight:700;color:var(--navy);background:#eef1f5;padding:7px;margin-top:0;font-size:13px;letter-spacing:.3px}
+  table.res{width:100%;border-collapse:collapse;margin-top:0;font-size:11.5px}
+  table.res th{background:var(--navy);color:#fff;text-align:left;padding:6px 9px;font-size:10.5px;letter-spacing:.4px}
+  table.res th.c{text-align:center}
+  table.res td{padding:6px 9px;border-bottom:1px solid #eee}
+  table.res td.c{text-align:center}
+  table.res .abn{font-weight:800}
+  .adds{display:flex;gap:8px;margin-top:9px;flex-wrap:wrap}
+  .add{font:600 11px/1 Arial;color:var(--blue);background:transparent;border:1px dashed rgba(43,100,171,.55);border-radius:20px;padding:6px 13px}
+  .note{font-size:10.5px;margin-top:14px;color:#222;font-weight:700}
+  .sigs{display:flex;justify-content:space-between;align-items:flex-end;margin-top:44px;padding:0 6px}
+  .sig{text-align:center;min-width:130px}
+  .sig .im{font-family:'Segoe Script','Brush Script MT',cursive;color:var(--navy);font-size:22px;height:26px;opacity:.85}
+  .sig .nm{font-weight:700;font-size:10.5px;color:#111;border-top:1px solid #bbb;padding-top:3px}
+  .sig .q{font-size:9px;color:var(--navy)}
+  .foot{border-top:2px solid #b1201f;margin-top:22px;padding:8px 0 2px;display:flex;justify-content:space-between;font-size:9px;color:#333}
+
+  /* dock */
+  .dock{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;align-self:start}
+  .dock-tabs{display:flex;border-bottom:1px solid var(--line)}
+  .dock-tab{flex:1;padding:11px 4px;text-align:center;font-size:12px;font-weight:600;color:var(--ink-3);border-bottom:2px solid transparent;cursor:pointer}
+  .dock-tab.on{color:var(--ink);border-bottom-color:var(--ink)}
+  .dock-b{padding:16px}
+  .fld{margin-bottom:13px}
+  .fld label{display:block;font-size:11.5px;color:var(--ink-2);font-weight:600;margin-bottom:5px}
+  .fld input,.fld .sel{width:100%;border:1px solid var(--line-strong);border-radius:7px;padding:7px 9px;font-size:12.5px;font-family:inherit;color:var(--ink);background:var(--surface)}
+  .fld .sel{display:flex;align-items:center;justify-content:space-between;color:var(--ink-3)}
+  .fld input.mono{font-family:var(--mono)}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .hint{font-size:10.5px;color:var(--ink-3);margin-top:4px}
+  .tog{display:flex;align-items:center;justify-content:space-between;padding:7px 0}
+  .tog label{font-size:12.5px;color:var(--ink)}
+  .sw{width:34px;height:20px;border-radius:20px;background:#d3d7de;position:relative}
+  .sw.on{background:var(--dark)} .sw i{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.15s} .sw.on i{left:16px}
+  .grph{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-3);margin:0 0 10px}
+
+  /* overlays */
+  .scrim{position:fixed;inset:0;background:rgba(16,24,40,.4);display:none;align-items:center;justify-content:center;z-index:60}
+  .scrim.show{display:flex}
+  .dlg{width:440px;background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-pop);overflow:hidden}
+  .dlg .b{padding:19px 21px}
+  .dlg .t{font-size:16px;font-weight:700}
+  .dlg .m{margin-top:7px;color:var(--ink-2);font-size:13px;line-height:1.55}
+  .dlg .f{display:flex;justify-content:flex-end;gap:9px;padding:13px 21px;border-top:1px solid var(--line);background:var(--sunken)}
+  .opt{display:flex;align-items:center;gap:9px;margin-top:14px;padding:11px 12px;border:1px solid var(--line);border-radius:9px}
+  .opt input{width:16px;height:16px} .opt .pl{border:1px solid var(--line-strong);border-radius:7px;padding:5px 8px;font-size:12.5px;width:90px;color:var(--ink-2)}
+  .banner{margin:0 34px;padding:8px 12px;background:var(--blue-tint);color:var(--blue);border-radius:9px;font-size:12px;font-weight:600;text-align:center;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="topbar"></div>
+<div class="head"><h1>Admin Config Center</h1><p>Manage clinical definitions, panels, products, departments and signing doctors</p></div>
+<div class="tabs">
+  <span class="tab on">📄 Report Builder</span><span class="tab">⚗ Clinical Definitions</span><span class="tab">▦ Panel Definitions</span>
+  <span class="tab">◈ Billable Products</span><span class="tab">🏢 Departments</span><span class="tab">✎ Signers &amp; Rules</span><span class="tab">👥 Referrals</span>
+</div>
+
+<div class="banner">Mock — click the report name, the ⋯ menu, Publish or Discard to see the draft flow.</div>
+
+<!-- TOOLBAR -->
+<div class="toolbar">
+  <span class="ctl" onclick="toggle('picker',event)">🗂 Complete Blood Picture ▾
+    <div class="pop picker" id="picker">
+      <div class="p-item p-new">🗎 New blank report</div>
+      <div class="divide"></div>
+      <div class="p-group">Drafts · 2</div>
+      <div class="p-item"><span class="nm">Complete Blood Picture</span> <span class="cd">CBP</span><span class="meta"><span class="pill draft">Draft</span><span class="time">now</span><span class="p-x" onclick="openDiscard(event)">×</span></span></div>
+      <div class="p-item"><span class="nm">Lipid Profile</span> <span class="cd">LIPID</span><span class="meta"><span class="pill draft">Draft</span><span class="time">yesterday</span><span class="p-x" onclick="openDiscard(event)">×</span></span></div>
+      <div class="p-group">Live</div>
+      <div class="p-item"><span class="nm">Random Blood Sugar</span> <span class="cd">RBS</span><span class="meta"><span class="pill live">Live</span></span></div>
+      <div class="p-item"><span class="nm">Liver Function Test</span> <span class="cd">LFT</span><span class="meta"><span class="pill bill">Billable</span></span></div>
+    </div>
+  </span>
+  <span class="ctl ghost">+ New</span>
+  <span class="ctl">Standard Table ▾</span>
+  <span class="ctl">🔍 Add existing</span>
+  <span class="spacer"></span>
+  <span class="chip draft"><span class="dot draft"></span> Draft · autosaved 10:32</span>
+  <span class="seg"><span class="on">Edit</span><span>Preview</span></span>
+  <span class="seg"><span class="on">Digital</span><span>Letterhead</span></span>
+  <span class="btn green" onclick="openPublish()">Publish ▸</span>
+  <span class="ctl" style="padding:8px 10px" onclick="toggle('menu',event)">⋯
+    <div class="pop menu" id="menu">
+      <button>🗐 Duplicate</button>
+      <div class="sep"></div>
+      <button class="danger" onclick="openDiscard(event)">🗑 Discard draft</button>
+    </div>
+  </span>
+</div>
+
+<!-- STAGE -->
+<div class="stage">
+  <div class="desk">
+    <div class="paper">
+      <div class="pad">
+        <div class="lo"><span class="cross">✚</span><span class="nm">SOBHANA<small>DIAGNOSTIC CENTRE</small></span></div>
+        <div class="band"><div></div><div></div><div></div></div>
+        <div class="badge-row"><span class="badge">REPORT</span></div>
+        <div class="pinfo">
+          <div class="col">
+            <div class="r"><span class="k">Patient Name</span><span class="v">Sample Patient</span></div>
+            <div class="r"><span class="k">Age / Gender</span><span class="v">34 Years / Female</span></div>
+            <div class="r"><span class="k">Sample Type</span><span class="v">—</span></div>
+            <div class="r"><span class="k">Collected On</span><span class="v">30 Jul 2026 10:32</span></div>
+          </div>
+          <div class="col">
+            <div class="r"><span class="k">Bill No</span><span class="v">PREVIEW</span></div>
+            <div class="r"><span class="k">Patient ID</span><span class="v">PREVIEW-001</span></div>
+            <div class="r"><span class="k">Registered On</span><span class="v">30 Jul 2026 10:32</span></div>
+            <div class="r"><span class="k">Reported On</span><span class="v">30 Jul 2026 10:32</span></div>
+          </div>
+        </div>
+        <div class="dept">DEPARTMENT OF HAEMATOLOGY</div>
+        <div class="ptitle">COMPLETE BLOOD PICTURE</div>
+        <table class="res">
+          <thead><tr><th>TEST</th><th class="c">RESULT</th><th class="c">UNIT</th><th class="c">REFERENCE RANGE</th></tr></thead>
+          <tbody>
+            <tr><td>Haemoglobin</td><td class="c">13.5</td><td class="c">g/dL</td><td class="c">12 – 15</td></tr>
+            <tr><td>Total WBC Count</td><td class="c abn">12800</td><td class="c">/cumm</td><td class="c">4000 – 11000</td></tr>
+            <tr><td>Platelet Count</td><td class="c">240000</td><td class="c">/cumm</td><td class="c">150000 – 410000</td></tr>
+          </tbody>
+        </table>
+        <div class="adds"><span class="add">＋ Add test</span><span class="add">＋ Add subgroup</span><span class="add">＋ Clinical notes</span></div>
+        <div class="note">Note: Please correlate clinically if necessary.</div>
+        <div class="sigs">
+          <div class="sig"><div class="im">✍</div><div class="nm">Lab Incharge</div></div>
+          <div class="sig"><div class="im">Aruna Sree</div><div class="nm">Dr. V. Aruna Sree</div><div class="q">MBBS, DCP · Consultant Pathologist</div></div>
+        </div>
+        <div class="foot"><span>This is an electronically authenticated report.</span><span>Chintal, Hyderabad-500037 · 040-2308 9999</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DOCK -->
+  <div class="dock">
+    <div class="dock-tabs"><span class="dock-tab">Inspector</span><span class="dock-tab on">Panel</span><span class="dock-tab">Pricing</span><span class="dock-tab">Compiles to</span></div>
+    <div class="dock-b">
+      <div class="grph">Panel settings · ClinicalPanel</div>
+      <div class="fld"><label>Report name</label><input value="Complete Blood Picture"></div>
+      <div class="two">
+        <div class="fld"><label>Code</label><input class="mono" value="CBP"></div>
+        <div class="fld"><label>Department</label><div class="sel">Haematology ▾</div></div>
+      </div>
+      <div class="fld"><label>Sample type</label><div class="sel">None ▾</div></div>
+      <div class="tog"><label>Show subgroups</label><div class="sw"><i></i></div></div>
+      <div class="tog"><label>Clinical Notes box</label><div class="sw"><i></i></div></div>
+      <div class="tog"><label>Panel active <span style="color:var(--ink-3)">— live &amp; billable</span></label><div class="sw"><i></i></div></div>
+      <div class="hint" style="margin-top:8px">This is a <b style="color:var(--amber)">draft</b> — Panel active is off and no product exists, so it can't be billed. <b>Publish</b> turns it on.</div>
+    </div>
+  </div>
+</div>
+
+<!-- PUBLISH DIALOG -->
+<div class="scrim" id="publish">
+  <div class="dlg">
+    <div class="b">
+      <div class="t">Publish “Complete Blood Picture”?</div>
+      <div class="m">Makes it <b>live</b> — usable in reports, result entry and ordering. It stays <b>not billable</b> unless you give it a price.</div>
+      <label class="opt"><input type="checkbox" checked> <span>Also sell it now at ₹ <span class="pl">450.00</span></span></label>
+    </div>
+    <div class="f"><span class="btn ghost" onclick="close_('publish')">Cancel</span><span class="btn green" onclick="close_('publish')">Publish</span></div>
+  </div>
+</div>
+
+<!-- DISCARD DIALOG -->
+<div class="scrim" id="discard">
+  <div class="dlg">
+    <div class="b">
+      <div class="t">Discard this draft?</div>
+      <div class="m">Deletes <b>“Complete Blood Picture”</b> (<span style="font-family:var(--mono)">CBP</span>). <b>3 test definitions</b> it created and nothing else uses will also be removed. This can't be undone.</div>
+    </div>
+    <div class="f"><span class="btn ghost" onclick="close_('discard')">Keep editing</span><span class="btn danger" onclick="close_('discard')">Discard draft</span></div>
+  </div>
+</div>
+
+<script>
+  function toggle(id,e){e.stopPropagation();var el=document.getElementById(id);var open=el.classList.contains('show');document.querySelectorAll('.pop').forEach(p=>p.classList.remove('show'));if(!open)el.classList.add('show');}
+  document.addEventListener('click',()=>document.querySelectorAll('.pop').forEach(p=>p.classList.remove('show')));
+  function openPublish(){document.getElementById('publish').classList.add('show');}
+  function openDiscard(e){e.stopPropagation();document.querySelectorAll('.pop').forEach(p=>p.classList.remove('show'));document.getElementById('discard').classList.add('show');}
+  function close_(id){document.getElementById(id).classList.remove('show');}
+  document.querySelectorAll('.scrim').forEach(s=>s.addEventListener('click',e=>{if(e.target===s)s.classList.remove('show');}));
+  document.querySelectorAll('.dock-tab').forEach(t=>t.addEventListener('click',function(){document.querySelectorAll('.dock-tab').forEach(x=>x.classList.remove('on'));this.classList.add('on');}));
+  document.querySelectorAll('.seg span').forEach(s=>s.addEventListener('click',function(){this.parentElement.querySelectorAll('span').forEach(x=>x.classList.remove('on'));this.classList.add('on');}));
+</script>
+</body>
+</html>

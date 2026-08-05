@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sobhana Waiting Room Display — Style Directions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{ --navy:#1B2B58; --navy2:#2c4488; --ink:#182742; --muted:#66738f; --faint:#9aa4bc;
+    --line:#e5e9f2; --bg:#eef1f7; --card:#fff; --teal:#0f9a89; --gold:#b0894a; --emerald:#1f8a5b; }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--bg); color:var(--ink); font-family:'Inter',system-ui,sans-serif; -webkit-font-smoothing:antialiased; line-height:1.5; }
+  .wrap{ max-width:1280px; margin:0 auto; padding:0 32px 120px; }
+
+  header.top{ padding:56px 0 8px; }
+  .kicker{ font-size:13px; letter-spacing:4px; text-transform:uppercase; color:var(--navy); font-weight:800; }
+  header.top h1{ font-size:44px; font-weight:900; letter-spacing:-1px; margin-top:12px; color:var(--navy); }
+  header.top p{ font-size:17px; color:var(--muted); max-width:820px; margin-top:14px; }
+  .changed{ margin-top:22px; display:flex; flex-wrap:wrap; gap:10px; }
+  .changed .chip{ background:#fff; border:1px solid var(--line); border-radius:999px; padding:9px 16px; font-size:13px; font-weight:600; }
+  .changed .chip b{ color:var(--navy); }
+  .links{ margin-top:18px; font-size:14px; color:var(--muted); }
+  .links a{ color:var(--navy); font-weight:700; text-decoration:none; border-bottom:2px solid rgba(27,43,88,.2); }
+
+  .grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:26px; margin-top:40px; }
+  .dir{ background:#fff; border:1px solid var(--line); border-radius:20px; overflow:hidden; box-shadow:0 4px 18px rgba(20,34,68,.05); }
+  .dir .cap{ padding:18px 22px 22px; }
+  .dir .cap .top{ display:flex; align-items:center; gap:10px; }
+  .dir .cap .n{ font-size:11px; letter-spacing:2px; text-transform:uppercase; font-weight:800; color:var(--faint); }
+  .dir .cap .acc{ margin-left:auto; display:flex; gap:5px; }
+  .dir .cap .acc i{ width:15px; height:15px; border-radius:50%; border:1px solid rgba(0,0,0,.08); }
+  .dir .cap h3{ font-size:20px; font-weight:800; color:var(--navy); margin-top:8px; }
+  .dir .cap p{ font-size:14px; color:var(--muted); margin-top:7px; }
+  .dir .cap .meta{ font-size:12px; color:var(--faint); margin-top:10px; font-weight:600; }
+
+  /* ============ BOARD (16:9) ============ */
+  .board{ aspect-ratio:16/9; position:relative; overflow:hidden; display:flex; flex-direction:column;
+    border-bottom:1px solid var(--line); font-size:15px; --acc:var(--navy); }
+  .b-top{ height:13%; display:flex; align-items:center; justify-content:space-between; padding:0 4.5%; flex:0 0 auto; }
+  .b-brand{ display:flex; align-items:center; gap:7px; }
+  .b-mark{ width:18px; height:18px; border-radius:5px; background:var(--navy); }
+  .b-bname{ font-size:11px; font-weight:900; color:var(--navy); letter-spacing:.5px; }
+  .b-clock{ font-family:'Space Grotesk'; font-size:12px; font-weight:600; color:var(--navy); opacity:.7; }
+  .b-main{ flex:1 1 auto; position:relative; display:flex; align-items:center; justify-content:center; padding:0 5%; }
+  .b-tick{ height:20%; flex:0 0 auto; background:#fff; display:flex; align-items:stretch; border-top:1px solid var(--line); }
+
+  /* ticker parts (shared) */
+  .bt-track{ flex:0 0 26%; display:flex; align-items:center; gap:8px; padding:0 4%; border-right:1px solid var(--line); }
+  .bt-qr{ width:30px; height:30px; border-radius:6px; border:1.5px solid var(--acc); padding:2px; flex:0 0 30px;
+    background:repeating-conic-gradient(var(--acc) 0% 25%, #fff 0% 50%) 50%/6px 6px; }
+  .bt-track .a{ font-size:9px; font-weight:800; color:var(--navy); line-height:1.15; }
+  .bt-track .b{ font-size:7px; color:var(--muted); font-weight:600; }
+  .bt-cells{ flex:1 1 auto; display:flex; }
+  .bt-c{ flex:1 1 0; display:flex; align-items:center; justify-content:center; gap:9px; border-right:1px solid var(--line); position:relative; }
+  .bt-c:last-child{ border-right:none; }
+  .bt-c .dn{ font-size:10px; font-weight:700; color:var(--navy); }
+  .bt-c .rm{ font-size:8px; color:var(--muted); font-weight:700; text-transform:uppercase; }
+  .bt-c .num{ font-family:'Space Grotesk'; font-size:26px; font-weight:700; color:var(--navy); }
+  .bt-c.act .num{ color:var(--acc); }
+  .bt-c.act::after{ content:''; position:absolute; left:16%; right:16%; bottom:5px; height:2px; border-radius:2px; background:var(--acc); }
+
+  /* shared now-serving atoms */
+  .eye{ font-size:11px; letter-spacing:5px; text-transform:uppercase; font-weight:800; color:var(--acc); }
+  .tok{ font-family:'Space Grotesk'; font-weight:700; color:var(--navy); line-height:.85; letter-spacing:-2px; }
+  .pname{ font-weight:800; color:var(--navy); }
+  .doc{ color:var(--muted); font-weight:600; }
+
+  /* ---------- D1 MONOLITH ---------- */
+  .board.d1{ background:linear-gradient(170deg,#fff,#eef2f9); --acc:var(--navy); }
+  .board.d1 .b-main{ flex-direction:column; text-align:center; }
+  .board.d1 .eye{ margin-bottom:6px; }
+  .board.d1 .tok{ font-size:110px; }
+  .board.d1 .pname{ font-size:26px; margin-top:8px; }
+  .board.d1 .room{ margin-top:12px; font-size:16px; font-weight:700; color:var(--navy); border-bottom:2px solid var(--acc); padding-bottom:3px; }
+  .board.d1 .doc{ font-size:12px; margin-top:12px; }
+
+  /* ---------- D2 LEDGER SPLIT ---------- */
+  .board.d2{ background:#fff; --acc:var(--navy); }
+  .board.d2 .b-main{ padding:0; align-items:stretch; }
+  .board.d2 .lp{ flex:0 0 42%; background:linear-gradient(160deg,var(--navy),var(--navy2)); color:#fff;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .board.d2 .lp .eye{ color:rgba(255,255,255,.75); }
+  .board.d2 .lp .tok{ color:#fff; font-size:96px; }
+  .board.d2 .rp{ flex:1; display:flex; flex-direction:column; align-items:flex-start; justify-content:center; padding:0 7%; }
+  .board.d2 .rp .k{ font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--faint); font-weight:800; }
+  .board.d2 .rp .pname{ font-size:30px; margin:2px 0 16px; }
+  .board.d2 .rp .room{ font-size:20px; font-weight:800; color:var(--navy); }
+  .board.d2 .rp .doc{ font-size:13px; margin-top:6px; }
+
+  /* ---------- D3 LOUNGE CARD ---------- */
+  .board.d3{ background:linear-gradient(160deg,#e9eef7,#dfe6f3); --acc:var(--teal); }
+  .board.d3 .card{ width:86%; background:#fff; border-radius:16px; box-shadow:0 18px 44px rgba(20,34,68,.16);
+    overflow:hidden; text-align:center; }
+  .board.d3 .card .bar{ height:8px; background:linear-gradient(90deg,var(--navy),var(--teal)); }
+  .board.d3 .card .in{ padding:18px 20px 22px; }
+  .board.d3 .card .eye{ color:var(--teal); }
+  .board.d3 .card .tok{ font-size:78px; margin:4px 0; }
+  .board.d3 .card .pname{ font-size:22px; }
+  .board.d3 .card .room{ display:inline-block; margin-top:12px; background:rgba(15,154,137,.12); color:#0b7568;
+    font-size:15px; font-weight:800; padding:6px 16px; border-radius:999px; }
+  .board.d3 .card .doc{ font-size:11px; margin-top:10px; }
+
+  /* ---------- D4 EDITORIAL ---------- */
+  .board.d4{ background:#f6f4ee; --acc:var(--gold); }
+  .board.d4 .b-main{ flex-direction:column; text-align:center; }
+  .board.d4 .eye{ color:var(--gold); letter-spacing:6px; }
+  .board.d4 .rule{ width:60px; height:1.5px; background:var(--gold); margin:10px auto; }
+  .board.d4 .tok{ font-size:100px; color:var(--navy); }
+  .board.d4 .pname{ font-family:'Fraunces',serif; font-weight:600; font-size:32px; margin-top:8px; letter-spacing:-.3px; }
+  .board.d4 .room{ font-family:'Fraunces',serif; font-size:18px; color:var(--navy); margin-top:8px; }
+  .board.d4 .room b{ color:var(--gold); }
+  .board.d4 .doc{ font-size:12px; margin-top:10px; font-style:italic; }
+  .board.d4 .bt-c .dn{ font-family:'Fraunces',serif; font-weight:600; font-size:11px; }
+
+  /* ---------- D5 AQUA DEPTH ---------- */
+  .board.d5{ background:radial-gradient(600px 340px at 70% 20%, rgba(15,154,137,.14), transparent 60%), linear-gradient(170deg,#fff,#eef6f4); --acc:var(--teal); }
+  .board.d5 .b-main{ flex-direction:column; text-align:center; }
+  .board.d5 .halo{ position:relative; }
+  .board.d5 .halo::before{ content:''; position:absolute; inset:-30% -20%; background:radial-gradient(closest-side, rgba(15,154,137,.22), transparent); z-index:0; }
+  .board.d5 .eye{ color:var(--teal); }
+  .board.d5 .tok{ font-size:108px; position:relative; z-index:1; }
+  .board.d5 .pname{ font-size:26px; margin-top:6px; }
+  .board.d5 .room{ margin-top:12px; display:inline-flex; gap:8px; align-items:center; background:var(--teal); color:#fff;
+    font-size:16px; font-weight:800; padding:7px 18px; border-radius:12px; box-shadow:0 10px 26px rgba(15,154,137,.28); }
+  .board.d5 .doc{ font-size:12px; margin-top:12px; }
+  .board.d5 .b-tick{ background:rgba(255,255,255,.7); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); }
+
+  /* ---------- D6 EQUAL GRID ---------- */
+  .board.d6{ background:linear-gradient(170deg,#fff,#eef2f9); --acc:var(--navy); }
+  .board.d6 .b-main{ padding:3.5% 4%; align-items:stretch; }
+  .board.d6 .g{ display:grid; grid-template-columns:repeat(4,1fr); gap:2.5%; width:100%; }
+  .board.d6 .dc{ background:#fff; border:1px solid var(--line); border-radius:12px; padding:10px 8px; display:flex;
+    flex-direction:column; align-items:center; justify-content:center; text-align:center; }
+  .board.d6 .dc .dn{ font-size:11px; font-weight:700; color:var(--navy); }
+  .board.d6 .dc .rm{ font-size:8px; color:var(--muted); font-weight:700; text-transform:uppercase; }
+  .board.d6 .dc .num{ font-family:'Space Grotesk'; font-size:40px; font-weight:700; color:var(--navy); line-height:1; margin-top:4px; }
+  .board.d6 .dc.live{ background:linear-gradient(160deg,var(--navy),var(--navy2)); border-color:transparent; color:#fff; transform:scale(1.04); box-shadow:0 14px 30px rgba(27,43,88,.28); }
+  .board.d6 .dc.live .dn,.board.d6 .dc.live .rm,.board.d6 .dc.live .num{ color:#fff; }
+  .board.d6 .dc.live .eye{ font-size:7px; color:rgba(255,255,255,.8); }
+  .board.d6 .dc.live .pn{ font-size:10px; font-weight:800; margin-top:4px; }
+  .board.d6 .corner{ position:absolute; top:3%; right:4%; display:flex; align-items:center; gap:6px; }
+  .board.d6 .corner .q{ width:22px; height:22px; border-radius:5px; border:1.5px solid var(--navy); background:repeating-conic-gradient(var(--navy) 0% 25%, #fff 0% 50%) 50%/5px 5px; }
+  .board.d6 .corner span{ font-size:8px; font-weight:800; color:var(--navy); }
+
+  /* ---------- accent picker ---------- */
+  section.accents{ margin-top:70px; }
+  section.accents h2{ font-size:26px; font-weight:800; color:var(--navy); }
+  section.accents p{ font-size:15px; color:var(--muted); margin-top:8px; max-width:760px; }
+  .aro{ display:grid; grid-template-columns:repeat(5,1fr); gap:16px; margin-top:26px; }
+  .ac{ background:#fff; border:1px solid var(--line); border-radius:16px; padding:20px; text-align:center; }
+  .ac .demo{ font-family:'Space Grotesk'; font-weight:700; font-size:52px; color:var(--navy); line-height:1; }
+  .ac .u{ width:44px; height:3px; border-radius:3px; margin:10px auto 0; }
+  .ac h4{ font-size:14px; font-weight:800; color:var(--navy); margin-top:14px; }
+  .ac p{ font-size:12px; color:var(--muted); margin-top:4px; }
+  .ac .sw{ display:flex; gap:6px; justify-content:center; margin-top:12px; }
+  .ac .sw i{ width:20px; height:20px; border-radius:6px; border:1px solid rgba(0,0,0,.06); }
+
+  .foot{ margin-top:64px; padding:26px 28px; background:#fff; border:1px solid var(--line); border-radius:16px; }
+  .foot h3{ font-size:18px; color:var(--navy); font-weight:800; }
+  .foot p{ font-size:14.5px; color:var(--muted); margin-top:10px; }
+  .foot b{ color:var(--navy); }
+
+  @media(max-width:900px){ .grid,.aro{ grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="kicker">Sobhana Diagnostics &amp; Polyclinic · Signage</div>
+    <h1>Style Directions — pick a look</h1>
+    <p>Six genuinely different design languages for the same display. All navy-led, no red. The point here is the <b>overall feel</b> — once you like one (or a mash-up), I'll refine it and retune the live prototype to match.</p>
+    <div class="changed">
+      <div class="chip">✓ <b>Red removed</b> — navy-led, calmer accents</div>
+      <div class="chip">✓ <b>Full patient name</b> shown</div>
+      <div class="chip">✓ <b>6 distinct styles</b>, not layout tweaks</div>
+    </div>
+    <div class="links">Live motion prototype (I'll retune to your pick): <a href="waiting-room-display-prototype.html">waiting-room-display-prototype.html</a></div>
+  </header>
+
+  <div class="grid">
+
+    <!-- D1 -->
+    <div class="dir">
+      <div class="board d1">
+        <div class="b-top"><div class="b-brand"><div class="b-mark"></div><div class="b-bname">SOBHANA</div></div><div class="b-clock">10:24 AM</div></div>
+        <div class="b-main">
+          <div class="eye">Now Serving</div>
+          <div class="tok">24</div>
+          <div class="pname">Rajesh Kumar</div>
+          <div class="room">Room 4</div>
+          <div class="doc">Dr. Reddy · General Medicine</div>
+        </div>
+        <div class="b-tick"><div class="bt-track"><div class="bt-qr"></div><div><div class="a">Track your token</div><div class="b">Scan to follow</div></div></div>
+          <div class="bt-cells"><div class="bt-c act"><div><div class="dn">Dr. Reddy</div><div class="rm">Room 4</div></div><div class="num">24</div></div>
+          <div class="bt-c"><div><div class="dn">Dr. Sharma</div><div class="rm">Room 2</div></div><div class="num">18</div></div>
+          <div class="bt-c"><div><div class="dn">Dr. Ahmed</div><div class="rm">Room 6</div></div><div class="num">07</div></div></div></div>
+      </div>
+      <div class="cap"><div class="top"><span class="n">Direction 1</span><div class="acc"><i style="background:#1B2B58"></i><i style="background:#fff"></i></div></div>
+        <h3>Monolith</h3><p>Ruthless minimalism. The number is the whole design; everything else is a whisper. Most "Apple signage," calmest, reads from across the hall.</p>
+        <div class="meta">Accent: navy only · whitespace does the work</div></div>
+    </div>
+
+    <!-- D2 -->
+    <div class="dir">
+      <div class="board d2">
+        <div class="b-top"><div class="b-brand"><div class="b-mark"></div><div class="b-bname">SOBHANA</div></div><div class="b-clock">10:24 AM</div></div>
+        <div class="b-main">
+          <div class="lp"><div class="eye">Now Serving</div><div class="tok">24</div></div>
+          <div class="rp"><div class="k">Patient</div><div class="pname">Rajesh Kumar</div><div class="room">→ &nbsp;Room 4</div><div class="doc">Dr. Reddy · General Medicine</div></div>
+        </div>
+        <div class="b-tick"><div class="bt-track"><div class="bt-qr"></div><div><div class="a">Track your token</div><div class="b">Scan to follow</div></div></div>
+          <div class="bt-cells"><div class="bt-c act"><div><div class="dn">Dr. Reddy</div><div class="rm">Room 4</div></div><div class="num">24</div></div>
+          <div class="bt-c"><div><div class="dn">Dr. Sharma</div><div class="rm">Room 2</div></div><div class="num">18</div></div>
+          <div class="bt-c"><div><div class="dn">Dr. Ahmed</div><div class="rm">Room 6</div></div><div class="num">07</div></div></div></div>
+      </div>
+      <div class="cap"><div class="top"><span class="n">Direction 2</span><div class="acc"><i style="background:#1B2B58"></i><i style="background:#2c4488"></i></div></div>
+        <h3>Ledger Split</h3><p>A solid navy panel holds the token; the white side carries name, room and doctor. Structured and confident, like a premium dashboard.</p>
+        <div class="meta">Accent: navy panels · strong hierarchy</div></div>
+    </div>
+
+    <!-- D3 -->
+    <div class="dir">
+      <div class="board d3">
+        <div class="b-top"><div class="b-brand"><div class="b-mark"></div><div class="b-bname">SOBHANA</div></div><div class="b-clock">10:24 AM</div></div>
+        <div class="b-main"><div class="card"><div class="bar"></div><div class="in">
+          <div class="eye">Now Serving</div><div class="tok">24</div><div class="pname">Rajesh Kumar</div>
+          <div class="room">Please proceed to Room 4</div><div class="doc">Dr. Reddy · General Medicine</div></div></div></div>
+        <div class="b-tick"><div class="bt-track"><div class="bt-qr"></div><div><div class="a">Track your token</div><div class="b">Scan to follow</div></div></div>
+          <div class="bt-cells"><div class="bt-c act"><div><div class="dn">Dr. Reddy</div><div class="rm">Room 4</div></div><div class="num">24</div></div>
+          <div class="bt-c"><div><div class="dn">Dr. Sharma</div><div class="rm">Room 2</div></div><div class="num">18</div></div>
+          <div class="bt-c"><div><div class="dn">Dr. Ahmed</div><div class="rm">Room 6</div></div><div class="num">07</div></div></div></div>
+      </div>
+      <div class="cap"><div class="top"><span class="n">Direction 3</span><div class="acc"><i style="background:#1B2B58"></i><i style="background:#0f9a89"></i></div></div>
+        <h3>Lounge Card</h3><p>Content floats in a soft rounded card on a tinted field — airport-lounge / hospitality warmth. Friendly and modern without being loud.</p>
+        <div class="meta">Accent: navy → teal gradient bar</div></div>
+    </div>
+
+    <!-- D4 -->
+    <div class="dir">
+      <div class="board d4">
+        <div class="b-top"><div class="b-brand"><div class="b-mark"></div><div class="b-bname">SOBHANA</div></div><div class="b-clock">10:24 AM</div></div>
+        <div class="b-main">
+          <div class="eye">Now Serving</div><div class="rule"></div>
+          <div class="tok">24</div>
+          <div class="pname">Rajesh Kumar</div>
+          <div class="room">Please proceed to <b>Room 4</b></div>
+          <div class="doc">Dr. Reddy · General Medicine</div>
+        </div>
+        <div class="b-tick"><div class="bt-track"><div class="bt-qr"></div><div><div class="a">Track your token</div><div class="b">Scan to follow</div></div></div>
+          <div class="bt-cells"><div class="bt-c act"><div><div class="dn">Dr. Reddy</div><div class="rm">Room 4</div></div><div class="num">24</div></div>
+          <div class="bt-c"><div><div class="dn">Dr. Sharma</div><div class="rm">Room 2</div></div><div class="num">18</div></div>
+          <div class="bt-c"><div><div class="dn">Dr. Ahmed</div><div class="rm">Room 6</div></div><div class="num">07</div></div></div></div>
+      </div>
+      <div class="cap"><div class="top"><span class="n">Direction 4</span><div class="acc"><i style="background:#1B2B58"></i><i style="background:#b0894a"></i></div></div>
+        <h3>Editorial</h3><p>Warm ivory, names set in an elegant serif, a single fine gold rule. Feels like a boutique specialist clinic, not a hospital token board.</p>
+        <div class="meta">Accent: gold hairline · serif names</div></div>
+    </div>
+
+    <!-- D5 -->
+    <div class="dir">
+      <div class="board d5">
+        <div class="b-top"><div class="b-brand"><div class="b-mark"></div><div class="b-bname">SOBHANA</div></div><div class="b-clock">10:24 AM</div></div>
+        <div class="b-main">
+          <div class="eye">Now Serving</div>
+          <div class="halo"><div class="tok">24</div></div>
+          <div class="pname">Rajesh Kumar</div>
+          <div class="room">Room 4</div>
+          <div class="doc">Dr. Reddy · General Medicine</div>
+        </div>
+        <div class="b-tick"><div class="bt-track"><div class="bt-qr"></div><div><div class="a">Track your token</div><div class="b">Scan to follow</div></div></div>
+          <div class="bt-cells"><div class="bt-c act"><div><div class="dn">Dr. Reddy</div><div class="rm">Room 4</div></div><div class="num">24</div></div>
+          <div class="bt-c"><div><div class="dn">Dr. Sharma</div><div class="rm">Room 2</div></div><div class="num">18</div></div>
+          <div class="bt-c"><div><div class="dn">Dr. Ahmed</div><div class="rm">Room 6</div></div><div class="num">07</div></div></div></div>
+      </div>
+      <div class="cap"><div class="top"><span class="n">Direction 5</span><div class="acc"><i style="background:#1B2B58"></i><i style="background:#0f9a89"></i></div></div>
+        <h3>Aqua Depth</h3><p>White with soft frosted depth and a gentle teal glow behind the token. Fresh and medical; teal is already one of your branch colors.</p>
+        <div class="meta">Accent: teal glow · frosted ticker</div></div>
+    </div>
+
+    <!-- D6 -->
+    <div class="dir">
+      <div class="board d6">
+        <div class="b-top"><div class="b-brand"><div class="b-mark"></div><div class="b-bname">SOBHANA</div></div><div class="b-clock">10:24 AM</div></div>
+        <div class="corner"><div class="q"></div><span>Track your token</span></div>
+        <div class="b-main"><div class="g">
+          <div class="dc live"><div class="eye">Now Serving</div><div class="num">24</div><div class="dn">Dr. Reddy · Room 4</div><div class="pn">Rajesh Kumar</div></div>
+          <div class="dc"><div class="dn">Dr. Sharma</div><div class="rm">Room 2</div><div class="num">18</div></div>
+          <div class="dc"><div class="dn">Dr. Ahmed</div><div class="rm">Room 6</div><div class="num">07</div></div>
+          <div class="dc"><div class="dn">Dr. Iyer</div><div class="rm">Room 3</div><div class="num">11</div></div>
+        </div></div>
+      </div>
+      <div class="cap"><div class="top"><span class="n">Direction 6</span><div class="acc"><i style="background:#1B2B58"></i><i style="background:#fff"></i></div></div>
+        <h3>Equal Grid</h3><p>No single hero — every doctor is a card; the one just called grows and turns navy, showing the patient's name. Best when many people watch different doctors at once.</p>
+        <div class="meta">Accent: navy · different information model</div></div>
+    </div>
+
+  </div>
+
+  <!-- ACCENT PICKER -->
+  <section class="accents">
+    <h2>Second colour (instead of red)</h2>
+    <p>Navy is the anchor in every direction. This is the accent that marks "now serving" — the token glow, the active underline, the room pill. Pick the one that feels like Sobhana.</p>
+    <div class="aro">
+      <div class="ac"><div class="demo">24</div><div class="u" style="background:#1B2B58"></div><h4>Navy only</h4><p>Monochrome, most minimal</p><div class="sw"><i style="background:#1B2B58"></i><i style="background:#fff"></i></div></div>
+      <div class="ac"><div class="demo" style="color:#0f9a89">24</div><div class="u" style="background:#0f9a89"></div><h4>Teal</h4><p>Your IDPL branch colour</p><div class="sw"><i style="background:#1B2B58"></i><i style="background:#0f9a89"></i></div></div>
+      <div class="ac"><div class="demo" style="color:#1f8a5b">24</div><div class="u" style="background:#1f8a5b"></div><h4>Emerald</h4><p>Calm, health-forward</p><div class="sw"><i style="background:#1B2B58"></i><i style="background:#1f8a5b"></i></div></div>
+      <div class="ac"><div class="demo" style="color:#b0894a">24</div><div class="u" style="background:#b0894a"></div><h4>Gold</h4><p>Premium, boutique</p><div class="sw"><i style="background:#1B2B58"></i><i style="background:#b0894a"></i></div></div>
+      <div class="ac"><div class="demo" style="color:#3f6fd1">24</div><div class="u" style="background:#3f6fd1"></div><h4>Sky blue</h4><p>Lighter, softer navy</p><div class="sw"><i style="background:#1B2B58"></i><i style="background:#3f6fd1"></i></div></div>
+    </div>
+  </section>
+
+  <div class="foot">
+    <h3>How to steer me</h3>
+    <p>Tell me <b>which direction</b> (or "3 but with 5's glow", "2 without the ticker", etc.) and <b>which accent</b>. I'll build that one out fully — Now Serving + Ad mode + ticker + the interrupt — and retune the live prototype so you can watch it move. Ad mode stays <b>uploaded creatives</b> in every direction; the style only changes the chrome around them.</p>
+  </div>
+
+</div>
+</body>
+</html>

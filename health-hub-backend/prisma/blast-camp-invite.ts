@@ -57,16 +57,49 @@ async function main() {
       ORDER BY pi.value, p."createdAt" DESC
     `;
 
-  const targets = LIMIT > 0 ? rows.slice(0, LIMIT) : rows;
-  const sharedCount = targets.filter((t) => Number(t.shared) > 1).length;
-  console.log(`Distinct numbers in DB: ${rows.length}. Sending to ${targets.length} (LIMIT=${LIMIT || 'ALL'}).`);
+  // Idempotent re-runs: skip numbers already sent in a prior run of this campaign.
+  const alreadySent = new Set(
+    (await prisma.messageLog.findMany({
+      where: { templateName: TEMPLATE, contextId: CAMPAIGN },
+      select: { phone: true },
+    })).map((m) => m.phone),
+  );
+  if (alreadySent.size) console.log(`Already sent in a prior run (will skip): ${alreadySent.size}.`);
+
+  // Priority: the numbers we've already tested go first so they're in this batch.
+  const PRIORITY: Array<{ phone: string; name: string }> = [
+    { phone: '916309414582', name: 'Pranav' },
+    { phone: '919393011559', name: 'Mallikarjun' },
+    { phone: '919866414582', name: 'Friend' },
+    { phone: '918790190738', name: 'Friend' },
+  ];
+  type Target = { phone: string; patientId: string | null; name: string; shared: number };
+  const byPhone = new Map<string, (typeof rows)[number]>();
+  for (const r of rows) { const p = formatPhone(r.phone); if (p) byPhone.set(p, r); }
+  const finalTargets: Target[] = [];
+  const used = new Set<string>();
+  for (const pr of PRIORITY) {
+    const db = byPhone.get(pr.phone);
+    finalTargets.push({ phone: pr.phone, patientId: db?.patientId ?? null, name: db?.name ?? pr.name, shared: db ? Number(db.shared) : 1 });
+    used.add(pr.phone);
+  }
+  for (const r of rows) {
+    const p = formatPhone(r.phone);
+    if (!p || used.has(p)) continue;
+    if (LIMIT > 0 && finalTargets.length >= LIMIT) break;
+    finalTargets.push({ phone: p, patientId: r.patientId, name: r.name, shared: Number(r.shared) });
+    used.add(p);
+  }
+  const sharedCount = finalTargets.filter((t) => t.shared > 1).length;
+  console.log(`Distinct numbers in DB: ${rows.length}. Sending to ${finalTargets.length} (LIMIT=${LIMIT || 'ALL'}, ${PRIORITY.length} tested numbers first).`);
   console.log(`Shared numbers in this batch: ${sharedCount} (greeting the most-recent registrant).\n`);
 
   let sent = 0, failed = 0, skipped = 0;
-  for (const t of targets) {
+  for (const t of finalTargets) {
     const to = formatPhone(t.phone);
     if (!to) { skipped++; console.log(`  - skip (bad phone): ${t.phone}`); continue; }
-    const tag = Number(t.shared) > 1 ? ` [shared x${Number(t.shared)}]` : '';
+    if (alreadySent.has(to)) { skipped++; continue; }
+    const tag = t.shared > 1 ? ` [shared x${t.shared}]` : '';
     try {
       const resp = await axios.post(
         `https://graph.facebook.com/v21.0/${PNID}/messages`,

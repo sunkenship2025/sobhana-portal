@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HealthFlow — the operating system for diagnostic centres</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;450;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#0B2447; --ink:#0e2038; --blue:#1F6FC4; --blue-2:#2f86df;
+    --green:#17A34A; --green-2:#16b357; --red:#C8443B;
+    --paper:#FBFCFE; --panel:#ffffff; --line:#e5ebf3; --line-2:#d6e0ec;
+    --mute:#5E7088; --mute-2:#7b8aa1; --track:#eaf0f7;
+    --disp:'Bricolage Grotesque',system-ui,sans-serif;
+    --body:'Inter',system-ui,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+    --maxw:1140px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{font-family:var(--body);color:var(--ink);background:var(--paper);line-height:1.55;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 30px}
+  .band{padding:96px 0}
+  a{color:inherit;text-decoration:none}
+  h1,h2,h3{font-family:var(--disp);font-weight:700;letter-spacing:-.02em;line-height:1.05}
+
+  /* --- utility type --- */
+  .kicker{font-family:var(--mono);font-size:12px;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:var(--blue)}
+  .kicker.g{color:var(--green)} .kicker.d{color:#8fb2e6}
+  .lead{font-size:19px;color:var(--mute);max-width:60ch}
+  .h2{font-size:clamp(30px,4vw,44px)}
+  .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+
+  /* --- reference-range track: the signature device --- */
+  .track{position:relative;height:8px;border-radius:6px;background:var(--track);overflow:visible}
+  .track .zone{position:absolute;top:0;bottom:0;background:rgba(23,163,74,.20)}
+  .track .flag{position:absolute;top:50%;width:14px;height:14px;border-radius:50%;background:var(--green);border:3px solid #fff;box-shadow:0 2px 6px rgba(11,36,71,.28);transform:translate(-50%,-50%)}
+  .track .flag.hi{background:var(--red)}
+  .rangerow{display:grid;grid-template-columns:120px 1fr 84px;gap:16px;align-items:center}
+  .rangerow .name{font-family:var(--mono);font-size:12.5px;color:var(--navy);font-weight:500}
+  .rangerow .val{font-family:var(--mono);font-size:12.5px;text-align:right;color:var(--mute)}
+  .rangerow .val b{color:var(--navy)}
+
+  /* --- nav --- */
+  header.nav{position:sticky;top:0;z-index:60;background:rgba(251,252,254,.82);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+  .nav .wrap{display:flex;align-items:center;justify-content:space-between;height:84px}
+  .nav img.logo{height:56px;display:block}
+  .nav .right{display:flex;align-items:center;gap:20px}
+  .nav .price-tag{font-family:var(--mono);font-size:13px;color:var(--mute)}
+  .nav .price-tag b{color:var(--navy)}
+  .btn{display:inline-flex;align-items:center;gap:9px;font-family:var(--body);font-weight:600;font-size:15px;border-radius:10px;padding:12px 22px;transition:transform .12s ease,box-shadow .12s ease;cursor:pointer;border:0}
+  .btn.solid{background:var(--navy);color:#fff}
+  .btn.solid:hover{transform:translateY(-1px);box-shadow:0 10px 26px rgba(11,36,71,.24)}
+  .btn.green{background:var(--green);color:#fff}
+  .btn.green:hover{transform:translateY(-1px);box-shadow:0 10px 26px rgba(23,163,74,.28)}
+  .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,.28);color:#fff}
+  .btn.ghost:hover{background:rgba(255,255,255,.06)}
+  .btn.arrow svg{width:16px;height:16px}
+
+  /* --- hero --- */
+  .hero{background:
+      radial-gradient(900px 460px at 88% -8%, rgba(23,163,74,.16), transparent 60%),
+      radial-gradient(760px 420px at 4% 4%, rgba(31,111,196,.18), transparent 58%),
+      var(--navy);
+    color:#eaf1fb;position:relative;overflow:hidden;border-bottom:1px solid #0a1d38}
+  .hero:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:40px 40px;mask-image:radial-gradient(760px 500px at 30% 20%,#000,transparent 75%)}
+  .hero .wrap{position:relative;z-index:2;padding:78px 30px 84px;display:grid;grid-template-columns:1.02fr .98fr;gap:56px;align-items:center}
+  .hero h1{font-size:clamp(38px,5.2vw,60px);color:#fff;max-width:15ch}
+  .hero h1 .u{background:linear-gradient(transparent 62%, rgba(23,163,74,.42) 0);padding:0 2px}
+  .hero p.sub{margin-top:22px;font-size:19px;color:#b7c7de;max-width:52ch}
+  .hero p.sub b{color:#fff;font-weight:600}
+  .hero .cta{margin-top:32px;display:flex;gap:14px;flex-wrap:wrap}
+  .hero .rangecard{margin-top:34px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:16px 18px;max-width:430px}
+  .hero .rangecard .cap{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#8fb2e6;margin-bottom:12px}
+  .hero .rangecard .rangerow .name{color:#dbe7f7}
+  .hero .rangecard .rangerow .val{color:#9fb4d2}
+  .hero .rangecard .rangerow .val b{color:#fff}
+  .hero .rangecard .track{background:rgba(255,255,255,.12)}
+
+  /* report frame in hero */
+  .reportwrap{position:relative;transform:rotate(-.6deg)}
+  .reportframe{position:relative;border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.14);box-shadow:0 40px 90px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.04);background:#fff}
+  .reportframe img{width:100%;display:block}
+  .reportframe .tab{position:absolute;top:0;left:0;right:0;height:34px;background:linear-gradient(180deg,#f3f6fb,#e9eef6);border-bottom:1px solid #dfe6f0;display:flex;align-items:center;gap:6px;padding:0 14px;z-index:2}
+  .reportframe .tab i{width:9px;height:9px;border-radius:50%;background:#cdd7e4;display:block}
+  .reportframe .shot{padding-top:34px}
+  .stamp{position:absolute;z-index:6;right:14px;bottom:-14px;background:var(--green);color:#fff;font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.02em;padding:9px 14px;border-radius:10px;box-shadow:0 14px 30px rgba(23,163,74,.4)}
+
+  /* "your branding here" overlay — dashed ring + pill, matching the in-app callouts */
+  .hasbrand{position:relative}
+  .bc-ring{position:absolute;border:2.5px dashed var(--green);border-radius:8px;box-shadow:0 0 0 3px rgba(23,163,74,.16);z-index:7;pointer-events:none}
+  .bc-pill{position:absolute;z-index:8;background:var(--green);color:#fff;font-family:var(--body);font-weight:700;font-size:11.5px;line-height:1;padding:6px 11px;border-radius:20px;white-space:nowrap;box-shadow:0 5px 16px rgba(0,0,0,.30);pointer-events:none}
+
+  /* --- ticker / trust ribbon --- */
+  .ribbon{background:var(--navy);border-top:1px solid #12294a;padding:0}
+  .ribbon .wrap{display:flex;flex-wrap:wrap;gap:0;justify-content:space-between}
+  .ribbon .item{flex:1 1 25%;min-width:190px;padding:22px 24px;border-right:1px solid #12294a}
+  .ribbon .item:last-child{border-right:0}
+  .ribbon .k{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#7f9ac2}
+  .ribbon .v{font-family:var(--disp);font-size:22px;color:#fff;margin-top:6px}
+
+  /* --- section head --- */
+  .shead{max-width:660px}
+  .shead .h2{margin-top:14px}
+  .shead p{margin-top:16px;color:var(--mute);font-size:18px}
+  .center{margin-left:auto;margin-right:auto;text-align:center}
+
+  /* --- pipeline --- */
+  .pipe{display:grid;grid-template-columns:repeat(5,1fr);gap:0;margin-top:56px;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--panel)}
+  .pstep{padding:26px 22px;border-right:1px solid var(--line);position:relative}
+  .pstep:last-child{border-right:0}
+  .pstep .no{font-family:var(--mono);font-size:12px;color:var(--blue);letter-spacing:.1em}
+  .pstep h3{font-size:18px;margin-top:14px}
+  .pstep p{font-size:13.5px;color:var(--mute);margin-top:7px;line-height:1.45}
+  .pstep .cxn{position:absolute;right:-9px;top:34px;width:18px;height:18px;background:var(--panel);border:1px solid var(--line);border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--blue);z-index:2}
+  .pstep .cxn svg{width:11px;height:11px}
+  .pstep:last-child .cxn{display:none}
+  .pipe-foot{margin-top:20px;font-size:14.5px;color:var(--mute);font-family:var(--mono)}
+  .pipe-foot b{color:var(--navy);font-weight:600}
+
+  /* --- feature grid --- */
+  .fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:16px;overflow:hidden;margin-top:52px}
+  .fcell{background:var(--panel);padding:30px 28px}
+  .fcell .ico{width:38px;height:38px;color:var(--blue)}
+  .fcell.g .ico{color:var(--green)}
+  .fcell .ico svg{width:26px;height:26px;stroke-width:1.6}
+  .fcell h3{font-size:19px;margin-top:20px}
+  .fcell p{font-size:14.5px;color:var(--mute);margin-top:9px}
+  .fcell .tag{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute-2);margin-top:16px;display:block}
+
+  /* --- split feature (image + copy) --- */
+  .split{display:grid;grid-template-columns:1.05fr 1fr;gap:56px;align-items:center}
+  .split.rev .copy{order:2}
+  .split + .split{margin-top:84px}
+  .split .copy .h2{font-size:clamp(26px,3.2vw,36px);margin-top:14px}
+  .split .copy p{margin-top:16px;color:var(--mute);font-size:16.5px}
+  .split .copy .pts{margin-top:22px;display:flex;flex-direction:column;gap:12px}
+  .split .copy .pt{display:flex;gap:12px;align-items:flex-start;font-size:15px}
+  .split .copy .pt .d{flex:none;margin-top:7px;width:7px;height:7px;border-radius:2px;background:var(--green);transform:rotate(45deg)}
+  .frame{border-radius:14px;overflow:hidden;border:1px solid var(--line);background:#fff;box-shadow:0 22px 54px rgba(11,36,71,.12)}
+  .frame img{width:100%;display:block}
+  .frame.pad{padding:10px;background:#eef3f9}
+  .frame.pad img{border-radius:8px}
+
+  /* --- clinic row --- */
+  .cliniprow{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-top:52px}
+  .shotcard{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff;box-shadow:0 14px 36px rgba(11,36,71,.08);display:flex;flex-direction:column}
+  .shotcard .pic{position:relative;background:#eef3f9;overflow:hidden;aspect-ratio:16/11}
+  .shotcard .pic img{width:100%;height:100%;object-fit:cover;object-position:top left;display:block}
+  .shotcard .body{padding:20px 22px}
+  .shotcard .body .lbl{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--blue)}
+  .shotcard .body h3{font-size:18px;margin-top:10px}
+  .shotcard .body p{font-size:13.5px;color:var(--mute);margin-top:7px}
+  /* consultation window highlight */
+  .window{margin-top:24px;border:1px solid var(--line-2);border-radius:16px;background:linear-gradient(180deg,#ffffff,#f4f9f5);padding:34px;display:grid;grid-template-columns:.9fr 1.1fr;gap:40px;align-items:center}
+  .window .h2{font-size:clamp(24px,2.6vw,30px)}
+  .window p{margin-top:14px;color:var(--mute);font-size:15.5px}
+  .window .pill{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--green);border:1px solid rgba(23,163,74,.4);border-radius:999px;padding:6px 12px}
+  .timeline{position:relative;padding:8px 6px}
+  .timeline .rail{position:absolute;left:8px;right:8px;top:36px;height:3px;background:var(--track);border-radius:3px}
+  .timeline .rail .fill{position:absolute;left:0;width:100%;height:100%;background:linear-gradient(90deg,var(--green),rgba(23,163,74,.25));border-radius:3px}
+  .timeline .stops{position:relative;display:flex;justify-content:space-between}
+  .timeline .stop{text-align:center;width:33%}
+  .timeline .stop .dot{width:16px;height:16px;border-radius:50%;background:#fff;border:3px solid var(--green);margin:22px auto 0;position:relative;z-index:2}
+  .timeline .stop.mid .dot{border-color:var(--line-2);background:#fff}
+  .timeline .stop .day{font-family:var(--mono);font-size:11px;color:var(--mute);margin-top:12px}
+  .timeline .stop .amt{font-family:var(--disp);font-size:20px;color:var(--navy);margin-top:4px}
+  .timeline .stop .amt.free{color:var(--green)}
+  .timeline .stop .what{font-size:12px;color:var(--mute-2);margin-top:2px}
+
+  /* --- whatsapp phones --- */
+  .comms{background:var(--navy);color:#dfe9f7}
+  .comms .shead .h2{color:#fff}
+  .comms .shead p{color:#a9bdda}
+  .phones{display:grid;grid-template-columns:repeat(3,1fr);gap:30px;margin-top:56px;align-items:start}
+  .phone{background:#0d1f3a;border:1px solid rgba(255,255,255,.10);border-radius:26px;padding:10px;box-shadow:0 30px 70px rgba(0,0,0,.45)}
+  .phone img{width:100%;display:block;border-radius:18px}
+  .phone .cap{padding:16px 12px 8px;text-align:center}
+  .phone .cap .t{font-family:var(--disp);font-size:16px;color:#fff}
+  .phone .cap .s{font-size:13px;color:#93a9c9;margin-top:4px}
+
+  /* --- gallery --- */
+  .gal{display:grid;grid-template-columns:repeat(6,1fr);gap:16px;margin-top:48px}
+  .gal figure{grid-column:span 2;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 10px 26px rgba(11,36,71,.07)}
+  .gal figure.wide{grid-column:span 3}
+  .gal img{width:100%;display:block;aspect-ratio:16/10;object-fit:cover;object-position:top left}
+  .gal figcaption{font-family:var(--mono);font-size:11.5px;letter-spacing:.04em;color:var(--mute);padding:11px 14px;border-top:1px solid var(--line)}
+
+  /* --- white label --- */
+  .wl{background:linear-gradient(180deg,#0f2c54,#0B2447);color:#eaf1fb;border-radius:20px;padding:52px;display:grid;grid-template-columns:1.15fr .85fr;gap:48px;align-items:center;position:relative;overflow:hidden}
+  .wl .h2{color:#fff;font-size:clamp(26px,3vw,34px)}
+  .wl p{margin-top:16px;color:#b7c7de;font-size:16.5px}
+  .wl .chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px}
+  .wl .chips span{font-family:var(--mono);font-size:12.5px;color:#cfe0f5;border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:8px 14px}
+  .wl-demo{background:rgba(255,255,255,.05);border:1px dashed rgba(255,255,255,.35);border-radius:14px;padding:26px;text-align:center}
+  .wl-demo .logo-chip{background:#fff;border-radius:12px;padding:14px 18px;display:inline-block}
+  .wl-demo .logo-chip img{height:26px;display:block}
+  .wl-demo .arrow-note{font-family:var(--mono);font-size:12px;color:#9dd9b4;margin-top:16px}
+
+  /* --- pricing --- */
+  .pricing{background:#f2f6fb;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .pcard{max-width:860px;margin:0 auto;background:#fff;border:1px solid var(--line-2);border-radius:20px;overflow:hidden;display:grid;grid-template-columns:1.1fr .9fr;box-shadow:0 30px 70px rgba(11,36,71,.12)}
+  .pcard .left{padding:44px}
+  .pcard .badge{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--green);border:1px solid rgba(23,163,74,.35);border-radius:999px;padding:6px 12px;display:inline-block}
+  .pcard .amount{margin-top:22px;display:flex;align-items:flex-end;gap:8px}
+  .pcard .amount .rs{font-family:var(--disp);font-size:64px;color:var(--navy);line-height:.9}
+  .pcard .amount .per{font-family:var(--mono);font-size:15px;color:var(--mute);padding-bottom:8px}
+  .pcard .forever{margin-top:10px;font-family:var(--mono);font-size:13px;color:var(--green);letter-spacing:.04em}
+  .pcard .compare{margin-top:18px;font-size:15px;color:var(--mute)}
+  .pcard .compare s{color:var(--mute-2);text-decoration-color:var(--red)}
+  .pcard .compare b{color:var(--navy)}
+  .pcard .why{margin-top:18px;font-size:14.5px;color:var(--mute);max-width:44ch;line-height:1.6}
+  .pcard .left .btn{margin-top:26px}
+  .pcard .right{background:var(--navy);color:#dfe9f7;padding:44px}
+  .pcard .right .k{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#7f9ac2}
+  .pcard .incl{margin-top:20px;display:flex;flex-direction:column;gap:14px}
+  .pcard .incl .row{display:flex;gap:12px;align-items:flex-start;font-size:14.5px;color:#cdd9ec}
+  .pcard .incl .row svg{width:17px;height:17px;color:var(--green-2);flex:none;margin-top:2px;stroke-width:2}
+
+  /* --- roadmap --- */
+  .road .rgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:22px;margin-top:48px}
+  .rcard{border:1px solid var(--line);border-radius:16px;padding:30px;background:var(--panel);position:relative}
+  .rcard .soon{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--blue);border:1px solid var(--line-2);border-radius:6px;padding:5px 9px}
+  .rcard h3{font-size:21px;margin-top:16px}
+  .rcard p{font-size:14.5px;color:var(--mute);margin-top:10px}
+  .rflow{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin-top:18px}
+  .rflow .n{font-family:var(--mono);font-size:11.5px;background:#f1f5fa;border:1px solid var(--line);border-radius:8px;padding:7px 11px;color:var(--navy)}
+  .rflow .a{color:var(--green);display:flex}.rflow .a svg{width:13px;height:13px}
+
+  /* --- footer --- */
+  footer{background:var(--navy);color:#93a9c9;padding:56px 0 40px}
+  footer .top{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap}
+  footer .logo-chip{background:#fff;border-radius:12px;padding:12px 16px;display:inline-block}
+  footer .logo-chip img{height:26px;display:block}
+  footer .tag{font-family:var(--mono);font-size:12.5px;letter-spacing:.04em;color:#7f9ac2;max-width:34ch;margin-top:14px}
+  footer .fine{margin-top:36px;padding-top:22px;border-top:1px solid #12294a;font-family:var(--mono);font-size:11.5px;color:#6f89b0;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+
+  /* reveal */
+  .rise{opacity:0;transform:translateY(16px);transition:opacity .6s ease,transform .6s ease}
+  .rise.in{opacity:1;transform:none}
+
+  @media (max-width:900px){
+    .hero .wrap{grid-template-columns:1fr;gap:40px}
+    .fgrid{grid-template-columns:1fr}
+    .pipe{grid-template-columns:1fr 1fr}
+    .split,.split.rev{grid-template-columns:1fr}.split.rev .copy{order:0}
+    .phones{grid-template-columns:1fr}
+    .gal{grid-template-columns:repeat(2,1fr)}.gal figure,.gal figure.wide{grid-column:span 1}
+    .wl{grid-template-columns:1fr;padding:36px}
+    .pcard{grid-template-columns:1fr}
+    .road .rgrid{grid-template-columns:1fr}
+    .ribbon .item{flex-basis:50%}
+  }
+  @media print{
+    header.nav{display:none}
+    .band{padding:44px 0}
+    .rise{opacity:1;transform:none}
+    body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .split+.split{margin-top:40px}
+  }
+</style>
+</head>
+<body>
+
+<!-- inline icon defs -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <g id="i-receipt"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M6 3h12v18l-3-2-3 2-3-2-3 2V3zM9 8h6M9 12h6M9 16h4"/></g>
+  <g id="i-flask"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M9 3h6M10 3v6l-5 8a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-8V3M7.5 15h9"/></g>
+  <g id="i-chart"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M4 20V4M4 20h16M8 16v-4M12 16V8M16 16v-6"/></g>
+  <g id="i-users"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M16 20v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M21 20v-1a4 4 0 0 0-3-3.8M16.5 4.2a3.5 3.5 0 0 1 0 6.6"/></g>
+  <g id="i-search"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3"/></g>
+  <g id="i-wallet"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 0 1 2-2h13v4M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-8H7a2 2 0 0 1-2-2zM17 13h.01"/></g>
+  <g id="i-qr"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2M20 16v4M14 18v2M16 20h2"/></g>
+  <g id="i-upload"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M12 15V4M8 8l4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></g>
+  <g id="i-shield"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M12 3l8 3v5c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10V6zM9 12l2 2 4-4"/></g>
+  <g id="i-arrow"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M13 6l6 6-6 6"/></g>
+  <g id="i-check"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M4 12l5 5L20 6"/></g>
+  <g id="i-wa"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.5 15.2L2 22l4.9-1.4A10 10 0 1 0 12 2zm5.4 14.1c-.2.6-1.2 1.1-1.7 1.2-.5.1-1 .1-1.7-.1-.4-.1-.9-.3-1.6-.6-2.8-1.2-4.6-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.8s.7-2 .9-2.2c.2-.2.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 1.9c.1.2.1.4 0 .5l-.4.5c-.2.2-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1 2.1 1.3 2.4 1.5.2.1.4.1.5-.1l.7-.8c.2-.2.3-.2.6-.1l1.8.9c.3.1.4.2.5.3.1.2.1.8-.1 1.4z"/></g>
+</defs></svg>
+
+<!-- ============ NAV ============ -->
+<header class="nav">
+  <div class="wrap">
+    <img class="logo" src="assets/healthflow-logo.png" alt="HealthFlow">
+    <div class="right">
+      <span class="price-tag num">₹999<b>/mo</b> · forever</span>
+      <a class="btn solid arrow" href="#pricing">Book a demo <svg><use href="#i-arrow"/></svg></a>
+    </div>
+  </div>
+</header>
+
+<!-- ============ HERO ============ -->
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <span class="kicker d">White-label lab &amp; clinic OS · Hyderabad</span>
+      <h1>Every test billed, resulted, and on the patient's <span class="u">phone</span> — under your name.</h1>
+      <p class="sub">HealthFlow runs the whole diagnostic centre: billing, age- and gender-aware lab reports, WhatsApp delivery with a QR-stamped PDF, and automatic doctor payouts. Your logo, your letterhead, your brand. <b>₹999 a month. Forever.</b></p>
+      <div class="cta">
+        <a class="btn green arrow" href="#pricing">Start with HealthFlow <svg><use href="#i-arrow"/></svg></a>
+        <a class="btn ghost" href="#features">See every feature</a>
+      </div>
+      <div class="rangecard">
+        <div class="cap">Reference ranges adapt to each patient</div>
+        <div class="rangerow" style="margin-bottom:12px">
+          <span class="name">Haemoglobin</span>
+          <div class="track"><span class="zone" style="left:34%;right:14%"></span><span class="flag" style="left:60%"></span></div>
+          <span class="val"><b>14.8</b> · 13.5–18</span>
+        </div>
+        <div class="rangerow">
+          <span class="name">WBC Count</span>
+          <div class="track"><span class="zone" style="left:26%;right:20%"></span><span class="flag hi" style="left:88%"></span></div>
+          <span class="val"><b>13,000</b> · 4–11k</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="reportwrap">
+        <div class="reportframe hasbrand">
+          <div class="tab"><i></i><i></i><i></i></div>
+          <div class="shot"><img src="assets/report-preview-full.png" alt="Live report preview with your letterhead"></div>
+          <span class="bc-ring" style="left:25.5%;top:11.5%;width:17%;height:7.5%"></span>
+          <span class="bc-pill" style="left:25.5%;top:1.5%">↓ Your logo &amp; letterhead here</span>
+        </div>
+        <span class="stamp">Ready to sign &amp; send →</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TRUST RIBBON ============ -->
+<section class="ribbon">
+  <div class="wrap">
+    <div class="item"><div class="k">Live centres</div><div class="v num">35+ across Hyderabad</div></div>
+    <div class="item"><div class="k">Capacity</div><div class="v">Unlimited patients &amp; tests</div></div>
+    <div class="item"><div class="k">Support</div><div class="v num">24/7, included</div></div>
+    <div class="item"><div class="k">Branding</div><div class="v">100% yours</div></div>
+  </div>
+</section>
+
+<!-- ============ PIPELINE ============ -->
+<section class="band" id="how">
+  <div class="wrap">
+    <div class="shead">
+      <span class="kicker">The pipeline</span>
+      <h2 class="h2">One patient, one clean path — no registers</h2>
+      <p>Everything from the front desk to the pathologist to the patient's phone happens in one system. Nothing re-typed, nothing lost.</p>
+    </div>
+    <div class="pipe">
+      <div class="pstep"><div class="no">01</div><h3>Register &amp; bill</h3><p>Phone-first lookup, instant receipt, cash or online.</p><div class="cxn"><svg><use href="#i-arrow"/></svg></div></div>
+      <div class="pstep"><div class="no">02</div><h3>Collect sample</h3><p>Auto-queued to the right bench by department.</p><div class="cxn"><svg><use href="#i-arrow"/></svg></div></div>
+      <div class="pstep"><div class="no">03</div><h3>Enter results</h3><p>Age- and gender-aware ranges, auto low/high flags.</p><div class="cxn"><svg><use href="#i-arrow"/></svg></div></div>
+      <div class="pstep"><div class="no">04</div><h3>Verify &amp; sign</h3><p>Pathologist reviews; the report locks and stamps a QR.</p><div class="cxn"><svg><use href="#i-arrow"/></svg></div></div>
+      <div class="pstep"><div class="no">05</div><h3>Deliver</h3><p>Bill &amp; report land on WhatsApp, tracked to delivery.</p></div>
+    </div>
+    <p class="pipe-foot">And in the background, every rupee, discount and doctor commission is tallied <b>automatically</b>.</p>
+  </div>
+</section>
+
+<!-- ============ CORE FEATURES ============ -->
+<section class="band" id="features" style="padding-top:0">
+  <div class="wrap">
+    <div class="shead">
+      <span class="kicker g">What's inside</span>
+      <h2 class="h2">Built for how Indian labs &amp; clinics actually run</h2>
+    </div>
+    <div class="fgrid">
+      <div class="fcell"><div class="ico"><svg viewBox="0 0 24 24"><use href="#i-receipt"/></svg></div><h3>Billing without leaks</h3><p>Fast phone-first billing with discounts, cash/online split and live receivables — captured to the paisa, with a full audit trail.</p><span class="tag">Discounts · refunds · aging</span></div>
+      <div class="fcell g"><div class="ico"><svg viewBox="0 0 24 24"><use href="#i-flask"/></svg></div><h3>Reports that adapt</h3><p>Structured entry with reference ranges that shift by age and gender, automatic low/high flags, methods, and locked versions.</p><span class="tag">Age &amp; gender ranges</span></div>
+      <div class="fcell"><div class="ico"><svg viewBox="0 0 24 24"><use href="#i-chart"/></svg></div><h3>Owner sees it live</h3><p>Net revenue after commissions, turnaround times and per-branch performance — the numbers you actually ask about, in real time.</p><span class="tag">Live P&amp;L · TAT · branches</span></div>
+      <div class="fcell g"><div class="ico"><svg viewBox="0 0 24 24"><use href="#i-wallet"/></svg></div><h3>Payouts on autopilot</h3><p>Referral and consulting commissions accrue as you bill. One Pay-Run settles everyone — and WhatsApps each doctor a payslip.</p><span class="tag">Auto payslip to doctors</span></div>
+      <div class="fcell"><div class="ico"><svg viewBox="0 0 24 24"><use href="#i-search"/></svg></div><h3>Patient 360</h3><p>Search any patient across every branch and see their full history, dues and reports on one timeline. Diagnostics and clinic together.</p><span class="tag">Cross-branch history</span></div>
+      <div class="fcell g"><div class="ico"><svg viewBox="0 0 24 24"><use href="#i-upload"/></svg></div><h3>Outsourced tests, in-line</h3><p>Send a test to an outside lab? Upload their PDF and it merges into your branded report — one document reaches the patient.</p><span class="tag">External results upload</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CLINIC ============ -->
+<section class="band" style="padding-top:0">
+  <div class="wrap">
+    <div class="shead">
+      <span class="kicker g">The clinic side</span>
+      <h2 class="h2">Not just a lab — the whole OP &amp; IP clinic runs here</h2>
+      <p>Register a consultation, take payment, print the doctor's prescription and the bill, and drop the patient into the live queue. Same patient record as diagnostics — one history, one number.</p>
+    </div>
+    <div class="cliniprow">
+      <div class="shotcard">
+        <div class="pic hasbrand"><span class="bc-ring" style="left:3%;top:3.5%;width:13.5%;height:6.5%"></span><span class="bc-pill" style="left:18%;top:3.5%">← Your branding here</span><img src="assets/clinic-visit-created.png" alt="Clinic visit created with print options"></div>
+        <div class="body"><span class="lbl">Consultation billing</span><h3>Bill in one screen</h3><p>Visit reference, bill number and payment status — then print prescription or bill, or send the next patient in.</p></div>
+      </div>
+      <div class="shotcard">
+        <div class="pic hasbrand"><span class="bc-ring" style="left:3%;top:3.5%;width:13.5%;height:6.5%"></span><span class="bc-pill" style="left:18%;top:3.5%">← Your branding here</span><img src="assets/clinic-prescription-print.png" alt="Doctor prescription print with letterhead and vitals"></div>
+        <div class="body"><span class="lbl">Prescription print</span><h3>Doctor's own pad</h3><p>The consulting doctor's letterhead, registration number, a vitals block and the Rx — printed or saved as PDF in a click.</p></div>
+      </div>
+      <div class="shotcard">
+        <div class="pic"><img src="shots/13-clinic-queue.png" alt="OP / IP clinic queue"></div>
+        <div class="body"><span class="lbl">Live queue</span><h3>OP / IP queue</h3><p>Who's waiting, who's in consultation, per doctor — move a patient from waiting to done without a paper token.</p></div>
+      </div>
+    </div>
+
+    <div class="window">
+      <div>
+        <span class="pill">No awkward money conversations</span>
+        <h2 class="h2" style="margin-top:16px">Comes back within the doctor's window? The revisit is free.</h2>
+        <p>Every consultation carries a validity — say seven days. If the patient returns inside that window, HealthFlow recognises them and charges nothing. No staff judgement call, no register to check, no argument at the counter.</p>
+      </div>
+      <div class="timeline">
+        <div class="rail"><span class="fill"></span></div>
+        <div class="stops">
+          <div class="stop"><div class="day">Day 0</div><div class="dot"></div><div class="amt num">₹300</div><div class="what">First consultation</div></div>
+          <div class="stop mid"><div class="day">within validity</div><div class="dot"></div><div class="what" style="margin-top:26px">Valid upto Day 7</div></div>
+          <div class="stop"><div class="day">Day 5</div><div class="dot"></div><div class="amt free num">₹0</div><div class="what">Follow-up — auto free</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ REPORTS DEEP DIVE (split) ============ -->
+<section class="band" style="background:#f2f6fb;border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+  <div class="wrap">
+    <div class="split">
+      <div class="frame pad"><img src="shots/09-result-entry.png" alt="Result entry with reference ranges and auto flags"></div>
+      <div class="copy">
+        <span class="kicker">The report engine</span>
+        <h2 class="h2">A 20-year-old man and a 6-month-old aren't measured the same way</h2>
+        <p>HealthFlow stores every reference range against age and gender, so the moment you enter a value it's flagged correctly — low, normal or high — for that exact patient. Derived values calculate themselves. Nothing to look up on a chart.</p>
+        <div class="pts">
+          <div class="pt"><span class="d"></span><div>Ranges resolve per patient — paediatric, adult, pregnancy, gender-specific</div></div>
+          <div class="pt"><span class="d"></span><div>Automatic Low / Normal / High flags on every analyte</div></div>
+          <div class="pt"><span class="d"></span><div>Versioned edits — earlier finals stay locked, never overwritten</div></div>
+          <div class="pt"><span class="d"></span><div>Upload an outside lab's PDF and merge it into the same report</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="split rev">
+      <div class="frame hasbrand"><span class="bc-ring" style="left:3%;top:15.5%;width:36%;height:5%"></span><span class="bc-pill" style="left:3%;top:8%">↓ Your letterhead here</span><img src="assets/wa-report-qr.png" alt="Finalized report delivered on WhatsApp with signatures and QR"></div>
+      <div class="copy">
+        <span class="kicker g">Print &amp; sign-off</span>
+        <h2 class="h2">A report that looks like a national lab — with a QR that proves it's real</h2>
+        <p>Finalised reports carry your letterhead, the lab in-charge and pathologist signatures, and a QR code the patient can scan to pull the verified copy any time. Print it, or send it — it's the same trusted document.</p>
+        <div class="pts">
+          <div class="pt"><span class="d"></span><div>Dual signatures — lab in-charge and consultant pathologist</div></div>
+          <div class="pt"><span class="d"></span><div>QR on every print: scan to download the authentic report</div></div>
+          <div class="pt"><span class="d"></span><div>Your branding, address and terms on the letterhead</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ WHATSAPP DELIVERY (phones) ============ -->
+<section class="band comms">
+  <div class="wrap">
+    <div class="shead">
+      <span class="kicker d">Patient communications</span>
+      <h2 class="h2">The bill and the report reach the patient before they reach the car park</h2>
+      <p>From your own WhatsApp Business number. Every message is tracked — sent, delivered, read — so nothing goes quiet.</p>
+    </div>
+    <div class="phones">
+      <div class="phone">
+        <div class="hasbrand" style="border-radius:18px;overflow:hidden">
+          <span class="bc-ring" style="left:16%;top:6.2%;width:70%;height:4.2%"></span>
+          <span class="bc-pill" style="left:16%;top:12.5%">↑ Your business name</span>
+          <img src="assets/wa-patient-delivery.png" alt="WhatsApp messages delivering bill and report">
+        </div>
+        <div class="cap"><div class="t">Sent from your number</div><div class="s">Bill and report, one tap each — your business account</div></div>
+      </div>
+      <div class="phone">
+        <div class="hasbrand" style="border-radius:18px;overflow:hidden">
+          <span class="bc-ring" style="left:33%;top:20.5%;width:34%;height:6.5%"></span>
+          <span class="bc-pill" style="left:33%;top:12.5%">↓ Your letterhead</span>
+          <img src="assets/wa-bill-pdf.png" alt="Bill PDF opened from WhatsApp">
+        </div>
+        <div class="cap"><div class="t">Instant receipt</div><div class="s">A clean requisition-cum-receipt, ready to view or save</div></div>
+      </div>
+      <div class="phone">
+        <div class="hasbrand" style="border-radius:18px;overflow:hidden">
+          <span class="bc-ring" style="left:3%;top:16%;width:34%;height:4.5%"></span>
+          <span class="bc-pill" style="left:3%;top:8.5%">↓ Your letterhead</span>
+          <img src="assets/wa-report-qr.png" alt="Report PDF with QR opened from WhatsApp">
+        </div>
+        <div class="cap"><div class="t">Signed &amp; QR-verified</div><div class="s">The full report, scannable, straight to the phone</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DOCTOR PAYOUTS (split) ============ -->
+<section class="band">
+  <div class="wrap">
+    <div class="split">
+      <div class="frame pad"><img src="shots/14-payrun.png" alt="Pay-Run worklist grouped by payee"></div>
+      <div class="copy">
+        <span class="kicker">Doctor payouts</span>
+        <h2 class="h2">Settle every referring doctor in one run — and WhatsApp them the payslip</h2>
+        <p>Commissions build up automatically as bills are raised — per test, per doctor, per rule. At month-end, one worklist shows exactly what's owed to referral doctors, consultants and outside labs. Pay, and each doctor gets a statement on WhatsApp, no amount left to dispute.</p>
+        <div class="pts">
+          <div class="pt"><span class="d"></span><div>Per-test commission rules, calculated as you bill</div></div>
+          <div class="pt"><span class="d"></span><div>Automatic payslip sent to each doctor on WhatsApp</div></div>
+          <div class="pt"><span class="d"></span><div>Referral, consulting and outside-lab dues in one place</div></div>
+          <div class="pt"><span class="d"></span><div>Printable statements and Excel export for your records</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ GALLERY ============ -->
+<section class="band" style="background:#f2f6fb;border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+  <div class="wrap">
+    <div class="shead center">
+      <span class="kicker g">Every screen</span>
+      <h2 class="h2">One login runs the whole operation</h2>
+      <p>Diagnostics, clinic, money, doctors and admin — nothing bolted on, nothing in a spreadsheet.</p>
+    </div>
+    <div class="gal">
+      <figure class="wide"><img src="shots/01-owner-dashboard.png" alt=""><figcaption>Owner dashboard — live money, TAT &amp; branches</figcaption></figure>
+      <figure class="wide"><img src="shots/02-money-bills.png" alt=""><figcaption>Money — collections, receivables, discounts</figcaption></figure>
+      <figure><img src="shots/03-doctors.png" alt=""><figcaption>Doctors &amp; commissions</figcaption></figure>
+      <figure><img src="shots/08-pending-results.png" alt=""><figcaption>Pending results queue</figcaption></figure>
+      <figure><img src="shots/06-patient-360.png" alt=""><figcaption>Patient 360 timeline</figcaption></figure>
+      <figure><img src="shots/04-operations.png" alt=""><figcaption>Operations &amp; TAT</figcaption></figure>
+      <figure><img src="shots/16-admin-config.png" alt=""><figcaption>Admin — versioned test catalogue</figcaption></figure>
+      <figure><img src="shots/13-clinic-queue.png" alt=""><figcaption>OP / IP clinic queue</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<!-- ============ WHITE LABEL ============ -->
+<section class="band">
+  <div class="wrap">
+    <div class="wl">
+      <div>
+        <span class="kicker d">100% white-label</span>
+        <h2 class="h2">Patients only ever see your name</h2>
+        <p>HealthFlow runs quietly underneath. Your logo sits top-left of every screen, your letterhead heads every report, your number sends every WhatsApp. Multi-branch from day one.</p>
+        <div class="chips"><span>Your logo everywhere</span><span>Your report letterhead</span><span>Your WhatsApp sender</span><span>Multi-branch</span></div>
+      </div>
+      <div class="wl-demo">
+        <div class="logo-chip"><img src="assets/healthflow-logo.png" alt="Your brand"></div>
+        <div class="arrow-note">↑ or your centre's logo, exactly here</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PRICING ============ -->
+<section class="band pricing" id="pricing">
+  <div class="wrap">
+    <div class="shead center" style="margin-bottom:44px">
+      <span class="kicker">Pricing</span>
+      <h2 class="h2">Enterprise software, priced like it's meant to be used</h2>
+    </div>
+    <div class="pcard">
+      <div class="left">
+        <span class="badge">Full platform · nothing held back</span>
+        <div class="amount"><span class="rs num">₹999</span><span class="per">/ month</span></div>
+        <div class="forever">Locked forever — not an intro rate</div>
+        <p class="compare">The industry quotes <s class="num">₹8,000/month</s> for less. You pay <b class="num">₹999</b>, and it never goes up.</p>
+        <p class="why">This isn't a stripped plan. It's everything on this page — billing, reports, WhatsApp delivery, payouts, all branches. We priced it to be the obvious choice for every centre in Hyderabad, not to squeeze the ones who say yes early.</p>
+        <a class="btn green arrow" href="#">Book a demo <svg><use href="#i-arrow"/></svg></a>
+      </div>
+      <div class="right">
+        <div class="k">Included, every month</div>
+        <div class="incl">
+          <div class="row"><svg><use href="#i-check"/></svg><span>Unlimited patients, tests &amp; branches</span></div>
+          <div class="row"><svg><use href="#i-check"/></svg><span>WhatsApp delivery of bills &amp; reports</span></div>
+          <div class="row"><svg><use href="#i-check"/></svg><span>Age/gender ranges, QR reports, external upload</span></div>
+          <div class="row"><svg><use href="#i-check"/></svg><span>Automatic doctor payouts &amp; payslips</span></div>
+          <div class="row"><svg><use href="#i-check"/></svg><span>Fully white-labelled as your brand</span></div>
+          <div class="row"><svg><use href="#i-check"/></svg><span>24/7 support and every future feature</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ROADMAP ============ -->
+<section class="band road">
+  <div class="wrap">
+    <div class="shead center">
+      <span class="kicker g">On the way</span>
+      <h2 class="h2">The platform keeps getting stronger — you don't pay more</h2>
+      <p>You're not buying a frozen product. Here's what ships next, included as you grow with us.</p>
+    </div>
+    <div class="rgrid">
+      <div class="rcard">
+        <span class="soon">Coming soon</span>
+        <h3>Targeted reminders from results</h3>
+        <p>When a result crosses a line — high sugar, low haemoglobin, a due re-test — the right patient gets a personalised WhatsApp at the right time. Recalls that write themselves.</p>
+        <div class="rflow"><span class="n">Result flagged</span><span class="a"><svg><use href="#i-arrow"/></svg></span><span class="n">Rule matches</span><span class="a"><svg><use href="#i-arrow"/></svg></span><span class="n">Auto WhatsApp</span><span class="a"><svg><use href="#i-arrow"/></svg></span><span class="n">Patient returns</span></div>
+      </div>
+      <div class="rcard">
+        <span class="soon">Coming soon</span>
+        <h3>Campaigns to your whole base</h3>
+        <p>Health-camp offers, festival packages, master-checkup pushes — sent to a segment of your patient list in a few taps, then measured by who actually booked.</p>
+        <div class="rflow"><span class="n">Pick segment</span><span class="a"><svg><use href="#i-arrow"/></svg></span><span class="n">Craft offer</span><span class="a"><svg><use href="#i-arrow"/></svg></span><span class="n">Send</span><span class="a"><svg><use href="#i-arrow"/></svg></span><span class="n">Track bookings</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <div class="logo-chip"><img src="assets/healthflow-logo.png" alt="HealthFlow"></div>
+        <div class="tag">The operating system for diagnostic centres, clinics and pharmacy. Built in Hyderabad.</div>
+      </div>
+      <a class="btn green arrow" href="#pricing">Book a demo <svg><use href="#i-arrow"/></svg></a>
+    </div>
+    <div class="fine">
+      <span>© HealthFlow · White-label ready · ₹999/mo forever</span>
+      <span>35+ diagnostics &amp; clinics · Hyderabad</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  const io=new IntersectionObserver((es)=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{threshold:.12});
+  document.querySelectorAll('.band .shead, .pipe, .fgrid, .split, .cliniprow, .window, .phones, .gal, .wl, .pcard, .rgrid').forEach((el,i)=>{el.classList.add('rise');el.style.transitionDelay=(i%3*60)+'ms';io.observe(el)});
+</script>
+</body>
+</html>

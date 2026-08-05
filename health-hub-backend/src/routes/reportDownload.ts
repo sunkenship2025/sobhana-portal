@@ -19,6 +19,7 @@ import { validateToken, recordAccess } from '../services/reportAccessService';
 import { getReportSnapshot } from '../services/reportSnapshotService';
 import { renderReportHtml } from '../services/reportRendererService';
 import { generateMergedReportPdf } from '../services/mergedReportPdfService';
+import { trackLinkAccess } from '../services/linkAccessService';
 
 const router = Router();
 
@@ -147,6 +148,11 @@ router.get('/:token', publicReportLandingIpRateLimit, publicReportLandingTokenRa
       req.ip,
       req.headers['user-agent'],
     );
+    trackLinkAccess(req, {
+      linkType: 'REPORT',
+      linkToken: token,
+      contextId: result.snapshot.visit?.id,
+    }).catch(() => {});
 
     const billNumber = result.snapshot.visit?.billNumber || 'unknown';
 

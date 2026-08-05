@@ -15,6 +15,7 @@ import path from 'path';
 import { CouponStatus } from '@prisma/client';
 import { createRateLimiter, getClientIp } from '../middleware/rateLimit';
 import { getCouponByToken } from '../services/couponService';
+import { trackLinkAccess } from '../services/linkAccessService';
 
 const router = Router();
 
@@ -173,6 +174,8 @@ router.get('/:token', ipRateLimit, tokenRateLimit, async (req: Request, res: Res
   res.setHeader('Cache-Control', 'no-store');
   try {
     const coupon = await getCouponByToken(req.params.token);
+    // Best-effort access log
+    trackLinkAccess(req, { linkType: 'COUPON', linkToken: req.params.token }).catch(() => {});
     if (!coupon) {
       return res.status(404).send(shell(THEMES.default,
         `<h1>Link not found</h1><p class="note">This coupon link is invalid or has expired.</p>`));

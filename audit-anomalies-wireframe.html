@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Audit &amp; Anomalies — Wireframe</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --border:#e6e8ec; --border2:#eef0f3;
+    --ink:#0f172a; --ink2:#475569; --ink3:#94a3b8; --link:#2563eb;
+    --hi-t:#b91c1c; --hi-b:#fef2f2; --hi-br:#dc2626;
+    --me-t:#b45309; --me-b:#fffbeb; --me-br:#f59e0b;
+    --lo-t:#475569; --lo-b:#f1f5f9; --lo-br:#cbd5e1;
+    --in-t:#1d4ed8; --in-b:#eff6ff; --in-br:#60a5fa;
+    --ok:#16a34a;
+    --shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);
+    --shadow-lg:0 10px 40px rgba(16,24,40,.18);
+    --r:12px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    font-size:13px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  .app{max-width:1320px;margin:0 auto;padding:22px 20px 60px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .muted{color:var(--ink2)} .faint{color:var(--ink3)}
+  a.link{color:var(--link);text-decoration:none;cursor:pointer}
+  a.link:hover{text-decoration:underline}
+
+  /* ---------- header ---------- */
+  .top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:14px;flex-wrap:wrap}
+  .title h1{font-size:20px;margin:0;letter-spacing:-.01em;font-weight:650}
+  .title .sub{color:var(--ink3);font-size:12px;margin-top:2px}
+  .newbanner{display:inline-flex;align-items:center;gap:7px;background:#eef2ff;border:1px solid #dbe2ff;
+    color:#3730a3;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:550;margin-left:10px;cursor:pointer}
+  .newbanner .dot{width:7px;height:7px;border-radius:50%;background:#4f46e5}
+  .ctrls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .sel,.btn{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:6px 11px;font-size:12px;
+    color:var(--ink);cursor:pointer;display:inline-flex;gap:7px;align-items:center;box-shadow:var(--shadow)}
+  .btn:hover,.sel:hover{border-color:#cdd2da}
+  .seg{display:inline-flex;background:var(--panel);border:1px solid var(--border);border-radius:9px;overflow:hidden;box-shadow:var(--shadow)}
+  .seg button{border:0;background:transparent;padding:6px 11px;font-size:12px;cursor:pointer;color:var(--ink2)}
+  .seg button.on{background:#0f172a;color:#fff}
+  .seg button.on .lgt{color:#4ade80}
+
+  /* ---------- kpi strip ---------- */
+  .kpis{display:grid;grid-template-columns:1.5fr 1fr 1.1fr;gap:12px;margin-bottom:14px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow)}
+  .kpi{padding:12px 14px}
+  .kpi .lbl{font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px;font-weight:600}
+  .sevrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 9px;font-size:12px;font-weight:600;
+    border:1px solid transparent;cursor:pointer;user-select:none}
+  .chip .n{font-variant-numeric:tabular-nums}
+  .chip.hi{background:var(--hi-b);color:var(--hi-t);border-color:#f7d3d3}
+  .chip.me{background:var(--me-b);color:var(--me-t);border-color:#f5e2b8}
+  .chip.lo{background:var(--lo-b);color:var(--lo-t);border-color:#dbe1ea}
+  .chip.in{background:var(--in-b);color:var(--in-t);border-color:#cfe0fd}
+  .chip.ghost{background:#fff;border-color:var(--border);color:var(--ink2);font-weight:550}
+  .chip.warn{background:#fff7ed;color:#c2410c;border-color:#fed7aa}
+  .chip.on{outline:2px solid #c7d2fe;outline-offset:1px}
+  .kpi .big{font-size:19px;font-weight:650;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+  .kpi .grn{color:var(--ok)}
+  .kpi hr{border:0;border-top:1px solid var(--border2);margin:9px 0}
+  .kpi .sm{font-size:12px;color:var(--ink2)}
+
+  /* ---------- tabs ---------- */
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin:2px 2px 14px}
+  .tabs button{border:0;background:transparent;padding:9px 14px;font-size:13px;color:var(--ink2);cursor:pointer;
+    border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:520}
+  .tabs button.on{color:var(--ink);border-bottom-color:#0f172a;font-weight:620}
+  .tabs .cnt{font-size:11px;color:var(--ink3);margin-left:5px}
+
+  /* ---------- body layout ---------- */
+  .body{display:grid;grid-template-columns:212px 1fr;gap:14px;align-items:start}
+  .rail{padding:12px;position:sticky;top:12px}
+  .rail h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin:14px 0 7px;font-weight:650}
+  .rail h4:first-child{margin-top:2px}
+  .facet{display:flex;align-items:center;justify-content:space-between;padding:5px 7px;border-radius:7px;cursor:pointer;font-size:12.5px}
+  .facet:hover{background:#f5f6f8}
+  .facet.on{background:#eef2ff;color:#3730a3;font-weight:560}
+  .facet .l{display:flex;align-items:center;gap:8px}
+  .facet .sw{width:9px;height:9px;border-radius:3px;display:inline-block}
+  .facet .c{color:var(--ink3);font-variant-numeric:tabular-nums}
+  .toggle{display:flex;align-items:center;gap:8px;padding:5px 7px;font-size:12.5px;color:var(--ink2);cursor:pointer}
+  .toggle input{accent-color:#4f46e5}
+  .clearall{margin-top:12px;width:100%;text-align:center;padding:6px;font-size:12px;color:var(--ink2);
+    border:1px solid var(--border);border-radius:8px;background:#fff;cursor:pointer}
+  .active-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
+  .active-chips .ac{background:#eef2ff;color:#3730a3;border:1px solid #dbe2ff;border-radius:999px;padding:3px 9px;font-size:11.5px;cursor:pointer}
+  .active-chips .ac b{font-weight:400;margin-left:5px;opacity:.7}
+
+  /* ---------- event table ---------- */
+  .tbl{overflow:hidden}
+  .thead,.trow{display:grid;grid-template-columns:70px 92px 1.5fr 120px 150px 1fr 78px 60px;gap:10px;align-items:center}
+  .thead{padding:9px 14px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);
+    border-bottom:1px solid var(--border);font-weight:650;background:#fbfbfc}
+  .trow{padding:10px 14px;border-bottom:1px solid var(--border2);cursor:pointer;border-left:3px solid transparent}
+  .trow:hover{background:#fafbfd}
+  .trow.hi{border-left-color:var(--hi-br)}
+  .trow.me{border-left-color:var(--me-br)}
+  .trow.lo{border-left-color:var(--lo-br)}
+  .trow.in{border-left-color:var(--in-br)}
+  .sev{font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:6px;letter-spacing:.03em;text-align:center;display:inline-block}
+  .sev.hi{background:var(--hi-b);color:var(--hi-t)} .sev.me{background:var(--me-b);color:var(--me-t)}
+  .sev.lo{background:var(--lo-b);color:var(--lo-t)} .sev.in{background:var(--in-b);color:var(--in-t)}
+  .cat{font-size:11.5px;color:var(--ink2);font-weight:550}
+  .ev{font-weight:560;color:var(--ink)}
+  .who .nm{font-weight:550} .who .rl{color:var(--ink3);font-size:11px}
+  .ent{color:var(--link);font-size:12px}
+  .det{color:var(--ink2);font-size:12px}
+  .chips-inline{display:flex;gap:5px;flex-wrap:wrap;margin-top:3px}
+  .tag{font-size:10.5px;background:#f1f5f9;color:#475569;border-radius:5px;padding:1px 6px;white-space:nowrap}
+  .tag.r{background:#fef2f2;color:#b91c1c}
+  .amt{font-variant-numeric:tabular-nums;font-weight:600}
+  .time{text-align:right;color:var(--ink3);font-size:12px;font-variant-numeric:tabular-nums}
+  .st{font-size:11px;text-align:center}
+  .st .b{display:inline-flex;align-items:center;gap:4px}
+  .st .d{width:6px;height:6px;border-radius:50%}
+  .st.new .d{background:#4f46e5} .st.new{color:#4f46e5;font-weight:600}
+  .st.ack .d{background:#f59e0b;border:1px solid #f59e0b;background:#fff} .st.ack{color:#b45309}
+  .st.res .d{background:var(--ok)} .st.res{color:var(--ok)}
+  .st.none{color:var(--ink3)}
+  .grouprow{grid-template-columns:1fr;padding:9px 14px;border-bottom:1px solid var(--border2);cursor:pointer;background:#fcfcfd;border-left:3px solid var(--lo-br)}
+  .grouprow:hover{background:#f7f8fa}
+  .grouprow .gl{display:flex;align-items:center;gap:9px;color:var(--ink2);font-size:12.5px}
+  .grouprow .car{color:var(--ink3);transition:transform .15s}
+  .grouprow.open .car{transform:rotate(90deg)}
+  .member{grid-template-columns:70px 92px 1.5fr 120px 150px 1fr 78px 60px;gap:10px;align-items:center;
+    padding:8px 14px 8px 30px;border-bottom:1px solid var(--border2);background:#fff;cursor:pointer;font-size:12px}
+  .member:hover{background:#fafbfd}
+  .pager{display:flex;align-items:center;justify-content:center;gap:16px;padding:12px;color:var(--ink2);font-size:12px}
+  .pager span{cursor:pointer}
+  .saved{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:12px;font-size:12px}
+  .saved .sv{background:#fff;border:1px solid var(--border);border-radius:999px;padding:4px 11px;cursor:pointer;color:var(--ink2)}
+  .saved .sv:hover{border-color:#cbd5e1;color:var(--ink)}
+  .saved .sv.add{border-style:dashed}
+
+  /* ---------- scorecard ---------- */
+  .sc-wrap{padding:0}
+  .sc-head{display:flex;justify-content:space-between;align-items:center;padding:13px 16px;border-bottom:1px solid var(--border)}
+  .sc-head .t{font-weight:620}
+  .sctbl{width:100%;border-collapse:collapse;font-size:12.5px}
+  .sctbl th{text-align:left;padding:9px 14px;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3);border-bottom:1px solid var(--border);font-weight:650}
+  .sctbl th.num,.sctbl td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .sctbl td{padding:11px 14px;border-bottom:1px solid var(--border2)}
+  .sctbl tr[data-actor]{cursor:pointer}
+  .sctbl tr:hover td{background:#fafbfd}
+  .med{color:var(--ink3);font-size:11px;margin-left:6px}
+  .flag{color:var(--hi-t);font-weight:700;margin-left:5px;font-size:11px}
+  .repeat{background:var(--hi-b);color:var(--hi-t);border-radius:6px;padding:1px 7px;font-size:11px;font-weight:600}
+  .role{color:var(--ink3);font-weight:400;font-size:11px}
+
+  .simple{width:100%;border-collapse:collapse;font-size:12.5px}
+  .simple th{text-align:left;padding:9px 14px;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3);border-bottom:1px solid var(--border);font-weight:650}
+  .simple td{padding:10px 14px;border-bottom:1px solid var(--border2)}
+  .pill{font-size:10.5px;border-radius:6px;padding:2px 7px;font-weight:600}
+  .pill.v{background:#f1f5f9;color:#475569}.pill.d{background:#fef2f2;color:#b91c1c}.pill.p{background:#eff6ff;color:#1d4ed8}
+
+  /* ---------- drawer ---------- */
+  .backdrop{position:fixed;inset:0;background:rgba(15,23,42,.28);opacity:0;pointer-events:none;transition:opacity .18s;z-index:40}
+  .backdrop.on{opacity:1;pointer-events:auto}
+  .drawer{position:fixed;top:0;right:0;height:100vh;width:460px;max-width:94vw;background:#fff;box-shadow:var(--shadow-lg);
+    transform:translateX(100%);transition:transform .22s cubic-bezier(.4,0,.2,1);z-index:50;display:flex;flex-direction:column}
+  .drawer.on{transform:translateX(0)}
+  .dr-head{padding:16px 18px;border-bottom:1px solid var(--border)}
+  .dr-head .x{float:right;cursor:pointer;color:var(--ink3);font-size:18px;line-height:1;border:0;background:0}
+  .dr-sev{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:650}
+  .dr-title{font-size:15px;font-weight:620;margin:8px 0 4px;letter-spacing:-.01em}
+  .dr-ent{font-size:12px;color:var(--ink2)}
+  .dr-body{overflow:auto;padding:4px 18px 24px}
+  .sec{padding:14px 0;border-bottom:1px solid var(--border2)}
+  .sec h5{margin:0 0 9px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);font-weight:650}
+  .kv{display:grid;grid-template-columns:78px 1fr;gap:4px 10px;font-size:12.5px}
+  .kv .k{color:var(--ink3)} .kv .v{color:var(--ink)}
+  .score-b{background:#f8fafc;border:1px solid var(--border);border-radius:9px;padding:9px 11px;font-size:12px;margin-top:4px}
+  .score-b .tot{font-weight:700;font-size:14px}
+  .diff{border:1px solid var(--border);border-radius:9px;overflow:hidden}
+  .diff .dr-row{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;padding:8px 11px;border-bottom:1px solid var(--border2);font-size:12px}
+  .diff .dr-row:last-child{border-bottom:0}
+  .diff .fld{color:var(--ink3);font-size:11px;grid-column:1/-1;margin-bottom:-2px}
+  .diff .old{background:#fef2f2;color:#b91c1c;border-radius:5px;padding:2px 7px;text-align:center}
+  .diff .arw{color:var(--ink3)}
+  .diff .new{background:#f0fdf4;color:#166534;border-radius:5px;padding:2px 7px;text-align:center}
+  .rel{display:flex;gap:10px;font-size:12px;padding:4px 0;color:var(--ink2)}
+  .rel .tm{color:var(--ink3);width:52px;flex:none;font-variant-numeric:tabular-nums}
+  .rel.this{color:var(--hi-t);font-weight:600}
+  .triage-btns{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}
+  .tb{border:1px solid var(--border);background:#fff;border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;font-weight:550}
+  .tb.pri{background:#0f172a;color:#fff;border-color:#0f172a}
+  .tb.mute{color:#b45309;border-color:#f5e2b8;background:#fffbeb}
+  .note{width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:12px;margin-top:8px;font-family:inherit;resize:vertical}
+  details.raw{margin-top:10px} details.raw summary{cursor:pointer;color:var(--ink2);font-size:12px}
+  details.raw pre{background:#0f172a;color:#e2e8f0;padding:11px;border-radius:8px;font-size:11px;overflow:auto;margin-top:7px}
+
+  .note-b{font-size:11.5px;color:var(--ink3);padding:10px 2px 0;text-align:center}
+  /* search + date-time filter bar */
+  .search{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:6px 11px 6px 30px;font-size:12px;
+    color:var(--ink);box-shadow:var(--shadow);min-width:230px;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.4'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:10px center}
+  .search:focus{outline:none;border-color:#c7d2fe;box-shadow:0 0 0 3px #eef2ff}
+  .daterange{display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--border);
+    border-radius:9px;padding:3px 8px;box-shadow:var(--shadow)}
+  .daterange .dt{border:0;background:transparent;font-size:12px;color:var(--ink);font-family:inherit;padding:2px}
+  .daterange .dt:focus{outline:none}
+  .perfnote{display:inline-flex;align-items:center;gap:6px;font-size:11px;background:#f0fdf4;
+    border:1px solid #d1fae5;color:#15803d;border-radius:999px;padding:3px 10px}
+  .hidden{display:none!important}
+  @media(max-width:900px){.body{grid-template-columns:1fr}.rail{position:static}.kpis{grid-template-columns:1fr}
+    .thead{display:none}.trow{grid-template-columns:1fr auto;gap:4px 10px;grid-auto-flow:row}
+    .trow .cat,.trow .st{display:none}.drawer{width:100vw}}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- HEADER -->
+  <div class="top">
+    <div class="title">
+      <h1>Audit &amp; Anomalies
+        <span class="newbanner"><span class="dot"></span>12 new since you last looked · 08:14</span>
+      </h1>
+      <div class="sub">Replaces the 20-row dashboard widget · <span class="mono">/owner/audit</span></div>
+    </div>
+    <div class="ctrls">
+      <input class="search" placeholder="Search patient · staff · bill · event…" />
+      <button class="sel">Branch: All ▾</button>
+      <div class="daterange" title="Audit history queryable up to 1 year">
+        <input class="dt" type="datetime-local" value="2026-07-31T00:00" />
+        <span class="faint">→</span>
+        <input class="dt" type="datetime-local" value="2026-07-31T23:59" />
+      </div>
+      <button class="sel">Today ▾</button>
+      <div class="seg"><button class="on"><span class="lgt">●</span> Live</button><button>○ History</button></div>
+      <button class="btn">⤓ Export ▾</button>
+    </div>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:-4px 2px 14px">
+    <span class="perfnote">⚡ Loads only the visible page · cursor-paginated · details load on click · 1-year window</span>
+    <span class="faint" style="font-size:11px">Quick range:</span>
+    <span class="sv" style="font-size:11.5px;cursor:pointer">Today</span>
+    <span class="sv" style="font-size:11.5px;cursor:pointer">7d</span>
+    <span class="sv" style="font-size:11.5px;cursor:pointer">30d</span>
+    <span class="sv" style="font-size:11.5px;cursor:pointer">90d</span>
+    <span class="sv" style="font-size:11.5px;cursor:pointer">1 year</span>
+    <span class="sv" style="font-size:11.5px;cursor:pointer">Custom…</span>
+  </div>
+
+  <!-- KPI STRIP -->
+  <div class="kpis">
+    <div class="card kpi">
+      <div class="lbl">Severity · today</div>
+      <div class="sevrow">
+        <span class="chip hi" data-sevfilter="hi">▓ HIGH <span class="n">7</span></span>
+        <span class="chip me" data-sevfilter="me">▒ MED <span class="n">14</span></span>
+        <span class="chip lo" data-sevfilter="lo">░ LOW <span class="n">22</span>▸</span>
+        <span class="chip in" data-sevfilter="in">• INFO <span class="n">3</span></span>
+      </div>
+      <hr/>
+      <div class="sm">Triage: <b>Open 9</b> · Ack 4 · <span class="grn">Resolved 34</span></div>
+    </div>
+    <div class="card kpi">
+      <div class="lbl">Attention</div>
+      <span class="chip warn">⚠ Repeat offenders: 2 <a class="link" style="margin-left:4px">view</a></span>
+      <hr/>
+      <div class="sm">Flagged actors: <b>R.Kumar</b>, S.Devi</div>
+    </div>
+    <div class="card kpi">
+      <div class="lbl">Money &amp; comms</div>
+      <div class="big grn">+₹42,180 <span class="sm faint" style="font-weight:400">cash net (system)</span></div>
+      <hr/>
+      <div class="sm">Refunds ₹6,000 · Comms fail 5 <span class="faint">(1 systemic)</span> <a class="link">reconcile ▸</a></div>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs" id="tabs">
+    <button class="on" data-tab="feed">Live feed <span class="cnt">21</span></button>
+    <button data-tab="score">Staff scorecard</button>
+    <button data-tab="review">Anomaly review <span class="cnt">3</span></button>
+    <button data-tab="access">Access &amp; disclosure</button>
+  </div>
+
+  <!-- ===== TAB: LIVE FEED ===== -->
+  <div id="tab-feed">
+  <div class="body">
+    <!-- filter rail -->
+    <div class="card rail">
+      <h4>Severity</h4>
+      <div class="facet on" data-f="sev-all"><span class="l">All</span></div>
+      <div class="facet" data-f="sev"><span class="l"><span class="sw" style="background:var(--hi-br)"></span>High</span><span class="c">7</span></div>
+      <div class="facet" data-f="sev"><span class="l"><span class="sw" style="background:var(--me-br)"></span>Medium</span><span class="c">14</span></div>
+      <div class="facet" data-f="sev"><span class="l"><span class="sw" style="background:var(--lo-br)"></span>Low ▸</span><span class="c">22</span></div>
+      <div class="facet" data-f="sev"><span class="l"><span class="sw" style="background:var(--in-br)"></span>Info</span><span class="c">3</span></div>
+      <h4>Category</h4>
+      <div class="facet"><span class="l">Money &amp; billing</span><span class="c">12</span></div>
+      <div class="facet"><span class="l">Report integrity</span><span class="c">9</span></div>
+      <div class="facet"><span class="l">Report drafts</span><span class="c">18</span></div>
+      <div class="facet"><span class="l">Identity &amp; access</span><span class="c">8</span></div>
+      <div class="facet"><span class="l">Destructive</span><span class="c">4</span></div>
+      <div class="facet"><span class="l">Operational</span><span class="c">9</span></div>
+      <h4>Triage</h4>
+      <div class="facet on"><span class="l">New</span><span class="c">12</span></div>
+      <div class="facet"><span class="l">Acknowledged</span><span class="c">4</span></div>
+      <div class="facet"><span class="l">Resolved</span><span class="c">34</span></div>
+      <h4>Options</h4>
+      <label class="toggle"><input type="checkbox"/> Off-hours only</label>
+      <label class="toggle"><input type="checkbox" id="incLow"/> Include LOW (uncollapsed)</label>
+      <label class="toggle"><input type="checkbox"/> Include muted</label>
+      <button class="clearall">Clear all filters</button>
+    </div>
+
+    <!-- table -->
+    <div class="card tbl">
+      <div class="active-chips" style="padding:11px 14px 0">
+        <span class="faint" style="font-size:11.5px">Showing</span>
+        <span class="ac">Severity ≥ Medium <b>✕</b></span>
+        <span class="ac">Status: New <b>✕</b></span>
+        <span class="faint" style="font-size:11.5px">· LOW collapsed by (event, actor)</span>
+      </div>
+      <div class="thead">
+        <div>Sev</div><div>Category</div><div>Event</div><div>Who</div><div>Entity</div><div>Detail</div><div>Time</div><div>Status</div>
+      </div>
+      <div id="rows"></div>
+      <div class="pager"><span>‹ prev</span> · page 1 of 4 · <span>next ›</span> · <span class="faint">50 / page · keyset cursor · only this page is fetched</span></div>
+      <div class="saved" style="padding:0 14px 14px">
+        <span class="faint" style="font-size:11.5px">Saved views:</span>
+        <span class="sv">Big discounts · no reason</span>
+        <span class="sv">Off-hours deletions</span>
+        <span class="sv">Report-access outliers</span>
+        <span class="sv">Repeat offenders</span>
+        <span class="sv add">+ Save current</span>
+      </div>
+    </div>
+  </div>
+  <div class="note-b">LOW &amp; draft rows are collapsed into one roll-up per (event type, actor) — e.g. "Report drafts written — Sakshi ×9" expands to <b>one row per patient, never one per parameter</b>. Everything is searchable (patient / staff / bill / event) and filterable by any date-time range up to 1 year. Default view = severity ≥ Medium, newest-first. The list fetches only the fields shown for the current page (no report snapshots / no full-table scans); drill-in details load on click.</div>
+  </div>
+
+  <!-- ===== TAB: STAFF SCORECARD ===== -->
+  <div id="tab-score" class="hidden">
+    <div class="card sc-wrap">
+      <div class="sc-head">
+        <div class="t">Staff scorecard — Balanagar · last 30 days</div>
+        <div class="ctrls">
+          <button class="sel">Sort: Discount rate ▾</button>
+          <button class="btn">Network-wide (branch vs branch) ▸</button>
+          <button class="btn">⤓ CSV</button>
+        </div>
+      </div>
+      <table class="sctbl">
+        <thead><tr>
+          <th>Actor</th>
+          <th class="num">Discount rate</th>
+          <th class="num">Cash share</th>
+          <th class="num">Refunds</th>
+          <th class="num">No-report</th>
+          <th class="num">Open HIGH</th>
+        </tr></thead>
+        <tbody>
+          <tr data-actor="rkumar">
+            <td><b>R.Kumar</b> <span class="role">staff</span></td>
+            <td class="num">34% <span class="flag">⚠4.3×</span><span class="med">med 8%</span></td>
+            <td class="num">71% <span class="flag">⚠+23pt</span><span class="med">med 48%</span></td>
+            <td class="num">9 <span class="flag">⚠</span><span class="med">peer 2</span></td>
+            <td class="num">12 <span class="flag">⚠</span><span class="med">peer 3</span></td>
+            <td class="num"><span class="repeat">3 🔴 repeat</span></td>
+          </tr>
+          <tr>
+            <td><b>S.Devi</b> <span class="role">staff</span></td>
+            <td class="num">11%<span class="med">med 8%</span></td>
+            <td class="num">52%<span class="med">med 48%</span></td>
+            <td class="num">3<span class="med">peer 2</span></td>
+            <td class="num">4<span class="med">peer 3</span></td>
+            <td class="num">1</td>
+          </tr>
+          <tr>
+            <td><b>M.Rao</b> <span class="role">lab_incharge</span></td>
+            <td class="num">6%<span class="med">med 8%</span></td>
+            <td class="num">41%<span class="med">med 48%</span></td>
+            <td class="num">1<span class="med">peer 2</span></td>
+            <td class="num">12 <span class="flag">⚠</span><span class="med">peer 3</span></td>
+            <td class="num">0</td>
+          </tr>
+          <tr>
+            <td><b>A.Naidu</b> <span class="role">staff</span></td>
+            <td class="num">9%<span class="med">med 8%</span></td>
+            <td class="num">49%<span class="med">med 48%</span></td>
+            <td class="num">2<span class="med">peer 2</span></td>
+            <td class="num">2<span class="med">peer 3</span></td>
+            <td class="num">0</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="note-b" style="text-align:left;padding:12px 16px">⚠ = &gt; 2σ or &gt; 2.5× same-branch, same-role peer median · 🔴 repeat = ≥3 open HIGH → repeat-offender +1 severity modifier active · click a row → that person's profile + full event stream.</div>
+    </div>
+  </div>
+
+  <!-- ===== TAB: ANOMALY REVIEW ===== -->
+  <div id="tab-review" class="hidden">
+    <div class="kpis" style="grid-template-columns:1fr 1fr 1fr">
+      <div class="card kpi"><div class="lbl">Periodic · discount peer-outlier</div><div class="big">R.Kumar</div><div class="sm muted">34% discount rate = 4.3× branch median across 62 bills. <a class="link">Review ▸</a></div></div>
+      <div class="card kpi"><div class="lbl">Periodic · cash reconciliation</div><div class="big grn">₹42,180</div><div class="sm muted">System cash today. Declared-deposit input not built yet — day-over-day anomaly only. <a class="link">Details ▸</a></div></div>
+      <div class="card kpi"><div class="lbl">Info · amount distribution</div><div class="big">₹500 ×18</div><div class="sm muted">Benford / round-number: ₹500 discount dominates 41% of comps. <a class="link">Chart ▸</a></div></div>
+    </div>
+    <div class="note-b" style="text-align:left;padding:4px 2px">These require peer baselines / velocity that can't be judged from a single 24h row, so they live here as summary cards (run on a nightly job) rather than in the live incident feed. <b>Note:</b> no scheduler exists in the repo yet — this tab is a Phase-3 dependency.</div>
+  </div>
+
+  <!-- ===== TAB: ACCESS & DISCLOSURE ===== -->
+  <div id="tab-access" class="hidden">
+    <div class="card">
+      <div class="sc-head"><div class="t">Access &amp; disclosure — who saw / printed / downloaded reports</div>
+      <div class="ctrls"><button class="sel">Type: All ▾</button><button class="btn">⤓ DPDP extract</button></div></div>
+      <table class="simple">
+        <thead><tr><th>Type</th><th>Who</th><th>Patient / report</th><th>Via</th><th>IP</th><th>When</th><th>Flag</th></tr></thead>
+        <tbody>
+          <tr><td><span class="pill d">DOWNLOAD ×22</span></td><td>S.Devi <span class="role">staff</span></td><td>22 distinct reports</td><td>staff portal</td><td>10.2.1.9</td><td>17:11–17:19</td><td><span class="flag">⚠ &gt;3× median · scripted?</span></td></tr>
+          <tr><td><span class="pill p">PRINT</span></td><td>M.Rao <span class="role">li</span></td><td>P.Rao · RV 55ac..</td><td>staff portal</td><td>10.2.1.7</td><td>17:45</td><td class="faint">—</td></tr>
+          <tr><td><span class="pill v">VIEW (public)</span></td><td>token/public</td><td>P.Rao · RV 55ac..</td><td>QR gateway</td><td>49.37.x.x</td><td>15 Jul 11:03</td><td class="faint">patient link</td></tr>
+          <tr><td><span class="pill v">VIEW</span></td><td>A.Naidu <span class="role">staff</span></td><td>K.Meena (no assigned visit)</td><td>staff portal</td><td>10.2.1.4</td><td>09:22</td><td><span class="flag">⚠ no visit link</span></td></tr>
+        </tbody>
+      </table>
+      <div class="note-b" style="text-align:left;padding:12px 16px">Powered by the existing <span class="mono">ReportAccessLog</span> + bill-gateway access — already captured, just never surfaced. Backs the DPDP "who accessed my report" request. <b>Lights up in Phase 1, no new capture.</b></div>
+    </div>
+  </div>
+
+
+</div><!-- /app -->
+
+<!-- DRAWER -->
+<div class="backdrop" id="backdrop"></div>
+<aside class="drawer" id="drawer">
+  <div class="dr-head">
+    <button class="x" id="drClose">✕</button>
+    <div class="dr-sev" id="drSev"></div>
+    <div class="dr-title" id="drTitle"></div>
+    <div class="dr-ent" id="drEnt"></div>
+  </div>
+  <div class="dr-body" id="drBody"></div>
+</aside>
+
+<script>
+/* ---------- data ---------- */
+const EV = [
+  {id:'e1',sev:'hi',cat:'Money',ev:'Discount 83% of bill',who:'R.Kumar',role:'staff',ent:'Bill D-BAL-912',det:'',amt:'₹4,150',
+   tags:[['83% of bill'],['off-hours'],['no reason']],time:'21:14',st:'new',
+   drawer:{score:'5 = base 1 + 83% of bill (+2) + off-hours (+1) + no reason (+1)',
+     kv:{Actor:'R.Kumar (staff)',When:'19 Jul 2026, 21:14 IST (15:44 UTC)',Branch:'Balanagar',IP:'10.2.1.9',Amount:'₹4,150 off ₹5,000'},
+     why:['83% of bill','off-hours','no reason'],
+     rel:[['20:58','Refund after cash — same actor','R.Kumar'],['21:14','Discount 83% (this)','R.Kumar']],
+     actor24:'2 HIGH · 1 identity edit · 9 refunds this month'}},
+  {id:'e2',sev:'hi',cat:'Money',ev:'Commission rate 10% → 40%',who:'A.Admin',role:'owner',ent:'Dr. Rao · master record',det:'inflates ALL future orders',
+   tags:[['+30 pts'],['master record']],time:'20:59',st:'new',
+   drawer:{score:'4 = base 4 (master commission-rate edit)',
+     kv:{Actor:'A.Admin (owner)',When:'19 Jul 2026, 20:59 IST',Branch:'—',Field:'referral commission %'},
+     why:['rate 10% → 40%','+30 pts','affects future payouts'],
+     diff:[['Commission %','10%','40%']],
+     rel:[['20:59','Master rate edited (this)','A.Admin']],
+     actor24:'Highest-leverage payout-fraud vector — one edit re-prices every future referred order.'}},
+  {id:'e3',sev:'hi',cat:'Money',ev:'Refund shortly after cash',who:'R.Kumar',role:'staff',ent:'Bill D-BAL-903',det:'',amt:'₹2,000',
+   tags:[['same person collected + reversed','r'],['&lt;72h after cash']],time:'20:58',st:'new',
+   drawer:{score:'4 = base 3 (refund) + self-approval (+1)',
+     kv:{Actor:'R.Kumar (staff)',When:'19 Jul 2026, 20:58 IST',Branch:'Balanagar',Amount:'₹2,000 CASH reversed'},
+     why:['same person collected + reversed','service already delivered','gap 41 min'],
+     rel:[['20:17','Cash payment ₹2,000','R.Kumar'],['20:40','Report finalized','M.Rao'],['20:58','Refund (this)','R.Kumar']],
+     actor24:'Skim-and-void pattern: collector == refunder on a delivered service.'}},
+  {id:'e4',sev:'hi',cat:'Destructive',ev:'Payout deleted',who:'A.Admin',role:'owner',ent:'Payout ab12c9…',det:'',amt:'₹8,000',
+   tags:[['off-hours']],time:'20:52',st:'ack',
+   drawer:{score:'5 = base 4 (delete) + off-hours (+1)',
+     kv:{Actor:'A.Admin (owner)',When:'19 Jul 2026, 20:52 IST',Branch:'Balanagar',Amount:'₹8,000 ledger row'},
+     why:['off-hours','soft-delete'],
+     diff:[['deletedAt','null','2026-07-19 20:52'],['amount','₹8,000','(removed from feed)']],
+     rel:[['20:52','Payout soft-deleted (this)','A.Admin']],
+     actor24:'Watch for a re-derive at a lower amount within 24h (cover-up sequence).'}},
+  {id:'e5',sev:'hi',cat:'Report',ev:'Value changed after finalize',who:'M.Rao',role:'lab_incharge',ent:'RV 55ac91e2',det:'',
+   tags:[['after finalize','r'],['no amendment reason']],time:'19:03',st:'new',
+   drawer:{score:'5 = base 3 (finalize entity) + after-finalize (+2)',
+     kv:{Actor:'M.Rao (lab_incharge)',When:'19 Jul 2026, 19:03 IST (13:33 UTC)',Branch:'Balanagar',IP:'10.2.1.7'},
+     why:['after finalize','no amendment reason'],
+     diff:[['WBC Morphology','NORMAL','ABNORMAL'],['Comment','(empty)','"review smear"']],
+     rel:[['18:40','Report finalized','M.Rao'],['19:03','Value changed (this)','M.Rao'],['19:05','PDF cache busted','system']],
+     actor24:'3 finalizes · 1 amend · 0 refunds — a finalized (patient-delivered) report was mutated.'}},
+  {id:'e6',sev:'hi',cat:'Access',ev:'Report downloads ×22',who:'S.Devi',role:'staff',ent:'22 distinct reports',det:'',
+   tags:[['&gt;3× median'],['sequential · scripted?','r']],time:'17:11',st:'new',
+   drawer:{score:'4 = base 2 (access) + velocity (+1) + off-pattern (+1)',
+     kv:{Actor:'S.Devi (staff)',When:'19 Jul 2026, 17:11–17:19 IST',Branch:'Balanagar',IP:'10.2.1.9'},
+     why:['22 reports in 8 min','>3× role median','sequential IDs'],
+     rel:[['17:11','First download','S.Devi'],['17:19','22nd download','S.Devi']],
+     actor24:'Possible bulk PHI export. Buildable now from ReportAccessLog — no new capture.'}},
+  {id:'e7',sev:'me',cat:'Identity',ev:'Identity edited ×4',who:'R.Kumar',role:'staff',ent:'P.Latha',det:'',
+   tags:[['repeated (4×)']],time:'18:40',st:'new',
+   drawer:{score:'5 = base 2 + repeated 4× (+2) + off-hours (+1)',
+     kv:{Actor:'R.Kumar (staff)',When:'19 Jul 2026, 18:40 IST',Branch:'Balanagar',Patient:'P.Latha'},
+     why:['4 edits in a day','off-hours'],
+     diff:[['Phone','98xxxx1234','97xxxx8899'],['Name','P.Latha','P. Latha Devi']],
+     rel:[['18:40','Phone changed (this)','R.Kumar'],['18:44','Report WhatsApp → new number','system']],
+     actor24:'Phone edit immediately before a report was delivered to the new number.'}},
+  {id:'e8',sev:'me',cat:'Ops',ev:'Delivery stalled',who:'system',role:'',ent:'P.Ganesh',det:'PENDING 6h · never delivered',
+   tags:[['stuck PENDING']],time:'15:30',st:'none',
+   drawer:{score:'2 = base 2 (delivery-stalled reconciliation signal)',
+     kv:{Actor:'system',When:'19 Jul 2026, from 09:30 IST',Branch:'Balanagar',Patient:'P.Ganesh'},
+     why:['PENDING 6h','no DELIVERED/READ webhook'],
+     rel:[['09:30','Report-ready WhatsApp queued','system'],['15:30','Still PENDING (this)','system']],
+     actor24:'Patient likely never received their report. Needs webhook-transition logging (Phase 2).'}},
+  {id:'d1',sev:'in',cat:'Report draft',ev:'Draft written · left unfinalized',who:'Sakshi',role:'staff',ent:'NISHA PATEL · X-RAY LUMBAR SPINE',det:'typed &amp; saved · awaiting finalize',
+   tags:[['DRAFT'],['1 author']],time:'21:27',st:'none',
+   drawer:{score:'INFO · observability — who authored the draft (not an incident)',
+     kv:{Patient:'NISHA PATEL',Report:'X-RAY LUMBAR SPINE AP&LAT',Author:'Sakshi (staff)',Status:'DRAFT — awaiting finalize',When:'21:20 → 21:27 IST'},
+     why:['draft not finalized','single author'],
+     rel:[['21:20','Draft created','Sakshi'],['21:27','Last saved','Sakshi']],
+     actor24:'Findings + Impression typed. ONE row per report — individual field keystrokes are never listed.'}},
+  {id:'d2',sev:'in',cat:'Report draft',ev:'Draft edited by another staff',who:'A.Naidu',role:'staff',ent:'MANOJ KUMAR · CT BRAIN PLAIN',det:'written by Sakshi · 2 fields changed',
+   tags:[['cross-staff edit'],['2 of 8 fields changed']],time:'20:41',st:'none',
+   drawer:{score:'INFO · observability — draft authorship + edits, summarized',
+     kv:{Patient:'MANOJ KUMAR',Report:'CT BRAIN PLAIN','Written by':'Sakshi (staff)','Last edited by':'A.Naidu (staff)',Status:'DRAFT',When:'18:03 → 20:41 IST'},
+     why:['written by one staff, edited by another','2 of 8 fields changed after first save'],
+     diff:[['Impression','(as first typed)','revised text'],['Contrast note','—','added']],
+     rel:[['18:03','Draft written','Sakshi'],['20:41','Draft edited','A.Naidu']],
+     actor24:'Summary only: patient + who wrote vs who edited + a field-change count — never one row per parameter.'}},
+];
+const GROUPS = [
+  {id:'g1',label:'No-report closes — Sakshi',n:12,when:'all day',members:[
+    {sev:'lo',ev:'No report needed',who:'Sakshi',ent:'NISHA PATEL · X-RAY LUMBAR SPINE',time:'21:27'},
+    {sev:'lo',ev:'No report needed',who:'Sakshi',ent:'RAMSHRAJ · X-RAY LEFT KNEE',time:'20:27'},
+    {sev:'lo',ev:'No report needed',who:'Sakshi',ent:'P.PRANATHI · URINE CULTURE',time:'20:27'},
+    {sev:'lo',ev:'No report needed',who:'Sakshi',ent:'MANOJ KUMAR · CT BRAIN PLAIN',time:'20:27'},
+    {sev:'lo',ev:'… 8 more',who:'Sakshi',ent:'',time:''},
+  ]},
+  {id:'g2',label:'WhatsApp send failed — template error',n:5,when:'all day',members:[
+    {sev:'lo',ev:'Comms failure',who:'system',ent:'template "report_ready" rejected',time:'16:02'},
+    {sev:'lo',ev:'Comms failure',who:'system',ent:'template "report_ready" rejected',time:'14:18'},
+    {sev:'lo',ev:'… 3 more',who:'system',ent:'',time:''},
+  ]},
+  {id:'g3',label:'Report drafts written — Sakshi',sev:'in',n:9,when:'all day',members:[
+    {sev:'in',ev:'Draft written',who:'Sakshi',ent:'P.PRANATHI · URINE CULTURE',time:'20:12'},
+    {sev:'in',ev:'Draft written',who:'Sakshi',ent:'JAJ KUMAR · USG ABDOMEN',time:'19:48'},
+    {sev:'in',ev:'Draft written',who:'Sakshi',ent:'G.MANASA · USG EARLY PREGNANCY',time:'19:31'},
+    {sev:'in',ev:'… 6 more patients (one row each, not per field)',who:'Sakshi',ent:'',time:''},
+  ]},
+];
+
+/* ---------- render feed ---------- */
+function stLabel(s){return s==='new'?'New':s==='ack'?'Ack':s==='res'?'Resolved':'—'}
+function rowHTML(e){
+  const tags=e.tags.map(t=>`<span class="tag ${t[1]||''}">${t[0]}</span>`).join('');
+  const detail = (e.det?`<span>${e.det}</span>`:'') + (e.amt?`<span class="amt"> ${e.amt}</span>`:'') + (tags?`<div class="chips-inline">${tags}</div>`:'');
+  return `<div class="trow ${e.sev}" data-id="${e.id}">
+    <div><span class="sev ${e.sev}">${e.sev==='hi'?'HIGH':e.sev==='me'?'MED':e.sev==='lo'?'LOW':'INFO'}</span></div>
+    <div class="cat">${e.cat}</div>
+    <div class="ev">${e.ev}</div>
+    <div class="who"><span class="nm">${e.who}</span> ${e.role?`<span class="rl">${e.role}</span>`:''}</div>
+    <div class="ent">${e.ent}</div>
+    <div class="det">${detail}</div>
+    <div class="time">${e.time}</div>
+    <div class="st ${e.st}"><span class="b"><span class="d"></span>${stLabel(e.st)}</span></div>
+  </div>`;
+}
+const sevLabel = (s) => (s==='hi'?'HIGH':s==='me'?'MED':s==='in'?'INFO':'LOW');
+function groupHTML(g){
+  const gs=g.sev||'lo';
+  return `<div class="grouprow" data-group="${g.id}" style="border-left-color:var(--${gs}-br)">
+    <div class="gl"><span class="car">▸</span><span class="sev ${gs}">${sevLabel(gs)}</span>
+      <b>${g.label}</b> ×${g.n} today <span class="faint">— collapsed roll-up · click to expand</span>
+      <span style="margin-left:auto" class="time">${g.when}</span></div>
+  </div>
+  <div id="mem-${g.id}" class="hidden">${g.members.map(m=>`
+    <div class="member">
+      <div><span class="sev ${m.sev||gs}">${sevLabel(m.sev||gs)}</span></div><div class="cat">${''}</div>
+      <div class="ev">${m.ev}</div><div class="who"><span class="nm">${m.who}</span></div>
+      <div class="ent" style="color:var(--ink2)">${m.ent}</div><div></div>
+      <div class="time">${m.time}</div><div class="st none">—</div>
+    </div>`).join('')}</div>`;
+}
+const rows=document.getElementById('rows');
+rows.innerHTML = EV.map(rowHTML).join('') + GROUPS.map(groupHTML).join('');
+
+/* ---------- interactions ---------- */
+rows.addEventListener('click',e=>{
+  const g=e.target.closest('.grouprow');
+  if(g){const id=g.dataset.group;document.getElementById('mem-'+id).classList.toggle('hidden');g.classList.toggle('open');return;}
+  const r=e.target.closest('.trow');
+  if(r){openDrawer(r.dataset.id);}
+});
+
+/* drawer */
+const backdrop=document.getElementById('backdrop'),drawer=document.getElementById('drawer');
+function openDrawer(id){
+  const e=EV.find(x=>x.id===id); if(!e)return; const d=e.drawer;
+  document.getElementById('drSev').innerHTML=`<span class="sev ${e.sev}">${e.sev==='hi'?'HIGH':e.sev==='me'?'MEDIUM':e.sev==='in'?'INFO':'LOW'}</span> · ${e.cat}`;
+  document.getElementById('drTitle').textContent=e.ev;
+  document.getElementById('drEnt').textContent=e.ent;
+  let html='';
+  html+=`<div class="sec"><h5>Summary</h5><div class="kv">${Object.entries(d.kv).map(([k,v])=>`<div class="k">${k}</div><div class="v">${v}</div>`).join('')}</div>
+    <div class="score-b"><span class="tot">${d.score.includes('=')?'Score '+d.score.split(' ')[0]:d.score.split('·')[0]}</span> <span class="muted">${d.score.includes('=')?d.score.substring(d.score.indexOf('=')):(d.score.includes('·')?'· '+d.score.split('·').slice(1).join('·'):'')}</span>
+    <div style="margin-top:6px">${d.why.map(w=>`<span class="tag">${w}</span>`).join(' ')}</div></div></div>`;
+  if(d.diff){html+=`<div class="sec"><h5>Before → After</h5><div class="diff">${d.diff.map(r=>`
+    <div class="dr-row"><div class="fld">${r[0]}</div><div class="old">${r[1]}</div><div class="arw">→</div><div class="new">${r[2]}</div></div>`).join('')}</div></div>`;}
+  html+=`<div class="sec"><h5>Related events (same entity)</h5>${d.rel.map((r,i)=>`
+    <div class="rel ${i===d.rel.length-1?'this':''}"><span class="tm">${r[0]}</span><span>${r[1]}</span><span class="faint" style="margin-left:auto">${r[2]}</span></div>`).join('')}</div>`;
+  html+=`<div class="sec"><h5>Actor context (24h)</h5><div class="muted">${d.actor24} <a class="link">open profile ▸</a></div>
+    <details class="raw"><summary>Raw JSON (oldValues / newValues)</summary><pre>{
+  "actionType": "UPDATE",
+  "actor": "${d.kv.Actor||''}",
+  "occurredAt": "${d.kv.When||''}",
+  "reasons": ${JSON.stringify(d.why)}
+}</pre></details></div>`;
+  html+=`<div class="sec" style="border:0"><h5>Triage</h5>
+    <div class="triage-btns"><button class="tb pri">Acknowledge</button><button class="tb">Resolve</button><button class="tb">Assign</button><button class="tb mute">Mute this pattern ▾</button></div>
+    <textarea class="note" rows="2" placeholder="Add a note…"></textarea></div>`;
+  document.getElementById('drBody').innerHTML=html;
+  backdrop.classList.add('on');drawer.classList.add('on');
+}
+function closeDrawer(){backdrop.classList.remove('on');drawer.classList.remove('on');}
+document.getElementById('drClose').onclick=closeDrawer;
+backdrop.onclick=closeDrawer;
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer();});
+
+/* scorecard row → toast-ish drawer reuse */
+document.querySelectorAll('.sctbl tr[data-actor]').forEach(tr=>tr.onclick=()=>openDrawer('e1'));
+
+/* tabs */
+document.getElementById('tabs').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b)return;
+  document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+  ['feed','score','review','access'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==b.dataset.tab));
+});
+
+/* include-low toggle just expands groups for demo */
+document.getElementById('incLow').addEventListener('change',e=>{
+  GROUPS.forEach(g=>{document.getElementById('mem-'+g.id).classList.toggle('hidden',!e.target.checked);
+    document.querySelector('[data-group="'+g.id+'"]').classList.toggle('open',e.target.checked);});
+});
+</script>
+</body>
+</html>

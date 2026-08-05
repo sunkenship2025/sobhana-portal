@@ -19,6 +19,7 @@ import {
 } from '../middleware/rateLimit';
 import { validateBillToken, recordBillAccess } from '../services/billAccessService';
 import { generateBillPdf, fetchBillData } from '../services/billPdfService';
+import { trackLinkAccess } from '../services/linkAccessService';
 
 const router = Router();
 
@@ -98,8 +99,9 @@ router.get(
         return res.status(404).end();
       }
 
-      // 4. Record access
+      // 4. Record access (token counter + unified access log)
       await recordBillAccess(token, req.ip);
+      trackLinkAccess(req, { linkType: 'BILL', linkToken: token, contextId: visitId }).catch(() => {});
 
       // 5. Serve inline PDF (WhatsApp in-app browser opens it)
       const billNumber = result.billData.visit.billNumber || result.billData.visit.visitRef || 'bill';

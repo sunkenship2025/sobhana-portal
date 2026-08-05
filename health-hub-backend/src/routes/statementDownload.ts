@@ -14,6 +14,7 @@
 import { Router, Request, Response } from 'express';
 import { createRateLimiter, getClientIp } from '../middleware/rateLimit';
 import { validateStatementToken, recordStatementAccess } from '../services/statementAccessService';
+import { trackLinkAccess } from '../services/linkAccessService';
 import {
   getPayoutDetail,
   buildPayoutStatementDetail,
@@ -254,6 +255,11 @@ router.get(
       }
       const statement = buildPayoutStatementDetail(detail);
       await recordStatementAccess(token, req.ip);
+      trackLinkAccess(req, {
+        linkType: 'STATEMENT',
+        linkToken: token,
+        contextId: payoutId,
+      }).catch(() => {});
 
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Cache-Control', 'no-store');

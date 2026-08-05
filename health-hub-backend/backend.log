@@ -1,8 +1,2010 @@
-🚀 Server running on http://localhost:3000
-📊 Health check: http://localhost:3000/health
-🔐 Auth endpoint: http://localhost:3000/api/auth/login
-📄 Report download: http://localhost:3000/reports/:token
-📱 WhatsApp webhook: http://localhost:3000/webhooks/whatsapp
-PDF service warmed up
 
-🛑 Shutting down gracefully...
+> health-hub-backend@1.0.0 dev
+> nodemon --exec 'ts-node --transpile-only' src/index.ts
+
+[33m[nodemon] 3.1.11[39m
+[33m[nodemon] to restart at any time, enter `rs`[39m
+[33m[nodemon] watching path(s): *.*[39m
+[33m[nodemon] watching extensions: ts,json[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:50227/61116bfa-6a14-4c32-9792-2dbbda975f25
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[13:05:06.761] [33mWARN[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "ba415984-2078-429b-8b43-7ea8b20436d3",
+      "method": "POST",
+      "url": "/api/auth/login"
+    }
+    [35mres[39m: {
+      "statusCode": 401,
+      "headers": {
+        "x-request-id": "ba415984-2078-429b-8b43-7ea8b20436d3",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "vary": "Origin, Accept-Encoding",
+        "access-control-allow-credentials": "true",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+        "pragma": "no-cache",
+        "expires": "0",
+        "surrogate-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+        "content-length": "56",
+        "etag": "W/\"38-clW+c4Blbd4XhKECnbF+UfB8nA0\""
+      }
+    }
+    [35mresponseTime[39m: 2758
+[13:10:59.924] [33mWARN[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "2b8b94f1-b0c5-4a0f-9610-045bcde4253f",
+      "method": "POST",
+      "url": "/api/auth/login"
+    }
+    [35mres[39m: {
+      "statusCode": 401,
+      "headers": {
+        "x-request-id": "2b8b94f1-b0c5-4a0f-9610-045bcde4253f",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "vary": "Origin, Accept-Encoding",
+        "access-control-allow-credentials": "true",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+        "pragma": "no-cache",
+        "expires": "0",
+        "surrogate-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+        "content-length": "56",
+        "etag": "W/\"38-clW+c4Blbd4XhKECnbF+UfB8nA0\""
+      }
+    }
+    [35mresponseTime[39m: 3633
+[13:12:14.502] [33mWARN[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "510aa8fc-e431-4e98-8629-28d3a65e75f8",
+      "method": "POST",
+      "url": "/api/auth/login"
+    }
+    [35mres[39m: {
+      "statusCode": 401,
+      "headers": {
+        "x-request-id": "510aa8fc-e431-4e98-8629-28d3a65e75f8",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "vary": "Origin, Accept-Encoding",
+        "access-control-allow-credentials": "true",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+        "pragma": "no-cache",
+        "expires": "0",
+        "surrogate-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+        "content-length": "56",
+        "etag": "W/\"38-clW+c4Blbd4XhKECnbF+UfB8nA0\""
+      }
+    }
+    [35mresponseTime[39m: 1208
+[13:12:52.046] [32mINFO[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "8633698b-d448-42c0-98ed-f56ee278f80c",
+      "method": "OPTIONS",
+      "url": "/api/owner/money?period=30d&branch=all"
+    }
+    [35mres[39m: {
+      "statusCode": 204,
+      "headers": {
+        "x-request-id": "8633698b-d448-42c0-98ed-f56ee278f80c",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "access-control-allow-origin": "http://localhost:8080",
+        "vary": "Origin",
+        "access-control-allow-credentials": "true",
+        "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD",
+        "access-control-allow-headers": "Content-Type,Authorization,X-Branch-Id,X-Requested-With,Accept,Origin,Cache-Control,Pragma,If-Match",
+        "access-control-max-age": "0",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "content-length": "0"
+      }
+    }
+    [35mresponseTime[39m: 1
+[13:12:56.533] [32mINFO[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "81476f7f-ca14-428f-b585-09d2f2d9caab",
+      "method": "GET",
+      "url": "/api/owner/money?period=30d&branch=all"
+    }
+    [35mres[39m: {
+      "statusCode": 200,
+      "headers": {
+        "x-request-id": "81476f7f-ca14-428f-b585-09d2f2d9caab",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "access-control-allow-origin": "http://localhost:8080",
+        "vary": "Origin, Accept-Encoding",
+        "access-control-allow-credentials": "true",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+        "pragma": "no-cache",
+        "expires": "0",
+        "surrogate-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+        "content-length": "8829",
+        "etag": "W/\"227d-Lb7SkKejEmdPSF+NcawtPNSvYYw\""
+      }
+    }
+    [35mresponseTime[39m: 4486
+[13:13:07.667] [33mWARN[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "420ac325-ed7f-4ee1-91ca-dd053364b46e",
+      "method": "POST",
+      "url": "/api/auth/login"
+    }
+    [35mres[39m: {
+      "statusCode": 401,
+      "headers": {
+        "x-request-id": "420ac325-ed7f-4ee1-91ca-dd053364b46e",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "vary": "Origin, Accept-Encoding",
+        "access-control-allow-credentials": "true",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+        "pragma": "no-cache",
+        "expires": "0",
+        "surrogate-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+        "content-length": "56",
+        "etag": "W/\"38-clW+c4Blbd4XhKECnbF+UfB8nA0\""
+      }
+    }
+    [35mresponseTime[39m: 2074
+[13:15:33.812] [32mINFO[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "f3ab4bd4-025a-49df-a499-571ac83b5abd",
+      "method": "OPTIONS",
+      "url": "/api/owner/doctors?period=30d&branch=all"
+    }
+    [35mres[39m: {
+      "statusCode": 204,
+      "headers": {
+        "x-request-id": "f3ab4bd4-025a-49df-a499-571ac83b5abd",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "access-control-allow-origin": "http://localhost:8080",
+        "vary": "Origin",
+        "access-control-allow-credentials": "true",
+        "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD",
+        "access-control-allow-headers": "Content-Type,Authorization,X-Branch-Id,X-Requested-With,Accept,Origin,Cache-Control,Pragma,If-Match",
+        "access-control-max-age": "0",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "content-length": "0"
+      }
+    }
+    [35mresponseTime[39m: 2
+[13:15:40.290] [32mINFO[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "836fc8f1-f1f4-403c-a3c4-cbb72e80b39e",
+      "method": "GET",
+      "url": "/api/owner/doctors?period=30d&branch=all"
+    }
+    [35mres[39m: {
+      "statusCode": 200,
+      "headers": {
+        "x-request-id": "836fc8f1-f1f4-403c-a3c4-cbb72e80b39e",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "access-control-allow-origin": "http://localhost:8080",
+        "vary": "Origin, Accept-Encoding",
+        "access-control-allow-credentials": "true",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+        "pragma": "no-cache",
+        "expires": "0",
+        "surrogate-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+        "content-length": "15283",
+        "etag": "W/\"3bb3-ivJpygDcV248HR6eMw8qBK3cPTU\""
+      }
+    }
+    [35mresponseTime[39m: 6476
+[13:20:04.327] [32mINFO[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "71195cb1-8959-4bd3-947b-fe9cdf2074c3",
+      "method": "OPTIONS",
+      "url": "/api/owner/dashboard-v2?branch=all"
+    }
+    [35mres[39m: {
+      "statusCode": 204,
+      "headers": {
+        "x-request-id": "71195cb1-8959-4bd3-947b-fe9cdf2074c3",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "access-control-allow-origin": "http://localhost:8080",
+        "vary": "Origin",
+        "access-control-allow-credentials": "true",
+        "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD",
+        "access-control-allow-headers": "Content-Type,Authorization,X-Branch-Id,X-Requested-With,Accept,Origin,Cache-Control,Pragma,If-Match",
+        "access-control-max-age": "0",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "content-length": "0"
+      }
+    }
+    [35mresponseTime[39m: 2
+[13:20:06.617] [32mINFO[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "59dc65d6-038e-44a8-870b-959646faa7d0",
+      "method": "OPTIONS",
+      "url": "/api/owner/operations?branch=all"
+    }
+    [35mres[39m: {
+      "statusCode": 204,
+      "headers": {
+        "x-request-id": "59dc65d6-038e-44a8-870b-959646faa7d0",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "access-control-allow-origin": "http://localhost:8080",
+        "vary": "Origin",
+        "access-control-allow-credentials": "true",
+        "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD",
+        "access-control-allow-headers": "Content-Type,Authorization,X-Branch-Id,X-Requested-With,Accept,Origin,Cache-Control,Pragma,If-Match",
+        "access-control-max-age": "0",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "content-length": "0"
+      }
+    }
+    [35mresponseTime[39m: 2
+[13:20:10.269] [32mINFO[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "b3f098e1-d3bf-4dcd-8b17-5c25d49f67d2",
+      "method": "OPTIONS",
+      "url": "/api/billable-products"
+    }
+    [35mres[39m: {
+      "statusCode": 204,
+      "headers": {
+        "x-request-id": "b3f098e1-d3bf-4dcd-8b17-5c25d49f67d2",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "access-control-allow-origin": "http://localhost:8080",
+        "vary": "Origin",
+        "access-control-allow-credentials": "true",
+        "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD",
+        "access-control-allow-headers": "Content-Type,Authorization,X-Branch-Id,X-Requested-With,Accept,Origin,Cache-Control,Pragma,If-Match",
+        "access-control-max-age": "0",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "content-length": "0"
+      }
+    }
+    [35mresponseTime[39m: 1
+[13:20:10.274] [32mINFO[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "741decbf-60f3-45cd-911f-ac1a27889600",
+      "method": "OPTIONS",
+      "url": "/api/referral-doctors"
+    }
+    [35mres[39m: {
+      "statusCode": 204,
+      "headers": {
+        "x-request-id": "741decbf-60f3-45cd-911f-ac1a27889600",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "access-control-allow-origin": "http://localhost:8080",
+        "vary": "Origin",
+        "access-control-allow-credentials": "true",
+        "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD",
+        "access-control-allow-headers": "Content-Type,Authorization,X-Branch-Id,X-Requested-With,Accept,Origin,Cache-Control,Pragma,If-Match",
+        "access-control-max-age": "0",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "content-length": "0"
+      }
+    }
+    [35mresponseTime[39m: 1
+[13:20:10.277] [32mINFO[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "1ed3eacb-338c-45bb-8a79-6c02c2b4d4f7",
+      "method": "OPTIONS",
+      "url": "/api/diagnostic-centers"
+    }
+    [35mres[39m: {
+      "statusCode": 204,
+      "headers": {
+        "x-request-id": "1ed3eacb-338c-45bb-8a79-6c02c2b4d4f7",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "access-control-allow-origin": "http://localhost:8080",
+        "vary": "Origin",
+        "access-control-allow-credentials": "true",
+        "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD",
+        "access-control-allow-headers": "Content-Type,Authorization,X-Branch-Id,X-Requested-With,Accept,Origin,Cache-Control,Pragma,If-Match",
+        "access-control-max-age": "0",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "content-length": "0"
+      }
+    }
+    [35mresponseTime[39m: 0
+[13:20:10.975] [33mWARN[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "d748fded-20b8-4cf5-b253-de954076a205",
+      "method": "GET",
+      "url": "/api/billable-products"
+    }
+    [35mres[39m: {
+      "statusCode": 403,
+      "headers": {
+        "x-request-id": "d748fded-20b8-4cf5-b253-de954076a205",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "access-control-allow-origin": "http://localhost:8080",
+        "vary": "Origin, Accept-Encoding",
+        "access-control-allow-credentials": "true",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+        "pragma": "no-cache",
+        "expires": "0",
+        "surrogate-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+        "content-length": "48",
+        "etag": "W/\"30-WADxCyLq9mclq4q/h4iWPEDfTAE\""
+      }
+    }
+    [35mresponseTime[39m: 705
+[13:20:10.980] [33mWARN[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "34044508-4c07-4c96-862e-eb03774f655c",
+      "method": "GET",
+      "url": "/api/referral-doctors"
+    }
+    [35mres[39m: {
+      "statusCode": 403,
+      "headers": {
+        "x-request-id": "34044508-4c07-4c96-862e-eb03774f655c",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "access-control-allow-origin": "http://localhost:8080",
+        "vary": "Origin, Accept-Encoding",
+        "access-control-allow-credentials": "true",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+        "pragma": "no-cache",
+        "expires": "0",
+        "surrogate-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+        "content-length": "48",
+        "etag": "W/\"30-WADxCyLq9mclq4q/h4iWPEDfTAE\""
+      }
+    }
+    [35mresponseTime[39m: 705
+[13:20:10.998] [33mWARN[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "d02d8b18-e202-4147-85fe-d888bef79f36",
+      "method": "GET",
+      "url": "/api/diagnostic-centers"
+    }
+    [35mres[39m: {
+      "statusCode": 403,
+      "headers": {
+        "x-request-id": "d02d8b18-e202-4147-85fe-d888bef79f36",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "access-control-allow-origin": "http://localhost:8080",
+        "vary": "Origin, Accept-Encoding",
+        "access-control-allow-credentials": "true",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+        "pragma": "no-cache",
+        "expires": "0",
+        "surrogate-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+        "content-length": "48",
+        "etag": "W/\"30-WADxCyLq9mclq4q/h4iWPEDfTAE\""
+      }
+    }
+    [35mresponseTime[39m: 720
+[13:20:13.517] [32mINFO[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "8385a80d-ab4a-4c4c-9fa2-0252bad351b0",
+      "method": "GET",
+      "url": "/api/owner/dashboard-v2?branch=all"
+    }
+    [35mres[39m: {
+      "statusCode": 200,
+      "headers": {
+        "x-request-id": "8385a80d-ab4a-4c4c-9fa2-0252bad351b0",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "access-control-allow-origin": "http://localhost:8080",
+        "vary": "Origin, Accept-Encoding",
+        "access-control-allow-credentials": "true",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+        "pragma": "no-cache",
+        "expires": "0",
+        "surrogate-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+        "content-length": "3798",
+        "etag": "W/\"ed6-MhgjBK8+qkJuA6DEl62ymRCA71A\""
+      }
+    }
+    [35mresponseTime[39m: 9188
+[13:20:13.887] [32mINFO[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "4cbb41c3-2754-4760-a5fa-4603f75241ef",
+      "method": "GET",
+      "url": "/api/owner/operations?branch=all"
+    }
+    [35mres[39m: {
+      "statusCode": 200,
+      "headers": {
+        "x-request-id": "4cbb41c3-2754-4760-a5fa-4603f75241ef",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "access-control-allow-origin": "http://localhost:8080",
+        "vary": "Origin, Accept-Encoding",
+        "access-control-allow-credentials": "true",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+        "pragma": "no-cache",
+        "expires": "0",
+        "surrogate-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+        "content-length": "11235",
+        "etag": "W/\"2be3-SzoJQjkiRc1isKLBqdfl7JnUk70\""
+      }
+    }
+    [35mresponseTime[39m: 7269
+[13:20:26.863] [32mINFO[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "b548795f-970e-49e6-ae38-3e469c27d5d0",
+      "method": "POST",
+      "url": "/api/auth/logout"
+    }
+    [35mres[39m: {
+      "statusCode": 204,
+      "headers": {
+        "x-request-id": "b548795f-970e-49e6-ae38-3e469c27d5d0",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "access-control-allow-origin": "http://localhost:8080",
+        "vary": "Origin, Accept-Encoding",
+        "access-control-allow-credentials": "true",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+        "pragma": "no-cache",
+        "expires": "0",
+        "surrogate-control": "no-store",
+        "set-cookie": "jwt=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT"
+      }
+    }
+    [35mresponseTime[39m: 2
+[14:09:34.426] [33mWARN[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "6244b0fe-c664-4595-be3d-2a0816b49df1",
+      "method": "GET",
+      "url": "/api/health"
+    }
+    [35mres[39m: {
+      "statusCode": 404,
+      "headers": {
+        "x-request-id": "6244b0fe-c664-4595-be3d-2a0816b49df1",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "vary": "Origin, Accept-Encoding",
+        "access-control-allow-credentials": "true",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+        "pragma": "no-cache",
+        "expires": "0",
+        "surrogate-control": "no-store",
+        "content-security-policy": "default-src 'none'",
+        "content-type": "text/html; charset=utf-8",
+        "content-length": 149
+      }
+    }
+    [35mresponseTime[39m: 8
+[14:10:01.612] [33mWARN[39m: [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "a002f4eb-9aa3-48b9-b33c-c204a4efbcae",
+      "method": "POST",
+      "url": "/api/auth/login"
+    }
+    [35mres[39m: {
+      "statusCode": 401,
+      "headers": {
+        "x-request-id": "a002f4eb-9aa3-48b9-b33c-c204a4efbcae",
+        "cross-origin-opener-policy": "unsafe-none",
+        "cross-origin-resource-policy": "cross-origin",
+        "origin-agent-cluster": "?1",
+        "referrer-policy": "no-referrer",
+        "strict-transport-security": "max-age=15552000; includeSubDomains",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-download-options": "noopen",
+        "x-frame-options": "SAMEORIGIN",
+        "x-permitted-cross-domain-policies": "none",
+        "x-xss-protection": "0",
+        "vary": "Origin, Accept-Encoding",
+        "access-control-allow-credentials": "true",
+        "access-control-expose-headers": "Content-Length,X-Request-Id,Date",
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+        "pragma": "no-cache",
+        "expires": "0",
+        "surrogate-control": "no-store",
+        "content-type": "application/json; charset=utf-8",
+        "content-length": "56",
+        "etag": "W/\"38-clW+c4Blbd4XhKECnbF+UfB8nA0\""
+      }
+    }
+    [35mresponseTime[39m: 4528
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:49821/9c5589a9-0fff-4b16-aadc-ba8ad7854f77
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:56963/bf007707-0d79-4f93-a4aa-fbe9fd7df6c4
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/services/ownerDashboardV2Service.ts:796
+    const allRecentVisits = await prisma_1.default.visit.groupBy({
+          ^
+
+SyntaxError: Identifier 'allRecentVisits' has already been declared
+    at wrapSafe (node:internal/modules/cjs/loader:1281:20)
+    at Module._compile (node:internal/modules/cjs/loader:1321:27)
+    at Module.m._compile (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:1618:23)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1416:10)
+    at Object.require.extensions.<computed> [as .ts] (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:1621:12)
+    at Module.load (node:internal/modules/cjs/loader:1208:32)
+    at Function.Module._load (node:internal/modules/cjs/loader:1024:12)
+    at Module.require (node:internal/modules/cjs/loader:1233:19)
+    at require (node:internal/modules/helpers:179:18)
+    at Object.<anonymous> (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/routes/ownerDashboard.ts:5:1)
+    at Module._compile (node:internal/modules/cjs/loader:1358:14)
+    at Module.m._compile (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:1618:23)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1416:10)
+    at Object.require.extensions.<computed> [as .ts] (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:1621:12)
+    at Module.load (node:internal/modules/cjs/loader:1208:32)
+    at Function.Module._load (node:internal/modules/cjs/loader:1024:12)
+Waiting for the debugger to disconnect...
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:57449/afd25936-ebcb-4872-8656-6f9911412321
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/services/ownerDashboardV2Service.ts:810
+    const allRecentVisits = await prisma_1.default.visit.groupBy({
+          ^
+
+SyntaxError: Identifier 'allRecentVisits' has already been declared
+    at wrapSafe (node:internal/modules/cjs/loader:1281:20)
+    at Module._compile (node:internal/modules/cjs/loader:1321:27)
+    at Module.m._compile (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:1618:23)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1416:10)
+    at Object.require.extensions.<computed> [as .ts] (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:1621:12)
+    at Module.load (node:internal/modules/cjs/loader:1208:32)
+    at Function.Module._load (node:internal/modules/cjs/loader:1024:12)
+    at Module.require (node:internal/modules/cjs/loader:1233:19)
+    at require (node:internal/modules/helpers:179:18)
+    at Object.<anonymous> (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/routes/ownerDashboard.ts:5:1)
+    at Module._compile (node:internal/modules/cjs/loader:1358:14)
+    at Module.m._compile (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:1618:23)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1416:10)
+    at Object.require.extensions.<computed> [as .ts] (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:1621:12)
+    at Module.load (node:internal/modules/cjs/loader:1208:32)
+    at Function.Module._load (node:internal/modules/cjs/loader:1024:12)
+Waiting for the debugger to disconnect...
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:58070/e6c4d8e7-15b6-4b3d-845f-b2a7d9b76668
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/services/ownerDashboardV2Service.ts:805
+    const allRecentVisits = await prisma_1.default.visit.groupBy({
+          ^
+
+SyntaxError: Identifier 'allRecentVisits' has already been declared
+    at wrapSafe (node:internal/modules/cjs/loader:1281:20)
+    at Module._compile (node:internal/modules/cjs/loader:1321:27)
+    at Module.m._compile (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:1618:23)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1416:10)
+    at Object.require.extensions.<computed> [as .ts] (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:1621:12)
+    at Module.load (node:internal/modules/cjs/loader:1208:32)
+    at Function.Module._load (node:internal/modules/cjs/loader:1024:12)
+    at Module.require (node:internal/modules/cjs/loader:1233:19)
+    at require (node:internal/modules/helpers:179:18)
+    at Object.<anonymous> (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/routes/ownerDashboard.ts:5:1)
+    at Module._compile (node:internal/modules/cjs/loader:1358:14)
+    at Module.m._compile (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:1618:23)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1416:10)
+    at Object.require.extensions.<computed> [as .ts] (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/ts-node/src/index.ts:1621:12)
+    at Module.load (node:internal/modules/cjs/loader:1208:32)
+    at Function.Module._load (node:internal/modules/cjs/loader:1024:12)
+Waiting for the debugger to disconnect...
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:58662/ac996389-f3ff-4abb-a870-9f3b35c2e11b
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:61314/ca501a48-3791-42bb-b963-0d0921b83af6
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:49442/d214058e-52bd-42e0-924a-0b53c6771c10
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:55236/b1375b6f-7be7-4d63-8ff4-9fc67884b06c
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:60441/9938b4f3-986c-4c53-a1d8-8fcdbb1681c2
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:49323/47bff5dd-b997-4cf4-bdf1-9c810a2aa820
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:56055/afb1a225-cdb8-479d-ac1e-8926e57718ed
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:49292/7f057230-fe45-45e2-ba10-b2f4384f6db5
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:49920/ec6e5e9b-9a73-469f-a963-7c1639e5bace
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 6 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:52017/02841900-b20d-4b98-9514-e0067fb43fe1
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:60185/56cef4a1-332a-4ef9-ae61-6eb684b724d1
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:60674/c81a7954-e5aa-431f-9b0d-3fa9bb3059f3
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates failed: PrismaClientInitializationError: 
+Invalid `prisma.billableProduct.updateMany()` invocation in
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:384:34
+
+  381 try {
+  382   console.log('Running temporary DB code updates for X-ray codes...');
+  383   // Update XRAYCP
+→ 384   await prisma.billableProduct.updateMany(
+Can't reach database server at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`.
+    at $n.handleRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:7615)
+    at $n.handleAndLogRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at async l (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at async startServer (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:384:5) {
+  clientVersion: '5.22.0',
+  errorCode: undefined
+}
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 1 sub-process to finish...[39m
+Debugger listening on ws://127.0.0.1:61220/9c1c9035-8ffe-4bdf-b88b-1b5dd026685a
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:61765/3a5c4ed7-1442-455b-b3c6-a11f8b48ee98
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:50456/cc8202ec-cbb6-40c9-a3aa-dc225dc87c53
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates failed: PrismaClientInitializationError: 
+Invalid `prisma.billableProduct.updateMany()` invocation in
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:384:34
+
+  381 try {
+  382   console.log('Running temporary DB code updates for X-ray codes...');
+  383   // Update XRAYCP
+→ 384   await prisma.billableProduct.updateMany(
+Can't reach database server at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`.
+    at $n.handleRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:7615)
+    at $n.handleAndLogRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at async l (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at async startServer (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:384:5) {
+  clientVersion: '5.22.0',
+  errorCode: undefined
+}
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:51570/0827f225-37f8-44c5-a66f-45e633f35071
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:54150/b3e4b371-1806-4103-bcc4-11f7e4c422a2
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:54930/0eb299b7-655c-4c3d-ba5d-200666245737
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:56522/cbe6e2b4-f81c-4bd3-bf39-6597554f7c55
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:56993/6e17c25e-7922-497f-a85c-ea3f06b571d1
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:57600/602739a3-1ac1-4d07-b897-34b815164b2c
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:58067/66a8e0fa-3c99-4898-8f1c-20f9e1b25306
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:58642/f7d45bbf-0b44-40f5-977d-d157ce719527
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:59064/bb320289-9ec4-4a6e-bae1-b1208a2828f8
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates failed: PrismaClientInitializationError: 
+Invalid `prisma.billableProduct.updateMany()` invocation in
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:384:34
+
+  381 try {
+  382   console.log('Running temporary DB code updates for X-ray codes...');
+  383   // Update XRAYCP
+→ 384   await prisma.billableProduct.updateMany(
+Can't reach database server at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`.
+    at $n.handleRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:7615)
+    at $n.handleAndLogRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at async l (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at async startServer (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:384:5) {
+  clientVersion: '5.22.0',
+  errorCode: undefined
+}
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:61952/4381d48a-f33a-439b-8ba9-c8f2c11efa77
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:62402/9488e82b-f9ee-401c-a3ec-f6f22dca2a60
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:62977/ec883c53-5ff1-470e-b7c0-c1949d9c63c7
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:63399/84e21879-a387-4af7-9efc-eb30012c80ec
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:64010/7e13070d-9478-4da7-984c-b18ba90e1564
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates failed: PrismaClientInitializationError: 
+Invalid `prisma.billableProduct.updateMany()` invocation in
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:384:34
+
+  381 try {
+  382   console.log('Running temporary DB code updates for X-ray codes...');
+  383   // Update XRAYCP
+→ 384   await prisma.billableProduct.updateMany(
+Can't reach database server at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`.
+    at $n.handleRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:7615)
+    at $n.handleAndLogRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at async l (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at async startServer (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:384:5) {
+  clientVersion: '5.22.0',
+  errorCode: undefined
+}
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:65081/512d770e-1caa-47b2-a026-2b304a407a2c
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:65522/489f1b54-ced0-4b1b-a005-ee4221800994
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:54557/638a453e-43cf-4473-a6a7-10573da9f499
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:55354/18cba9d0-ea06-4916-894a-e481d2be8988
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:56165/1baf1c13-3187-49c5-92cd-e477ae83878d
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:62232/9c1957ed-ceba-41e1-b794-833a79cc61f7
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:49753/83f6a1ba-335f-4b55-906e-ede048813d7e
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates failed: PrismaClientInitializationError: 
+Invalid `prisma.billableProduct.updateMany()` invocation in
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:384:34
+
+  381 try {
+  382   console.log('Running temporary DB code updates for X-ray codes...');
+  383   // Update XRAYCP
+→ 384   await prisma.billableProduct.updateMany(
+Can't reach database server at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`.
+    at $n.handleRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:7615)
+    at $n.handleAndLogRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at async l (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at async startServer (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:384:5) {
+  clientVersion: '5.22.0',
+  errorCode: undefined
+}
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:56718/332e799b-be7f-442d-93c6-3bdb48cf9ceb
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:57373/88d8e923-2774-4d29-85b9-aff491071b81
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:64458/511882b4-3bda-4e7e-8678-b112d630ad1b
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:52372/2b0dce13-cd76-40fa-b35c-7b9af1b80435
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:54137/903db12b-2b64-4c0b-b67a-62c252984c05
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:54525/511d5280-8c54-4a19-a31c-2bb9e3d7f2bf
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:62715/ee2cd578-4b99-48da-854b-df2827f62155
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:63209/45c2e8ad-555c-41f8-95af-be6cc80095b4
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:64254/1951147a-ae93-4c90-b133-17920fdcf67a
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:64903/192ec50f-b14b-4a19-ac81-a97a2ecae004
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:49373/9e28e78e-09ca-4f80-8d48-2bff7736656e
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:49927/c301d173-d83e-43e2-8e56-f7f5aa3ff921
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:50653/2d72a9fd-0d18-49e9-9d65-8b0804edc072
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:54370/9f755c6f-818e-4dce-9111-8430bb921fe4
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates failed: PrismaClientInitializationError: 
+Invalid `prisma.billableProduct.updateMany()` invocation in
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:386:34
+
+  383 try {
+  384   console.log('Running temporary DB code updates for X-ray codes...');
+  385   // Update XRAYCP
+→ 386   await prisma.billableProduct.updateMany(
+Can't reach database server at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`.
+    at $n.handleRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:7615)
+    at $n.handleAndLogRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at async l (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at async startServer (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:386:5) {
+  clientVersion: '5.22.0',
+  errorCode: undefined
+}
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:55368/4535f12a-d4dd-4d10-88da-93d16dfa0400
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:56208/a7be04e6-34e2-4dec-8867-9ec7cfa53239
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:57318/1561b24b-d4e8-4981-a2fd-c58cfe77270c
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates failed: PrismaClientInitializationError: 
+Invalid `prisma.billableProduct.updateMany()` invocation in
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:386:34
+
+  383 try {
+  384   console.log('Running temporary DB code updates for X-ray codes...');
+  385   // Update XRAYCP
+→ 386   await prisma.billableProduct.updateMany(
+Can't reach database server at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`.
+    at $n.handleRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:7615)
+    at $n.handleAndLogRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at async l (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at async startServer (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:386:5) {
+  clientVersion: '5.22.0',
+  errorCode: undefined
+}
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:59947/1d2cc397-8e01-4244-966d-946746a4c9cd
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:60956/ed727790-c164-47e1-9d9e-bcaed9d708ae
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:61823/565d4706-94ef-4716-b634-a3074e877757
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:55904/0bc3e915-6935-4682-a342-089c220882a3
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates failed: PrismaClientInitializationError: 
+Invalid `prisma.billableProduct.updateMany()` invocation in
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:386:34
+
+  383 try {
+  384   console.log('Running temporary DB code updates for X-ray codes...');
+  385   // Update XRAYCP
+→ 386   await prisma.billableProduct.updateMany(
+Can't reach database server at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`.
+    at $n.handleRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:7615)
+    at $n.handleAndLogRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at async l (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at async startServer (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:386:5) {
+  clientVersion: '5.22.0',
+  errorCode: undefined
+}
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:58087/a4bd59ac-919c-424b-9f40-8924aed2ec74
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:61470/35df7e8f-1cbb-41d8-9c72-616cd3b29d2f
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates failed: PrismaClientInitializationError: 
+Invalid `prisma.billableProduct.updateMany()` invocation in
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:386:34
+
+  383 try {
+  384   console.log('Running temporary DB code updates for X-ray codes...');
+  385   // Update XRAYCP
+→ 386   await prisma.billableProduct.updateMany(
+Can't reach database server at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`.
+    at $n.handleRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:7615)
+    at $n.handleAndLogRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at async l (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at async startServer (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:386:5) {
+  clientVersion: '5.22.0',
+  errorCode: undefined
+}
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:62495/b37ece25-22a8-4c45-ae97-b343b6ff9bec
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates failed: PrismaClientInitializationError: 
+Invalid `prisma.billableProduct.updateMany()` invocation in
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:386:34
+
+  383 try {
+  384   console.log('Running temporary DB code updates for X-ray codes...');
+  385   // Update XRAYCP
+→ 386   await prisma.billableProduct.updateMany(
+Can't reach database server at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`.
+    at $n.handleRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:7615)
+    at $n.handleAndLogRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at async l (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at async startServer (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:386:5) {
+  clientVersion: '5.22.0',
+  errorCode: undefined
+}
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:64228/27c27952-c1c8-4605-9db3-5ce92fd86283
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:49199/0f3fcc48-7f41-4895-b1e8-f387d111dd40
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:51511/e7f1be96-a8f8-4d19-a993-50df60bdf757
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates failed: PrismaClientInitializationError: 
+Invalid `prisma.billableProduct.updateMany()` invocation in
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:386:34
+
+  383 try {
+  384   console.log('Running temporary DB code updates for X-ray codes...');
+  385   // Update XRAYCP
+→ 386   await prisma.billableProduct.updateMany(
+Can't reach database server at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`.
+    at $n.handleRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:7615)
+    at $n.handleAndLogRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at async l (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at async startServer (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:386:5) {
+  clientVersion: '5.22.0',
+  errorCode: undefined
+}
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:52571/d3fb6a71-b0e3-4654-b813-c707927e4e86
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates failed: PrismaClientInitializationError: 
+Invalid `prisma.billableProduct.updateMany()` invocation in
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:386:34
+
+  383 try {
+  384   console.log('Running temporary DB code updates for X-ray codes...');
+  385   // Update XRAYCP
+→ 386   await prisma.billableProduct.updateMany(
+Can't reach database server at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`.
+    at $n.handleRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:7615)
+    at $n.handleAndLogRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at async l (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at async startServer (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:386:5) {
+  clientVersion: '5.22.0',
+  errorCode: undefined
+}
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:54803/fdd8b547-2db2-4647-834a-3b183e215fd9
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates failed: PrismaClientInitializationError: 
+Invalid `prisma.billableProduct.updateMany()` invocation in
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:386:34
+
+  383 try {
+  384   console.log('Running temporary DB code updates for X-ray codes...');
+  385   // Update XRAYCP
+→ 386   await prisma.billableProduct.updateMany(
+Can't reach database server at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`.
+    at $n.handleRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:7615)
+    at $n.handleAndLogRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at async l (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at async startServer (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:386:5) {
+  clientVersion: '5.22.0',
+  errorCode: undefined
+}
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:55833/36bf22b1-9767-4de9-8ce3-5880f64cb77a
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:56429/a68a3185-d3cc-42ec-8d99-505ae37eba99
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:55656/6f2fcb9c-141e-4fb5-b56b-d58a61f76393
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates failed: PrismaClientInitializationError: 
+Invalid `prisma.billableProduct.updateMany()` invocation in
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:389:34
+
+  386 try {
+  387   console.log('Running temporary DB code updates for X-ray codes...');
+  388   // Update XRAYCP
+→ 389   await prisma.billableProduct.updateMany(
+Can't reach database server at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`.
+    at $n.handleRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:7615)
+    at $n.handleAndLogRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at async l (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at async startServer (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:389:5) {
+  clientVersion: '5.22.0',
+  errorCode: undefined
+}
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:60236/1848c01f-d134-4f36-915d-f3192449f741
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates failed: PrismaClientInitializationError: 
+Invalid `prisma.billableProduct.updateMany()` invocation in
+/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:389:34
+
+  386 try {
+  387   console.log('Running temporary DB code updates for X-ray codes...');
+  388   // Update XRAYCP
+→ 389   await prisma.billableProduct.updateMany(
+Can't reach database server at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`
+
+Please make sure your database server is running at `ep-sparkling-shape-akguwfol-pooler.c-3.us-west-2.aws.neon.tech:5432`.
+    at $n.handleRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:7615)
+    at $n.handleAndLogRequestError (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6623)
+    at $n.request (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:121:6307)
+    at async l (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/node_modules/@prisma/client/runtime/library.js:130:9633)
+    at async startServer (/Users/pranavreddy/Desktop/sobhana portal/health-hub-backend/src/index.ts:389:5) {
+  clientVersion: '5.22.0',
+  errorCode: undefined
+}
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:61631/424a58e4-e53c-49a9-a8f8-98bf1bf70241
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:63850/789b723b-a2d2-4cf2-afad-23c8f25fbc7c
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:64946/e8d27249-f6f3-4ddb-ae5c-e09a3053c972
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:65505/e52a41a9-d807-49ce-a533-4c42f07d314b
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:49728/bd11ec0a-67f4-4a5c-ac47-28e126a33788
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:57856/814dde28-8bf0-4f95-a32d-50f041194b05
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:58322/599097b7-b76f-4d28-a035-e1067ba514c8
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:60547/b4403421-9a3f-4080-b723-e27492c5a15c
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 7 sub-processes to finish...[39m
+Debugger listening on ws://127.0.0.1:62120/51c0b607-7fd5-4996-8a24-0b98b1216fcd
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:63930/6136fd97-c05e-48b4-b355-735220ba2e9e
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:64379/46c9a3f5-4741-46bd-a3eb-8a379ff343e6
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:49644/abc241b5-2e47-40dc-883d-a825e313fb4c
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:50135/adca2ced-309b-43d1-9cbe-6b684de87dae
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:50658/6b461b51-acfa-4699-8738-ca09994d4181
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+Debugger listening on ws://127.0.0.1:51236/1217b874-23bb-4f29-8b45-b3bee15c6f51
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `ts-node --transpile-only src/index.ts`[39m
+[32m[nodemon] still waiting for 1 sub-process to finish...[39m
+Debugger listening on ws://127.0.0.1:52080/964ff096-1fae-43a9-9f02-706760db766d
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Running temporary DB code updates for X-ray codes...
+DB code updates completed.
+Server running on http://0.0.0.0:3000
+Health check: http://0.0.0.0:3000/health
+Readiness check: http://0.0.0.0:3000/ready
+Auth endpoint: http://0.0.0.0:3000/api/auth/login
+Report download: http://0.0.0.0:3000/reports/:token
+WhatsApp webhook: http://0.0.0.0:3000/webhooks/whatsapp
+PDF service warmed up (max concurrency: 2)

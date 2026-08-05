@@ -1,0 +1,111 @@
+{
+  "_meta": {
+    "waba_id": "4311046405806986",
+    "phone_number_id": "992327867297628",
+    "verify_token": "sobhana_verify_token_2026",
+    "extracted": "2026-07-08",
+    "note": "Recreate-ready payloads. POST each object (minus _label) to POST /v21.0/{WABA_ID}/message_templates to clone onto another WABA. URL button base paths point at reports.sobhanaportal.com; change per tenant/domain before re-submitting."
+  },
+  "templates": [
+    {
+      "_label": "report-ready",
+      "name": "lab_report_ready",
+      "language": "en",
+      "category": "UTILITY",
+      "parameter_format": "POSITIONAL",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Hi {{1}},\n\n your lab report (Bill No: {{2}}) from Sobhana Diagnostics is ready.\n\nYou can view and download it using the button below.\n\nThank you.",
+          "example": { "body_text": [["Patient name", "Bill number"]] }
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "View Report",
+              "url": "https://reports.sobhanaportal.com/reports/{{1}}",
+              "example": ["https://reports.sobhanaportal.com/reports/ABC12345"]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "_label": "partial",
+      "name": "lab_report_partial_ready",
+      "language": "en",
+      "category": "UTILITY",
+      "parameter_format": "POSITIONAL",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Hi {{1}}, \n\nSome of your lab results (Bill No: {{2}}) from Sobhana Diagnostics are ready.\n\nThe remaining tests are still being processed and will be shared with you soon.\n\nYou can view your interim report using the button below.\n\nThank you.",
+          "example": { "body_text": [["Patient name", "Bill number"]] }
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "View Report",
+              "url": "https://reports.sobhanaportal.com/reports/{{1}}",
+              "example": ["https://reports.sobhanaportal.com/reports/ABC12345"]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "_label": "bill",
+      "name": "bill_receipt",
+      "language": "en",
+      "category": "UTILITY",
+      "parameter_format": "POSITIONAL",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Hi {{1}}, \n\nYour bill {{2}} of ₹{{3}} at Sobhana Diagnostics is ready.\n\nView and download it using the button below.\n\nThank you for visiting us.",
+          "example": { "body_text": [["patient name", "bill number", "amount"]] }
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "View Bill",
+              "url": "https://reports.sobhanaportal.com/bills/view/{{1}}",
+              "example": ["https://reports.sobhanaportal.com/bills/view/a1b2c3d4e5f6"]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "_label": "statement",
+      "name": "payout_statement",
+      "language": "en",
+      "category": "UTILITY",
+      "parameter_format": "POSITIONAL",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Hi {{1}},\n\nhere's your Sobhana Diagnostics statement for {{2}}.\n\nYou can view and download it using the button below.",
+          "example": { "body_text": [["Dr Xyz", "1 Jun 2026 – 30 Jun 2026"]] }
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "View statement",
+              "url": "https://reports.sobhanaportal.com/statements/view/{{1}}",
+              "example": ["https://reports.sobhanaportal.com/statements/view/abc123XYZ"]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Report Builder · Drafts & Publishing (mock)</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --surface:#ffffff; --sunken:#f1f3f6; --line:#eaecf0; --line-strong:#d8dce2;
+    --ink:#0f172a; --ink-2:#475467; --ink-3:#98a2b3;
+    --dark:#111827; --dark-hover:#000;
+    --blue:#2563eb; --blue-tint:#eef4ff;
+    --green:#067a52; --green-tint:#e6f6ee;
+    --amber:#b7791f; --amber-tint:#fdf6e6;
+    --red:#cc2222; --red-tint:#fdecec;
+    --navy:#1f3e6e;
+    --radius:12px; --radius-sm:8px;
+    --shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.06);
+    --shadow-md:0 1px 2px rgba(16,24,40,.06),0 8px 22px rgba(16,24,40,.08);
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:34px 28px 80px}
+  h1{font-size:26px;font-weight:800;letter-spacing:-.5px;margin:0}
+  .sub{color:var(--ink-2);margin:6px 0 0;font-size:15px}
+  h2{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--ink-3);margin:38px 0 12px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .muted{color:var(--ink-2)} .mono{font-family:var(--mono)} .small{font-size:12.5px}
+  code{font-family:var(--mono);background:var(--sunken);padding:1px 5px;border-radius:4px;font-size:12px}
+
+  /* pills */
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;letter-spacing:.2px;white-space:nowrap}
+  .pill.draft{background:var(--amber-tint);color:var(--amber)}
+  .pill.live{background:var(--green-tint);color:var(--green)}
+  .pill.bill{background:var(--blue-tint);color:var(--blue)}
+  .pill.gone{background:var(--red-tint);color:var(--red)}
+  .dot{width:7px;height:7px;border-radius:50%}
+  .dot.draft{background:var(--amber)} .dot.live{background:var(--green)} .dot.bill{background:var(--blue)}
+
+  /* lifecycle */
+  .flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:0;align-items:stretch}
+  @media(max-width:820px){.flow{grid-template-columns:1fr}.arrow{transform:rotate(90deg);justify-self:center}}
+  .stage{padding:16px 18px}
+  .stage .h{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px}
+  .stage .k{margin-top:8px;font-size:12.5px;color:var(--ink-2);line-height:1.5}
+  .stage .k b{color:var(--ink)}
+  .stage .store{margin-top:10px;font-size:11.5px;color:var(--ink-3);border-top:1px dashed var(--line);padding-top:8px}
+  .arrow{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 8px;color:var(--ink-3)}
+  .arrow .lbl{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--blue);background:var(--blue-tint);padding:2px 8px;border-radius:20px;margin-bottom:4px}
+  .arrow svg{width:26px;height:14px}
+
+  /* toolbar mock */
+  .tb{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow)}
+  .ctl{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line-strong);background:var(--surface);border-radius:8px;padding:7px 11px;font-size:12.5px;font-weight:600;color:var(--ink);white-space:nowrap}
+  .ctl.ghost{border-color:transparent;background:transparent;color:var(--ink-2)}
+  .seg{display:inline-flex;background:var(--sunken);border-radius:9px;padding:3px;gap:2px}
+  .seg span{padding:5px 10px;border-radius:6px;font-size:12px;font-weight:600;color:var(--ink-2)}
+  .seg span.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+  .btn{border:1px solid var(--dark);background:var(--dark);color:#fff;border-radius:9px;padding:8px 15px;font-size:13px;font-weight:700;display:inline-flex;align-items:center;gap:7px;cursor:default}
+  .btn.green{background:var(--green);border-color:var(--green)}
+  .btn.ghost{background:transparent;color:var(--ink);border-color:var(--line-strong)}
+  .btn.danger{background:var(--red);border-color:var(--red)}
+  .spacer{flex:1}
+  .chip{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600}
+  .chip.draft{color:var(--amber)} .chip.live{color:var(--green)}
+  .kicker{font-size:12px;font-weight:700;color:var(--ink-3);margin:0 0 7px}
+
+  /* picker */
+  .picker{width:340px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow-md);overflow:hidden}
+  .p-item{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:default}
+  .p-item:hover{background:var(--sunken)}
+  .p-new{font-weight:600;color:var(--blue)}
+  .p-group{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-3);padding:9px 12px 4px;background:var(--surface)}
+  .p-item .nm{font-weight:600}
+  .p-item .cd{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+  .p-item .meta{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .p-item .time{font-size:11px;color:var(--ink-3)}
+  .p-x{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;color:var(--ink-3);border:1px solid transparent;font-weight:700}
+  .p-item:hover .p-x{border-color:var(--line-strong)}
+  .p-x:hover{color:var(--red);border-color:var(--red)}
+  .divide{height:1px;background:var(--line);margin:2px 0}
+
+  /* dialog */
+  .dlg{width:440px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow-md);overflow:hidden}
+  .dlg .b{padding:18px 20px}
+  .dlg .t{font-size:16px;font-weight:700}
+  .dlg .m{margin-top:7px;color:var(--ink-2);font-size:13px;line-height:1.55}
+  .dlg .f{display:flex;justify-content:flex-end;gap:9px;padding:13px 20px;border-top:1px solid var(--line);background:var(--sunken)}
+  .opt{display:flex;align-items:center;gap:9px;margin-top:14px;padding:11px 12px;border:1px solid var(--line);border-radius:9px}
+  .opt input{width:16px;height:16px}
+  .opt .pl{border:1px solid var(--line-strong);border-radius:7px;padding:5px 8px;font-size:12.5px;width:90px;color:var(--ink-2)}
+
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
+  @media(max-width:820px){.row2{grid-template-columns:1fr}}
+  .note{background:var(--sunken);border:1px solid var(--line);border-radius:10px;padding:13px 15px;font-size:12.5px;color:var(--ink-2);line-height:1.6}
+  .note b{color:var(--ink)}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px}
+  .legend span{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Report Builder — Drafts &amp; Publishing</h1>
+  <p class="sub">Drafts are saved as <b>inactive panels</b> in the database. A report can never be billed until a product exists, so a draft is always safe. Here's the lifecycle, where drafts appear, and what each one stores.</p>
+
+  <!-- ───────────── LIFECYCLE ───────────── -->
+  <h2>The lifecycle</h2>
+  <div class="card">
+    <div class="flow">
+      <div class="stage">
+        <div class="h"><span class="dot draft"></span> Draft</div>
+        <div class="k">Saved as an <b>inactive ClinicalPanel</b> with <b>no product</b>. Autosaved as you type. Hidden from live panel lists, not orderable, not billable.</div>
+        <div class="store">Stores: 1 panel row (isActive=false) + item rows + defs for any new tests. ~1–2 KB.</div>
+      </div>
+      <div class="arrow"><span class="lbl">Publish</span><svg viewBox="0 0 26 14"><path d="M1 7h22M18 2l6 5-6 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div class="stage">
+        <div class="h"><span class="dot live"></span> Live</div>
+        <div class="k"><b>isActive = true.</b> Usable in reports &amp; result entry. Still <b>not billable</b> until it has a price.</div>
+        <div class="store">Same rows, flipped active. Shows under "Live" in the picker and as Active in Panel Definitions.</div>
+      </div>
+      <div class="arrow"><span class="lbl">Set price</span><svg viewBox="0 0 26 14"><path d="M1 7h22M18 2l6 5-6 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div class="stage">
+        <div class="h"><span class="dot bill"></span> Billable</div>
+        <div class="k">A <b>BillableProduct</b> exists (Pricing tab). Now it can be <b>sold &amp; ordered</b>.</div>
+        <div class="store">Adds 1 product row (+ branch pricing). This is the only thing that makes it sellable.</div>
+      </div>
+    </div>
+    <div style="border-top:1px solid var(--line);padding:13px 18px;display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--ink-2)">
+      <span class="pill gone">Discard</span>
+      <span>From any draft → deletes the panel <b>and</b> the test definitions it created that nothing else uses. Nothing is left behind.</span>
+    </div>
+  </div>
+
+  <!-- ───────────── TOOLBAR STATES ───────────── -->
+  <h2>The builder toolbar, by state</h2>
+
+  <p class="kicker">While it's a draft — autosaves silently, primary action is Publish</p>
+  <div class="tb" style="margin-bottom:18px">
+    <span class="ctl">📄 Untitled report ▾</span>
+    <span class="ctl ghost">+ New</span>
+    <span class="ctl">Standard Table ▾</span>
+    <span class="spacer"></span>
+    <span class="chip draft"><span class="dot draft"></span> Draft · autosaved 10:32</span>
+    <span class="seg"><span class="on">Edit</span><span>Preview</span></span>
+    <span class="btn green">Publish ▸</span>
+    <span class="ctl" style="padding:8px 10px">⋯</span>
+  </div>
+
+  <p class="kicker">Once live — edits keep autosaving, and you can price it or roll it back</p>
+  <div class="tb">
+    <span class="ctl">📄 Complete Blood Picture ▾</span>
+    <span class="ctl ghost">+ New</span>
+    <span class="ctl">Standard Table ▾</span>
+    <span class="spacer"></span>
+    <span class="chip live"><span class="dot live"></span> Live · all changes saved</span>
+    <span class="seg"><span class="on">Edit</span><span>Preview</span></span>
+    <span class="btn ghost">Set price</span>
+    <span class="ctl" style="padding:8px 10px">⋯</span>
+  </div>
+  <div class="note" style="margin-top:12px">The <b>⋯</b> menu holds the rarer actions: <b>Discard draft</b> (draft only), <b>Unpublish → back to draft</b> (live only), and <b>Duplicate</b>. Publishing and unpublishing are the only two clicks that change whether the report is usable.</div>
+
+  <!-- ───────────── WHERE THEY SHOW UP ───────────── -->
+  <h2>Where drafts show up</h2>
+  <div class="row2">
+    <div>
+      <p class="kicker">The "Open a report…" picker — grouped, drafts on top</p>
+      <div class="picker">
+        <div class="p-item p-new">🗎 New blank report</div>
+        <div class="divide"></div>
+        <div class="p-group">Drafts · 2</div>
+        <div class="p-item">
+          <span class="nm">Untitled report</span> <span class="cd">CBP</span>
+          <span class="meta"><span class="pill draft">Draft</span><span class="time">3m ago</span><span class="p-x">×</span></span>
+        </div>
+        <div class="p-item">
+          <span class="nm">Lipid Profile</span> <span class="cd">LIPID</span>
+          <span class="meta"><span class="pill draft">Draft</span><span class="time">yesterday</span><span class="p-x">×</span></span>
+        </div>
+        <div class="p-group">Live</div>
+        <div class="p-item"><span class="nm">Complete Blood Picture</span> <span class="cd">CBP2</span><span class="meta"><span class="pill live">Live</span></span></div>
+        <div class="p-item"><span class="nm">Liver Function Test</span> <span class="cd">LFT</span><span class="meta"><span class="pill bill">Billable</span></span></div>
+      </div>
+    </div>
+    <div>
+      <p class="kicker">Everywhere else</p>
+      <div class="note" style="margin-bottom:12px"><b>Panel Definitions</b> — drafts already appear here as <b>Inactive</b> (that's exactly what a draft is). No new place to learn.</div>
+      <div class="note" style="margin-bottom:12px"><b>Billing / ordering / worklists</b> — a draft never appears, because it has <b>no BillableProduct</b>. That's the hard safety line, not a flag we have to remember to check.</div>
+      <div class="note"><b>The status chip</b> in the toolbar always tells you the current report's state at a glance: <span class="chip draft" style="font-size:12px"><span class="dot draft"></span> Draft</span> · <span class="chip live" style="font-size:12px"><span class="dot live"></span> Live</span> · <span class="pill bill">Billable</span>.</div>
+    </div>
+  </div>
+
+  <!-- ───────────── DIALOGS ───────────── -->
+  <h2>Discard &amp; Publish</h2>
+  <div class="row2">
+    <div>
+      <p class="kicker">Discard a draft (from the ⋯ menu or the picker ×)</p>
+      <div class="dlg">
+        <div class="b">
+          <div class="t">Discard this draft?</div>
+          <div class="m">Deletes <b>“Untitled report”</b> (<span class="mono">CBP</span>). <b>2 test definitions</b> it created and nothing else uses will also be removed. This can't be undone.</div>
+        </div>
+        <div class="f"><span class="btn ghost">Keep editing</span><span class="btn danger">Discard draft</span></div>
+      </div>
+    </div>
+    <div>
+      <p class="kicker">Publish a draft → Live</p>
+      <div class="dlg">
+        <div class="b">
+          <div class="t">Publish “Complete Blood Picture”?</div>
+          <div class="m">Makes it <b>live</b> — usable in reports, result entry and ordering. It stays <b>not billable</b> unless you give it a price.</div>
+          <label class="opt"><input type="checkbox" checked> <span>Also sell it now at ₹ <span class="pl">450.00</span></span></label>
+        </div>
+        <div class="f"><span class="btn ghost">Cancel</span><span class="btn green">Publish</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────────── WHAT'S STORED ───────────── -->
+  <h2>What each draft actually stores</h2>
+  <div class="note">
+    A draft is one <b>inactive <code>ClinicalPanel</code></b> row + its <b><code>ClinicalPanelItem</code></b> rows + a <b><code>TestDefinition</code></b> row for each brand-new test (~1&nbsp;KB each). A 10-test draft is well under <b>~20&nbsp;KB</b>; hundreds of drafts are a few MB — DB <b>size</b> is never the issue. The thing we actually manage is <b>clutter</b>: drafts stay out of the live lists, and <b>Discard</b> removes the panel plus any definitions it uniquely created, so abandoned drafts don't pile up. Because <b>no product exists until you publish</b>, a draft can never be ordered or billed.
+    <div class="legend">
+      <span><span class="dot draft"></span> Draft = inactive panel, no product</span>
+      <span><span class="dot live"></span> Live = active panel</span>
+      <span><span class="dot bill"></span> Billable = has a product</span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

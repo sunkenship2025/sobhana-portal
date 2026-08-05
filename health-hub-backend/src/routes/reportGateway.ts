@@ -30,6 +30,7 @@ import {
 import { validateBillToken, recordBillAccess } from '../services/billAccessService';
 import { createAccessToken } from '../services/reportAccessService';
 import { shouldShowReportQr } from '../services/reportQrService';
+import { trackLinkAccess } from '../services/linkAccessService';
 import { DiagnosticWorkflowMode } from '@prisma/client';
 
 const router = Router();
@@ -295,6 +296,7 @@ router.get(
 
       // Best-effort access log; never block the page on it.
       recordBillAccess(token, req.ip).catch(() => {});
+      trackLinkAccess(req, { linkType: 'REPORT', linkToken: token, contextId: visitId }).catch(() => {});
 
       res.setHeader('Content-Type', 'text/html');
       res.setHeader('Cache-Control', 'no-store');

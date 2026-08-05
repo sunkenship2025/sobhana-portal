@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Report Builder · home (mock)</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --surface:#ffffff; --sunken:#f1f3f6; --line:#eaecf0; --line-strong:#d8dce2;
+    --ink:#0f172a; --ink-2:#475467; --ink-3:#98a2b3;
+    --dark:#111827; --blue:#2563eb; --blue-tint:#eef4ff;
+    --green:#067a52; --green-tint:#e6f6ee; --amber:#b7791f; --amber-tint:#fdf6e6;
+    --red:#cc2222; --red-tint:#fdecec; --navy:#1f3e6e;
+    --radius:12px; --radius-sm:9px;
+    --shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.06);
+    --shadow-md:0 2px 6px rgba(16,24,40,.06),0 10px 24px rgba(16,24,40,.09);
+    --shadow-pop:0 12px 34px rgba(16,24,40,.18);
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  a{color:inherit;text-decoration:none}
+  .topbar{height:4px;background:var(--navy)}
+  .head{padding:20px 34px 4px}
+  .head h1{font-size:25px;font-weight:800;letter-spacing:-.5px;margin:0}
+  .head p{margin:5px 0 0;color:var(--ink-2);font-size:14px}
+  .tabs{display:flex;gap:2px;margin:15px 34px 0;flex-wrap:wrap}
+  .tab{display:inline-flex;align-items:center;gap:7px;padding:8px 13px;border-radius:8px;font-size:13.5px;font-weight:600;color:var(--ink-2)}
+  .tab.on{background:#eef0f3;color:var(--ink)}
+
+  .content{max-width:1080px;margin:0 auto;padding:26px 34px 70px}
+  .bar{display:flex;align-items:center;gap:14px;margin-bottom:22px}
+  .bar h2{font-size:20px;font-weight:800;letter-spacing:-.3px;margin:0}
+  .bar .sub{color:var(--ink-3);font-size:13px}
+  .spacer{flex:1}
+  .search{display:flex;align-items:center;gap:8px;border:1px solid var(--line-strong);background:var(--surface);border-radius:9px;padding:8px 12px;color:var(--ink-3);font-size:13px;width:230px}
+  .btn{border:1px solid var(--dark);background:var(--dark);color:#fff;border-radius:9px;padding:9px 16px;font-size:13.5px;font-weight:700;display:inline-flex;align-items:center;gap:8px;cursor:pointer}
+
+  .sec{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--ink-3);margin:26px 0 12px;display:flex;align-items:center;gap:8px}
+  .count{color:var(--ink-3);font-weight:700}
+
+  /* draft + new cards */
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media(max-width:860px){.grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:560px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:15px 16px;cursor:pointer;transition:box-shadow .12s,transform .12s;position:relative}
+  .card:hover{box-shadow:var(--shadow-md);transform:translateY(-1px)}
+  .card .top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+  .card .nm{font-weight:700;font-size:15px;letter-spacing:-.2px}
+  .card .meta{color:var(--ink-3);font-size:12px;margin-top:3px}
+  .card .meta .cd{font-family:var(--mono);color:var(--ink-2)}
+  .card .foot{display:flex;align-items:center;justify-content:space-between;margin-top:14px}
+  .card .cont{color:var(--blue);font-weight:700;font-size:12.5px}
+  .card .del{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;color:var(--ink-3);border:1px solid transparent;font-weight:700}
+  .card:hover .del{border-color:var(--line-strong)} .card .del:hover{color:var(--red);border-color:var(--red)}
+  .newcard{border:1.5px dashed var(--line-strong);background:linear-gradient(180deg,#fff,#fcfdff);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:118px;color:var(--blue)}
+  .newcard .plus{width:34px;height:34px;border-radius:50%;background:var(--blue-tint);display:grid;place-items:center;font-size:20px;font-weight:700;margin-bottom:7px}
+  .newcard .t{font-weight:700} .newcard .s{color:var(--ink-3);font-size:12px;margin-top:2px;font-weight:500}
+
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:20px;white-space:nowrap}
+  .pill.draft{background:var(--amber-tint);color:var(--amber)} .pill.live{background:var(--green-tint);color:var(--green)} .pill.bill{background:var(--blue-tint);color:var(--blue)}
+
+  /* live list */
+  .list{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+  .lrow{display:flex;align-items:center;gap:14px;padding:13px 16px;border-bottom:1px solid var(--line);cursor:pointer}
+  .lrow:last-child{border-bottom:0}
+  .lrow:hover{background:var(--sunken)}
+  .lrow .nm{font-weight:600;font-size:14px;min-width:210px}
+  .lrow .cd{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);width:70px}
+  .lrow .dep{color:var(--ink-2);font-size:12.5px;width:130px}
+  .lrow .cnt{color:var(--ink-3);font-size:12px;width:70px}
+  .lrow .st{margin-left:auto;display:flex;align-items:center;gap:10px}
+  .lrow .arrow{color:var(--ink-3);font-weight:700}
+  .price{font-weight:700;color:var(--ink-2);font-size:12.5px}
+
+  /* discard dialog */
+  .scrim{position:fixed;inset:0;background:rgba(16,24,40,.4);display:none;align-items:center;justify-content:center;z-index:60}
+  .scrim.show{display:flex}
+  .dlg{width:440px;background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-pop);overflow:hidden}
+  .dlg .b{padding:19px 21px} .dlg .t{font-size:16px;font-weight:700} .dlg .m{margin-top:7px;color:var(--ink-2);font-size:13px;line-height:1.55}
+  .dlg .f{display:flex;justify-content:flex-end;gap:9px;padding:13px 21px;border-top:1px solid var(--line);background:var(--sunken)}
+  .btn.ghost{background:transparent;color:var(--ink);border-color:var(--line-strong)} .btn.danger{background:var(--red);border-color:var(--red)}
+  .banner{max-width:1080px;margin:12px auto 0;padding:8px 12px;background:var(--blue-tint);color:var(--blue);border-radius:9px;font-size:12px;font-weight:600;text-align:center}
+</style>
+</head>
+<body>
+<div class="topbar"></div>
+<div class="head"><h1>Admin Config Center</h1><p>Manage clinical definitions, panels, products, departments and signing doctors</p></div>
+<div class="tabs">
+  <span class="tab on">📄 Report Builder</span><span class="tab">⚗ Clinical Definitions</span><span class="tab">▦ Panel Definitions</span>
+  <span class="tab">◈ Billable Products</span><span class="tab">🏢 Departments</span><span class="tab">✎ Signers &amp; Rules</span><span class="tab">👥 Referrals</span>
+</div>
+<div class="banner">Mock — the home page you land on. Click <b>New report</b> or a card to open the editor · click a draft's 🗑 to discard.</div>
+
+<div class="content">
+  <div class="bar">
+    <div><h2>Reports</h2><div class="sub">Build and manage your diagnostic report templates.</div></div>
+    <div class="spacer"></div>
+    <div class="search">🔍 Search reports…</div>
+    <a class="btn" href="report-builder-drafts-page.html">＋ New report</a>
+  </div>
+
+  <!-- DRAFTS -->
+  <div class="sec">Drafts <span class="count">· 2</span></div>
+  <div class="grid">
+    <a class="card" href="report-builder-drafts-page.html">
+      <div class="top"><div><div class="nm">Complete Blood Picture</div><div class="meta"><span class="cd">CBP</span> · Haematology</div></div><span class="pill draft">Draft</span></div>
+      <div class="foot"><span class="meta">3 tests · edited now</span><span class="del" onclick="discard(event)">🗑</span></div>
+    </a>
+    <a class="card" href="report-builder-drafts-page.html">
+      <div class="top"><div><div class="nm">Lipid Profile</div><div class="meta"><span class="cd">LIPID</span> · Biochemistry</div></div><span class="pill draft">Draft</span></div>
+      <div class="foot"><span class="meta">5 tests · edited yesterday</span><span class="del" onclick="discard(event)">🗑</span></div>
+    </a>
+    <a class="card newcard" href="report-builder-drafts-page.html">
+      <div class="plus">＋</div><div class="t">New report</div><div class="s">Blank template</div>
+    </a>
+  </div>
+
+  <!-- LIVE -->
+  <div class="sec">Live reports <span class="count">· 12</span></div>
+  <div class="list">
+    <a class="lrow" href="report-builder-drafts-page.html"><span class="nm">Random Blood Sugar</span><span class="cd">RBS</span><span class="dep">Biochemistry</span><span class="cnt">1 test</span><span class="st"><span class="pill live">Live</span><span class="arrow">→</span></span></a>
+    <a class="lrow" href="report-builder-drafts-page.html"><span class="nm">Liver Function Test</span><span class="cd">LFT</span><span class="dep">Biochemistry</span><span class="cnt">8 tests</span><span class="st"><span class="price">₹600</span><span class="pill bill">Billable</span><span class="arrow">→</span></span></a>
+    <a class="lrow" href="report-builder-drafts-page.html"><span class="nm">Thyroid Profile</span><span class="cd">TFT</span><span class="dep">Immunoassay</span><span class="cnt">3 tests</span><span class="st"><span class="price">₹750</span><span class="pill bill">Billable</span><span class="arrow">→</span></span></a>
+    <a class="lrow" href="report-builder-drafts-page.html"><span class="nm">Urine Routine</span><span class="cd">URINE</span><span class="dep">Clinical Path.</span><span class="cnt">12 tests</span><span class="st"><span class="pill live">Live</span><span class="arrow">→</span></span></a>
+    <a class="lrow" href="report-builder-drafts-page.html"><span class="nm">Ultrasound Abdomen</span><span class="cd">USG_ABD</span><span class="dep">Radiology</span><span class="cnt">narrative</span><span class="st"><span class="price">₹900</span><span class="pill bill">Billable</span><span class="arrow">→</span></span></a>
+  </div>
+</div>
+
+<div class="scrim" id="discard">
+  <div class="dlg">
+    <div class="b"><div class="t">Discard this draft?</div><div class="m">Deletes <b>“Complete Blood Picture”</b> (<span style="font-family:var(--mono)">CBP</span>). <b>3 test definitions</b> it created and nothing else uses will also be removed. This can't be undone.</div></div>
+    <div class="f"><span class="btn ghost" onclick="close_()">Keep it</span><span class="btn danger" onclick="close_()">Discard draft</span></div>
+  </div>
+</div>
+
+<script>
+  function discard(e){e.preventDefault();e.stopPropagation();document.getElementById('discard').classList.add('show');}
+  function close_(){document.getElementById('discard').classList.remove('show');}
+  document.getElementById('discard').addEventListener('click',e=>{if(e.target.id==='discard')close_();});
+</script>
+</body>
+</html>

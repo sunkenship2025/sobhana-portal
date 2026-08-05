@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HealthFlow · Report Builder (Prototype)</title>
+<style>
+  /* ============================================================
+     LIGHT THEME — matches the real "Admin Config Center" screen.
+     Single committed light theme (the app is light-only).
+     ============================================================ */
+  :root{
+    --blue-bar:#3b6ef5;
+    --bg:#f7f8fa; --surface:#ffffff; --surface-2:#fafbfc; --sunken:#f1f3f6;
+    --line:#eaecf0; --line-strong:#d8dce2;
+    --ink:#0f172a; --ink-2:#475467; --ink-3:#98a2b3;
+    --dark:#111827; --dark-hover:#000000;
+    --blue:#2563eb; --blue-tint:#eef4ff;
+    --green:#067a52; --green-tint:#e6f6ee;
+    --amber:#b7791f; --amber-tint:#fdf6e6;
+    --red:#cc2222;
+    --desk:#eceff3;
+    --navy:#1f3e6e; /* report/paper brand accent, chrome uses it sparingly */
+    --radius:10px; --radius-sm:7px;
+    --shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.06);
+    --shadow-md:0 1px 2px rgba(16,24,40,.06),0 8px 22px rgba(16,24,40,.08);
+    --shadow-pop:0 10px 34px rgba(16,24,40,.16);
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  button{font-family:inherit}
+  ::selection{background:rgba(37,99,235,.18)}
+
+  .admin{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  .topbar{height:6px;background:var(--blue-bar);flex-shrink:0}
+
+  .admin-head{padding:22px 40px 6px}
+  .admin-head h1{font-size:27px;font-weight:800;letter-spacing:-.6px;margin:0}
+  .admin-head p{margin:5px 0 0;color:var(--ink-2);font-size:14.5px}
+
+  /* tab bar — pill container, active tab = white card */
+  .tabs{display:flex;gap:3px;margin:16px 40px 0;background:var(--sunken);border-radius:11px;padding:4px;width:max-content;max-width:calc(100% - 80px);overflow:auto}
+  .tab{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:8px;font-size:13.5px;font-weight:600;color:var(--ink-2);cursor:pointer;white-space:nowrap;border:none;background:transparent}
+  .tab:hover{color:var(--ink)}
+  .tab.active{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+  .tab .newpill{font-size:9.5px;font-weight:800;color:#fff;background:var(--blue);padding:1px 6px;border-radius:20px;letter-spacing:.4px}
+
+  /* section head under tabs */
+  .rb-head{display:flex;align-items:flex-end;gap:12px;padding:18px 40px 0}
+  .rb-head .ico{font-size:20px}
+  .rb-head h2{font-size:18px;font-weight:700;letter-spacing:-.3px;margin:0}
+  .rb-head p{margin:2px 0 0;font-size:13px;color:var(--ink-2)}
+
+  /* builder toolbar */
+  .rb-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 40px 14px;border-bottom:1px solid var(--line)}
+  .rb-title{font-weight:700;font-size:16px;letter-spacing:-.2px;display:flex;align-items:center;gap:9px}
+  #docName{outline:none;border-radius:6px;padding:2px 6px;cursor:text}
+  #docName:hover{background:var(--sunken)}
+  #docName:focus{background:var(--surface);box-shadow:0 0 0 2px rgba(37,99,235,.4)}
+  .doc-code{font:600 11px/1 var(--mono);color:var(--ink-3);background:var(--sunken);padding:4px 7px;border-radius:5px}
+  .tb-spacer{flex:1}
+  .seg{display:inline-flex;background:var(--sunken);border-radius:9px;padding:3px;gap:2px}
+  .seg button{border:none;background:transparent;color:var(--ink-2);font-size:12.5px;font-weight:600;padding:6px 11px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+  .seg button:hover{color:var(--ink)}
+  .seg button.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+  .savechip{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--green);font-weight:600}
+  .savechip .dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
+  .savechip.saving{color:var(--amber)}.savechip.saving .dot{background:var(--amber);animation:pulse 1s infinite}
+  @keyframes pulse{50%{opacity:.35}}
+  .btn{border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);font-size:13px;font-weight:600;padding:8px 14px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+  .btn:hover{border-color:var(--ink-3)}
+  .btn.primary{background:var(--dark);border-color:var(--dark);color:#fff}
+  .btn.primary:hover{background:var(--dark-hover)}
+  .btn.warn{background:var(--amber);border-color:var(--amber);color:#fff}.btn.warn:hover{filter:brightness(.92)}
+
+  /* stage: desk + dock */
+  .stage{flex:1;display:grid;grid-template-columns:1fr 344px;min-height:0}
+  @media(max-width:1180px){.stage{grid-template-columns:1fr 300px}}
+
+  .desk{background:var(--desk);overflow:auto;padding:22px 26px 40px}
+  .desk-inner{width:100%;max-width:800px;margin:0 auto}
+  .meta-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:8px 12px;box-shadow:var(--shadow);margin-bottom:12px}
+  .meta-bar .ml{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-3);font-weight:700}
+  .meta-bar .msel{border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);border-radius:7px;padding:6px 9px;font-size:12.5px;font-family:inherit;font-weight:500;cursor:pointer}
+  .meta-bar .msel:focus{outline:none;border-color:var(--blue)}
+  .meta-bar .mdiv{width:1px;height:20px;background:var(--line);margin:0 2px}
+  .meta-bar .mnew{border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);font-size:12.5px;font-weight:600;padding:6px 11px;border-radius:7px;cursor:pointer}
+  .meta-bar .mnew:hover{background:var(--sunken)}
+  .meta-bar .mhint{margin-left:auto;font-size:11.5px;color:var(--ink-3)}
+  .canvas-hint{font-size:12.5px;color:var(--ink-2);text-align:center;margin-bottom:12px}
+  .canvas-hint b{color:var(--ink)}
+
+  /* ============================================================
+     REPORT CANVAS — faithful to report-screen.css (the real output)
+     Always white paper. Untouched by the light/neutral chrome.
+     ============================================================ */
+  .report-canvas{
+    --color-primary:#1f3e6e;--color-text:#1a202c;--color-text-light:#4a5568;
+    --color-border:#ccc;--color-border-light:#e2e2e2;--color-zebra:#f7f8fa;--color-section-bg:#eef1f5;--color-abnormal:#cc2222;
+    font-family:'Arimo',Arial,Helvetica,sans-serif;
+    background:#fff;color:var(--color-text);width:100%;min-height:1000px;
+    box-shadow:0 1px 3px rgba(16,24,40,.1),0 10px 30px rgba(16,24,40,.12);border-radius:3px;overflow:hidden;font-size:13px;line-height:1.35;
+    display:flex;flex-direction:column;
+  }
+  .report-canvas .rc-content{padding:18px 26px;flex:1;display:flex;flex-direction:column}
+  .rc-header-row{display:flex;justify-content:space-between;align-items:center;padding:4px}
+  .rc-logo{display:flex;align-items:center;gap:11px}
+  .rc-logo .mark{width:46px;height:46px;border-radius:9px;background:linear-gradient(135deg,#1f3e6e,#2b64ab);display:grid;place-items:center;color:#fff;font-weight:800;font-size:20px}
+  .rc-logo .lo-name{font-weight:800;font-size:16px;color:#1f3e6e;letter-spacing:-.2px}
+  .rc-logo .lo-sub{font-size:9px;color:#6b7280;letter-spacing:.6px;text-transform:uppercase}
+  .rc-qr{display:flex;align-items:center;gap:6px}
+  .rc-qr .qr{width:46px;height:46px;border-radius:3px;background:conic-gradient(#000 25%,#fff 0 50%,#000 0 75%,#fff 0) 0 0/12px 12px}
+  .rc-qr .qr-t{font-size:7px;color:#6b7280;text-align:center;line-height:1.25;width:52px}
+  .rc-band{height:9px;display:flex;flex-direction:column;justify-content:space-between;margin:2px 0 0}
+  .rc-band>div{height:2.5px;background:#1f3e6e}
+  .rc-badge-row{text-align:center;padding:6px 0 8px}
+  .rc-badge{display:inline-block;background:#b22222;color:#fff;font-weight:700;font-size:11px;letter-spacing:3px;padding:4px 24px;text-transform:uppercase}
+  .rc-patient{border:1px solid var(--color-border);padding:9px 15px;margin-bottom:15px;display:flex;gap:15px;align-items:center}
+  .rc-info{display:table;width:100%;flex:1}
+  .rc-inforow{display:table-row}
+  .rc-cell{display:table-cell;width:50%;padding:2.5px 0;font-size:11.5px;line-height:1.5}
+  .rc-inforow .rc-cell:first-child{width:calc(50% + 20mm)}
+  .rc-inforow .rc-cell:last-child{width:calc(50% - 20mm)}
+  .rc-cell .k{font-weight:700;color:#333;display:inline-block;min-width:104px}
+  .rc-cell .k::after{content:':';margin-right:8px}
+  .rc-cell .v{font-weight:500}
+  .rc-pqr{display:flex;flex-direction:column;align-items:center;border-left:1px solid var(--color-border);padding-left:14px}
+  .rc-pqr .qr{width:60px;height:60px;background:conic-gradient(#000 25%,#fff 0 50%,#000 0 75%,#fff 0) 0 0/15px 15px}
+  .rc-pqr .qt{font-size:6.5px;color:#6b7280;text-align:center;margin-top:3px;line-height:1.2}
+  .rc-dept{font-size:13px;font-weight:700;color:var(--color-primary);border-bottom:1.5px solid var(--color-primary);padding-bottom:3px;margin-bottom:10px;text-align:center;text-transform:uppercase;letter-spacing:.5px}
+  .rc-panel{margin-bottom:18px}
+  .rc-panel-title{font-size:12px;font-weight:700;color:var(--color-primary);margin-bottom:5px;padding:3px 8px;background:var(--color-section-bg);text-align:center}
+  .rc-panel-method{margin:-1px 0 6px 8px;font-size:10px;color:var(--color-text-light);line-height:1.3}
+  .rc-panel-method.ital{font-style:italic}
+  .rc-table{width:100%;border-collapse:collapse;margin-bottom:10px;font-size:11.5px}
+  .rc-table thead tr{background:var(--color-primary)}
+  .rc-table th{background:var(--color-primary);color:#fff;font-weight:600;text-align:left;padding:5px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.3px}
+  .rc-table td{padding:8px;border-bottom:1px solid var(--color-border-light);vertical-align:top}
+  .rc-col-test{width:34%;text-align:left}
+  .rc-col-value{width:13%;text-align:center;white-space:nowrap}
+  .rc-col-unit{width:11%;text-align:center;color:#777}
+  .rc-col-ref{width:42%;text-align:center;color:#6b7280;font-size:10.5px}
+  .rc-table tbody tr.data-row:nth-child(even){background:var(--color-zebra)}
+  .rc-col-value.abn{font-weight:700}
+  .rc-flag{font-size:8.5px;font-weight:700;color:var(--color-abnormal);vertical-align:super;margin-left:2px}
+  .rc-tname.bold{font-weight:700}
+  .rc-table tr.indent-1 .rc-col-test{padding-left:24px}
+  .rc-divider td{background:#e6edf7;font-weight:700;font-size:10.5px;text-transform:uppercase;letter-spacing:.3px;padding:6px 8px;border-top:1px solid #2c5aa0;color:#2c5aa0}
+  .rc-divider td:first-child{border-left:4px solid #2c5aa0}
+  .rc-methodrow td{font-size:9px;font-style:italic;color:#555;padding:2px 8px 4px 12px}
+  .rc-interp{background:#f8fafd;border:1px solid #c3d0e6;border-radius:2px;padding:9px 10px;margin-top:6px;font-size:11.5px}
+  .rc-interp strong{color:#1f3e6e;display:block;margin-bottom:3px;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}
+  .rc-textonly{padding:9px 11px;border:1px solid var(--color-border-light);border-radius:2px;font-size:11.5px}
+  .rc-textonly .lab{display:block;color:var(--color-primary);font-weight:700;margin-bottom:5px}
+  .rc-narr{color:var(--color-text);font-size:11.5px;line-height:1.7}
+  .rc-narr h2{font-size:13.5px;color:#1f3e6e;margin:4px 0 4px}
+  .rc-narr h3{font-size:12.5px;color:#1f3e6e;margin:2px 0 4px}
+  .rc-narr p{margin:0 0 8px}
+  .rc-narr ul,.rc-narr ol{padding-left:22px;margin:0 0 8px}
+  .rc-proc{width:100%;border-collapse:collapse;font-size:11.5px}
+  .rc-proc th{background:var(--color-primary);color:#fff;text-align:left;padding:5px 8px;font-size:10px;text-transform:uppercase}
+  .rc-proc td{padding:7px 8px;border-bottom:1px solid var(--color-border-light)}
+  .rc-proc td:first-child{width:55%;font-weight:600}
+  .rc-bottom{margin-top:auto}
+  .rc-div{height:1px;background:var(--color-border);margin-top:14px}
+  .rc-sigs{display:flex;align-items:flex-end;justify-content:space-between;gap:32px;padding-top:12px}
+  .rc-sig{text-align:center;min-width:130px}
+  .rc-sig .sig-img{height:42px;margin-bottom:2px}
+  .rc-sig .dn{font-weight:700;font-size:11.5px}
+  .rc-sig .dg{font-size:9.5px;color:var(--color-text-light)}
+  .rc-sig .dd{font-size:9.5px;color:var(--color-primary);font-weight:500}
+  .rc-sig .dr{font-size:8.5px;color:var(--color-text-light)}
+  .rc-sig.incharge .sig-img{width:64px;height:auto;max-height:34px;object-fit:contain}
+  .rc-sig.incharge .lab{font-size:11px;font-weight:700;color:var(--color-primary)}
+  .rc-footer{margin-top:16px}
+  .rc-footer .stripe{height:2px;background:#cc2222}
+  .rc-footer .fc{display:flex;justify-content:space-between;padding:7px 2px 0;font-size:9px;color:#333}
+  .rc-footer .fl{max-width:48%}.rc-footer .fl .nt{font-weight:700;font-size:8.5px}
+  .rc-footer .fr{text-align:right;max-width:52%}
+  .rc-footer .fr .addr{font-weight:600;font-size:8.5px}.rc-footer .fr .ph{font-weight:700;font-size:9px}
+  .rc-readonly{position:relative;cursor:pointer;border-radius:4px;transition:background .12s,box-shadow .12s}
+  .rc-readonly:hover{background:rgba(37,99,235,.06);box-shadow:0 0 0 1px rgba(37,99,235,.25)}
+  .rc-readonly::after{content:"⚙ edit in Signers";position:absolute;top:-9px;right:-4px;font-family:var(--font);font-size:9px;font-weight:600;color:var(--blue);background:var(--surface);border:1px solid var(--line-strong);padding:1px 6px;border-radius:20px;opacity:0;transition:opacity .12s;pointer-events:none}
+  .rc-readonly:hover::after{opacity:1}
+  .rc-header-ro:hover::after{content:"⚙ letterhead & branch"}
+  .rc-table tbody tr.data-row,.rc-proc tbody tr.data-row{cursor:pointer;transition:background .1s,box-shadow .1s}
+  .rc-table tbody tr.data-row:hover,.rc-proc tbody tr.data-row:hover{box-shadow:inset 3px 0 0 var(--blue)}
+  .rc-table tbody tr.data-row.sel,.rc-proc tbody tr.data-row.sel{box-shadow:inset 3px 0 0 var(--navy);background:var(--blue-tint)!important}
+  /* rich-text template editor (Text-only + Imaging Narrative layouts) */
+  .rt-toolbar{display:flex;gap:3px;flex-wrap:wrap;align-items:center;background:#f7f8fa;border:1px solid #e3e6ea;border-radius:8px;padding:5px;margin-bottom:10px}
+  .rt-toolbar button{border:none;background:transparent;color:#475467;font:600 12px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:5px 9px;border-radius:6px;cursor:pointer}
+  .rt-toolbar button:hover{background:#eceef1;color:#111}
+  .rt-toolbar .rt-div{width:1px;height:16px;background:#dce0e5;margin:0 3px}
+  .rt-toolbar .rt-note{margin-left:auto;font:500 10.5px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#98a2b3;font-style:normal}
+  .rt-edit{outline:none;border-radius:6px;min-height:220px;padding:6px 8px;border:1px dashed transparent}
+  .rt-edit:hover{border-color:#e3e6ea}
+  .rt-edit:focus{border-color:#c3d0e6;box-shadow:0 0 0 2px rgba(37,99,235,.2)}
+  .rc-letterhead-space{border:1px dashed #c8ccd2;border-radius:4px;color:#9aa2ad;font-size:10px;letter-spacing:.4px;text-transform:uppercase;text-align:center;padding:30px 8px;margin-bottom:12px}
+  .rc-footer-space{border:1px dashed #c8ccd2;border-radius:4px;color:#9aa2ad;font-size:9px;letter-spacing:.3px;text-transform:uppercase;text-align:center;padding:14px 8px;margin-top:16px}
+  .report-canvas.preview .rc-readonly:hover{background:none;box-shadow:none}
+  .report-canvas.preview .rc-readonly::after{display:none!important}
+  .report-canvas.preview .rc-table tbody tr.data-row:hover,.report-canvas.preview .rc-proc tbody tr.data-row:hover{box-shadow:none}
+  .report-canvas.preview .rc-table tbody tr.data-row,.report-canvas.preview .rc-proc tbody tr.data-row,.report-canvas.preview .rc-col-ref{cursor:default}
+  .report-canvas.preview .rc-col-ref:hover{box-shadow:none}
+  .is-preview .meta-bar,.is-preview .canvas-hint{display:none}
+  .rc-tname[contenteditable]{outline:none;border-radius:3px}
+  .rc-tname[contenteditable]:focus{box-shadow:0 0 0 2px rgba(37,99,235,.4);background:#fff}
+  .rc-tname[contenteditable]:empty:before{content:attr(data-placeholder);color:#aab2bd;font-style:italic;font-weight:400}
+  .rc-col-ref{cursor:cell}
+  .rc-col-ref:hover{box-shadow:inset 0 0 0 1px rgba(37,99,235,.4);border-radius:3px}
+  .rc-adds{display:flex;gap:8px;justify-content:center;margin:2px 0 4px;flex-wrap:wrap}
+  .rc-add{font-family:var(--font);font-size:11.5px;font-weight:600;color:var(--blue);background:transparent;border:1px dashed color-mix(in srgb,var(--blue) 45%,transparent);border-radius:20px;padding:4px 12px;cursor:pointer}
+  .rc-add:hover{background:var(--blue-tint)}
+
+  /* ---------- DOCK ---------- */
+  .dock{background:var(--surface);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .dock-tabs{display:flex;border-bottom:1px solid var(--line);flex-shrink:0}
+  .dock-tab{flex:1;padding:12px 6px;text-align:center;font-size:12.5px;font-weight:600;color:var(--ink-3);cursor:pointer;border-bottom:2px solid transparent}
+  .dock-tab:hover{color:var(--ink-2)}
+  .dock-tab.on{color:var(--ink);border-bottom-color:var(--dark)}
+  .dock-body{overflow:auto;flex:1;min-height:0}
+  .dock-pane{padding:16px;display:none}
+  .dock-pane.on{display:block}
+  .insp-empty{color:var(--ink-3);font-size:13px;text-align:center;padding:48px 20px;line-height:1.6}
+  .insp-empty .big{font-size:26px;display:block;margin-bottom:10px;opacity:.5}
+  .insp-head{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}
+  .insp-head .nm{font-size:16px;font-weight:700;letter-spacing:-.2px}
+  .insp-head .ver{font:600 10.5px/1 var(--mono);color:var(--navy);background:var(--blue-tint);padding:3px 6px;border-radius:5px}
+  .insp-sub{font-size:11.5px;color:var(--ink-3);margin-bottom:6px}
+  .scope-note{font-size:11.5px;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin:8px 0}
+  .scope-note b{color:var(--ink)}
+  .grp{border-top:1px solid var(--line);padding:13px 0 4px}
+  .grp:first-of-type{border-top:none}
+  .grp-h{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--ink-3);font-weight:700;margin-bottom:9px;display:flex;align-items:center;gap:7px}
+  .grp-h .pin{margin-left:auto;font-size:9.5px;font-weight:600;letter-spacing:.2px;color:var(--ink-3);text-transform:none}
+  .grp-h .pin.paper{color:var(--navy)}
+  .row{display:flex;flex-direction:column;gap:5px;margin-bottom:11px}
+  .row label{font-size:12px;font-weight:600;color:var(--ink-2)}
+  .row .hint{font-size:11px;color:var(--ink-3)}
+  .inp,.sel{width:100%;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit}
+  .inp:focus,.sel:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+  .two{display:flex;gap:8px}.two>*{flex:1}
+  .rng{display:flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:7px 9px;margin-bottom:7px}
+  .rng .cat{font-size:12px;font-weight:600;flex:1}
+  .rng .cat small{display:block;font-weight:500;color:var(--ink-3);font-size:10.5px}
+  .rng input{width:52px;border:1px solid var(--line-strong);border-radius:5px;padding:4px 6px;font-size:12px;text-align:center;background:var(--surface);color:var(--ink);font-variant-numeric:tabular-nums}
+  .rng .dash{color:var(--ink-3)}
+  .rng-del{border:none;background:transparent;color:var(--ink-3);font-size:16px;line-height:1;cursor:pointer;padding:2px 5px;border-radius:5px;flex-shrink:0}
+  .rng-del:hover{background:#fdecec;color:var(--red)}
+  .drag{cursor:grab;color:#c2c8d0;margin-right:8px;user-select:none;font-size:12px;opacity:0;display:inline-block;vertical-align:middle}
+  #canvas tr:hover .drag{opacity:1}
+  .drag:active{cursor:grabbing}
+  #canvas tr.dragging{opacity:.4}
+  #canvas tr.drag-over-top>td{box-shadow:inset 0 3px 0 var(--blue)!important}
+  #canvas tr.drag-over-bot>td{box-shadow:inset 0 -3px 0 var(--blue)!important}
+  .rc-sname[contenteditable]{outline:none}
+  .rc-sname[contenteditable]:focus{box-shadow:0 0 0 2px rgba(37,99,235,.3);background:#fff;border-radius:3px}
+  .rc-sname[contenteditable]:empty:before{content:attr(data-placeholder);color:#8aa0c0;font-style:italic}
+  .pm-text[contenteditable]{outline:none;border-radius:3px;min-width:16px;display:inline-block}
+  .pm-text[contenteditable]:focus{box-shadow:0 0 0 2px rgba(37,99,235,.3);background:#fff}
+  .pm-text[contenteditable]:empty:before{content:attr(data-placeholder);color:#aab2bd;font-style:italic}
+  .nbox[contenteditable]{min-height:42px}
+  .rt-note-bar{margin-bottom:5px}
+  .rc-interp strong .mini{font-weight:500;font-size:8px;color:var(--ink-3);letter-spacing:0;text-transform:none;margin-left:6px}
+  .rc-tmethod{font-size:9px;color:#555;line-height:1.2;padding-top:2px}
+  .rc-tmethod.ital{font-style:italic}
+  .kv-cell{font-size:11.5px}
+  .kv-l{font-weight:600}
+  .kv-toggle{font-size:9px;font-weight:600;color:var(--ink-3);background:transparent;border:1px solid var(--line-strong);border-radius:20px;padding:2px 8px;margin-left:8px;cursor:pointer;font-family:var(--font);text-transform:none;letter-spacing:0}
+  .kv-toggle.on{color:var(--blue);border-color:var(--blue);background:var(--blue-tint)}
+  .preset .pchip-x{border:none;background:none;color:var(--ink-3);cursor:pointer;margin-left:5px;font-size:12px;padding:0}
+  .preset .pchip-x:hover{color:var(--red)}
+  .add-inline{font-size:12px;font-weight:600;color:var(--blue);background:transparent;border:1px dashed color-mix(in srgb,var(--blue) 40%,transparent);border-radius:8px;padding:8px;width:100%;cursor:pointer}
+  .add-inline:hover{background:var(--blue-tint)}
+  .presets{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
+  .preset{font-size:11.5px;background:var(--sunken);border-radius:20px;padding:3px 9px;color:var(--ink-2)}
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;padding:7px 0}
+  .toggle-row .tl{font-size:12.5px;font-weight:500}
+  .sw{width:38px;height:22px;border-radius:20px;background:var(--line-strong);position:relative;cursor:pointer;transition:background .15s;flex-shrink:0}
+  .sw::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+  .sw.on{background:var(--dark)}.sw.on::after{transform:translateX(16px)}
+  .impact{margin-top:12px;border:1px solid color-mix(in srgb,var(--amber) 45%,transparent);background:var(--amber-tint);border-radius:9px;padding:11px;display:none}
+  .impact.show{display:block}
+  .impact .it{font-size:12px;font-weight:700;color:var(--amber);display:flex;gap:7px;align-items:center;margin-bottom:5px}
+  .impact .id{font-size:11.5px;color:var(--ink-2);margin-bottom:9px;line-height:1.5}
+  .impact .ia{display:flex;gap:7px}
+  .impact .btn{padding:6px 11px;font-size:12px}
+  .compile{font:12.5px/1.6 var(--mono);color:var(--ink-2)}
+  .compile .node{background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:9px}
+  .compile .node .mh{display:flex;align-items:center;gap:8px;margin-bottom:5px;font-family:var(--font)}
+  .compile .node .mh .mt{font-weight:700;font-size:12.5px;color:var(--ink)}
+  .compile .node .mh .tag{font-size:10px;font-weight:600;padding:2px 7px;border-radius:5px;background:var(--blue-tint);color:var(--blue);text-transform:uppercase;letter-spacing:.3px}
+  .compile .kv{color:var(--ink-3);font-size:11.5px}
+  .compile .kv b{color:var(--ink-2);font-weight:600}
+  .compile .arrow{text-align:center;color:var(--ink-3);margin:-4px 0 5px;font-size:13px}
+  .price-total{font-size:26px;font-weight:800;letter-spacing:-.5px}
+  .price-total .cur{font-size:16px;color:var(--ink-3);font-weight:600}
+
+  /* ---------- add-test modal ---------- */
+  .backdrop{position:fixed;inset:0;background:rgba(15,22,34,.4);backdrop-filter:blur(2px);display:none;align-items:flex-start;justify-content:center;padding-top:10vh;z-index:60}
+  .backdrop.show{display:flex}
+  .modal{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow-pop);width:min(540px,92vw);overflow:hidden;animation:pop .16s ease}
+  @keyframes pop{from{transform:translateY(8px) scale(.98);opacity:0}}
+  .modal-h{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .modal-h .mt{font-size:16px;font-weight:700;letter-spacing:-.2px}
+  .modal-h .ms{font-size:12px;color:var(--ink-3)}
+  .modal-b{padding:18px 20px;max-height:64vh;overflow:auto}
+  .modal-f{padding:14px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:9px;background:var(--surface-2)}
+  .modal-x{margin-left:auto;cursor:pointer;color:var(--ink-3);font-size:20px;line-height:1;border:none;background:none}
+  .searchbox{display:flex;align-items:center;gap:9px;border:1px solid var(--line-strong);border-radius:10px;padding:11px 13px;margin-bottom:10px}
+  .searchbox input{border:none;outline:none;background:none;flex:1;font-size:15px;color:var(--ink)}
+  .res{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:9px;cursor:pointer;border:1px solid transparent}
+  .res:hover{background:var(--surface-2);border-color:var(--line)}
+  .res .rc{width:34px;height:34px;border-radius:8px;background:var(--sunken);display:grid;place-items:center;font:700 11px/1 var(--mono);color:var(--navy)}
+  .res .ri{flex:1;min-width:0}
+  .res .rn{font-size:13.5px;font-weight:600}
+  .res .rm{font-size:11.5px;color:var(--ink-3)}
+  .res .rb{font-size:11px;font-weight:700;color:var(--green);background:var(--green-tint);padding:3px 9px;border-radius:20px}
+  .res.create{border:1px dashed color-mix(in srgb,var(--blue) 45%,transparent);margin-top:6px}
+  .res.create .rc{background:var(--blue-tint);color:var(--blue);font-size:18px}
+  .res.create .rb{color:var(--blue);background:var(--blue-tint)}
+  .createform{display:none;border-top:1px solid var(--line);margin-top:12px;padding-top:14px}
+  .createform.show{display:block}
+
+  .toasts{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;z-index:80;align-items:center}
+  .toast{background:var(--ink);color:#fff;font-size:13px;font-weight:500;padding:10px 15px;border-radius:10px;box-shadow:var(--shadow-pop);display:flex;align-items:center;gap:9px;animation:tin .2s ease}
+  .toast .ti{color:#5ee0a0;font-weight:800}
+  @keyframes tin{from{transform:translateY(10px);opacity:0}}
+
+  .popover{position:fixed;z-index:70;background:var(--surface);border:1px solid var(--line-strong);border-radius:11px;box-shadow:var(--shadow-pop);padding:13px;width:270px;display:none}
+  .popover.show{display:block;animation:pop .14s ease}
+  .popover .ph{font-size:12px;font-weight:700;margin-bottom:9px;display:flex;align-items:center;gap:7px}
+  .popover .ph .x{margin-left:auto;cursor:pointer;color:var(--ink-3);border:none;background:none;font-size:16px}
+
+  *:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="admin">
+  <div class="topbar"></div>
+  <div class="admin-head">
+    <h1>Admin Config Center</h1>
+    <p>Manage clinical definitions, panels, products, departments and signing doctors</p>
+  </div>
+
+  <!-- the real tab bar, with Report Builder added as a NEW tab -->
+  <div class="tabs">
+    <button class="tab active">📄 Report Builder <span class="newpill">NEW</span></button>
+    <button class="tab" onclick="advTab('Clinical Definitions')">⚗ Clinical Definitions</button>
+    <button class="tab" onclick="advTab('Panel Definitions')">▦ Panel Definitions</button>
+    <button class="tab" onclick="advTab('Billable Products')">◈ Billable Products</button>
+    <button class="tab" onclick="advTab('Departments')">🏢 Departments</button>
+    <button class="tab" onclick="advTab('Signers & Rules')">✎ Signers &amp; Rules</button>
+    <button class="tab" onclick="advTab('Referrals')">👥 Referrals</button>
+    <button class="tab" onclick="advTab('Roles')">🛡 Roles</button>
+  </div>
+
+  <div class="rb-head">
+    <span class="ico">📄</span>
+    <div><h2 id="rbTitle">Complete Blood Count</h2><p>Draw the report; the clinical definitions, panel layout and product build themselves underneath.</p></div>
+  </div>
+
+  <!-- builder toolbar -->
+  <div class="rb-toolbar">
+    <div class="rb-title"><span id="docName" contenteditable="true" spellcheck="false">Complete Blood Count</span> <span class="doc-code">CBP</span></div>
+    <div class="tb-spacer"></div>
+    <div class="seg lay-seg" title="Layout — morphs the report live">
+      <button class="on" data-lay="STANDARD_TABLE" onclick="setLayout('STANDARD_TABLE')">▤ Table</button>
+      <button data-lay="IMAGING_NARRATIVE" onclick="setLayout('IMAGING_NARRATIVE')">¶ Narrative</button>
+      <button data-lay="PROCEDURE_STRUCTURED" onclick="setLayout('PROCEDURE_STRUCTURED')">⌸ Procedure</button>
+      <button data-lay="TEXT_ONLY" onclick="setLayout('TEXT_ONLY')">≡ Text</button>
+    </div>
+    <div class="seg" title="Edit vs a clean preview of the final report">
+      <button class="on" id="modeEdit" onclick="setPreview(false)">✏ Edit</button>
+      <button id="modePreview" onclick="setPreview(true)">👁 Preview</button>
+    </div>
+    <div class="seg" title="How it prints — Digital copy (with letterhead) vs pre-printed Letterhead paper">
+      <button class="on" data-prof="screen" onclick="setProfile(this,'screen')">Digital</button>
+      <button data-prof="physical" onclick="setProfile(this,'physical')">Letterhead</button>
+    </div>
+    <div class="savechip" id="saveChip"><span class="dot"></span><span id="saveTxt">All changes saved</span></div>
+    <button class="btn primary" onclick="publish()">Publish</button>
+  </div>
+
+  <div class="stage">
+    <div class="desk">
+      <div class="desk-inner">
+        <div class="meta-bar">
+          <span class="ml">Department</span>
+          <select class="msel" onchange="setDept(this.value)"><option>Haematology</option><option>Biochemistry</option><option>Radiology</option><option>Serology</option></select>
+          <span class="ml">Payout category</span>
+          <select class="msel"><option>Laboratory</option><option>Haematology</option><option>Radiology / X-Ray</option><option>Imaging</option></select>
+          <span class="mdiv"></span>
+          <button class="mnew" onclick="newBlank()">＋ New blank report</button>
+          <span class="mhint">Referral commission is set per payout category — not per test.</span>
+        </div>
+        <div class="canvas-hint">Click a row to open its <b>Inspector</b> · double-click a name to rename (display only) · click a <b>reference cell</b> to edit ranges</div>
+        <div class="report-canvas" id="canvas"><!-- rendered by JS --></div>
+      </div>
+    </div>
+
+    <aside class="dock">
+      <div class="dock-tabs">
+        <div class="dock-tab on" data-pane="inspector" onclick="setDock('inspector')">Inspector</div>
+        <div class="dock-tab" data-pane="pricing" onclick="setDock('pricing')">Pricing</div>
+        <div class="dock-tab" data-pane="panel" onclick="setDock('panel')">Panel</div>
+        <div class="dock-tab" data-pane="compile" onclick="setDock('compile')">Compiles to</div>
+      </div>
+      <div class="dock-body">
+        <div class="dock-pane on" id="pane-inspector">
+          <div class="insp-empty" id="inspEmpty"><span class="big">☜</span>Select a test row on the report to edit its clinical contract — units, reference ranges, critical values, input type and formula.</div>
+          <div id="inspBody" style="display:none"></div>
+        </div>
+        <div class="dock-pane" id="pane-panel">
+          <div class="grp" style="border:none;padding-top:4px"><div class="grp-h">Panel settings <span class="pin">ClinicalPanel</span></div>
+            <div class="row"><label>Sample type</label><select class="sel" onchange="setSample(this.value)"><option>Whole Blood (EDTA)</option><option>Serum</option><option>Plasma</option><option>Whole Blood (Fluoride)</option><option>Whole Blood (Citrate)</option><option>Urine</option><option>Stool</option><option>Swab</option><option>CSF</option><option>Body Fluid</option></select></div>
+            <div class="two">
+              <div class="row"><label>Spaced gap</label><select class="sel" onchange="setGap(this.value)"><option value="0">None</option><option value="1">Small</option><option value="2">Medium</option><option value="3">Large</option></select></div>
+              <div class="row"><label>Value prefix</label><input class="inp" oninput="setPrefix(this.value)" placeholder='e.g. "1:"' maxlength="5"></div>
+            </div>
+            <div class="toggle-row"><span class="tl">Clinical Notes box</span><div class="sw on" onclick="toggleNotes(this)"></div></div>
+            <div class="toggle-row"><span class="tl">Panel active <span class="hint">— live &amp; billable</span></span><div class="sw on" onclick="toggleActive(this)"></div></div>
+          </div>
+          <div class="scope-note">Method column, subgroups &amp; subgroup methods are <b>auto-detected</b> — they appear when you add that content. Clinical Notes has an explicit toggle (above) so big multi-panel reports like CBP + Hemogram can hide it.</div>
+        </div>
+        <div class="dock-pane" id="pane-pricing">
+          <div class="grp" style="border:none;padding-top:4px">
+            <div class="grp-h">Sell this report <span class="pin">→ BillableProduct</span></div>
+            <div class="row"><label>List price</label>
+              <div style="display:flex;align-items:center;gap:8px"><span class="price-total"><span class="cur">₹</span>450</span><input class="inp" style="width:90px;margin-left:auto" value="450.00"></div>
+              <div class="hint">Stored as <code>45000</code> paise. Product code <b>CBP</b> · derived type <b>Panel</b>.</div></div>
+            <div class="row"><label>Workflow mode</label><select class="sel"><option>Reportable</option><option>Bill only</option><option>External upload</option><option>Event (coupon)</option></select></div>
+            <div class="row"><label>Payout category</label><select class="sel"><option>Laboratory</option><option>Haematology</option><option>X-Ray</option></select><div class="hint">Referral doctor commission is set per <b>category</b> (in Referrals), so you never add commission for every single test.</div></div>
+          </div>
+          <div class="grp"><div class="grp-h">Per-branch price override</div>
+            <div class="rng"><span class="cat">Balanagar</span><span>₹</span><input value="450"></div>
+            <div class="rng"><span class="cat">Chintal</span><span>₹</span><input value="400"></div>
+            <button class="add-inline">+ Add branch price</button></div>
+          <div class="scope-note">Packages, bundles &amp; nested products stay in the full <b>Billable Products</b> tab — this rail only publishes the common one-panel = one-product case.</div>
+        </div>
+        <div class="dock-pane" id="pane-compile">
+          <div class="scope-note" style="margin-top:2px">Nothing new in the database. The canvas <b>compiles</b> to your existing models — like JSX to the DOM.</div>
+          <div class="compile">
+            <div class="node"><div class="mh"><span class="mt">Complete Blood Count</span><span class="tag">BillableProduct</span></div><div class="kv">code <b>CBP</b> · ₹450 · Reportable · 1 line → panel</div></div>
+            <div class="arrow">↓</div>
+            <div class="node"><div class="mh"><span class="mt">CBP</span><span class="tag">ClinicalPanel</span></div><div class="kv">layout <b>STANDARD_TABLE</b> · dept Haematology · subgroups on · <b>8</b> items</div></div>
+            <div class="arrow">↓</div>
+            <div class="node"><div class="mh"><span class="mt">8 × ClinicalPanelItem</span><span class="tag">layout</span></div><div class="kv">order, indent, subgroup, <b>displayLabel</b>, join, width — presentation only</div></div>
+            <div class="arrow">↓</div>
+            <div class="node"><div class="mh"><span class="mt">8 × TestDefinition</span><span class="tag">canonical</span></div><div class="kv">code, unit, ranges, criticals, formula, input-config — versioned, shared</div></div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<!-- add-test dialog -->
+<div class="backdrop" id="addRowModal">
+  <div class="modal">
+    <div class="modal-h"><div><div class="mt">Browse existing tests</div><div class="ms">Insert a test you already have. To create a NEW one, just type its name on the report row.</div></div><button class="modal-x" onclick="closeModal('addRowModal')">×</button></div>
+    <div class="modal-b">
+      <div class="searchbox">🔍 <input id="searchInp" placeholder="Search tests…  try “ALT”" oninput="renderSearch(this.value)" autocomplete="off"></div>
+      <div id="searchResults"></div>
+      <div class="createform" id="createForm">
+        <div class="two"><div class="row"><label>Test name</label><input class="inp" id="newName"></div><div class="row"><label>Code</label><input class="inp" id="newCode" style="font-family:var(--mono);text-transform:uppercase"></div></div>
+        <div class="two"><div class="row"><label>Unit</label><input class="inp" id="newUnit" placeholder="U/L"></div><div class="row"><label>Result type</label><select class="sel" id="newType"><option>Numeric</option><option>Free text</option><option>Text with presets</option><option>Select only</option></select></div></div>
+        <div class="row"><label>Reference range <span class="hint">(optional — add ranges later in the Inspector)</span></label><div class="two"><input class="inp" placeholder="Min"><input class="inp" placeholder="Max"></div></div>
+      </div>
+    </div>
+    <div class="modal-f" id="addRowFoot"></div>
+  </div>
+</div>
+
+<div class="popover" id="refPop"><div class="ph">Reference ranges <button class="x" onclick="closePop()">×</button></div><div id="refPopBody"></div></div>
+<div class="toasts" id="toasts"></div>
+
+<script>
+const CATALOG=[
+  {code:'HB',name:'Haemoglobin',unit:'g/dL',type:'Numeric',used:4},
+  {code:'TLC',name:'Total WBC Count',unit:'/cmm',type:'Numeric',used:3},
+  {code:'PLT',name:'Platelet Count',unit:'×10³/µL',type:'Numeric',used:3},
+  {code:'RBC',name:'RBC Count',unit:'mill/cmm',type:'Numeric',used:2},
+  {code:'ESR',name:'ESR',unit:'mm/hr',type:'Numeric',used:5},
+  {code:'ALT',name:'SGPT (ALT)',unit:'U/L',type:'Numeric',used:0},
+  {code:'AST',name:'SGOT (AST)',unit:'U/L',type:'Numeric',used:6},
+  {code:'TSH',name:'TSH',unit:'µIU/mL',type:'Numeric',used:3},
+  {code:'HBA1C',name:'HbA1c',unit:'%',type:'Numeric',used:2},
+  {code:'BLGRP',name:'Blood Group',unit:'',type:'Select only',used:8}
+];
+const T=(o)=>Object.assign({kind:'test',label:null,method:'',indent:0,style:'normal',join:false,width:'',presets:[],defaultValue:'',formula:''},o);
+const CBC_ROWS=[
+  T({id:1,code:'HB',name:'Haemoglobin',unit:'g/dL',val:'10.2',flag:'L',type:'Numeric',used:4,ranges:[{c:'Adult Male',g:'M',lo:13,hi:17},{c:'Adult Female',g:'F',lo:12,hi:15}],crit:{lo:7,hi:20}}),
+  T({id:2,code:'TLC',name:'Total WBC Count',unit:'/cmm',val:'8,200',flag:'',type:'Numeric',used:3,ranges:[{c:'Adult',g:'',lo:4000,hi:11000}],crit:{lo:2000,hi:30000}}),
+  T({id:3,code:'PLT',name:'Platelet Count',unit:'×10³/µL',val:'240',flag:'',type:'Numeric',used:3,ranges:[{c:'Adult',g:'',lo:150,hi:410}],crit:{lo:20,hi:1000}}),
+  T({id:4,code:'RBC',name:'RBC Count',unit:'mill/cmm',val:'4.6',flag:'',type:'Numeric',used:2,ranges:[{c:'Adult Male',g:'M',lo:4.5,hi:5.5},{c:'Adult Female',g:'F',lo:3.8,hi:4.8}],crit:{lo:0,hi:0}}),
+  {id:100,kind:'section',name:'DIFFERENTIAL COUNT',method:'',keyValue:false},
+  T({id:5,code:'NEU',name:'Neutrophils',unit:'%',val:'62',flag:'',type:'Numeric',used:1,ranges:[{c:'Adult',g:'',lo:40,hi:75}],crit:{lo:0,hi:0}}),
+  T({id:6,code:'LYM',name:'Lymphocytes',unit:'%',val:'30',flag:'',type:'Numeric',used:1,ranges:[{c:'Adult',g:'',lo:20,hi:45}],crit:{lo:0,hi:0}}),
+  T({id:7,code:'EOS',name:'Eosinophils',unit:'%',val:'6',flag:'',type:'Numeric',used:1,ranges:[{c:'Adult',g:'',lo:1,hi:6}],crit:{lo:0,hi:0}}),
+  T({id:8,code:'MON',name:'Monocytes',unit:'%',val:'2',flag:'',type:'Numeric',used:1,ranges:[{c:'Adult',g:'',lo:2,hi:10}],crit:{lo:0,hi:0}})
+];
+const NARR_DEFAULT=`<h3>LIVER</h3><p>Normal in size and echotexture. No focal lesion. Intrahepatic biliary radicles are not dilated.</p><h3>GALL BLADDER</h3><p>Well distended, wall thickness normal. No calculus.</p><h3>KIDNEYS</h3><p>Both kidneys normal in size, position and cortical echogenicity. No calculus or hydronephrosis.</p><h3>IMPRESSION</h3><p>No significant abnormality detected in the scanned abdomen.</p>`;
+const TEXT_DEFAULT=`<p>RBCs are normocytic normochromic with mild anisocytosis. WBCs are adequate in number with normal morphology. Platelets are adequate on smear.</p><p><b>Impression:</b> No haemoparasites seen. No atypical cells.</p>`;
+let state={rows:JSON.parse(JSON.stringify(CBC_ROWS)),selId:null,layout:'STANDARD_TABLE',profile:'screen',reportName:'Complete Blood Count',narrativeHtml:NARR_DEFAULT,textHtml:TEXT_DEFAULT,preview:false,dept:'Haematology',panelMethod:'Automated 5-part cell counter (Sysmex XN-550)',panel:{gap:0,prefix:'',sampleType:'Whole Blood (EDTA)',active:true},clinicalNotes:'Mild anaemia (low haemoglobin) with an otherwise unremarkable count. Suggest correlation with iron studies.',interpretation:'',showInterpretation:false,showNotes:true};
+const LAYOUTS={STANDARD_TABLE:'Standard Table',TEXT_ONLY:'Text only',IMAGING_NARRATIVE:'Imaging Narrative',PROCEDURE_STRUCTURED:'Procedure Structured'};
+const SIG=`<svg class="sig-img" viewBox="0 0 120 40" xmlns="http://www.w3.org/2000/svg"><path d="M4 28 C 16 6, 24 6, 28 24 S 40 34, 48 18 S 62 2, 66 26 C 70 34, 80 30, 96 12 C 104 4, 112 10, 116 20" fill="none" stroke="#1a3a63" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+const SIGNERS={
+  Haematology:{doctor:{n:'Dr. Meera Nair',q:'MD (Pathology)',d:'Consultant Pathologist',r:'Reg. 44120'},incharge:true},
+  Biochemistry:{doctor:{n:'Dr. Meera Nair',q:'MD (Pathology)',d:'Consultant Pathologist',r:'Reg. 44120'},incharge:true},
+  Serology:{doctor:{n:'Dr. Meera Nair',q:'MD (Pathology)',d:'Consultant Pathologist',r:'Reg. 44120'},incharge:true},
+  Radiology:{doctor:{n:'Dr. A. Deshpande',q:'MD, DNB (Radiodiagnosis)',d:'Consultant Radiologist',r:'Reg. 51288'},incharge:false}
+};
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function dispName(r){return r.label||r.name}
+function refStr(r){ if(!r.ranges||!r.ranges.length)return '—'; if(r.ranges.length===1&&!r.ranges[0].g)return `${r.ranges[0].lo} – ${r.ranges[0].hi}`; return r.ranges.map(x=>`${x.g==='M'?'M':x.g==='F'?'F':x.c}: ${x.lo}–${x.hi}`).join('  ·  '); }
+
+function reportHeader(){
+  const phys=state.profile==='physical';
+  const ro=state.preview?'':' rc-readonly rc-header-ro';
+  const top = phys
+    ? `<div class="rc-letterhead-space">▢ pre-printed letterhead area — logo · lab name · accreditations (from Branch settings)</div>`
+    : `<div class="rc-header-row${ro}">
+      <div class="rc-logo"><div class="mark">H</div><div><div class="lo-name">HealthFlow Diagnostics</div><div class="lo-sub">Accredited Clinical Laboratory</div></div></div>
+      <div class="rc-qr"><div class="qr"></div><div class="qr-t">Scan to<br>verify</div></div></div>
+    <div class="rc-band"><div></div><div></div></div>`;
+  return `${top}
+    <div class="rc-badge-row"><span class="rc-badge">Laboratory Report</span></div>
+    <div class="rc-patient${ro}"><div class="rc-info">
+        <div class="rc-inforow"><div class="rc-cell"><span class="k">Patient Name</span><span class="v">Ananya Rao</span></div><div class="rc-cell"><span class="k">Bill No</span><span class="v">BLR-24817</span></div></div>
+        <div class="rc-inforow"><div class="rc-cell"><span class="k">Age / Sex</span><span class="v">34 Y / Female</span></div><div class="rc-cell"><span class="k">Patient ID</span><span class="v">P-100482</span></div></div>
+        <div class="rc-inforow"><div class="rc-cell"><span class="k">Ref. Doctor</span><span class="v">Dr. S. Kulkarni</span></div><div class="rc-cell"><span class="k">Registered</span><span class="v">29 Jul 2026, 9:14 AM</span></div></div>
+        <div class="rc-inforow"><div class="rc-cell"><span class="k">Sample Type</span><span class="v">${esc(state.panel.sampleType)}</span></div><div class="rc-cell"><span class="k">Reported</span><span class="v">29 Jul 2026, 11:02 AM</span></div></div>
+      </div><div class="rc-pqr"><div class="qr"></div><div class="qt">Scan for<br>your report</div></div></div>`;
+}
+function reportFooter(){
+  if(state.profile==='physical') return `<div class="rc-footer-space">▢ pre-printed footer — clinic address · phone (from Branch settings)</div>`;
+  return `<div class="rc-footer"><div class="stripe"></div><div class="fc"><div class="fl"><div class="nt">This is an electronically authenticated report.</div><div>Results relate only to the sample tested.</div></div><div class="fr"><div class="addr">Plot 14, Balanagar, Hyderabad – 500037</div><div class="ph">☎ 040-2977 4410 · care@healthflow.in</div></div></div></div>`;
+}
+function reportSigs(){
+  const dept=state.layout==='IMAGING_NARRATIVE'?'Radiology':(state.dept||'Haematology');
+  const s=SIGNERS[dept]||SIGNERS.Haematology; const d=s.doctor; const ro=state.preview?'':' rc-readonly';
+  const incharge=s.incharge?`<div class="rc-sig incharge${ro}">${SIG.replace('class="sig-img"','class="sig-img" style="width:64px;height:34px"')}<div class="lab">Lab Incharge</div></div>`:'';
+  return `<div class="rc-bottom"><div class="rc-div"></div><div class="rc-sigs">
+      ${incharge}
+      <div class="rc-sig${ro}">${SIG}<div class="dn">${d.n}</div><div class="dg">${d.q}</div><div class="dd">${d.d}</div><div class="dr">${d.r}</div></div></div></div>`;
+}
+function renderCanvas(){
+  const c=document.getElementById('canvas');
+  c.classList.toggle('physical',state.profile==='physical');
+  c.classList.toggle('preview',state.preview);
+  document.querySelector('.admin').classList.toggle('is-preview',state.preview);
+  let body= state.layout==='STANDARD_TABLE'?renderTable(): state.layout==='TEXT_ONLY'?renderTextOnly(): state.layout==='IMAGING_NARRATIVE'?renderImaging():renderProcedure();
+  c.innerHTML=`<div class="rc-content">${reportHeader()}
+      <div class="rc-dept">${state.layout==='IMAGING_NARRATIVE'?'DEPARTMENT OF RADIOLOGY':'DEPARTMENT OF HAEMATOLOGY'}</div>
+      ${body}${reportSigs()}</div>${reportFooter()}`;
+  bindCanvas();
+}
+function renderTable(){
+  let rows='',curKV=false;
+  state.rows.forEach(r=>{
+    if(r.kind==='section'){ curKV=!!r.keyValue; rows+=sectionRow(r,4); return; }
+    const val=(r.val!==''&&r.val!=null)?`${state.panel.prefix||''}${esc(r.val)}`:'';
+    if(curKV){ rows+=`<tr class="data-row" data-id="${r.id}"><td colspan="4" class="kv-cell">${dragHandle(r.id)}<span class="kv-l rc-tname" data-name="${r.id}" ondblclick="editName(this,${r.id})">${esc(dispName(r))}</span><span class="kv-s"> : </span><span class="kv-v">${val||'—'}</span></td></tr>`; return; }
+    const abn=r.flag?'abn':'';
+    rows+=`<tr class="data-row" data-id="${r.id}">
+      <td class="rc-col-test" style="${r.indent?`padding-left:${18+r.indent*16}px;`:''}">${dragHandle(r.id)}<span class="rc-tname${r.style==='bold'?' bold':''}" data-name="${r.id}" ondblclick="editName(this,${r.id})" style="${r.style==='italic'?'font-style:italic;':''}">${esc(dispName(r))}</span>${tmethod(r)}</td>
+      <td class="rc-col-value ${abn}">${val}${r.flag?`<span class="rc-flag">${r.flag}</span>`:''}</td>
+      <td class="rc-col-unit">${esc(r.unit)}</td>
+      <td class="rc-col-ref" data-ref="${r.id}">${esc(refStr(r))}</td></tr>`;
+    if(state.panel.gap>0) rows+=`<tr class="gap-row"><td colspan="4" style="height:${state.panel.gap*7}px;border:none;padding:0"></td></tr>`;
+  });
+  const title=esc((state.reportName||'Report').toUpperCase());
+  return `<div class="rc-panel"><div class="rc-panel-title">${title}</div>
+    ${panelMethodLine()}
+    <table class="rc-table"><thead><tr><th class="rc-col-test">Test</th><th class="rc-col-value">Result</th><th class="rc-col-unit">Unit</th><th class="rc-col-ref">Reference Range</th></tr></thead><tbody>${rows}</tbody></table>
+    ${notesBoxes()}
+    </div>
+    ${adds('<button class="rc-add" onclick="addTestInline()">＋ Add test</button><button class="rc-add" onclick="openAddRow()">⌕ Browse existing</button><button class="rc-add" onclick="addSectionInline()">＋ Add subgroup</button>')}`;
+}
+function renderTextOnly(){
+  const title=esc((state.reportName||'').toUpperCase())||'TEXT REPORT'; const ed=state.preview;
+  return `<div class="rc-panel"><div class="rc-panel-title">${title}</div>
+    ${panelMethodLine()}
+    ${rtToolbar()}
+    <div class="rc-textonly"><span class="lab">Peripheral Smear Examination:</span>
+      <div class="rc-narr${ed?'':' rt-edit'}"${ed?'':' contenteditable="true"'} data-target="text"${ed?'':' oninput="saveNarr(this)"'}>${state.textHtml}</div></div>
+    ${notesBoxes()}</div>`;
+}
+function renderImaging(){
+  const title=esc((state.reportName||'').toUpperCase())||'IMAGING REPORT'; const ed=state.preview;
+  return `<div class="rc-panel"><div class="rc-panel-title">${title}</div>
+    ${panelMethodLine()}
+    ${rtToolbar()}
+    <div class="rc-narr${ed?'':' rt-edit'}"${ed?'':' contenteditable="true"'} data-target="narrative"${ed?'':' oninput="saveNarr(this)"'}>${state.narrativeHtml}</div>
+    ${notesBoxes()}</div>`;
+}
+function renderProcedure(){
+  let rows='';
+  state.rows.forEach(r=>{
+    if(r.kind==='section'){ rows+=sectionRow(r,2); return; }
+    rows+=`<tr class="data-row" data-id="${r.id}"><td style="${r.indent?`padding-left:${8+r.indent*16}px;`:''}">${dragHandle(r.id)}<span class="rc-tname${r.style==='bold'?' bold':''}" data-name="${r.id}" ondblclick="editName(this,${r.id})">${esc(dispName(r))}</span>${tmethod(r)}</td><td>${esc(r.val||'—')}${r.unit?` <span style="color:#777">${esc(r.unit)}</span>`:''}</td></tr>`;
+    if(state.panel.gap>0) rows+=`<tr class="gap-row"><td colspan="2" style="height:${state.panel.gap*7}px;border:none;padding:0"></td></tr>`;
+  });
+  const title=esc((state.reportName||'Report').toUpperCase());
+  return `<div class="rc-panel"><div class="rc-panel-title">${title}</div>
+    ${panelMethodLine()}
+    <table class="rc-proc"><thead><tr><th>Parameter</th><th>Result</th></tr></thead><tbody>${rows}</tbody></table>
+    ${notesBoxes()}</div>
+    ${adds('<button class="rc-add" onclick="addTestInline()">＋ Add parameter</button><button class="rc-add" onclick="openAddRow()">⌕ Browse existing</button><button class="rc-add" onclick="addSectionInline()">＋ Add subgroup</button>')}`;
+}
+function bindCanvas(){
+  if(state.preview) return;
+  document.querySelectorAll('#canvas tr.data-row').forEach(tr=>{
+    tr.onclick=e=>{ if(e.target.closest('[data-ref]'))return; selectRow(+tr.dataset.id); };
+    if(+tr.dataset.id===state.selId)tr.classList.add('sel');
+  });
+  document.querySelectorAll('#canvas [data-ref]').forEach(td=>{ td.onclick=e=>{e.stopPropagation();openRefPop(+td.dataset.ref,td);}; });
+  document.querySelectorAll('#canvas .rc-readonly').forEach(el=>{ el.onclick=()=>toast(el.classList.contains('rc-header-ro')?'Letterhead (logo, lab name) + footer (address, phone) come from this branch’s settings — shared across every report. Click to edit them in Branch settings.':'Signatures are resolved from your Signing Rules (per branch & department) — edit them in Signers, not per report.'); });
+  bindDrag();
+}
+
+/* INSPECTOR */
+function selectRow(id){ state.selId=id; setDock('inspector'); document.querySelectorAll('#canvas tr.data-row').forEach(tr=>tr.classList.toggle('sel',+tr.dataset.id===id)); renderInspector(); }
+function renderInspector(){
+  const r=state.rows.find(x=>x.id===state.selId); if(!r||r.kind!=='test'){document.getElementById('inspEmpty').style.display='block';document.getElementById('inspBody').style.display='none';return;}
+  document.getElementById('inspEmpty').style.display='none';
+  const b=document.getElementById('inspBody'); b.style.display='block';
+  const shared=r.used>1;
+  const dr=r.defRange||(r.defRange={lo:'',hi:'',text:''});
+  const sec=currentSection(r.id);
+  const preset=r.type==='Text with presets'||r.type==='Select only';
+  b.innerHTML=`
+    <div class="insp-head"><span class="nm">${esc(r.name)}</span><span class="ver">v3 · latest</span></div>
+    <div class="insp-sub">Canonical test · code <b>${r.code}</b> · TestDefinition</div>
+    ${shared?`<div class="scope-note">↪ Used in <b>${r.used} reports</b>. Editing <b>canonical</b> fields (unit, ranges, criticals, formula) mints a new version everywhere. Everything under “Layout in this panel” is presentation-only — no version.</div>`:''}
+    <div class="grp"><div class="grp-h">Layout in this panel <span class="pin paper">ClinicalPanelItem · no version</span></div>
+      <div class="row"><label>Display label</label><input class="inp" value="${esc(dispName(r))}" oninput="setLabel(${r.id},this.value)"><div class="hint">Canonical name stays <b>${esc(r.name)}</b>.</div></div>
+      <div class="two">
+        <div class="row"><label>Subgroup</label><select class="sel" onchange="setSubgroup(${r.id},this.value)"><option value="__none__" ${!sec?'selected':''}>None (main)</option>${sections().map(s=>`<option value="${s.id}" ${sec&&sec.id===s.id?'selected':''}>${esc(s.name||'(unnamed)')}</option>`).join('')}</select></div>
+        <div class="row"><label>Indent</label><select class="sel" onchange="setItem(${r.id},'indent',+this.value)"><option value="0" ${r.indent===0?'selected':''}>None</option><option value="1" ${r.indent===1?'selected':''}>1</option><option value="2" ${r.indent===2?'selected':''}>2</option></select></div>
+      </div>
+      <div class="two">
+        <div class="row"><label>Display style</label><select class="sel" onchange="setItem(${r.id},'style',this.value)"><option value="normal" ${r.style==='normal'?'selected':''}>Normal</option><option value="bold" ${r.style==='bold'?'selected':''}>Bold</option><option value="italic" ${r.style==='italic'?'selected':''}>Italic</option></select></div>
+        <div class="row"><label>Row</label><select class="sel" onchange="setItem(${r.id},'join',this.value==='join')"><option value="new" ${!r.join?'selected':''}>New row</option><option value="join" ${r.join?'selected':''}>Join previous</option></select></div>
+      </div>
+      <div class="row"><label>Per-test method <span class="hint">shows live · no version</span></label><input class="inp" value="${esc(r.method||'')}" oninput="setTestMethod(${r.id},this.value)" placeholder="e.g. ECLIA / GOD-POD"></div></div>
+    <div class="grp"><div class="grp-h">Value input <span class="pin">TestInputConfig · no version</span></div>
+      <div class="row"><label>Result type</label><select class="sel" onchange="setType(${r.id},this.value)"><option ${r.type==='Numeric'?'selected':''}>Numeric</option><option ${r.type==='Free text'?'selected':''}>Free text</option><option ${r.type==='Text with presets'?'selected':''}>Text with presets</option><option ${r.type==='Select only'?'selected':''}>Select only</option></select></div>
+      ${preset?`<div class="row"><label>Preset values</label><div class="presets">${(r.presets||[]).map((p,i)=>`<span class="preset">${esc(p)}<button class="pchip-x" onclick="delPreset(${r.id},${i})">×</button></span>`).join('')||'<span class="hint">none yet</span>'}</div><div class="two" style="margin-top:6px"><input class="inp" id="np-${r.id}" placeholder="Add value…" onkeydown="if(event.key==='Enter'){event.preventDefault();addPreset(${r.id},this);}"><button class="btn" onclick="addPreset(${r.id},document.getElementById('np-${r.id}'))">Add</button></div></div>
+      <div class="row"><label>Default value</label><input class="inp" value="${esc(r.defaultValue||'')}" oninput="setDefaultVal(${r.id},this.value)" placeholder="pre-fill on entry"></div>`:''}</div>
+    <div class="grp"><div class="grp-h">Unit &amp; reference ranges <span class="pin">TestDefinition · versioned</span></div>
+      <div class="row"><label>Unit</label><input class="inp" value="${esc(r.unit)}" oninput="onCanon(${r.id},'unit',this.value)"></div>
+      <div class="rng"><div class="cat">Default <small>all patients · fallback</small></div><input value="${dr.lo}" onchange="setDef(${r.id},'lo',this.value)"><span class="dash">–</span><input value="${dr.hi}" onchange="setDef(${r.id},'hi',this.value)"></div>
+      <input class="inp" style="margin-bottom:11px" placeholder="…or a text range — e.g. Negative" value="${esc(dr.text||'')}" oninput="setDef(${r.id},'text',this.value)">
+      <div class="grp-h" style="margin:0 0 8px">Age / gender variants</div>
+      ${r.ranges.map((rg,i)=>`<div class="rng"><div class="cat">${esc(rg.c)}<small>${rg.g==='M'?'Male':rg.g==='F'?'Female':'All'}</small></div><input value="${rg.lo}" onchange="setRange(${r.id},${i},'lo',this.value)"><span class="dash">–</span><input value="${rg.hi}" onchange="setRange(${r.id},${i},'hi',this.value)"><button class="rng-del" onclick="delRange(${r.id},${i})" title="Remove">×</button></div>`).join('')||'<div class="hint" style="margin-bottom:9px">No variants — the default applies to everyone.</div>'}
+      <button class="add-inline" onclick="addRange(${r.id})">+ Add age / gender variant</button></div>
+    <div class="grp"><div class="grp-h">Critical values <span class="pin">versioned</span></div>
+      <div class="two"><div class="row"><label>Critical low</label><input class="inp" value="${r.crit.lo||''}" onchange="setCrit(${r.id},'lo',this.value)"></div><div class="row"><label>Critical high</label><input class="inp" value="${r.crit.hi||''}" onchange="setCrit(${r.id},'hi',this.value)"></div></div></div>
+    <div class="grp"><div class="grp-h">Derived formula <span class="pin">fx · versioned</span></div>
+      <div class="row"><input class="inp" style="font-family:var(--mono)" placeholder="e.g. (NEU / LYM)" value="${esc(r.formula)}" oninput="onCanon(${r.id},'formula',this.value)"><div class="hint">Uses other test <b>codes</b>. Computed at result entry.</div></div></div>
+    <div class="grp"><div class="grp-h">Interpretation rules <span class="pin">inspector only</span></div>
+      <div class="scope-note" style="margin:0">Authored here but <b>not printed yet</b> — the report shows the static Interpretation box.</div></div>
+    <div class="impact" id="impactBox"><div class="it">⚠ Canonical change → new version</div>
+      <div class="id">Saving will lock <b>${r.code} v3</b>, mint <b>v4</b>, and re-point <b>${r.used} report${r.used>1?'s':''}</b>. Historical reports stay frozen.</div>
+      <div class="ia"><button class="btn warn" onclick="commitVersion(${r.id})">Create v4</button><button class="btn" onclick="document.getElementById('impactBox').classList.remove('show')">Keep editing</button></div></div>`;
+}
+function markCanonical(){ document.getElementById('impactBox')?.classList.add('show'); saving(); }
+function commitVersion(id){ document.getElementById('impactBox').classList.remove('show'); const r=state.rows.find(x=>x.id===id); toast(`${r.code} v4 created · re-pointed ${r.used} reports`); saved(); }
+function setLabel(id,v){ const r=state.rows.find(x=>x.id===id); r.label=v.trim()||null; const el=document.querySelector(`[data-name="${id}"]`); if(el)el.textContent=dispName(r); saving(); setTimeout(saved,500); }
+function addRange(id){ const r=state.rows.find(x=>x.id===id); r.ranges.push({c:'New variant',g:'',lo:0,hi:0}); renderInspector(); renderCanvas(); markCanonical(); }
+function setDef(id,k,v){ const r=state.rows.find(x=>x.id===id); if(!r.defRange)r.defRange={lo:'',hi:'',text:''}; r.defRange[k]=v; renderCanvas(); markCanonical(); }
+function delRange(id,idx){ const r=state.rows.find(x=>x.id===id); r.ranges.splice(idx,1); renderInspector(); renderCanvas(); markCanonical(); }
+function editName(el,id){ el.setAttribute('contenteditable','true'); el.focus(); getSelection().selectAllChildren(el);
+  el.onblur=()=>{ el.removeAttribute('contenteditable'); const r=state.rows.find(x=>x.id===id); r.label=el.textContent.trim()||null; el.textContent=dispName(r); if(state.selId===id)renderInspector(); toast('Display label updated (this report only)'); saving();setTimeout(saved,500); };
+  el.onkeydown=e=>{ if(e.key==='Enter'){e.preventDefault();el.blur();} };
+}
+
+/* REF POPOVER */
+let popEl=null;
+function openRefPop(id,anchor){ const r=state.rows.find(x=>x.id===id); selectRow(id); const p=document.getElementById('refPop'); popEl=p;
+  document.getElementById('refPopBody').innerHTML=r.ranges.map(rg=>`<div class="rng"><div class="cat">${rg.c}<small>${rg.g==='M'?'Male':rg.g==='F'?'Female':'All'}</small></div><input value="${rg.lo}" style="width:46px"><span class="dash">–</span><input value="${rg.hi}" style="width:46px"></div>`).join('')+`<button class="add-inline" onclick="addRange(${id});closePop()">+ Add variant</button>`;
+  const rc=anchor.getBoundingClientRect(); p.style.top=Math.min(rc.bottom+6,innerHeight-240)+'px'; p.style.left=Math.min(rc.left,innerWidth-290)+'px'; p.classList.add('show');
+}
+function closePop(){ if(popEl){popEl.classList.remove('show');popEl=null;} }
+document.addEventListener('click',e=>{ if(popEl&&!popEl.contains(e.target)&&!e.target.closest('[data-ref]'))closePop(); });
+
+/* ADD ROW */
+function openAddRow(){ openModal('addRowModal'); document.getElementById('createForm').classList.remove('show'); const s=document.getElementById('searchInp'); s.value=''; renderSearch(''); setTimeout(()=>s.focus(),50); document.getElementById('addRowFoot').innerHTML=''; }
+function renderSearch(q){ q=q.trim().toLowerCase(); const inR=new Set(state.rows.map(r=>r.code));
+  const hits=CATALOG.filter(t=>!q||t.name.toLowerCase().includes(q)||t.code.toLowerCase().includes(q));
+  let html=hits.map(t=>`<div class="res" onclick="insertExisting('${t.code}')"><div class="rc">${t.code.slice(0,4)}</div><div class="ri"><div class="rn">${t.name} ${inR.has(t.code)?'<span style="color:var(--ink-3);font-weight:500">· already added</span>':''}</div><div class="rm">${t.unit||'—'} · ${t.type} · used in ${t.used} report${t.used===1?'':'s'}</div></div><div class="rb">Insert</div></div>`).join('');
+  const exact=CATALOG.some(t=>t.name.toLowerCase()===q||t.code.toLowerCase()===q);
+  if(q&&!exact)html+=`<div class="res create" onclick="showCreate('${q.replace(/'/g,"")}')"><div class="rc">＋</div><div class="ri"><div class="rn">Create new test “${esc(q)}”</div><div class="rm">Silently mints a v1 Clinical Definition and adds it</div></div><div class="rb">New</div></div>`;
+  document.getElementById('searchResults').innerHTML=html||`<div class="insp-empty" style="padding:24px">No matches.</div>`;
+}
+function insertExisting(code){ const t=CATALOG.find(x=>x.code===code); if(state.rows.some(r=>r.code===code)){toast('Already in this report');return;} const id=Date.now();
+  state.rows.push(T({id,code:t.code,name:t.name,unit:t.unit,val:'',flag:'',type:t.type,used:t.used+1,ranges:[{c:'Adult',g:'',lo:0,hi:0}],crit:{lo:0,hi:0}}));
+  closeModal('addRowModal'); renderCanvas(); selectRow(id); toast(`Inserted ${t.name} (already configured)`); }
+function showCreate(q){ const f=document.getElementById('createForm'); f.classList.add('show');
+  document.getElementById('newName').value=q.replace(/\b\w/g,c=>c.toUpperCase()); document.getElementById('newCode').value=q.replace(/[^a-z0-9]/gi,'').toUpperCase().slice(0,8); document.getElementById('newUnit').value=''; document.getElementById('searchResults').innerHTML='';
+  document.getElementById('addRowFoot').innerHTML=`<button class="btn" onclick="closeModal('addRowModal')">Cancel</button><button class="btn primary" onclick="createTest()">Create &amp; add</button>`;
+  setTimeout(()=>document.getElementById('newUnit').focus(),40); }
+function createTest(){ const name=document.getElementById('newName').value.trim(),code=document.getElementById('newCode').value.trim().toUpperCase(),unit=document.getElementById('newUnit').value.trim(),type=document.getElementById('newType').value; if(!name){toast('Name required');return;} const id=Date.now();
+  state.rows.push(T({id,code,name,unit,val:'',flag:'',type,used:0,ranges:[{c:'Adult',g:'',lo:0,hi:0}],crit:{lo:0,hi:0}})); CATALOG.push({code,name,unit,type,used:1});
+  closeModal('addRowModal'); renderCanvas(); selectRow(id); toast(`Created definition ${code} (v1) and added to report`); }
+function addSection(){ toast('Section added'); }
+/* ---- sections, drag, panel & item config ---- */
+let dragId=null;
+function dragHandle(id){ return state.preview?'':`<span class="drag" draggable="true" data-drag="${id}" title="Drag to reorder">⠿</span>`; }
+function tmethod(r){ return r.method?`<div class="rc-tmethod ital">Method : ${esc(r.method)}</div>`:''; }
+function panelMethodLine(){ const m=state.panelMethod||''; if(state.preview)return m?`<div class="rc-panel-method ital">Method : ${esc(m)}</div>`:''; return `<div class="rc-panel-method ital">Method : <span class="pm-text" contenteditable="true" data-placeholder="add panel method…" oninput="setPanelMethod(this)">${esc(m)}</span></div>`; }
+function sectionRow(r,cols){ const kv=state.preview?'':`<button class="kv-toggle${r.keyValue?' on':''}" onclick="toggleKeyValue(${r.id})">${r.keyValue?'☑':'☐'} key : value</button>`; const head=`<tr class="rc-divider section-row" data-id="${r.id}"><td colspan="${cols}">${dragHandle(r.id)}<span class="rc-sname" data-sname="${r.id}" ondblclick="editSection(this,${r.id})">${esc(r.name||'')}</span>${kv}</td></tr>`; const m=r.method||''; let mrow=''; if(state.preview){ if(m)mrow=`<tr class="rc-methodrow"><td colspan="${cols}">Method : ${esc(m)}</td></tr>`; } else mrow=`<tr class="rc-methodrow"><td colspan="${cols}">Method : <span class="pm-text" contenteditable="true" data-placeholder="add subgroup method…" oninput="setSectionMethod(${r.id},this)">${esc(m)}</span></td></tr>`; return head+mrow; }
+function notesBoxes(){
+  const notes=state.clinicalNotes||'', interp=state.interpretation||'', ed=!state.preview;
+  const body=(ph,key,v)=> ed ? `${noteToolbar(key)}<div class="pm-text nbox interpretation-body" data-notekey="${key}" contenteditable="true" data-placeholder="${ph}" oninput="setNote('${key}',this)">${v}</div>` : `<div class="interpretation-body">${v}</div>`;
+  let out='';
+  if(state.showNotes&&(ed||notes)) out+=`<div class="rc-interp"><strong>CLINICAL NOTES</strong>${body('add clinical notes…','clinicalNotes',notes)}</div>`;
+  if(state.showInterpretation||interp) out+=`<div class="rc-interp"><strong>INTERPRETATION <span class="mini">static</span></strong>${body('add interpretation (static text)…','interpretation',interp)}</div>`;
+  else if(ed) out+=`<div class="rc-adds" style="justify-content:flex-start;margin:6px 0 0"><button class="rc-add" onclick="toggleInterp()">＋ Interpretation (advanced · static)</button></div>`;
+  return out;
+}
+function noteToolbar(key){ return `<div class="rt-toolbar rt-note-bar">
+   <button onmousedown="event.preventDefault()" onclick="noteCmd('${key}','formatBlock','H3')">H</button>
+   <button onmousedown="event.preventDefault()" onclick="noteCmd('${key}','formatBlock','P')">Body</button>
+   <span class="rt-div"></span>
+   <button onmousedown="event.preventDefault()" onclick="noteCmd('${key}','bold')"><b>B</b></button>
+   <button onmousedown="event.preventDefault()" onclick="noteCmd('${key}','italic')"><i>I</i></button>
+   <button onmousedown="event.preventDefault()" onclick="noteCmd('${key}','underline')"><u>U</u></button>
+   <span class="rt-div"></span>
+   <button onmousedown="event.preventDefault()" onclick="noteCmd('${key}','insertUnorderedList')">• List</button>
+   <button onmousedown="event.preventDefault()" onclick="noteCmd('${key}','insertOrderedList')">1. List</button>
+ </div>`; }
+function noteCmd(key,cmd,val){ document.execCommand(cmd,false,val||undefined); const el=document.querySelector(`[data-notekey="${key}"]`); if(el){ state[key]=el.innerHTML; saving(); setTimeout(saved,500); } }
+function toggleInterp(){ state.showInterpretation=true; renderCanvas(); }
+function setNote(k,el){ state[k]=el.innerHTML; saving(); setTimeout(saved,600); }
+function setPanelMethod(el){ state.panelMethod=el.textContent; saving(); setTimeout(saved,600); }
+function setSectionMethod(id,el){ const r=state.rows.find(x=>x.id===id); if(r)r.method=el.textContent; saving(); setTimeout(saved,600); }
+function setTestMethod(id,v){ const r=state.rows.find(x=>x.id===id); r.method=v; renderCanvas(); saving(); setTimeout(saved,400); }
+function toggleKeyValue(id){ const r=state.rows.find(x=>x.id===id); r.keyValue=!r.keyValue; renderCanvas(); saving(); setTimeout(saved,300); }
+function addSectionInline(){ const id=Date.now(); state.rows.push({id,kind:'section',name:'',method:'',keyValue:false}); renderCanvas(); const span=document.querySelector(`[data-sname="${id}"]`); if(span){ span.setAttribute('contenteditable','true'); span.setAttribute('data-placeholder','Type subgroup name…'); span.focus(); span.onblur=()=>commitSection(id,span); span.onkeydown=e=>{ if(e.key==='Enter'){e.preventDefault();span.blur();} else if(e.key==='Escape'){span.onblur=null;cancelNewRow(id);} }; } }
+function commitSection(id,span){ const r=state.rows.find(x=>x.id===id); if(!r)return; const name=(span.textContent||'').trim(); if(!name){cancelNewRow(id);return;} r.name=name.toUpperCase(); renderCanvas(); toast('Subgroup added'); saving(); setTimeout(saved,400); }
+function editSection(el,id){ el.setAttribute('contenteditable','true'); el.focus(); getSelection().selectAllChildren(el); el.onblur=()=>{ el.removeAttribute('contenteditable'); const r=state.rows.find(x=>x.id===id); r.name=((el.textContent||'').trim().toUpperCase())||'SUBGROUP'; el.textContent=r.name; saving();setTimeout(saved,400); }; el.onkeydown=e=>{ if(e.key==='Enter'){e.preventDefault();el.blur();} }; }
+function sections(){ return state.rows.filter(x=>x.kind==='section'); }
+function currentSection(id){ let cur=null; for(const x of state.rows){ if(x.id===id)return cur; if(x.kind==='section')cur=x; } return cur; }
+function setSubgroup(id,sid){ const arr=state.rows; const fi=arr.findIndex(x=>x.id===id); if(fi<0)return; const [it]=arr.splice(fi,1); if(sid==='__none__'){ let ins=arr.findIndex(x=>x.kind==='section'); if(ins<0)ins=arr.length; arr.splice(ins,0,it); } else { const s=+sid; let si=arr.findIndex(x=>x.id===s); if(si<0){arr.push(it);} else { let j=si+1; while(j<arr.length&&arr[j].kind!=='section')j++; arr.splice(j,0,it); } } renderCanvas(); selectRow(id); saving(); setTimeout(saved,400); }
+function setItem(id,k,v){ const r=state.rows.find(x=>x.id===id); r[k]=v; renderCanvas(); saving(); setTimeout(saved,400); }
+function setType(id,v){ const r=state.rows.find(x=>x.id===id); r.type=v; renderInspector(); saving(); setTimeout(saved,400); }
+function addPreset(id,inp){ const v=(inp.value||'').trim(); if(!v)return; const r=state.rows.find(x=>x.id===id); (r.presets=r.presets||[]).push(v); inp.value=''; renderInspector(); saving(); setTimeout(saved,400); }
+function delPreset(id,i){ const r=state.rows.find(x=>x.id===id); r.presets.splice(i,1); renderInspector(); saving(); setTimeout(saved,400); }
+function setDefaultVal(id,v){ const r=state.rows.find(x=>x.id===id); r.defaultValue=v; saving(); setTimeout(saved,400); }
+function onCanon(id,k,v){ const r=state.rows.find(x=>x.id===id); r[k]=v; if(k==='unit')renderCanvas(); markCanonical(); }
+function setRange(id,i,k,v){ const r=state.rows.find(x=>x.id===id); r.ranges[i][k]=v; renderCanvas(); markCanonical(); }
+function setCrit(id,k,v){ const r=state.rows.find(x=>x.id===id); r.crit[k]=v; markCanonical(); }
+function setGap(v){ state.panel.gap=+v; renderCanvas(); saving(); setTimeout(saved,300); }
+function setPrefix(v){ state.panel.prefix=v; renderCanvas(); saving(); setTimeout(saved,300); }
+function setSample(v){ state.panel.sampleType=v; renderCanvas(); saving(); setTimeout(saved,300); }
+function toggleActive(el){ state.panel.active=!state.panel.active; el.classList.toggle('on',state.panel.active); toast(state.panel.active?'Panel active — live & billable':'Panel deactivated — hidden from billing'); saving(); setTimeout(saved,300); }
+function toggleNotes(el){ state.showNotes=!state.showNotes; el.classList.toggle('on',state.showNotes); renderCanvas(); saving(); setTimeout(saved,300); toast(state.showNotes?'Clinical Notes shown':'Clinical Notes hidden'); }
+function bindDrag(){ document.querySelectorAll('#canvas [data-drag]').forEach(h=>{ h.ondragstart=e=>{ dragId=+h.dataset.drag; e.dataTransfer.effectAllowed='move'; try{e.dataTransfer.setData('text/plain',String(dragId));}catch(_){}; const tr=h.closest('tr'); if(tr)tr.classList.add('dragging'); }; h.ondragend=()=>{ dragId=null; document.querySelectorAll('#canvas tr').forEach(x=>x.classList.remove('drag-over-top','drag-over-bot','dragging')); }; }); document.querySelectorAll('#canvas tr[data-id]').forEach(tr=>{ tr.ondragover=e=>{ if(dragId==null)return; e.preventDefault(); const rc=tr.getBoundingClientRect(); const before=(e.clientY-rc.top)<rc.height/2; tr.classList.toggle('drag-over-top',before); tr.classList.toggle('drag-over-bot',!before); }; tr.ondragleave=()=>tr.classList.remove('drag-over-top','drag-over-bot'); tr.ondrop=e=>{ if(dragId==null)return; e.preventDefault(); const before=tr.classList.contains('drag-over-top'); moveItem(dragId,+tr.dataset.id,before); }; }); }
+function moveItem(id,targetId,before){ if(id==null||id===targetId)return; const arr=state.rows,from=arr.findIndex(x=>x.id===id); if(from<0)return; const [it]=arr.splice(from,1); let to=arr.findIndex(x=>x.id===targetId); if(to<0){arr.push(it);} else { if(!before)to+=1; arr.splice(to,0,it); } renderCanvas(); if(state.selId)selectRow(state.selId); saving(); setTimeout(saved,400); }
+function adds(html){ return state.preview?'':`<div class="rc-adds">${html}</div>`; }
+function rtToolbar(){ if(state.preview)return ''; return `<div class="rt-toolbar">
+   <button onmousedown="event.preventDefault()" onclick="rtCmd('formatBlock','H2')">H2</button>
+   <button onmousedown="event.preventDefault()" onclick="rtCmd('formatBlock','H3')">H3</button>
+   <button onmousedown="event.preventDefault()" onclick="rtCmd('formatBlock','P')">Body</button>
+   <span class="rt-div"></span>
+   <button onmousedown="event.preventDefault()" onclick="rtCmd('bold')"><b>B</b></button>
+   <button onmousedown="event.preventDefault()" onclick="rtCmd('italic')"><i>I</i></button>
+   <button onmousedown="event.preventDefault()" onclick="rtCmd('underline')"><u>U</u></button>
+   <span class="rt-div"></span>
+   <button onmousedown="event.preventDefault()" onclick="rtCmd('insertUnorderedList')">• List</button>
+   <button onmousedown="event.preventDefault()" onclick="rtCmd('insertOrderedList')">1. List</button>
+   <span class="rt-note">Report template · autosaves to the panel</span></div>`; }
+function rtCmd(cmd,val){ document.execCommand(cmd,false,val||undefined); const e=document.querySelector('.rt-edit'); if(e)saveNarr(e); }
+function saveNarr(el){ if(el.dataset.target==='narrative')state.narrativeHtml=el.innerHTML; else state.textHtml=el.innerHTML; saving(); setTimeout(saved,600); }
+function setPreview(on){ state.preview=on; document.getElementById('modeEdit').classList.toggle('on',!on); document.getElementById('modePreview').classList.toggle('on',on); if(on){state.selId=null;document.getElementById('inspEmpty').style.display='block';document.getElementById('inspBody').style.display='none';setDock('inspector');} renderCanvas(); toast(on?'Preview — clean report, exactly how it prints':'Editing mode'); }
+function setDept(d){ state.dept=d; renderCanvas(); if(state.selId)selectRow(state.selId); }
+function autoCode(name){
+  const words=name.trim().toUpperCase().replace(/[^A-Z0-9 ]/g,'').split(/\s+/).filter(Boolean);
+  let base = words.length>1 ? words.map(w=>w[0]).join('').slice(0,6) : (words[0]||'TEST').slice(0,5);
+  if(base.length<2) base=(words.join('')||'TEST').slice(0,4);
+  const used=new Set([...CATALOG.map(t=>t.code),...state.rows.map(r=>r.code)].filter(Boolean));
+  let code=base,i=1; while(used.has(code)){ code=base+(++i); }
+  return code;
+}
+function addTestInline(){
+  const id=Date.now();
+  state.rows.push(T({id,code:'',name:'',unit:'',val:'',flag:'',type:'Numeric',used:0,ranges:[],crit:{lo:0,hi:0},isNew:true}));
+  renderCanvas();
+  const span=document.querySelector(`[data-name="${id}"]`);
+  if(span){ span.setAttribute('contenteditable','true'); span.setAttribute('data-placeholder','Type test name…'); span.focus();
+    span.onblur=()=>commitNewRow(id,span);
+    span.onkeydown=e=>{ if(e.key==='Enter'){e.preventDefault();span.blur();} else if(e.key==='Escape'){span.onblur=null;cancelNewRow(id);} };
+  }
+}
+function commitNewRow(id,span){
+  const r=state.rows.find(x=>x.id===id); if(!r)return;
+  const name=(span.textContent||'').trim();
+  if(!name){ cancelNewRow(id); return; }
+  const ex=CATALOG.find(t=>t.name.toLowerCase()===name.toLowerCase());
+  if(ex && !state.rows.some(x=>x.code===ex.code && x.id!==id)){
+    Object.assign(r,{name:ex.name,code:ex.code,unit:ex.unit,type:ex.type,used:ex.used+1,isNew:false,ranges:[{c:'Adult',g:'',lo:0,hi:0}]});
+    toast(`Linked existing ${ex.name} (already configured)`);
+  } else {
+    r.name=name; r.code=autoCode(name); r.used=0; r.isNew=false;
+    CATALOG.push({code:r.code,name:r.name,unit:r.unit,type:r.type,used:1});
+    toast(`Created definition ${r.code} (v1) — “${name}”`);
+  }
+  renderCanvas(); selectRow(id); saving(); setTimeout(saved,400);
+}
+function cancelNewRow(id){ state.rows=state.rows.filter(x=>x.id!==id); renderCanvas(); }
+
+/* misc */
+function setLayout(k){ state.layout=k; document.querySelectorAll('.lay-seg button').forEach(b=>b.classList.toggle('on',b.dataset.lay===k)); state.selId=null; renderCanvas(); document.getElementById('inspEmpty').style.display='block'; document.getElementById('inspBody').style.display='none'; toast('Layout → '+LAYOUTS[k]+' (live)'); }
+function setProfile(btn,p){ state.profile=p; btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b===btn)); renderCanvas(); if(state.selId)selectRow(state.selId); toast(p==='physical'?'Physical profile — header & footer hidden for pre-printed letterhead':'Digital profile'); }
+function setDock(p){ document.querySelectorAll('.dock-tab').forEach(t=>t.classList.toggle('on',t.dataset.pane===p)); document.querySelectorAll('.dock-pane').forEach(pn=>pn.classList.toggle('on',pn.id==='pane-'+p)); }
+function renameReport(){ const el=document.getElementById('docName'); const v=el.textContent.trim()||'Untitled report'; el.textContent=v; state.reportName=v; document.getElementById('rbTitle').textContent=v; renderCanvas(); if(state.selId)selectRow(state.selId); saving(); setTimeout(saved,500); }
+function newBlank(){ state.rows=[]; state.reportName='Untitled report'; state.selId=null; state.layout='STANDARD_TABLE';
+  document.getElementById('docName').textContent='Untitled report'; document.getElementById('rbTitle').textContent='Untitled report';
+  document.querySelectorAll('.lay-seg button').forEach(b=>b.classList.toggle('on',b.dataset.lay==='STANDARD_TABLE'));
+  renderCanvas(); document.getElementById('inspEmpty').style.display='block'; document.getElementById('inspBody').style.display='none'; setDock('inspector');
+  toast('Blank report — name it above, then ＋ Add test'); }
+function advTab(n){ toast(n+' — your existing Advanced editor (unchanged in this prototype)'); }
+function publish(){ toast('Published · '+state.reportName+' live as a Reportable product at ₹450'); saved(); }
+function openModal(id){document.getElementById(id).classList.add('show')}
+function closeModal(id){document.getElementById(id).classList.remove('show')}
+function toast(m){ const t=document.createElement('div'); t.className='toast'; t.innerHTML=`<span class="ti">✓</span>${esc(m)}`; document.getElementById('toasts').appendChild(t); setTimeout(()=>{t.style.opacity='0';t.style.transition='opacity .3s';setTimeout(()=>t.remove(),300);},2600); }
+let saveT; function saving(){ const c=document.getElementById('saveChip'); c.classList.add('saving'); document.getElementById('saveTxt').textContent='Saving…'; }
+function saved(){ clearTimeout(saveT); saveT=setTimeout(()=>{ const c=document.getElementById('saveChip'); c.classList.remove('saving'); document.getElementById('saveTxt').textContent='All changes saved'; },400); }
+
+/* wire editable title */
+const dn=document.getElementById('docName');
+dn.addEventListener('blur',renameReport);
+dn.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();dn.blur();} });
+
+renderCanvas();
+</script>
+</body>
+</html>

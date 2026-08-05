@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>HealthFlow · Product Catalogue 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;450;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#0B2447; --navy-2:#0f2c54; --ink:#12233f; --blue:#1F6FC4; --green:#17A34A; --red:#C8443B;
+    --paper:#ffffff; --mist:#f2f6fb; --line:#e5ebf3; --line-2:#d6e0ec; --mute:#5E7088; --mute-2:#8194ab; --track:#e8eef6;
+    --disp:'Bricolage Grotesque',system-ui,sans-serif; --body:'Inter',system-ui,sans-serif; --mono:'IBM Plex Mono',monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{background:#e9edf2}
+  body{font-family:var(--body);color:var(--ink);-webkit-font-smoothing:antialiased;counter-reset:pg}
+  h1,h2,h3,h4{font-family:var(--disp);font-weight:700;letter-spacing:-.02em;line-height:1.04}
+  .mono{font-family:var(--mono)} .num{font-variant-numeric:tabular-nums}
+
+  /* ---------- PAGE SYSTEM ---------- */
+  .page{width:210mm;height:297mm;position:relative;overflow:hidden;background:var(--paper);margin:8mm auto;box-shadow:0 6px 30px rgba(11,36,71,.18);counter-increment:pg}
+  .pad{position:absolute;inset:17mm 16mm 15mm 16mm}
+  .bleed{position:absolute;inset:0}
+  /* running folio */
+  .folio{position:absolute;left:16mm;right:16mm;bottom:9mm;display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);font-size:8pt;letter-spacing:.08em;color:var(--mute-2);text-transform:uppercase}
+  .folio .mk{display:flex;align-items:center;gap:6px;color:var(--mute)}
+  .folio .mk b{font-family:var(--disp);letter-spacing:-.01em;color:var(--navy);text-transform:none;font-size:9pt}
+  .folio .num::after{content:counter(pg,decimal-leading-zero)}
+  .folio.on-dark{color:#6f89b0}.folio.on-dark .mk{color:#9db3d4}.folio.on-dark .mk b{color:#fff}
+  .rule-top{position:absolute;left:16mm;right:16mm;top:12mm;height:1px;background:var(--line)}
+  .rule-top.on-dark{background:rgba(255,255,255,.12)}
+
+  /* eyebrow + section head */
+  .eyebrow{font-family:var(--mono);font-size:8.5pt;letter-spacing:.24em;text-transform:uppercase;color:var(--blue)}
+  .eyebrow.g{color:var(--green)} .eyebrow.d{color:#8fb2e6}
+  .secno{font-family:var(--mono);font-size:9pt;color:var(--mute-2);letter-spacing:.1em}
+  .h-xl{font-size:40pt;line-height:.98}
+  .h-lg{font-size:26pt}
+  .h-md{font-size:19pt}
+  .lead{font-size:11.5pt;color:var(--mute);line-height:1.5}
+
+  /* range-track signature */
+  .track{position:relative;height:6px;border-radius:5px;background:var(--track)}
+  .track .zone{position:absolute;top:0;bottom:0;background:rgba(23,163,74,.22)}
+  .track .flag{position:absolute;top:50%;width:11px;height:11px;border-radius:50%;background:var(--green);border:2.5px solid #fff;box-shadow:0 1px 4px rgba(11,36,71,.3);transform:translate(-50%,-50%)}
+  .track .flag.hi{background:var(--red)}
+  .rr{display:grid;grid-template-columns:78px 1fr 92px;gap:12px;align-items:center;margin:9px 0}
+  .rr .n{font-family:var(--mono);font-size:8.5pt;color:var(--navy)}
+  .rr .v{font-family:var(--mono);font-size:8.5pt;text-align:right;color:var(--mute)}.rr .v b{color:var(--navy)}
+
+  /* screenshot figure + branding callout */
+  .fig{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff;box-shadow:0 10px 28px rgba(11,36,71,.10);position:relative}
+  .fig.pad-img{padding:6px;background:#eef3f9}
+  .fig img{width:100%;display:block}
+  .fig.pad-img img{border-radius:5px}
+  .cap{font-family:var(--mono);font-size:8pt;letter-spacing:.03em;color:var(--mute);margin-top:8px}
+  .hasbrand{position:relative}
+  .bc-ring{position:absolute;border:2px dashed var(--green);border-radius:6px;box-shadow:0 0 0 2.5px rgba(23,163,74,.16);z-index:3;pointer-events:none}
+  .bc-pill{position:absolute;z-index:4;background:var(--green);color:#fff;font-family:var(--body);font-weight:700;font-size:8pt;line-height:1;padding:5px 9px;border-radius:14px;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.28);pointer-events:none}
+  .bc-cover{position:absolute;z-index:4;background:#fff;border:2.5px dashed var(--green);border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:600;letter-spacing:.12em;color:var(--green);box-shadow:0 6px 18px rgba(11,36,71,.16);pointer-events:none;text-align:center}
+
+  /* feature bullets */
+  .pts{list-style:none;margin-top:6px}
+  .pts li{position:relative;padding-left:18px;margin:11px 0;font-size:10.5pt;color:var(--ink);line-height:1.4}
+  .pts li:before{content:"";position:absolute;left:0;top:6px;width:7px;height:7px;background:var(--green);transform:rotate(45deg)}
+  .pts li b{color:var(--navy)}
+
+  /* generic panels */
+  .panel{border:1px solid var(--line);border-radius:10px;background:var(--mist);padding:18px 20px}
+  .kv{font-family:var(--mono);font-size:8.5pt;letter-spacing:.1em;text-transform:uppercase;color:var(--mute-2)}
+
+  /* ---------- COVER ---------- */
+  .cover{background:radial-gradient(760px 420px at 82% 8%,rgba(23,163,74,.18),transparent 60%),radial-gradient(680px 400px at 6% 92%,rgba(31,111,196,.20),transparent 58%),var(--navy);color:#eaf1fb}
+  .cover .grid-tex{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:14mm 14mm;mask-image:radial-gradient(300mm 200mm at 40% 30%,#000,transparent 78%)}
+  .logo-chip{background:#fff;border-radius:10px;padding:9px 14px;display:inline-block}
+  .logo-chip img{height:12mm;display:block}
+  .logo-white{display:block;height:13mm}
+  .modstrip{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  .modstrip .m{font-family:var(--mono);font-size:8.5pt;letter-spacing:.04em;color:var(--mute);border:1px solid var(--line);border-radius:7px;padding:8px 12px;background:#fff}
+  .logo-ph{background:#fff;border-radius:10px;padding:26px 30px;display:inline-block}
+  .logo-ph .box{border:2px dashed #c3d0e2;border-radius:8px;padding:16px 30px;font-family:var(--mono);font-size:10pt;letter-spacing:.14em;color:#9aa9bf}
+  .cover .kick{margin-top:0;color:#9dc0ef;letter-spacing:.28em}
+  .cover h1{font-size:46pt;line-height:.98;color:#fff;margin-top:10px;max-width:15ch}
+  .cover h1 .u{background:linear-gradient(transparent 74%,rgba(23,163,74,.6) 0);padding:0 1px}
+  .cover .sub{font-size:12.5pt;color:#bccbe3;margin-top:16px;max-width:42ch;line-height:1.5}
+  .cover .coverfig{position:absolute;right:-20mm;bottom:20mm;width:128mm;transform:rotate(-1deg);border-radius:10px;overflow:hidden;box-shadow:0 40px 90px rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.12)}
+  .cover .coverfig img{width:100%;display:block}
+  .cover .base{position:absolute;left:16mm;right:16mm;bottom:14mm;display:flex;justify-content:space-between;align-items:center;border-top:1px solid rgba(255,255,255,.14);padding-top:10px;font-family:var(--mono);font-size:8.5pt;letter-spacing:.06em;color:#9db3d4}
+  .cover .base b{color:#43d484}
+
+  /* ---------- CONTENTS ---------- */
+  .toc{list-style:none}
+  .toc li{display:flex;align-items:baseline;gap:10px;padding:13px 0;border-bottom:1px solid var(--line)}
+  .toc .tno{font-family:var(--mono);font-size:9pt;color:var(--blue);width:26px}
+  .toc .tt{font-family:var(--disp);font-size:13.5pt;color:var(--ink)}
+  .toc .dots{flex:1;border-bottom:1px dotted var(--line-2);transform:translateY(-3px)}
+  .toc .tp{font-family:var(--mono);font-size:9.5pt;color:var(--mute)}
+  .statrow{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px}
+  .stat{border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+  .stat .v{font-family:var(--disp);font-size:22pt;color:var(--navy);line-height:1}
+  .stat .v.g{color:var(--green)}
+  .stat .l{font-family:var(--mono);font-size:8pt;letter-spacing:.08em;text-transform:uppercase;color:var(--mute-2);margin-top:7px}
+
+  /* ---------- PRICING SHEET ---------- */
+  .price-hero{display:flex;align-items:flex-end;gap:14px}
+  .price-hero .rs{font-family:var(--disp);font-size:64pt;color:var(--navy);line-height:.85}
+  .price-hero .per{font-family:var(--mono);font-size:12pt;color:var(--mute);padding-bottom:10px}
+  .incl-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 26px;margin-top:8px}
+  .incl-grid .row{display:flex;gap:10px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--line);font-size:10.5pt}
+  .incl-grid .row svg{width:15px;height:15px;color:var(--green);flex:none;margin-top:2px;stroke-width:2.2}
+
+  /* ---------- ROADMAP ---------- */
+  .rcard{border:1px solid var(--line);border-radius:12px;padding:22px 24px;background:#fff}
+  .rcard+.rcard{margin-top:16px}
+  .rcard .soon{font-family:var(--mono);font-size:7.5pt;letter-spacing:.14em;text-transform:uppercase;color:var(--blue);border:1px solid var(--line-2);border-radius:5px;padding:4px 8px}
+  .rcard h3{font-size:16pt;margin-top:12px}
+  .rflow{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:14px}
+  .rflow .n{font-family:var(--mono);font-size:8.5pt;background:var(--mist);border:1px solid var(--line);border-radius:6px;padding:6px 9px;color:var(--navy)}
+  .rflow .a{color:var(--green);font-weight:800}
+
+  /* ---------- CLINIC TIMELINE ---------- */
+  .timeline{position:relative;margin-top:6px}
+  .timeline .rail{position:absolute;left:6%;right:6%;top:34px;height:3px;background:var(--track);border-radius:3px}
+  .timeline .rail .fill{position:absolute;inset:0;background:linear-gradient(90deg,var(--green),rgba(23,163,74,.25));border-radius:3px}
+  .timeline .stops{position:relative;display:flex;justify-content:space-between;text-align:center}
+  .timeline .stop{width:32%}
+  .timeline .day{font-family:var(--mono);font-size:8pt;color:var(--mute)}
+  .timeline .dot{width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid var(--green);margin:20px auto 0;position:relative;z-index:2}
+  .timeline .stop.mid .dot{border-color:var(--line-2)}
+  .timeline .amt{font-family:var(--disp);font-size:17pt;color:var(--navy);margin-top:10px}
+  .timeline .amt.free{color:var(--green)}
+  .timeline .what{font-size:8.5pt;color:var(--mute-2);margin-top:2px}
+
+  /* dark section pages */
+  .dark{background:radial-gradient(600px 360px at 85% 10%,rgba(23,163,74,.16),transparent 60%),var(--navy);color:#dfe9f7}
+  .dark .h-lg,.dark .h-md{color:#fff}
+  .dark .lead{color:#b7c7de}
+  .dark .panel{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12)}
+
+  /* phones row */
+  .phones{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .phone{background:#0d1f3a;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:6px}
+  .phone .scr{border-radius:11px;overflow:hidden;position:relative}
+  .phone img{width:100%;display:block}
+  .phone .pc{font-family:var(--mono);font-size:7.5pt;color:#9db3d4;text-align:center;padding:8px 4px 3px;letter-spacing:.03em}
+  /* phone in-app document viewer (WhatsApp PDF) */
+  .docph{background:#111;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:6px;box-shadow:0 20px 50px rgba(0,0,0,.42)}
+  .docph .bar{display:flex;align-items:center;justify-content:space-between;padding:6px 10px 8px;font-family:var(--mono);font-size:7pt;color:#a7b4c6}
+  .docph .bar .u{display:flex;align-items:center;gap:5px;color:#cdd6e2}
+  .docph .bar .u .lk{width:6px;height:6px;border-radius:1px;border:1px solid #7f8da0;display:inline-block;position:relative;top:-1px}
+  .docph .doc{position:relative;background:#fff;border-radius:9px;overflow:hidden}
+  .docph .doc img{width:100%;display:block}
+
+  /* gallery */
+  .gal{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  .gal figure{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
+  .gal img{width:100%;display:block;aspect-ratio:16/10;object-fit:cover;object-position:top left}
+  .gal figcaption{font-family:var(--mono);font-size:7.5pt;color:var(--mute);padding:8px 10px;border-top:1px solid var(--line)}
+
+  @media print{
+    html,body{background:#fff}
+    .page{margin:0;box-shadow:none;page-break-after:always}
+    .page:last-child{page-break-after:auto}
+    body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+  @page{size:A4;margin:0}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute"><defs>
+  <g id="ck"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M4 12l5 5L20 6"/></g>
+</defs></svg>
+
+<!-- ============================================================ 1 · COVER -->
+<section class="page cover">
+  <div class="grid-tex"></div>
+  <div class="coverfig hasbrand" style="right:-12mm;bottom:24mm;width:174mm">
+    <span class="bc-cover" style="left:60.5%;top:25.5%;width:27%;height:13.5%;font-size:10pt">YOUR&nbsp;LOGO&nbsp;HERE</span>
+    <span class="bc-pill" style="left:60.5%;top:16%;font-size:9pt">↓ Your branding here</span>
+    <img src="assets/login-screen.png" alt="Product sign-in — your brand front and centre">
+  </div>
+  <div class="pad">
+    <img class="logo-white" src="assets/healthflow-logo-white.png" alt="HealthFlow" style="height:14mm">
+    <div style="position:absolute;top:52mm">
+      <div class="eyebrow kick">Product Catalogue · 2026 · Hyderabad</div>
+      <h1>The operating system for <span class="u">diagnostic centres</span> &amp; clinics.</h1>
+      <p class="sub">Billing, lab reports, WhatsApp delivery, doctor payouts and the whole clinic — one platform, fully white-labelled as yours.</p>
+    </div>
+  </div>
+  <div class="base"><span>WHITE-LABEL · UNLIMITED · 24/7</span><span><b>₹999</b>/MONTH · FOREVER</span></div>
+</section>
+
+<!-- ============================================================ 2 · CONTENTS -->
+<section class="page">
+  <div class="rule-top"></div>
+  <div class="pad">
+    <div class="eyebrow">Inside this catalogue</div>
+    <h2 class="h-lg" style="margin-top:12px;max-width:20ch">One login runs the entire operation.</h2>
+    <p class="lead" style="margin-top:14px;max-width:60ch">HealthFlow replaces the registers, the spreadsheets and the four different apps a diagnostic centre juggles today. It is built for how Indian labs and clinics actually work, and it carries your name on every screen, every report and every message.</p>
+
+    <div style="display:grid;grid-template-columns:1.25fr 1fr;gap:34px;margin-top:30px">
+      <ul class="toc">
+        <li><span class="tno">01</span><span class="tt">Money &amp; billing</span><span class="dots"></span><span class="tp">04</span></li>
+        <li><span class="tno">02</span><span class="tt">Lab reports that adapt</span><span class="dots"></span><span class="tp">05</span></li>
+        <li><span class="tno">03</span><span class="tt">On the patient's phone</span><span class="dots"></span><span class="tp">06</span></li>
+        <li><span class="tno">04</span><span class="tt">The clinic — OP &amp; IP</span><span class="dots"></span><span class="tp">07</span></li>
+        <li><span class="tno">05</span><span class="tt">Doctor payouts</span><span class="dots"></span><span class="tp">08</span></li>
+        <li><span class="tno">06</span><span class="tt">Owner control &amp; Patient 360</span><span class="dots"></span><span class="tp">09</span></li>
+        <li><span class="tno">07</span><span class="tt">100% white-label</span><span class="dots"></span><span class="tp">10</span></li>
+        <li><span class="tno">08</span><span class="tt">What's coming next</span><span class="dots"></span><span class="tp">11</span></li>
+        <li><span class="tno">09</span><span class="tt">Pricing</span><span class="dots"></span><span class="tp">12</span></li>
+      </ul>
+      <div>
+        <div class="statrow" style="grid-template-columns:1fr">
+          <div class="stat"><div class="v num">35+</div><div class="l">Centres live across Hyderabad</div></div>
+          <div class="stat"><div class="v g">Unlimited</div><div class="l">Patients &amp; tests</div></div>
+          <div class="stat"><div class="v num">24/7</div><div class="l">Support, included</div></div>
+          <div class="stat"><div class="v g num">₹999<span style="font-size:11pt">/mo</span></div><div class="l">Forever — industry charges ₹8,000</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="folio"><span class="mk"><b>HealthFlow</b> · Product Catalogue</span><span class="num"></span></div>
+</section>
+
+<!-- ============================================================ 3 · MONEY -->
+<section class="page">
+  <div class="rule-top"></div>
+  <div class="pad">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div class="eyebrow">Money &amp; billing</div><div class="secno">01</div>
+    </div>
+    <h2 class="h-lg" style="margin-top:12px;max-width:18ch">Every rupee accounted for, to the paisa.</h2>
+    <p class="lead" style="margin-top:12px;max-width:64ch">Phone-first billing, discounts with a reason, cash-vs-online split and live receivables. Nothing re-typed, nothing skimmed, nothing lost between the counter and your books.</p>
+    <div class="fig pad-img" style="margin-top:24px"><img src="assets/crop/money-top.png" alt="Money and billing dashboard"></div>
+    <div class="cap">Money — gross billed, net-to-you, receivables &amp; discounts, live across every branch.</div>
+    <ul class="pts" style="margin-top:20px;columns:2;column-gap:34px">
+      <li><b>One-tap bills &amp; receipts</b> with GST</li>
+      <li><b>Discount &amp; refund audit</b> — who, why, how much</li>
+      <li><b>Receivables aging</b> — chase the right dues</li>
+      <li><b>Cash-heavy staff flags</b> for safer counters</li>
+    </ul>
+  </div>
+  <div class="folio"><span class="mk"><b>HealthFlow</b> · Money &amp; billing</span><span class="num"></span></div>
+</section>
+
+<!-- ============================================================ 4 · REPORTS -->
+<section class="page">
+  <div class="rule-top"></div>
+  <div class="pad">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div class="eyebrow g">Lab reports</div><div class="secno">02</div>
+    </div>
+    <h2 class="h-lg" style="margin-top:12px;max-width:20ch">A 20-year-old and a 6-month-old aren't measured the same way.</h2>
+    <p class="lead" style="margin-top:12px;max-width:64ch">Reference ranges resolve to each patient's age and gender, so values flag correctly the instant they're entered. Outsourced a test? Upload the outside lab's PDF and it merges into your report. Finalised reports lock, sign, and carry a QR the patient can scan to verify.</p>
+
+    <div style="display:grid;grid-template-columns:1.32fr .68fr;gap:20px;margin-top:22px;align-items:start">
+      <div>
+        <div class="fig hasbrand"><span class="bc-ring" style="left:2%;top:2%;width:30%;height:5%"></span><span class="bc-pill" style="left:34%;top:2%">← Your logo &amp; letterhead</span><img src="assets/crop/wa-report-doc.png" alt="Signed branded report with QR"></div>
+        <div class="cap">Your letterhead, age/gender ranges, auto flags — signed, with a scan-to-verify QR.</div>
+      </div>
+      <div>
+        <div class="panel">
+          <div class="kv">Ranges adapt per patient</div>
+          <div class="rr"><span class="n">Haemoglobin</span><div class="track"><span class="zone" style="left:34%;right:14%"></span><span class="flag" style="left:60%"></span></div><span class="v"><b>14.8</b> · 13.5–18</span></div>
+          <div class="rr"><span class="n">WBC</span><div class="track"><span class="zone" style="left:26%;right:20%"></span><span class="flag hi" style="left:88%"></span></div><span class="v"><b>13.0k</b> · 4–11k</span></div>
+        </div>
+        <ul class="pts">
+          <li><b>Age &amp; gender-specific</b> reference ranges</li>
+          <li><b>Automatic flags</b> on every analyte</li>
+          <li><b>Upload outside-lab PDFs</b> into one report</li>
+          <li><b>QR on print</b> — scan to verify</li>
+          <li><b>Dual sign-off</b> — lab in-charge &amp; pathologist</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="folio"><span class="mk"><b>HealthFlow</b> · Lab reports</span><span class="num"></span></div>
+</section>
+
+<!-- ============================================================ 5 · WHATSAPP -->
+<section class="page dark">
+  <div class="rule-top on-dark"></div>
+  <div class="pad">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div class="eyebrow d">On the patient's phone</div><div class="secno" style="color:#6f89b0">03</div>
+    </div>
+    <h2 class="h-lg" style="margin-top:12px;max-width:22ch">The bill and the report arrive before the patient reaches the car park.</h2>
+    <p class="lead" style="margin-top:12px;max-width:62ch">Sent from your own WhatsApp Business number, tracked from sent to delivered to read. The receipt and the signed, QR-verified report land as clean PDFs — no app for the patient to install.</p>
+    <div style="display:grid;grid-template-columns:0.82fr 1.18fr;gap:22px;margin-top:22px;align-items:start">
+      <div>
+        <div class="phone" style="width:72mm;margin:0 auto"><div class="scr hasbrand"><span class="bc-ring" style="left:16%;top:6.2%;width:70%;height:4.4%"></span><span class="bc-pill" style="left:16%;top:12.5%">↑ Your business name</span><img src="assets/wa-patient-delivery.png" alt=""></div></div>
+        <div class="pc" style="text-align:center;margin-top:10px">Sent from your own WhatsApp Business number — tracked sent · delivered · read.</div>
+      </div>
+      <div>
+        <div class="docph"><div class="bar"><span>‹ Done</span><span class="u"><i class="lk"></i>sobhana.healthflow.in</span><span>⋯</span></div><div class="doc hasbrand"><span class="bc-ring" style="left:34%;top:5%;width:28%;height:22%"></span><span class="bc-pill" style="left:64%;top:6%">← Your letterhead</span><img src="assets/crop/wa-bill-doc.png" alt=""></div></div>
+        <div class="cap">The receipt — opened straight from WhatsApp on the patient's phone.</div>
+        <div class="docph" style="margin-top:14px;width:82mm"><div class="bar"><span>‹ Done</span><span class="u"><i class="lk"></i>sobhana.healthflow.in</span><span>⋯</span></div><div class="doc hasbrand"><span class="bc-ring" style="left:2%;top:2%;width:30%;height:5%"></span><span class="bc-pill" style="left:35%;top:2%">← Your letterhead</span><img src="assets/crop/wa-report-doc.png" alt=""></div></div>
+        <div class="cap" style="width:82mm">The signed, QR-verified report — the same, straight to the phone.</div>
+      </div>
+    </div>
+  </div>
+  <div class="folio on-dark"><span class="mk"><b>HealthFlow</b> · Patient communications</span><span class="num"></span></div>
+</section>
+
+<!-- ============================================================ 6 · CLINIC -->
+<section class="page">
+  <div class="rule-top"></div>
+  <div class="pad">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div class="eyebrow g">The clinic — OP &amp; IP</div><div class="secno">04</div>
+    </div>
+    <h2 class="h-lg" style="margin-top:12px;max-width:20ch">Not just a lab. The whole clinic runs here too.</h2>
+    <p class="lead" style="margin-top:12px;max-width:64ch">Register a consultation, take payment, print the doctor's prescription on their own letterhead and drop the patient into the live queue — on the same record as their diagnostics.</p>
+
+    <div style="margin-top:16px">
+      <div class="fig hasbrand" style="width:150mm;margin:0 auto"><span class="bc-ring" style="left:1%;top:3%;width:9.5%;height:8%"></span><span class="bc-pill" style="left:11.5%;top:3%">← Your branding</span><img src="assets/crop/clinic-visit.png" alt=""></div>
+      <div class="cap" style="width:150mm;margin-left:auto;margin-right:auto">Consultation billed — visit reference, payment status, print prescription or bill in one screen.</div>
+    </div>
+    <div style="margin-top:11px">
+      <div class="fig hasbrand" style="width:150mm;margin:0 auto"><span class="bc-ring" style="left:1%;top:2.3%;width:9.5%;height:5.6%"></span><span class="bc-pill" style="left:11.5%;top:2%">← Your branding</span><img src="assets/crop/clinic-presc.png" alt=""></div>
+      <div class="cap" style="width:150mm;margin-left:auto;margin-right:auto">Doctor's prescription — their own letterhead, registration number, vitals block &amp; Rx.</div>
+    </div>
+
+    <div class="panel" style="margin-top:14px;padding:16px 20px;background:linear-gradient(180deg,#fff,#f4f9f5);border-color:var(--line-2)">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:center">
+        <div>
+          <div class="kv" style="color:var(--green)">No awkward money conversations</div>
+          <h3 class="h-md" style="margin-top:10px">Returns within the doctor's window? The revisit is free.</h3>
+          <p class="lead" style="font-size:10.5pt;margin-top:8px">Each consultation carries a validity. If the patient comes back inside it, HealthFlow recognises them and charges nothing — no staff judgement, no register to check.</p>
+        </div>
+        <div class="timeline">
+          <div class="rail"><span class="fill"></span></div>
+          <div class="stops">
+            <div class="stop"><div class="day">Day 0</div><div class="dot"></div><div class="amt num">₹300</div><div class="what">First consult</div></div>
+            <div class="stop mid"><div class="day">within validity</div><div class="dot"></div><div class="what" style="margin-top:24px">Valid to Day 7</div></div>
+            <div class="stop"><div class="day">Day 5</div><div class="dot"></div><div class="amt free num">₹0</div><div class="what">Follow-up · free</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="folio"><span class="mk"><b>HealthFlow</b> · The clinic</span><span class="num"></span></div>
+</section>
+
+<!-- ============================================================ 7 · PAYOUTS -->
+<section class="page">
+  <div class="rule-top"></div>
+  <div class="pad">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div class="eyebrow">Doctor payouts</div><div class="secno">05</div>
+    </div>
+    <h2 class="h-lg" style="margin-top:12px;max-width:20ch">Settle every doctor in one run — and WhatsApp the payslip.</h2>
+    <p class="lead" style="margin-top:12px;max-width:64ch">Referral and consulting commissions accrue automatically as you bill, per test and per rule. At month-end, one worklist shows exactly what's owed. Pay, and each doctor receives their statement on WhatsApp — nothing to dispute.</p>
+    <div class="fig pad-img" style="margin-top:22px"><img src="shots/14-payrun.png" alt="Pay-Run worklist"></div>
+    <div class="cap">Pay-Run — referral doctors, consultants and outside labs in one worklist.</div>
+    <ul class="pts" style="margin-top:16px;columns:2;column-gap:34px">
+      <li><b>Per-test commission rules</b>, auto-calculated</li>
+      <li><b>Automatic payslip</b> to each doctor on WhatsApp</li>
+      <li><b>Outside-lab payables</b> tracked alongside</li>
+      <li><b>Statements &amp; Excel export</b> for your records</li>
+    </ul>
+  </div>
+  <div class="folio"><span class="mk"><b>HealthFlow</b> · Doctor payouts</span><span class="num"></span></div>
+</section>
+
+<!-- ============================================================ 8 · OWNER + P360 -->
+<section class="page">
+  <div class="rule-top"></div>
+  <div class="pad">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div class="eyebrow">Owner control &amp; Patient 360</div><div class="secno">06</div>
+    </div>
+    <h2 class="h-lg" style="margin-top:12px;max-width:22ch">Know your numbers before your morning chai.</h2>
+    <p class="lead" style="margin-top:12px;max-width:64ch">Net revenue after commissions, turnaround times and every branch's performance — live. And any patient, across every branch, on one timeline: history, dues and reports together.</p>
+    <div style="margin-top:20px"><div class="fig pad-img"><img src="assets/crop/owner-top.png" alt=""></div><div class="cap">Owner dashboard — money today, payout liability, diagnostics &amp; comms, live.</div></div>
+    <div style="margin-top:12px"><div class="fig pad-img" style="width:150mm;margin:0 auto"><img src="shots/06-patient-360.png" alt=""></div><div class="cap" style="width:150mm;margin-left:auto;margin-right:auto">Patient 360 — one timeline across diagnostics &amp; clinic, with dues.</div></div>
+    <div class="eyebrow" style="margin-top:18px;color:var(--mute-2)">And every screen behind it — one login</div>
+    <div class="modstrip">
+      <span class="m">Doctors</span><span class="m">Result queue</span><span class="m">Finalized reports</span><span class="m">Operations &amp; TAT</span><span class="m">Test catalogue</span><span class="m">Branch stats</span>
+    </div>
+  </div>
+  <div class="folio"><span class="mk"><b>HealthFlow</b> · Owner &amp; Patient 360</span><span class="num"></span></div>
+</section>
+
+<!-- ============================================================ 9 · WHITE LABEL -->
+<section class="page dark">
+  <div class="rule-top on-dark"></div>
+  <div class="pad">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div class="eyebrow d">100% white-label</div><div class="secno" style="color:#6f89b0">07</div>
+    </div>
+    <h2 class="h-lg" style="margin-top:12px;max-width:20ch">Patients only ever see your name.</h2>
+    <p class="lead" style="margin-top:12px;max-width:60ch">HealthFlow runs quietly underneath. Your logo sits top-left of every screen, your letterhead heads every report, your number sends every WhatsApp. Multi-branch from day one — each branch with its own identity.</p>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:32px">
+      <div class="panel" style="padding:22px 22px"><div class="kv" style="color:#8fb2e6">On every screen</div><div style="font-family:var(--disp);font-size:14pt;color:#fff;margin-top:10px">Your logo, top-left</div><p style="color:#b7c7de;font-size:9.5pt;margin-top:8px;line-height:1.5">Staff sign in to your brand — never ours.</p></div>
+      <div class="panel" style="padding:22px 22px"><div class="kv" style="color:#8fb2e6">On every report</div><div style="font-family:var(--disp);font-size:14pt;color:#fff;margin-top:10px">Your letterhead</div><p style="color:#b7c7de;font-size:9.5pt;margin-top:8px;line-height:1.5">Every PDF a patient keeps carries your name &amp; terms.</p></div>
+      <div class="panel" style="padding:22px 22px"><div class="kv" style="color:#8fb2e6">On every message</div><div style="font-family:var(--disp);font-size:14pt;color:#fff;margin-top:10px">Your WhatsApp number</div><p style="color:#b7c7de;font-size:9.5pt;margin-top:8px;line-height:1.5">Bills &amp; reports send from your account, not a shared line.</p></div>
+    </div>
+
+    <div style="text-align:center;margin-top:54px">
+      <div class="logo-ph" style="display:inline-block;padding:32px 46px"><div class="box" style="padding:22px 52px;font-size:13pt">YOUR&nbsp;LOGO</div></div>
+      <div class="mono" style="font-size:9pt;color:#9dd9b4;margin-top:16px;letter-spacing:.06em">↑ your centre's mark drops in exactly here</div>
+      <div style="border-top:1px solid rgba(255,255,255,.12);width:120mm;margin:40px auto 0;padding-top:26px">
+        <div style="font-family:var(--disp);font-size:20pt;color:#fff;line-height:1.2">Your name. Your letterhead. Your number.<br>Every branch keeps its own identity.</div>
+      </div>
+    </div>
+  </div>
+  <div class="folio on-dark"><span class="mk"><b>HealthFlow</b> · White-label</span><span class="num"></span></div>
+</section>
+
+<!-- ============================================================ 10 · ROADMAP -->
+<section class="page">
+  <div class="rule-top"></div>
+  <div class="pad">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div class="eyebrow g">What's coming next</div><div class="secno">08</div>
+    </div>
+    <h2 class="h-lg" style="margin-top:12px;max-width:22ch">The platform keeps getting stronger — you don't pay more.</h2>
+    <p class="lead" style="margin-top:12px;max-width:62ch">You're not buying a frozen product. Two of the next releases, included as you grow with us.</p>
+    <div style="margin-top:22px">
+      <div class="rcard">
+        <span class="soon">Coming soon</span>
+        <h3>Targeted reminders from results</h3>
+        <p class="lead" style="font-size:10.5pt;margin-top:8px">When a result crosses a line — high sugar, low haemoglobin, a due re-test — the right patient gets a personalised WhatsApp at the right time. Recalls that write themselves.</p>
+        <div class="rflow"><span class="n">Result flagged</span><span class="a">→</span><span class="n">Rule matches</span><span class="a">→</span><span class="n">Auto WhatsApp</span><span class="a">→</span><span class="n">Patient returns</span></div>
+      </div>
+      <div class="rcard">
+        <span class="soon">Coming soon</span>
+        <h3>Campaigns to your whole base</h3>
+        <p class="lead" style="font-size:10.5pt;margin-top:8px">Health-camp offers, festival packages and master-checkup pushes, sent to a segment of your patient list in a few taps — then measured by who actually booked.</p>
+        <div class="rflow"><span class="n">Pick segment</span><span class="a">→</span><span class="n">Craft offer</span><span class="a">→</span><span class="n">Send</span><span class="a">→</span><span class="n">Track bookings</span></div>
+      </div>
+      <div class="rcard">
+        <span class="soon">Coming soon</span>
+        <h3>Recall &amp; health-check campaigns</h3>
+        <p class="lead" style="font-size:10.5pt;margin-top:8px">Annual master-checkup recalls, chronic-care follow-ups and birthday wishes — set once, run forever, quietly filling slow days.</p>
+        <div class="rflow"><span class="n">Last visit ≥ 1 yr</span><span class="a">→</span><span class="n">Auto recall</span><span class="a">→</span><span class="n">Re-book</span></div>
+      </div>
+    </div>
+    <div style="margin-top:26px;border-top:1px solid var(--line);padding-top:22px;display:flex;justify-content:space-between;align-items:center">
+      <div style="font-family:var(--disp);font-size:15pt;color:var(--navy)">Every release lands in your account — free.</div>
+      <div class="mono" style="font-size:10pt;color:var(--green);letter-spacing:.06em">₹999/mo · never changes</div>
+    </div>
+  </div>
+  <div class="folio"><span class="mk"><b>HealthFlow</b> · Roadmap</span><span class="num"></span></div>
+</section>
+
+<!-- ============================================================ 11 · PRICING -->
+<section class="page">
+  <div class="rule-top"></div>
+  <div class="pad">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div class="eyebrow">Pricing</div><div class="secno">09</div>
+    </div>
+    <h2 class="h-lg" style="margin-top:12px;max-width:20ch">Enterprise software, priced to be used.</h2>
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-top:24px">
+      <div class="price-hero"><span class="rs num">₹999</span><span class="per">/ month</span></div>
+      <div style="text-align:right">
+        <div class="mono" style="font-size:9pt;color:var(--green);letter-spacing:.08em">LOCKED FOREVER — NOT AN INTRO RATE</div>
+        <div style="font-size:11pt;color:var(--mute);margin-top:6px">Industry rate <s class="num" style="text-decoration-color:var(--red)">₹8,000/mo</s> for less.</div>
+      </div>
+    </div>
+    <div class="track" style="margin-top:16px;height:8px"><span class="zone" style="left:0;width:12.5%;background:var(--green)"></span><span class="flag" style="left:12.5%"></span></div>
+    <div class="mono" style="font-size:8pt;color:var(--mute-2);margin-top:8px;display:flex;justify-content:space-between"><span>₹999 · HealthFlow</span><span>₹8,000 · typical industry quote</span></div>
+
+    <div class="eyebrow" style="margin-top:30px">Everything included, every month</div>
+    <div class="incl-grid" style="margin-top:8px">
+      <div class="row"><svg viewBox="0 0 24 24"><use href="#ck"/></svg><span>Unlimited patients &amp; tests</span></div>
+      <div class="row"><svg viewBox="0 0 24 24"><use href="#ck"/></svg><span>WhatsApp delivery of bills &amp; reports</span></div>
+      <div class="row"><svg viewBox="0 0 24 24"><use href="#ck"/></svg><span>Age/gender ranges, QR reports, external upload</span></div>
+      <div class="row"><svg viewBox="0 0 24 24"><use href="#ck"/></svg><span>OP/IP clinic, prescriptions &amp; free-revisit window</span></div>
+      <div class="row"><svg viewBox="0 0 24 24"><use href="#ck"/></svg><span>Automatic doctor payouts &amp; payslips</span></div>
+      <div class="row"><svg viewBox="0 0 24 24"><use href="#ck"/></svg><span>Owner analytics &amp; Patient 360</span></div>
+      <div class="row"><svg viewBox="0 0 24 24"><use href="#ck"/></svg><span>Fully white-labelled as your brand</span></div>
+      <div class="row"><svg viewBox="0 0 24 24"><use href="#ck"/></svg><span>24/7 support &amp; every future feature</span></div>
+    </div>
+    <div style="margin-top:28px;border-left:4px solid var(--green);background:linear-gradient(180deg,#f4f9f5,#eef4fb);border-radius:0 14px 14px 0;padding:24px 28px">
+      <div style="font-family:var(--disp);font-size:17pt;color:var(--navy);line-height:1.22">This isn't a stripped plan — it's <span style="background:linear-gradient(transparent 62%,rgba(23,163,74,.28) 0)">everything in this catalogue.</span></div>
+      <p style="color:var(--ink);font-size:11.5pt;margin-top:10px;max-width:60ch;line-height:1.5">Priced to be the obvious choice for every centre in Hyderabad — not to squeeze the ones who say yes early.</p>
+    </div>
+  </div>
+  <div class="folio"><span class="mk"><b>HealthFlow</b> · Pricing</span><span class="num"></span></div>
+</section>
+
+<!-- ============================================================ 12 · BACK COVER -->
+<section class="page cover">
+  <div class="grid-tex"></div>
+  <div class="pad" style="display:flex;flex-direction:column;justify-content:space-between">
+    <img class="logo-white" src="assets/healthflow-logo-white.png" alt="HealthFlow" style="height:13mm;align-self:flex-start">
+
+    <div>
+      <h2 class="h-xl" style="color:#fff;max-width:16ch">Let's put your name on it.</h2>
+      <p class="sub" style="max-width:48ch">Book a walkthrough and we'll set up your branded HealthFlow — reports, WhatsApp and all — on your own centre's data.</p>
+      <div class="panel" style="background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.16);margin-top:26px;max-width:120mm">
+        <div class="kv" style="color:#9dc0ef">To arrange a walkthrough</div>
+        <div style="font-family:var(--disp);font-size:16pt;color:#fff;margin-top:10px">saipranav.me@gmail.com</div>
+        <div style="font-family:var(--disp);font-size:16pt;color:#fff;margin-top:4px">+91 63094 14582</div>
+      </div>
+    </div>
+    <div style="border-top:1px solid rgba(255,255,255,.14);padding-top:12px;display:flex;justify-content:space-between;align-items:center">
+      <span class="mono" style="font-size:8.5pt;color:#9db3d4;letter-spacing:.06em">HEALTHFLOW · HYDERABAD · WHITE-LABEL LAB &amp; CLINIC OS</span>
+      <span class="mono" style="font-size:8.5pt;color:#43d484">₹999/MO · FOREVER</span>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

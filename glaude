@@ -1,10 +1,27 @@
 #!/bin/bash
 PROJECT_DIR="/Users/pranavreddy/Desktop/sobhana portal"
-PROXY_SCRIPT="$PROJECT_DIR/go-proxy.js"
+PROXY_SCRIPT="$PROJECT_DIR/scripts/glaude-go-proxy.js"
 PROXY_LOG="/tmp/go-proxy.log"
 PROXY_PORT=8787
 SETTINGS="$HOME/.claude/settings.json"
 SENTINEL="/tmp/gocl-settings-original.json"
+ENV_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/glaude/env"
+
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  . "$ENV_FILE"
+  set +a
+fi
+
+export GLAUDE_PROXY_PORT="$PROXY_PORT"
+export GO_BASE_URL="${GO_BASE_URL:-https://opencode.ai/zen/go/v1}"
+export GLAUDE_MODEL="${GLAUDE_MODEL:-kimi-k3}"
+export GO_API_KEY="${GO_API_KEY:-${OPENCODE_GO_API_KEY:-}}"
+
+if [ -z "$GO_API_KEY" ]; then
+  echo "Missing GO_API_KEY or OPENCODE_GO_API_KEY. Add it to $ENV_FILE"
+  exit 1
+fi
 
 # Start proxy if not running
 if ! lsof -i:$PROXY_PORT -sTCP:LISTEN -t >/dev/null 2>&1; then
