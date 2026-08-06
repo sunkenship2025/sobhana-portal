@@ -104,6 +104,23 @@ const SERVER_STARTED_AT = new Date().toISOString();
 const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS);
 app.set('trust proxy', Number.isFinite(trustProxyHops) && trustProxyHops > 0 ? trustProxyHops : 1);
 
+// Cloudflare now fronts Render, so req.ip (1 trusted hop) resolves to the
+// Cloudflare edge, not the client — every access log geolocated to a random CF
+// PoP (Portland/SF) instead of the patient. CF-Connecting-IP carries the true
+// client IP; prefer it so ALL req.ip readers (rate limit, audit, access logs)
+// see the real client. Falls back to req.ip when absent (local dev / direct).
+// ponytail: trusts the header unconditionally. A request reaching the Render
+// origin directly (bypassing Cloudflare) could spoof it — lock the origin to
+// Cloudflare's IP ranges (or set `trust proxy` to CF's published CIDRs) if that
+// ever matters for a diagnostics portal.
+app.use((req, _res, next) => {
+  const cf = req.headers['cf-connecting-ip'];
+  if (typeof cf === 'string' && cf) {
+    Object.defineProperty(req, 'ip', { value: cf, configurable: true, enumerable: true });
+  }
+  next();
+});
+
 // Request ID first — must run before pino-http so the auto-attached request
 // logger is tagged with the same id we expose in the response header.
 app.use(requestIdMiddleware);
