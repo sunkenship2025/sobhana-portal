@@ -130,6 +130,10 @@ const CSS = `
    black bars. */
 .wrd-ad{ position:absolute; inset:0; width:100%; height:100%; background:#000; display:block;
   animation:wrdIn .55s cubic-bezier(.16,1,.3,1) both; }
+/* Photo/slideshow cross-fade: two stacked layers, the new one fades in over the old. */
+.wrd-adslide{ position:absolute; inset:0; width:100%; height:100%; background:#000; display:block; }
+.wrd-adfade{ animation:wrdFade .8s ease both; }
+@keyframes wrdFade{ from{opacity:0} to{opacity:1} }
 @media (prefers-reduced-motion: reduce){ .wrd-screen,.wrd-token,.wrd-ad{ animation:none } }
 `;
 
@@ -207,6 +211,7 @@ function AdRotator({ ads }: { ads: Ad[] }) {
   );
   const [pos, setPos] = useState(0);
   const [slide, setSlide] = useState(0);
+  const prevSlide = useRef(0);
   const ad = playlist.length ? playlist[pos % playlist.length] : null;
 
   const next = useCallback(() => {
@@ -234,6 +239,7 @@ function AdRotator({ ads }: { ads: Ad[] }) {
 
   // Preload the ad's frames so slide swaps are instant (no blank/reload flash).
   useEffect(() => {
+    prevSlide.current = 0;
     ad?.media.forEach((mm) => {
       const im = new Image();
       im.src = `${API_BASE}${mm.path}`;
@@ -260,14 +266,21 @@ function AdRotator({ ads }: { ads: Ad[] }) {
     );
   }
   const m = ad.media[Math.min(slide, ad.media.length - 1)] || ad.media[0];
+  const under = ad.media[Math.min(prevSlide.current, ad.media.length - 1)] || ad.media[0];
   return (
-    <img
-      key={`${ad.id}-${pos}`}
-      className="wrd-ad"
-      style={{ objectFit: fit }}
-      src={url(m)}
-      alt={ad.name}
-    />
+    <>
+      <img className="wrd-adslide" style={{ objectFit: fit }} src={url(under)} alt="" aria-hidden />
+      <img
+        key={`${ad.id}-${pos}-${slide}`}
+        className="wrd-adslide wrd-adfade"
+        style={{ objectFit: fit }}
+        src={url(m)}
+        alt={ad.name}
+        onAnimationEnd={() => {
+          prevSlide.current = slide;
+        }}
+      />
+    </>
   );
 }
 
