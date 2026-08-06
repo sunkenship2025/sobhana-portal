@@ -127,11 +127,11 @@ const CSS = `
 .wrd-center code{ font-family:'Space Grotesk',monospace; background:#eef2f9; padding:.4vh 1vw; border-radius:.6vh; }
 /* Ad fills the whole main area (never the ticker). object-fit makes fill vs
    letterbox actually differ: cover crops to fill edge-to-edge, contain shows
-   black bars. */
-.wrd-ad{ position:absolute; inset:0; width:100%; height:100%; background:#000; display:block;
+   white bars. */
+.wrd-ad{ position:absolute; inset:0; width:100%; height:100%; background:#fff; display:block;
   animation:wrdIn .55s cubic-bezier(.16,1,.3,1) both; }
 /* Photo/slideshow cross-fade: two persistent layers, opacity transitions. */
-.wrd-adslide{ position:absolute; inset:0; width:100%; height:100%; background:#000; display:block;
+.wrd-adslide{ position:absolute; inset:0; width:100%; height:100%; background:#fff; display:block;
   opacity:0; transition:opacity .8s ease; }
 @media (prefers-reduced-motion: reduce){ .wrd-screen,.wrd-token,.wrd-ad{ animation:none } }
 `;
