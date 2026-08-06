@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  AlertCircle,
   ArrowLeft,
   BadgeCheck,
   Building2,
@@ -66,6 +67,7 @@ interface ThreadMessage {
   direction: 'IN' | 'OUT';
   body: string;
   messageType: string;
+  status: string; // sent | delivered | read | failed
   mediaUrl: string | null;
   isAutoReply: boolean;
   staffUserId: string | null;
@@ -670,10 +672,18 @@ function MessageBubble({ m }: { m: ThreadMessage }) {
       <div className="mt-1 flex items-center justify-end gap-1 text-[10.5px] text-muted-foreground">
         {m.isAutoReply && <span className="italic">auto</span>}
         {clockTime(m.createdAt)}
-        {out && <CheckCheck className="h-3 w-3 text-[#4a9be0]" />}
+        {out && m.messageType !== 'system' && <Ticks status={m.status} />}
       </div>
     </div>
   );
+}
+
+/** WhatsApp-style delivery ticks: sent (grey ✓) → delivered (grey ✓✓) → read (blue ✓✓); failed = red !. */
+function Ticks({ status }: { status: string }) {
+  if (status === 'failed') return <AlertCircle className="h-3 w-3 text-destructive" />;
+  if (status === 'read') return <CheckCheck className="h-3 w-3 text-[#4a9be0]" />;
+  if (status === 'delivered') return <CheckCheck className="h-3 w-3" />;
+  return <Check className="h-3 w-3" />; // sent
 }
 
 interface TemplateSummary {

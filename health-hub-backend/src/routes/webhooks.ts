@@ -231,6 +231,22 @@ router.post(
             if (updated.count > 0) {
               console.log(`[Webhook] Updated ${waMessageId} → ${statusValue}`);
             }
+
+            // Mirror onto the inbox thread message (WhatsApp-style ticks). Guard
+            // forward-only: only overwrite a strictly-earlier state, so out-of-order
+            // webhooks (a late 'delivered' after 'read') can't regress the tick.
+            const canOverwrite: Record<string, string[]> = {
+              delivered: ['sent'],
+              read: ['sent', 'delivered'],
+              failed: ['sent', 'delivered'],
+            };
+            const lower = canOverwrite[statusValue];
+            if (lower) {
+              await prisma.conversationMessage.updateMany({
+                where: { waMessageId, status: { in: lower } },
+                data: { status: statusValue },
+              });
+            }
           }
 
           // ── Inbound messages → capture + auto-reply ──

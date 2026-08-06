@@ -1363,6 +1363,7 @@ model ConversationMessage {
   direction      MessageDirection
   body           String // text body, or a caption/placeholder for media
   messageType    String           @default("text") // text | image | document | audio | video | location | other
+  status         String           @default("sent") // OUT delivery: sent → delivered → read (or failed); drives WhatsApp-style ticks
   mediaUrl       String? // R2 URL for stored inbound media (Phase 2)
   waMessageId    String?          @unique // Meta message id; unique so webhook retries don't double-insert
   staffUserId    String? // staff who sent an OUT message; null for inbound / auto-reply

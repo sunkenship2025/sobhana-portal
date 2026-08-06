@@ -406,6 +406,7 @@ router.get('/conversations/:id', async (req: AuthRequest, res) => {
         direction: m.direction,
         body: m.body,
         messageType: m.messageType,
+        status: m.status,
         mediaUrl: m.mediaUrl,
         isAutoReply: m.isAutoReply,
         staffUserId: m.staffUserId,
