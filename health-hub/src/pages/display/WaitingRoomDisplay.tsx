@@ -510,7 +510,7 @@ export default function WaitingRoomDisplay() {
           <div className="wrd-cells">
             {visibleDoctors.length === 0 ? (
               <div className="wrd-cell" style={{ color: 'var(--muted)', fontSize: '1.2vw', fontWeight: 600 }}>
-                Tokens appear here as patients are called
+                Please take a seat — your token will appear here when it's your turn
               </div>
             ) : (
               visibleDoctors.map((d) => (
