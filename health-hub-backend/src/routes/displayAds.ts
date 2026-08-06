@@ -24,6 +24,11 @@ router.use(authMiddleware);
 router.use(branchContextMiddleware);
 router.use(requireRole('owner'));
 
+// Ad media lives in a dedicated PUBLIC bucket when configured, so it can be served
+// straight from R2/CDN without ever exposing the private report bucket. Undefined
+// falls back to the default (private) bucket + backend proxy.
+const ADS_BUCKET = process.env.R2_PUBLIC_BUCKET || undefined;
+
 const IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/webp'];
 const VIDEO_MIMES = ['video/mp4', 'video/webm'];
 
@@ -146,7 +151,7 @@ router.post('/', upload.array('files', 12), async (req: AuthRequest, res) => {
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       const key = `display-ads/${req.branchId}/${folder}/${i}${extFor(f.mimetype)}`;
-      await putObject({ key, body: f.buffer, contentType: f.mimetype });
+      await putObject({ key, body: f.buffer, contentType: f.mimetype, bucket: ADS_BUCKET });
       mediaKeys.push(key);
       mimeTypes.push(f.mimetype);
     }
@@ -211,7 +216,7 @@ router.delete('/:id', async (req: AuthRequest, res) => {
     const existing = await prisma.displayAd.findFirst({ where: { id, branchId: req.branchId! } });
     if (!existing) return res.status(404).json({ error: 'NOT_FOUND', message: 'Ad not found' });
 
-    await deleteObjects(existing.mediaKeys);
+    await deleteObjects(existing.mediaKeys, ADS_BUCKET);
     await prisma.displayAd.delete({ where: { id } });
     return res.json({ ok: true });
   } catch (err: any) {

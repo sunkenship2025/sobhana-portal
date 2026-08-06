@@ -308,7 +308,7 @@ router.get('/ads/media/:adId/:index', async (req: Request, res: Response) => {
     if (!ad || !ad.enabled || Number.isNaN(idx) || idx < 0 || idx >= ad.mediaKeys.length) {
       return res.status(404).end();
     }
-    const obj = await getObjectStream(ad.mediaKeys[idx], req.headers.range);
+    const obj = await getObjectStream(ad.mediaKeys[idx], req.headers.range, process.env.R2_PUBLIC_BUCKET || undefined);
     res.status(obj.status);
     if (obj.contentType) res.setHeader('Content-Type', obj.contentType);
     res.setHeader('Accept-Ranges', 'bytes');

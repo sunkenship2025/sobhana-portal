@@ -9,9 +9,12 @@
  *   R2_ACCOUNT_ID
  *   R2_ACCESS_KEY_ID
  *   R2_SECRET_ACCESS_KEY
- *   R2_BUCKET
+ *   R2_BUCKET         (PRIVATE — patient report PDFs & uploads live here; never make public)
  * Optional:
  *   R2_ENDPOINT       (defaults to https://<accountId>.r2.cloudflarestorage.com)
+ *   R2_PUBLIC_BUCKET  (separate PUBLIC bucket for display ad media only; pass as the
+ *                      `bucket` override so ads can be served publicly without ever
+ *                      exposing the private report bucket)
  */
 
 import {
@@ -52,8 +55,8 @@ function getClient(): S3Client {
   return cachedClient;
 }
 
-function getBucket(): string {
-  return readEnv('R2_BUCKET');
+function getBucket(override?: string): string {
+  return override || readEnv('R2_BUCKET');
 }
 
 export interface PutPdfInput {
@@ -101,11 +104,11 @@ export async function getObject(key: string): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-export async function deleteObject(key: string): Promise<void> {
+export async function deleteObject(key: string, bucket?: string): Promise<void> {
   const client = getClient();
   await client.send(
     new DeleteObjectCommand({
-      Bucket: getBucket(),
+      Bucket: getBucket(bucket),
       Key: key,
     }),
   );
@@ -121,11 +124,12 @@ export async function putObject(input: {
   body: Buffer;
   contentType: string;
   contentDisposition?: string;
+  bucket?: string;
 }): Promise<void> {
   const client = getClient();
   await client.send(
     new PutObjectCommand({
-      Bucket: getBucket(),
+      Bucket: getBucket(input.bucket),
       Key: input.key,
       Body: input.body,
       ContentType: input.contentType,
@@ -150,10 +154,10 @@ export interface ObjectStream {
  * large ad video can't OOM the 512MB instance. Pass the request's Range header
  * to support <video> seeking.
  */
-export async function getObjectStream(key: string, range?: string): Promise<ObjectStream> {
+export async function getObjectStream(key: string, range?: string, bucket?: string): Promise<ObjectStream> {
   const client = getClient();
   const result = await client.send(
-    new GetObjectCommand({ Bucket: getBucket(), Key: key, Range: range }),
+    new GetObjectCommand({ Bucket: getBucket(bucket), Key: key, Range: range }),
   );
   return {
     body: result.Body as Readable,
@@ -165,10 +169,10 @@ export async function getObjectStream(key: string, range?: string): Promise<Obje
 }
 
 /** Best-effort bulk delete (e.g. removing an ad's media). Never throws. */
-export async function deleteObjects(keys: string[]): Promise<void> {
+export async function deleteObjects(keys: string[], bucket?: string): Promise<void> {
   for (const key of keys) {
     try {
-      await deleteObject(key);
+      await deleteObject(key, bucket);
     } catch (err) {
       console.error('R2 deleteObjects: failed to delete', key, err);
     }
