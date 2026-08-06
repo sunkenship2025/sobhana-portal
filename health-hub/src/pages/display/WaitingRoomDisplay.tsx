@@ -232,6 +232,14 @@ function AdRotator({ ads }: { ads: Ad[] }) {
     return () => window.clearTimeout(t);
   }, [ad?.id, slide, next]);
 
+  // Preload the ad's frames so slide swaps are instant (no blank/reload flash).
+  useEffect(() => {
+    ad?.media.forEach((mm) => {
+      const im = new Image();
+      im.src = `${API_BASE}${mm.path}`;
+    });
+  }, [ad?.id]);
+
   if (!ad || !ad.media.length) return null;
   const fit = ad.fit === 'contain' ? 'contain' : 'cover';
   const url = (m: AdMedia) => `${API_BASE}${m.path}`;
@@ -254,7 +262,7 @@ function AdRotator({ ads }: { ads: Ad[] }) {
   const m = ad.media[Math.min(slide, ad.media.length - 1)] || ad.media[0];
   return (
     <img
-      key={`${ad.id}-${pos}-${slide}`}
+      key={`${ad.id}-${pos}`}
       className="wrd-ad"
       style={{ objectFit: fit }}
       src={url(m)}
