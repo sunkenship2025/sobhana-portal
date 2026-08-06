@@ -62,7 +62,7 @@ const CSS = `
 .wrd-root{ position:fixed; inset:0; overflow:hidden; display:flex; flex-direction:column;
   font-family:'Inter',system-ui,-apple-system,sans-serif; -webkit-font-smoothing:antialiased;
   color:#172244; background:linear-gradient(170deg,#ffffff,#eef2f9);
-  --navy:#1B2B58; --muted:#66738f; --faint:#9aa4bc; --hairline:rgba(27,43,88,.10); }
+  --navy:#1B2B58; --muted:#66738f; --faint:#9aa4bc; --hairline:rgba(27,43,88,.10); --red:#C8102E; }
 .wrd-top{ height:12vh; flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; padding:0 4.4vw; }
 .wrd-brand{ display:flex; align-items:center; gap:1.1vw; }
 .wrd-mark{ width:3.2vw; height:3.2vw; border-radius:.8vw; background:linear-gradient(145deg,#1B2B58,#2c4488); }
@@ -113,8 +113,10 @@ const CSS = `
 .wrd-cnum{ font-family:'Space Grotesk','Inter',sans-serif; font-size:3vw; font-weight:700; line-height:1; color:var(--navy);
   font-variant-numeric:tabular-nums; }
 .wrd-cnum.empty{ color:var(--faint); font-size:1.9vw; }
-.wrd-cell.act{ background:rgba(27,43,88,.05); }
-.wrd-cell.act::after{ content:''; position:absolute; left:18%; right:18%; bottom:1vh; height:.35vh; border-radius:.35vh; background:var(--navy); }
+/* Now serving: red top tab bar + faint red tint + red token (Version B). */
+.wrd-cell.act{ background:rgba(200,16,46,.08); }
+.wrd-cell.act::after{ content:''; position:absolute; top:0; left:0; right:0; height:.6vh; background:var(--red); }
+.wrd-cell.act .wrd-cnum{ color:var(--red); }
 /* chips / states */
 .wrd-chip{ position:absolute; bottom:19vh; left:4.4vw; display:flex; align-items:center; gap:.7vw;
   background:var(--navy); color:#fff; font-size:1.2vw; font-weight:600; padding:.9vh 1.4vw; border-radius:999px; }
