@@ -43,12 +43,12 @@ const branchThemes: Record<string, BranchTheme> = {
     accent: '#8b5cf6',
     accentForeground: '#ffffff',
   },
-  // Sobhana - Balanagar → Light Blue
+  // Sobhana - Balanagar → Grey
   BLN: {
-    sidebarBg: '#1e3a5f',
-    sidebarActive: '#1e4f8f',
-    bannerBg: '#2563eb',
-    accent: '#3b82f6',
+    sidebarBg: '#374151',
+    sidebarActive: '#4b5563',
+    bannerBg: '#4b5563',
+    accent: '#6b7280',
     accentForeground: '#ffffff',
   },
 };
