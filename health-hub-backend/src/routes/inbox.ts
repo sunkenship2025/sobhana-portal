@@ -23,6 +23,7 @@
  *   POST /conversations/:id/template    — approved-template reply (out of window)
  *   POST /conversations/:id/assign      — claim / release the thread
  *   POST /conversations/:id/read        — mark read (reset unread)
+ *   POST /conversations/:id/unread      — flag unread (follow up later)
  *   GET  /unread-count                  — total unread (sidebar badge)
  */
 
@@ -586,6 +587,24 @@ router.post('/conversations/:id/read', async (req: AuthRequest, res) => {
   } catch (err) {
     console.error('[Inbox] read error:', err);
     res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to mark read' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/inbox/conversations/:id/unread   (flag as unread — follow up later)
+// ─────────────────────────────────────────────────────────────────────────────
+router.post('/conversations/:id/unread', async (req: AuthRequest, res) => {
+  try {
+    const convo = await loadForAction(req, res);
+    if (!convo) return;
+    await prisma.conversation.update({
+      where: { id: convo.id },
+      data: { unreadCount: Math.max(1, convo.unreadCount) },
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[Inbox] unread error:', err);
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to mark unread' });
   }
 });
 

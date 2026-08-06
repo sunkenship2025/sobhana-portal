@@ -18,6 +18,7 @@ import {
   FileText,
   ImagePlus,
   Info,
+  Mail,
   Phone,
   Receipt,
   Search,
@@ -219,6 +220,11 @@ export default function MessagesInbox() {
       branchRequest(`/inbox/conversations/${id}/read`, branchId ?? '', { method: 'POST' }),
     invalidate: [['inbox', 'list'], ['inbox', 'unread']],
   });
+  const unreadM = useApiMutation<unknown, string>({
+    mutationFn: (id) =>
+      branchRequest(`/inbox/conversations/${id}/unread`, branchId ?? '', { method: 'POST' }),
+    invalidate: [['inbox', 'list'], ['inbox', 'unread']],
+  });
   const assignM = useApiMutation<{ assignedToId: string | null }, { id: string; assign: boolean }>({
     mutationFn: ({ id, assign }) =>
       branchRequest(`/inbox/conversations/${id}/assign`, branchId ?? '', {
@@ -359,6 +365,16 @@ export default function MessagesInbox() {
               loading={threadQ.isLoading}
               mine={selectedConv.assignedToId === meId}
               onBack={() => setSelectedId(null)}
+              onMarkUnread={() => {
+                lastReadRef.current = null; // let auto-read fire again on reopen
+                unreadM.mutate(selectedConv.id, {
+                  onSuccess: () => {
+                    toast.success('Marked unread');
+                    setSelectedId(null);
+                  },
+                  onError: (err) => toast.error(err.message || 'Failed to mark unread'),
+                });
+              }}
               onAssign={(assign) => assignM.mutate({ id: selectedConv.id, assign })}
               onOpen360={(pid) => navigate(`/clinic/patient-360/${pid}`)}
               onReply={(text) =>
@@ -490,6 +506,7 @@ function ThreadPane({
   loading,
   mine,
   onBack,
+  onMarkUnread,
   onAssign,
   onOpen360,
   onReply,
@@ -503,6 +520,7 @@ function ThreadPane({
   loading: boolean;
   mine: boolean;
   onBack: () => void;
+  onMarkUnread: () => void;
   onAssign: (assign: boolean) => void;
   onOpen360: (patientId: string) => void;
   onReply: (text: string) => void;
@@ -563,6 +581,13 @@ function ThreadPane({
             </span>
           </div>
         </div>
+        <button
+          onClick={onMarkUnread}
+          title="Mark as unread"
+          className="inline-flex flex-shrink-0 items-center justify-center rounded-lg border p-2 text-muted-foreground hover:bg-muted"
+        >
+          <Mail className="h-4 w-4" />
+        </button>
         <button
           onClick={() => onAssign(!mine)}
           className={cn(
