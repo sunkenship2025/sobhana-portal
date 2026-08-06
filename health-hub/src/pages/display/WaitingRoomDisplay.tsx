@@ -130,10 +130,9 @@ const CSS = `
    black bars. */
 .wrd-ad{ position:absolute; inset:0; width:100%; height:100%; background:#000; display:block;
   animation:wrdIn .55s cubic-bezier(.16,1,.3,1) both; }
-/* Photo/slideshow cross-fade: two stacked layers, the new one fades in over the old. */
-.wrd-adslide{ position:absolute; inset:0; width:100%; height:100%; background:#000; display:block; }
-.wrd-adfade{ animation:wrdFade .8s ease both; }
-@keyframes wrdFade{ from{opacity:0} to{opacity:1} }
+/* Photo/slideshow cross-fade: two persistent layers, opacity transitions. */
+.wrd-adslide{ position:absolute; inset:0; width:100%; height:100%; background:#000; display:block;
+  opacity:0; transition:opacity .8s ease; }
 @media (prefers-reduced-motion: reduce){ .wrd-screen,.wrd-token,.wrd-ad{ animation:none } }
 `;
 
@@ -203,6 +202,10 @@ function playDingDong() {
   }
 }
 
+// Session-lived cache: holding the decoded <img> objects keeps the browser from
+// re-fetching/re-decoding the frames on every slideshow loop.
+const _adImgKeep: HTMLImageElement[] = [];
+
 /** Rotates uploaded creatives in the idle state: photos held, slideshows cycled, videos to their end. */
 function AdRotator({ ads }: { ads: Ad[] }) {
   const playlist = useMemo(
@@ -211,7 +214,7 @@ function AdRotator({ ads }: { ads: Ad[] }) {
   );
   const [pos, setPos] = useState(0);
   const [slide, setSlide] = useState(0);
-  const prevSlide = useRef(0);
+  const layer = useRef<[string, string]>(['', '']);
   const ad = playlist.length ? playlist[pos % playlist.length] : null;
 
   const next = useCallback(() => {
@@ -237,12 +240,15 @@ function AdRotator({ ads }: { ads: Ad[] }) {
     return () => window.clearTimeout(t);
   }, [ad?.id, slide, next]);
 
-  // Preload the ad's frames so slide swaps are instant (no blank/reload flash).
+  // Preload + keep the frames decoded in memory so loops never reload.
   useEffect(() => {
-    prevSlide.current = 0;
     ad?.media.forEach((mm) => {
-      const im = new Image();
-      im.src = `${API_BASE}${mm.path}`;
+      const src = `${API_BASE}${mm.path}`;
+      if (!_adImgKeep.some((i) => i.src === src)) {
+        const im = new Image();
+        im.src = src;
+        _adImgKeep.push(im);
+      }
     });
   }, [ad?.id]);
 
@@ -265,21 +271,16 @@ function AdRotator({ ads }: { ads: Ad[] }) {
       />
     );
   }
-  const m = ad.media[Math.min(slide, ad.media.length - 1)] || ad.media[0];
-  const under = ad.media[Math.min(prevSlide.current, ad.media.length - 1)] || ad.media[0];
+  const cur = ad.media[Math.min(slide, ad.media.length - 1)] || ad.media[0];
+  // Parity layers: put the current frame on one persistent layer, fade opacity
+  // between them. The hidden layer's src is swapped while it's invisible, then it
+  // fades in as the other fades out — a true cross-fade with no remount/reload.
+  const active = slide % 2;
+  layer.current[active] = url(cur);
   return (
     <>
-      <img className="wrd-adslide" style={{ objectFit: fit }} src={url(under)} alt="" aria-hidden />
-      <img
-        key={`${ad.id}-${pos}-${slide}`}
-        className="wrd-adslide wrd-adfade"
-        style={{ objectFit: fit }}
-        src={url(m)}
-        alt={ad.name}
-        onAnimationEnd={() => {
-          prevSlide.current = slide;
-        }}
-      />
+      <img className="wrd-adslide" style={{ objectFit: fit, opacity: active === 0 ? 1 : 0 }} src={layer.current[0] || url(cur)} alt="" aria-hidden={active !== 0} />
+      <img className="wrd-adslide" style={{ objectFit: fit, opacity: active === 1 ? 1 : 0 }} src={layer.current[1] || url(cur)} alt={ad.name} aria-hidden={active !== 1} />
     </>
   );
 }
