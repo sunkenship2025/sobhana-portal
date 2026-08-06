@@ -101,6 +101,20 @@ export const refStr = (it: BuilderItem): string => {
   return '—';
 };
 
+/** Parse a range typed on the report back into canonical fields (inverse of refStr).
+ *  "10 - 20" → min/max · "< 20" / "> 10" → one bound · anything else → text · empty → cleared. */
+export const parseRange = (s: string): Pick<BuilderItem, 'referenceMin' | 'referenceMax' | 'referenceText'> => {
+  const t = s.trim();
+  const cleared = { referenceMin: null, referenceMax: null, referenceText: null };
+  if (!t || t === '—' || t === '-') return cleared;
+  const N = '(-?\\d*\\.?\\d+)';
+  const between = t.match(new RegExp(`^${N}\\s*(?:-|–|—|to)\\s*${N}$`, 'i'));
+  if (between) return { ...cleared, referenceMin: Number(between[1]), referenceMax: Number(between[2]) };
+  const lt = t.match(new RegExp(`^<\\s*=?\\s*${N}$`)); if (lt) return { ...cleared, referenceMax: Number(lt[1]) };
+  const gt = t.match(new RegExp(`^>\\s*=?\\s*${N}$`)); if (gt) return { ...cleared, referenceMin: Number(gt[1]) };
+  return { ...cleared, referenceText: t };
+};
+
 /** Abnormal (bold) if the sample value falls outside the reference range. */
 export const isAbnormal = (it: BuilderItem): boolean => {
   if (it.mockValue == null) return false;

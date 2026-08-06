@@ -571,7 +571,7 @@ const REPORT_EDITOR_ASSETS = `
   .rb-edit:focus{background:#fff;box-shadow:0 0 0 2px #2b64ab;}
   .rb-ph:empty:before{content:attr(data-ph);color:#b3b9c4;font-style:italic;font-weight:400;}
   .results-table tbody td.col-ref,.results-table tbody td.col-result,.results-table tbody td.col-test,.results-table tbody td.col-param{position:relative;}
-  .results-table tbody td.col-ref{cursor:pointer;}
+  .rb-refval{display:inline-block;min-width:70px;}
   .rb-rowtools{position:absolute;top:50%;right:2px;transform:translateY(-50%);display:none;gap:3px;white-space:nowrap;z-index:2;}
   .results-table tbody tr.data-row:hover .rb-rowtools{display:inline-flex;}
   .rb-tool{cursor:pointer;font:12px/1 Arial,sans-serif;padding:2px 5px;border-radius:3px;color:#8a93a5;background:#fff;border:1px solid #e2e6ee;user-select:none;}
@@ -667,7 +667,7 @@ const REPORT_EDITOR_ASSETS = `
     names.forEach(function(nm,i){ wire(nm,function(v){post({type:'item',index:i,field:'label',value:v});},'Test name'); });
     values.forEach(function(vc,i){ wire(vc,function(v){post({type:'item',index:i,field:'value',value:v});},'\\u2014'); });
 
-    // Per test row: drag handle + tools + click-to-inspect + ref-cell → ranges
+    // Per test row: drag handle + ref-cell inline edit + tools + click-to-inspect
     q('.results-table tbody tr.data-row').forEach(function(tr){
       var nm=tr.querySelector('.test-name, .grid-cell-label'); if(!nm)return; var i=names.indexOf(nm); if(i<0)return;
       var td0=tr.querySelector('td.col-test, td.col-param')||tr.firstElementChild;
@@ -676,6 +676,15 @@ const REPORT_EDITOR_ASSETS = `
         g.addEventListener('dragstart',function(e){ dragIdx=i; tr.classList.add('rb-dragging'); try{e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(i));}catch(_){} });
         g.addEventListener('dragend',function(){ dragIdx=null; q('.data-row').forEach(function(x){x.classList.remove('rb-dragging','rb-over-top','rb-over-bot');}); });
         td0.insertBefore(g,td0.firstChild); }
+      // Reference range → type the simple/text range right on the report. Its text
+      // is wrapped so the row-tools bar (appended below) stays out of the value.
+      // Age/gender variants aren't shown here — reach them via the ⚙ (inspector).
+      var ref=tr.querySelector('td.col-ref');
+      if(ref){ var rv=document.createElement('span'); rv.className='rb-refval';
+        while(ref.firstChild){ rv.appendChild(ref.firstChild); }
+        var cur0=norm(rv.textContent); if(cur0==='\\u2014'||cur0==='-'){ rv.textContent=''; }
+        ref.appendChild(rv);
+        wire(rv,function(v){post({type:'item',index:i,field:'refRange',value:v});},'Reference range'); }
       var lastCell=tr.querySelector('td.col-ref, td.col-result')||tr.lastElementChild;
       if(lastCell){ var bar=document.createElement('span'); bar.className='rb-rowtools'; bar.setAttribute('contenteditable','false');
         var insp=document.createElement('span'); insp.className='rb-tool'; insp.textContent='\\u2699'; insp.title='Edit clinical details';
@@ -683,8 +692,6 @@ const REPORT_EDITOR_ASSETS = `
         var del=document.createElement('span'); del.className='rb-tool rb-del'; del.textContent='\\u00d7'; del.title='Remove test';
         del.addEventListener('mousedown',function(e){e.preventDefault();e.stopPropagation();post({type:'delete',index:i});});
         bar.appendChild(insp); bar.appendChild(del); lastCell.appendChild(bar); }
-      var ref=tr.querySelector('td.col-ref');
-      if(ref){ ref.addEventListener('click',function(e){ if(e.target.closest('[data-rb-edit],.rb-tool,.rb-drag,.rb-edit'))return; post({type:'inspect',index:i,focus:'ranges'}); }); }
       tr.addEventListener('click',function(e){ if(e.target.closest('[data-rb-edit],.rb-tool,.rb-drag,.rb-edit,td.col-ref'))return; post({type:'inspect',index:i}); });
       bindDrag(tr,i);
     });

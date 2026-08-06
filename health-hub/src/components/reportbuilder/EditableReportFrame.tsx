@@ -24,7 +24,7 @@ interface Props {
   reloadKey: number;
   headers: Record<string, string>;
   onPanelEdit: (field: PanelEditField, value: string) => void;
-  onItemEdit: (index: number, field: 'label' | 'value', value: string) => void;
+  onItemEdit: (index: number, field: 'label' | 'value' | 'refRange', value: string) => void;
   onInspect: (index: number, focus?: 'ranges') => void;
   onDelete: (index: number) => void;
   onCreate: (name: string) => void;

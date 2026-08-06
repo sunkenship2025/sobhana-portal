@@ -30,7 +30,7 @@ import { EditableReportFrame, type PanelEditField } from '@/components/reportbui
 import { ItemInspectorBody, type InspectorItem, type CanonicalPatch } from '@/components/reportbuilder/ItemInspector';
 import {
   CODE_REGEX, LAYOUTS, SAMPLE_TYPES, type Department, type TestDef, type BuilderItem, type PanelForm,
-  blankPanel, uid, itemFromDef, autoCode,
+  blankPanel, uid, itemFromDef, autoCode, parseRange,
 } from './reportBuilderShared';
 import { PAYOUT_CATEGORIES } from '@/lib/payoutCategories';
 
@@ -186,12 +186,35 @@ export default function ReportBuilder() {
     setP(patch);
     if (wasEmpty) bumpReload();
   };
-  const onItemEdit = (index: number, field: 'label' | 'value', value: string) => {
+  const onItemEdit = (index: number, field: 'label' | 'value' | 'refRange', value: string) => {
     const it = renderedItems[index]; if (!it) return;
     if (field === 'label') { patchItem(it._uid, { displayLabel: value.trim() || null }); return; }
+    if (field === 'refRange') { saveRefRange(it, value); return; }
     const num = Number(value);
     if (value.trim() !== '' && !Number.isNaN(num)) patchItem(it._uid, { mockValue: num, mockTextValue: null });
     else patchItem(it._uid, { mockValue: null, mockTextValue: value.trim() || null });
+  };
+  // Reference range typed on the report → a versioned TestDefinition edit (clone-on-
+  // edit), same write the inspector does. Sending only the range fields preserves
+  // age/gender variants, criticals & formula (backend falls back to current for the
+  // rest). Re-points the item to the new version so autosave persists it.
+  const saveRefRange = async (it: BuilderItem, raw: string) => {
+    const parsed = parseRange(raw);
+    if (parsed.referenceText === (it.referenceText ?? null) && parsed.referenceMin === (it.referenceMin ?? null) && parsed.referenceMax === (it.referenceMax ?? null)) return;
+    try {
+      const dRes = await fetch(`${API_BASE}/clinical-definitions/${it.testDefinitionId}`, { headers });
+      if (!dRes.ok) throw new Error('Could not load the test definition');
+      const d = await dRes.json();
+      const res = await fetch(`${API_BASE}/clinical-definitions/${d.rootDefinitionId}/new-version`, {
+        method: 'POST', headers: { ...headers, 'If-Match': d.updatedAt ?? '' }, body: JSON.stringify(parsed),
+      });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || `Save failed (${res.status})`); }
+      const nd = await res.json();
+      patchItem(it._uid, {
+        testDefinitionId: nd.id, referenceUnit: nd.referenceUnit ?? null,
+        referenceMin: nd.referenceMin ?? null, referenceMax: nd.referenceMax ?? null, referenceText: nd.referenceText ?? null,
+      });
+    } catch (e) { toast.error((e as Error).message || 'Could not save the reference range'); }
   };
   const onInspect = (index: number, focus?: 'ranges') => {
     const it = renderedItems[index]; if (!it) return;
