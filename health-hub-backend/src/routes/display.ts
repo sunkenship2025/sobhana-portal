@@ -243,6 +243,10 @@ router.get('/:branchSlug/:screenSlug/state', displayRateLimit, async (req: Reque
       },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
+    // Ad media is public advertising. If R2_PUBLIC_URL is set (bucket exposed via
+    // r2.dev or a Cloudflare custom domain), serve it straight from R2/CDN so the
+    // bytes never flow through this box. Otherwise fall back to the backend proxy.
+    const r2Public = (process.env.R2_PUBLIC_URL || '').replace(/\/$/, '');
     const adsOut = ads.map((a) => ({
       id: a.id,
       name: a.name,
@@ -250,8 +254,8 @@ router.get('/:branchSlug/:screenSlug/state', displayRateLimit, async (req: Reque
       fit: a.fit,
       durationSec: a.durationSec,
       weight: a.weight,
-      media: a.mediaKeys.map((_k, i) => ({
-        path: `/display/ads/media/${a.id}/${i}`,
+      media: a.mediaKeys.map((k, i) => ({
+        path: r2Public ? `${r2Public}/${k}` : `/display/ads/media/${a.id}/${i}`,
         mimeType: a.mimeTypes[i] || 'application/octet-stream',
       })),
     }));

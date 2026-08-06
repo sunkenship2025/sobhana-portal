@@ -243,7 +243,7 @@ function AdRotator({ ads }: { ads: Ad[] }) {
   // Preload + keep the frames decoded in memory so loops never reload.
   useEffect(() => {
     ad?.media.forEach((mm) => {
-      const src = `${API_BASE}${mm.path}`;
+      const src = mm.path.startsWith('http') ? mm.path : `${API_BASE}${mm.path}`;
       if (!_adImgKeep.some((i) => i.src === src)) {
         const im = new Image();
         im.src = src;
@@ -254,7 +254,7 @@ function AdRotator({ ads }: { ads: Ad[] }) {
 
   if (!ad || !ad.media.length) return null;
   const fit = ad.fit === 'contain' ? 'contain' : 'cover';
-  const url = (m: AdMedia) => `${API_BASE}${m.path}`;
+  const url = (m: AdMedia) => (m.path.startsWith('http') ? m.path : `${API_BASE}${m.path}`);
 
   if (ad.kind === 'VIDEO') {
     return (
