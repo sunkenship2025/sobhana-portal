@@ -186,9 +186,10 @@ export default function ReportBuilder() {
     setP(patch);
     if (wasEmpty) bumpReload();
   };
-  const onItemEdit = (index: number, field: 'label' | 'value' | 'refRange', value: string) => {
+  const onItemEdit = (index: number, field: 'label' | 'value' | 'refRange' | 'method', value: string) => {
     const it = renderedItems[index]; if (!it) return;
     if (field === 'label') { patchItem(it._uid, { displayLabel: value.trim() || null }); return; }
+    if (field === 'method') { patchItem(it._uid, { methodText: value.trim() || null, showMethod: !!value.trim() }); return; }
     if (field === 'refRange') { saveRefRange(it, value); return; }
     const num = Number(value);
     if (value.trim() !== '' && !Number.isNaN(num)) patchItem(it._uid, { mockValue: num, mockTextValue: null });
@@ -422,7 +423,7 @@ export default function ReportBuilder() {
           )}
         </div>
 
-        <aside className="rounded-lg border bg-card overflow-hidden flex flex-col max-h-[82vh]">
+        <aside className="rounded-lg border bg-card overflow-hidden flex flex-col self-start sticky top-2 max-h-[calc(100vh-1rem)]">
           <div className="flex border-b shrink-0">
             {DOCK_TABS.map((t) => (
               <button key={t.k} onClick={() => setDockTab(t.k)}

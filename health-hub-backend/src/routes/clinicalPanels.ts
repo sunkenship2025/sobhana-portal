@@ -661,11 +661,10 @@ const REPORT_EDITOR_ASSETS = `
     if(pm){ wire(pm,function(v){post({type:'panel',field:'panelMethodText',value:stripMethod(v)});}); }
     else { var tt=document.querySelector('.panel-title'); if(tt){ var addm=document.createElement('div'); addm.className='rb-addmethod'; addm.textContent='+ Add method'; addm.addEventListener('click',function(){ addm.parentNode.removeChild(addm); var d=document.createElement('div'); d.className='panel-method'; d.textContent='Method : '; tt.parentNode.insertBefore(d,tt.nextSibling); wire(d,function(v){post({type:'panel',field:'panelMethodText',value:stripMethod(v)});}); d.focus(); }); tt.parentNode.insertBefore(addm,tt.nextSibling); } }
 
-    // Test names + values, in item order (table + procedure + join-previous grid)
+    // Test names in item order (table + procedure + join-previous grid). RESULT
+    // is NOT editable — it's a template; results are entered at result-entry time.
     var names=q('.results-table tbody .test-name, .results-table tbody .grid-cell-label');
-    var values=q('.results-table tbody .col-value, .results-table tbody .col-result, .results-table tbody .grid-cell-value');
     names.forEach(function(nm,i){ wire(nm,function(v){post({type:'item',index:i,field:'label',value:v});},'Test name'); });
-    values.forEach(function(vc,i){ wire(vc,function(v){post({type:'item',index:i,field:'value',value:v});},'\\u2014'); });
 
     // Per test row: drag handle + ref-cell inline edit + tools + click-to-inspect
     q('.results-table tbody tr.data-row').forEach(function(tr){
@@ -693,6 +692,7 @@ const REPORT_EDITOR_ASSETS = `
         del.addEventListener('mousedown',function(e){e.preventDefault();e.stopPropagation();post({type:'delete',index:i});});
         bar.appendChild(insp); bar.appendChild(del); lastCell.appendChild(bar); }
       tr.addEventListener('click',function(e){ if(e.target.closest('[data-rb-edit],.rb-tool,.rb-drag,.rb-edit,td.col-ref'))return; post({type:'inspect',index:i}); });
+      var tm=tr.querySelector('.test-method'); if(tm) wire(tm,function(v){post({type:'item',index:i,field:'method',value:stripMethod(v)});});
       bindDrag(tr,i);
     });
 
