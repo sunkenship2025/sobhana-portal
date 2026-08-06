@@ -119,7 +119,10 @@ router.get('/:branchSlug/:screenSlug/state', displayRateLimit, async (req: Reque
         clinicVisit: {
           is: {
             visitType: { in: visitTypes as any },
-            status: { in: ['WAITING', 'IN_PROGRESS', 'COMPLETED'] as any },
+            // Only actively-serving visits drive the board. Fetching the day's
+            // WAITING/COMPLETED too meant every 2.5s poll re-allocated an
+            // ever-growing array of visits it never used (memory climbed all day).
+            status: 'IN_PROGRESS' as any,
           },
         },
       },
