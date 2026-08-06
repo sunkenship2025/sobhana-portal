@@ -4,6 +4,7 @@ import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { branchContextMiddleware } from "../middleware/branch";
 import prisma from "../lib/prisma";
 import { searchWorklist } from "../lib/worklistSearch";
+import { emitBranchChange } from "../lib/displayEvents";
 import {
   getWorklistIndex,
   setWorklistIndex,
@@ -1171,6 +1172,10 @@ router.patch("/:id", async (req: AuthRequest, res) => {
         },
       });
     });
+
+    // A queue status change (call next / complete / cancel) → push the waiting-room
+    // displays for this branch instantly instead of waiting for their next poll.
+    if (status && existing.status !== status) emitBranchChange(req.branchId!);
 
     return res.json({
       id: updated!.id,

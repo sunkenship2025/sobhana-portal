@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { API_BASE } from '@/lib/api';
 
-const POLL_MS = 2500;
+const BACKSTOP_MS = 30000; // SSE is the fast path; poll only as a safety net.
 
 type DoctorState = {
   id: string;
@@ -312,6 +312,29 @@ export default function WaitingRoomDisplay() {
     return () => window.clearInterval(id);
   }, []);
 
+  // Apply a state payload (from either the SSE push or the backstop poll).
+  const applyState = useCallback((data: DisplayState) => {
+    setState(data);
+    setStatus('ok');
+    const ns = data.nowServing;
+    const holdMs = (data.screen?.holdSeconds ?? 18) * 1000;
+    if (ns) {
+      const isNew = !!ns.startedAt && ns.startedAt > shownStartedAt.current;
+      if (isNew) {
+        shownStartedAt.current = ns.startedAt as string;
+        // Don't chime for whatever was already in progress on boot.
+        if (booted.current && data.screen?.chimeSound !== 'none') playDingDong();
+      }
+      setNow(ns);
+      setMode('serving');
+      // Keep the call on screen while the patient is being served; only fall back
+      // to ads/welcome once nobody is in progress.
+      window.clearTimeout(holdTimer.current);
+      holdTimer.current = window.setTimeout(() => setMode('resting'), holdMs);
+    }
+    booted.current = true;
+  }, []);
+
   const poll = useCallback(async () => {
     try {
       const r = await fetch(`${API_BASE}/display/${branch}/${screenSlug}/state`, {
@@ -322,41 +345,35 @@ export default function WaitingRoomDisplay() {
         return;
       }
       if (!r.ok) throw new Error('bad response');
-      const data: DisplayState = await r.json();
-      setState(data);
-      setStatus('ok');
-      const ns = data.nowServing;
-      const holdMs = (data.screen?.holdSeconds ?? 18) * 1000;
-      if (ns) {
-        const isNew = !!ns.startedAt && ns.startedAt > shownStartedAt.current;
-        if (isNew) {
-          shownStartedAt.current = ns.startedAt as string;
-          // Don't chime for whatever was already in progress on boot.
-          if (booted.current && data.screen?.chimeSound !== 'none') playDingDong();
-        }
-        setNow(ns);
-        setMode('serving');
-        // Keep the call on screen while the patient is being served; only fall
-        // back to ads/welcome once nobody is in progress (hold from the last poll
-        // that still saw a served patient).
-        window.clearTimeout(holdTimer.current);
-        holdTimer.current = window.setTimeout(() => setMode('resting'), holdMs);
-      }
-      booted.current = true;
+      applyState(await r.json());
     } catch {
       // Keep the last known queue on screen; just flag reconnecting.
       setStatus((s) => (s === 'loading' ? 'loading' : 'offline'));
     }
-  }, [branch, screenSlug]);
+  }, [branch, screenSlug, applyState]);
 
+  // Fast path: Server-Sent Events push fresh state the instant a token is
+  // called/completed — no idle polling. EventSource auto-reconnects on drop (and
+  // the server re-sends full state on each connect). The 30s backstop poll covers
+  // the case where SSE can't connect at all (a proxy strips it) or a missed event.
   useEffect(() => {
-    poll();
-    const id = window.setInterval(poll, POLL_MS);
+    poll(); // initial paint, and a floor if SSE is slow/blocked
+    const es = new EventSource(`${API_BASE}/display/${branch}/${screenSlug}/stream`);
+    es.onmessage = (e) => {
+      try {
+        applyState(JSON.parse(e.data) as DisplayState);
+      } catch {
+        /* ignore malformed frame */
+      }
+    };
+    es.onerror = () => setStatus((s) => (s === 'loading' ? 'loading' : 'offline'));
+    const backstop = window.setInterval(poll, BACKSTOP_MS);
     return () => {
-      window.clearInterval(id);
+      es.close();
+      window.clearInterval(backstop);
       window.clearTimeout(holdTimer.current);
     };
-  }, [poll]);
+  }, [branch, screenSlug, poll, applyState]);
 
   // Rotate the ticker in pages of 6 when there are more doctors than fit cleanly.
   const [tickPage, setTickPage] = useState(0);

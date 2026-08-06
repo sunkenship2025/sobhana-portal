@@ -84,6 +84,7 @@ import testInputConfigRoutes from './routes/testInputConfigs';
 // PDF Service warmup
 import { warmupPdfService, closeBrowser } from './services/pdfGenerationService';
 import prisma from './lib/prisma';
+import { copyObject, objectExists } from './services/r2StorageService';
 import { ensureRedisReady, closeRedisClient, isRedisRequired } from './lib/redis';
 import { runHealthChecks } from './lib/healthChecks';
 import { authMiddleware } from './middleware/auth';
@@ -451,6 +452,33 @@ async function startServer(): Promise<void> {
 
     // Warmup PDF service for faster first generation
     await warmupPdfService();
+
+    // One-time (idempotent) copy of existing ad media into the public bucket, so
+    // ads move to direct-from-R2 serving without a manual re-upload. Skips objects
+    // already there, so after the first run this is just cheap HEAD checks.
+    // ponytail: bounded by ad count (a handful); if the ad catalog ever grows
+    // large, gate this behind a "migrated" flag instead of scanning every boot.
+    void (async () => {
+      const toBucket = process.env.R2_PUBLIC_BUCKET;
+      if (!toBucket) return;
+      try {
+        const ads = await prisma.displayAd.findMany({ select: { mediaKeys: true } });
+        const keys = [...new Set(ads.flatMap((a) => a.mediaKeys))];
+        let copied = 0;
+        for (const key of keys) {
+          if (await objectExists(key, toBucket)) continue;
+          try {
+            await copyObject(key, process.env.R2_BUCKET!, toBucket);
+            copied++;
+          } catch (e) {
+            console.error('[display] ad media copy failed:', key, e);
+          }
+        }
+        if (copied) console.log(`[display] copied ${copied} ad media object(s) to public bucket`);
+      } catch (e) {
+        console.error('[display] ad media migration skipped:', e);
+      }
+    })();
   });
 }
 

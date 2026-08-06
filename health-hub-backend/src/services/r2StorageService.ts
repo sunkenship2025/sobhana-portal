@@ -22,6 +22,8 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  CopyObjectCommand,
+  HeadObjectCommand,
   HeadBucketCommand,
 } from '@aws-sdk/client-s3';
 import type { Readable } from 'stream';
@@ -166,6 +168,30 @@ export async function getObjectStream(key: string, range?: string, bucket?: stri
     contentRange: result.ContentRange,
     status: range && result.ContentRange ? 206 : 200,
   };
+}
+
+/** Server-side copy of one object between buckets (no download/upload, no egress).
+ *  Used to move existing ad media from the private bucket to the public one. */
+export async function copyObject(key: string, fromBucket: string, toBucket: string): Promise<void> {
+  const client = getClient();
+  await client.send(
+    new CopyObjectCommand({
+      Bucket: toBucket,
+      Key: key,
+      CopySource: encodeURIComponent(`${fromBucket}/${key}`),
+    }),
+  );
+}
+
+/** True if the object already exists in the given bucket. */
+export async function objectExists(key: string, bucket?: string): Promise<boolean> {
+  const client = getClient();
+  try {
+    await client.send(new HeadObjectCommand({ Bucket: getBucket(bucket), Key: key }));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Best-effort bulk delete (e.g. removing an ad's media). Never throws. */

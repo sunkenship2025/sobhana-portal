@@ -15,6 +15,7 @@ import { createRateLimiter, getClientIp } from '../middleware/rateLimit';
 import { getObjectStream } from '../services/r2StorageService';
 import QRCode from 'qrcode';
 import { branchSlug } from '../lib/displaySlug';
+import { onBranchChange } from '../lib/displayEvents';
 
 // The track-your-token QR is stable per URL — generate once, then serve from cache.
 const trackQrCache = new Map<string, string>();
@@ -83,31 +84,26 @@ function fmtTokenLabel(name: string, token: number | null): string | null {
   return `${doctorInitials(name)}-${String(token).padStart(2, '0')}`;
 }
 
-router.get('/:branchSlug/:screenSlug/state', displayRateLimit, async (req: Request, res: Response) => {
-  try {
-    const bSlug = String(req.params.branchSlug || '').toLowerCase();
-    const sSlug = String(req.params.screenSlug || '');
+type ResolvedScreen = { branch: { id: string; name: string; code: string }; screen: any };
 
-    const branches = await prisma.branch.findMany({
-      where: { isActive: true },
-      select: { id: true, name: true, code: true },
-    });
-    const branch = branches.find((b) => branchSlug(b.name, b.code) === bSlug);
-    if (!branch) {
-      return res.status(404).json({ error: 'SCREEN_NOT_FOUND', message: "This screen link isn't recognized." });
-    }
-    const screen = await prisma.displayScreen.findFirst({
-      where: {
-        branchId: branch.id,
-        isActive: true,
-        revokedAt: null,
-        OR: [{ slug: sSlug }, { code: sSlug }],
-      },
-    });
-    if (!screen) {
-      return res.status(404).json({ error: 'SCREEN_NOT_FOUND', message: "This screen link isn't recognized." });
-    }
+/** Slug → branch + active screen, or null if either isn't recognized. */
+async function resolveScreen(bSlug: string, sSlug: string): Promise<ResolvedScreen | null> {
+  const branches = await prisma.branch.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true, code: true },
+  });
+  const branch = branches.find((b) => branchSlug(b.name, b.code) === bSlug);
+  if (!branch) return null;
+  const screen = await prisma.displayScreen.findFirst({
+    where: { branchId: branch.id, isActive: true, revokedAt: null, OR: [{ slug: sSlug }, { code: sSlug }] },
+  });
+  if (!screen) return null;
+  return { branch, screen };
+}
 
+/** Build the full display payload (now-serving, ticker, ads, track QR) for a screen.
+ *  Shared by the poll endpoint and the SSE stream so the two can never diverge. */
+async function computeDisplayState(branch: ResolvedScreen['branch'], screen: any, origin: string) {
     const { start, end } = istDayRangeUtc();
     const visitTypes = screen.scope === 'OP_IP' ? ['OP', 'IP'] : ['OP'];
 
@@ -261,17 +257,15 @@ router.get('/:branchSlug/:screenSlug/state', displayRateLimit, async (req: Reque
     }));
 
     // "Track your token" QR → the mobile companion at <frontend>/track/<code>.
-    // The display's own origin (request Origin header) is the right frontend to
-    // point at; fall back to FRONTEND_URL for non-browser callers.
-    const origin =
-      (req.headers.origin as string | undefined) || process.env.FRONTEND_URL || '';
+    // The display's own origin is the right frontend to point at; fall back to
+    // FRONTEND_URL for non-browser callers.
+    const bSlug = branchSlug(branch.name, branch.code);
     const trackUrl = origin
       ? `${origin.replace(/\/$/, '')}/track/${bSlug}/${screen.slug || screen.code}`
       : '';
     const trackQr = screen.showTrackQr && trackUrl ? await trackQrDataUrl(trackUrl) : '';
 
-    res.setHeader('Cache-Control', 'no-store');
-    return res.json({
+    return {
       screen: {
         id: screen.id,
         name: screen.name,
@@ -287,11 +281,81 @@ router.get('/:branchSlug/:screenSlug/state', displayRateLimit, async (req: Reque
       ads: adsOut,
       trackUrl,
       trackQr,
-    });
+    };
+}
+
+const originOf = (req: Request) =>
+  (req.headers.origin as string | undefined) || process.env.FRONTEND_URL || '';
+
+// Poll fallback: the TV asks for state every ~30s as a backstop, and once on
+// (re)connect. The stream below is the fast path.
+router.get('/:branchSlug/:screenSlug/state', displayRateLimit, async (req: Request, res: Response) => {
+  try {
+    const resolved = await resolveScreen(String(req.params.branchSlug || '').toLowerCase(), String(req.params.screenSlug || ''));
+    if (!resolved) return res.status(404).json({ error: 'SCREEN_NOT_FOUND', message: "This screen link isn't recognized." });
+    const state = await computeDisplayState(resolved.branch, resolved.screen, originOf(req));
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json(state);
   } catch (err: any) {
     console.error('Display state error:', err);
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to load display state' });
   }
+});
+
+/**
+ * PUBLIC live stream (Server-Sent Events). The TV opens this once; the backend
+ * pushes fresh state the instant a token is called/completed (see displayEvents),
+ * so there's no idle polling. Sends state on connect, a heartbeat every 25s to
+ * survive idle-connection timeouts, and cleans up its listener on disconnect.
+ *
+ *   GET /api/display/:branchSlug/:screenSlug/stream
+ */
+router.get('/:branchSlug/:screenSlug/stream', async (req: Request, res: Response) => {
+  const resolved = await resolveScreen(String(req.params.branchSlug || '').toLowerCase(), String(req.params.screenSlug || ''));
+  if (!resolved) { res.status(404).end(); return; }
+
+  res.status(200).set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders?.();
+
+  const origin = originOf(req);
+  let closed = false;
+  let debounce: NodeJS.Timeout | null = null;
+
+  const sendState = async () => {
+    if (closed) return;
+    try {
+      const state = await computeDisplayState(resolved.branch, resolved.screen, origin);
+      res.write(`data: ${JSON.stringify(state)}\n\n`);
+      (res as any).flush?.();
+    } catch (err) {
+      console.error('Display stream compute error:', err);
+    }
+  };
+  // Coalesce a burst of mutations (one transaction can fire several) into one push.
+  const scheduleSend = () => {
+    if (closed || debounce) return;
+    debounce = setTimeout(() => { debounce = null; sendState(); }, 150);
+  };
+
+  await sendState(); // initial state on connect (also covers EventSource reconnect)
+  const unsubscribe = onBranchChange(resolved.screen.branchId, scheduleSend);
+  const heartbeat = setInterval(() => {
+    if (closed) return;
+    res.write(': ping\n\n');
+    (res as any).flush?.();
+  }, 25000);
+
+  req.on('close', () => {
+    closed = true;
+    unsubscribe();
+    clearInterval(heartbeat);
+    if (debounce) clearTimeout(debounce);
+  });
 });
 
 /**
