@@ -29,8 +29,76 @@ const router = Router();
 // built. Toggle off without a deploy via WHATSAPP_AUTOREPLY_ENABLED=false.
 const GENERIC_AUTOREPLY_ENABLED = process.env.WHATSAPP_AUTOREPLY_ENABLED !== 'false';
 const GENERIC_AUTOREPLY_TEXT =
-  'Thanks for messaging Sobhana Diagnostics 🙏 We have received your message and our team will reply during working hours (8 AM to 8 PM). For anything urgent, please call 040-2308 9999 or 9490 539006.';
+  'Thanks for messaging Sobhana Diagnostics. We have received your message and our team will reply during working hours (Mon–Sat 7 AM to 9 PM, Sun till 2:30 PM). For anything urgent, please call 040-2308 9999 or 9490 539006.';
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Work hours in IST (Asia/Kolkata): Mon–Sat 07:00–21:00, Sun 07:00–14:30.
+// Staff answer live during these — so the generic "we got your message" auto-reply
+// only fires OUTSIDE them. (DB stores UTC; shift by +5:30 and read as wall-clock.)
+function isWithinWorkHoursIST(now: Date): boolean {
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const day = ist.getUTCDay(); // 0=Sun … 6=Sat
+  const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+  if (day === 0) return mins >= 7 * 60 && mins < 14 * 60 + 30;
+  return mins >= 7 * 60 && mins < 21 * 60;
+}
+
+// A patient replying "BOOK" to the recall gets their 50% retest coupon auto-sent
+// (any hour) — free-form, valid inside the 24h window their reply just opened.
+// Idempotent: reuses their existing ISSUED coupon; mints one scoped to their
+// abnormal panels' products otherwise. Meta-retry-safe via the waMessageId dedup.
+async function issueAndSendRetestCoupon(
+  phone: string,
+  patientId: string | null,
+  conversationId: string,
+): Promise<void> {
+  const svc = await import('../services/couponService');
+  const campaign = await prisma.couponCampaign.findUnique({
+    where: { code: 'RETEST_2026' },
+    select: { id: true, isActive: true },
+  });
+  if (!campaign || !campaign.isActive) {
+    console.warn('[Webhook] RETEST_2026 campaign missing/inactive — no coupon sent');
+    return;
+  }
+
+  let coupon = await prisma.coupon.findFirst({
+    where: { campaignId: campaign.id, phone, status: 'ISSUED' },
+    select: { code: true, expiresAt: true },
+  });
+  if (!coupon) {
+    const allowedProductIds = patientId ? await svc.resolveAbnormalProductIds(patientId) : [];
+    const issued = await svc.issueCoupon({ campaignId: campaign.id, patientId, phone, allowedProductIds });
+    coupon = { code: issued.code, expiresAt: issued.expiresAt };
+  }
+
+  let name = 'there';
+  if (patientId) {
+    const p = await prisma.patient.findUnique({ where: { id: patientId }, select: { name: true } });
+    const f = p?.name?.trim().split(/\s+/)[0];
+    if (f) name = f.charAt(0).toUpperCase() + f.slice(1).toLowerCase();
+  }
+  const exp = coupon.expiresAt.toLocaleDateString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
+  });
+  const text =
+    `Thank you, ${name}.\n\n` +
+    `As promised, here is your 50% concession on your repeat test at Sobhana Diagnostics.\n\n` +
+    `Your code: *${coupon.code}*\nValid till ${exp} · one-time use\n\n` +
+    `Just show this code at the counter when you visit. To pick a convenient time, call 9490 539006. See you soon!`;
+
+  const { sendText } = await import('../services/whatsappCloudService');
+  const result = await sendText(phone, text);
+  const now = new Date();
+  await prisma.conversationMessage.create({
+    data: { conversationId, direction: 'OUT', body: text, messageType: 'text', isAutoReply: true, waMessageId: result.waMessageId },
+  });
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { autoRepliedAt: now, lastMessageAt: now, lastPreview: text.slice(0, 200) },
+  });
+  console.log(`[Webhook] Retest coupon ${coupon.code} sent to ${phone}`);
+}
 
 /**
  * Turn a Meta inbound message payload into a storable text body + type.
@@ -315,11 +383,16 @@ router.post(
                 },
               });
 
-              // ── Generic auto-reply (atomic once-per-24h claim) ──
-              // Compare-and-set on autoRepliedAt so concurrent inbound webhooks
-              // — e.g. a sender whose own number auto-replies — can't trigger a
-              // double, and two bots can't ping-pong.
-              if (GENERIC_AUTOREPLY_ENABLED) {
+              // ── Auto-reply routing ──
+              // "BOOK" → auto-send the 50% retest coupon (any hour). Otherwise the
+              // generic "we got your message" reply, but ONLY outside work hours
+              // (staff answer live during hours) and at most once per 24h.
+              const isBook = /^\s*book\b/i.test(inboundBody);
+              if (isBook) {
+                await issueAndSendRetestCoupon(from, convo.patientId, convo.id);
+              } else if (GENERIC_AUTOREPLY_ENABLED && !isWithinWorkHoursIST(now)) {
+                // Compare-and-set on autoRepliedAt so concurrent inbound webhooks
+                // can't trigger a double, and two bots can't ping-pong.
                 const claim = await prisma.conversation.updateMany({
                   where: {
                     id: convo.id,

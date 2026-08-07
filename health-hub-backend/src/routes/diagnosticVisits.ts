@@ -2660,18 +2660,21 @@ router.post("/", async (req: AuthRequest, res) => {
                   : "This coupon can't be applied.",
         });
       }
+      // allowedProductIds non-empty ⇒ discount ONLY those products (the patient's
+      // abnormal panels); empty ⇒ all in-scope tests (original campaign-scope behaviour).
+      const allowedProducts = v.coupon.allowedProductIds ?? [];
       const inScopeInPaise =
         v.campaign.scope === "WHOLE_BILL"
           ? totalAmountInPaise
-          : testOrderData.reduce(
-              (s: number, o: any) =>
-                s +
-                ((o.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) ===
-                DiagnosticWorkflowMode.REPORTABLE
-                  ? o.priceInPaise || 0
-                  : 0),
-              0,
-            );
+          : testOrderData.reduce((s: number, o: any) => {
+              const reportable =
+                (o.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE) ===
+                DiagnosticWorkflowMode.REPORTABLE;
+              const inScope =
+                allowedProducts.length === 0 ||
+                (o.productId && allowedProducts.includes(o.productId));
+              return s + (reportable && inScope ? o.priceInPaise || 0 : 0);
+            }, 0);
       couponContext = {
         couponId: v.coupon.id,
         code: v.coupon.code,

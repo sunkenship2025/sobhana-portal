@@ -58,6 +58,7 @@ export interface IssueCouponInput {
   phone?: string | null;
   issuedVisitId?: string | null;
   issuedByUserId?: string | null;
+  allowedProductIds?: string[]; // [] = all in-scope tests; else discount only these products
 }
 
 export interface IssuedCoupon {
@@ -96,6 +97,7 @@ export async function issueCoupon(input: IssueCouponInput): Promise<IssuedCoupon
           phone: input.phone ?? null,
           issuedVisitId: input.issuedVisitId ?? null,
           issuedByUserId: input.issuedByUserId ?? null,
+          allowedProductIds: input.allowedProductIds ?? [],
           expiresAt,
         },
         select: { id: true },
@@ -107,6 +109,32 @@ export async function issueCoupon(input: IssueCouponInput): Promise<IssuedCoupon
     }
   }
   throw new Error('Failed to generate a unique coupon after multiple attempts');
+}
+
+/**
+ * BillableProduct ids the patient STILL has an abnormal result for (flag
+ * HIGH/LOW/CRITICAL_* with no later normal for that analyte). Used to scope a
+ * retest coupon to exactly the patient's off-panels. Mirrors the recall query.
+ */
+export async function resolveAbnormalProductIds(patientId: string): Promise<string[]> {
+  const rows = await prisma.$queryRaw<Array<{ productId: string }>>`
+    SELECT DISTINCT tord."productId" AS "productId"
+    FROM "TestResult" tr
+    JOIN "TestOrder" tord ON tr."testOrderId" = tord.id
+    JOIN "Visit" v ON tord."visitId" = v.id
+    WHERE v."patientId" = ${patientId}
+      AND tr.flag IN ('HIGH','LOW','CRITICAL_HIGH','CRITICAL_LOW')
+      AND tord."productId" IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM "TestResult" tr2
+        JOIN "TestOrder" tord2 ON tr2."testOrderId" = tord2.id
+        JOIN "Visit" v2 ON tord2."visitId" = v2.id
+        WHERE v2."patientId" = v."patientId"
+          AND tr2."testDefinitionId" = tr."testDefinitionId"
+          AND tr2."createdAt" > tr."createdAt"
+          AND tr2.flag NOT IN ('HIGH','LOW','CRITICAL_HIGH','CRITICAL_LOW')
+      )`;
+  return rows.map((r) => r.productId).filter(Boolean);
 }
 
 // ============================================================================
@@ -128,6 +156,7 @@ export interface CouponValidation {
     code: string;
     status: CouponStatus;
     expiresAt: Date;
+    allowedProductIds: string[];
   };
   campaign?: {
     id: string;
@@ -166,7 +195,7 @@ export async function validateCouponByCode(rawCode: string): Promise<CouponValid
 
   return {
     ok: true,
-    coupon: { id: coupon.id, code: coupon.code, status: coupon.status, expiresAt: coupon.expiresAt },
+    coupon: { id: coupon.id, code: coupon.code, status: coupon.status, expiresAt: coupon.expiresAt, allowedProductIds: coupon.allowedProductIds },
     campaign: {
       id: campaign.id, code: campaign.code, name: campaign.name,
       discountType: campaign.discountType, discountPercentage: campaign.discountPercentage,

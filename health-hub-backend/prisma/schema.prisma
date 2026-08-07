@@ -788,6 +788,7 @@ model Coupon {
   redeemedBillId   String?
   redeemedByUserId String?
   note             String? // free-text staff comment / audit note
+  allowedProductIds String[]    @default([]) // BillableProduct ids this coupon discounts; [] = all in-scope tests (campaign scope)
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
