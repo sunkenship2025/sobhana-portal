@@ -229,11 +229,21 @@ export async function projectWindow(
     const catalogName = (et === "testdefinition" || et === "clinicalpanel")
       ? (() => { const nv = parseJson(r.newValues); return nv?.displayName || nv?.name || nv?.code || null; })()
       : null;
+    // A ReportDraft "result-edit" row lists the parameters actually changed in a
+    // save → show them ("who edited what"), vs the coarse authorship marker.
+    const draftNv = isDraft ? parseJson(r.newValues) : null;
+    const isResultEdit = draftNv?.kind === "result-edit";
+    const changedList: string[] = isResultEdit && Array.isArray(draftNv.changed) ? draftNv.changed : [];
+    const editCount = isResultEdit ? (draftNv.count ?? changedList.length) : 0;
+    const editDetail = isResultEdit
+      ? `${editCount} value${editCount === 1 ? "" : "s"}${changedList.length ? `: ${changedList.join(", ")}` : ""}${patientName ? ` · ${patientName}` : ""}`
+      : null;
     return {
       id: `al:${r.id}`, dedupeKey: `al:${r.id}`, branchId: r.branchId,
       occurredAt: r.createdAt, severity: c.severity, category: c.category,
       score: c.severity === "high" ? 4 : c.severity === "medium" ? 2 : 1,
-      event: c.event, detail: catalogName ?? patientName ?? "",
+      event: isResultEdit ? "Report values edited" : c.event,
+      detail: editDetail ?? catalogName ?? patientName ?? "",
       actorUserId: r.userId, actorName: u?.name ?? null, actorRole: u?.role ?? null,
       entityType: r.entityType, entityId: r.entityId, patientName,
       amountInPaise: null, reason: null,

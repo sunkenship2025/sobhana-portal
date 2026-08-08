@@ -4487,6 +4487,10 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
       resolvedFlagRanges = null;
     }
 
+    // Which parameters actually changed in THIS save — for the audit trail
+    // ("who edited what in the report"), collected as we upsert/delete below.
+    const editedTestCodes = new Set<string>();
+
     // Upsert test results
     await prisma.$transaction(async (tx) => {
       // Snapshot the draft's existing rows so we can skip no-op rewrites. Auto-save
@@ -4605,6 +4609,7 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
             prev.useSigningRule === resultData.useSigningRule &&
             prev.selectedSigningDoctorId === resultData.selectedSigningDoctorId;
           if (unchanged) continue;
+          if (context.code) editedTestCodes.add(context.code);
 
           await tx.testResult.upsert({
             where: {
@@ -4624,6 +4629,7 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
           });
         } else if (existingByKey.has(resultKey)) {
           // Only issue the delete when a row actually exists to remove.
+          if (context.code) editedTestCodes.add(context.code);
           await tx.testResult.deleteMany({
             where: {
               testOrderId: context.testOrderId,
@@ -4941,6 +4947,22 @@ router.post("/:id/results", async (req: AuthRequest, res) => {
           console.warn("Draft authorship audit warning:", auditErr);
         }
       })();
+    }
+
+    // What changed in the report this save — one row listing the edited
+    // parameters (not one per parameter). Answers "who edited what". Best-effort.
+    // ponytail: one row per save; if aggressive auto-save makes it chatty,
+    // collapse consecutive same-author saves into a session later.
+    if (editedTestCodes.size > 0 && req.user?.id && req.branchId) {
+      const changed = Array.from(editedTestCodes);
+      void logAction({
+        branchId: req.branchId,
+        actionType: "UPDATE",
+        entityType: "ReportDraft",
+        entityId: id,
+        userId: req.user.id,
+        newValues: { kind: "result-edit", changed: changed.slice(0, 40), count: changed.length },
+      }).catch((e) => console.warn("Result-edit audit warning:", e));
     }
 
     return res.json({ success: true });
