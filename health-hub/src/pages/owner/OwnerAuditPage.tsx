@@ -63,6 +63,7 @@ interface AuditDetail extends AuditEventRow {
   ipAddress: string | null;
   userAgent: string | null;
   diff: Array<{ field: string; old: string | null; new: string | null }>;
+  reportValues: Array<{ name: string; value: string; flag: string | null; who: string | null }>;
   related: Array<{ id: string; severity: Severity; event: string; who: string | null; whenIso: string; isThis: boolean }>;
 }
 interface ScorecardActor {
@@ -944,6 +945,22 @@ export default function OwnerAuditPage() {
                     </div>
                   ))}
                 </div>
+                {detail && detail.reportValues.length > 0 && (
+                  <div className="sec">
+                    <h5>Report values · who entered each</h5>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <tbody>
+                        {detail.reportValues.map((v, i) => (
+                          <tr key={i} style={{ borderTop: i ? '1px solid var(--border2)' : undefined }}>
+                            <td style={{ padding: '5px 8px 5px 0', color: 'var(--ink)' }}>{v.name}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: v.flag && v.flag !== 'NORMAL' ? 'var(--hi-t)' : 'var(--ink)', fontWeight: v.flag && v.flag !== 'NORMAL' ? 600 : 400 }}>{v.value}</td>
+                            <td style={{ padding: '5px 0 5px 8px', textAlign: 'right', color: 'var(--ink3)' }}>{v.who ?? 'system'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
                 {detail && detail.related.length > 0 && (
                   <div className="sec">
                     <h5>Related events (same entity)</h5>

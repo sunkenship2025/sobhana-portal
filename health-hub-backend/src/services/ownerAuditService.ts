@@ -118,6 +118,7 @@ export interface AuditEventDetail extends AuditEventRow {
   userAgent: string | null;
   reason: string | null;
   diff: AuditDiffRow[];
+  reportValues: Array<{ name: string; value: string; flag: string | null; who: string | null }>;
   related: Array<{
     id: string;
     severity: AuditSeverity;
@@ -566,6 +567,36 @@ export async function getAuditEventDetail(
     select: { id: true, severity: true, event: true, actorName: true, occurredAt: true },
   });
 
+  // For any report-draft row (entityId = visit id), show WHO ENTERED EACH value in
+  // the current report — reads TestResult live, so it works for past reports too
+  // (enteredByUserId is stored per row; per-save history was never recorded).
+  let reportValues: Array<{ name: string; value: string; flag: string | null; who: string | null }> = [];
+  if (e.entityType.toLowerCase() === "reportdraft") {
+    const report = await prisma.diagnosticReport.findFirst({
+      where: { visitId: e.entityId },
+      select: { versions: { orderBy: { versionNum: "desc" }, take: 1, select: { id: true } } },
+    });
+    const rvId = report?.versions[0]?.id;
+    if (rvId) {
+      const rows = await prisma.testResult.findMany({
+        where: { reportVersionId: rvId },
+        select: {
+          value: true, textValue: true, flag: true,
+          enteredBy: { select: { name: true } },
+          testDefinition: { select: { name: true, code: true } },
+        },
+      });
+      reportValues = rows
+        .map((r) => ({
+          name: r.testDefinition?.name ?? r.testDefinition?.code ?? "—",
+          value: r.textValue ?? (r.value != null ? String(r.value) : ""),
+          flag: r.flag ?? null,
+          who: r.enteredBy?.name ?? null,
+        }))
+        .filter((r) => r.value !== "");
+    }
+  }
+
   const labelMap = await resolveEntityLabels([
     { entityType: e.entityType, entityId: e.entityId },
   ]);
@@ -591,6 +622,7 @@ export async function getAuditEventDetail(
     userAgent,
     reason: e.reason,
     diff,
+    reportValues,
     related: relatedRows.map((r) => ({
       id: r.id,
       severity: r.severity as AuditSeverity,
