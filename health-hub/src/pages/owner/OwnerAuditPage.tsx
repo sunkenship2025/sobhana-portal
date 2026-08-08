@@ -945,12 +945,12 @@ export default function OwnerAuditPage() {
                     </div>
                   ))}
                 </div>
-                {detail && detail.reportValues.length > 0 && (
+                {detail && (detail.reportValues?.length ?? 0) > 0 && (
                   <div className="sec">
                     <h5>Report values · who entered each</h5>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <tbody>
-                        {detail.reportValues.map((v, i) => (
+                        {detail.reportValues!.map((v, i) => (
                           <tr key={i} style={{ borderTop: i ? '1px solid var(--border2)' : undefined }}>
                             <td style={{ padding: '5px 8px 5px 0', color: 'var(--ink)' }}>{v.name}</td>
                             <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: v.flag && v.flag !== 'NORMAL' ? 'var(--hi-t)' : 'var(--ink)', fontWeight: v.flag && v.flag !== 'NORMAL' ? 600 : 400 }}>{v.value}</td>
