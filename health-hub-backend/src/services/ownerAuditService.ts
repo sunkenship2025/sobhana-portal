@@ -118,12 +118,14 @@ export interface AuditEventDetail extends AuditEventRow {
   userAgent: string | null;
   reason: string | null;
   diff: AuditDiffRow[];
-  reportValues: Array<{ name: string; value: string; flag: string | null; who: string | null }>;
+  reportValues: Array<{ name: string; code: string | null; value: string; flag: string | null; who: string | null; whenIso: string | null }>;
+  editedCodes: string[] | null;
   related: Array<{
     id: string;
     severity: AuditSeverity;
     event: string;
     who: string | null;
+    detail: string;
     whenIso: string;
     isThis: boolean;
   }>;
@@ -563,15 +565,21 @@ export async function getAuditEventDetail(
   const relatedRows = await prisma.anomalyEvent.findMany({
     where: { branchId: e.branchId, entityId: e.entityId },
     orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
-    take: 10,
-    select: { id: true, severity: true, event: true, actorName: true, occurredAt: true },
+    take: 20,
+    select: { id: true, severity: true, event: true, actorName: true, occurredAt: true, detail: true },
   });
 
-  // For any report-draft row (entityId = visit id), show WHO ENTERED EACH value in
-  // the current report — reads TestResult live, so it works for past reports too
-  // (enteredByUserId is stored per row; per-save history was never recorded).
-  let reportValues: Array<{ name: string; value: string; flag: string | null; who: string | null }> = [];
+  // Report-draft rows carry the current report + this event's own edit. entityId
+  // = visit id; the event's audit newValues.changed lists the codes THIS save
+  // touched, so each editor's row tells its own story (not the same table twice).
+  let reportValues: Array<{ name: string; code: string | null; value: string; flag: string | null; who: string | null; whenIso: string | null }> = [];
+  let editedCodes: string[] | null = null; // codes this specific save changed; null = not a per-save edit
   if (e.entityType.toLowerCase() === "reportdraft") {
+    if (e.sourceKind === "audit") {
+      const al = await prisma.auditLog.findUnique({ where: { id: e.sourceId }, select: { newValues: true } });
+      const nv = parseJson(al?.newValues ?? null);
+      if (nv?.kind === "result-edit" && Array.isArray(nv.changed)) editedCodes = nv.changed as string[];
+    }
     const report = await prisma.diagnosticReport.findFirst({
       where: { visitId: e.entityId },
       select: { versions: { orderBy: { versionNum: "desc" }, take: 1, select: { id: true } } },
@@ -581,7 +589,7 @@ export async function getAuditEventDetail(
       const rows = await prisma.testResult.findMany({
         where: { reportVersionId: rvId },
         select: {
-          value: true, textValue: true, flag: true,
+          value: true, textValue: true, flag: true, createdAt: true,
           enteredBy: { select: { name: true } },
           testDefinition: { select: { name: true, code: true } },
         },
@@ -589,9 +597,11 @@ export async function getAuditEventDetail(
       reportValues = rows
         .map((r) => ({
           name: r.testDefinition?.name ?? r.testDefinition?.code ?? "—",
+          code: r.testDefinition?.code ?? null,
           value: r.textValue ?? (r.value != null ? String(r.value) : ""),
           flag: r.flag ?? null,
           who: r.enteredBy?.name ?? null,
+          whenIso: r.createdAt ? r.createdAt.toISOString() : null,
         }))
         .filter((r) => r.value !== "");
     }
@@ -623,11 +633,13 @@ export async function getAuditEventDetail(
     reason: e.reason,
     diff,
     reportValues,
+    editedCodes,
     related: relatedRows.map((r) => ({
       id: r.id,
       severity: r.severity as AuditSeverity,
       event: r.event,
       who: r.actorName,
+      detail: r.detail,
       whenIso: r.occurredAt.toISOString(),
       isThis: r.id === e.id,
     })),

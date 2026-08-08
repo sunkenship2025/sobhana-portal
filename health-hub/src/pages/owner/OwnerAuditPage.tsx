@@ -911,64 +911,92 @@ export default function OwnerAuditPage() {
                 <div className="dr-sev">
                   <span className={`sev ${SEV_ABBR[openRow.severity]}`}>{openRow.severity}</span> · {openRow.category}
                 </div>
-                <div className="dr-title">{openRow.event}</div>
-                <div className="dr-ent">{openRow.entityType} {openRow.entityLabel ?? `#${openRow.entityId.slice(0, 12)}`}</div>
+                <div className="dr-title">{openRow.entityLabel ?? openRow.event}</div>
+                <div className="dr-ent">
+                  {openRow.event} · <b style={{ fontWeight: 600, color: 'var(--ink2)' }}>{openRow.who ?? 'system'}</b>{openRow.role ? ` (${openRow.role})` : ''} · {formatIstDateTime(openRow.whenIso)}
+                </div>
               </div>
               <div className="dr-body">
-                <div className="sec">
-                  <h5>Summary</h5>
-                  <div className="kv">
-                    <div className="k">Actor</div><div className="v">{openRow.who ?? 'system'}{openRow.role ? ` (${openRow.role})` : ''}</div>
-                    <div className="k">When</div><div className="v">{formatIstDateTime(openRow.whenIso)}</div>
-                    <div className="k">Action</div><div className="v">{openRow.actionType}</div>
-                    <div className="k">Entity</div><div className="v">{openRow.entityType} {openRow.entityLabel ?? `#${openRow.entityId.slice(0, 12)}`}</div>
-                    {openRow.detail && openRow.detail !== openRow.event && (
-                      <><div className="k">Detail</div><div className="v">{openRow.detail}</div></>
-                    )}
-                    {detail?.ipAddress && (<><div className="k">IP</div><div className="v">{detail.ipAddress}</div></>)}
-                  </div>
-                </div>
-                <div className="sec">
-                  <h5>Before → After</h5>
-                  {detailQuery.isLoading && <div className="sm" style={{ color: '#888780' }}>Loading…</div>}
-                  {detail && detail.diff.length === 0 && (
-                    <div className="sm" style={{ color: '#888780' }}>No recorded field changes for this event.</div>
-                  )}
-                  {detail && detail.diff.map((d) => (
-                    <div key={d.field} style={{ marginBottom: 8 }}>
-                      <div style={{ color: '#888780', fontSize: 11, marginBottom: 2 }}>{d.field}</div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-                        <span style={{ background: '#fef2f2', color: '#A32D2D', borderRadius: 5, padding: '2px 7px', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.old ?? '—'}</span>
-                        <span style={{ color: '#888780' }}>→</span>
-                        <span style={{ background: 'rgba(15,110,86,0.08)', color: '#0F6E56', borderRadius: 5, padding: '2px 7px', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.new ?? '—'}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {detail && (detail.reportValues?.length ?? 0) > 0 && (
-                  <div className="sec">
-                    <h5>Report values · who entered each</h5>
+                {(() => {
+                  const isReport = openRow.entityType.toLowerCase() === 'reportdraft';
+                  const rv = detail?.reportValues ?? [];
+                  const edited = detail?.editedCodes ?? null;
+                  const abn = (f: string | null) => f != null && f !== 'NORMAL';
+                  const timeOnly = (iso: string) => formatIstDateTime(iso).split(' · ')[1] ?? formatIstDateTime(iso);
+                  const ValueTable = ({ items, showWho }: { items: typeof rv; showWho: boolean }) => (
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <tbody>
-                        {detail.reportValues!.map((v, i) => (
+                        {items.map((v, i) => (
                           <tr key={i} style={{ borderTop: i ? '1px solid var(--border2)' : undefined }}>
                             <td style={{ padding: '5px 8px 5px 0', color: 'var(--ink)' }}>{v.name}</td>
-                            <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: v.flag && v.flag !== 'NORMAL' ? 'var(--hi-t)' : 'var(--ink)', fontWeight: v.flag && v.flag !== 'NORMAL' ? 600 : 400 }}>{v.value}</td>
-                            <td style={{ padding: '5px 0 5px 8px', textAlign: 'right', color: 'var(--ink3)' }}>{v.who ?? 'system'}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: abn(v.flag) ? 'var(--hi-t)' : 'var(--ink)', fontWeight: abn(v.flag) ? 600 : 400, whiteSpace: 'nowrap' }}>{v.value}{abn(v.flag) ? ` ${v.flag![0]}` : ''}</td>
+                            {showWho && <td style={{ padding: '5px 0 5px 8px', textAlign: 'right', color: 'var(--ink3)', whiteSpace: 'nowrap' }}>{v.who ?? 'system'}{v.whenIso ? ` · ${timeOnly(v.whenIso)}` : ''}</td>}
                           </tr>
                         ))}
                       </tbody>
                     </table>
-                  </div>
-                )}
+                  );
+
+                  if (isReport) {
+                    const editedItems = edited ? rv.filter((v) => v.code && edited.includes(v.code)) : [];
+                    const missing = edited ? edited.filter((c) => !rv.some((v) => v.code === c)) : [];
+                    return (
+                      <>
+                        <div className="sec">
+                          <h5>What {openRow.who ?? 'staff'} changed here</h5>
+                          {detailQuery.isLoading && <div className="sm" style={{ color: '#888780' }}>Loading…</div>}
+                          {!detailQuery.isLoading && edited === null && (
+                            <div className="sm" style={{ color: '#888780' }}>Marks who authored / opened this draft. The exact values changed weren't recorded for this save — see the full report and the edit trail below.</div>
+                          )}
+                          {edited !== null && editedItems.length > 0 && <ValueTable items={editedItems} showWho={false} />}
+                          {edited !== null && missing.length > 0 && (
+                            <div className="sm" style={{ color: '#888780', marginTop: 6 }}>Also touched (no longer on the report): {missing.join(', ')}</div>
+                          )}
+                          {edited !== null && editedItems.length === 0 && missing.length === 0 && (
+                            <div className="sm" style={{ color: '#888780' }}>No matching values on the current report.</div>
+                          )}
+                        </div>
+                        {rv.length > 0 && (
+                          <details className="sec">
+                            <summary style={{ cursor: 'pointer', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--ink3)', fontWeight: 650 }}>
+                              Full report · {rv.length} values · who entered each
+                            </summary>
+                            <div style={{ marginTop: 8 }}><ValueTable items={rv} showWho /></div>
+                          </details>
+                        )}
+                      </>
+                    );
+                  }
+
+                  // Non-report rows (money / referral / catalog): the field diff is the story.
+                  return (
+                    <div className="sec">
+                      <h5>What changed</h5>
+                      {detailQuery.isLoading && <div className="sm" style={{ color: '#888780' }}>Loading…</div>}
+                      {detail && detail.diff.length === 0 && (
+                        <div className="sm" style={{ color: '#888780' }}>{openRow.detail || 'No recorded field changes for this event.'}</div>
+                      )}
+                      {detail && detail.diff.map((d) => (
+                        <div key={d.field} style={{ marginBottom: 8 }}>
+                          <div style={{ color: '#888780', fontSize: 11, marginBottom: 2 }}>{d.field}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                            <span style={{ background: '#fef2f2', color: '#A32D2D', borderRadius: 5, padding: '2px 7px', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.old ?? '—'}</span>
+                            <span style={{ color: '#888780' }}>→</span>
+                            <span style={{ background: 'rgba(15,110,86,0.08)', color: '#0F6E56', borderRadius: 5, padding: '2px 7px', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.new ?? '—'}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
                 {detail && detail.related.length > 0 && (
                   <div className="sec">
-                    <h5>Related events (same entity)</h5>
+                    <h5>Edit trail · this patient's report</h5>
                     {detail.related.map((r) => (
-                      <div key={r.id} style={{ display: 'flex', gap: 10, fontSize: 12, padding: '3px 0', color: r.isThis ? '#A32D2D' : '#475569', fontWeight: r.isThis ? 600 : 400 }}>
-                        <span style={{ color: '#888780', width: 96, flex: 'none' }}>{formatIstDateTime(r.whenIso).split(' · ')[1] ?? ''}</span>
-                        <span>{r.event}{r.isThis ? ' (this)' : ''}</span>
-                        <span style={{ marginLeft: 'auto', color: '#888780' }}>{r.who ?? 'system'}</span>
+                      <div key={r.id} style={{ display: 'flex', gap: 10, fontSize: 12, padding: '4px 0', color: r.isThis ? '#A32D2D' : 'var(--ink2)', fontWeight: r.isThis ? 600 : 400, borderTop: '1px solid var(--border2)' }}>
+                        <span style={{ color: '#888780', width: 66, flex: 'none' }}>{formatIstDateTime(r.whenIso).split(' · ')[1] ?? ''}</span>
+                        <span style={{ flex: 'none', width: 78 }}>{r.who ?? 'system'}</span>
+                        <span style={{ color: '#888780' }}>{r.event}{r.isThis ? ' ·(this)' : ''}</span>
                       </div>
                     ))}
                   </div>
