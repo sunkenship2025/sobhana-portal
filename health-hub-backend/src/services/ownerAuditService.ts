@@ -589,7 +589,7 @@ export async function getAuditEventDetail(
       const rows = await prisma.testResult.findMany({
         where: { reportVersionId: rvId },
         select: {
-          value: true, textValue: true, flag: true, createdAt: true,
+          value: true, textValue: true, flag: true, updatedAt: true,
           enteredBy: { select: { name: true } },
           testDefinition: { select: { name: true, code: true } },
         },
@@ -601,7 +601,7 @@ export async function getAuditEventDetail(
           value: r.textValue ?? (r.value != null ? String(r.value) : ""),
           flag: r.flag ?? null,
           who: r.enteredBy?.name ?? null,
-          whenIso: r.createdAt ? r.createdAt.toISOString() : null,
+          whenIso: r.updatedAt ? r.updatedAt.toISOString() : null, // last edit to this value
         }))
         .filter((r) => r.value !== "");
     }

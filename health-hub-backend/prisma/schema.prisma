@@ -1031,6 +1031,7 @@ model TestResult {
   flag            TestResultFlag? // NORMAL | HIGH | LOW
   notes           String?
   createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt @default(now()) // last edit to this value (for audit "when re-edited")
 
   // New architecture: dual FK
   testDefinitionId String? // New-arch FK (nullable during migration)
