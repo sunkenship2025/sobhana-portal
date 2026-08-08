@@ -58,12 +58,20 @@ function classifyAudit(
         return { category: "report", severity: "high", event: "Report changed after finalize" };
       if (et === "bill")
         return { category: "money", severity: "medium", event: "Bill updated" };
+      if (et === "testdefinition")
+        return { category: "report", severity: "low", event: "Clinical definition edited" };
+      if (et === "clinicalpanel")
+        return { category: "report", severity: "low", event: "Clinical panel edited" };
       return { category: "ops", severity: "low", event: `Updated ${entityType}` };
     case AuditActionType.CREATE:
       if (et === "patient")
         return { category: "identity", severity: "low", event: "Patient registered" };
       if (et === "visit")
         return { category: "money", severity: "low", event: "Visit billed" };
+      if (et === "testdefinition")
+        return { category: "report", severity: "low", event: "Clinical definition created" };
+      if (et === "clinicalpanel")
+        return { category: "report", severity: "low", event: "Clinical panel created" };
       return { category: "ops", severity: "low", event: `Created ${entityType}` };
     default:
       return { category: "ops", severity: "low", event: `${actionType} ${entityType}` };
@@ -215,11 +223,17 @@ export async function projectWindow(
     const u = r.userId ? userMap.get(r.userId) : null;
     const isDraft = c.category === "drafts";
     const patientName = isDraft ? draftPatient.get(r.entityId) ?? null : null;
+    // Catalog edits (clinical definition / panel) carry their name in newValues —
+    // show it so the row says WHICH one was edited, not a bare "edited".
+    const et = r.entityType.toLowerCase();
+    const catalogName = (et === "testdefinition" || et === "clinicalpanel")
+      ? (() => { const nv = parseJson(r.newValues); return nv?.displayName || nv?.name || nv?.code || null; })()
+      : null;
     return {
       id: `al:${r.id}`, dedupeKey: `al:${r.id}`, branchId: r.branchId,
       occurredAt: r.createdAt, severity: c.severity, category: c.category,
       score: c.severity === "high" ? 4 : c.severity === "medium" ? 2 : 1,
-      event: c.event, detail: patientName ?? "",
+      event: c.event, detail: catalogName ?? patientName ?? "",
       actorUserId: r.userId, actorName: u?.name ?? null, actorRole: u?.role ?? null,
       entityType: r.entityType, entityId: r.entityId, patientName,
       amountInPaise: null, reason: null,

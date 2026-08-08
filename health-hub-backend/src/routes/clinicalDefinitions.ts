@@ -28,11 +28,23 @@ import {
   sandboxPreview,
 } from '../services/clinicalDefinitionService';
 import { checkConcurrency } from '../utils/clinicalValidation';
+import { logAction } from '../services/auditService';
+import { AuditActionType } from '@prisma/client';
 
 const router = Router();
 
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
+
+// Record a clinical-definition change to the audit log (best-effort; logAction
+// swallows its own errors). Surfaces in the Audit & Anomalies feed as "who
+// edited which clinical definition".
+function auditDef(req: AuthRequest, actionType: AuditActionType, entityId: string, oldValues: any, newValues: any) {
+  return logAction({
+    branchId: req.branchId!, actionType, entityType: 'TestDefinition', entityId,
+    userId: req.user?.id, oldValues, newValues, ipAddress: req.ip, userAgent: req.get('user-agent'),
+  });
+}
 
 // ─── Code format validation ───────────────────────────────────────────
 const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
@@ -170,6 +182,7 @@ router.get('/:rootId/versions', async (req: AuthRequest, res) => {
 router.post('/', async (req: AuthRequest, res) => {
   try {
     const definition = await createTestDefinition(req.body);
+    if (definition) await auditDef(req, 'CREATE', definition.id, null, { name: definition.name, code: definition.code });
     return res.status(201).json(definition);
   } catch (error: any) {
     console.error('Error creating clinical definition:', error);
@@ -185,6 +198,7 @@ router.post('/:rootId/new-version', async (req: AuthRequest, res) => {
   try {
     const ifMatch = req.headers['if-match'] as string | undefined;
     const definition = await createNewVersion(req.params.rootId, req.body, ifMatch);
+    if (definition) await auditDef(req, 'UPDATE', definition.id, null, { name: definition.name, code: definition.code, version: definition.version, change: 'new version (edit)' });
     return res.status(201).json(definition);
   } catch (error: any) {
     console.error('Error creating new version:', error);
@@ -208,6 +222,7 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
 
     const ifMatch = req.headers['if-match'] as string | undefined;
     const definition = await transitionStatus(req.params.id, status, ifMatch);
+    if (definition) await auditDef(req, 'UPDATE', definition.id, null, { name: definition.name, code: definition.code, status });
     return res.json(definition);
   } catch (error: any) {
     console.error('Error transitioning status:', error);
@@ -278,6 +293,7 @@ router.patch('/:id/toggle-visibility', async (req: AuthRequest, res) => {
         _count: { select: { ranges: true, interpretationRules: true, panelItems: true, productPanels: true } },
       },
     });
+    await auditDef(req, 'UPDATE', updated.id, { isActive: def.isActive }, { name: updated.name, code: updated.code, isActive: updated.isActive });
     return res.json(transformDefinition(updated));
   } catch (error: any) {
     console.error('Error toggling visibility:', error);
@@ -339,6 +355,7 @@ router.delete('/:rootId', async (req: AuthRequest, res) => {
         where: { rootDefinitionId: req.params.rootId },
         data: { isLatest: false, status: 'ARCHIVED' },
       });
+      await auditDef(req, 'DELETE', latest.id, null, { name: latest.name, code: latest.code, change: 'archived' });
       return res.json({
         success: true,
         archived: true,
@@ -352,6 +369,7 @@ router.delete('/:rootId', async (req: AuthRequest, res) => {
       where: { rootDefinitionId: req.params.rootId },
     });
 
+    await auditDef(req, 'DELETE', latest.id, null, { name: latest.name, code: latest.code, change: 'deleted' });
     return res.json({ success: true });
   } catch (error: any) {
     console.error('Error deleting definition:', error);
