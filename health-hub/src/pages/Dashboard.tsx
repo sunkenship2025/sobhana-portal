@@ -29,23 +29,6 @@ type DiagnosticVisitSummary = {
   createdAt: string;
 };
 
-type ClinicVisitSummary = {
-  id: string;
-  branchId: string;
-  visitType: string;
-  status: string;
-  createdAt: string;
-};
-
-function isSameLocalDay(value: string, reference: Date): boolean {
-  const date = new Date(value);
-  return (
-    date.getFullYear() === reference.getFullYear() &&
-    date.getMonth() === reference.getMonth() &&
-    date.getDate() === reference.getDate()
-  );
-}
-
 const Dashboard = () => {
   const { token } = useAuthStore();
   const { activeBranchId } = useBranchStore();
@@ -54,7 +37,12 @@ const Dashboard = () => {
     today: number;
     finalizedToday: number;
   }>({ pending: 0, today: 0, finalizedToday: 0 });
-  const [clinicVisits, setClinicVisits] = useState<ClinicVisitSummary[]>([]);
+  const [clinicSummary, setClinicSummary] = useState<{
+    waitingOP: number;
+    activeIP: number;
+    todayOP: number;
+    todayIP: number;
+  }>({ waitingOP: 0, activeIP: 0, todayOP: 0, todayIP: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -85,12 +73,15 @@ const Dashboard = () => {
               },
             },
           ),
-          fetch(`${API_BASE}/visits/clinic`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'X-Branch-Id': activeBranchId,
+          fetch(
+            `${API_BASE}/visits/clinic/summary?dayStart=${encodeURIComponent(dayStart)}&dayEnd=${encodeURIComponent(dayEnd)}`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'X-Branch-Id': activeBranchId,
+              },
             },
-          }),
+          ),
         ]);
 
         if (!diagnosticRes.ok || !clinicRes.ok) {
@@ -105,7 +96,9 @@ const Dashboard = () => {
         setDiagnosticSummary(
           diagnosticData || { pending: 0, today: 0, finalizedToday: 0 },
         );
-        setClinicVisits(clinicData || []);
+        setClinicSummary(
+          clinicData || { waitingOP: 0, activeIP: 0, todayOP: 0, todayIP: 0 },
+        );
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error);
         setError(true);
@@ -118,34 +111,22 @@ const Dashboard = () => {
   }, [token, activeBranchId, reloadKey]);
 
   const metrics = useMemo(() => {
-    const today = new Date();
-    // Diagnostic counts come from the summary endpoint (computed server-side with
-    // the same composition logic). Clinic metrics stay derived from the (small) list.
-    const waitingOP = clinicVisits.filter(
-      (visit) => visit.visitType === 'OP' && visit.status === 'WAITING',
-    );
-    const activeIP = clinicVisits.filter(
-      (visit) => visit.visitType === 'IP' && visit.status === 'IN_PROGRESS',
-    );
-    const todayOP = clinicVisits.filter(
-      (visit) => visit.visitType === 'OP' && isSameLocalDay(visit.createdAt, today),
-    );
-    const todayIP = clinicVisits.filter(
-      (visit) => visit.visitType === 'IP' && isSameLocalDay(visit.createdAt, today),
-    );
-
+    // Both diagnostic and clinic counts now come from lightweight summary endpoints
+    // (computed server-side) instead of pulling the whole visit list just to count.
     return {
       pendingResultsCount: diagnosticSummary.pending,
       diagnosticsTodayCount: diagnosticSummary.today,
       finalizedTodayCount: diagnosticSummary.finalizedToday,
-      waitingOP,
-      activeIP,
-      todayOP,
-      todayIP,
+      waitingOP: clinicSummary.waitingOP,
+      activeIP: clinicSummary.activeIP,
+      todayOP: clinicSummary.todayOP,
+      todayIP: clinicSummary.todayIP,
       hasPendingWork:
-        diagnosticSummary.pending > 0 || waitingOP.length > 0 || activeIP.length > 0,
+        diagnosticSummary.pending > 0 ||
+        clinicSummary.waitingOP > 0 ||
+        clinicSummary.activeIP > 0,
     };
-  }, [diagnosticSummary, clinicVisits]);
+  }, [diagnosticSummary, clinicSummary]);
 
   const pending = metrics.pendingResultsCount > 0;
 
@@ -178,13 +159,13 @@ const Dashboard = () => {
         <Card key="waiting-op">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
-              {metrics.waitingOP.length > 0 && <Clock className="h-4 w-4" style={{ color: 'var(--branch-accent)' }} />}
+              {metrics.waitingOP > 0 && <Clock className="h-4 w-4" style={{ color: 'var(--branch-accent)' }} />}
               Waiting OP Patients
             </CardTitle>
             <Stethoscope className="h-4 w-4" style={{ color: 'var(--branch-accent)' }} />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-muted-foreground">{metrics.waitingOP.length}</div>
+            <div className="text-3xl font-bold text-muted-foreground">{metrics.waitingOP}</div>
             <p className="text-xs text-muted-foreground">in queue</p>
           </CardContent>
         </Card>
@@ -196,13 +177,13 @@ const Dashboard = () => {
         <Card key="active-ip">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
-              {metrics.activeIP.length > 0 && <Clock className="h-4 w-4" style={{ color: 'var(--branch-accent)' }} />}
+              {metrics.activeIP > 0 && <Clock className="h-4 w-4" style={{ color: 'var(--branch-accent)' }} />}
               Active IP Admissions
             </CardTitle>
             <Users className="h-4 w-4" style={{ color: 'var(--branch-accent)' }} />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-muted-foreground">{metrics.activeIP.length}</div>
+            <div className="text-3xl font-bold text-muted-foreground">{metrics.activeIP}</div>
             <p className="text-xs text-muted-foreground">currently admitted</p>
           </CardContent>
         </Card>
@@ -249,7 +230,7 @@ const Dashboard = () => {
             <Stethoscope className="h-4 w-4" style={{ color: 'var(--branch-accent)' }} />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{metrics.todayOP.length}</div>
+            <div className="text-3xl font-bold">{metrics.todayOP}</div>
             <p className="text-xs text-muted-foreground">registered today</p>
           </CardContent>
         </Card>
@@ -264,7 +245,7 @@ const Dashboard = () => {
             <Users className="h-4 w-4" style={{ color: 'var(--branch-accent)' }} />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{metrics.todayIP.length}</div>
+            <div className="text-3xl font-bold">{metrics.todayIP}</div>
             <p className="text-xs text-muted-foreground">registered today</p>
           </CardContent>
         </Card>

@@ -384,6 +384,32 @@ export default function WaitingRoomDisplay() {
     };
   }, [branch, screenSlug, poll, applyState]);
 
+  // Self-heal stale bundles: a kiosk WebView holds one build for days and would
+  // otherwise miss deploys (that's how the old 2s-poll build lingered on the TV).
+  // Poll our own index.html; when the hashed asset URLs change, a new build shipped
+  // — reload to pick it up, but only while idle (ads) so a live call is never cut off.
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  useEffect(() => {
+    const assetsOf = (html: string) =>
+      (html.match(/\/assets\/[A-Za-z0-9_.-]+/g) || []).sort().join('|');
+    let baseline: string | null = null;
+    let stale = false;
+    const check = async () => {
+      try {
+        const html = await fetch('/index.html', { cache: 'no-store' }).then((r) => r.text());
+        const cur = assetsOf(html);
+        if (baseline === null) baseline = cur;
+        else if (cur && cur !== baseline) stale = true;
+      } catch {
+        /* offline — retry next tick */
+      }
+      if (stale && modeRef.current === 'resting') window.location.reload();
+    };
+    const id = window.setInterval(check, 15 * 60 * 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
   // Rotate the ticker in pages of 6 when there are more doctors than fit cleanly.
   const [tickPage, setTickPage] = useState(0);
   const doctorCount = (state?.doctors ?? []).filter((d) => d.currentToken != null).length;

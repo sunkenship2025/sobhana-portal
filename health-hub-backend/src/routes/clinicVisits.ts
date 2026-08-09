@@ -549,6 +549,40 @@ router.get("/", async (req: AuthRequest, res) => {
   }
 });
 
+// GET /api/visits/clinic/summary — lightweight dashboard counts (no visit rows).
+// The staff Dashboard needs only four numbers (waiting OP, active IP, OP today,
+// IP today); it previously fetched the ENTIRE clinic visit list (up to ~850KB, all
+// history, each row hydrated with patient + bill + transactions) purely to count.
+// "Today" is the CLIENT's local day (dayStart/dayEnd) to match the UI's
+// isSameLocalDay filter. waitingOP/activeIP are intentionally NOT date-bounded — a
+// multi-day IP admission is still "active" today. MUST stay before "/:id".
+router.get("/summary", async (req: AuthRequest, res) => {
+  try {
+    const { dayStart, dayEnd } = req.query as { dayStart?: string; dayEnd?: string };
+    const base = { domain: "CLINIC" as const, branchId: req.branchId };
+    const from = dayStart ? new Date(dayStart) : null;
+    const to = dayEnd ? new Date(dayEnd) : null;
+    const dayWindow =
+      from && to && !isNaN(from.getTime()) && !isNaN(to.getTime())
+        ? { createdAt: { gte: from, lt: to } }
+        : null;
+    const [waitingOP, activeIP, todayOP, todayIP] = await Promise.all([
+      prisma.visit.count({ where: { ...base, clinicVisit: { visitType: "OP", status: "WAITING" } } }),
+      prisma.visit.count({ where: { ...base, clinicVisit: { visitType: "IP", status: "IN_PROGRESS" } } }),
+      dayWindow
+        ? prisma.visit.count({ where: { ...base, ...dayWindow, clinicVisit: { visitType: "OP" } } })
+        : Promise.resolve(0),
+      dayWindow
+        ? prisma.visit.count({ where: { ...base, ...dayWindow, clinicVisit: { visitType: "IP" } } })
+        : Promise.resolve(0),
+    ]);
+    return res.json({ waitingOP, activeIP, todayOP, todayIP });
+  } catch (err: any) {
+    console.error("Clinic summary error:", err);
+    return res.status(500).json({ error: "INTERNAL_ERROR", message: "Failed to load clinic summary" });
+  }
+});
+
 // GET /api/visits/clinic/revisit-context - Canonical revisit eligibility for same patient + doctor + branch
 router.get("/revisit-context", async (req: AuthRequest, res) => {
   try {
