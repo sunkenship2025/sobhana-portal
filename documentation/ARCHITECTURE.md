@@ -29,8 +29,9 @@ A **multi-branch, role-based** healthcare portal for diagnostics and clinic visi
 | Role | Capabilities |
 |---|---|
 | `staff` | Register patients, create bills/visits, enter results, finalize reports |
-| `doctor` | Review finalized reports, doctor dashboard |
-| `owner` | Everything `staff` + `doctor` can do, plus payouts, audit logs, test catalog, signing-doctor management |
+| `lab_incharge` | Role with specific access controls for lab operations |
+| `sales` | Role with specific access controls for sales operations |
+| `owner` | Everything `staff`, `lab_incharge` and `sales` can do, plus payouts, audit logs, test catalog, signing-doctor management |
 | `admin` | Reserved — used for cross-branch admin tooling |
 
 **Domains**
@@ -321,7 +322,8 @@ Repeated ~150 times across pages. Centralizing it in a `lib/apiClient.ts` + reac
 |---|---|
 | `AuditLog` | Append-only — login, finalize, payout, edit. Insert-only by convention (no UPDATE/DELETE in code). |
 | `MessageLog` | WhatsApp / SMS delivery log |
-| `DoctorPayoutLedger` | Payout snapshots per period |
+| `DoctorPayoutLedger` | Payout snapshots per period. Uses `LAB` doctorType for ExternalLab payouts. |
+| `ExternalLab` | External lab details for outsourced tests, recording to the `DoctorPayoutLedger` with a `LAB` doctorType. |
 | `ExternalReportUpload` | PDFs uploaded for `EXTERNAL_UPLOAD` workflow, stored in R2, soft-deleted via `deletedAt` |
 
 ### Key constraints
@@ -332,9 +334,15 @@ Repeated ~150 times across pages. Centralizing it in a `lib/apiClient.ts` + reac
 - `ClinicalPanelItem @@unique([panelId, testDefinitionId])` — a test can't be in the same panel twice.
 - `ReportVersion @@unique([reportId, versionNum])` — sequential version numbers.
 
+## 6. Specific Architectural Patterns
+
+- **Patient 360 Split Query:** To mitigate N+1 query performance issues, the Patient 360 view uses a split query architecture consisting of a glance summary endpoint (`/360/summary`) and a cursor-paginated timeline endpoint (`/360/timeline`).
+- **External Lab Payouts:** External lab payouts and per-product rate overrides are tracked using `ExternalLab` and `ExternalLabProductRule` models, recording to the `DoctorPayoutLedger` with a `LAB` doctorType.
+- **Fire-and-forget Side Effects:** The backend handles side effects (e.g., WhatsApp delivery, audit log writes) by appending `.catch(logger.error)` rather than awaiting them, ensuring immediate user responses.
+
 ---
 
-## 6. Critical data flows
+## 7. Critical data flows
 
 ### 6.1 Diagnostic visit → report → patient
 
