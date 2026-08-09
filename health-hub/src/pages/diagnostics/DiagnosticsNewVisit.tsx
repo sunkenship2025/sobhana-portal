@@ -16,7 +16,7 @@ import {
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useAuthStore } from "@/store/authStore";
 import { useBranchStore } from "@/store/branchStore";
-import { useApiQuery, qk, branchRequest } from "@/lib/query";
+import { useApiQuery, qk, branchRequest, apiFetchQuery } from "@/lib/query";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toast } from "sonner";
 import type {
@@ -237,32 +237,21 @@ const DiagnosticsNewVisit = () => {
   useEffect(() => {
     const fetchData = async () => {
       if (!token || !activeBranch) return;
+      const staleTime = 10 * 60 * 1000;
 
       try {
-        const headers = {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-          "X-Branch-Id": activeBranch.id,
-        };
-
-        const [doctorsRes, centersRes, labsRes] = await Promise.all([
-          fetch(`${API_BASE}/referral-doctors`, { headers }),
-          fetch(`${API_BASE}/diagnostic-centers`, { headers }),
-          fetch(`${API_BASE}/external-labs`, { headers }),
+        // Cached (react-query): the referral-doctor / diagnostic-centre / external-lab
+        // dropdowns rarely change; an edit invalidates them via the /api/events SSE.
+        // .catch keeps one failing from dropping the others (old per-.ok behavior).
+        const [doctors, centers, labs] = await Promise.all([
+          apiFetchQuery<ReferralDoctor[]>(queryClient, qk.referralDoctors(), "/referral-doctors", activeBranch.id, { staleTime }).catch(() => null),
+          apiFetchQuery<DiagnosticCenter[]>(queryClient, qk.diagnosticCenters(activeBranch.id), "/diagnostic-centers", activeBranch.id, { staleTime }).catch(() => null),
+          apiFetchQuery<{ id: string; name: string }[]>(queryClient, qk.externalLabs(activeBranch.id), "/external-labs", activeBranch.id, { staleTime }).catch(() => null),
         ]);
 
-        if (doctorsRes.ok) {
-          const doctors = await doctorsRes.json();
-          setReferralDoctors(doctors);
-        }
-        if (centersRes.ok) {
-          const centers = await centersRes.json();
-          setDiagnosticCenters(centers);
-        }
-        if (labsRes.ok) {
-          const labs = await labsRes.json();
-          setExternalLabs((labs as { id: string; name: string }[]) ?? []);
-        }
+        if (doctors) setReferralDoctors(doctors);
+        if (centers) setDiagnosticCenters(centers);
+        if (labs) setExternalLabs(labs);
       } catch (error) {
         console.error("Failed to fetch data:", error);
       } finally {

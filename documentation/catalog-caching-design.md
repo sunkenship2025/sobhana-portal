@@ -3,8 +3,10 @@
 **Goal:** stop re-downloading rarely-changing reference lists (price list, dropdowns,
 definitions) on every screen mount, without ever showing stale data.
 
-**Status (branch `fix/display-poll-when-sse-live`):** `billable-products` and
-`clinical-definitions` shipped end-to-end. Four dropdown catalogs remain.
+**Status (branch `fix/display-poll-when-sse-live`):** all six catalogs shipped
+end-to-end (billable-products, clinical-definitions, referral-doctors,
+diagnostic-centers, external-labs, departments). Mutations emit; hot readers cached.
+Not browser-verified — merge gate is the two-device test below.
 
 **Two read-migration styles** (pick per screen):
 - **Reactive** `useApiQuery` — a mounted screen live-refreshes on the SSE nudge. Use
@@ -76,5 +78,8 @@ Reads→cache **and** writes→emit together, then verify in the browser: edit t
 on device A, watch it update on device B within ~1s; and confirm re-opening the screen
 on one device doesn't re-download within the staleTime window.
 
-Order: `billable-products` (done) → `clinical-definitions` (done) → dropdowns
-(`referral-doctors`, `diagnostic-centers`, `external-labs`, `departments`).
+All six done. Readers migrated so far: billable-products → DiagnosticsNewVisit
+(reactive `useApiQuery`); the five others → imperative `apiFetchQuery` in
+DiagnosticsNewVisit (doctors/centres/labs), ReportBuilder + ManagePanelDefinitions
+(definitions/departments). Other raw-fetch readers of these catalogs keep working
+unchanged (no regression) and can migrate later to share the same cache.

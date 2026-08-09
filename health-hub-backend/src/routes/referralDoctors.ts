@@ -3,6 +3,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import * as doctorService from '../services/doctorService';
 import { normalizeReferralPayoutInput } from '../services/referralPayoutService';
+import { emitCatalogChange } from '../lib/displayEvents';
 
 const router = Router();
 
@@ -167,6 +168,7 @@ router.post('/', async (req: AuthRequest, res) => {
       userId: req.user?.id
     });
 
+    if (req.branchId) emitCatalogChange(req.branchId, 'referral-doctors');
     return res.status(201).json(doctor);
   } catch (err: any) {
     if (err.statusCode) {
@@ -266,6 +268,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       req.user?.id
     );
 
+    if (req.branchId) emitCatalogChange(req.branchId, 'referral-doctors');
     return res.json(updated);
   } catch (err: any) {
     if (err.statusCode) {
@@ -293,6 +296,7 @@ router.delete('/:id', async (req: AuthRequest, res) => {
       req.user?.id
     );
 
+    if (req.branchId) emitCatalogChange(req.branchId, 'referral-doctors');
     return res.json(updated);
   } catch (err: any) {
     if (err.statusCode) {

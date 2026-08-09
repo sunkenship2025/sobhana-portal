@@ -446,9 +446,16 @@ export default function ManagePanelDefinitions() {
 
   const fetchDepartments = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/departments`, { headers });
-      if (!res.ok) return;
-      setDepartments(await res.json());
+      // Cached (react-query): departments list is global and rarely changes;
+      // a department edit invalidates it via the /api/events SSE.
+      const deps = await apiFetchQuery<Department[]>(
+        queryClient,
+        qk.departments(null),
+        '/departments',
+        null,
+        { staleTime: 10 * 60 * 1000 },
+      );
+      setDepartments(deps);
     } catch { /* ignore */ }
   }, []);
 
