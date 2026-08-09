@@ -16,6 +16,7 @@ import {
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useAuthStore } from "@/store/authStore";
 import { useBranchStore } from "@/store/branchStore";
+import { useApiQuery, qk, branchRequest } from "@/lib/query";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toast } from "sonner";
 import type {
@@ -208,7 +209,31 @@ const DiagnosticsNewVisit = () => {
     } as ProductForSelector;
   };
 
-  // Fetch lab tests and referral doctors from API
+  // Price list / test menu — cached via react-query so re-opening New Visit reuses
+  // one download instead of re-pulling the whole catalog every time. A price edit
+  // anywhere invalidates this through the /api/events SSE (see CatalogSync in
+  // App.tsx); staleTime is the backstop. Mirrored into local `products` state so
+  // quick-create (bill-only) can append a just-made product.
+  const productsQuery = useApiQuery<
+    (Partial<ProductForSelector> & {
+      id: string;
+      name: string;
+      code: string;
+      productType: string;
+    })[]
+  >({
+    queryKey: qk.billableProducts(activeBranchId),
+    queryFn: () => branchRequest("/billable-products", activeBranchId!),
+    staleTime: 5 * 60 * 1000,
+    branchScoped: true,
+  });
+  useEffect(() => {
+    if (productsQuery.data)
+      setProducts(productsQuery.data.map(normalizeSelectableProduct));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productsQuery.data]);
+
+  // Fetch referral doctors, diagnostic centres and external labs from API.
   useEffect(() => {
     const fetchData = async () => {
       if (!token || !activeBranch) return;
@@ -220,17 +245,12 @@ const DiagnosticsNewVisit = () => {
           "X-Branch-Id": activeBranch.id,
         };
 
-        const [productsRes, doctorsRes, centersRes, labsRes] = await Promise.all([
-          fetch(`${API_BASE}/billable-products`, { headers }),
+        const [doctorsRes, centersRes, labsRes] = await Promise.all([
           fetch(`${API_BASE}/referral-doctors`, { headers }),
           fetch(`${API_BASE}/diagnostic-centers`, { headers }),
           fetch(`${API_BASE}/external-labs`, { headers }),
         ]);
 
-        if (productsRes.ok) {
-          const prods = await productsRes.json();
-          setProducts(prods.map(normalizeSelectableProduct));
-        }
         if (doctorsRes.ok) {
           const doctors = await doctorsRes.json();
           setReferralDoctors(doctors);

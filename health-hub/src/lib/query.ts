@@ -124,6 +124,10 @@ export const qk = {
     ["patientSearch", "smart", type, q, page, branchId] as const,
   billLookup: (billNumber: string) => ["billLookup", billNumber] as const,
   // --- branch-scoped (branchId in key; flushed wholesale on branch switch) ---
+  // Key's first element matches the catalog name pushed by /api/events so the
+  // SSE invalidation can map a "billable-products changed" nudge → this key.
+  billableProducts: (branchId: string | null) =>
+    ["billable-products", branchId] as const,
   diagnosticCenters: (branchId: string | null) =>
     ["diagnostic-centers", branchId] as const,
   externalLabs: (branchId: string | null) => ["external-labs", branchId] as const,

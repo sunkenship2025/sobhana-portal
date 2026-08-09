@@ -21,6 +21,7 @@ import { branchContextMiddleware } from '../middleware/branch';
 import prisma from '../lib/prisma';
 import { buildPriceListWorkbook } from '../services/productExportService';
 import { logAction } from '../services/auditService';
+import { emitCatalogChange } from '../lib/displayEvents';
 const router = Router();
 
 router.use(authMiddleware);
@@ -295,6 +296,7 @@ router.post('/quick-create-bill-only', async (req: AuthRequest, res) => {
       },
     });
 
+    if (req.branchId) emitCatalogChange(req.branchId, 'billable-products');
     return res.status(201).json(withResolvedPrice(product));
   } catch (error: any) {
     if (error?.code === 'P2002') {
@@ -526,6 +528,7 @@ router.post('/', async (req: AuthRequest, res) => {
       name: product.name,
       code: product.code,
     });
+    if (req.branchId) emitCatalogChange(req.branchId, 'billable-products');
     return res.status(201).json(withResolvedPrice(product));
   } catch (error: any) {
     console.error('Error creating billable product:', error);
@@ -730,6 +733,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
       { name: existing.name, code: existing.code },
       { name: product.name, code: product.code },
     );
+    if (req.branchId) emitCatalogChange(req.branchId, 'billable-products');
     return res.json(withResolvedPrice(product));
   } catch (error: any) {
     console.error('Error updating billable product:', error);
@@ -759,6 +763,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       code: product.code,
       isActive,
     });
+    if (req.branchId) emitCatalogChange(req.branchId, 'billable-products');
     return res.json(withResolvedPrice(product));
   } catch (error: any) {
     console.error('Error toggling product:', error);
@@ -819,6 +824,7 @@ router.delete('/:id', async (req: AuthRequest, res) => {
       { name: existing.name, code: existing.code },
       null,
     );
+    if (req.branchId) emitCatalogChange(req.branchId, 'billable-products');
     return res.json({ success: true });
   } catch (error: any) {
     console.error('Error deleting product:', error);
@@ -897,6 +903,7 @@ router.put('/:id/pricing', async (req: AuthRequest, res) => {
       )
     );
 
+    if (req.branchId) emitCatalogChange(req.branchId, 'billable-products');
     return res.json(results);
   } catch (error: any) {
     console.error('Error updating pricing:', error);

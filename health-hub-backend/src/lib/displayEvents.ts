@@ -25,3 +25,26 @@ export function onBranchChange(branchId: string, fn: () => void): () => void {
   emitter.on(branchId, fn);
   return () => emitter.off(branchId, fn);
 }
+
+/**
+ * Reference-catalog changes (price list, dropdowns, definitions) — a SEPARATE
+ * channel from the queue events above, so clinic-visit churn never invalidates
+ * cached catalogs. Payload = which catalog changed, so a client refetches only
+ * that one. Event name is `catalog:<branchId>` — a change only wakes clients on
+ * that branch. Cross-branch propagation (a global product edit) rides the client
+ * staleTime backstop, not this push.
+ * ponytail: same single-instance ceiling as above — Redis pub/sub if it scales.
+ */
+export function emitCatalogChange(branchId: string, catalog: string): void {
+  emitter.emit(`catalog:${branchId}`, catalog);
+}
+
+/** Subscribe to a branch's catalog changes; unsubscribe on disconnect. */
+export function onCatalogChange(
+  branchId: string,
+  fn: (catalog: string) => void,
+): () => void {
+  const key = `catalog:${branchId}`;
+  emitter.on(key, fn);
+  return () => emitter.off(key, fn);
+}

@@ -3,6 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
+import { API_BASE } from "@/lib/api";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore, defaultRouteForRole } from "./store/authStore";
 import { useEffect } from "react";
@@ -257,9 +258,39 @@ function AppRoutes() {
   );
 }
 
+/**
+ * Cross-device cache freshness. Holds one public SSE per active branch; when any
+ * reference catalog (price list, dropdowns, definitions) is edited on ANY device,
+ * the server pushes {"catalog":"<name>"} and we invalidate that cached list so
+ * every open tab refetches within ~1s. The query staleTime is the backstop for
+ * when this stream is blocked or dropped. Reconnects on branch switch (which also
+ * clears the cache). Only runs while logged in with a branch selected.
+ */
+function CatalogSync() {
+  const token = useAuthStore((s) => s.token);
+  const branchId = useBranchStore((s) => s.activeBranchId);
+  useEffect(() => {
+    if (!token || !branchId) return;
+    const es = new EventSource(`${API_BASE}/events/${branchId}/catalog-stream`);
+    es.onmessage = (e) => {
+      try {
+        const { catalog } = JSON.parse(e.data) as { catalog?: string };
+        // Prefix match: invalidates ["billable-products", <branch>] and any
+        // branchless variant of the same catalog.
+        if (catalog) queryClient.invalidateQueries({ queryKey: [catalog] });
+      } catch {
+        /* ignore malformed frame */
+      }
+    };
+    return () => es.close();
+  }, [token, branchId]);
+  return null;
+}
+
 function AppShell() {
   return (
     <>
+      <CatalogSync />
       <GlobalBranchConfirmGate />
       <AppRoutes />
     </>
