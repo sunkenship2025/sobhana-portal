@@ -11,6 +11,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE } from '@/lib/api';
+import { apiFetchQuery, qk } from '@/lib/query';
+import { queryClient } from '@/lib/queryClient';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
 import {
@@ -76,10 +78,20 @@ export default function ReportBuilder() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [pRes, dRes, defRes] = await Promise.all([
+      const [pRes, dRes, defs] = await Promise.all([
         fetch(`${API_BASE}/clinical-panels?active=all`, { headers }),
         fetch(`${API_BASE}/departments`, { headers }),
-        fetch(`${API_BASE}/clinical-definitions?status=ACTIVE`, { headers }),
+        // Cached (react-query); the active-definitions list is global and rarely
+        // changes, and a definition edit invalidates it via the /api/events SSE.
+        // .catch keeps a defs failure from rejecting the whole load (panels +
+        // departments still populate, matching the old per-response .ok guards).
+        apiFetchQuery<TestDef[]>(
+          queryClient,
+          qk.clinicalDefinitions('ACTIVE'),
+          '/clinical-definitions?status=ACTIVE',
+          null,
+          { staleTime: 5 * 60 * 1000 },
+        ).catch(() => null),
       ]);
       if (pRes.ok) {
         const rows = await pRes.json();
@@ -89,7 +101,7 @@ export default function ReportBuilder() {
         })));
       }
       if (dRes.ok) setDepartments(await dRes.json());
-      if (defRes.ok) setDefs(await defRes.json());
+      if (defs) setDefs(defs);
     } catch { toast.error('Failed to load builder data'); } finally { setLoading(false); }
   }, [headers]);
   useEffect(() => { loadAll(); }, [loadAll]);

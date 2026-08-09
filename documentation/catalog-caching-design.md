@@ -3,8 +3,19 @@
 **Goal:** stop re-downloading rarely-changing reference lists (price list, dropdowns,
 definitions) on every screen mount, without ever showing stale data.
 
-**Status:** `billable-products` shipped end-to-end (branch `fix/display-poll-when-sse-live`).
-The other five catalogs follow the same proven pattern.
+**Status (branch `fix/display-poll-when-sse-live`):** `billable-products` and
+`clinical-definitions` shipped end-to-end. Four dropdown catalogs remain.
+
+**Two read-migration styles** (pick per screen):
+- **Reactive** `useApiQuery` — a mounted screen live-refreshes on the SSE nudge. Use
+  for hot, always-open pickers where instant cross-device update matters
+  (billable-products on New Visit).
+- **Imperative** `apiFetchQuery` — drop-in replacement for a `fetch` in an existing
+  useEffect/useCallback; dedups within staleTime and refetches on next open after an
+  invalidation, but a *mounted* screen doesn't live-refresh. Use for config screens
+  where that's fine and the lower-risk migration is worth it (clinical-definitions in
+  ReportBuilder + ManagePanelDefinitions). Wrap in `.catch(() => null)` when it sits
+  inside a `Promise.all` with plain fetches, so its throw can't reject the batch.
 
 ## The catalogs
 
@@ -65,4 +76,5 @@ Reads→cache **and** writes→emit together, then verify in the browser: edit t
 on device A, watch it update on device B within ~1s; and confirm re-opening the screen
 on one device doesn't re-download within the staleTime window.
 
-Order: `billable-products` (done) → dropdowns → `clinical-definitions`.
+Order: `billable-products` (done) → `clinical-definitions` (done) → dropdowns
+(`referral-doctors`, `diagnostic-centers`, `external-labs`, `departments`).
