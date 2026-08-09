@@ -8,6 +8,14 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 
 ## [Unreleased]
 
+### Changed
+- **Print/Reports Styling:** Increased table row and test text sizes uniformly to 10pt/11pt, widened dynamic result column, adjusted margins and letterhead spacing, and updated signature block positioning.
+- **React Query Migration:** Refactored multiple owner page components (`ManageDoctors`, `ManageClinicDoctors`, `ManageDepartments`, `ManageDiagnosticCenters`) to use `@tanstack/react-query` with a branch-switch cache flush, reducing inline fetch calls.
+- **UI/UX Standardization:** Standardized empty and loading states using shared components across owner and diagnostic pages.
+- **Money Labels Standardization:** Unified financial labels to Total, Discount, Net payable, Paid, and Balance due.
+- **Accessibility:** Added `aria-label`s to icon-only buttons across pages.
+
+
 ### Added
 - **New Visit Flow UI/UX Improvements:** Redesigned the diagnostics and clinic new visit pages with a cleaner single-column layout, improved "sticky" bottom bar, focused keyboard navigation, and portalled `Radix Popover` drop-downs to prevent collision and cut-offs.
 - **Shared UI Components:** Extracted repeated structural and state-representing elements into new shared components: `PageHeader`, `LoadingState`, and `EmptyState`.
