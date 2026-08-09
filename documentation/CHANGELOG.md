@@ -9,6 +9,13 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 ## [Unreleased]
 
 ### Added
+- **Patient 360 Redesign:** A complete overhaul of the Patient 360 interface, including a new smart search with chronological visit grouping, a redesigned patient detail page with timeline filtering, and inline bill/report previews with zoom controls.
+- **Backend Patient Search Enhancements:** Introduced new endpoints for paginated timeline tracking, due calculation, and advanced search and bill lookups.
+- **WhatsApp Bill Delivery:** Added support for sending bills via WhatsApp directly from the Patient 360 view, mirroring the existing report action.
+- **Owner Account Enhancements:** A decision-grade redesign of the owner dashboard featuring full-width trend charts, NaN-proof rendering, audit fields, and trend deltas.
+- **Print Layout Improvements:** Enhanced print views for finalized reports with adjusted table font sizes (10pt rows, 10.5pt subgroup headings), wider result columns for better readability, and dynamic column widths. Shifted patient-info right column and locked the signature/QR block to the bottom of the physical report page.
+- **Queue & Status Updates:** Implemented optimistic 'Mark Done / Start' for snappy status changes in the OP/IP queue and unified money labels across the app (Total, Discount, Net payable, Paid, Balance due).
+- **React Query Migration Progress:** Continued migration to React Query with branch-scoped CRUD pairs and central branch-switch cache flushing, tracking progress in documentation.
 - **New Visit Flow UI/UX Improvements:** Redesigned the diagnostics and clinic new visit pages with a cleaner single-column layout, improved "sticky" bottom bar, focused keyboard navigation, and portalled `Radix Popover` drop-downs to prevent collision and cut-offs.
 - **Shared UI Components:** Extracted repeated structural and state-representing elements into new shared components: `PageHeader`, `LoadingState`, and `EmptyState`.
 - **Visit Defaults Persistence:** Added `visitDefaultsStore` Zustand store to automatically persist the front-desk operator's last choices (e.g., payment mode, consulting doctor) for seamless repetitive data entry.
