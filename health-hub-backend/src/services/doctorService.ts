@@ -16,6 +16,11 @@ export interface ReferralDoctorCategoryRuleInput
   category: string;
 }
 
+// A create/update of a doctor's rules always targets ONE scope: null = the
+// doctor's global rate (every branch), or a branchId = that branch's override.
+// Rules for other scopes are left untouched, so editing one branch tab can
+// never wipe another's overrides.
+
 export interface CreateReferralDoctorInput {
   name: string;
   phone?: string;
@@ -25,6 +30,7 @@ export interface CreateReferralDoctorInput {
   commissionAmountInPaise: number | null;
   productRules?: ReferralDoctorProductRuleInput[];
   categoryRules?: ReferralDoctorCategoryRuleInput[];
+  rulesBranchId?: string | null; // scope the productRules/categoryRules apply to (null = global)
   clinicDoctorId?: string; // Link if already exists as clinic doctor
   branchId: string;
   userId?: string;
@@ -149,10 +155,13 @@ export async function createReferralDoctor(input: CreateReferralDoctorInput) {
       }
     });
 
+    const rulesBranchId = input.rulesBranchId ?? null;
+
     if (input.productRules?.length) {
       await tx.referralDoctorProductRule.createMany({
         data: input.productRules.map((rule) => ({
           referralDoctorId: created.id,
+          branchId: rulesBranchId,
           productId: rule.productId,
           commissionType: rule.commissionType,
           commissionPercent: rule.commissionPercent,
@@ -166,6 +175,7 @@ export async function createReferralDoctor(input: CreateReferralDoctorInput) {
       await tx.referralDoctorCategoryRule.createMany({
         data: input.categoryRules.map((rule) => ({
           referralDoctorId: created.id,
+          branchId: rulesBranchId,
           category: rule.category.trim(),
           commissionType: rule.commissionType,
           commissionPercent: rule.commissionPercent,
@@ -195,11 +205,26 @@ export async function createReferralDoctor(input: CreateReferralDoctorInput) {
 }
 
 export async function listReferralDoctors(includeInactive = false) {
-  return prisma.referralDoctor.findMany({
+  const doctors = await prisma.referralDoctor.findMany({
     where: includeInactive ? {} : { isActive: true },
     include: REFERRAL_DOCTOR_INCLUDE,
     orderBy: { createdAt: 'desc' }
   });
+  if (doctors.length === 0) return doctors;
+
+  // Which branches each doctor has referred to (for branch-wise grouping in the
+  // UI — a doctor who referred to two branches is listed under both).
+  const branchRows = await prisma.referralDoctor_Visit.groupBy({
+    by: ['referralDoctorId', 'branchId'],
+    where: { referralDoctorId: { in: doctors.map((d) => d.id) } },
+  });
+  const branchesByDoctor = new Map<string, string[]>();
+  for (const row of branchRows) {
+    const list = branchesByDoctor.get(row.referralDoctorId) ?? [];
+    list.push(row.branchId);
+    branchesByDoctor.set(row.referralDoctorId, list);
+  }
+  return doctors.map((d) => ({ ...d, branchIds: branchesByDoctor.get(d.id) ?? [] }));
 }
 
 export async function updateReferralDoctor(
@@ -213,6 +238,7 @@ export async function updateReferralDoctor(
     commissionAmountInPaise?: number | null;
     productRules?: ReferralDoctorProductRuleInput[];
     categoryRules?: ReferralDoctorCategoryRuleInput[];
+    rulesBranchId?: string | null; // scope the rule replacement targets (null = global)
     isActive?: boolean;
   },
   branchId: string,
@@ -271,15 +297,20 @@ export async function updateReferralDoctor(
       },
     });
 
+    // Replace rules only WITHIN the edited scope (branch tab). Other scopes'
+    // overrides are untouched, so editing Balanagar never wipes Chintak/global.
+    const rulesBranchId = updates.rulesBranchId ?? null;
+
     if (updates.productRules !== undefined) {
       await tx.referralDoctorProductRule.deleteMany({
-        where: { referralDoctorId: id },
+        where: { referralDoctorId: id, branchId: rulesBranchId },
       });
 
       if (updates.productRules.length > 0) {
         await tx.referralDoctorProductRule.createMany({
           data: updates.productRules.map((rule) => ({
             referralDoctorId: id,
+            branchId: rulesBranchId,
             productId: rule.productId,
             commissionType: rule.commissionType,
             commissionPercent: rule.commissionPercent,
@@ -292,13 +323,14 @@ export async function updateReferralDoctor(
 
     if (updates.categoryRules !== undefined) {
       await tx.referralDoctorCategoryRule.deleteMany({
-        where: { referralDoctorId: id },
+        where: { referralDoctorId: id, branchId: rulesBranchId },
       });
 
       if (updates.categoryRules.length > 0) {
         await tx.referralDoctorCategoryRule.createMany({
           data: updates.categoryRules.map((rule) => ({
             referralDoctorId: id,
+            branchId: rulesBranchId,
             category: rule.category.trim(),
             commissionType: rule.commissionType,
             commissionPercent: rule.commissionPercent,
@@ -380,31 +412,43 @@ export async function searchReferralDoctorByContact(
 }
 
 // ==================== REFERRAL CATEGORY RATE CARD ====================
-// Centre-wide default referral rate per payout category (the base commission for
-// a referred test, resolved from the test's panel category). Replaces the old
-// per-doctor flat default. A per-doctor category rule / per-product rule / ad-hoc
-// bill override takes precedence at billing time.
+// Branch-scoped referral rate per payout category (the base commission for a
+// referred test, resolved from the test's panel category). A row with
+// branchId = null is the GLOBAL default every branch inherits; a row with a
+// branchId overrides it for that branch. A per-doctor category rule /
+// per-product rule / ad-hoc bill override takes precedence at billing time.
 
 export interface ReferralCategoryRateInput
   extends Pick<NormalizedReferralPayout, 'commissionType' | 'commissionPercent' | 'commissionAmountInPaise'> {
   category: string;
 }
 
-export async function listReferralCategoryRates() {
+/**
+ * List the rate card for a scope. Global scope (branchId = null) returns just
+ * the global rows; a branch scope returns the global rows PLUS that branch's
+ * overrides, so the UI can show the effective (inherited-or-overridden) value.
+ */
+export async function listReferralCategoryRates(branchId: string | null = null) {
   return prisma.referralCategoryRate.findMany({
-    where: { isActive: true },
+    where:
+      branchId === null
+        ? { isActive: true, branchId: null }
+        : { isActive: true, OR: [{ branchId }, { branchId: null }] },
     orderBy: { category: 'asc' },
   });
 }
 
 /**
- * Upsert the whole rate card in one shot (the owner edits every row together in
- * the UI). Upsert-only — a category absent from the payload is left untouched
- * rather than deleted, so a partial save can never silently zero a live rate.
+ * Save the rate card for ONE scope (branchId = null for global, or a branchId
+ * for a branch override). The payload is the full set of rows for that scope:
+ * rows present are upserted, rows absent are removed — so clearing a branch
+ * override reverts that category to the global default, and clearing a global
+ * row removes it. Only the given scope is touched; other branches are untouched.
  */
 export async function setReferralCategoryRates(
   rates: ReferralCategoryRateInput[],
-  branchId: string,
+  scopeBranchId: string | null,
+  auditBranchId: string,
   userId?: string,
 ) {
   const seen = new Set<string>();
@@ -419,33 +463,44 @@ export async function setReferralCategoryRates(
     seen.add(category);
     validateReferralPayout(rate);
   }
+  const keep = Array.from(seen);
 
-  const results = await prisma.$transaction(
-    rates.map((rate) =>
-      prisma.referralCategoryRate.upsert({
-        where: { category: rate.category.trim() },
-        update: {
-          commissionType: rate.commissionType,
-          commissionPercent: rate.commissionPercent,
-          commissionAmountInPaise: rate.commissionAmountInPaise,
-          isActive: true,
-        },
-        create: {
-          category: rate.category.trim(),
-          commissionType: rate.commissionType,
-          commissionPercent: rate.commissionPercent,
-          commissionAmountInPaise: rate.commissionAmountInPaise,
-          isActive: true,
-        },
-      }),
-    ),
-  );
+  const results = await prisma.$transaction(async (tx) => {
+    // Remove rows in this scope that the owner cleared (absent from the payload).
+    await tx.referralCategoryRate.deleteMany({
+      where: {
+        branchId: scopeBranchId,
+        ...(keep.length > 0 ? { category: { notIn: keep } } : {}),
+      },
+    });
+
+    const saved = [];
+    for (const rate of rates) {
+      const category = rate.category.trim();
+      const data = {
+        commissionType: rate.commissionType,
+        commissionPercent: rate.commissionPercent,
+        commissionAmountInPaise: rate.commissionAmountInPaise,
+        isActive: true,
+      };
+      // No compound-unique upsert (null branchId is awkward there) — find then write.
+      const existing = await tx.referralCategoryRate.findFirst({
+        where: { branchId: scopeBranchId, category },
+      });
+      saved.push(
+        existing
+          ? await tx.referralCategoryRate.update({ where: { id: existing.id }, data })
+          : await tx.referralCategoryRate.create({ data: { branchId: scopeBranchId, category, ...data } }),
+      );
+    }
+    return saved;
+  });
 
   await logAction({
-    branchId,
+    branchId: auditBranchId,
     actionType: 'UPDATE',
     entityType: 'ReferralCategoryRate',
-    entityId: 'rate-card',
+    entityId: scopeBranchId ? `rate-card:${scopeBranchId}` : 'rate-card:global',
     userId,
     newValues: results,
   });

@@ -66,6 +66,7 @@ export type ReferralSourceType = "SELF" | "REFERRED_TO" | "REFERRED_FROM";
 
 export interface ReferralProductRule {
   id: string;
+  branchId?: string | null; // null = doctor's global rate; set = per-branch override
   productId: string;
   commissionType: ReferralPayoutType;
   commissionPercent?: number | null;
@@ -79,6 +80,7 @@ export interface ReferralProductRule {
 
 export interface ReferralCategoryRule {
   id: string;
+  branchId?: string | null; // null = doctor's global rate; set = per-branch override
   category: string;
   commissionType: ReferralPayoutType;
   commissionPercent?: number | null;
@@ -96,11 +98,14 @@ export interface ReferralDoctor {
   clinicDoctorId?: string; // Link if also a clinic doctor
   productRules?: ReferralProductRule[];
   categoryRules?: ReferralCategoryRule[];
+  branchIds?: string[]; // branches this doctor has referred to (for branch-wise listing)
 }
 
-// Centre-wide default referral rate per payout category (the base rate card).
+// Branch-scoped referral rate per payout category (the rate card). branchId
+// null = the global default every branch inherits; set = a branch override.
 export interface ReferralCategoryRate {
   id: string;
+  branchId?: string | null;
   category: string;
   commissionType: ReferralPayoutType;
   commissionPercent?: number | null;

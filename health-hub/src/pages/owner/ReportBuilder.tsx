@@ -32,7 +32,7 @@ import {
   CODE_REGEX, LAYOUTS, SAMPLE_TYPES, type Department, type TestDef, type BuilderItem, type PanelForm,
   blankPanel, uid, itemFromDef, autoCode, parseRange,
 } from './reportBuilderShared';
-import { PAYOUT_CATEGORIES } from '@/lib/payoutCategories';
+import { useReferralCategories } from '@/lib/payoutCategories';
 
 type DockTab = 'inspector' | 'panel' | 'pricing' | 'compile';
 interface PanelRow { id: string; code: string; name: string; isActive: boolean; itemCount: number; departmentName: string; productCount: number; }
@@ -624,6 +624,7 @@ function PanelPane({ panel, departments, setP, setPReload, onCodeEdit, onNameEdi
   panel: PanelForm; departments: Department[]; setP: (p: Partial<PanelForm>) => void; setPReload: (p: Partial<PanelForm>) => void;
   onCodeEdit: (v: string) => void; onNameEdit: (v: string) => void; onNameBlur: () => void;
 }) {
+  const referralCategories = useReferralCategories();
   return (
     <div className="p-4 space-y-4">
       <div>
@@ -651,7 +652,7 @@ function PanelPane({ panel, departments, setP, setPReload, onCodeEdit, onNameEdi
           <div className="space-y-1.5"><Label className="text-xs">Category</Label>
             <Select value={panel.payoutCategory || '__none__'} onValueChange={(v) => setP({ payoutCategory: v === '__none__' ? null : v })}>
               <SelectTrigger className="h-8"><SelectValue placeholder="Select…" /></SelectTrigger>
-              <SelectContent><SelectItem value="__none__">None</SelectItem>{PAYOUT_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+              <SelectContent><SelectItem value="__none__">None</SelectItem>{referralCategories.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
             </Select>
           </div>
         </div>

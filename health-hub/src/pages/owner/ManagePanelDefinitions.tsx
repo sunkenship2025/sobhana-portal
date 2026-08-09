@@ -37,7 +37,7 @@ import {
   type TestInputConfigPayload,
 } from '@/components/diagnostics/TestInputConfigEditor';
 import { Settings2 } from 'lucide-react';
-import { PAYOUT_CATEGORIES } from '@/lib/payoutCategories';
+import { useReferralCategories } from '@/lib/payoutCategories';
 
 /* ───────── Types ───────── */
 
@@ -333,6 +333,7 @@ export default function ManagePanelDefinitions() {
   const [formDeptId, setFormDeptId] = useState('');
   const [formSampleType, setFormSampleType] = useState('');
   const [formPayoutCategory, setFormPayoutCategory] = useState('');
+  const referralCategories = useReferralCategories();
   const [formActive, setFormActive] = useState(true);
   const [formItems, setFormItems] = useState<ClinicalPanelItem[]>([]);
 
@@ -1043,7 +1044,7 @@ export default function ManagePanelDefinitions() {
                   <SelectTrigger><SelectValue placeholder="Select category..." /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">None</SelectItem>
-                    {PAYOUT_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                    {referralCategories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

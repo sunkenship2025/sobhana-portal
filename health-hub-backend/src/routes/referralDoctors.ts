@@ -12,11 +12,15 @@ router.use(branchContextMiddleware);
 
 // ==================== REFERRAL CATEGORY RATE CARD ====================
 
-// GET /api/referral-doctors/category-rates - the centre-wide default rate card
+// GET /api/referral-doctors/category-rates - the rate card for a scope.
+// ?branchId=<id> returns that branch's overrides + the global rows (for
+// inheritance display); omitted / "global" returns just the global rows.
 // (declared before the /:id routes so "category-rates" is never read as an id)
-router.get('/category-rates', async (_req: AuthRequest, res) => {
+router.get('/category-rates', async (req: AuthRequest, res) => {
   try {
-    const rates = await doctorService.listReferralCategoryRates();
+    const scope =
+      req.query.branchId && req.query.branchId !== 'global' ? String(req.query.branchId) : null;
+    const rates = await doctorService.listReferralCategoryRates(scope);
     return res.json(rates);
   } catch (err: any) {
     console.error('List referral category rates error:', err);
@@ -56,8 +60,13 @@ router.put('/category-rates', async (req: AuthRequest, res) => {
       });
     }
 
+    // scope = which card is being edited (null = global default, or a branch id).
+    // req.branchId! is the active branch context, used only for the audit log.
+    const scope =
+      req.body.branchId && req.body.branchId !== 'global' ? String(req.body.branchId) : null;
     const saved = await doctorService.setReferralCategoryRates(
       normalized,
+      scope,
       req.branchId!,
       req.user?.id,
     );
@@ -79,7 +88,7 @@ router.put('/category-rates', async (req: AuthRequest, res) => {
 // POST /api/referral-doctors - Create referral doctor
 router.post('/', async (req: AuthRequest, res) => {
   try {
-    const { name, phone, email, clinicDoctorId, productRules, categoryRules } = req.body;
+    const { name, phone, email, clinicDoctorId, productRules, categoryRules, rulesBranchId } = req.body;
 
     if (!name) {
       return res.status(400).json({
@@ -152,6 +161,7 @@ router.post('/', async (req: AuthRequest, res) => {
       ...normalizedPayout,
       productRules: normalizedProductRules,
       categoryRules: normalizedCategoryRules,
+      rulesBranchId: rulesBranchId && rulesBranchId !== 'global' ? String(rulesBranchId) : null,
       clinicDoctorId,
       branchId: req.branchId!,
       userId: req.user?.id
@@ -192,7 +202,7 @@ router.get('/', async (req: AuthRequest, res) => {
 router.patch('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { name, phone, email, isActive, productRules, categoryRules } = req.body;
+    const { name, phone, email, isActive, productRules, categoryRules, rulesBranchId } = req.body;
 
     let normalizedPayout;
     let normalizedProductRules;
@@ -250,6 +260,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
         ...normalizedPayout,
         productRules: normalizedProductRules,
         categoryRules: normalizedCategoryRules,
+        rulesBranchId: rulesBranchId && rulesBranchId !== 'global' ? String(rulesBranchId) : null,
       },
       req.branchId!,
       req.user?.id

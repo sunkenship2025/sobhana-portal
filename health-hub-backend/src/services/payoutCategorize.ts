@@ -23,8 +23,21 @@ export const CAT_USG = 'Ultrasound';
 export const CAT_ECG = 'ECG / Cardiology';
 export const CAT_SCAN = 'CT / MRI';
 
-// Preferred display order; anything else is appended alphabetically.
-export const CATEGORY_ORDER: PayoutCategory[] = [CAT_LAB, CAT_XRAY, CAT_USG, CAT_ECG, CAT_SCAN];
+// Preferred display order; anything else is appended alphabetically. The finer
+// buckets are opt-in (only reached by an explicit panel/product tag — never by
+// inferFromName below), so untagged legacy tests keep their coarse category.
+export const CATEGORY_ORDER: PayoutCategory[] = [
+  CAT_LAB,
+  CAT_XRAY,
+  CAT_USG,
+  CAT_ECG,
+  CAT_SCAN,
+  'Ultrasound Tiffa',
+  '2D Echo',
+  'EEG',
+  'TMT',
+  'Dental X-Ray',
+];
 
 export function categoryLabel(category: PayoutCategory): string {
   return category;

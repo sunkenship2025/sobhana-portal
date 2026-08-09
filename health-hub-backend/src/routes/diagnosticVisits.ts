@@ -2211,12 +2211,18 @@ router.post("/", async (req: AuthRequest, res) => {
       NormalizedReferralPayout
     >();
 
+    // For every branch-scoped rule set, we pull this branch's rows + the global
+    // (branchId = null) rows, then build the map global-first so the branch row
+    // overrides the global for the same key. (nulls sort before non-nulls.)
+    const branchFirst = <T extends { branchId: string | null }>(rows: T[]): T[] =>
+      [...rows].sort((a, b) => (a.branchId === null ? 0 : 1) - (b.branchId === null ? 0 : 1));
+
     if (referralDoctorId) {
       const referralDoc = await prisma.referralDoctor.findUnique({
         where: { id: referralDoctorId },
         include: {
-          productRules: { where: { isActive: true } },
-          categoryRules: { where: { isActive: true } },
+          productRules: { where: { isActive: true, OR: [{ branchId: req.branchId! }, { branchId: null }] } },
+          categoryRules: { where: { isActive: true, OR: [{ branchId: req.branchId! }, { branchId: null }] } },
         },
       });
 
@@ -2227,7 +2233,7 @@ router.post("/", async (req: AuthRequest, res) => {
         });
       }
 
-      for (const rule of referralDoc.productRules) {
+      for (const rule of branchFirst(referralDoc.productRules)) {
         referralRuleByProductId.set(rule.productId, {
           commissionType: rule.commissionType,
           commissionPercent: rule.commissionPercent,
@@ -2235,7 +2241,7 @@ router.post("/", async (req: AuthRequest, res) => {
         });
       }
 
-      for (const rule of referralDoc.categoryRules) {
+      for (const rule of branchFirst(referralDoc.categoryRules)) {
         doctorCategoryRuleByCategory.set(rule.category, {
           commissionType: rule.commissionType,
           commissionPercent: rule.commissionPercent,
@@ -2243,12 +2249,12 @@ router.post("/", async (req: AuthRequest, res) => {
         });
       }
 
-      // Centre-wide default rate card — the base commission for every referred
-      // test, keyed by the test's panel category.
+      // Rate card — the base commission for every referred test, keyed by the
+      // test's panel category. This branch's override wins over the global row.
       const categoryRates = await prisma.referralCategoryRate.findMany({
-        where: { isActive: true },
+        where: { isActive: true, OR: [{ branchId: req.branchId! }, { branchId: null }] },
       });
-      for (const rate of categoryRates) {
+      for (const rate of branchFirst(categoryRates)) {
         centerCategoryRateByCategory.set(rate.category, {
           commissionType: rate.commissionType,
           commissionPercent: rate.commissionPercent,
@@ -2849,10 +2855,13 @@ router.post("/", async (req: AuthRequest, res) => {
             // (There is no longer a flat doctor default to compare it against —
             // the base is the category rate card, which a per-product rule
             // deliberately overrides.)
+            // An ad-hoc override happened in this branch → persist it as this
+            // branch's per-product rule (never clobbering the global rule).
             await tx.referralDoctorProductRule.upsert({
               where: {
-                referralDoctorId_productId: {
+                referralDoctorId_branchId_productId: {
                   referralDoctorId,
+                  branchId: req.branchId!,
                   productId,
                 },
               },
@@ -2864,6 +2873,7 @@ router.post("/", async (req: AuthRequest, res) => {
               },
               create: {
                 referralDoctorId,
+                branchId: req.branchId!,
                 productId,
                 commissionType: override.commissionType,
                 commissionPercent: override.commissionPercent,

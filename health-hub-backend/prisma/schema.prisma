@@ -350,7 +350,9 @@ model ReferralDoctor {
 /// vocabulary. No FK — categories are centre-defined strings, not an enum.
 model ReferralCategoryRate {
   id                      String             @id @default(cuid())
-  category                String             @unique
+  /// null = global default (every branch inherits it); set = per-branch override.
+  branchId                String?
+  category                String
   commissionType          ReferralPayoutType @default(PERCENTAGE)
   commissionPercent       Float? // 0-100 when type = PERCENTAGE
   commissionAmountInPaise Int? // per-test flat payout when type = FIXED_AMOUNT
@@ -358,7 +360,13 @@ model ReferralCategoryRate {
   createdAt               DateTime           @default(now())
   updatedAt               DateTime           @updatedAt
 
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  // Unique per (branch, category). Global (branchId = null) rows are kept unique
+  // by the write path (find-then-write / delete-then-recreate), not the index.
+  @@unique([branchId, category])
   @@index([isActive])
+  @@index([branchId])
 }
 
 /// ReferralDoctorCategoryRule: per-doctor override of a category's referral rate.
@@ -368,6 +376,8 @@ model ReferralCategoryRate {
 model ReferralDoctorCategoryRule {
   id                      String             @id @default(cuid())
   referralDoctorId        String
+  /// null = this doctor's rate for every branch; set = per-branch override.
+  branchId                String?
   category                String
   commissionType          ReferralPayoutType @default(PERCENTAGE)
   commissionPercent       Float?
@@ -377,14 +387,18 @@ model ReferralDoctorCategoryRule {
   updatedAt               DateTime           @updatedAt
 
   referralDoctor ReferralDoctor @relation(fields: [referralDoctorId], references: [id], onDelete: Cascade)
+  branch         Branch?        @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
-  @@unique([referralDoctorId, category])
+  @@unique([referralDoctorId, branchId, category])
   @@index([referralDoctorId])
+  @@index([branchId])
 }
 
 model ReferralDoctorProductRule {
   id                      String             @id @default(cuid())
   referralDoctorId        String
+  /// null = this doctor's rate for every branch; set = per-branch override.
+  branchId                String?
   productId               String
   commissionType          ReferralPayoutType @default(PERCENTAGE)
   commissionPercent       Float?
@@ -395,9 +409,11 @@ model ReferralDoctorProductRule {
 
   referralDoctor ReferralDoctor  @relation(fields: [referralDoctorId], references: [id], onDelete: Cascade)
   product        BillableProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  branch         Branch?         @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
-  @@unique([referralDoctorId, productId])
+  @@unique([referralDoctorId, branchId, productId])
   @@index([referralDoctorId])
+  @@index([branchId])
   @@index([productId])
 }
 
@@ -512,6 +528,11 @@ model Branch {
   conversations             Conversation[]
   displayScreens            DisplayScreen[]
   displayAds                DisplayAd[]
+
+  /// Per-branch referral rate overrides (null-branch rows on these tables are the global defaults)
+  referralCategoryRates      ReferralCategoryRate[]
+  referralDoctorCategoryRules ReferralDoctorCategoryRule[]
+  referralDoctorProductRules  ReferralDoctorProductRule[]
 
   @@index([isActive])
   @@index([code])

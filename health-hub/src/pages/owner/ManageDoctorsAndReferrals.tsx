@@ -44,7 +44,7 @@ import {
   type ReferralPayoutDraft,
 } from '@/lib/referralPayouts';
 import { ReferralCategoryRateCard } from '@/components/owner/ReferralCategoryRateCard';
-import { PAYOUT_CATEGORIES } from '@/lib/payoutCategories';
+import { useReferralCategories } from '@/lib/payoutCategories';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -80,6 +80,12 @@ const EMPTY_CENTER_FORM = {
   commissionAmount: '',
   productRules: [] as CenterRuleFormItem[],
 };
+
+// A doctor's rule belongs to a scope: 'global' (branchId null, every branch) or
+// a branchId (that branch's override). Used to filter which rules the edit form
+// shows/saves so editing one branch tab never wipes another's overrides.
+const ruleScopeMatch = (rule: { branchId?: string | null }, scope: string) =>
+  scope === 'global' ? !rule.branchId : rule.branchId === scope;
 
 const EMPTY_REFERRAL_FORM = {
   name: '',
@@ -120,15 +126,26 @@ export default function ManageDoctorsAndReferrals() {
   const refSearchTimeout = useRef<NodeJS.Timeout | null>(null);
   const [refForm, setRefForm] = useState({ ...EMPTY_REFERRAL_FORM });
   const [refSearch, setRefSearch] = useState('');
+  // Which scope of a doctor's overrides the edit form is editing ('global' or a branchId).
+  const [refRulesBranch, setRefRulesBranch] = useState<string>('global');
+  // List filter: show doctors who referred to a given branch ('all' = everyone).
+  const [refListBranch, setRefListBranch] = useState<string>('all');
+  const branches = useBranchStore((s) => s.branches);
+  const branchName = (id: string) => branches.find((b) => b.id === id)?.name ?? 'Branch';
+  const referralCategories = useReferralCategories();
   const refQuery = refSearch.trim().toLowerCase();
+  const byBranchReferral =
+    refListBranch === 'all'
+      ? referralDoctors
+      : referralDoctors.filter((d) => (d.branchIds || []).includes(refListBranch));
   const filteredReferralDoctors = refQuery
-    ? referralDoctors.filter(
+    ? byBranchReferral.filter(
         (d) =>
           (d.name || '').toLowerCase().includes(refQuery) ||
           (d.phone || '').toLowerCase().includes(refQuery) ||
           ((d as { doctorNumber?: string }).doctorNumber || '').toLowerCase().includes(refQuery),
       )
-    : referralDoctors;
+    : byBranchReferral;
 
   // Edit forms render above their (long) lists, so bring the form into view when
   // it opens instead of leaving the user scrolled at the row they clicked.
@@ -331,6 +348,7 @@ export default function ManageDoctorsAndReferrals() {
 
   const refResetForm = () => {
     setRefForm({ ...EMPTY_REFERRAL_FORM });
+    setRefRulesBranch('global');
     setRefShowForm(false);
     setRefEditingId(null);
     setRefExistingDoctor(null);
@@ -395,6 +413,8 @@ export default function ManageDoctorsAndReferrals() {
         category: rule.category,
         ...toReferralPayoutPayload(rule),
       })),
+      // The rules above replace only THIS scope; other branches are untouched.
+      rulesBranchId: refRulesBranch === 'global' ? null : refRulesBranch,
     };
 
     if (refSubmitting) return;
@@ -424,19 +444,38 @@ export default function ManageDoctorsAndReferrals() {
     finally { setRefSubmitting(false); }
   };
 
+  // Load one scope's rules ('global' or a branchId) into the form. Kept separate
+  // so the branch switcher can re-populate without leaving the edit form.
+  const loadRulesForScope = (doc: any, scope: string) => {
+    setRefForm((f) => ({
+      ...f,
+      productRules: (doc?.productRules || [])
+        .filter((r: any) => ruleScopeMatch(r, scope))
+        .map((rule: any) => ({ productId: rule.productId, ...toReferralPayoutDraft(rule) })),
+      categoryRules: (doc?.categoryRules || [])
+        .filter((r: any) => ruleScopeMatch(r, scope))
+        .map((rule: any) => ({ category: rule.category, ...toReferralPayoutDraft(rule) })),
+    }));
+  };
+
+  const changeRulesBranch = (scope: string) => {
+    setRefRulesBranch(scope);
+    loadRulesForScope(referralDoctors.find((d) => d.id === refEditingId), scope);
+  };
+
   const handleRefEdit = (doc: any) => {
+    setRefRulesBranch('global');
     setRefForm({
       name: doc.name,
       phone: doc.phone || '',
       ...toReferralPayoutDraft(doc),
-      productRules: (doc.productRules || []).map((rule: any) => ({
-        productId: rule.productId,
-        ...toReferralPayoutDraft(rule),
-      })),
-      categoryRules: (doc.categoryRules || []).map((rule: any) => ({
-        category: rule.category,
-        ...toReferralPayoutDraft(rule),
-      })),
+      // Start on the global scope; the branch switcher re-filters from the doctor.
+      productRules: (doc.productRules || [])
+        .filter((r: any) => ruleScopeMatch(r, 'global'))
+        .map((rule: any) => ({ productId: rule.productId, ...toReferralPayoutDraft(rule) })),
+      categoryRules: (doc.categoryRules || [])
+        .filter((r: any) => ruleScopeMatch(r, 'global'))
+        .map((rule: any) => ({ category: rule.category, ...toReferralPayoutDraft(rule) })),
     });
     setRefEditingId(doc.id);
     setRefShowForm(true);
@@ -848,10 +887,31 @@ export default function ManageDoctorsAndReferrals() {
                 </Alert>
               )}
 
+              {refEditingId && (
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-xl border bg-background p-4">
+                  <div>
+                    <p className="font-medium">Overrides for</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      “All branches” is this doctor's default; pick a branch to override it there. Save each scope separately.
+                    </p>
+                  </div>
+                  <div className="flex gap-1 flex-wrap">
+                    <Button type="button" size="sm" variant={refRulesBranch === 'global' ? 'default' : 'outline'} onClick={() => changeRulesBranch('global')}>
+                      All branches
+                    </Button>
+                    {branches.map((b) => (
+                      <Button key={b.id} type="button" size="sm" variant={refRulesBranch === b.id ? 'default' : 'outline'} onClick={() => changeRulesBranch(b.id)}>
+                        {b.name}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
-                    <p className="font-medium">Category Rates</p>
+                    <p className="font-medium">Category Rates{refEditingId && refRulesBranch !== 'global' ? ` · ${branchName(refRulesBranch)}` : ''}</p>
                     <p className="text-sm text-muted-foreground mt-1">
                       Override the rate card for this doctor, by category. Leave empty to use the
                       centre defaults.
@@ -860,7 +920,7 @@ export default function ManageDoctorsAndReferrals() {
                   <div className="w-full max-w-md">
                     <SearchableSelect
                       onValueChange={addCategoryRule}
-                      options={PAYOUT_CATEGORIES
+                      options={referralCategories
                         .filter((category) => !refForm.categoryRules.some((rule) => rule.category === category))
                         .map((category) => ({ value: category, label: category, keywords: category }))}
                       placeholder="Add category override"
@@ -1033,14 +1093,25 @@ export default function ManageDoctorsAndReferrals() {
         )}
 
         {!refLoading && referralDoctors.length > 0 && (
-          <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search doctors by name, phone, or ID"
-              value={refSearch}
-              onChange={(e) => setRefSearch(e.target.value)}
-              className="pl-9"
-            />
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative max-w-sm flex-1 min-w-[220px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search doctors by name, phone, or ID"
+                value={refSearch}
+                onChange={(e) => setRefSearch(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            {branches.length > 1 && (
+              <Select value={refListBranch} onValueChange={setRefListBranch}>
+                <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All branches</SelectItem>
+                  {branches.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         )}
 
@@ -1069,6 +1140,11 @@ export default function ManageDoctorsAndReferrals() {
                   <TableCell className="font-medium">
                     <div>{doc.name}</div>
                     <div className="text-xs text-muted-foreground">{doc.doctorNumber}</div>
+                    {(doc.branchIds?.length ?? 0) > 0 && (
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {doc.branchIds!.map(branchName).join(' · ')}
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>{doc.phone || '—'}</TableCell>
                   <TableCell>

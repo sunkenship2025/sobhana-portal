@@ -83,21 +83,26 @@ function snapshotsForRule(
   }));
 }
 
-/** The centre-wide default referral rate card, as a category → rule map. */
-async function loadCenterCategoryRates(): Promise<Map<string, CommissionRule>> {
+// Sort branch-scoped rows global-first so a later branch row overrides the
+// global one for the same key when fed into a Map in order.
+function branchFirst<T extends { branchId: string | null }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => (a.branchId === null ? 0 : 1) - (b.branchId === null ? 0 : 1));
+}
+
+/** The rate card for a branch (its overrides on top of the global rows). */
+async function loadCenterCategoryRates(branchId: string): Promise<Map<string, CommissionRule>> {
   const rates = await prisma.referralCategoryRate.findMany({
-    where: { isActive: true },
+    where: { isActive: true, OR: [{ branchId }, { branchId: null }] },
   });
-  return new Map(
-    rates.map((rate) => [
-      rate.category,
-      {
-        commissionType: rate.commissionType,
-        commissionPercent: rate.commissionPercent,
-        commissionAmountInPaise: rate.commissionAmountInPaise,
-      },
-    ]),
-  );
+  const map = new Map<string, CommissionRule>();
+  for (const rate of branchFirst(rates)) {
+    map.set(rate.category, {
+      commissionType: rate.commissionType,
+      commissionPercent: rate.commissionPercent,
+      commissionAmountInPaise: rate.commissionAmountInPaise,
+    });
+  }
+  return map;
 }
 
 /**
@@ -248,12 +253,14 @@ export async function changeVisitReferral(params: {
     commissionAmountInPaise: number | null;
     productRules: {
       productId: string;
+      branchId: string | null;
       commissionType: "PERCENTAGE" | "FIXED_AMOUNT";
       commissionPercent: number | null;
       commissionAmountInPaise: number | null;
     }[];
     categoryRules: {
       category: string;
+      branchId: string | null;
       commissionType: "PERCENTAGE" | "FIXED_AMOUNT";
       commissionPercent: number | null;
       commissionAmountInPaise: number | null;
@@ -264,8 +271,8 @@ export async function changeVisitReferral(params: {
     newDoctor = (await prisma.referralDoctor.findUnique({
       where: { id: referralDoctorId },
       include: {
-        productRules: { where: { isActive: true } },
-        categoryRules: { where: { isActive: true } },
+        productRules: { where: { isActive: true, OR: [{ branchId }, { branchId: null }] } },
+        categoryRules: { where: { isActive: true, OR: [{ branchId }, { branchId: null }] } },
       },
     })) as any;
     if (!newDoctor) {
@@ -279,7 +286,7 @@ export async function changeVisitReferral(params: {
   // Outsourced orders still get the lab's reduced referral rate when configured.
   const activeOrders = visit.testOrders.filter((order) => !order.cancelledAt);
   const ruleByProductId = new Map<string, CommissionRule>(
-    (newDoctor?.productRules ?? []).map((rule) => [
+    branchFirst(newDoctor?.productRules ?? []).map((rule) => [
       rule.productId,
       {
         commissionType: rule.commissionType,
@@ -289,7 +296,7 @@ export async function changeVisitReferral(params: {
     ]),
   );
   const doctorCategoryRuleByCategory = new Map<string, CommissionRule>(
-    (newDoctor?.categoryRules ?? []).map((rule) => [
+    branchFirst(newDoctor?.categoryRules ?? []).map((rule) => [
       rule.category,
       {
         commissionType: rule.commissionType,
@@ -299,7 +306,7 @@ export async function changeVisitReferral(params: {
     ]),
   );
   const centerCategoryRateByCategory = newDoctor
-    ? await loadCenterCategoryRates()
+    ? await loadCenterCategoryRates(branchId)
     : new Map<string, CommissionRule>();
 
   // Reduced-referral rules for outsourced orders (lab+product specific).
@@ -548,11 +555,14 @@ export async function swapVisitProduct(params: {
     const doctor = await prisma.referralDoctor.findUnique({
       where: { id: currentReferral.referralDoctorId },
       include: {
-        productRules: { where: { isActive: true, productId: newProductId } },
-        categoryRules: { where: { isActive: true } },
+        productRules: { where: { isActive: true, productId: newProductId, OR: [{ branchId }, { branchId: null }] } },
+        categoryRules: { where: { isActive: true, OR: [{ branchId }, { branchId: null }] } },
       },
     });
-    const productRule = doctor?.productRules[0];
+    // Branch override wins over the doctor's global product rule.
+    const productRule =
+      doctor?.productRules.find((r) => r.branchId === branchId) ??
+      doctor?.productRules.find((r) => r.branchId === null);
     if (productRule) {
       snapshots = snapshotsForRule(
         resolved.testOrders.map((order) => order.priceInPaise),
@@ -564,7 +574,7 @@ export async function swapVisitProduct(params: {
       );
     } else if (doctor) {
       const doctorCategoryRules = new Map<string, CommissionRule>(
-        doctor.categoryRules.map((r) => [
+        branchFirst(doctor.categoryRules).map((r) => [
           r.category,
           {
             commissionType: r.commissionType,
@@ -573,7 +583,7 @@ export async function swapVisitProduct(params: {
           },
         ]),
       );
-      const centerCategoryRates = await loadCenterCategoryRates();
+      const centerCategoryRates = await loadCenterCategoryRates(branchId);
       snapshots = resolved.testOrders.map((order) =>
         categoryCommissionSnapshot(
           order.payoutCategory,
@@ -799,26 +809,27 @@ export async function addProductsToVisit(params: {
     const doctor = await prisma.referralDoctor.findUnique({
       where: { id: currentReferral.referralDoctorId },
       include: {
-        productRules: { where: { isActive: true } },
-        categoryRules: { where: { isActive: true } },
+        productRules: { where: { isActive: true, OR: [{ branchId }, { branchId: null }] } },
+        categoryRules: { where: { isActive: true, OR: [{ branchId }, { branchId: null }] } },
       },
     });
     if (doctor) {
-      for (const r of doctor.productRules) {
+      // Global-first so the branch override wins for the same key.
+      for (const r of branchFirst(doctor.productRules)) {
         doctorProductRules.set(r.productId, {
           commissionType: r.commissionType,
           commissionPercent: r.commissionPercent,
           commissionAmountInPaise: r.commissionAmountInPaise,
         });
       }
-      for (const r of doctor.categoryRules) {
+      for (const r of branchFirst(doctor.categoryRules)) {
         doctorCategoryRules.set(r.category, {
           commissionType: r.commissionType,
           commissionPercent: r.commissionPercent,
           commissionAmountInPaise: r.commissionAmountInPaise,
         });
       }
-      centerCategoryRates = await loadCenterCategoryRates();
+      centerCategoryRates = await loadCenterCategoryRates(branchId);
     }
   }
 

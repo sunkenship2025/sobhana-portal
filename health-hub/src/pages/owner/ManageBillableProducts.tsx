@@ -25,7 +25,7 @@ import { Separator } from '@/components/ui/separator';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { PAYOUT_CATEGORIES } from '@/lib/payoutCategories';
+import { useReferralCategories } from '@/lib/payoutCategories';
 import {
   Tabs, TabsContent, TabsList, TabsTrigger,
 } from '@/components/ui/tabs';
@@ -205,6 +205,7 @@ export default function ManageBillableProducts() {
   const [formActive, setFormActive] = useState(true);
   const [formDescription, setFormDescription] = useState('');
   const [formPayoutCategory, setFormPayoutCategory] = useState('');
+  const referralCategories = useReferralCategories();
   const [formPanels, setFormPanels] = useState<ProductPanel[]>([]);
 
   // Code validation
@@ -907,7 +908,7 @@ export default function ManageBillableProducts() {
                 <SelectTrigger><SelectValue placeholder="Auto-detect from name" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">Auto-detect from name</SelectItem>
-                  {PAYOUT_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  {referralCategories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
