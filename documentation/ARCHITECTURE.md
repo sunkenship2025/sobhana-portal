@@ -266,6 +266,9 @@ Repeated ~150 times across pages. Centralizing it in a `lib/apiClient.ts` + reac
 
 ### Core entities
 
+- **ExternalLab** — Defines third-party labs to which test orders can be outsourced. Integrated into the billing workflow to specify a destination lab for specific test orders. Includes its own configuration parameters such as override prices, product codes, and payout processing paths.
+
+
 | Model | Purpose |
 |---|---|
 | `Branch` | Physical location; scopes all data |
@@ -438,7 +441,10 @@ authStore.checkTokenExpiration() → auto-logout on expired exp claim
 - `requireRole(...)` middleware factory.
 - Branch isolation is **application-enforced** — every Prisma query filters by `branchId`. Not enforced at DB level (no Row Level Security). Consistency depends on developer discipline; one missed filter is a data leak.
 
-### Public report & bill tokens
+### Public report, bill, & statement tokens
+
+To support WhatsApp delivery of payout statements in addition to diagnostic reports and bills, the system issues short-lived, unguessable UUID tokens (e.g., `PayoutStatementAccessToken`). A tokenized public link routes to an unauthenticated Express endpoint that verifies the token, records access, and serves the corresponding document while intentionally suppressing PII from the generic WhatsApp message template.
+
 - 12-char base64url bearer (~72 bits entropy → infeasible to brute-force).
 - Only the SHA-256 hash is stored (`ReportAccessToken.token`). Bearer is not recoverable.
 - Tokens currently do not expire (`expiresAt: null`). Setting `expiresAt` is supported by the schema with no code change.
