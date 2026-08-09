@@ -359,8 +359,13 @@ export default function WaitingRoomDisplay() {
   // the server re-sends full state on each connect). The 30s backstop poll covers
   // the case where SSE can't connect at all (a proxy strips it) or a missed event.
   useEffect(() => {
-    poll(); // initial paint, and a floor if SSE is slow/blocked
+    poll(); // initial paint, and the floor until SSE opens (or if SSE is blocked)
     const es = new EventSource(`${API_BASE}/display/${branch}/${screenSlug}/stream`);
+    // Poll only while SSE isn't delivering: the stream is the source of truth, so
+    // a healthy connection means zero polling; a drop resumes the 30s backstop.
+    let backstop: number | undefined = window.setInterval(poll, BACKSTOP_MS);
+    const stopPoll = () => { if (backstop != null) { window.clearInterval(backstop); backstop = undefined; } };
+    es.onopen = stopPoll;
     es.onmessage = (e) => {
       try {
         applyState(JSON.parse(e.data) as DisplayState);
@@ -368,14 +373,42 @@ export default function WaitingRoomDisplay() {
         /* ignore malformed frame */
       }
     };
-    es.onerror = () => setStatus((s) => (s === 'loading' ? 'loading' : 'offline'));
-    const backstop = window.setInterval(poll, BACKSTOP_MS);
+    es.onerror = () => {
+      setStatus((s) => (s === 'loading' ? 'loading' : 'offline'));
+      if (backstop == null) backstop = window.setInterval(poll, BACKSTOP_MS);
+    };
     return () => {
       es.close();
-      window.clearInterval(backstop);
+      stopPoll();
       window.clearTimeout(holdTimer.current);
     };
   }, [branch, screenSlug, poll, applyState]);
+
+  // Self-heal stale bundles: a kiosk WebView holds one build for days and would
+  // otherwise miss deploys (that's how the old 2s-poll build lingered on the TV).
+  // Poll our own index.html; when the hashed asset URLs change, a new build shipped
+  // — reload to pick it up, but only while idle (ads) so a live call is never cut off.
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  useEffect(() => {
+    const assetsOf = (html: string) =>
+      (html.match(/\/assets\/[A-Za-z0-9_.-]+/g) || []).sort().join('|');
+    let baseline: string | null = null;
+    let stale = false;
+    const check = async () => {
+      try {
+        const html = await fetch('/index.html', { cache: 'no-store' }).then((r) => r.text());
+        const cur = assetsOf(html);
+        if (baseline === null) baseline = cur;
+        else if (cur && cur !== baseline) stale = true;
+      } catch {
+        /* offline — retry next tick */
+      }
+      if (stale && modeRef.current === 'resting') window.location.reload();
+    };
+    const id = window.setInterval(check, 15 * 60 * 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
   // Rotate the ticker in pages of 6 when there are more doctors than fit cleanly.
   const [tickPage, setTickPage] = useState(0);

@@ -3,6 +3,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import * as externalLabService from '../services/externalLabService';
 import { normalizeReferralPayoutInput } from '../services/referralPayoutService';
+import { emitCatalogChange } from '../lib/displayEvents';
 
 const router = Router();
 
@@ -119,6 +120,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       userId: req.user?.id,
     });
 
+    if (req.branchId) emitCatalogChange(req.branchId, 'external-labs');
     return res.status(201).json(lab);
   } catch (error) {
     if ((error as any).statusCode) {
@@ -168,6 +170,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       req.user?.id
     );
 
+    if (req.branchId) emitCatalogChange(req.branchId, 'external-labs');
     return res.json(updated);
   } catch (error) {
     if ((error as any).statusCode) {
@@ -189,6 +192,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       req.branchId!,
       req.user?.id
     );
+    if (req.branchId) emitCatalogChange(req.branchId, 'external-labs');
     return res.json(result);
   } catch (error) {
     if ((error as any).statusCode) {

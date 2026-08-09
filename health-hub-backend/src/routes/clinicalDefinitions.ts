@@ -28,6 +28,7 @@ import {
   sandboxPreview,
 } from '../services/clinicalDefinitionService';
 import { checkConcurrency } from '../utils/clinicalValidation';
+import { emitCatalogChange } from '../lib/displayEvents';
 import { logAction } from '../services/auditService';
 import { AuditActionType } from '@prisma/client';
 
@@ -183,6 +184,7 @@ router.post('/', async (req: AuthRequest, res) => {
   try {
     const definition = await createTestDefinition(req.body);
     if (definition) await auditDef(req, 'CREATE', definition.id, null, { name: definition.name, code: definition.code });
+    if (req.branchId) emitCatalogChange(req.branchId, 'clinical-definitions');
     return res.status(201).json(definition);
   } catch (error: any) {
     console.error('Error creating clinical definition:', error);
@@ -199,6 +201,7 @@ router.post('/:rootId/new-version', async (req: AuthRequest, res) => {
     const ifMatch = req.headers['if-match'] as string | undefined;
     const definition = await createNewVersion(req.params.rootId, req.body, ifMatch);
     if (definition) await auditDef(req, 'UPDATE', definition.id, null, { name: definition.name, code: definition.code, version: definition.version, change: 'new version (edit)' });
+    if (req.branchId) emitCatalogChange(req.branchId, 'clinical-definitions');
     return res.status(201).json(definition);
   } catch (error: any) {
     console.error('Error creating new version:', error);
@@ -223,6 +226,7 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
     const ifMatch = req.headers['if-match'] as string | undefined;
     const definition = await transitionStatus(req.params.id, status, ifMatch);
     if (definition) await auditDef(req, 'UPDATE', definition.id, null, { name: definition.name, code: definition.code, status });
+    if (req.branchId) emitCatalogChange(req.branchId, 'clinical-definitions');
     return res.json(definition);
   } catch (error: any) {
     console.error('Error transitioning status:', error);
@@ -294,6 +298,7 @@ router.patch('/:id/toggle-visibility', async (req: AuthRequest, res) => {
       },
     });
     await auditDef(req, 'UPDATE', updated.id, { isActive: def.isActive }, { name: updated.name, code: updated.code, isActive: updated.isActive });
+    if (req.branchId) emitCatalogChange(req.branchId, 'clinical-definitions');
     return res.json(transformDefinition(updated));
   } catch (error: any) {
     console.error('Error toggling visibility:', error);
@@ -356,6 +361,7 @@ router.delete('/:rootId', async (req: AuthRequest, res) => {
         data: { isLatest: false, status: 'ARCHIVED' },
       });
       await auditDef(req, 'DELETE', latest.id, null, { name: latest.name, code: latest.code, change: 'archived' });
+      if (req.branchId) emitCatalogChange(req.branchId, 'clinical-definitions');
       return res.json({
         success: true,
         archived: true,
@@ -370,6 +376,7 @@ router.delete('/:rootId', async (req: AuthRequest, res) => {
     });
 
     await auditDef(req, 'DELETE', latest.id, null, { name: latest.name, code: latest.code, change: 'deleted' });
+    if (req.branchId) emitCatalogChange(req.branchId, 'clinical-definitions');
     return res.json({ success: true });
   } catch (error: any) {
     console.error('Error deleting definition:', error);

@@ -113,6 +113,10 @@ export function apiFetchQuery<T>(
 export const qk = {
   // --- global (no branchId in key) ---
   referralDoctors: () => ["referral-doctors"] as const,
+  // Clinical definitions are global (not branch-scoped); key varies only by the
+  // status filter. First element matches the /api/events catalog name.
+  clinicalDefinitions: (status: string) =>
+    ["clinical-definitions", status] as const,
   clinicDoctors: () => ["clinic-doctors"] as const,
   // --- patient360 (global endpoints — NO branchId in key; resolution 1/§11) ---
   // Cross-branch stale-leak is prevented by queryClient.clear() on branch switch.
@@ -124,6 +128,10 @@ export const qk = {
     ["patientSearch", "smart", type, q, page, branchId] as const,
   billLookup: (billNumber: string) => ["billLookup", billNumber] as const,
   // --- branch-scoped (branchId in key; flushed wholesale on branch switch) ---
+  // Key's first element matches the catalog name pushed by /api/events so the
+  // SSE invalidation can map a "billable-products changed" nudge → this key.
+  billableProducts: (branchId: string | null) =>
+    ["billable-products", branchId] as const,
   diagnosticCenters: (branchId: string | null) =>
     ["diagnostic-centers", branchId] as const,
   externalLabs: (branchId: string | null) => ["external-labs", branchId] as const,

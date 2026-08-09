@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, Fragment, useRef } from 'react';
 import { API_BASE } from '@/lib/api';
+import { apiFetchQuery, qk } from '@/lib/query';
+import { queryClient } from '@/lib/queryClient';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
 import {
@@ -444,17 +446,31 @@ export default function ManagePanelDefinitions() {
 
   const fetchDepartments = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/departments`, { headers });
-      if (!res.ok) return;
-      setDepartments(await res.json());
+      // Cached (react-query): departments list is global and rarely changes;
+      // a department edit invalidates it via the /api/events SSE.
+      const deps = await apiFetchQuery<Department[]>(
+        queryClient,
+        qk.departments(null),
+        '/departments',
+        null,
+        { staleTime: 10 * 60 * 1000 },
+      );
+      setDepartments(deps);
     } catch { /* ignore */ }
   }, []);
 
   const fetchAvailableDefs = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/clinical-definitions?status=ACTIVE`, { headers });
-      if (!res.ok) return;
-      setAvailableDefs(await res.json());
+      // Cached (react-query): the active-definitions list is global and rarely
+      // changes; a definition edit invalidates it via the /api/events SSE.
+      const defs = await apiFetchQuery<TestDefinitionSummary[]>(
+        queryClient,
+        qk.clinicalDefinitions('ACTIVE'),
+        '/clinical-definitions?status=ACTIVE',
+        null,
+        { staleTime: 5 * 60 * 1000 },
+      );
+      setAvailableDefs(defs);
     } catch { /* ignore */ }
   }, []);
 

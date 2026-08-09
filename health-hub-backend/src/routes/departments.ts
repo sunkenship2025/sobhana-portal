@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import prisma from '../lib/prisma';
+import { emitCatalogChange } from '../lib/displayEvents';
 
 const router = Router();
 
@@ -120,6 +121,7 @@ router.post('/', async (req: AuthRequest, res) => {
       }
     });
 
+    if (req.branchId) emitCatalogChange(req.branchId, 'departments');
     return res.status(201).json(department);
   } catch (err: any) {
     console.error('Create department error:', err);
@@ -179,6 +181,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       data: updateData,
     });
 
+    if (req.branchId) emitCatalogChange(req.branchId, 'departments');
     return res.json(updated);
   } catch (err: any) {
     console.error('Update department error:', err);
@@ -216,6 +219,7 @@ router.delete('/:id', async (req: AuthRequest, res) => {
       data: { isActive: false }
     });
 
+    if (req.branchId) emitCatalogChange(req.branchId, 'departments');
     return res.json({
       id: deactivated.id,
       message: 'Department deactivated',
