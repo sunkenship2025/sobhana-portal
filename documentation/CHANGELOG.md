@@ -9,6 +9,10 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 ## [Unreleased]
 
 ### Added
+- **Payouts Redesign & External Labs:** Comprehensive redesign of the payouts system. Added `ExternalLab` management for outsourcing tests and configured the system to generate and send token-gated payout statements to vendors and doctors via WhatsApp.
+- **Token Gateway Security Hardening:** Hardened security on public token-gated links (reports, bills, and statements) by adding `StatementAccessToken` and `revokedAt` tracking to prevent access once underlying documents are voided.
+- **Roles and Access Control:** Introduced new `Lab Incharge` and `Sales` system roles with specific per-role access controls.
+- **HealthFlow Module:** Added the initial taxonomy and module structure for a new `HealthFlow` feature set.
 - **New Visit Flow UI/UX Improvements:** Redesigned the diagnostics and clinic new visit pages with a cleaner single-column layout, improved "sticky" bottom bar, focused keyboard navigation, and portalled `Radix Popover` drop-downs to prevent collision and cut-offs.
 - **Shared UI Components:** Extracted repeated structural and state-representing elements into new shared components: `PageHeader`, `LoadingState`, and `EmptyState`.
 - **Visit Defaults Persistence:** Added `visitDefaultsStore` Zustand store to automatically persist the front-desk operator's last choices (e.g., payment mode, consulting doctor) for seamless repetitive data entry.
@@ -22,6 +26,9 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 - **Bill Payment Status:** The generated bill PDFs now display the payment status (e.g. PAID, PENDING) matching the actual bill transaction state.
 
 ### Changed
+- **Money Dashboard & Patient 360:** Surfaced cancellations and refunds accurately in the money dashboard (including cash/online splits) and enhanced the Patient 360 inspector to handle cancel/refund flows properly.
+- **React Query Migration Progress:** Migrated `ManageClinicDoctors` and `ManageDoctors` pages to use `@tanstack/react-query`, along with establishing a shared migration layer.
+- **Diagnostics Pending Workflow:** Added support for a "no report needed" (films only) state specifically for X-ray/EXTERNAL_UPLOAD items to streamline pending queues.
 - **Owner Dashboard / Payouts Money Formatting:** Consolidated rupee formatting logic across owner dashboard and payout sections into a single `formatRupees` helper inside `src/lib/payoutFormatters.ts`.
 - **Theme Color Tokenization:** Tokenized hard-coded background, text, and border colors (destructive red, gray/slate) in owner interfaces into a single source-of-truth `TOKENS` object.
 - **Diagnostics New Visit Navigation:** Improved keyboard navigation flow and UI stability (fixed crash/event stealing bugs on Patient selection) in the Diagnostics New Visit form.

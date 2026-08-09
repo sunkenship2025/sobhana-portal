@@ -39,6 +39,7 @@ A **multi-branch, role-based** healthcare portal for diagnostics and clinic visi
 - **Clinic** — outpatient/inpatient consultations, doctor dashboards, prescription printing
 - **Owner** — catalog, payouts, audit, signing-doctor configuration
 - **Public** — token-protected report download (no login)
+- **HealthFlow** — distinct feature set decoupled and maintained in a separate repository (per July 2026 roadmap decision).
 
 ---
 
@@ -438,11 +439,12 @@ authStore.checkTokenExpiration() → auto-logout on expired exp claim
 - `requireRole(...)` middleware factory.
 - Branch isolation is **application-enforced** — every Prisma query filters by `branchId`. Not enforced at DB level (no Row Level Security). Consistency depends on developer discipline; one missed filter is a data leak.
 
-### Public report & bill tokens
+### Public token-gated links (Reports, Bills, Statements)
 - 12-char base64url bearer (~72 bits entropy → infeasible to brute-force).
-- Only the SHA-256 hash is stored (`ReportAccessToken.token`). Bearer is not recoverable.
-- Tokens currently do not expire (`expiresAt: null`). Setting `expiresAt` is supported by the schema with no code change.
-- Every access logged to `ReportAccessLog` (IP, user-agent, accessType: VIEW/DOWNLOAD/PRINT).
+- Only the SHA-256 hash is stored (`ReportAccessToken.token`, `BillAccessToken.token`, `StatementAccessToken.token`). Bearer is not recoverable.
+- Gateways employ revocation via `revokedAt`. For example, voided bills or voided payouts instantly lock the token link.
+- Tokens currently do not automatically expire (`expiresAt: null`). Setting `expiresAt` is supported by the schema with no code change.
+- Every access logged (e.g., `ReportAccessLog` captures IP, user-agent, accessType: VIEW/DOWNLOAD/PRINT).
 
 ### Transport
 - HTTPS in production (Render terminates TLS).
@@ -505,7 +507,7 @@ These exist; they're tracked here so newcomers don't think they're invisible.
 
 1. **`diagnosticVisits.ts` is ~3,800 LOC** — needs to be split per endpoint into a feature folder. Most "fix the bill" commits in git history land here.
 2. **Dual FK migration in flight** — `TestOrder.testId` (legacy `LabTest`) and `TestOrder.testDefinitionId` (new) both populated. Code branches on which is present. Finishing the migration is a tracked refactor.
-3. **`@tanstack/react-query` partial adoption** — while newer flows (patient search, doctor lookups) use React Query, many older pages still reconstruct `fetch()` calls inline (~150 sites). Migrating one page at a time is incremental.
+3. **`@tanstack/react-query` partial adoption** — while newer flows (patient search, doctor lookups, and now `ManageClinicDoctors`/`ManageDoctors` via the migration playbook) use React Query, many older pages still reconstruct `fetch()` calls inline (~150 sites). Migrating one page at a time is incremental.
 4. **`react-hook-form` + `zod` installed, unused** — forms hand-rolled with `useState`. Same incremental migration plan.
 5. **No automated test suite** — see [`TESTING.md`](TESTING.md) for the strategy.
 6. **CSP disabled** in Helmet config — `contentSecurityPolicy: false`. Should be re-enabled with a tested policy.
