@@ -359,8 +359,13 @@ export default function WaitingRoomDisplay() {
   // the server re-sends full state on each connect). The 30s backstop poll covers
   // the case where SSE can't connect at all (a proxy strips it) or a missed event.
   useEffect(() => {
-    poll(); // initial paint, and a floor if SSE is slow/blocked
+    poll(); // initial paint, and the floor until SSE opens (or if SSE is blocked)
     const es = new EventSource(`${API_BASE}/display/${branch}/${screenSlug}/stream`);
+    // Poll only while SSE isn't delivering: the stream is the source of truth, so
+    // a healthy connection means zero polling; a drop resumes the 30s backstop.
+    let backstop: number | undefined = window.setInterval(poll, BACKSTOP_MS);
+    const stopPoll = () => { if (backstop != null) { window.clearInterval(backstop); backstop = undefined; } };
+    es.onopen = stopPoll;
     es.onmessage = (e) => {
       try {
         applyState(JSON.parse(e.data) as DisplayState);
@@ -368,11 +373,13 @@ export default function WaitingRoomDisplay() {
         /* ignore malformed frame */
       }
     };
-    es.onerror = () => setStatus((s) => (s === 'loading' ? 'loading' : 'offline'));
-    const backstop = window.setInterval(poll, BACKSTOP_MS);
+    es.onerror = () => {
+      setStatus((s) => (s === 'loading' ? 'loading' : 'offline'));
+      if (backstop == null) backstop = window.setInterval(poll, BACKSTOP_MS);
+    };
     return () => {
       es.close();
-      window.clearInterval(backstop);
+      stopPoll();
       window.clearTimeout(holdTimer.current);
     };
   }, [branch, screenSlug, poll, applyState]);
