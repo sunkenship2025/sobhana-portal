@@ -229,8 +229,11 @@ export default function PayoutStatement() {
 
   // Pass the selected visitIds to scope the export to those patients; omit for
   // the whole statement (top-of-page Excel button).
+  // The export re-derives the whole statement, so it can be slow — show a
+  // loading toast and surface any failure so the button is never a silent no-op.
+  const [exporting, setExporting] = useState(false);
   const exportExcel = async (visitIds?: string[]) => {
-    if (!id || !token || !activeBranchId) return;
+    if (!id || !token || !activeBranchId || exporting) return;
     const visitQs = visitIds && visitIds.length ? `visitIds=${visitIds.join(",")}` : "";
     const labelQs = `periodLabel=${encodeURIComponent(periodLabel)}`;
     const exportUrl = rangeMode
@@ -238,22 +241,29 @@ export default function PayoutStatement() {
           rangePayeeId!
         )}&startDate=${rangeFrom}&endDate=${rangeTo}T23:59:59.999Z&${labelQs}${visitQs ? `&${visitQs}` : ""}`
       : `${API_BASE}/payouts/${id}/export?${labelQs}${visitQs ? `&${visitQs}` : ""}`;
-    const res = await fetch(exportUrl, {
-      headers: { Authorization: `Bearer ${token}`, "X-Branch-Id": activeBranchId },
-    });
-    if (!res.ok) {
-      toast.error("Failed to export");
-      return;
+    setExporting(true);
+    const toastId = toast.loading("Preparing Excel…");
+    try {
+      const res = await fetch(exportUrl, {
+        headers: { Authorization: `Bearer ${token}`, "X-Branch-Id": activeBranchId },
+      });
+      if (!res.ok) throw new Error(`export failed (${res.status})`);
+      const blob = await res.blob();
+      if (blob.size === 0) throw new Error("empty file");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${stmt?.payeeName.replace(/\s+/g, "_") ?? "payout"}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success("Excel downloaded", { id: toastId });
+    } catch {
+      toast.error("Export failed — try again", { id: toastId });
+    } finally {
+      setExporting(false);
     }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${stmt?.payeeName.replace(/\s+/g, "_") ?? "payout"}.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
   };
 
   // ── Selection ──
@@ -362,8 +372,8 @@ export default function PayoutStatement() {
                 >
                   <Printer className="mr-1.5 h-4 w-4" /> Print
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => exportExcel()}>
-                  <Download className="mr-1.5 h-4 w-4" /> Excel
+                <Button variant="outline" size="sm" onClick={() => exportExcel()} disabled={exporting}>
+                  <Download className="mr-1.5 h-4 w-4" /> {exporting ? "Preparing…" : "Excel"}
                 </Button>
                 {stmt && canSendWhatsApp && (
                   <Button

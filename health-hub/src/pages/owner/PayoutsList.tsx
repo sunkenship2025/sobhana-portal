@@ -346,31 +346,41 @@ export default function PayoutsList() {
 
   // ── Export ──
   // Pass `payeeIds` to scope the export to the selected doctors; omit for the
-  // whole period (top-of-page Excel button).
+  // whole period (top-of-page Excel button). The export re-derives every payee
+  // so it can take a while — show a loading toast and surface any failure, so
+  // the button never just silently does nothing.
+  const [exporting, setExporting] = useState(false);
   const exportExcel = async (payeeIds?: string[]) => {
-    if (!token || !activeBranchId) return;
+    if (!token || !activeBranchId || exporting) return;
     const params = new URLSearchParams();
     params.set("startDate", range.start);
     params.set("endDate", range.end + "T23:59:59.999Z");
     if (typeFilter !== "all") params.set("doctorType", typeFilter);
     if (q) params.set("q", q);
     if (payeeIds && payeeIds.length) params.set("payeeIds", payeeIds.join(","));
-    const res = await fetch(`${API_BASE}/payouts/export?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}`, "X-Branch-Id": activeBranchId },
-    });
-    if (!res.ok) {
-      toast.error("Failed to export");
-      return;
+    setExporting(true);
+    const toastId = toast.loading("Preparing Excel…");
+    try {
+      const res = await fetch(`${API_BASE}/payouts/export?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}`, "X-Branch-Id": activeBranchId },
+      });
+      if (!res.ok) throw new Error(`export failed (${res.status})`);
+      const blob = await res.blob();
+      if (blob.size === 0) throw new Error("empty file");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `payouts-${range.start}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success("Excel downloaded", { id: toastId });
+    } catch {
+      toast.error("Export failed — try again", { id: toastId });
+    } finally {
+      setExporting(false);
     }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `payouts-${range.start}.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
   };
 
   const totals = worklist?.totals;
@@ -421,8 +431,8 @@ export default function PayoutsList() {
                 Custom range ▾
               </button>
               <RefreshButton isFetching={loading} onClick={fetchWorklist} />
-              <Button variant="outline" size="sm" onClick={() => exportExcel()}>
-                <Download className="mr-1.5 h-4 w-4" /> Excel
+              <Button variant="outline" size="sm" onClick={() => exportExcel()} disabled={exporting}>
+                <Download className="mr-1.5 h-4 w-4" /> {exporting ? "Preparing…" : "Excel"}
               </Button>
               <Button variant="outline" size="sm" onClick={() => { setPrintIds(null); window.print(); }}>
                 <Printer className="mr-1.5 h-4 w-4" /> Register
