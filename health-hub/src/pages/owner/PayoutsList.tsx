@@ -373,8 +373,10 @@ export default function PayoutsList() {
       a.download = `payouts-${range.start}.xlsx`;
       document.body.appendChild(a);
       a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      // Clean up on a delay — revoking the blob URL synchronously cancels the
+      // download in Chrome (it "succeeds" with no file), which is exactly the
+      // "said downloaded but nothing came" bug.
+      setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 15000);
       toast.success("Excel downloaded", { id: toastId });
     } catch {
       toast.error("Export failed — try again", { id: toastId });

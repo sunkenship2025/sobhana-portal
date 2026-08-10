@@ -256,8 +256,9 @@ export default function PayoutStatement() {
       a.download = `${stmt?.payeeName.replace(/\s+/g, "_") ?? "payout"}.xlsx`;
       document.body.appendChild(a);
       a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      // Clean up on a delay — revoking the blob URL synchronously cancels the
+      // download in Chrome (it "succeeds" with no file).
+      setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 15000);
       toast.success("Excel downloaded", { id: toastId });
     } catch {
       toast.error("Export failed — try again", { id: toastId });
