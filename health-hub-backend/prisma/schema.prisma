@@ -554,6 +554,7 @@ model DisplayScreen {
   chimeSound  String  @default("dingdong") // call sound played on the TV: dingdong | none
   isActive  Boolean   @default(true)
   revokedAt DateTime?
+  lastSeenAt DateTime? // refreshed while a TV holds the SSE stream open; online = within ~60s
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 

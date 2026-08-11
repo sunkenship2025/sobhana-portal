@@ -342,12 +342,22 @@ router.get('/:branchSlug/:screenSlug/stream', async (req: Request, res: Response
     debounce = setTimeout(() => { debounce = null; sendState(); }, 150);
   };
 
+  // Presence: stamp lastSeenAt while the TV holds this stream open. online =
+  // lastSeenAt within ~60s (two heartbeats). ponytail: one write / 25s / screen;
+  // batch or move to an in-memory registry only if screen count makes it matter.
+  const touch = () =>
+    prisma.displayScreen
+      .update({ where: { id: resolved.screen.id }, data: { lastSeenAt: new Date() } })
+      .catch(() => {});
+
   await sendState(); // initial state on connect (also covers EventSource reconnect)
+  void touch();
   const unsubscribe = onBranchChange(resolved.screen.branchId, scheduleSend);
   const heartbeat = setInterval(() => {
     if (closed) return;
     res.write(': ping\n\n');
     (res as any).flush?.();
+    void touch();
   }, 25000);
 
   req.on('close', () => {
