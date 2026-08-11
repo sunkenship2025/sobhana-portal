@@ -58,7 +58,14 @@ router.get('/', async (req: AuthRequest, res) => {
       orderBy: { createdAt: 'desc' },
     });
     const bSlug = await branchSlugFor(req.branchId!);
-    return res.json(screens.map((s) => ({ ...s, branchSlug: bSlug })));
+    const onlineFloor = Date.now() - 60_000; // seen within 60s = TV currently streaming
+    return res.json(
+      screens.map((s) => ({
+        ...s,
+        branchSlug: bSlug,
+        online: !!s.lastSeenAt && s.lastSeenAt.getTime() >= onlineFloor,
+      })),
+    );
   } catch (err: any) {
     console.error('List display screens error:', err);
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to list screens' });
