@@ -42,6 +42,7 @@ import PrivacyPolicy from "./pages/legal/PrivacyPolicy";
 import TermsOfService from "./pages/legal/TermsOfService";
 import DataDeletion from "./pages/legal/DataDeletion";
 import NotFound from "./pages/NotFound";
+import { WORKLIST_EVENT } from "./hooks/useRevalidateOnFocus";
 
 /**
  * Mounted globally so the post-login branch picker survives the navigation
@@ -275,9 +276,16 @@ function CatalogSync() {
     es.onmessage = (e) => {
       try {
         const { catalog } = JSON.parse(e.data) as { catalog?: string };
-        // Prefix match: invalidates ["billable-products", <branch>] and any
-        // branchless variant of the same catalog.
-        if (catalog) queryClient.invalidateQueries({ queryKey: [catalog] });
+        // `worklist` is the one reserved name that is NOT a cached list: the
+        // Pending / Finalized / clinic-queue pages own their own fetch, so hand
+        // it to useRevalidateOnFocus instead of the query cache.
+        if (catalog === "worklist") {
+          window.dispatchEvent(new Event(WORKLIST_EVENT));
+        } else if (catalog) {
+          // Prefix match: invalidates ["billable-products", <branch>] and any
+          // branchless variant of the same catalog.
+          queryClient.invalidateQueries({ queryKey: [catalog] });
+        }
       } catch {
         /* ignore malformed frame */
       }

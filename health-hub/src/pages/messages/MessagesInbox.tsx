@@ -193,7 +193,11 @@ export default function MessagesInbox() {
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  // ── List query (polled) ──
+  // ── List query ──
+  // Inbound replies arrive by push: the WhatsApp webhook emits an `inbox` catalog
+  // change, which invalidates every ['inbox', ...] key here and the sidebar badge.
+  // The interval is now only the backstop for a blocked/dropped SSE, so it went
+  // 15s → 2min (this page's poll was the heaviest in the app).
   const listQ = useApiQuery<ListResponse>({
     queryKey: ['inbox', 'list', filter, search, branchId],
     queryFn: () =>
@@ -202,18 +206,20 @@ export default function MessagesInbox() {
         branchId ?? '',
       ),
     branchScoped: true,
-    refetchInterval: 15000,
+    refetchInterval: 120000,
+    refetchIntervalInBackground: false,
     placeholderData: (prev) => prev,
   });
 
-  // ── Thread query (polled while open) ──
+  // ── Thread query (open thread) ──
   const threadQ = useApiQuery<ThreadResponse>({
     queryKey: ['inbox', 'thread', selectedId, branchId],
     queryFn: () =>
       branchRequest<ThreadResponse>(`/inbox/conversations/${selectedId}`, branchId ?? ''),
     branchScoped: true,
     enabled: !!selectedId,
-    refetchInterval: selectedId ? 10000 : false,
+    refetchInterval: selectedId ? 120000 : false,
+    refetchIntervalInBackground: false,
   });
 
   // ── Mutations ──

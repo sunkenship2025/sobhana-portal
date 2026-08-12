@@ -4,7 +4,7 @@ import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { branchContextMiddleware } from "../middleware/branch";
 import prisma from "../lib/prisma";
 import { searchWorklist } from "../lib/worklistSearch";
-import { emitBranchChange } from "../lib/displayEvents";
+import { emitBranchChange, emitWorklistOnMutation } from "../lib/displayEvents";
 import {
   getWorklistIndex,
   setWorklistIndex,
@@ -86,6 +86,10 @@ type OriginalVisitSummary = {
 // All routes require auth + branch context
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
+// ...and every successful write wakes the other tabs' queue (see displayEvents).
+// The waiting-room TV already gets its own push via emitBranchChange below; this
+// is the same signal for the STAFF screens, which until now never auto-refreshed.
+router.use(emitWorklistOnMutation);
 
 function createHttpError(statusCode: number, error: string, message: string) {
   const err = new Error(message) as Error & {

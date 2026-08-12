@@ -269,9 +269,12 @@ export function Sidebar() {
     queryFn: () => branchRequest<{ count: number }>('/inbox/unread-count', activeBranchId ?? ''),
     branchScoped: true,
     enabled: canSeeMessages,
-    // Sidebar is mounted on every page, so keep this light: 60s, and react-query
-    // pauses interval polling on backgrounded tabs. A cheap COUNT on a small table.
-    refetchInterval: 60000,
+    // Sidebar is mounted on every page, so this poll ran once a minute per user
+    // all day. The badge now moves on push (the WhatsApp webhook emits an `inbox`
+    // catalog change → invalidates this key), leaving the interval as a backstop
+    // for a blocked/dropped stream: 60s → 5min. react-query pauses it on
+    // backgrounded tabs. A cheap COUNT on a small table.
+    refetchInterval: 300000,
     refetchIntervalInBackground: false,
   });
   const messagesUnread = unreadData?.count ?? 0;

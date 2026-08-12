@@ -48,3 +48,34 @@ export function onCatalogChange(
   emitter.on(key, fn);
   return () => emitter.off(key, fn);
 }
+
+/**
+ * Worklist freshness, as one router-level hook instead of ~15 hand-placed emits.
+ *
+ * Any successful mutation on a visit can change what the Pending Results /
+ * Finalized / clinic-queue lists show on somebody ELSE's screen. Signalling once
+ * on the way out covers every current handler and every one added later — the
+ * failure mode of per-route emits is that the next route silently forgets.
+ *
+ * Rides the existing catalog channel under the reserved name `worklist`; the
+ * client maps that name to "refetch the open list" rather than to a cached
+ * dropdown, so no new stream, frame format, or emitter is needed.
+ *
+ * `/results` is excluded: report autosave fires every few seconds while a tech
+ * types, and no worklist shows result-entry progress — pushing there would turn
+ * one tech's keystrokes into a refetch storm on every other open tab.
+ */
+export function emitWorklistOnMutation(
+  req: { method: string; path: string; branchId?: string },
+  res: { statusCode: number; on(ev: 'finish', fn: () => void): unknown },
+  next: () => void,
+): void {
+  if (req.method !== 'GET' && !req.path.endsWith('/results')) {
+    res.on('finish', () => {
+      if (res.statusCode < 400 && req.branchId) {
+        emitCatalogChange(req.branchId, 'worklist');
+      }
+    });
+  }
+  next();
+}

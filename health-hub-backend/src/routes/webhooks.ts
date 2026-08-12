@@ -21,6 +21,7 @@ import express, { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { whatsappWebhookRateLimit } from '../middleware/rateLimit';
 import { cleanWaReason } from '../services/whatsappErrors';
+import { emitCatalogChange } from '../lib/displayEvents';
 
 const router = Router();
 
@@ -382,6 +383,12 @@ router.post(
                   waMessageId: waId ?? null,
                 },
               });
+
+              // Wake the inbox + sidebar unread badge on every open tab in this
+              // branch, so a patient reply lands in ~1s instead of on the next
+              // poll. Null branchId = a number we've never messaged; nothing to
+              // target, so those ride the client's backstop refetch.
+              if (convo.branchId) emitCatalogChange(convo.branchId, 'inbox');
 
               // ── Auto-reply routing ──
               // "BOOK" → auto-send the 50% retest coupon (any hour). Otherwise the

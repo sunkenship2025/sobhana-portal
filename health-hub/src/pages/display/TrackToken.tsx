@@ -3,13 +3,18 @@
  *
  * Reached by scanning the QR on the waiting-room TV (/track/:code). Shows the
  * same live queue on the patient's phone so they can step away and still watch
- * their number. Polls the public display state endpoint.
+ * their number.
+ *
+ * Rides the SAME public SSE the TV uses, rather than its own poll: a waiting room
+ * full of phones hitting /state every 4s was the app's noisiest endpoint, and the
+ * stream already sends full state on connect and on every token change.
+ * `?track=1` tells the server this is a phone, not the TV, so it does NOT count
+ * toward screen presence (see display.ts) — otherwise the phones would report the
+ * screen online long after the TV died.
  */
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { API_BASE } from '@/lib/api';
-
-const POLL_MS = 4000;
 
 type Doc = {
   id: string;
@@ -77,28 +82,44 @@ export default function TrackToken() {
 
   useEffect(() => {
     let alive = true;
-    const poll = async () => {
+    let es: EventSource | null = null;
+
+    // One upfront /state call, then the stream. The probe stays because
+    // EventSource exposes no status code on error — it is the only way to tell a
+    // bad link (404, show "not found" and stop) from a network blip (reconnect).
+    // It also paints the queue immediately instead of waiting on the handshake.
+    (async () => {
       try {
         const r = await fetch(`${API_BASE}/display/${branch}/${screenSlug}/state`, { headers: { Accept: 'application/json' } });
+        if (!alive) return;
         if (r.status === 404) {
-          if (alive) setStatus('notfound');
+          setStatus('notfound');
           return;
         }
         if (!r.ok) throw new Error('bad');
-        const d: State = await r.json();
-        if (alive) {
-          setState(d);
-          setStatus('ok');
-        }
+        setState(await r.json());
+        setStatus('ok');
       } catch {
         if (alive) setStatus((s) => (s === 'loading' ? 'loading' : 'offline'));
       }
-    };
-    poll();
-    const id = window.setInterval(poll, POLL_MS);
+
+      if (!alive) return;
+      es = new EventSource(`${API_BASE}/display/${branch}/${screenSlug}/stream?track=1`);
+      es.onmessage = (e) => {
+        try {
+          setState(JSON.parse(e.data) as State);
+          setStatus('ok');
+        } catch {
+          /* ignore malformed frame */
+        }
+      };
+      // EventSource reconnects on its own; just reflect the gap in the UI.
+      es.onerror = () => setStatus((s) => (s === 'loading' ? 'loading' : 'offline'));
+    })();
+
     return () => {
       alive = false;
-      window.clearInterval(id);
+      es?.close();
     };
   }, [branch, screenSlug]);
 

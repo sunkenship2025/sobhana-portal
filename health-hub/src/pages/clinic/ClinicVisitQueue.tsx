@@ -12,6 +12,7 @@ import { useBranchStore } from '@/store/branchStore';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Search, Users, RotateCcw, Loader2, Plus, Phone, Stethoscope, Volume2, VolumeX } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
+import { useRevalidateOnFocus } from '@/hooks/useRevalidateOnFocus';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -81,13 +82,15 @@ const ClinicVisitQueue = () => {
   const [chimeOn, setChimeOn] = useState<boolean | null>(null);
   const [chimeScreens, setChimeScreens] = useState(0);
 
-  const fetchVisits = async () => {
+  // `silent` skips the loading state so a revalidation swaps the queue in place
+  // instead of blanking it — the same contract the diagnostics worklists use.
+  const fetchVisits = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!activeBranchId) {
       setLoading(false);
       return;
     }
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       // Only WAITING/IN_PROGRESS are ever shown here (see the filter below) —
       // ask the server for just those instead of every clinic visit ever
       // recorded for the branch. That fetch-then-discard was worse than the
@@ -114,6 +117,15 @@ const ClinicVisitQueue = () => {
   useEffect(() => {
     fetchVisits();
   }, [activeBranchId, token]);
+
+  // This queue is worked from more than one counter at a time, and until now it
+  // fetched ONCE on mount — a token called at counter 1 stayed invisible at
+  // counter 2 until someone reloaded, even though the lobby TV updated instantly
+  // off the same write. Push (via the catalog SSE) + focus + a 60s backstop.
+  useRevalidateOnFocus(() => void fetchVisits({ silent: true }), {
+    enabled: Boolean(token && activeBranchId),
+    pollMs: 60_000,
+  });
 
   // Waiting-room chime state (quick on/off for the branch's display screens)
   useEffect(() => {

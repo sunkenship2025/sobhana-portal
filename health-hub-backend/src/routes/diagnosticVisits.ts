@@ -16,6 +16,7 @@ import {
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { branchContextMiddleware } from "../middleware/branch";
 import { requireRole } from "../middleware/rbac";
+import { emitWorklistOnMutation } from "../lib/displayEvents";
 import { generateDiagnosticBillNumber } from "../services/numberService";
 import { logAction } from "../services/auditService";
 import {
@@ -82,6 +83,8 @@ const router = Router();
 // All routes require auth + branch context
 router.use(authMiddleware);
 router.use(branchContextMiddleware);
+// ...and every successful write wakes the other tabs' worklists (see displayEvents).
+router.use(emitWorklistOnMutation);
 
 type PayoutSnapshot = {
   commissionType: "PERCENTAGE" | "FIXED_AMOUNT";
