@@ -1,0 +1,5 @@
+# Cloudflare Pages equivalent of vercel.json "rewrites": serve the SPA shell for
+# every path so client-side routes (/diagnostics/..., /r/:token, /track/...) work
+# on a hard refresh instead of 404ing. 200 = rewrite, NOT a redirect.
+# Vite copies this file verbatim from public/ into dist/.
+/*    /index.html   200
