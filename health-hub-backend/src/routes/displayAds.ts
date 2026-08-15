@@ -34,7 +34,7 @@ const VIDEO_MIMES = ['video/mp4', 'video/webm'];
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 45 * 1024 * 1024, files: 12 }, // 45MB/file cap; keep signage videos short
+  limits: { fileSize: 25 * 1024 * 1024, files: 8 }, // 25MB/file x8 cap: memoryStorage buffers whole files in RAM, so worst-case (~200MB) must stay well under the 512MB box. Keep signage videos short.
 });
 
 function extFor(mime: string): string {

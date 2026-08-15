@@ -14,6 +14,17 @@ import puppeteer, { Browser, PDFOptions } from 'puppeteer';
 let browserInstance: Browser | null = null;
 let browserLaunchPromise: Promise<Browser> | null = null;
 
+// Chromium RSS creeps up with cumulative pages rendered (allocator fragmentation,
+// retained navigation arenas) even though every page is closed. On a 512MB box
+// with no headroom that shows as a slow monotonic climb. Recycle the browser
+// after N renders — bounded, cheap, and only ever done when no other job is in
+// flight so it can't kill a concurrent page.
+let pagesRendered = 0;
+const MAX_PAGES_BEFORE_RECYCLE = Math.max(
+  50,
+  Number.parseInt(process.env.PDF_MAX_PAGES_BEFORE_RECYCLE || '200', 10) || 200,
+);
+
 const DEFAULT_PDF_CONCURRENCY = 2;
 const PDF_MAX_CONCURRENT = Math.min(
   2,
@@ -107,7 +118,17 @@ async function withPdfSlot<T>(task: () => Promise<T>): Promise<T> {
  */
 async function getBrowser(): Promise<Browser> {
   if (browserInstance?.isConnected()) {
-    return browserInstance;
+    // Recycle only when this is the sole in-flight job. getBrowser runs after
+    // acquirePdfSlot (this render already counts), so activePdfJobs <= 1 means no
+    // concurrent page is open and closing the browser is safe.
+    if (pagesRendered >= MAX_PAGES_BEFORE_RECYCLE && activePdfJobs <= 1) {
+      const stale = browserInstance;
+      browserInstance = null;
+      pagesRendered = 0;
+      await stale.close().catch(() => undefined);
+    } else {
+      return browserInstance;
+    }
   }
 
   if (browserLaunchPromise) {
@@ -271,6 +292,7 @@ export async function generatePdfFromHtml(
       const pdfBuffer = await page.pdf(pdfOptions);
       return Buffer.from(pdfBuffer);
     } finally {
+      pagesRendered += 1; // drives the browser recycle in getBrowser
       if (!page.isClosed()) {
         await page.close().catch(() => undefined);
       }

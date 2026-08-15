@@ -42,8 +42,6 @@ import patientRoutes from './routes/patients';
 import referralDoctorRoutes from './routes/referralDoctors';
 import clinicDoctorRoutes from './routes/clinicDoctors';
 import doctorSearchRoutes from './routes/doctors';
-// LEGACY — superseded by /api/billable-products pipeline
-// import labTestRoutes from './routes/labTests';
 import diagnosticVisitRoutes from './routes/diagnosticVisits';
 import clinicVisitRoutes from './routes/clinicVisits';
 import payoutRoutes from './routes/payouts';
@@ -356,8 +354,6 @@ app.use('/api/referral-doctors', referralDoctorRoutes);
 app.use('/api/clinic-doctors', clinicDoctorRoutes);
 app.use('/api/users', userRoutes); // Owner-only team/role management
 app.use('/api/app-settings', appSettingsRoutes); // Org-wide settings (report cloud-sync default)
-// LEGACY — superseded by /api/billable-products
-// app.use('/api/lab-tests', labTestRoutes);
 app.use('/api/visits/diagnostic', diagnosticVisitRoutes);
 app.use('/api/visits/clinic', clinicVisitRoutes);
 app.use('/api/display', displayRoutes); // PUBLIC — kiosk queue state, no user auth

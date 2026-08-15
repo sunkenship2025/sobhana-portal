@@ -52,6 +52,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
+# Cap V8's old-space heap well under the 512MB cgroup. Without this, Node sizes
+# its heap off the host's physical RAM (~GBs) and won't GC hard until it nears
+# that — but the kernel OOM-kills the 512MB container long before. Chromium +
+# native need the remaining headroom, so leave slack below 512.
+ENV NODE_OPTIONS="--max-old-space-size=384"
+
 # Copy production dependencies
 COPY package.json package-lock.json* ./
 COPY prisma ./prisma/

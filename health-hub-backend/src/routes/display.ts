@@ -311,6 +311,22 @@ router.get('/:branchSlug/:screenSlug/state', displayRateLimit, async (req: Reque
  *   GET /api/display/:branchSlug/:screenSlug/stream
  */
 router.get('/:branchSlug/:screenSlug/stream', async (req: Request, res: Response) => {
+  // Arm teardown BEFORE any await. If the client disconnects during resolveScreen
+  // or the initial computeDisplayState below, Node fires the socket's one-shot
+  // 'close' event; a listener registered only after those awaits would miss it,
+  // leaking the heartbeat timer, the onBranchChange listener, and the res closure
+  // for the life of the process. Register up front and guard on `closed`.
+  let closed = false;
+  let debounce: NodeJS.Timeout | null = null;
+  let heartbeat: NodeJS.Timeout | null = null;
+  let unsubscribe: (() => void) | null = null;
+  req.on('close', () => {
+    closed = true;
+    unsubscribe?.();
+    if (heartbeat) clearInterval(heartbeat);
+    if (debounce) clearTimeout(debounce);
+  });
+
   const resolved = await resolveScreen(String(req.params.branchSlug || '').toLowerCase(), String(req.params.screenSlug || ''));
   if (!resolved) { res.status(404).end(); return; }
 
@@ -323,8 +339,6 @@ router.get('/:branchSlug/:screenSlug/stream', async (req: Request, res: Response
   res.flushHeaders?.();
 
   const origin = originOf(req);
-  let closed = false;
-  let debounce: NodeJS.Timeout | null = null;
 
   const sendState = async () => {
     if (closed) return;
@@ -358,21 +372,15 @@ router.get('/:branchSlug/:screenSlug/stream', async (req: Request, res: Response
           .catch(() => {});
 
   await sendState(); // initial state on connect (also covers EventSource reconnect)
+  if (closed) return; // client left during the initial compute — don't wire a leaking timer/listener
   void touch();
-  const unsubscribe = onBranchChange(resolved.screen.branchId, scheduleSend);
-  const heartbeat = setInterval(() => {
+  unsubscribe = onBranchChange(resolved.screen.branchId, scheduleSend);
+  heartbeat = setInterval(() => {
     if (closed) return;
     res.write(': ping\n\n');
     (res as any).flush?.();
     void touch();
   }, 25000);
-
-  req.on('close', () => {
-    closed = true;
-    unsubscribe();
-    clearInterval(heartbeat);
-    if (debounce) clearTimeout(debounce);
-  });
 });
 
 /**
