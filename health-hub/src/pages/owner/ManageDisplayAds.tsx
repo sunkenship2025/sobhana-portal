@@ -28,7 +28,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Plus, Trash2, ArrowUp, ArrowDown, Film, Images, Image as ImageIcon, Upload } from 'lucide-react';
+import { Plus, Pencil, Trash2, ArrowUp, ArrowDown, Film, Images, Image as ImageIcon, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 
 type AdMedia = { index: number; mimeType: string; path: string };
@@ -78,14 +78,37 @@ export default function ManageDisplayAds() {
   const [screenIds, setScreenIds] = useState<string[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const reset = () => {
+    setEditingId(null);
     setName(''); setKind('IMAGE'); setFit('cover'); setDurationSec(10); setWeight(1); setFiles(null); setScreenIds([]);
     if (fileRef.current) fileRef.current.value = '';
   };
 
+  const openEdit = (ad: Ad) => {
+    setEditingId(ad.id);
+    setName(ad.name);
+    setKind(ad.kind as any);
+    setFit(ad.fit === 'contain' ? 'contain' : 'cover');
+    setDurationSec(ad.durationSec);
+    setWeight(ad.weight);
+    setScreenIds(ad.screenIds ?? []);
+    setFiles(null);
+    setOpen(true);
+  };
+
   const submit = async () => {
     if (!name.trim()) return toast.error('Name is required');
+    if (editingId) {
+      const data: Record<string, unknown> = { name: name.trim(), fit, weight, screenIds };
+      if (kind !== 'VIDEO') data.durationSec = durationSec;
+      patchM.mutate(
+        { id: editingId, data },
+        { onSuccess: () => { toast.success('Ad updated'); reset(); setOpen(false); } },
+      );
+      return;
+    }
     if (!files || files.length === 0) return toast.error('Choose a file to upload');
     if (kind !== 'SLIDESHOW' && files.length !== 1) return toast.error('Choose exactly one file');
     const fd = new FormData();
@@ -204,6 +227,9 @@ export default function ManageDisplayAds() {
                   <div className="flex items-center gap-1.5 px-1">
                     <Switch checked={ad.enabled} onCheckedChange={(v) => patchM.mutate({ id: ad.id, data: { enabled: v } })} />
                   </div>
+                  <Button size="icon" variant="ghost" onClick={() => openEdit(ad)}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button size="icon" variant="ghost" className="text-destructive hover:text-destructive">
@@ -236,8 +262,10 @@ export default function ManageDisplayAds() {
       <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add an ad</DialogTitle>
-            <DialogDescription>Photo, video, or a slideshow of photos.</DialogDescription>
+            <DialogTitle>{editingId ? 'Edit ad' : 'Add an ad'}</DialogTitle>
+            <DialogDescription>
+              {editingId ? 'Update this creative’s settings. The media stays the same.' : 'Photo, video, or a slideshow of photos.'}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -245,17 +273,19 @@ export default function ManageDisplayAds() {
               <Input placeholder="e.g. Full Body Checkup offer" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Type</Label>
-                <Select value={kind} onValueChange={(v) => { setKind(v as any); setFiles(null); if (fileRef.current) fileRef.current.value = ''; }}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="IMAGE">Photo</SelectItem>
-                    <SelectItem value="VIDEO">Video</SelectItem>
-                    <SelectItem value="SLIDESHOW">Slideshow</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {!editingId && (
+                <div className="space-y-2">
+                  <Label>Type</Label>
+                  <Select value={kind} onValueChange={(v) => { setKind(v as any); setFiles(null); if (fileRef.current) fileRef.current.value = ''; }}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="IMAGE">Photo</SelectItem>
+                      <SelectItem value="VIDEO">Video</SelectItem>
+                      <SelectItem value="SLIDESHOW">Slideshow</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Fit</Label>
                 <Select value={fit} onValueChange={(v) => setFit(v as any)}>
@@ -267,27 +297,29 @@ export default function ManageDisplayAds() {
                 </Select>
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>{kind === 'SLIDESHOW' ? 'Images (pick several)' : kind === 'VIDEO' ? 'Video (MP4/WebM)' : 'Image (PNG/JPG/WebP)'}</Label>
-              <div
-                className="border-2 border-dashed rounded-lg p-5 text-center cursor-pointer hover:bg-muted/40"
-                onClick={() => fileRef.current?.click()}
-              >
-                <Upload className="h-5 w-5 mx-auto text-muted-foreground" />
-                <p className="text-sm text-muted-foreground mt-2">
-                  {files && files.length ? `${files.length} file${files.length > 1 ? 's' : ''} selected` : 'Click to choose'}
-                </p>
+            {!editingId && (
+              <div className="space-y-2">
+                <Label>{kind === 'SLIDESHOW' ? 'Images (pick several)' : kind === 'VIDEO' ? 'Video (MP4/WebM)' : 'Image (PNG/JPG/WebP)'}</Label>
+                <div
+                  className="border-2 border-dashed rounded-lg p-5 text-center cursor-pointer hover:bg-muted/40"
+                  onClick={() => fileRef.current?.click()}
+                >
+                  <Upload className="h-5 w-5 mx-auto text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground mt-2">
+                    {files && files.length ? `${files.length} file${files.length > 1 ? 's' : ''} selected` : 'Click to choose'}
+                  </p>
+                </div>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  className="hidden"
+                  accept={accept}
+                  multiple={kind === 'SLIDESHOW'}
+                  onChange={(e) => setFiles(e.target.files)}
+                />
+                <p className="text-xs text-muted-foreground">Max 45 MB per file. Keep videos short.</p>
               </div>
-              <input
-                ref={fileRef}
-                type="file"
-                className="hidden"
-                accept={accept}
-                multiple={kind === 'SLIDESHOW'}
-                onChange={(e) => setFiles(e.target.files)}
-              />
-              <p className="text-xs text-muted-foreground">Max 45 MB per file. Keep videos short.</p>
-            </div>
+            )}
             {kind !== 'VIDEO' && (
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
@@ -328,8 +360,8 @@ export default function ManageDisplayAds() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setOpen(false); reset(); }}>Cancel</Button>
-            <Button onClick={submit} disabled={uploading || !name.trim() || !files?.length}>
-              {uploading ? 'Uploading…' : 'Add ad'}
+            <Button onClick={submit} disabled={uploading || !name.trim() || (!editingId && !files?.length)}>
+              {uploading ? 'Uploading…' : editingId ? 'Save changes' : 'Add ad'}
             </Button>
           </DialogFooter>
         </DialogContent>
