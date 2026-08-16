@@ -65,12 +65,12 @@ export default function AdminConfigCenter() {
         </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="flex-wrap h-auto gap-1 p-1">
+          <TabsList className="flex-wrap h-auto gap-0.5 p-1">
             {visibleTabs.map((tab) => {
               const Icon = tab.icon;
               return (
-                <TabsTrigger key={tab.value} value={tab.value} className="gap-1.5">
-                  <Icon className="h-3.5 w-3.5" />
+                <TabsTrigger key={tab.value} value={tab.value} className="gap-1 px-2 py-1 text-xs">
+                  <Icon className="h-3 w-3" />
                   {tab.label}
                 </TabsTrigger>
               );
