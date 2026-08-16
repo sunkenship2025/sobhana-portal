@@ -9,8 +9,9 @@ export const LAYOUTS = [
   { value: 'TEXT_ONLY', label: 'Text only' },
 ];
 
-// Same canonical list as ManagePanelDefinitions.
-export const SAMPLE_TYPES = ['WB-EDTA', 'NaF WB', 'Serum', 'Plasma', 'Urine', 'CSF', 'Synovial Fluid', 'Semen', 'N/A', 'Other'];
+// THE canonical list — ManagePanelDefinitions imports this rather than keeping a
+// second copy, so a new sample type shows up in every dropdown at once.
+export const SAMPLE_TYPES = ['WB-EDTA', 'NaF WB', 'Capillary Blood', 'Serum', 'Plasma', 'Urine', 'CSF', 'Synovial Fluid', 'Semen', 'N/A', 'Other'];
 
 export interface Department { id: string; name: string }
 

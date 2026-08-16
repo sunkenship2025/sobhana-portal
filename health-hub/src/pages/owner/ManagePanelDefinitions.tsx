@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, Fragment, useRef } from 'react';
 import { API_BASE } from '@/lib/api';
 import { apiFetchQuery, qk } from '@/lib/query';
+import { SAMPLE_TYPES } from '@/pages/owner/reportBuilderShared';
 import { queryClient } from '@/lib/queryClient';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
@@ -115,8 +116,6 @@ function layoutBadge(layoutType: string) {
 }
 
 const CODE_REGEX = /^[A-Z0-9_]{2,20}$/;
-
-const SAMPLE_TYPES = ['WB-EDTA', 'NaF WB', 'Serum', 'Plasma', 'Urine', 'CSF', 'Synovial Fluid', 'Semen', 'N/A', 'Other'];
 
 function supportsRichTextTemplate(layoutType: string): boolean {
   return layoutType === 'TEXT_ONLY' || layoutType === 'IMAGING_NARRATIVE';
