@@ -9,19 +9,18 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 ## [Unreleased]
 
 ### Added
-- **New Visit Flow UI/UX Improvements:** Redesigned the diagnostics and clinic new visit pages with a cleaner single-column layout, improved "sticky" bottom bar, focused keyboard navigation, and portalled `Radix Popover` drop-downs to prevent collision and cut-offs.
-- **Shared UI Components:** Extracted repeated structural and state-representing elements into new shared components: `PageHeader`, `LoadingState`, and `EmptyState`.
-- **Visit Defaults Persistence:** Added `visitDefaultsStore` Zustand store to automatically persist the front-desk operator's last choices (e.g., payment mode, consulting doctor) for seamless repetitive data entry.
-- **React Query Adoption:** Integrated `@tanstack/react-query` to manage client-side fetching for Global Patient Search and doctor lookups (`useDoctorLookup`), eliminating redundant keystroke-triggered refetches and improving form responsiveness.
-- **Keyboard navigation for New Visit:** Added robust keyboard shortcuts and auto-focusing for a faster data entry experience during a new visit. Users can now navigate patient search, test selection, and payment splitting entirely via the keyboard (Enter, Arrows, Shift+Arrows) to accelerate billing.
-- **Keyboard navigation & auto-focus in Diagnostics New Visit:** Added keyboard shortcuts (`Enter` to advance, `Shift+Arrows` to navigate split payments) and automatic focus behaviors to streamline the entry of patient visits and billing without requiring a mouse.
-- **Enhanced Keyboard Navigation for Rapid Data Entry:** Added comprehensive keyboard shortcuts to the Diagnostics New Visit flow. Users can now use `Enter` to seamlessly advance focus through discount, payment, and split-amount fields. Also added `Shift+Arrow` shortcuts to quickly toggle between Cash and Online inputs when splitting payments, and improved Arrow key navigation within the matching patient list. This enables rapid, mouse-free data entry and resolves previous blocking issues during high-speed interaction.
-- **Public Bill PDF Links:** Patients now receive a direct button link to view their bill PDF in WhatsApp, powered by a new `BillAccessToken` model and a public `/bills/view/:token` backend route.
-- **Mobile PDF Printing Fallback:** For mobile devices encountering printing issues, the frontend now automatically captures the receipt using `html2canvas` and generates a downloadable PDF with `jspdf`.
-- **Test Order Display Ordering:** Test orders now carry a `displayOrder` field, ensuring chronological sorting on printed bills and in the visit queue matching the original input order.
-- **Bill Payment Status:** The generated bill PDFs now display the payment status (e.g. PAID, PENDING) matching the actual bill transaction state.
+- **Payouts Redesign:** Integrated External Labs workflow. Added `ExternalLab` and `ExternalLabProductRule` for lab vendor management, tracking vendor cost via `rateType`, `ratePercent`, and `rateAmountInPaise`. Payouts for `LAB` type are now supported in the ledger and can be managed from the Worklist page.
+- **Payouts Statements on WhatsApp:** Payout statements can now be sent via WhatsApp with a secure public link, using `StatementAccessToken`.
+- **Per-product Payout Categories:** Payout statements can be categorized per product rather than defaulting to the department.
+- **Patient 360 Redesign:** Redesigned UI with new layout, timeline filters, and an inline bill/report inspector. Added the ability to send bills on WhatsApp mirroring the report action.
+- **Owner Dashboard V2:** Updated owner account dashboard with a full-width trend chart, NaN-proof rendering, and trend deltas.
+- **Owner Audit Fields:** Added `discountedByUserId`, `refundReason`, and `refundedAt` to the `Bill` model, and `branchId` to `MessageLog` for better auditing and attribution.
 
 ### Changed
+- **Payouts UX:** Simplified statement by dropping the split categories into one combined row per bill, maintaining category columns where appropriate. Status-independent worklist totals added.
+- **Report Print Layout:** Increased test row size to 11pt, subgroup headings to 10.5pt, dynamically adjusted the Result column width, and ensured signature/QR blocks lock to the bottom of the physical page.
+- **Pending Results:** Dropped the date filter, showing all pending results by default.
+- **Diagnostic Visits:** Improved optimistic "Mark Done / Start" operations in the OP/IP queue for snappy UI responses.
 - **Owner Dashboard / Payouts Money Formatting:** Consolidated rupee formatting logic across owner dashboard and payout sections into a single `formatRupees` helper inside `src/lib/payoutFormatters.ts`.
 - **Theme Color Tokenization:** Tokenized hard-coded background, text, and border colors (destructive red, gray/slate) in owner interfaces into a single source-of-truth `TOKENS` object.
 - **Diagnostics New Visit Navigation:** Improved keyboard navigation flow and UI stability (fixed crash/event stealing bugs on Patient selection) in the Diagnostics New Visit form.
