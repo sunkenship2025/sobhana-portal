@@ -47,6 +47,12 @@ type Ad = {
 
 const KIND_LABEL: Record<string, string> = { IMAGE: 'Photo', VIDEO: 'Video', SLIDESHOW: 'Slideshow' };
 
+// A slide in the edit dialog is either an existing one (kept, referenced by its
+// current index) or a freshly-picked file previewed via an object URL.
+type SlideItem =
+  | { kind: 'keep'; index: number; path: string }
+  | { kind: 'new'; file: File; url: string };
+
 export default function ManageDisplayAds() {
   const branchId = useBranchId();
   const token = useAuthStore((s) => s.token);
@@ -77,11 +83,14 @@ export default function ManageDisplayAds() {
   const [files, setFiles] = useState<FileList | null>(null);
   const [screenIds, setScreenIds] = useState<string[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+  const slideAddRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [slides, setSlides] = useState<SlideItem[]>([]);
 
   const reset = () => {
-    setEditingId(null);
+    slides.forEach((s) => { if (s.kind === 'new') URL.revokeObjectURL(s.url); });
+    setEditingId(null); setSlides([]);
     setName(''); setKind('IMAGE'); setFit('cover'); setDurationSec(10); setWeight(1); setFiles(null); setScreenIds([]);
     if (fileRef.current) fileRef.current.value = '';
   };
@@ -95,18 +104,69 @@ export default function ManageDisplayAds() {
     setWeight(ad.weight);
     setScreenIds(ad.screenIds ?? []);
     setFiles(null);
+    setSlides(ad.media.map((m) => ({ kind: 'keep', index: m.index, path: `${API_BASE}${m.path}` })));
     setOpen(true);
   };
+
+  const addSlides = (list: FileList | null) => {
+    if (!list) return;
+    const imgs = Array.from(list).filter((f) => f.type.startsWith('image/'));
+    setSlides((cur) => [...cur, ...imgs.map((file) => ({ kind: 'new' as const, file, url: URL.createObjectURL(file) }))]);
+    if (slideAddRef.current) slideAddRef.current.value = '';
+  };
+  const removeSlide = (i: number) => setSlides((cur) => {
+    const s = cur[i];
+    if (s?.kind === 'new') URL.revokeObjectURL(s.url);
+    return cur.filter((_, idx) => idx !== i);
+  });
+  const moveSlide = (i: number, dir: -1 | 1) => setSlides((cur) => {
+    const j = i + dir;
+    if (j < 0 || j >= cur.length) return cur;
+    const next = cur.slice();
+    [next[i], next[j]] = [next[j], next[i]];
+    return next;
+  });
 
   const submit = async () => {
     if (!name.trim()) return toast.error('Name is required');
     if (editingId) {
-      const data: Record<string, unknown> = { name: name.trim(), fit, weight, screenIds };
-      if (kind !== 'VIDEO') data.durationSec = durationSec;
-      patchM.mutate(
-        { id: editingId, data },
-        { onSuccess: () => { toast.success('Ad updated'); reset(); setOpen(false); } },
-      );
+      // Videos have no slides — a metadata-only PATCH is enough.
+      if (kind === 'VIDEO') {
+        patchM.mutate(
+          { id: editingId, data: { name: name.trim(), fit, weight, screenIds } },
+          { onSuccess: () => { toast.success('Ad updated'); reset(); setOpen(false); } },
+        );
+        return;
+      }
+      if (slides.length === 0) return toast.error('Keep at least one slide');
+      const fd = new FormData();
+      fd.append('slides', JSON.stringify(slides.map((s) => (s.kind === 'keep' ? String(s.index) : 'new'))));
+      slides.forEach((s) => { if (s.kind === 'new') fd.append('files', s.file); });
+      fd.append('name', name.trim());
+      fd.append('fit', fit);
+      fd.append('durationSec', String(durationSec));
+      fd.append('weight', String(weight));
+      fd.append('screenIds', JSON.stringify(screenIds));
+      setUploading(true);
+      try {
+        const res = await fetch(`${API_BASE}/display-ads/${editingId}/media`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}`, 'X-Branch-Id': branchId || '' },
+          body: fd,
+        });
+        if (!res.ok) {
+          const e = await res.json().catch(() => ({}));
+          throw new Error(e.message || 'Update failed');
+        }
+        toast.success('Ad updated');
+        qc.invalidateQueries({ queryKey: qk.displayAds(branchId) });
+        reset();
+        setOpen(false);
+      } catch (e: any) {
+        toast.error(e.message || 'Update failed');
+      } finally {
+        setUploading(false);
+      }
       return;
     }
     if (!files || files.length === 0) return toast.error('Choose a file to upload');
@@ -297,6 +357,45 @@ export default function ManageDisplayAds() {
                 </Select>
               </div>
             </div>
+            {editingId && kind !== 'VIDEO' && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Slides</Label>
+                  <Button type="button" size="sm" variant="outline" onClick={() => slideAddRef.current?.click()}>
+                    <Plus className="mr-1.5 h-3.5 w-3.5" /> Add slides
+                  </Button>
+                </div>
+                <input
+                  ref={slideAddRef}
+                  type="file"
+                  className="hidden"
+                  accept="image/png,image/jpeg,image/webp"
+                  multiple
+                  onChange={(e) => addSlides(e.target.files)}
+                />
+                <div className="max-h-56 space-y-1.5 overflow-y-auto rounded-md border p-2">
+                  {slides.length === 0 ? (
+                    <p className="px-1 py-2 text-center text-xs text-muted-foreground">No slides. Add at least one image.</p>
+                  ) : (
+                    slides.map((s, i) => (
+                      <div key={s.kind === 'keep' ? `k${s.index}` : `n${s.url}`} className="flex items-center gap-2">
+                        <img src={s.kind === 'keep' ? s.path : s.url} alt="" className="h-10 w-16 shrink-0 rounded bg-muted object-cover" />
+                        <span className="flex-1 text-xs text-muted-foreground">Slide {i + 1}{s.kind === 'new' ? ' · new' : ''}</span>
+                        <Button type="button" size="icon" variant="ghost" className="h-7 w-7" disabled={i === 0} onClick={() => moveSlide(i, -1)}>
+                          <ArrowUp className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button type="button" size="icon" variant="ghost" className="h-7 w-7" disabled={i === slides.length - 1} onClick={() => moveSlide(i, 1)}>
+                          <ArrowDown className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => removeSlide(i)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
             {!editingId && (
               <div className="space-y-2">
                 <Label>{kind === 'SLIDESHOW' ? 'Images (pick several)' : kind === 'VIDEO' ? 'Video (MP4/WebM)' : 'Image (PNG/JPG/WebP)'}</Label>
@@ -360,7 +459,14 @@ export default function ManageDisplayAds() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setOpen(false); reset(); }}>Cancel</Button>
-            <Button onClick={submit} disabled={uploading || !name.trim() || (!editingId && !files?.length)}>
+            <Button
+              onClick={submit}
+              disabled={
+                uploading || !name.trim() ||
+                (!editingId && !files?.length) ||
+                (!!editingId && kind !== 'VIDEO' && slides.length === 0)
+              }
+            >
               {uploading ? 'Uploading…' : editingId ? 'Save changes' : 'Add ad'}
             </Button>
           </DialogFooter>
