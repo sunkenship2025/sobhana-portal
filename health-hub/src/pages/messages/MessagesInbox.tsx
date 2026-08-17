@@ -300,8 +300,8 @@ export default function MessagesInbox() {
         {/* ── LIST ── */}
         <div
           className={cn(
-            'w-full flex-col border-r md:flex md:w-[340px] md:flex-shrink-0',
-            selectedId ? 'hidden' : 'flex',
+            'w-full flex-col border-r lg:flex lg:w-[340px] lg:flex-shrink-0',
+            selectedId ? 'hidden lg:flex' : 'flex',
           )}
         >
           <div className="border-b p-3">
@@ -360,7 +360,7 @@ export default function MessagesInbox() {
         </div>
 
         {/* ── THREAD ── */}
-        <div className={cn('flex-1 flex-col', selectedId ? 'flex' : 'hidden md:flex')}>
+        <div className={cn('min-w-0 flex-1 flex-col', selectedId ? 'flex' : 'hidden lg:flex')}>
           {!selectedConv ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
               <Send className="h-7 w-7" />
@@ -427,7 +427,7 @@ export default function MessagesInbox() {
 
         {/* ── PATIENT CONTEXT (desktop wide only) ── */}
         {selectedConv && (
-          <div className="hidden w-[320px] flex-shrink-0 flex-col border-l bg-muted/20 lg:flex">
+          <div className="hidden w-[320px] flex-shrink-0 flex-col border-l bg-muted/20 xl:flex">
             <PatientRail ctx={thread?.patientContext ?? null} conv={selectedConv} onOpen360={(pid) => navigate(`/clinic/patient-360/${pid}`)} />
           </div>
         )}
@@ -562,7 +562,7 @@ function ThreadPane({
     <>
       {/* header */}
       <div className="flex items-center gap-3 border-b p-3">
-        <button onClick={onBack} className="rounded-md p-1 text-muted-foreground hover:bg-muted md:hidden">
+        <button onClick={onBack} className="rounded-md p-1 text-muted-foreground hover:bg-muted lg:hidden">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div
@@ -619,30 +619,30 @@ function ThreadPane({
       {/* body */}
       <div ref={bodyRef} className="flex flex-1 flex-col gap-2.5 overflow-y-auto bg-muted/30 p-4">
         {loading && <div className="text-center text-sm text-muted-foreground">Loading…</div>}
-        {lastNotif && (
-          <div className="inline-flex items-center gap-1.5 self-center rounded-full bg-black/[0.06] px-3 py-1 text-[11.5px] text-muted-foreground dark:bg-white/10">
-            <FileText className="h-3 w-3" />
-            {lastNotif.type === 'REPORT' ? 'Report sent' : 'Bill sent'}
-            {lastNotif.tests ? ` · ${lastNotif.tests}` : ''} · {dateTimeLabel(lastNotif.at)}
-          </div>
-        )}
         {(() => {
+          // Merge the last report/bill notice into the stream at its real send time,
+          // so it sits chronologically among the messages instead of pinned on top.
+          const items: { at: string; node: JSX.Element }[] = messages.map((m) => ({
+            at: m.createdAt,
+            node: <MessageBubble key={m.id} m={m} />,
+          }));
+          if (lastNotif) {
+            items.push({ at: lastNotif.at, node: <NotifPill key={`notif-${lastNotif.at}`} notif={lastNotif} /> });
+          }
+          items.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
           const out: JSX.Element[] = [];
           let prevDay = '';
-          messages.forEach((m) => {
-            const d = dayLabel(m.createdAt);
+          items.forEach((it, i) => {
+            const d = dayLabel(it.at);
             if (d !== prevDay) {
               out.push(
-                <div
-                  key={`day-${m.id}`}
-                  className="my-1 self-center text-[11px] font-semibold text-muted-foreground"
-                >
+                <div key={`day-${i}`} className="my-1 self-center text-[11px] font-semibold text-muted-foreground">
                   {d}
                 </div>,
               );
               prevDay = d;
             }
-            out.push(<MessageBubble key={m.id} m={m} />);
+            out.push(it.node);
           });
           return out;
         })()}
@@ -680,6 +680,17 @@ function MessageBubble({ m }: { m: ThreadMessage }) {
         {clockTime(m.createdAt)}
         {out && m.messageType !== 'system' && <Ticks status={m.status} />}
       </div>
+    </div>
+  );
+}
+
+/** Centered "Report sent / Bill sent" chip, placed inline in the thread by time. */
+function NotifPill({ notif }: { notif: { type: string; at: string; tests: string } }) {
+  return (
+    <div className="inline-flex items-center gap-1.5 self-center rounded-full bg-black/[0.06] px-3 py-1 text-[11.5px] text-muted-foreground dark:bg-white/10">
+      <FileText className="h-3 w-3" />
+      {notif.type === 'REPORT' ? 'Report sent' : 'Bill sent'}
+      {notif.tests ? ` · ${notif.tests}` : ''} · {dateTimeLabel(notif.at)}
     </div>
   );
 }
@@ -941,7 +952,9 @@ function Composer({
         <QuickBtn
           icon={ImagePlus}
           label="Request image"
-          onClick={() => toast('Turn on image support in Messages settings to request images.')}
+          onClick={() =>
+            setText('Please share a clear photo here (prescription / previous report / receipt) and our team will assist you. 📷')
+          }
         />
       </div>
       {showQuick && (
