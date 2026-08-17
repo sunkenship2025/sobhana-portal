@@ -17,7 +17,7 @@
  *     positives either) — auth still works for legitimate users.
  */
 
-import { getRedisClient } from './redis';
+import { getSecurityRedisClient } from './redis';
 import { logger } from './logger';
 
 const ATTEMPT_THRESHOLD = 12;            // failed attempts in window before lockout
@@ -37,7 +37,7 @@ export interface LockoutStatus {
 
 /** Check if an email is currently locked out. Fails open if Redis is unavailable. */
 export async function checkLockout(email: string): Promise<LockoutStatus> {
-  const client = getRedisClient();
+  const client = getSecurityRedisClient();
   if (!client) {
     return { locked: false, retryAfterSec: 0, attemptsInWindow: 0 };
   }
@@ -64,7 +64,7 @@ export async function checkLockout(email: string): Promise<LockoutStatus> {
  * the login with that retryAfter.
  */
 export async function recordFailedAttempt(email: string): Promise<LockoutStatus> {
-  const client = getRedisClient();
+  const client = getSecurityRedisClient();
   if (!client) {
     return { locked: false, retryAfterSec: 0, attemptsInWindow: 0 };
   }
@@ -93,7 +93,7 @@ export async function recordFailedAttempt(email: string): Promise<LockoutStatus>
 
 /** Clear attempt counter and lock on successful login. */
 export async function clearAttempts(email: string): Promise<void> {
-  const client = getRedisClient();
+  const client = getSecurityRedisClient();
   if (!client) return;
   try {
     await Promise.all([client.del(ATTEMPTS_KEY(email)), client.del(LOCK_KEY(email))]);

@@ -16,7 +16,7 @@
  */
 
 import prisma from './prisma';
-import { getRedisClient } from './redis';
+import { getRedisClient, getSecurityRedisClient, hasDedicatedSecurityRedis } from './redis';
 import { headBucket } from '../services/r2StorageService';
 import { getPdfServiceStatus } from '../services/pdfGenerationService';
 
@@ -35,6 +35,7 @@ export interface HealthReport {
   dependencies: {
     postgres: DepCheck;
     redis: DepCheck;
+    securityRedis: DepCheck;
     r2: DepCheck;
     puppeteer: DepCheck;
   };
@@ -88,6 +89,28 @@ async function checkRedis(): Promise<DepCheck> {
   }, 'redis');
 }
 
+/**
+ * The dedicated security store (rate limits + login lockout). Worth its own line
+ * because the rate limiter FAILS CLOSED in production: if this instance is
+ * unreachable, every rate-limited route — including login — starts erroring, and
+ * without this check the /health probe would still read 'ok'.
+ *
+ * 'skipped' when SECURITY_REDIS_URL is unset, since security keys then share the
+ * primary client that `redis` above already covers.
+ */
+async function checkSecurityRedis(): Promise<DepCheck> {
+  if (!hasDedicatedSecurityRedis()) {
+    return { status: 'skipped', message: 'SECURITY_REDIS_URL not configured (using shared Redis)' };
+  }
+  const client = getSecurityRedisClient();
+  if (!client) {
+    return { status: 'skipped', message: 'no security Redis client' };
+  }
+  return timed(async () => {
+    await client.ping();
+  }, 'securityRedis');
+}
+
 async function checkR2(): Promise<DepCheck> {
   if (!process.env.R2_ACCOUNT_ID || !process.env.R2_BUCKET) {
     return { status: 'skipped', message: 'R2 not configured' };
@@ -120,23 +143,24 @@ export async function runHealthChecks(opts: { skipCache?: boolean } = {}): Promi
     return cached.report;
   }
 
-  const [postgres, redis, r2] = await Promise.all([
+  const [postgres, redis, securityRedis, r2] = await Promise.all([
     checkPostgres(),
     checkRedis(),
+    checkSecurityRedis(),
     checkR2(),
   ]);
   const puppeteer = checkPuppeteer();
 
   const overall: OverallStatus = postgres.status === 'error'
     ? 'unhealthy'
-    : redis.status === 'error' || r2.status === 'error' || puppeteer.status === 'error'
+    : redis.status === 'error' || securityRedis.status === 'error' || r2.status === 'error' || puppeteer.status === 'error'
       ? 'degraded'
       : 'ok';
 
   const report: HealthReport = {
     status: overall,
     timestamp: new Date().toISOString(),
-    dependencies: { postgres, redis, r2, puppeteer },
+    dependencies: { postgres, redis, securityRedis, r2, puppeteer },
   };
 
   cached = { report, expiresAt: now + CACHE_TTL_MS };

@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import type { Request, RequestHandler, Response } from 'express';
-import { getRedisClient, isRedisRequired } from '../lib/redis';
+import { getSecurityRedisClient, isRedisRequired } from '../lib/redis';
 
 type RateLimitState = {
   count: number;
@@ -53,7 +53,7 @@ function incrementInMemory(key: string, windowMs: number): RateLimitState {
 }
 
 async function incrementRateLimitKey(key: string, windowMs: number): Promise<RateLimitState> {
-  const redis = getRedisClient();
+  const redis = getSecurityRedisClient();
 
   if (!redis) {
     if (isRedisRequired()) {
