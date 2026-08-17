@@ -109,6 +109,9 @@ router.get('/audit/access', requireRole('owner', 'lab_incharge'), async (req: Au
       type: (req.query.type as string) ?? null,
       cursor: (req.query.cursor as string) ?? null,
       limit: req.query.limit ? Number(req.query.limit) : null,
+      // From the JWT, never the client. Falls back to '' (i.e. not an owner) so a
+      // malformed token gets the restricted view rather than the full one.
+      viewerRole: req.user?.role ?? '',
     });
     return res.json(data);
   } catch (err: any) {

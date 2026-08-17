@@ -877,6 +877,13 @@ export async function getReportAccess(params: {
   type?: string | null;
   cursor?: string | null;
   limit?: number | null;
+  /**
+   * Role of the user REQUESTING the page (not of the logged access). Owners see
+   * every row; anything else has owner-role access filtered out. Required rather
+   * than optional so a new caller can't silently default into showing owner
+   * activity to a subordinate.
+   */
+  viewerRole: string;
 }): Promise<ReportAccessResult> {
   const limit = clampLimit(params.limit);
   const { from, to } = resolveWindow(params.from, params.to);
@@ -888,6 +895,30 @@ export async function getReportAccess(params: {
     { createdAt: { gte: from, lte: to } },
     branchFilter,
   ];
+
+  // Owner-role access is visible to owners only. This lens is reachable by
+  // lab_incharge too (see requireRole on GET /audit/access), and an owner's own
+  // opens and downloads are not something a subordinate needs to audit. Owners
+  // still see everything, including their own activity.
+  //
+  // VIEW-ONLY — nothing is deleted. ReportAccessLog stays append-only and every
+  // row remains for anyone querying the table directly, so this hides rows from a
+  // page without weakening the trail itself.
+  //
+  // ReportAccessLog.userId is a plain nullable column with no relation to User, so
+  // this needs an id lookup rather than a nested filter.
+  if (params.viewerRole !== "owner") {
+    const ownerIds = (
+      await prisma.user.findMany({ where: { role: "owner" }, select: { id: true } })
+    ).map((u) => u.id);
+    if (ownerIds.length) {
+      // The OR is load-bearing. Patient token views carry userId = NULL, and a bare
+      // `notIn` compiles to `userId NOT IN (...)`, which is NULL — not TRUE — for
+      // those rows, so Postgres would drop every patient view from the page. Letting
+      // NULL through explicitly keeps them.
+      baseAnd.push({ OR: [{ userId: null }, { userId: { notIn: ownerIds } }] });
+    }
+  }
 
   const countGroups = await prisma.reportAccessLog.groupBy({
     by: ["accessType"],
