@@ -167,7 +167,34 @@ export async function validateToken(token: string): Promise<string | null> {
     return null;
   }
 
-  return accessToken.reportVersionId;
+  // Follow the REPORT, not the version the token was minted against.
+  //
+  // The patient's WhatsApp link is created with no expiresAt (= never expires),
+  // pinned to one reportVersionId. Without this, a report amended/corrected/
+  // reissued after that message went out would keep serving the SUPERSEDED
+  // version from that link forever — the patient re-opens the old WhatsApp
+  // message and reads withdrawn medical results.
+  //
+  // Resolving to the newest FINALIZED version of the same report is exactly the
+  // rule the bill-QR gateway already applies on every scan, so the two public
+  // entry points now agree. Scoped through `report.versions.some(id)`, so it can
+  // only ever move within the report this token was issued for.
+  //
+  // Partial releases upgrade the same way by design: a link handed out after a
+  // partial release starts showing the full report once it is finalized.
+  const latestFinalized = await prisma.reportVersion.findFirst({
+    where: {
+      status: 'FINALIZED',
+      report: { versions: { some: { id: accessToken.reportVersionId } } },
+    },
+    orderBy: { versionNum: 'desc' },
+    select: { id: true },
+  });
+
+  // Fall back to the pinned version if the lookup finds nothing (tokens are only
+  // minted for FINALIZED versions, so this is defensive) — never fail a valid
+  // patient link over this.
+  return latestFinalized?.id ?? accessToken.reportVersionId;
 }
 
 /**
