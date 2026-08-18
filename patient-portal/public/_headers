@@ -1,0 +1,5 @@
+# Cloudflare Pages headers. Lock #3 of 3: never indexed, header-enforced.
+/*
+  X-Robots-Tag: noindex, nofollow
+  X-Frame-Options: DENY
+  Referrer-Policy: no-referrer

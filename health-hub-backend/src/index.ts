@@ -39,6 +39,7 @@ initSentry();
 import authRoutes from './routes/auth';
 import branchRoutes from './routes/branches';
 import patientRoutes from './routes/patients';
+import patientPortalRoutes from './routes/patientPortal';
 import referralDoctorRoutes from './routes/referralDoctors';
 import clinicDoctorRoutes from './routes/clinicDoctors';
 import doctorSearchRoutes from './routes/doctors';
@@ -349,6 +350,7 @@ app.use('/api/branches', branchRoutes);
 
 // Protected routes (auth + branch context required)
 app.use('/api/patients', patientRoutes);
+app.use('/api/patient', patientPortalRoutes); // patient portal — self-authenticating (public OTP + pjwt cookie)
 app.use('/api/doctors', doctorSearchRoutes); // Cross-search endpoint
 app.use('/api/referral-doctors', referralDoctorRoutes);
 app.use('/api/clinic-doctors', clinicDoctorRoutes);

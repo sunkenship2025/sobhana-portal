@@ -1,0 +1,3 @@
+# Never indexed — lock #2 of 3 (also <meta robots> + _headers X-Robots-Tag).
+User-agent: *
+Disallow: /
