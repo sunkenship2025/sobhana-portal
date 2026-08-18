@@ -137,7 +137,10 @@ async function buildOverview(patientIds: string[]) {
   if (!profiles.length) return [];
 
   const visits = await prisma.visit.findMany({
-    where: { patientId: { in: patientIds }, status: { not: 'CANCELLED' } },
+    // v1: diagnostics only. Clinic consultation visits are bill-only (no report) and
+    // would mis-bucket as "results expected" — they get a dedicated "Consultations"
+    // section in a later version. See docs/patient-portal/DECISIONS.md.
+    where: { patientId: { in: patientIds }, status: { not: 'CANCELLED' }, domain: 'DIAGNOSTICS' },
     orderBy: { createdAt: 'desc' },
     select: {
       id: true,
