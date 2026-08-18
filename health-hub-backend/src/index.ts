@@ -257,8 +257,9 @@ if (PATIENT_API_HOST) {
   app.use((req, res, next) => {
     if (req.hostname !== PATIENT_API_HOST) return next();
     const p = req.path;
+    // Trailing slash required: '/api/patients' (staff) must NOT match the patient prefix.
     if (
-      p.startsWith('/api/patient') ||
+      p === '/api/patient' || p.startsWith('/api/patient/') ||
       p === '/' || p === '/health' || p === '/healthz' || p === '/ready' || p === '/readyz'
     ) {
       return next();
