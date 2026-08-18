@@ -142,8 +142,9 @@ export default function Login() {
             ? t('resendIn', { t: `0:${String(resend).padStart(2, '0')}` })
             : <button className="live" onClick={sendCode}>{t('resendCode')}</button>}
         </div>
+        <div className="hint" style={{ textAlign: 'center' }}>{t('noCodeHint')}</div>
         <div className="trouble">
-          {t('didntGet')} — <button className="linky" onClick={() => nav('/help')}>{t('callUs')}</button>
+          {t('didntGet')} <button className="linky" onClick={() => nav('/help')}>{t('callUs')}</button>
         </div>
       </div>
     </div>

@@ -10,13 +10,21 @@ const initials = (name: string) =>
 const rupees = (paise: number) => `₹${Math.round(paise / 100).toLocaleString('en-IN')}`;
 const yearOf = (date: string) => date.split(' ').pop() || '';
 
+/** Sobhana's mark is a microscope — a white glyph reads on the navy topbar where the wordmark can't. */
+const Mark = () => (
+  <svg className="mark" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M6 18h8" /><path d="M3 22h18" /><path d="M14 22a7 7 0 1 0 0-14h-1" /><path d="M9 14h2" />
+    <path d="M9 12a2 2 0 0 1-2-2V6h6v4a2 2 0 0 1-2 2Z" /><path d="M12 6V3a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v3" />
+  </svg>
+);
+
 function TopBar({ phone, onLogout }: { phone: string; onLogout: () => void }) {
   const t = useT();
   return (
     <div className="topbar">
       <div className="row">
         <div>
-          <div className="brandmark"><span className="diamond" /> SOBHANA</div>
+          <div className="brandmark"><Mark /> SOBHANA</div>
           <div className="sub">{t('signedIn')} · +91 {phone.slice(0, 5)} {phone.slice(5)}</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -162,7 +170,7 @@ export default function Home() {
   if (isLoading) {
     return (
       <div className="screen wide">
-        <div className="topbar"><div className="row"><div className="brandmark"><span className="diamond" /> SOBHANA</div></div></div>
+        <div className="topbar"><div className="row"><div className="brandmark"><Mark /> SOBHANA</div></div></div>
         <div style={{ padding: 16 }}>
           <div className="skel" style={{ height: 132, marginBottom: 14 }} />
           <div className="skel" style={{ height: 96 }} />

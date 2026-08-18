@@ -84,7 +84,7 @@ button { font-family: inherit; }
 .topbar { background: var(--navy); color: #fff; padding: 12px 16px; flex: 0 0 auto; position: sticky; top: 0; z-index: 10; }
 .topbar .row { display: flex; align-items: center; justify-content: space-between; }
 .brandmark { display: flex; align-items: center; gap: 8px; font-family: var(--display); font-weight: 600; font-size: 17px; }
-.diamond { width: 18px; height: 18px; transform: rotate(45deg); border: 2px solid #fff; border-radius: 3px; display: inline-block; }
+.brandmark .mark { flex: none; }
 .topbar .sub { font-size: 12px; color: #C7D0E6; margin-top: 2px; font-family: var(--mono); }
 .iconbtn { background: transparent; border: 0; color: #fff; font-size: 15px; cursor: pointer; padding: 4px 6px; border-radius: 6px; display: inline-flex; align-items: center; }
 .iconbtn:hover { background: rgba(255, 255, 255, .12); }

@@ -25,6 +25,10 @@ const STRINGS = {
   resendIn: { en: 'Resend code in {t}', te: '{t}లో మళ్లీ పంపండి' },
   resendCode: { en: 'Resend code', te: 'మళ్లీ కోడ్ పంపండి' },
   didntGet: { en: "Didn't get it?", te: 'కోడ్ రాలేదా?' },
+  noCodeHint: {
+    en: "No code yet? Make sure it's the number you registered with at the centre.",
+    te: 'కోడ్ రాలేదా? కేంద్రంలో మీరు నమోదు చేసిన నంబర్ ఇదేనా చూసుకోండి.',
+  },
   incorrectCode: { en: 'Incorrect code.', te: 'తప్పు కోడ్.' },
   tooMany: { en: 'Too many attempts. Please wait a few minutes and try again.', te: 'చాలా ప్రయత్నాలు. కొన్ని నిమిషాలు ఆగి మళ్లీ ప్రయత్నించండి.' },
   sendFailed: { en: "Couldn't send the code. Please check your connection and try again.", te: 'కోడ్ పంపడం విఫలమైంది. మీ కనెక్షన్ చూసి మళ్లీ ప్రయత్నించండి.' },
