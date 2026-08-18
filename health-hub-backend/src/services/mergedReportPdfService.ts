@@ -170,7 +170,7 @@ export async function generateMergedReportPdf(
  *     appended only for the physical mode.
  * Toggling any flag changes the key, so the stale PDF regenerates.
  */
-function cacheVariantFor(
+export function cacheVariantFor(
   snapshot: ReportSnapshot,
   mode: 'physical' | 'digital',
 ): string | undefined {

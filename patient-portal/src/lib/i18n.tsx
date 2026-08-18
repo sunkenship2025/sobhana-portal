@@ -27,6 +27,7 @@ const STRINGS = {
   didntGet: { en: "Didn't get it?", te: 'కోడ్ రాలేదా?' },
   incorrectCode: { en: 'Incorrect code.', te: 'తప్పు కోడ్.' },
   tooMany: { en: 'Too many attempts. Please wait a few minutes and try again.', te: 'చాలా ప్రయత్నాలు. కొన్ని నిమిషాలు ఆగి మళ్లీ ప్రయత్నించండి.' },
+  sendFailed: { en: "Couldn't send the code. Please check your connection and try again.", te: 'కోడ్ పంపడం విఫలమైంది. మీ కనెక్షన్ చూసి మళ్లీ ప్రయత్నించండి.' },
   // Home chrome
   signedIn: { en: 'Signed in', te: 'సైన్ ఇన్ అయ్యారు' },
   logOut: { en: 'Log out', te: 'సైన్ అవుట్' },

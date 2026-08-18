@@ -16,7 +16,7 @@ export default function Login() {
   const [step, setStep] = useState<'phone' | 'otp'>('phone');
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
-  const [err, setErr] = useState<'' | 'incorrect' | 'locked'>('');
+  const [err, setErr] = useState<'' | 'incorrect' | 'locked' | 'sendFailed'>('');
   const [busy, setBusy] = useState(false);
   const [resend, setResend] = useState(0);
   const otpRef = useRef<HTMLInputElement>(null);
@@ -32,13 +32,17 @@ export default function Login() {
     setBusy(true);
     setErr('');
     try {
-      await api.requestOtp(phone); // always 204
-    } finally {
-      setBusy(false);
+      await api.requestOtp(phone);
+      // Only advance to the OTP step on a real success — a 429 (rate-limited) or a
+      // network failure throws, and we must NOT strand the user on a code-less OTP screen.
       setStep('otp');
       setCode('');
       setResend(RESEND_SEC);
       setTimeout(() => otpRef.current?.focus(), 60);
+    } catch {
+      setErr('sendFailed');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -95,6 +99,7 @@ export default function Login() {
           <button className="btn btn-primary mt18" disabled={!validPhone(phone) || busy} onClick={sendCode}>
             {t('sendCode')}&nbsp; →
           </button>
+          {err === 'sendFailed' && <div className="errline">{t('sendFailed')}</div>}
           <div className="hint">{t('whatsappHint')}</div>
           <div className="trouble">
             {t('trouble')} — <button className="linky" onClick={() => nav('/help')}>{t('callUs')}</button>

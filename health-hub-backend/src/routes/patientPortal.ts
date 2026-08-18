@@ -28,7 +28,7 @@ import { normalizePhone, requestOtp, verifyOtp } from '../services/patientOtpSer
 import { findPatientsByIdentifier } from '../services/patientMatchingService';
 import { mapBillFinancials } from '../services/patientService';
 import { getReportSnapshot } from '../services/reportSnapshotService';
-import { generateMergedReportPdf } from '../services/mergedReportPdfService';
+import { generateMergedReportPdf, cacheVariantFor } from '../services/mergedReportPdfService';
 import { getCachedMergedPdf } from '../services/mergedReportPdfCache';
 import { createAccessToken } from '../services/reportAccessService';
 import { generateBillPdf } from '../services/billPdfService';
@@ -68,6 +68,14 @@ const patientOtpPhoneRateLimit = createRateLimiter({
   namespace: 'patient-otp-phone',
   windowMs: 10 * 60_000,
   maxRequests: 4,
+  keyGenerator: (req) => [normalizePhone(String(req.body?.phone || '')) || 'invalid'],
+});
+// Per-phone cap on verify attempts — bounds brute-force AND keeps an attacker from
+// driving the 12-fail lockout on a victim's number (5/10min stays under the threshold).
+const patientOtpVerifyRateLimit = createRateLimiter({
+  namespace: 'patient-otp-verify',
+  windowMs: 10 * 60_000,
+  maxRequests: 5,
   keyGenerator: (req) => [normalizePhone(String(req.body?.phone || '')) || 'invalid'],
 });
 
@@ -220,20 +228,17 @@ const INVALID_CODE = { error: 'INVALID_CODE', message: 'Invalid or expired code'
 
 // ---- auth ----------------------------------------------------------------
 
-// Always 204 — reveals nothing about whether the number is a patient.
-router.post('/auth/request-otp', patientOtpIpRateLimit, patientOtpPhoneRateLimit, async (req, res) => {
+// Always 204, and respond BEFORE doing any patient-only work — so response timing
+// can't distinguish a patient (awaited WhatsApp send) from a non-patient (F12, no oracle).
+router.post('/auth/request-otp', patientOtpIpRateLimit, patientOtpPhoneRateLimit, (req, res) => {
   const phone = normalizePhone(String(req.body?.phone || ''));
+  res.status(204).end();
   if (phone) {
-    try {
-      await requestOtp(phone);
-    } catch (err) {
-      logger.error({ err }, 'patient request-otp failed');
-    }
+    requestOtp(phone).catch((err) => logger.error({ err }, 'patient request-otp failed'));
   }
-  return res.status(204).end();
 });
 
-router.post('/auth/verify-otp', async (req, res) => {
+router.post('/auth/verify-otp', patientOtpVerifyRateLimit, async (req, res) => {
   const phone = normalizePhone(String(req.body?.phone || ''));
   const code = String(req.body?.code || '');
   if (!phone) return res.status(401).json(INVALID_CODE); // uniform — no oracle
@@ -249,9 +254,11 @@ router.post('/auth/verify-otp', async (req, res) => {
     });
   }
 
-  const ok = await verifyOtp(phone, code);
-  if (!ok) {
-    await recordFailedAttempt(lockKey);
+  const result = await verifyOtp(phone, code);
+  if (result !== 'ok') {
+    // Count a failure ONLY for a real wrong guess against a pending code — never for
+    // 'none' (no OTP in flight), so verify-spam on a victim's number can't lock them out.
+    if (result === 'wrong') await recordFailedAttempt(lockKey);
     return res.status(401).json(INVALID_CODE);
   }
   await clearAttempts(lockKey);
@@ -316,15 +323,17 @@ router.get('/reports/:reportVersionId/pdf', patientAuthMiddleware, async (req: P
       return res.status(410).json({ error: 'REPORT_SUPERSEDED' }); // → "Report updated"
     }
 
-    // Cache-first; only render (and mint a QR token) on a miss.
-    let buffer = await getCachedMergedPdf(reportVersionId, 'digital');
+    // Load the snapshot (needed to render AND to compute the cache-variant key).
+    const snapshot = await getReportSnapshot(reportVersionId);
+    if (!snapshot) {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(404).end();
+    }
+    // Cache-first with the CORRECT variant (digital carries a name-flag variant) — a hit
+    // skips both the render and the token mint. Only a true cold miss mints a QR token,
+    // so we don't create a permanent public access token on every view.
+    let buffer = await getCachedMergedPdf(reportVersionId, 'digital', cacheVariantFor(snapshot, 'digital'));
     if (!buffer) {
-      const snapshot = await getReportSnapshot(reportVersionId);
-      if (!snapshot) {
-        res.setHeader('Cache-Control', 'no-store');
-        return res.status(404).end();
-      }
-      const baseUrl = PUBLIC_ORIGIN; // render assets load from the public host, not locked-down api.
       const reportToken = await createAccessToken(reportVersionId);
       const reportUrl = `${process.env.PUBLIC_REPORT_BASE_URL || 'http://localhost:3000/reports'}/${reportToken}`;
       const qrDataUrl = await QRCode.toDataURL(reportUrl, {
@@ -332,7 +341,8 @@ router.get('/reports/:reportVersionId/pdf', patientAuthMiddleware, async (req: P
         margin: 1,
         color: { dark: '#000000', light: '#ffffff' },
       });
-      buffer = await generateMergedReportPdf(snapshot, { mode: 'digital', baseUrl, qrDataUrl, cache: true });
+      // baseUrl = public host (not the locked-down api.) so render assets resolve.
+      buffer = await generateMergedReportPdf(snapshot, { mode: 'digital', baseUrl: PUBLIC_ORIGIN, qrDataUrl, cache: true });
     }
 
     prisma.reportAccessLog

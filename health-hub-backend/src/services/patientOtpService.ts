@@ -106,32 +106,39 @@ export async function requestOtp(phone10: string): Promise<void> {
   }
 }
 
+export type VerifyResult = 'ok' | 'wrong' | 'none';
+
 /**
- * Verify a 6-digit code, timing-safe. Consumes the code on success. Returns a
- * uniform `false` for wrong / expired / never-issued (F12 — no patient-oracle).
+ * Verify a 6-digit code, timing-safe. Consumes the code on success.
+ *   'ok'    — matched (and consumed)
+ *   'wrong' — a real guess against a PENDING code that didn't match
+ *   'none'  — no code pending / malformed / Redis down (NOT a real guess)
+ * The caller returns a uniform "invalid code" for both 'wrong' and 'none' (F12,
+ * no oracle) but only counts a failed attempt on 'wrong' — so someone spamming
+ * verify against a number with no OTP in flight can't drive the lockout (DoS).
  */
-export async function verifyOtp(phone10: string, code: string): Promise<boolean> {
+export async function verifyOtp(phone10: string, code: string): Promise<VerifyResult> {
   const client = getSecurityRedisClient();
-  if (!client) return false;
-  if (!/^\d{6}$/.test(code || '')) return false;
+  if (!client) return 'none';
+  if (!/^\d{6}$/.test(code || '')) return 'none';
 
   let stored: string | null = null;
   try {
     stored = await client.get(OTP_KEY(phone10));
   } catch {
-    return false;
+    return 'none';
   }
-  if (!stored) return false;
+  if (!stored) return 'none';
 
-  const ok = timingSafeEqualHex(stored, hashCode(phone10, code));
-  if (ok) {
+  if (timingSafeEqualHex(stored, hashCode(phone10, code))) {
     try {
       await client.del(OTP_KEY(phone10));
     } catch {
       /* best-effort consume */
     }
+    return 'ok';
   }
-  return ok;
+  return 'wrong';
 }
 
 // --- self-check: `npx ts-node src/services/patientOtpService.ts` (pure logic only, no Redis) ---

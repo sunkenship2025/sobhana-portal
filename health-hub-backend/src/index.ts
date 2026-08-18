@@ -252,10 +252,11 @@ app.use(cookieParser());
 // that hostname serves ONLY the patient portal API (/api/patient/*) + health/root — the
 // staff and public token API surface is 404'd there. No-op on every other host, so
 // reports.sobhanaportal.com and the onrender.com name keep serving everything unchanged.
-const PATIENT_API_HOST = process.env.PATIENT_API_HOST;
+const PATIENT_API_HOST = process.env.PATIENT_API_HOST?.toLowerCase();
 if (PATIENT_API_HOST) {
   app.use((req, res, next) => {
-    if (req.hostname !== PATIENT_API_HOST) return next();
+    // Case-insensitive: DNS/Host is case-insensitive, so an uppercased Host must not skip the scope.
+    if (req.hostname?.toLowerCase() !== PATIENT_API_HOST) return next();
     const p = req.path;
     // Trailing slash required: '/api/patients' (staff) must NOT match the patient prefix.
     if (
