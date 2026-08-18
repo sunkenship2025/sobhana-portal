@@ -72,6 +72,10 @@ button { font-family: inherit; }
   .screen.wide .content { width: 100%; }
   .screen.wide .content > .famnote { margin-left: 0; margin-right: 0; }
   .screen.wide .content > .chiprow { padding-left: 0; padding-right: 0; }
+  /* Desktop: keep search + pills + date a tidy left cluster. Without this the
+     pill-row grows to 1240px and flings the date control to the far right edge. */
+  .screen.wide .content > .chiprow .pill-row { flex: 0 1 auto; overflow: visible; }
+  .screen.wide .searchdrawer .searchbox { max-width: 460px; }
   .screen.wide .people { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; align-items: start; }
   .screen.wide .people .person { margin: 0; }
 }
@@ -168,6 +172,7 @@ label.fld { display: block; font-size: 12.5px; font-weight: 600; color: var(--in
 .sec { padding: 10px 15px 13px; }
 .sec + .sec { border-top: 1px dashed var(--rule); }
 .sec .lbl { font-family: var(--mono); font-size: 10.5px; letter-spacing: .13em; text-transform: uppercase; color: var(--ink-3); margin: 2px 0 6px; }
+.emptymini { font-size: 13px; color: var(--ink-3); margin: 2px 0; }
 .visit { padding: 12px 0; }
 .visit + .visit { border-top: 1px solid var(--rule); }
 .vtop { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }

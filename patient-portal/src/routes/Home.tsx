@@ -111,6 +111,10 @@ function PersonCard({ p }: { p: OverviewProfile }) {
           ))}
         </div>
       )}
+
+      {p.reports.length + p.awaitingPayment.length + p.onTheWay.length === 0 && (
+        <div className="sec"><p className="emptymini">{t('noReportsYet')}</p></div>
+      )}
     </div>
   );
 }
@@ -212,6 +216,7 @@ export default function Home() {
   const query = q.trim().toLowerCase();
   const match = (name: string, tests: string, date: string) =>
     (!query || `${tests} ${name} ${date}`.toLowerCase().includes(query)) && (!year || yearOf(date) === year);
+  const anyFilter = !!query || !!year;
   const scoped = person === 'all' ? profiles : profiles.filter((p) => p.patientId === person);
   const filtered = scoped
     .map((p) => ({
@@ -220,7 +225,9 @@ export default function Home() {
       awaitingPayment: p.awaitingPayment.filter((v) => match(p.name, v.tests, v.date)),
       onTheWay: p.onTheWay.filter((v) => match(p.name, v.tests, v.date)),
     }))
-    .filter((p) => p.reports.length || p.awaitingPayment.length || p.onTheWay.length);
+    // Only drop a person when a search/date filter is active and they have no match.
+    // With no filter, every linked person shows — so "All" really shows all of them.
+    .filter((p) => !anyFilter || p.reports.length || p.awaitingPayment.length || p.onTheWay.length);
 
   const clearFilters = () => { setQ(''); setYear(''); };
   const showChips = profiles.length > 1;

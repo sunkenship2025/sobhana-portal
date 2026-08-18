@@ -57,6 +57,7 @@ const STRINGS = {
   helpContact: { en: 'Help & contact —', te: 'సహాయం & సంప్రదింపు —' },
   reachUs: { en: 'reach us', te: 'మమ్మల్ని సంప్రదించండి' },
   // States
+  noReportsYet: { en: 'No reports yet', te: 'ఇంకా రిపోర్ట్‌లు లేవు' },
   nothingYet: { en: 'Nothing here yet', te: 'ఇంకా ఏమీ లేదు' },
   nothingYetSub: { en: "Your reports will appear here as soon as they're signed. We'll message you on WhatsApp the moment they're ready.", te: 'మీ రిపోర్ట్‌లు సిద్ధమైన వెంటనే ఇక్కడ కనిపిస్తాయి. సిద్ధమైన వెంటనే వాట్సాప్‌లో తెలియజేస్తాము.' },
   noRecords: { en: 'No records for this number', te: 'ఈ నంబర్‌కు రికార్డులు లేవు' },
