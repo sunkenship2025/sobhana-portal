@@ -950,7 +950,7 @@ export async function getReportAccess(params: {
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: limit + 1,
     select: {
-      id: true, accessType: true, accessedVia: true, userId: true,
+      id: true, accessType: true, accessedVia: true, userId: true, actorPhone: true,
       ipAddress: true, createdAt: true,
       reportVersion: { select: { report: { select: { visit: { select: { billNumber: true, patient: { select: { name: true } } } } } } } },
     },
@@ -973,7 +973,9 @@ export async function getReportAccess(params: {
       : null;
     const who = r.userId
       ? uMap.get(r.userId) ?? "staff"
-      : r.accessedVia === "TOKEN" ? "patient / public link" : "—";
+      : r.accessedVia === "PATIENT_PORTAL"
+        ? (r.actorPhone ? `+91 ${r.actorPhone}` : "patient portal")
+        : r.accessedVia === "TOKEN" ? "patient / public link" : "—";
     return {
       id: r.id,
       accessType: r.accessType,

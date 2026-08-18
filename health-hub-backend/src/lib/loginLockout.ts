@@ -27,6 +27,11 @@ const LOCKOUT_DURATION_SEC = 15 * 60;    // 15-minute lockout when threshold hit
 const ATTEMPTS_KEY = (email: string) => `login-attempts:v1:${email.toLowerCase()}`;
 const LOCK_KEY = (email: string) => `login-lock:v1:${email.toLowerCase()}`;
 
+/** Mask long digit runs (e.g. the phone in `patient-otp:<phone>`) to the last 4, so a
+ *  patient number never lands in the operational log stream. Emails (few trailing
+ *  digits) pass through unchanged. The full number lives only in the owner-only DB audit. */
+const maskId = (s: string) => s.replace(/\d(?=\d{4})/g, '•');
+
 export interface LockoutStatus {
   locked: boolean;
   /** Seconds remaining on the lockout. 0 if not locked. */
@@ -53,7 +58,7 @@ export async function checkLockout(email: string): Promise<LockoutStatus> {
     }
     return { locked: false, retryAfterSec: 0, attemptsInWindow };
   } catch (err: any) {
-    logger.warn({ err, email }, 'login lockout: read failed (failing open)');
+    logger.warn({ err, email: maskId(email) }, 'login lockout: read failed (failing open)');
     return { locked: false, retryAfterSec: 0, attemptsInWindow: 0 };
   }
 }
@@ -79,14 +84,14 @@ export async function recordFailedAttempt(email: string): Promise<LockoutStatus>
     if (count >= ATTEMPT_THRESHOLD) {
       await client.set(LOCK_KEY(email), '1', 'EX', LOCKOUT_DURATION_SEC);
       logger.warn(
-        { email, attempts: count, lockoutSec: LOCKOUT_DURATION_SEC },
+        { email: maskId(email), attempts: count, lockoutSec: LOCKOUT_DURATION_SEC },
         'login lockout: threshold hit, account locked',
       );
       return { locked: true, retryAfterSec: LOCKOUT_DURATION_SEC, attemptsInWindow: count };
     }
     return { locked: false, retryAfterSec: 0, attemptsInWindow: count };
   } catch (err: any) {
-    logger.warn({ err, email }, 'login lockout: record failed (failing open)');
+    logger.warn({ err, email: maskId(email) }, 'login lockout: record failed (failing open)');
     return { locked: false, retryAfterSec: 0, attemptsInWindow: 0 };
   }
 }
@@ -98,6 +103,6 @@ export async function clearAttempts(email: string): Promise<void> {
   try {
     await Promise.all([client.del(ATTEMPTS_KEY(email)), client.del(LOCK_KEY(email))]);
   } catch (err: any) {
-    logger.warn({ err, email }, 'login lockout: clear failed');
+    logger.warn({ err, email: maskId(email) }, 'login lockout: clear failed');
   }
 }

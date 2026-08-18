@@ -228,12 +228,24 @@ const INVALID_CODE = { error: 'INVALID_CODE', message: 'Invalid or expired code'
 
 // ---- auth ----------------------------------------------------------------
 
+/**
+ * Fire-and-forget patient auth-event audit → PatientAuthEvent (owner-only DB, full phone;
+ * app logs stay tail-masked). Never blocks or fails the response. Events:
+ * LOGIN_SUCCESS, OTP_REQUESTED, OTP_FAILED, LOCKOUT, LOGOUT.
+ */
+function logAuthEvent(event: string, phone: string | undefined, ip?: string, userAgent?: string) {
+  prisma.patientAuthEvent
+    .create({ data: { event, phone: phone ?? null, ipAddress: ip ?? null, userAgent: userAgent ?? null } })
+    .catch((err) => logger.warn({ err, event }, 'patient auth event log failed'));
+}
+
 // Always 204, and respond BEFORE doing any patient-only work — so response timing
 // can't distinguish a patient (awaited WhatsApp send) from a non-patient (F12, no oracle).
 router.post('/auth/request-otp', patientOtpIpRateLimit, patientOtpPhoneRateLimit, (req, res) => {
   const phone = normalizePhone(String(req.body?.phone || ''));
   res.status(204).end();
   if (phone) {
+    logAuthEvent('OTP_REQUESTED', phone, req.ip, req.headers['user-agent']);
     requestOtp(phone).catch((err) => logger.error({ err }, 'patient request-otp failed'));
   }
 });
@@ -246,6 +258,7 @@ router.post('/auth/verify-otp', patientOtpVerifyRateLimit, async (req, res) => {
   const lockKey = `patient-otp:${phone}`;
   const lock = await checkLockout(lockKey);
   if (lock.locked) {
+    logAuthEvent('LOCKOUT', phone, req.ip, req.headers['user-agent']);
     res.setHeader('Retry-After', String(lock.retryAfterSec));
     return res.status(423).json({
       error: 'LOCKED',
@@ -258,7 +271,10 @@ router.post('/auth/verify-otp', patientOtpVerifyRateLimit, async (req, res) => {
   if (result !== 'ok') {
     // Count a failure ONLY for a real wrong guess against a pending code — never for
     // 'none' (no OTP in flight), so verify-spam on a victim's number can't lock them out.
-    if (result === 'wrong') await recordFailedAttempt(lockKey);
+    if (result === 'wrong') {
+      await recordFailedAttempt(lockKey);
+      logAuthEvent('OTP_FAILED', phone, req.ip, req.headers['user-agent']);
+    }
     return res.status(401).json(INVALID_CODE);
   }
   await clearAttempts(lockKey);
@@ -268,12 +284,14 @@ router.post('/auth/verify-otp', patientOtpVerifyRateLimit, async (req, res) => {
   setPatientCookie(res, signPatientToken(phone));
   const profiles = await loadProfiles(patientIds);
   logger.info({ phoneTail: phone.slice(-4), profiles: profiles.length }, 'patient-login: success'); // F15
+  logAuthEvent('LOGIN_SUCCESS', phone, req.ip, req.headers['user-agent']);
   return res.json({ profiles });
 });
 
 router.post('/auth/logout', patientAuthMiddleware, async (req: PatientRequest, res) => {
   await revokePatientToken(req.patient?.jti, req.patient?.exp);
   clearPatientCookie(res);
+  logAuthEvent('LOGOUT', req.patient?.phone, req.ip, req.headers['user-agent']);
   return res.status(204).end();
 });
 
@@ -308,6 +326,11 @@ router.get('/reports/:reportVersionId/pdf', patientAuthMiddleware, async (req: P
       },
     });
     const visit = version?.report?.visit;
+    // A real cross-family attempt (record exists but isn't theirs) is an IDOR probe —
+    // log it, distinct from a benign not-found. The response stays a uniform 404.
+    if (visit && !req.patientIds?.includes(visit.patientId)) {
+      logger.warn({ phoneTail: req.patient?.phone.slice(-4), target: reportVersionId, reason: 'ownership' }, 'patient report access denied');
+    }
     // Ownership re-proof — never trust the client.
     if (!version || !visit || !req.patientIds?.includes(visit.patientId) || visit.status === 'CANCELLED') {
       res.setHeader('Cache-Control', 'no-store');
@@ -350,7 +373,8 @@ router.get('/reports/:reportVersionId/pdf', patientAuthMiddleware, async (req: P
         data: {
           reportVersionId,
           accessType: download ? 'DOWNLOAD' : 'VIEW',
-          accessedVia: 'PATIENT_PORTAL', // free-text column — no migration
+          accessedVia: 'PATIENT_PORTAL',
+          actorPhone: req.patient?.phone, // full number — owner-only audit (WHO column)
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],
         },
@@ -378,8 +402,11 @@ router.get('/bills/:visitId/pdf', patientAuthMiddleware, async (req: PatientRequ
   try {
     const visit = await prisma.visit.findUnique({
       where: { id: visitId },
-      select: { patientId: true, status: true, domain: true, billNumber: true },
+      select: { patientId: true, status: true, domain: true, billNumber: true, patient: { select: { name: true } } },
     });
+    if (visit && !req.patientIds?.includes(visit.patientId)) {
+      logger.warn({ phoneTail: req.patient?.phone.slice(-4), target: visitId, reason: 'ownership' }, 'patient bill access denied');
+    }
     if (!visit || !req.patientIds?.includes(visit.patientId) || visit.status === 'CANCELLED') {
       res.setHeader('Cache-Control', 'no-store');
       return res.status(404).end();
@@ -390,6 +417,20 @@ router.get('/bills/:visitId/pdf', patientAuthMiddleware, async (req: PatientRequ
       res.setHeader('Cache-Control', 'no-store');
       return res.status(404).end();
     }
+    prisma.billAccessLog
+      .create({
+        data: {
+          visitId,
+          billNumber: visit.billNumber,
+          patientName: visit.patient?.name,
+          accessType: download ? 'DOWNLOAD' : 'VIEW',
+          accessedVia: 'PATIENT_PORTAL',
+          actorPhone: req.patient?.phone,
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        },
+      })
+      .catch((err) => logger.warn({ err }, 'patient bill access log failed'));
     const filename = `Bill-${visit.billNumber || visitId}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${filename}"`);

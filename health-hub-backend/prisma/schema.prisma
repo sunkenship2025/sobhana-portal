@@ -1626,16 +1626,51 @@ model ReportAccessLog {
   id              String   @id @default(cuid())
   reportVersionId String
   accessType      String // 'VIEW', 'DOWNLOAD', 'PRINT'
-  accessedVia     String // 'TOKEN', 'STAFF_PORTAL', 'DIRECT'
+  accessedVia     String // 'TOKEN', 'STAFF_PORTAL', 'DIRECT', 'PATIENT_PORTAL'
   ipAddress       String?
   userAgent       String?
   userId          String? // Staff user if authenticated
+  actorPhone      String? // logged-in patient's phone for PATIENT_PORTAL rows (owner-only audit)
   createdAt       DateTime @default(now())
 
   reportVersion ReportVersion @relation(fields: [reportVersionId], references: [id], onDelete: Cascade)
 
   @@index([reportVersionId])
   @@index([accessType])
+  @@index([createdAt])
+}
+
+/// BillAccessLog: audit trail for bill views/downloads (bills have no ReportVersion,
+/// so they can't live in ReportAccessLog). Denormalised patient/bill fields so the
+/// row is a self-contained, immutable disclosure record.
+model BillAccessLog {
+  id          String   @id @default(cuid())
+  visitId     String
+  billNumber  String?
+  patientName String?
+  accessType  String // 'VIEW', 'DOWNLOAD', 'PRINT'
+  accessedVia String // 'PATIENT_PORTAL', 'TOKEN', 'STAFF_PORTAL'
+  actorPhone  String? // logged-in patient's phone for PATIENT_PORTAL rows
+  ipAddress   String?
+  userAgent   String?
+  userId      String? // staff user if authenticated
+  createdAt   DateTime @default(now())
+
+  @@index([visitId])
+  @@index([createdAt])
+}
+
+/// PatientAuthEvent: persisted patient-portal auth trail (logins etc.) so "who / how
+/// many logged in" is queryable. Full phone here (owner-only DB); app logs stay tail-masked.
+model PatientAuthEvent {
+  id        String   @id @default(cuid())
+  event     String // 'LOGIN_SUCCESS', 'OTP_REQUESTED', 'OTP_FAILED', 'LOCKOUT', 'LOGOUT'
+  phone     String?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([event])
   @@index([createdAt])
 }
 
