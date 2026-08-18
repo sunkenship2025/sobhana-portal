@@ -42,9 +42,26 @@ export interface PatientRequest extends Request {
   patientIds?: string[];
 }
 
+/**
+ * The patient portal signs with its OWN secret when set, so the staff verifier
+ * (different secret) cannot validate a pjwt at all — cryptographic isolation on top
+ * of the typ-guard in staff authMiddleware. Falls back to JWT_SECRET when unset, so a
+ * deploy can't break login before the env var lands; warns once in prod meanwhile.
+ */
+let warnedSecretFallback = false;
+function patientJwtSecret(): string {
+  const s = process.env.PATIENT_JWT_SECRET;
+  if (s) return s;
+  if (process.env.NODE_ENV === 'production' && !warnedSecretFallback) {
+    warnedSecretFallback = true;
+    rootLogger.warn('PATIENT_JWT_SECRET unset — patient tokens still share JWT_SECRET; set it for full isolation');
+  }
+  return process.env.JWT_SECRET!;
+}
+
 /** Sign a patient session token. No `role` claim — that's the staff-crossover guard. */
 export function signPatientToken(phone10: string): string {
-  return jwt.sign({ typ: 'patient', phone: phone10 }, process.env.JWT_SECRET!, {
+  return jwt.sign({ typ: 'patient', phone: phone10 }, patientJwtSecret(), {
     expiresIn: SESSION_SEC,
     jwtid: crypto.randomUUID(),
   });
@@ -102,7 +119,7 @@ export async function patientAuthMiddleware(
     const token: string | undefined = (req as any).cookies?.[PATIENT_COOKIE];
     if (!token) return unauth();
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as PatientToken;
+    const decoded = jwt.verify(token, patientJwtSecret(), { algorithms: ['HS256'] }) as PatientToken;
     if (decoded.typ !== 'patient' || !decoded.phone) return unauth();
     if (await isRevoked(decoded.jti)) return unauth();
 

@@ -76,7 +76,18 @@ export const authMiddleware = async (
     }
 
     // Verify JWT
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as AuthUser;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!, { algorithms: ['HS256'] }) as AuthUser;
+
+    // A patient-portal token must NEVER authenticate a staff/API request. It's a
+    // separate trust domain (its own PATIENT_JWT_SECRET once set); staff tokens carry
+    // a role and no `typ`, patient tokens carry `typ:'patient'`. Belt to the
+    // separate-secret braces, and it closes the crossover even while the secret is shared.
+    if ((decoded as any).typ === 'patient') {
+      const log = (req as any).log || rootLogger;
+      log.warn({ ip: req.ip }, 'auth rejected: patient token on staff route');
+      res.status(401).json({ error: 'UNAUTHORIZED', message: 'Invalid token' });
+      return;
+    }
 
     // Attach user to request
     req.user = decoded;
