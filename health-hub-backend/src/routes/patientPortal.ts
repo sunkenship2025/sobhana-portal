@@ -35,6 +35,17 @@ import { generateBillPdf } from '../services/billPdfService';
 import { checkLockout, recordFailedAttempt, clearAttempts } from '../lib/loginLockout';
 import QRCode from 'qrcode';
 
+// Origin serving the report/bill static assets (CSS, images, signatures) during a cold PDF
+// render — the PUBLIC host, not api. (which is locked to /api/patient). Also keeps the
+// portal's rendered PDF byte-identical to the public one (shared merged-pdf cache).
+const PUBLIC_ORIGIN = (() => {
+  try {
+    return new URL(process.env.PUBLIC_REPORT_BASE_URL || 'http://localhost:3000/reports').origin;
+  } catch {
+    return 'http://localhost:3000';
+  }
+})();
+
 const router = Router();
 
 // ---- rate limiters (F11) -------------------------------------------------
@@ -310,7 +321,7 @@ router.get('/reports/:reportVersionId/pdf', patientAuthMiddleware, async (req: P
         res.setHeader('Cache-Control', 'no-store');
         return res.status(404).end();
       }
-      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const baseUrl = PUBLIC_ORIGIN; // render assets load from the public host, not locked-down api.
       const reportToken = await createAccessToken(reportVersionId);
       const reportUrl = `${process.env.PUBLIC_REPORT_BASE_URL || 'http://localhost:3000/reports'}/${reportToken}`;
       const qrDataUrl = await QRCode.toDataURL(reportUrl, {
@@ -360,7 +371,7 @@ router.get('/bills/:visitId/pdf', patientAuthMiddleware, async (req: PatientRequ
       res.setHeader('Cache-Control', 'no-store');
       return res.status(404).end();
     }
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const baseUrl = PUBLIC_ORIGIN; // render assets load from the public host, not locked-down api.
     const result = await generateBillPdf(visitId, visit.domain as 'CLINIC' | 'DIAGNOSTICS', { baseUrl });
     if (!result) {
       res.setHeader('Cache-Control', 'no-store');

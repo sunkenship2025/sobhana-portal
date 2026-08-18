@@ -248,6 +248,26 @@ app.use(express.json());
 // Mounted after express.json() and CORS; cookies arrive as req.cookies.
 app.use(cookieParser());
 
+// Patient API host isolation. When PATIENT_API_HOST is set (e.g. api.sobhanadiagnostic.com),
+// that hostname serves ONLY the patient portal API (/api/patient/*) + health/root — the
+// staff and public token API surface is 404'd there. No-op on every other host, so
+// reports.sobhanaportal.com and the onrender.com name keep serving everything unchanged.
+const PATIENT_API_HOST = process.env.PATIENT_API_HOST;
+if (PATIENT_API_HOST) {
+  app.use((req, res, next) => {
+    if (req.hostname !== PATIENT_API_HOST) return next();
+    const p = req.path;
+    if (
+      p.startsWith('/api/patient') ||
+      p === '/' || p === '/health' || p === '/healthz' || p === '/ready' || p === '/readyz'
+    ) {
+      return next();
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(404).json({ error: 'NOT_FOUND' });
+  });
+}
+
 // Static files for reports (CSS, images, fonts)
 app.use('/css', express.static(path.join(__dirname, '../public/css')));
 app.use('/images', express.static(path.join(__dirname, '../public/images')));
