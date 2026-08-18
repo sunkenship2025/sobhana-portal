@@ -76,6 +76,7 @@ const STRINGS = {
   report: { en: 'Report', te: 'రిపోర్ట్' },
   billDoc: { en: 'Bill', te: 'బిల్లు' },
   download: { en: 'Download', te: 'డౌన్‌లోడ్' },
+  share: { en: 'Share', te: 'పంచుకోండి' },
   openNewTab: { en: 'Open in new tab', te: 'కొత్త ట్యాబ్‌లో తెరవండి' },
   cantSee: { en: "Can't see it?", te: 'కనిపించడం లేదా?' },
   wasUpdated: { en: 'This {doc} was updated', te: 'ఈ {doc} నవీకరించబడింది' },

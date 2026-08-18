@@ -9,7 +9,6 @@ const initials = (name: string) =>
   name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 const rupees = (paise: number) => `₹${Math.round(paise / 100).toLocaleString('en-IN')}`;
 const yearOf = (date: string) => date.split(' ').pop() || '';
-const SEARCH_THRESHOLD = 5; // the bar earns its place only past a handful of visits (F4)
 
 function TopBar({ phone, onLogout }: { phone: string; onLogout: () => void }) {
   const t = useT();
@@ -225,7 +224,7 @@ export default function Home() {
 
   const clearFilters = () => { setQ(''); setYear(''); };
   const showChips = profiles.length > 1;
-  const showSearch = totalVisits > SEARCH_THRESHOLD;
+  const showSearch = totalVisits > 0; // always show the search + date bar (matches the wireframe)
 
   return (
     <div className="screen wide">

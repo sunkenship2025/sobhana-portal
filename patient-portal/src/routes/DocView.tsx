@@ -24,6 +24,31 @@ export default function DocView() {
   const stageRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<State>('loading');
   const [reloadKey, setReloadKey] = useState(0);
+  const [sharing, setSharing] = useState(false);
+
+  // Native share of the actual PDF file (WhatsApp, mail, Files…). Web Share Level 2
+  // is supported on iOS Safari + Android Chrome; desktop / unsupported falls back to
+  // opening the PDF. Re-fetches `url` (already in the browser cache from the viewer).
+  const shareDoc = async () => {
+    if (sharing) return;
+    setSharing(true);
+    try {
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) throw new Error('fetch');
+      const blob = await res.blob();
+      const file = new File([blob], `Sobhana ${label}.pdf`, { type: 'application/pdf' });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: `Sobhana ${label}` });
+      } else {
+        window.open(url, '_blank', 'noopener'); // no file-share support (most desktops)
+      }
+    } catch (e) {
+      // AbortError = the user dismissed the share sheet; anything else, open the PDF.
+      if ((e as { name?: string })?.name !== 'AbortError') window.open(url, '_blank', 'noopener');
+    } finally {
+      setSharing(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -78,7 +103,7 @@ export default function DocView() {
         </div>
         <div className="acts">
           <a className="iconbtn" title={t('download')} href={dlUrl}><i className="di" /></a>
-          <a className="iconbtn" title={t('openNewTab')} href={url} target="_blank" rel="noreferrer"><i className="ext" /></a>
+          <button className="iconbtn" title={t('share')} aria-label={t('share')} onClick={shareDoc} disabled={sharing}><i className="ext" /></button>
         </div>
       </div>
 
