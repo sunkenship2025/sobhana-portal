@@ -236,7 +236,10 @@ export async function getOwnerDoctors(
         visit: {
           select: {
             id: true,
+            // Cancelled orders were voided off the bill — they must not
+            // inflate this doctor's referral gross/commission KPIs.
             testOrders: {
+              where: { cancelledAt: null },
               select: {
                 priceInPaise: true,
                 referralCommissionType: true,
@@ -319,7 +322,8 @@ export async function getOwnerDoctors(
         diagnosticCenter: { select: { name: true } },
         visit: {
           select: {
-            testOrders: { select: { priceInPaise: true } },
+            // Same guard — outgoing/incoming totals must exclude voided orders.
+            testOrders: { where: { cancelledAt: null }, select: { priceInPaise: true } },
           },
         },
       },
