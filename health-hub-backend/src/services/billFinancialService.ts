@@ -253,9 +253,14 @@ export function recomputeBillFinancialsForSubtotal(
           subtotal,
           Math.max(0, Math.round(bill.discountAmountInPaise ?? 0)),
         );
+  // Charge already voided off cancelled orders must come off net here too —
+  // otherwise adding/removing a test after a cancel/refund briefly stores a
+  // net (and paymentStatus) that still counts the cancelled charge, matching
+  // the bug in computeBillFinancialsFromPersisted this mirrors.
+  const reversedChargeInPaise = Math.max(0, Math.round(bill.reversedChargeInPaise ?? 0));
   const nextNetAmountInPaise = Math.max(
     0,
-    subtotal - nextDiscountAmountInPaise,
+    subtotal - nextDiscountAmountInPaise - reversedChargeInPaise,
   );
   // Resolve the actual amount paid: prefer the transactions list when it has
   // entries (authoritative), otherwise fall back to the cached field on the

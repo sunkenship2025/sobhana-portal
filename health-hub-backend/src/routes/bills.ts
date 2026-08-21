@@ -121,7 +121,12 @@ router.get("/:domain/:visitId", async (req: AuthRequest, res) => {
         status: visit.status,
         createdAt: visit.createdAt,
         billedAt: visit.bill?.billedAt || visit.bill?.createdAt || null,
-        totalAmount: visit.totalAmountInPaise / 100,
+        // Gross total minus whatever's been reversed off cancelled orders —
+        // the raw field alone still counts a cancelled test's original price
+        // forever (by design, for audit), which double-counts once another
+        // test is added on top and the receipt prints the stale gross.
+        totalAmount:
+          (visit.totalAmountInPaise - (visit.bill?.reversedChargeInPaise ?? 0)) / 100,
         ...billFinancials,
         visitType: visit.clinicVisit?.visitType,
         tokenNumber: visit.clinicVisit?.tokenNumber ?? null,
@@ -174,7 +179,9 @@ router.get("/:domain/:visitId", async (req: AuthRequest, res) => {
 
     if (domain === "DIAGNOSTICS") {
       billData.items = buildDiagnosticBillItems(
-        visit.testOrders.map((order) => ({
+        visit.testOrders
+          .filter((order) => !order.cancelledAt)
+          .map((order) => ({
           id: order.id,
           productId: order.productId,
           product: order.product

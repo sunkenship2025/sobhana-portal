@@ -208,7 +208,9 @@ export async function fetchBillData(visitId: string, domain: 'CLINIC' | 'DIAGNOS
   let items: Array<{ id: string; name: string; price: number }> = [];
   if (domain === 'DIAGNOSTICS') {
     items = buildDiagnosticBillItems(
-      visit.testOrders.map((o) => ({
+      visit.testOrders
+        .filter((o) => !o.cancelledAt)
+        .map((o) => ({
         id: o.id,
         productId: o.productId,
         product: o.product ? { id: o.product.id, name: o.product.name, code: o.product.code } : null,
@@ -243,7 +245,10 @@ export async function fetchBillData(visitId: string, domain: 'CLINIC' | 'DIAGNOS
       transactions: visit.bill?.transactions || [],
       domain,
       createdAt: visit.createdAt,
-      totalAmount: visit.totalAmountInPaise / 100,
+      // See routes/bills.ts: subtract reversed (cancelled-order) charge so a
+      // cancel+add doesn't double-count the cancelled test's price in Total.
+      totalAmount:
+        (visit.totalAmountInPaise - (visit.bill?.reversedChargeInPaise ?? 0)) / 100,
       ...billFinancials,
       visitType: visit.clinicVisit?.visitType,
       tokenNumber: visit.clinicVisit?.tokenNumber ?? null,
