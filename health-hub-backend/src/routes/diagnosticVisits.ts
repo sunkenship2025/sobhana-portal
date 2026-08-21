@@ -6265,6 +6265,7 @@ router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: A
             testCodeSnapshot: true,
             workflowMode: true,
             noReportAt: true,
+            cancelledAt: true,
             test: {
               select: {
                 isPanel: true,
@@ -6453,6 +6454,14 @@ router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: A
       // Orders closed as "no written report needed" (films only) don't block
       // finalize — same as cancelled orders, they're not part of the report.
       if (order.noReportAt) {
+        return false;
+      }
+
+      // A cancelled order is not part of the report either (it was voided off the
+      // bill). Mirror getReportInclusionOrders — without this, a cancelled
+      // reportable test with no result is wrongly counted as "still pending" and
+      // blocks the complete-report finalize.
+      if (order.cancelledAt) {
         return false;
       }
 
@@ -6680,6 +6689,11 @@ router.post("/:id/release-partial", requireRole("owner", "lab_incharge"), async 
           select: {
             id: true,
             workflowMode: true,
+            // Needed so getReportInclusionOrders / getReportableOrders can exclude
+            // cancelled + films-only orders (they filter on these fields; omitting
+            // them makes every order look active and skews the pending counts).
+            cancelledAt: true,
+            noReportAt: true,
             externalUploads: {
               where: { deletedAt: null },
               select: { id: true },
