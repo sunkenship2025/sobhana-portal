@@ -61,9 +61,11 @@ interface RefundDialogProps {
   visit: VisitTimelineItem;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Order ids to tick on open — the Remove (trash) shortcut in SwapTestDialog. */
+  preselectOrderIds?: string[];
 }
 
-export function RefundDialog({ visit, open, onOpenChange }: RefundDialogProps) {
+export function RefundDialog({ visit, open, onOpenChange, preselectOrderIds }: RefundDialogProps) {
   const qc = useQueryClient();
   const activeOrders = useMemo(
     () => (visit.testOrders ?? []).filter((order) => !order.cancelledAt),
@@ -79,15 +81,17 @@ export function RefundDialog({ visit, open, onOpenChange }: RefundDialogProps) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<RefundResult | null>(null);
 
-  // Reset on close / visit switch.
+  // Reset on close / visit switch. Seed the selection from the Remove shortcut
+  // when the dialog is opened that way (empty otherwise).
   useEffect(() => {
     if (!open) return;
-    setSelected(new Set());
+    setSelected(new Set(preselectOrderIds ?? []));
     setReason("");
     setNote("");
     setPaymentType("CASH");
     setPreview(null);
     setResult(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, visit.visitId]);
 
   // Server-side preview whenever the selection changes (exact math incl.

@@ -34,7 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowRight, Check, Loader2 } from "lucide-react";
+import { ArrowRight, Check, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { apiRequest } from "@/lib/utils";
 import { API_BASE } from "@/lib/api";
@@ -77,15 +77,18 @@ interface BilledGroup {
   name: string;
   totalInPaise: number;
   isOutsourced: boolean;
+  orderIds: string[];
 }
 
 interface SwapTestDialogProps {
   visit: VisitTimelineItem;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Remove (trash) a billed test — hands its order ids to the Cancel/Refund flow. */
+  onRemove?: (orderIds: string[]) => void;
 }
 
-export function SwapTestDialog({ visit, open, onOpenChange }: SwapTestDialogProps) {
+export function SwapTestDialog({ visit, open, onOpenChange, onRemove }: SwapTestDialogProps) {
   const qc = useQueryClient();
   const { user } = useAuthStore();
   const role = user?.role;
@@ -116,12 +119,14 @@ export function SwapTestDialog({ visit, open, onOpenChange }: SwapTestDialogProp
       if (existing) {
         existing.totalInPaise += order.priceInPaise;
         existing.isOutsourced = existing.isOutsourced || Boolean(order.isOutsourced);
+        existing.orderIds.push(order.id);
       } else {
         map.set(order.productId, {
           productId: order.productId,
           name: order.productName || order.testName,
           totalInPaise: order.priceInPaise,
           isOutsourced: Boolean(order.isOutsourced),
+          orderIds: [order.id],
         });
       }
     }
@@ -311,25 +316,41 @@ export function SwapTestDialog({ visit, open, onOpenChange }: SwapTestDialogProp
                 <Label>Billed test to replace</Label>
                 <div className="max-h-[22vh] space-y-0.5 overflow-y-auto rounded-lg border p-1">
                   {groups.map((group) => (
-                    <button
+                    <div
                       key={group.productId}
-                      type="button"
-                      disabled={group.isOutsourced}
-                      className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/60 disabled:cursor-not-allowed disabled:opacity-50 ${oldProductId === group.productId ? "bg-muted font-medium" : ""}`}
-                      onClick={() => setOldProductId(group.productId)}
+                      className={`flex items-center gap-1 rounded-md ${oldProductId === group.productId ? "bg-muted" : ""}`}
                     >
-                      <span>
-                        {group.name}
-                        {group.isOutsourced && (
-                          <span className="ml-2 text-xs text-muted-foreground">
-                            outsourced — use cancel/refund
-                          </span>
-                        )}
-                      </span>
-                      <span className="tabular-nums text-muted-foreground">
-                        {formatCurrency(group.totalInPaise)}
-                      </span>
-                    </button>
+                      <button
+                        type="button"
+                        disabled={group.isOutsourced}
+                        className={`flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/60 disabled:cursor-not-allowed disabled:opacity-50 ${oldProductId === group.productId ? "font-medium" : ""}`}
+                        onClick={() => setOldProductId(group.productId)}
+                      >
+                        <span className="truncate">
+                          {group.name}
+                          {group.isOutsourced && (
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              outsourced — use cancel/refund
+                            </span>
+                          )}
+                        </span>
+                        <span className="shrink-0 tabular-nums text-muted-foreground">
+                          {formatCurrency(group.totalInPaise)}
+                        </span>
+                      </button>
+                      {onRemove && (
+                        <button
+                          type="button"
+                          title="Remove this test"
+                          aria-label={`Remove ${group.name}`}
+                          disabled={busy}
+                          className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                          onClick={() => onRemove(group.orderIds)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>

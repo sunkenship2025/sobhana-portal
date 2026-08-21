@@ -131,12 +131,20 @@ function InspectorBody({
   }, [reportActive, visit.visitId]);
 
   const [refundOpen, setRefundOpen] = useState(false);
+  // Order ids to pre-tick in the Cancel/Refund dialog when a test is removed via
+  // the trash shortcut in the edit-tests pencil.
+  const [refundPreselect, setRefundPreselect] = useState<string[] | null>(null);
   const [referralEditOpen, setReferralEditOpen] = useState(false);
   const [swapOpen, setSwapOpen] = useState(false);
   const hasActiveOrders = (visit.testOrders ?? []).some((order) => !order.cancelledAt);
   const isCancelledVisit = String(visit.status).toUpperCase() === "CANCELLED";
+  // A finalized report is locked: no add / replace / remove of tests (money +
+  // report are already out). The server rejects it too; cancel/refund stays
+  // available as a money action, and referral edits are unaffected.
+  const isFinalized = visit.reportStatus === "FINALIZED" || Boolean(visit.finalizedAt);
   const canRefund = isDiagnostic && hasBill && hasActiveOrders && !isCancelledVisit;
   const canCorrect = isDiagnostic && hasBill && !isCancelledVisit;
+  const canEditTests = canCorrect && hasActiveOrders && !isFinalized;
 
   return (
     <div className="space-y-5">
@@ -155,9 +163,7 @@ function InspectorBody({
       <FinancialDetailPanel
         visit={visit}
         onEditReferral={canCorrect ? () => setReferralEditOpen(true) : undefined}
-        onEditTests={
-          canCorrect && hasActiveOrders ? () => setSwapOpen(true) : undefined
-        }
+        onEditTests={canEditTests ? () => setSwapOpen(true) : undefined}
       />
 
       {isDiagnostic && (canViewReport(visit) || hasNoReportOrders) && (
@@ -291,7 +297,15 @@ function InspectorBody({
       )}
 
       {canRefund && (
-        <RefundDialog visit={visit} open={refundOpen} onOpenChange={setRefundOpen} />
+        <RefundDialog
+          visit={visit}
+          open={refundOpen}
+          onOpenChange={(o) => {
+            setRefundOpen(o);
+            if (!o) setRefundPreselect(null);
+          }}
+          preselectOrderIds={refundPreselect ?? undefined}
+        />
       )}
       {canCorrect && (
         <EditReferralDialog
@@ -300,8 +314,21 @@ function InspectorBody({
           onOpenChange={setReferralEditOpen}
         />
       )}
-      {canCorrect && hasActiveOrders && (
-        <SwapTestDialog visit={visit} open={swapOpen} onOpenChange={setSwapOpen} />
+      {canEditTests && (
+        <SwapTestDialog
+          visit={visit}
+          open={swapOpen}
+          onOpenChange={setSwapOpen}
+          onRemove={
+            canRefund
+              ? (orderIds) => {
+                  setSwapOpen(false);
+                  setRefundPreselect(orderIds);
+                  setRefundOpen(true);
+                }
+              : undefined
+          }
+        />
       )}
 
       {/* Inline preview — report (blob PDF, native toolbar hidden for a cleaner
