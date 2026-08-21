@@ -344,7 +344,10 @@ export async function getOwnerOperations(
         status: true,
         branchId: true,
         patient: { select: { name: true, title: true } },
+        // Cancelled orders are voided off the visit — excluded so a cancelled
+        // test's name/stage never stands in for the visit's live work.
         testOrders: {
+          where: { cancelledAt: null },
           select: {
             workflowMode: true,
             product: { select: { name: true } },
@@ -393,6 +396,7 @@ export async function getOwnerOperations(
         branchId: true,
         patient: { select: { name: true, title: true } },
         testOrders: {
+          where: { cancelledAt: null },
           select: { product: { select: { name: true } }, testNameSnapshot: true },
           take: 1,
         },
