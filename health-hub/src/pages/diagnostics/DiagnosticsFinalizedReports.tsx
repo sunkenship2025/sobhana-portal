@@ -116,6 +116,11 @@ const DiagnosticsFinalizedReports = () => {
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
+  // True once the first page has loaded. After that, a search/date/page refetch
+  // keeps the current list on screen (dimmed) instead of blanking the whole page
+  // to a spinner — which was unmounting the search box and dropping focus on
+  // every keystroke, so typing felt like the screen reloaded each character.
+  const [everLoaded, setEverLoaded] = useState(false);
   const [sendingVisitIds, setSendingVisitIds] = useState<Set<string>>(() => new Set());
 
   // A new date range or search term always restarts on page 1 — otherwise a
@@ -168,6 +173,7 @@ const DiagnosticsFinalizedReports = () => {
         console.error('Failed to fetch finalized visits:', error);
       } finally {
         if (!silent) setLoading(false);
+        setEverLoaded(true);
       }
     },
     [token, activeBranchId, dateRange, debouncedSearch, page],
@@ -270,7 +276,9 @@ const DiagnosticsFinalizedReports = () => {
     }
   };
 
-  if (loading) {
+  // Full-page spinner only on the very first load. Search / date / page refetches
+  // keep the page mounted (search box holds focus) and just dim the list below.
+  if (loading && !everLoaded) {
     return (
       <AppLayout context="diagnostics">
         <LoadingState />
@@ -309,7 +317,7 @@ const DiagnosticsFinalizedReports = () => {
         </Card>
 
         {/* Finalized Reports List */}
-        <Card>
+        <Card className={loading ? "opacity-60 transition-opacity" : "transition-opacity"}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-success" />
