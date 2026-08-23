@@ -67,6 +67,10 @@ const ClinicFinalizedVisits = () => {
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
+  // Once the first page has loaded, a search/date/type/page refetch keeps the
+  // current list on screen instead of blanking the whole page (which unmounted
+  // the search box and dropped focus on every keystroke).
+  const [everLoaded, setEverLoaded] = useState(false);
   const [selectedVisit, setSelectedVisit] = useState<ClinicVisit | null>(null);
 
   // A new date range, visit-type, or search term always restarts on page 1 —
@@ -122,6 +126,7 @@ const ClinicFinalizedVisits = () => {
         console.error('Failed to fetch finalized clinic visits:', err);
       } finally {
         if (!silent) setLoading(false);
+        setEverLoaded(true);
       }
     },
     [token, activeBranchId, dateRange, visitTypeFilter, debouncedSearch, page],
@@ -141,7 +146,8 @@ const ClinicFinalizedVisits = () => {
   // Server already applied every filter, the search ranking, and pagination.
   const hasData = Boolean(search.trim()) || visitTypeFilter !== 'all' || dateRange.preset !== 'today';
 
-  if (loading) {
+  // Full-page spinner only on first load; later refetches keep the page mounted.
+  if (loading && !everLoaded) {
     return (
       <AppLayout context="clinic" subContext="Reception">
         <div className="flex justify-center py-16">
