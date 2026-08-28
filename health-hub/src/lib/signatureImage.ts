@@ -44,12 +44,22 @@ const STRONG_AT = 0.78;
 const SOFT_SPAN = 0.35;
 
 // ── Ruled lines ──────────────────────────────────────────────────────────────
-/** Ink on one line, as a share of the frame, before it counts as printed. */
-const LINE_VOTE = 0.35;
-/** Median darkness against local paper, above which a candidate is printed
- *  rather than handwritten. Measured on a real notebook photo: printed rules
- *  land at 0.44-0.53, pen flourishes (which are also long, thin and straight) at
- *  0.24-0.34. Shape cannot separate those two; darkness can. */
+/** Coverage — ink on one line as a share of the frame — is the PRIMARY signal
+ *  that something is printed rather than written. Measured across two real
+ *  notebook photos: printed rules cover 0.55-0.84 of the frame, pen flourishes
+ *  0.35-0.42, and that gap holds even when the rule is as dark as the ink. */
+const LINE_VOTE = 0.5;
+/** Above this coverage a candidate is printed no matter how dark it is: a bold
+ *  margin rule measured 0.27 against the paper, darker than some pen strokes,
+ *  and the darkness gate alone would never have caught it. */
+const LINE_VOTE_DARK = 0.65;
+/** Alpha a pixel needs to vote for a line. Low on purpose: a faint margin rule
+ *  photographed at an angle carries alpha in the 30s, and excluding it meant the
+ *  rule was never detected and survived the whole pipeline. */
+const LINE_VOTE_ALPHA = 25;
+/** Secondary check on candidates between LINE_VOTE and LINE_VOTE_DARK coverage:
+ *  median darkness against the local paper. Printed rules land at 0.44-0.53,
+ *  pen flourishes at 0.24-0.34. Also reused to spot leftover rule fragments. */
 const LINE_RATIO_GATE = 0.39;
 /** An ink run thicker than this across the rule is the signature crossing it. */
 const LINE_MAX_THICK = 7;
@@ -68,6 +78,10 @@ const LINE_SLOPES = 31;
 /** An island smaller than this share of the biggest one is debris. */
 const SPECK_FRAC = 0.004;
 const SPECK_MIN_PX = 40;
+/** A leftover island this thin (px) and this elongated, and light against the
+ *  paper, is a rule fragment that was too short to out-vote the frame. */
+const DEBRIS_MAX_THICK = 4.5;
+const DEBRIS_MIN_ELONGATION = 8;
 
 const lum = (r: number, g: number, b: number) => 0.299 * r + 0.587 * g + 0.114 * b;
 
@@ -248,7 +262,7 @@ export function findRuledLines(
     const acc = new Int32Array(size);
     for (let y = 0; y < h; y += 1) {
       for (let x = 0; x < w; x += 1) {
-        if (mask.alpha[y * w + x] <= 60) continue;
+        if (mask.alpha[y * w + x] <= LINE_VOTE_ALPHA) continue;
         const b = Math.round(vertical ? x - m * y : y - m * x);
         acc[b + offset] += 1;
       }
@@ -266,12 +280,13 @@ export function findRuledLines(
         const y = vertical ? a : c;
         if (x < 0 || y < 0 || x >= w || y >= h) continue;
         const p = y * w + x;
-        if (mask.alpha[p] <= 60) continue;
+        if (mask.alpha[p] <= LINE_VOTE_ALPHA) continue;
         ratios.push(mask.gray[p] / Math.max(1, mask.mean[p]));
       }
       if (!ratios.length) continue;
       ratios.sort((p, q) => p - q);
-      if (ratios[ratios.length >> 1] < LINE_RATIO_GATE) continue;
+      const darkness = ratios[ratios.length >> 1];
+      if (acc[i] < span * LINE_VOTE_DARK && darkness < LINE_RATIO_GATE) continue;
       candidates.push({ m, b, votes: acc[i] });
     }
   }
@@ -393,22 +408,45 @@ export function stripRuledLines(mask: InkMask, w: number, h: number): Uint8Clamp
   return out;
 }
 
-/** Drop islands far smaller than the signature: rule fragments, grain, stray marks. */
-export function despeckle(alpha: Uint8ClampedArray, w: number, h: number): Uint8ClampedArray {
+/**
+ * Drop islands that aren't the signature: grain, stray marks, and rule fragments
+ * that were too short to out-vote the frame but still look printed — thin, long,
+ * and light against the paper. The signature is thick, or dark, or both.
+ */
+export function despeckle(
+  alpha: Uint8ClampedArray,
+  mask: InkMask,
+  w: number,
+  h: number,
+): Uint8ClampedArray {
   const label = new Int32Array(w * h);
-  const sizes: number[] = [0];
   const stack: number[] = [];
+  interface Blob {
+    area: number;
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+    ratios: number[];
+  }
+  const blobs: Blob[] = [{ area: 0, minX: 0, maxX: 0, minY: 0, maxY: 0, ratios: [] }];
+
   for (let start = 0; start < alpha.length; start += 1) {
     if (alpha[start] <= ALPHA_FLOOR || label[start]) continue;
-    const id = sizes.length;
-    let count = 0;
+    const id = blobs.length;
+    const blob: Blob = { area: 0, minX: w, maxX: 0, minY: h, maxY: 0, ratios: [] };
     label[start] = id;
     stack.push(start);
     while (stack.length) {
       const p = stack.pop()!;
-      count += 1;
       const x = p % w;
       const y = (p - x) / w;
+      blob.area += 1;
+      if (x < blob.minX) blob.minX = x;
+      if (x > blob.maxX) blob.maxX = x;
+      if (y < blob.minY) blob.minY = y;
+      if (y > blob.maxY) blob.maxY = y;
+      blob.ratios.push(mask.gray[p] / Math.max(1, mask.mean[p]));
       for (let dy = -1; dy <= 1; dy += 1) {
         for (let dx = -1; dx <= 1; dx += 1) {
           const nx = x + dx;
@@ -421,14 +459,26 @@ export function despeckle(alpha: Uint8ClampedArray, w: number, h: number): Uint8
         }
       }
     }
-    sizes.push(count);
+    blobs.push(blob);
   }
-  if (sizes.length < 2) return alpha;
-  const biggest = Math.max(...sizes);
+  if (blobs.length < 2) return alpha;
+
+  const biggest = blobs.reduce((n, b) => Math.max(n, b.area), 0);
   const floor = Math.max(SPECK_MIN_PX, biggest * SPECK_FRAC);
+  const drop = blobs.map((b, i) => {
+    if (i === 0 || b.area === biggest) return false;
+    if (b.area < floor) return true;
+    const span = Math.max(b.maxX - b.minX + 1, b.maxY - b.minY + 1);
+    const thickness = b.area / Math.max(span, 1);
+    if (thickness > DEBRIS_MAX_THICK) return false;
+    if (span / Math.max(thickness, 0.1) < DEBRIS_MIN_ELONGATION) return false;
+    b.ratios.sort((p, q) => p - q);
+    return b.ratios[b.ratios.length >> 1] >= LINE_RATIO_GATE;
+  });
+
   const out = Uint8ClampedArray.from(alpha);
   for (let p = 0; p < out.length; p += 1) {
-    if (label[p] && sizes[label[p]] < floor) out[p] = 0;
+    if (label[p] && drop[label[p]]) out[p] = 0;
   }
   return out;
 }
@@ -506,7 +556,7 @@ export async function cleanSignature(file: File): Promise<CleanedSignature> {
       for (let i = 0, p = 0; i < src.data.length; i += 4, p += 1) alpha[p] = src.data[i + 3];
     } else {
       const mask = inkMask(src, w, h);
-      alpha = despeckle(stripRuledLines(mask, w, h), w, h);
+      alpha = despeckle(stripRuledLines(mask, w, h), mask, w, h);
     }
 
     const out = new ImageData(w, h);
