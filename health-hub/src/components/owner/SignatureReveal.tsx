@@ -120,7 +120,15 @@ export function SignatureReveal({
   return (
     <div
       className="relative mx-auto overflow-hidden"
-      style={{ height, width: height * reveal.aspect }}
+      // Width follows the frame's aspect, but a wide photo must not push past
+      // the dialog: max-width clamps it and the height follows, keeping shape.
+      style={{
+        width: height * reveal.aspect,
+        height: 'auto',
+        maxWidth: '100%',
+        maxHeight: height,
+        aspectRatio: String(reveal.aspect),
+      }}
     >
       <div ref={frameRef} className="absolute inset-0">
         <img
