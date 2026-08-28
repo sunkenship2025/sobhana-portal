@@ -22,6 +22,7 @@ import { toast } from "sonner";
 import { CheckCheck, Clock, Search, Phone, Stethoscope } from "lucide-react";
 import { searchWorklist } from "@/lib/worklistSearch";
 import { usePagedList } from "@/hooks/usePagedList";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useRevalidateOnFocus } from "@/hooks/useRevalidateOnFocus";
 import { DateRangeFilter } from "@/components/worklist/DateRangeFilter";
 import {
@@ -166,6 +167,10 @@ const DiagnosticsPendingResults = () => {
   const { token } = useAuthStore();
   const [dateRange, setDateRange] = useState<DateRangeState>(makeDateRange("all"));
   const [search, setSearch] = useState("");
+  // Debounce the value that drives the (client-side) filter + pagination reset,
+  // so the box stays responsive while typing and the list only re-ranks/re-renders
+  // once the user pauses — instead of jumping on every keystroke.
+  const debouncedSearch = useDebouncedValue(search, 250);
   const [pendingVisits, setPendingVisits] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [dueVisit, setDueVisit] = useState<any | null>(null);
@@ -272,14 +277,14 @@ const DiagnosticsPendingResults = () => {
 
     // Ranked, case-insensitive, phone-format-agnostic search (exact name first);
     // returns `base` unchanged when the search box is empty.
-    return searchWorklist(base, search, ({ patient, visit }) => ({
+    return searchWorklist(base, debouncedSearch, ({ patient, visit }) => ({
       name: patient?.name,
       phone: patient?.identifiers?.find((id: any) => id.type === "PHONE")?.value,
       billNumber: visit.billNumber,
     }));
-  }, [visitsWithDetails, dateRange, search]);
+  }, [visitsWithDetails, dateRange, debouncedSearch]);
 
-  const paged = usePagedList(filteredVisits, `${search}|${dateRangeKey(dateRange)}`);
+  const paged = usePagedList(filteredVisits, `${debouncedSearch}|${dateRangeKey(dateRange)}`);
 
   // Whether any case is actually result-entry-eligible (passes the domain gate
   // above), independent of date/search. Lets the empty state tell "nothing to

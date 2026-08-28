@@ -23,6 +23,7 @@ import {
 import { formatPatientName, compactAge } from '@/lib/patientDisplay';
 import { searchWorklist } from '@/lib/worklistSearch';
 import { usePagedList } from '@/hooks/usePagedList';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { WorklistPager } from '@/components/worklist/WorklistPager';
 
 // Shape returned by GET /api/visits/clinic
@@ -77,6 +78,9 @@ const ClinicVisitQueue = () => {
   const [visitTypeFilter, setVisitTypeFilter] = useState('all');
   const [doctorFilter, setDoctorFilter] = useState('all');
   const [search, setSearch] = useState('');
+  // Debounce the value that drives the client-side filter + pager reset, so the
+  // box stays responsive and the list only re-ranks once typing pauses.
+  const debouncedSearch = useDebouncedValue(search, 250);
   const [selectedVisit, setSelectedVisit] = useState<QueueVisit | null>(null);
   const [updatingVisitId, setUpdatingVisitId] = useState<string | null>(null);
   const [chimeOn, setChimeOn] = useState<boolean | null>(null);
@@ -195,17 +199,17 @@ const ClinicVisitQueue = () => {
 
     // Ranked, case-insensitive, phone-format-agnostic search (exact name first);
     // returns `base` unchanged when the search box is empty.
-    return searchWorklist(base, search, (visit) => ({
+    return searchWorklist(base, debouncedSearch, (visit) => ({
       name: visit.patient.name,
       phone: visit.patient.identifiers.find((i) => i.type === 'PHONE')?.value,
       billNumber: visit.billNumber,
       visitRef: visit.visitRef,
     }));
-  }, [visits, visitTypeFilter, doctorFilter, search]);
+  }, [visits, visitTypeFilter, doctorFilter, debouncedSearch]);
 
   const paged = usePagedList(
     filteredVisits,
-    `${search}|${visitTypeFilter}|${doctorFilter}`,
+    `${debouncedSearch}|${visitTypeFilter}|${doctorFilter}`,
   );
 
   const updateVisitStatus = async (visit: QueueVisit, status: 'IN_PROGRESS' | 'COMPLETED') => {
