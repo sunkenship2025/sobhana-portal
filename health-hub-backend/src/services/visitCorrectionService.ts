@@ -491,8 +491,10 @@ export async function swapVisitProduct(params: {
   reason: string;
   note?: string | null;
   userId: string;
+  /** Dry-run: run every guard and report the impact without writing anything. */
+  preview?: boolean;
 }) {
-  const { visitId, branchId, oldProductId, newProductId, reason, note, userId } =
+  const { visitId, branchId, oldProductId, newProductId, reason, note, userId, preview } =
     params;
   if (oldProductId === newProductId) {
     throw new CorrectionError(400, "NO_CHANGE", "Both products are the same");
@@ -525,6 +527,23 @@ export async function swapVisitProduct(params: {
       409,
       "OUTSOURCED_ORDER",
       "That test is outsourced to an outside lab — use cancel/refund + re-bill so the lab payable stays correct.",
+    );
+  }
+
+  // Swapping INTO a product the visit already carries silently double-bills it,
+  // and the duplicate then has to be cancelled by hand. addProductsToVisit
+  // refuses the same move (DUPLICATE_PRODUCTS); swap must too, or the guard is
+  // only as strong as whichever path staff happen to use. oldProductId is
+  // already known to differ from newProductId, so no need to exclude targets.
+  if (
+    visit.testOrders.some(
+      (order) => order.productId === newProductId && !order.cancelledAt,
+    )
+  ) {
+    throw new CorrectionError(
+      409,
+      "DUPLICATE_PRODUCTS",
+      "That replacement test is already on this bill.",
     );
   }
 
@@ -598,9 +617,35 @@ export async function swapVisitProduct(params: {
     snapshots = resolved.testOrders.map(() => ({ ...SELF_SNAPSHOT }));
   }
 
-  const resultsToDelete = await prisma.testResult.count({
+  // Snapshot the results that the hard-delete is about to cascade away. The
+  // outgoing rows leave NO trace in the DB (unlike every other correction path,
+  // which soft-cancels), so the audit log is the only record they existed —
+  // a bare count would make a deleted result unreconstructible.
+  const deletedResults = await prisma.testResult.findMany({
     where: { testOrderId: { in: targetOrders.map((order) => order.id) } },
+    select: {
+      testOrderId: true,
+      testId: true,
+      testDefinitionId: true,
+      value: true,
+      textValue: true,
+      flag: true,
+      notes: true,
+    },
   });
+  const resultsToDelete = deletedResults.length;
+
+  // Dry-run for the confirm dialog: every guard above has passed, so the caller
+  // can show what the swap will destroy BEFORE the user commits to it.
+  if (preview) {
+    return {
+      preview: true,
+      oldTestNames: targetOrders.map((order) => order.testNameSnapshot),
+      newProductName: resolved.productName,
+      resultsDeleted: resultsToDelete,
+    };
+  }
+
   const displayOrderBase = Math.min(
     ...targetOrders.map((order) => order.displayOrder ?? 0),
   );
@@ -644,6 +689,21 @@ export async function swapVisitProduct(params: {
       productId: oldProductId,
       testNames: targetOrders.map((order) => order.testNameSnapshot),
       amountInPaise: oldTotalInPaise,
+      // Full snapshot of the hard-deleted rows + their results. The TestOrder
+      // rows are gone, so this is the ONLY way to reconstruct what was billed.
+      orders: targetOrders.map((order) => ({
+        id: order.id,
+        testName: order.testNameSnapshot,
+        testCode: order.testCodeSnapshot,
+        priceInPaise: order.priceInPaise,
+        productId: order.productId,
+        panelId: order.panelId,
+        testDefinitionId: order.testDefinitionId,
+        workflowMode: order.workflowMode,
+        results: deletedResults
+          .filter((result) => result.testOrderId === order.id)
+          .map(({ testOrderId: _omit, ...rest }) => rest),
+      })),
     },
     newValues: {
       action: "PRODUCT_SWAP",

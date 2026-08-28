@@ -4032,8 +4032,10 @@ router.post("/bulk-correct-referral", async (req: AuthRequest, res) => {
 // price changes must go through cancel/refund + add tests.
 router.post("/:id/swap-product", async (req: AuthRequest, res) => {
   try {
-    const { oldProductId, newProductId, reason, note } = req.body;
-    if (typeof reason !== "string" || !reason.trim()) {
+    const { oldProductId, newProductId, reason, note, preview } = req.body;
+    // A preview runs the guards and reports what the swap would destroy, so it
+    // fires before the user has picked a reason (mirrors /refund's preview).
+    if (!preview && (typeof reason !== "string" || !reason.trim())) {
       return res.status(400).json({
         error: "VALIDATION_ERROR",
         message: "A reason is required",
@@ -4050,9 +4052,10 @@ router.post("/:id/swap-product", async (req: AuthRequest, res) => {
       branchId: req.branchId!,
       oldProductId,
       newProductId,
-      reason: reason.trim(),
+      reason: typeof reason === "string" ? reason.trim() : "",
       note: typeof note === "string" && note.trim() ? note.trim() : null,
       userId: req.user!.id,
+      preview: Boolean(preview),
     });
     return res.json(result);
   } catch (err: any) {
