@@ -18,8 +18,9 @@ import type { SignatureReveal as Reveal } from '@/lib/signatureImage';
 const DISSOLVE_MS = 780;
 const ZOOM_MS = 420;
 const ZOOM_DELAY_MS = 120;
-/** Matches the h-16 preview the signature already renders at. */
-const STAGE_H = 64;
+/** Matches the h-16 preview the signature renders at inline; the editor passes
+ *  its own so the dialog doesn't resize when the animation hands over. */
+const DEFAULT_STAGE_H = 64;
 
 const easeInOut = (t: number) =>
   t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -33,9 +34,16 @@ interface SignatureRevealProps {
   finalUrl: string;
   /** Fired once the animation is over — the caller revokes the object URLs. */
   onDone: () => void;
+  /** Stage height in px. Must match whatever replaces this, or the layout jumps. */
+  height?: number;
 }
 
-export function SignatureReveal({ reveal, finalUrl, onDone }: SignatureRevealProps) {
+export function SignatureReveal({
+  reveal,
+  finalUrl,
+  onDone,
+  height = DEFAULT_STAGE_H,
+}: SignatureRevealProps) {
   const paperRef = useRef<HTMLImageElement>(null);
   const cutRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -99,13 +107,20 @@ export function SignatureReveal({ reveal, finalUrl, onDone }: SignatureRevealPro
   }, [reveal]);
 
   if (done) {
-    return <img src={finalUrl} alt="Signature, background removed" className="mx-auto h-16" />;
+    return (
+      <img
+        src={finalUrl}
+        alt="Signature, background removed"
+        className="mx-auto block w-auto"
+        style={{ height }}
+      />
+    );
   }
 
   return (
     <div
       className="relative mx-auto overflow-hidden"
-      style={{ height: STAGE_H, width: STAGE_H * reveal.aspect }}
+      style={{ height, width: height * reveal.aspect }}
     >
       <div ref={frameRef} className="absolute inset-0">
         <img

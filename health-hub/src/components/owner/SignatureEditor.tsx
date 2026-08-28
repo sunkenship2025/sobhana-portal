@@ -33,6 +33,9 @@ const BRUSH_SHARE = 0.02;
 const BRUSH_MIN_PX = 6;
 /** Undo depth. Each step is a full frame, so this is bounded on purpose. */
 const HISTORY_LIMIT = 12;
+/** The preview area is a FIXED height: the reveal and the editing canvas both
+ *  render at it, so the dialog doesn't jump when one replaces the other. */
+const STAGE_H = 200;
 
 interface SignatureEditorProps {
   /** The upload as picked — re-run when the strength changes. */
@@ -187,8 +190,9 @@ export function SignatureEditor({
         </DialogHeader>
 
         <div
-          className="rounded-lg border bg-muted/30 p-3"
+          className="flex items-center justify-center rounded-lg border bg-muted/30 p-3"
           style={{
+            height: STAGE_H + 24,
             backgroundImage:
               'linear-gradient(45deg,#00000008 25%,transparent 25%),linear-gradient(-45deg,#00000008 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#00000008 75%),linear-gradient(-45deg,transparent 75%,#00000008 75%)',
             backgroundSize: '12px 12px',
@@ -199,15 +203,14 @@ export function SignatureEditor({
             <SignatureReveal
               reveal={reveal}
               finalUrl={initialUrl}
+              height={STAGE_H}
               onDone={() => setPlaying(false)}
             />
           ) : (
             <canvas
               ref={canvasRef}
-              className={`mx-auto block max-h-[220px] w-auto max-w-full ${
-                erasing ? 'cursor-crosshair' : ''
-              }`}
-              style={{ touchAction: 'none' }}
+              className={`mx-auto block w-auto max-w-full ${erasing ? 'cursor-crosshair' : ''}`}
+              style={{ touchAction: 'none', maxHeight: STAGE_H }}
               onPointerDown={(e) => {
                 if (!erasing) return;
                 drawingRef.current = true;
