@@ -78,10 +78,7 @@ const LINE_SLOPES = 31;
 /** An island smaller than this share of the biggest one is debris. */
 const SPECK_FRAC = 0.004;
 const SPECK_MIN_PX = 40;
-/** A leftover island this thin (px) and this elongated, and light against the
- *  paper, is a rule fragment that was too short to out-vote the frame. */
-const DEBRIS_MAX_THICK = 4.5;
-const DEBRIS_MIN_ELONGATION = 8;
+
 
 const lum = (r: number, g: number, b: number) => 0.299 * r + 0.587 * g + 0.114 * b;
 
@@ -176,7 +173,17 @@ export interface InkMask {
   gray: Float32Array;
 }
 
-export function inkMask(src: ImageData, w: number, h: number): InkMask {
+/**
+ * @param sensitivity  Shifts the Sauvola k. Negative keeps more ink (faint
+ *   pencil, weak lamp); positive is stricter (drops shadow and paper texture).
+ *   Driven by the slider in the editor — no threshold suits every photo.
+ */
+export function inkMask(
+  src: ImageData,
+  w: number,
+  h: number,
+  sensitivity = 0,
+): InkMask {
   const gray = new Float32Array(w * h);
   const sq = new Float32Array(w * h);
   for (let i = 0, p = 0; i < src.data.length; i += 4, p += 1) {
@@ -197,7 +204,7 @@ export function inkMask(src: ImageData, w: number, h: number): InkMask {
   for (let p = 0; p < gray.length; p += 1) {
     const m = mean[p];
     const sd = Math.sqrt(Math.max(0, meanSq[p] * 255 - m * m));
-    const t = m * (1 + SAUVOLA_K * (sd / SAUVOLA_R - 1));
+    const t = m * (1 + (SAUVOLA_K + sensitivity) * (sd / SAUVOLA_R - 1));
     const g = gray[p];
     soft[p] = t <= 0 ? 0 : Math.max(0, Math.min(1, (t - g) / Math.max(1, t * SOFT_SPAN)));
     if (g < t * STRONG_AT) {
@@ -409,44 +416,29 @@ export function stripRuledLines(mask: InkMask, w: number, h: number): Uint8Clamp
 }
 
 /**
- * Drop islands that aren't the signature: grain, stray marks, and rule fragments
- * that were too short to out-vote the frame but still look printed — thin, long,
- * and light against the paper. The signature is thick, or dark, or both.
+ * Drop islands far smaller than the signature: paper grain and stray specks.
+ *
+ * Deliberately dumb. A cleverer version here judged leftovers by shape and
+ * lightness — thin, elongated and pale meant "rule fragment" — which also
+ * describes a faint detached pen stroke, and deleting ink is unrecoverable
+ * whereas a leftover takes one swipe of the eraser to remove.
  */
-export function despeckle(
-  alpha: Uint8ClampedArray,
-  mask: InkMask,
-  w: number,
-  h: number,
-): Uint8ClampedArray {
+export function despeckle(alpha: Uint8ClampedArray, w: number, h: number): Uint8ClampedArray {
   const label = new Int32Array(w * h);
   const stack: number[] = [];
-  interface Blob {
-    area: number;
-    minX: number;
-    maxX: number;
-    minY: number;
-    maxY: number;
-    ratios: number[];
-  }
-  const blobs: Blob[] = [{ area: 0, minX: 0, maxX: 0, minY: 0, maxY: 0, ratios: [] }];
+  const areas: number[] = [0];
 
   for (let start = 0; start < alpha.length; start += 1) {
     if (alpha[start] <= ALPHA_FLOOR || label[start]) continue;
-    const id = blobs.length;
-    const blob: Blob = { area: 0, minX: w, maxX: 0, minY: h, maxY: 0, ratios: [] };
+    const id = areas.length;
+    let area = 0;
     label[start] = id;
     stack.push(start);
     while (stack.length) {
       const p = stack.pop()!;
       const x = p % w;
       const y = (p - x) / w;
-      blob.area += 1;
-      if (x < blob.minX) blob.minX = x;
-      if (x > blob.maxX) blob.maxX = x;
-      if (y < blob.minY) blob.minY = y;
-      if (y > blob.maxY) blob.maxY = y;
-      blob.ratios.push(mask.gray[p] / Math.max(1, mask.mean[p]));
+      area += 1;
       for (let dy = -1; dy <= 1; dy += 1) {
         for (let dx = -1; dx <= 1; dx += 1) {
           const nx = x + dx;
@@ -459,22 +451,13 @@ export function despeckle(
         }
       }
     }
-    blobs.push(blob);
+    areas.push(area);
   }
-  if (blobs.length < 2) return alpha;
+  if (areas.length < 2) return alpha;
 
-  const biggest = blobs.reduce((n, b) => Math.max(n, b.area), 0);
+  const biggest = Math.max(...areas);
   const floor = Math.max(SPECK_MIN_PX, biggest * SPECK_FRAC);
-  const drop = blobs.map((b, i) => {
-    if (i === 0 || b.area === biggest) return false;
-    if (b.area < floor) return true;
-    const span = Math.max(b.maxX - b.minX + 1, b.maxY - b.minY + 1);
-    const thickness = b.area / Math.max(span, 1);
-    if (thickness > DEBRIS_MAX_THICK) return false;
-    if (span / Math.max(thickness, 0.1) < DEBRIS_MIN_ELONGATION) return false;
-    b.ratios.sort((p, q) => p - q);
-    return b.ratios[b.ratios.length >> 1] >= LINE_RATIO_GATE;
-  });
+  const drop = areas.map((a, i) => i !== 0 && a !== biggest && a < floor);
 
   const out = Uint8ClampedArray.from(alpha);
   for (let p = 0; p < out.length; p += 1) {
@@ -536,7 +519,10 @@ function hasTransparency(file: File, bitmap: ImageBitmap): boolean {
   return false;
 }
 
-export async function cleanSignature(file: File): Promise<CleanedSignature> {
+export async function cleanSignature(
+  file: File,
+  sensitivity = 0,
+): Promise<CleanedSignature> {
   try {
     const bitmap = await createImageBitmap(file);
     const scale = Math.min(1, MAX_DIM / Math.max(bitmap.width, bitmap.height));
@@ -555,8 +541,8 @@ export async function cleanSignature(file: File): Promise<CleanedSignature> {
       alpha = new Uint8ClampedArray(w * h);
       for (let i = 0, p = 0; i < src.data.length; i += 4, p += 1) alpha[p] = src.data[i + 3];
     } else {
-      const mask = inkMask(src, w, h);
-      alpha = despeckle(stripRuledLines(mask, w, h), mask, w, h);
+      const mask = inkMask(src, w, h, sensitivity);
+      alpha = despeckle(stripRuledLines(mask, w, h), w, h);
     }
 
     const out = new ImageData(w, h);

@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/sheet';
 import { useAuthStore } from '@/store/authStore';
 import { cleanSignature, type SignatureReveal as Reveal } from '@/lib/signatureImage';
-import { SignatureReveal } from '@/components/owner/SignatureReveal';
+import { SignatureEditor } from '@/components/owner/SignatureEditor';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import { useConfirm } from '@/hooks/use-confirm';
@@ -260,8 +260,11 @@ export default function ManageSigningDoctors() {
   /** The file as picked, before any cleanup — what "Remove background" re-reads. */
   const [signatureSourceFile, setSignatureSourceFile] = useState<File | null>(null);
   const [cleaningSignature, setCleaningSignature] = useState(false);
-  // The background-removal playback for the signature just picked, or null.
-  const [signatureReveal, setSignatureReveal] = useState<{ reveal: Reveal; finalUrl: string } | null>(null);
+  /** Open editor for the doctor's signature: what to edit and what it came from. */
+  const [signatureEdit, setSignatureEdit] = useState<
+    { source: File; cleaned: File; reveal: Reveal | null } | null
+  >(null);
+
 
   const [doctors, setDoctors] = useState<SigningDoctor[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -302,7 +305,9 @@ export default function ManageSigningDoctors() {
   const labInchargeSignatureInputRef = useRef<HTMLInputElement>(null);
   const labInchargeSignatureCameraRef = useRef<HTMLInputElement>(null);
   const [labInchargeSignatureSourceFile, setLabInchargeSignatureSourceFile] = useState<File | null>(null);
-  const [labInchargeSignatureReveal, setLabInchargeSignatureReveal] = useState<{ reveal: Reveal; finalUrl: string } | null>(null);
+  const [labInchargeSignatureEdit, setLabInchargeSignatureEdit] = useState<
+    { source: File; cleaned: File; reveal: Reveal | null } | null
+  >(null);
 
   // Rule dialog
   const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
@@ -704,17 +709,22 @@ export default function ManageSigningDoctors() {
         toast.info('Nothing to remove — this signature is already on a clear background');
         return;
       }
-      setLabInchargeSignatureReveal({ reveal: cleaned.reveal, finalUrl: URL.createObjectURL(cleaned.file) });
-      if (!editingLabInchargeId) {
-        setLabInchargePendingSignatureFile(cleaned.file);
-        if (labInchargePendingSignaturePreview) URL.revokeObjectURL(labInchargePendingSignaturePreview);
-        setLabInchargePendingSignaturePreview(URL.createObjectURL(cleaned.file));
-      } else {
-        await uploadLabInchargeSignature(cleaned.file);
-      }
+      setLabInchargeSignatureEdit({ source, cleaned: cleaned.file, reveal: cleaned.reveal });
     } finally {
       setCleaningSignature(false);
     }
+  };
+
+  const applyLabInchargeSignature = async (file: File) => {
+    if (!editingLabInchargeId) {
+      setLabInchargePendingSignatureFile(file);
+      if (labInchargePendingSignaturePreview) URL.revokeObjectURL(labInchargePendingSignaturePreview);
+      setLabInchargePendingSignaturePreview(URL.createObjectURL(file));
+      toast.success('Signature ready — it will be uploaded when you save the lab incharge');
+    } else {
+      await uploadLabInchargeSignature(file);
+    }
+    setLabInchargeSignatureEdit(null);
   };
 
   // ── Lab Incharge Rule CRUD ───────────────────────────────────────
@@ -893,17 +903,24 @@ export default function ManageSigningDoctors() {
         toast.info('Nothing to remove — this signature is already on a clear background');
         return;
       }
-      setSignatureReveal({ reveal: cleaned.reveal, finalUrl: URL.createObjectURL(cleaned.file) });
-      if (!editingDoctorId) {
-        setPendingSignatureFile(cleaned.file);
-        if (pendingSignaturePreview) URL.revokeObjectURL(pendingSignaturePreview);
-        setPendingSignaturePreview(URL.createObjectURL(cleaned.file));
-      } else {
-        await uploadDoctorSignature(cleaned.file);
-      }
+      // Hand the result to the person who can see it: adjust, erase, then apply.
+      setSignatureEdit({ source, cleaned: cleaned.file, reveal: cleaned.reveal });
     } finally {
       setCleaningSignature(false);
     }
+  };
+
+  /** "Use this signature" from the editor — same two paths as a fresh upload. */
+  const applyDoctorSignature = async (file: File) => {
+    if (!editingDoctorId) {
+      setPendingSignatureFile(file);
+      if (pendingSignaturePreview) URL.revokeObjectURL(pendingSignaturePreview);
+      setPendingSignaturePreview(URL.createObjectURL(file));
+      toast.success('Signature ready — it will be uploaded when you save the doctor');
+    } else {
+      await uploadDoctorSignature(file);
+    }
+    setSignatureEdit(null);
   };
 
   // ── Rule CRUD ────────────────────────────────────────────────────
@@ -1529,32 +1546,17 @@ export default function ManageSigningDoctors() {
               />
 
               {/* Current / pending signature preview */}
-              {signatureReveal || (editingDoctorId && signatureSrc(doctors.find(d => d.id === editingDoctorId) || {})) || pendingSignaturePreview ? (
+              {(editingDoctorId && signatureSrc(doctors.find(d => d.id === editingDoctorId) || {})) || pendingSignaturePreview ? (
                 <div className="space-y-2">
                   <div className="border rounded-lg p-3 bg-muted/30">
-                    {signatureReveal ? (
-                      <SignatureReveal
-                        reveal={signatureReveal.reveal}
-                        finalUrl={signatureReveal.finalUrl}
-                        onDone={() => {
-                          URL.revokeObjectURL(signatureReveal.reveal.originalUrl);
-                          URL.revokeObjectURL(signatureReveal.reveal.cutoutUrl);
-                          URL.revokeObjectURL(signatureReveal.finalUrl);
-                          setSignatureReveal(null);
-                        }}
-                      />
-                    ) : (
-                      <img
-                        src={pendingSignaturePreview || signatureSrc(doctors.find(d => d.id === editingDoctorId) || {})}
-                        alt={pendingSignaturePreview ? 'Selected signature' : 'Current signature'}
-                        className="h-16 mx-auto"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                      />
-                    )}
+                    <img
+                      src={pendingSignaturePreview || signatureSrc(doctors.find(d => d.id === editingDoctorId) || {})}
+                      alt={pendingSignaturePreview ? 'Selected signature' : 'Current signature'}
+                      className="h-16 mx-auto"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
                     <p className="text-xs text-center text-muted-foreground mt-1">
-                      {signatureReveal
-                        ? 'Background removed and cropped'
-                        : pendingSignaturePreview ? 'Selected signature (will upload on save)' : 'Current signature'}
+                      {pendingSignaturePreview ? 'Selected signature (will upload on save)' : 'Current signature'}
                     </p>
                   </div>
                   <div className={CAN_CAPTURE ? 'grid grid-cols-2 gap-2' : ''}>
@@ -1613,7 +1615,7 @@ export default function ManageSigningDoctors() {
                   </p>
                 </div>
               )}
-              {CAN_CAPTURE && !signatureReveal && !pendingSignaturePreview && (
+              {CAN_CAPTURE && !pendingSignaturePreview && (
                 <Button
                   type="button"
                   variant="outline"
@@ -1791,32 +1793,17 @@ export default function ManageSigningDoctors() {
                 onChange={handleLabInchargeSignatureUpload}
               />
 
-              {labInchargeSignatureReveal || (editingLabInchargeId && signatureSrc(labIncharges.find(li => li.id === editingLabInchargeId) || {})) || labInchargePendingSignaturePreview ? (
+              {(editingLabInchargeId && signatureSrc(labIncharges.find(li => li.id === editingLabInchargeId) || {})) || labInchargePendingSignaturePreview ? (
                 <div className="space-y-2">
                   <div className="border rounded-lg p-3 bg-muted/30">
-                    {labInchargeSignatureReveal ? (
-                      <SignatureReveal
-                        reveal={labInchargeSignatureReveal.reveal}
-                        finalUrl={labInchargeSignatureReveal.finalUrl}
-                        onDone={() => {
-                          URL.revokeObjectURL(labInchargeSignatureReveal.reveal.originalUrl);
-                          URL.revokeObjectURL(labInchargeSignatureReveal.reveal.cutoutUrl);
-                          URL.revokeObjectURL(labInchargeSignatureReveal.finalUrl);
-                          setLabInchargeSignatureReveal(null);
-                        }}
-                      />
-                    ) : (
-                      <img
-                        src={labInchargePendingSignaturePreview || signatureSrc(labIncharges.find(li => li.id === editingLabInchargeId) || {})}
-                        alt={labInchargePendingSignaturePreview ? 'Selected signature' : 'Current signature'}
-                        className="h-16 mx-auto"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                      />
-                    )}
+                    <img
+                      src={labInchargePendingSignaturePreview || signatureSrc(labIncharges.find(li => li.id === editingLabInchargeId) || {})}
+                      alt={labInchargePendingSignaturePreview ? 'Selected signature' : 'Current signature'}
+                      className="h-16 mx-auto"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
                     <p className="text-xs text-center text-muted-foreground mt-1">
-                      {labInchargeSignatureReveal
-                        ? 'Background removed and cropped'
-                        : labInchargePendingSignaturePreview ? 'Selected signature (will upload on save)' : 'Current signature'}
+                      {labInchargePendingSignaturePreview ? 'Selected signature (will upload on save)' : 'Current signature'}
                     </p>
                   </div>
                   <div className={CAN_CAPTURE ? 'grid grid-cols-2 gap-2' : ''}>
@@ -1875,7 +1862,7 @@ export default function ManageSigningDoctors() {
                   </p>
                 </div>
               )}
-              {CAN_CAPTURE && !labInchargeSignatureReveal && !labInchargePendingSignaturePreview && (
+              {CAN_CAPTURE && !labInchargePendingSignaturePreview && (
                 <Button
                   type="button"
                   variant="outline"
@@ -2033,6 +2020,28 @@ export default function ManageSigningDoctors() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Background-removal editor (strength / erase / undo) ──── */}
+      {signatureEdit && (
+        <SignatureEditor
+          source={signatureEdit.source}
+          initial={signatureEdit.cleaned}
+          reveal={signatureEdit.reveal}
+          busy={uploading}
+          onApply={applyDoctorSignature}
+          onCancel={() => setSignatureEdit(null)}
+        />
+      )}
+      {labInchargeSignatureEdit && (
+        <SignatureEditor
+          source={labInchargeSignatureEdit.source}
+          initial={labInchargeSignatureEdit.cleaned}
+          reveal={labInchargeSignatureEdit.reveal}
+          busy={uploading}
+          onApply={applyLabInchargeSignature}
+          onCancel={() => setLabInchargeSignatureEdit(null)}
+        />
+      )}
     </div>
   );
 }
