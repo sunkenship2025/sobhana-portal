@@ -1,51 +1,444 @@
 /**
- * cleanSignature — strip the paper background off an uploaded signature and crop
- * to the ink. Browser-side, canvas only: no dependency, no server CPU, and the
- * preview the user sees before saving is already the cleaned image.
+ * cleanSignature — lift a signature off the paper it was written on and crop to
+ * the ink. Browser-side, canvas only: no dependency, no server CPU, and the
+ * preview the user approves is the exact image that gets stored.
  *
- * Phone photos of a signed slip have uneven lighting, so one global threshold
- * either eats faint strokes or leaves a grey box. The paper is instead estimated
- * locally with a heavy blur and every pixel divided by it (flat-field
- * correction): paper lands near 1.0 whatever the lamp was doing, ink well below.
- * Alpha ramps between the two so anti-aliased stroke edges stay smooth.
+ * Three stages, each earning its place on real uploads:
  *
- * Anything unexpected (decode failure, a result with almost no ink left) returns
- * the ORIGINAL file — a cosmetic step must never block a signature upload.
+ *  1. Sauvola local thresholding. A phone photo has uneven lighting, so a single
+ *     global threshold either eats faint strokes or leaves a grey box. Sauvola
+ *     thresholds each pixel against the local mean AND local contrast,
+ *     T = m(1 + k(s/R - 1)), so blank paper — where s collapses to nothing —
+ *     can never turn into ink. Both moments come from blurred copies.
+ *  2. Hysteresis. Pixels well under T are seeds; pixels just under it survive
+ *     only if they touch a seed. Faint stroke tails stay attached, paper grain
+ *     dies.
+ *  3. Ruled-line removal. Printed rules are ink to any thresholder, and people
+ *     sign on whatever notebook is on the desk. Rules are found by vote over
+ *     near-horizontal and near-vertical slopes, then followed and deleted.
+ *
+ * Every stage fails safe: anything unexpected returns the ORIGINAL file. A
+ * cosmetic step must never block a signature upload.
  */
 
 /** Reports render a signature ~150px tall; 1200 keeps it crisp and the PNG small. */
 const MAX_DIM = 1200;
-/** paper/ink ratio at or above which a pixel is background. */
-const PAPER = 0.9;
-/** ratio at or below which a pixel is solid ink. */
-const INK = 0.55;
 /** 0-255 alpha under which a pixel doesn't count as ink at all. */
 const ALPHA_FLOOR = 8;
-/** A row/column needs this share of ink pixels to bound the crop — kills dust
- *  specks and the faint rim the blur leaves at the image border. */
+/** A row/column needs this share of ink pixels to bound the crop — kills dust. */
 const EDGE_INK_SHARE = 0.003;
 /** Fraction of the crop added back as breathing room. */
 const PAD = 0.03;
-/** Ink is deepened by up to this much, scaled by opacity — a ballpoint photographed
- *  under a weak lamp prints washed out, and the paper it used to sit on is gone, so
- *  there's nothing left to carry the contrast. Edges darken less than stroke cores,
- *  which keeps the anti-aliasing soft. */
+/** Ink is deepened by up to this much, scaled by opacity: once the paper is gone
+ *  there is nothing left to carry the contrast of a weakly-lit ballpoint. */
 const INK_DARKEN = 0.22;
+
+// ── Sauvola ──────────────────────────────────────────────────────────────────
+/** Sensitivity. Lower grabs more ink; 0.34 is the usual document-binarisation pick. */
+const SAUVOLA_K = 0.34;
+/** Dynamic range of the local standard deviation, per the original paper. */
+const SAUVOLA_R = 128;
+/** Below this fraction of T a pixel is a confident seed rather than a maybe. */
+const STRONG_AT = 0.78;
+/** How far below T alpha takes to reach full — the anti-aliasing ramp. */
+const SOFT_SPAN = 0.35;
+
+// ── Ruled lines ──────────────────────────────────────────────────────────────
+/** Ink on one line, as a share of the frame, before it counts as printed. */
+const LINE_VOTE = 0.35;
+/** Median darkness against local paper, above which a candidate is printed
+ *  rather than handwritten. Measured on a real notebook photo: printed rules
+ *  land at 0.44-0.53, pen flourishes (which are also long, thin and straight) at
+ *  0.24-0.34. Shape cannot separate those two; darkness can. */
+const LINE_RATIO_GATE = 0.39;
+/** An ink run thicker than this across the rule is the signature crossing it. */
+const LINE_MAX_THICK = 7;
+/** How far off the predicted position to look for the rule. */
+const LINE_SEARCH = 6;
+/** Half-width cleared at a crossing, where the run can't be measured. */
+const LINE_HALF = 2;
+/** Ink within this distance on BOTH sides means a stroke passes through. */
+const LINE_BRIDGE = 6;
+/** Cap on how far the tracker may wander from the fitted line. */
+const LINE_ANCHOR = 8;
+/** Slopes swept, ±0.15 ≈ ±8.5° — covers any hand-held tilt. */
+const LINE_SLOPES = 31;
+
+// ── Speckle ──────────────────────────────────────────────────────────────────
+/** An island smaller than this share of the biggest one is debris. */
+const SPECK_FRAC = 0.004;
+const SPECK_MIN_PX = 40;
 
 const lum = (r: number, g: number, b: number) => 0.299 * r + 0.587 * g + 0.114 * b;
 
-/** Pixel alpha (0-255) from its luminance against the locally-estimated paper. */
-export function inkAlpha(pixelLum: number, paperLum: number): number {
-  const ratio = pixelLum / Math.max(paperLum, 1);
-  if (ratio >= PAPER) return 0;
-  if (ratio <= INK) return 255;
-  return Math.round((255 * (PAPER - ratio)) / (PAPER - INK));
+/** Frames for the reveal animation. Both URLs are object URLs the CALLER revokes. */
+export interface SignatureReveal {
+  /** The upload as drawn, unscaled aspect. */
+  originalUrl: string;
+  /** Same frame, background removed, NOT yet cropped — so the wipe lines up. */
+  cutoutUrl: string;
+  /** Crop box within that frame, normalised 0-1, for the zoom that follows. */
+  box: { x: number; y: number; w: number; h: number };
+  /** Frame aspect (w/h), so the preview box can match it. */
+  aspect: number;
+}
+
+export interface CleanedSignature {
+  /** Cleaned + cropped, or the ORIGINAL file when nothing could be improved. */
+  file: File;
+  /** null when no background was removed (already-transparent PNG, or fallback). */
+  reveal: SignatureReveal | null;
+}
+
+// ── canvas helpers ───────────────────────────────────────────────────────────
+
+function make(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  return [canvas, canvas.getContext('2d', { willReadFrequently: true })!];
 }
 
 /**
- * Bounding box of the ink in an alpha plane, padded. Rows/columns are kept only
- * when enough of their pixels are ink, so a stray speck can't veto the crop.
- * Returns null when there is effectively no ink.
+ * Blur a single plane with the edges REPLICATED outward first.
+ *
+ * Canvas blurs against whatever is outside the frame — nothing — which drags the
+ * paper estimate toward the fill colour along every border and paints a false
+ * ink rim there. Stretching the outermost row and column into a margin first
+ * costs eight drawImage calls and removes the artefact entirely.
+ */
+function blurPlane(values: Float32Array, w: number, h: number, radius: number): Float32Array {
+  const [src, sctx] = make(w, h);
+  const img = sctx.createImageData(w, h);
+  for (let i = 0; i < values.length; i += 1) {
+    const v = values[i];
+    img.data[i * 4] = v;
+    img.data[i * 4 + 1] = v;
+    img.data[i * 4 + 2] = v;
+    img.data[i * 4 + 3] = 255;
+  }
+  sctx.putImageData(img, 0, 0);
+
+  // A CSS blur of radius r has support out to roughly 1.5r; pad 2r and be done.
+  const p = Math.ceil(radius * 2);
+  const [padded, pctx] = make(w + 2 * p, h + 2 * p);
+  pctx.drawImage(src, 0, 0, 1, h, 0, p, p, h); // left
+  pctx.drawImage(src, w - 1, 0, 1, h, w + p, p, p, h); // right
+  pctx.drawImage(src, 0, 0, w, 1, p, 0, w, p); // top
+  pctx.drawImage(src, 0, h - 1, w, 1, p, h + p, w, p); // bottom
+  pctx.drawImage(src, 0, 0, 1, 1, 0, 0, p, p); // corners
+  pctx.drawImage(src, w - 1, 0, 1, 1, w + p, 0, p, p);
+  pctx.drawImage(src, 0, h - 1, 1, 1, 0, h + p, p, p);
+  pctx.drawImage(src, w - 1, h - 1, 1, 1, w + p, h + p, p, p);
+  pctx.drawImage(src, p, p);
+
+  const [, bctx] = make(w + 2 * p, h + 2 * p);
+  bctx.filter = `blur(${radius}px)`;
+  bctx.drawImage(padded, 0, 0);
+  const { data } = bctx.getImageData(p, p, w, h);
+
+  const out = new Float32Array(w * h);
+  for (let i = 0; i < out.length; i += 1) out[i] = data[i * 4];
+  return out;
+}
+
+function drawFrame(bitmap: ImageBitmap, w: number, h: number, fillWhite: boolean): ImageData {
+  const [, ctx] = make(w, h);
+  if (fillWhite) {
+    // Paper, not transparency, under the image: a JPEG has no alpha of its own.
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, w, h);
+  }
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  return ctx.getImageData(0, 0, w, h);
+}
+
+// ── stage 1 + 2: Sauvola with hysteresis ─────────────────────────────────────
+
+export interface InkMask {
+  alpha: Uint8ClampedArray;
+  /** Local paper estimate — reused to judge whether a line is printed or drawn. */
+  mean: Float32Array;
+  gray: Float32Array;
+}
+
+export function inkMask(src: ImageData, w: number, h: number): InkMask {
+  const gray = new Float32Array(w * h);
+  const sq = new Float32Array(w * h);
+  for (let i = 0, p = 0; i < src.data.length; i += 4, p += 1) {
+    const g = lum(src.data[i], src.data[i + 1], src.data[i + 2]);
+    gray[p] = g;
+    sq[p] = (g * g) / 255;
+  }
+
+  const win = Math.max(8, Math.round(Math.min(w, h) / 12));
+  const mean = blurPlane(gray, w, h, win);
+  const meanSq = blurPlane(sq, w, h, win);
+
+  const alpha = new Uint8ClampedArray(w * h);
+  const weak = new Uint8Array(w * h);
+  const soft = new Float32Array(w * h);
+  const stack: number[] = [];
+
+  for (let p = 0; p < gray.length; p += 1) {
+    const m = mean[p];
+    const sd = Math.sqrt(Math.max(0, meanSq[p] * 255 - m * m));
+    const t = m * (1 + SAUVOLA_K * (sd / SAUVOLA_R - 1));
+    const g = gray[p];
+    soft[p] = t <= 0 ? 0 : Math.max(0, Math.min(1, (t - g) / Math.max(1, t * SOFT_SPAN)));
+    if (g < t * STRONG_AT) {
+      alpha[p] = Math.round(255 * Math.max(soft[p], 0.85));
+      stack.push(p);
+    } else if (g < t) {
+      weak[p] = 1;
+    }
+  }
+
+  // Hysteresis: a maybe-pixel only counts if it touches a confident one.
+  while (stack.length) {
+    const p = stack.pop()!;
+    const x = p % w;
+    const y = (p - x) / w;
+    for (let dy = -1; dy <= 1; dy += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const q = ny * w + nx;
+        if (!weak[q]) continue;
+        weak[q] = 0;
+        alpha[q] = Math.round(255 * soft[q]);
+        stack.push(q);
+      }
+    }
+  }
+
+  return { alpha, mean, gray };
+}
+
+// ── stage 3: ruled lines ─────────────────────────────────────────────────────
+
+interface RuledLine {
+  /** Slope, in the swept direction. */
+  m: number;
+  /** Intercept at the start of the frame. */
+  b: number;
+}
+
+/**
+ * Vote over near-horizontal (or near-vertical) slopes: for each slope and
+ * intercept, count the ink lying on that line. Anything polling above
+ * LINE_VOTE of the span is a printed rule — unless it is too dark against the
+ * paper, in which case it is a pen stroke that merely happens to be straight.
+ */
+export function findRuledLines(
+  mask: InkMask,
+  w: number,
+  h: number,
+  vertical: boolean,
+): RuledLine[] {
+  const span = vertical ? h : w;
+  const need = Math.round(span * LINE_VOTE);
+  const offset = Math.ceil(0.15 * span) + 2;
+  const size = (vertical ? w : h) + 2 * offset;
+  const candidates: Array<RuledLine & { votes: number }> = [];
+
+  for (let si = 0; si < LINE_SLOPES; si += 1) {
+    const m = -0.15 + (0.3 * si) / (LINE_SLOPES - 1);
+    const acc = new Int32Array(size);
+    for (let y = 0; y < h; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        if (mask.alpha[y * w + x] <= 60) continue;
+        const b = Math.round(vertical ? x - m * y : y - m * x);
+        acc[b + offset] += 1;
+      }
+    }
+    for (let i = 0; i < size; i += 1) {
+      if (acc[i] < need) continue;
+      const b = i - offset;
+      // Darkness of this candidate against the local paper decides printed vs pen.
+      // Median, not mean: the few places where the signature crosses the rule are
+      // very dark and would drag an average below the gate.
+      const ratios: number[] = [];
+      for (let a = 0; a < (vertical ? h : w); a += 1) {
+        const c = Math.round(m * a + b);
+        const x = vertical ? c : a;
+        const y = vertical ? a : c;
+        if (x < 0 || y < 0 || x >= w || y >= h) continue;
+        const p = y * w + x;
+        if (mask.alpha[p] <= 60) continue;
+        ratios.push(mask.gray[p] / Math.max(1, mask.mean[p]));
+      }
+      if (!ratios.length) continue;
+      ratios.sort((p, q) => p - q);
+      if (ratios[ratios.length >> 1] < LINE_RATIO_GATE) continue;
+      candidates.push({ m, b, votes: acc[i] });
+    }
+  }
+
+  candidates.sort((a, b) => b.votes - a.votes);
+  const kept: RuledLine[] = [];
+  const half = (vertical ? h : w) / 2;
+  for (const c of candidates) {
+    const mid = c.m * half + c.b;
+    if (kept.some((k) => Math.abs(k.m * half + k.b - mid) < 10)) continue;
+    kept.push({ m: c.m, b: c.b });
+  }
+  return kept;
+}
+
+/**
+ * Delete the rules, then put back only what a stroke needs to stay continuous.
+ *
+ * Photographed paper curves, so the fitted line drifts off the rule near the
+ * edges: the sweep re-centres on the local ink run at every step but is anchored
+ * to within LINE_ANCHOR of the model, or it loses the rule and leaves fragments.
+ * A run thicker than LINE_MAX_THICK is the signature crossing, so it survives.
+ */
+export function stripRuledLines(mask: InkMask, w: number, h: number): Uint8ClampedArray {
+  const out = Uint8ClampedArray.from(mask.alpha);
+  const removed = new Uint8Array(w * h);
+  const idx = (a: number, c: number, vertical: boolean) =>
+    vertical
+      ? c < 0 || c >= w || a < 0 || a >= h
+        ? -1
+        : a * w + c
+      : c < 0 || c >= h || a < 0 || a >= w
+        ? -1
+        : c * w + a;
+
+  const sweep = (lines: RuledLine[], vertical: boolean) => {
+    const along = vertical ? h : w;
+    for (const line of lines) {
+      let c = line.b;
+      for (let a = 0; a < along; a += 1) {
+        const model = line.m * a + line.b;
+        c = Math.min(Math.max(c, model - LINE_ANCHOR), model + LINE_ANCHOR);
+
+        let lo = -1;
+        let hi = -1;
+        for (let d = 0; d <= LINE_SEARCH * 2; d += 1) {
+          // 0, -1, +1, -2, +2 … so the nearest run wins
+          const step = d === 0 ? 0 : (d % 2 ? -1 : 1) * Math.ceil(d / 2);
+          const seed = Math.round(c) + step;
+          const i = idx(a, seed, vertical);
+          if (i < 0 || out[i] <= ALPHA_FLOOR) continue;
+          lo = seed;
+          hi = seed;
+          for (;;) {
+            const j = idx(a, lo - 1, vertical);
+            if (j < 0 || out[j] <= ALPHA_FLOOR) break;
+            lo -= 1;
+          }
+          for (;;) {
+            const j = idx(a, hi + 1, vertical);
+            if (j < 0 || out[j] <= ALPHA_FLOOR) break;
+            hi += 1;
+          }
+          break;
+        }
+
+        if (lo < 0) {
+          c += line.m; // rule broken here — coast on the model
+          continue;
+        }
+        if (hi - lo + 1 > LINE_MAX_THICK) {
+          // The signature crossing. Clear only the thin core of the rule.
+          c += line.m;
+          for (let k = Math.round(c - LINE_HALF); k <= Math.round(c + LINE_HALF); k += 1) {
+            const i = idx(a, k, vertical);
+            if (i >= 0 && out[i] > 0) {
+              removed[i] = 1;
+              out[i] = 0;
+            }
+          }
+          continue;
+        }
+        for (let k = lo; k <= hi; k += 1) {
+          const i = idx(a, k, vertical);
+          if (i >= 0 && out[i] > 0) {
+            removed[i] = 1;
+            out[i] = 0;
+          }
+        }
+        c = (lo + hi) / 2 + line.m;
+      }
+    }
+  };
+
+  sweep(findRuledLines(mask, w, h, false), false);
+  sweep(findRuledLines(mask, w, h, true), true);
+
+  // Restore a removed pixel only where ink continues on BOTH sides — that is a
+  // stroke passing through. A stub hanging off the rule has one side only.
+  const near = (p: number, step: number, count: number) => {
+    let best = 0;
+    for (let i = 1; i <= count; i += 1) {
+      const q = p + step * i;
+      if (q < 0 || q >= out.length) break;
+      best = Math.max(best, out[q]);
+    }
+    return best;
+  };
+  for (let p = 0; p < removed.length; p += 1) {
+    if (!removed[p]) continue;
+    const up = near(p, -w, LINE_BRIDGE);
+    const down = near(p, w, LINE_BRIDGE);
+    const left = near(p, -1, LINE_BRIDGE);
+    const right = near(p, 1, LINE_BRIDGE);
+    if ((up > ALPHA_FLOOR && down > ALPHA_FLOOR) || (left > ALPHA_FLOOR && right > ALPHA_FLOOR)) {
+      out[p] = mask.alpha[p];
+    }
+  }
+  return out;
+}
+
+/** Drop islands far smaller than the signature: rule fragments, grain, stray marks. */
+export function despeckle(alpha: Uint8ClampedArray, w: number, h: number): Uint8ClampedArray {
+  const label = new Int32Array(w * h);
+  const sizes: number[] = [0];
+  const stack: number[] = [];
+  for (let start = 0; start < alpha.length; start += 1) {
+    if (alpha[start] <= ALPHA_FLOOR || label[start]) continue;
+    const id = sizes.length;
+    let count = 0;
+    label[start] = id;
+    stack.push(start);
+    while (stack.length) {
+      const p = stack.pop()!;
+      count += 1;
+      const x = p % w;
+      const y = (p - x) / w;
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dx = -1; dx <= 1; dx += 1) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const q = ny * w + nx;
+          if (alpha[q] <= ALPHA_FLOOR || label[q]) continue;
+          label[q] = id;
+          stack.push(q);
+        }
+      }
+    }
+    sizes.push(count);
+  }
+  if (sizes.length < 2) return alpha;
+  const biggest = Math.max(...sizes);
+  const floor = Math.max(SPECK_MIN_PX, biggest * SPECK_FRAC);
+  const out = Uint8ClampedArray.from(alpha);
+  for (let p = 0; p < out.length; p += 1) {
+    if (label[p] && sizes[label[p]] < floor) out[p] = 0;
+  }
+  return out;
+}
+
+// ── crop ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Bounding box of the ink, padded. Rows/columns are kept only when enough of
+ * their pixels are ink, so a stray speck can't veto the crop. Null when there is
+ * effectively no ink.
  */
 export function contentBox(
   alpha: Uint8ClampedArray,
@@ -82,45 +475,15 @@ export function contentBox(
   return { x: left, y: top, w: right - left + 1, h: bottom - top + 1 };
 }
 
-function drawToCanvas(
-  bitmap: ImageBitmap,
-  w: number,
-  h: number,
-  filter?: string,
-  fillWhite = true,
-): ImageData {
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-  // Paper, not transparency, under the image: a JPEG has no alpha and a blurred
-  // copy must fade to paper-white rather than to black.
-  if (fillWhite) {
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, w, h);
-  }
-  if (filter) ctx.filter = filter;
-  ctx.drawImage(bitmap, 0, 0, w, h);
-  return ctx.getImageData(0, 0, w, h);
-}
-
-/** Frames for the reveal animation. Both URLs are object URLs the CALLER revokes. */
-export interface SignatureReveal {
-  /** The upload as drawn, unscaled aspect. */
-  originalUrl: string;
-  /** Same frame, background removed, NOT yet cropped — so the wipe lines up. */
-  cutoutUrl: string;
-  /** Crop box within that frame, normalised 0-1, for the zoom that follows. */
-  box: { x: number; y: number; w: number; h: number };
-  /** Frame aspect (w/h), so the preview box can match it. */
-  aspect: number;
-}
-
-export interface CleanedSignature {
-  /** Cleaned + cropped, or the ORIGINAL file when nothing could be improved. */
-  file: File;
-  /** null when no background was removed (already-transparent PNG, or fallback). */
-  reveal: SignatureReveal | null;
+/** True when the upload is a PNG carrying real cut-out transparency. */
+function hasTransparency(file: File, bitmap: ImageBitmap): boolean {
+  if (file.type !== 'image/png') return false;
+  const size = Math.min(120, Math.max(bitmap.width, bitmap.height));
+  const [, ctx] = make(size, size);
+  ctx.drawImage(bitmap, 0, 0, size, size);
+  const { data } = ctx.getImageData(0, 0, size, size);
+  for (let i = 3; i < data.length; i += 4) if (data[i] < 250) return true;
+  return false;
 }
 
 export async function cleanSignature(file: File): Promise<CleanedSignature> {
@@ -134,48 +497,39 @@ export async function cleanSignature(file: File): Promise<CleanedSignature> {
     // re-thresholding someone's clean signature would only degrade it. It still
     // gets cropped.
     const alreadyCut = hasTransparency(file, bitmap);
-    const src = drawToCanvas(bitmap, w, h, undefined, !alreadyCut);
-    const blur = Math.max(6, Math.round(Math.min(w, h) / 10));
-    const paper = alreadyCut ? null : drawToCanvas(bitmap, w, h, `blur(${blur}px)`);
+    const src = drawFrame(bitmap, w, h, !alreadyCut);
     bitmap.close?.();
 
+    let alpha: Uint8ClampedArray;
+    if (alreadyCut) {
+      alpha = new Uint8ClampedArray(w * h);
+      for (let i = 0, p = 0; i < src.data.length; i += 4, p += 1) alpha[p] = src.data[i + 3];
+    } else {
+      const mask = inkMask(src, w, h);
+      alpha = despeckle(stripRuledLines(mask, w, h), w, h);
+    }
+
     const out = new ImageData(w, h);
-    const alpha = new Uint8ClampedArray(w * h);
     for (let i = 0, p = 0; i < src.data.length; i += 4, p += 1) {
-      const r = src.data[i];
-      const g = src.data[i + 1];
-      const b = src.data[i + 2];
-      const a = paper
-        ? inkAlpha(lum(r, g, b), lum(paper.data[i], paper.data[i + 1], paper.data[i + 2]))
-        : src.data[i + 3];
+      const a = alpha[p];
       // Deepen the ink in proportion to how solid it is (untouched for an
       // already-transparent PNG — that one was authored, not photographed).
-      const k = paper ? 1 - INK_DARKEN * (a / 255) : 1;
-      alpha[p] = a;
-      out.data[i] = r * k;
-      out.data[i + 1] = g * k;
-      out.data[i + 2] = b * k;
+      const k = alreadyCut ? 1 : 1 - INK_DARKEN * (a / 255);
+      out.data[i] = src.data[i] * k;
+      out.data[i + 1] = src.data[i + 1] * k;
+      out.data[i + 2] = src.data[i + 2] * k;
       out.data[i + 3] = a;
     }
 
     const box = contentBox(alpha, w, h);
     if (!box) return { file, reveal: null };
 
-    const full = document.createElement('canvas');
-    full.width = w;
-    full.height = h;
-    full.getContext('2d')!.putImageData(out, 0, 0);
+    const [full, fctx] = make(w, h);
+    fctx.putImageData(out, 0, 0);
+    const [cropped, cctx] = make(box.w, box.h);
+    cctx.drawImage(full, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
 
-    const cropped = document.createElement('canvas');
-    cropped.width = box.w;
-    cropped.height = box.h;
-    cropped
-      .getContext('2d')!
-      .drawImage(full, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
-
-    const blob = await new Promise<Blob | null>((resolve) =>
-      cropped.toBlob(resolve, 'image/png'),
-    );
+    const blob = await new Promise<Blob | null>((resolve) => cropped.toBlob(resolve, 'image/png'));
     // The upload endpoint caps at 2MB and keys the stored mime off the extension.
     if (!blob || blob.size > 2 * 1024 * 1024) return { file, reveal: null };
     const cleaned = new File([blob], `${file.name.replace(/\.[^.]+$/, '')}.png`, {
@@ -185,9 +539,7 @@ export async function cleanSignature(file: File): Promise<CleanedSignature> {
     // Only worth animating when a background actually came off.
     let reveal: SignatureReveal | null = null;
     if (!alreadyCut) {
-      const cutout = await new Promise<Blob | null>((resolve) =>
-        full.toBlob(resolve, 'image/png'),
-      );
+      const cutout = await new Promise<Blob | null>((resolve) => full.toBlob(resolve, 'image/png'));
       if (cutout) {
         reveal = {
           originalUrl: URL.createObjectURL(file),
@@ -201,18 +553,4 @@ export async function cleanSignature(file: File): Promise<CleanedSignature> {
   } catch {
     return { file, reveal: null };
   }
-}
-
-/** True when the upload is a PNG carrying real cut-out transparency. */
-function hasTransparency(file: File, bitmap: ImageBitmap): boolean {
-  if (file.type !== 'image/png') return false;
-  const probe = document.createElement('canvas');
-  const size = Math.min(120, Math.max(bitmap.width, bitmap.height));
-  probe.width = size;
-  probe.height = size;
-  const ctx = probe.getContext('2d', { willReadFrequently: true })!;
-  ctx.drawImage(bitmap, 0, 0, size, size);
-  const { data } = ctx.getImageData(0, 0, size, size);
-  for (let i = 3; i < data.length; i += 4) if (data[i] < 250) return true;
-  return false;
 }
