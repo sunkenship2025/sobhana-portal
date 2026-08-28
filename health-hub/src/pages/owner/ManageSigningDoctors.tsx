@@ -13,6 +13,7 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter,
 } from '@/components/ui/sheet';
 import { useAuthStore } from '@/store/authStore';
+import { cleanSignature } from '@/lib/signatureImage';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import { useConfirm } from '@/hooks/use-confirm';
@@ -607,7 +608,7 @@ export default function ManageSigningDoctors() {
 
   // ── Lab Incharge Signature Upload ────────────────────────────────
   const handleLabInchargeSignatureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    let file = e.target.files?.[0];
     if (!file) return;
 
     const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
@@ -620,6 +621,8 @@ export default function ManageSigningDoctors() {
       toast.error('File size must be under 2MB');
       return;
     }
+
+    file = await cleanSignature(file);
 
     if (!editingLabInchargeId) {
       setLabInchargePendingSignatureFile(file);
@@ -743,7 +746,7 @@ export default function ManageSigningDoctors() {
 
   // ── Signature Upload ─────────────────────────────────────────────
   const handleSignatureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    let file = e.target.files?.[0];
     if (!file) return;
 
     // Validate file type
@@ -758,6 +761,11 @@ export default function ManageSigningDoctors() {
       toast.error('File size must be under 2MB');
       return;
     }
+
+    // Drop the paper background and crop to the ink before anything else sees
+    // the file — the pending-save preview then shows what will actually print.
+    // Returns the original untouched if it can't do better.
+    file = await cleanSignature(file);
 
     // If adding a new doctor (not yet saved), store file for later upload
     if (!editingDoctorId) {
