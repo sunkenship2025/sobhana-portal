@@ -26,6 +26,11 @@ const ALPHA_FLOOR = 8;
 const EDGE_INK_SHARE = 0.003;
 /** Fraction of the crop added back as breathing room. */
 const PAD = 0.03;
+/** Ink is deepened by up to this much, scaled by opacity — a ballpoint photographed
+ *  under a weak lamp prints washed out, and the paper it used to sit on is gone, so
+ *  there's nothing left to carry the contrast. Edges darken less than stroke cores,
+ *  which keeps the anti-aliasing soft. */
+const INK_DARKEN = 0.22;
 
 const lum = (r: number, g: number, b: number) => 0.299 * r + 0.587 * g + 0.114 * b;
 
@@ -143,10 +148,13 @@ export async function cleanSignature(file: File): Promise<CleanedSignature> {
       const a = paper
         ? inkAlpha(lum(r, g, b), lum(paper.data[i], paper.data[i + 1], paper.data[i + 2]))
         : src.data[i + 3];
+      // Deepen the ink in proportion to how solid it is (untouched for an
+      // already-transparent PNG — that one was authored, not photographed).
+      const k = paper ? 1 - INK_DARKEN * (a / 255) : 1;
       alpha[p] = a;
-      out.data[i] = r;
-      out.data[i + 1] = g;
-      out.data[i + 2] = b;
+      out.data[i] = r * k;
+      out.data[i + 1] = g * k;
+      out.data[i + 2] = b * k;
       out.data[i + 3] = a;
     }
 

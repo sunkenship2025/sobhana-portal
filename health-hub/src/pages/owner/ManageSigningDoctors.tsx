@@ -19,7 +19,7 @@ import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import { useConfirm } from '@/hooks/use-confirm';
 import {
-  Plus, Pencil, Trash2, UserCheck, Link2, Search, Upload, Camera, FileSignature, X, Check,
+  Plus, Pencil, Trash2, UserCheck, Link2, Search, Upload, Camera, Wand2, Loader2, FileSignature, X, Check,
 } from 'lucide-react';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -234,6 +234,18 @@ function DepartmentMultiSelect({
 const CAN_CAPTURE =
   typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
 
+/** Pull an already-stored signature back into a File so it can be re-processed.
+ *  signatureSrc prefers the base64 copy, which is same-origin and so readable by
+ *  canvas; a remote path would taint it and cleanSignature would bail safely. */
+async function fileFromUrl(url: string): Promise<File | null> {
+  try {
+    const blob = await (await fetch(url)).blob();
+    return new File([blob], 'signature.png', { type: blob.type || 'image/png' });
+  } catch {
+    return null;
+  }
+}
+
 function signatureSrc(sig: { signatureImageBase64?: string | null; signatureImagePath?: string | null }): string {
   return sig.signatureImageBase64 || (sig.signatureImagePath ? `${API_BASE_URL}${sig.signatureImagePath}` : '');
 }
@@ -245,6 +257,9 @@ export default function ManageSigningDoctors() {
   const { confirm, ConfirmDialog } = useConfirm();
   const signatureInputRef = useRef<HTMLInputElement>(null);
   const signatureCameraRef = useRef<HTMLInputElement>(null);
+  /** The file as picked, before any cleanup — what "Remove background" re-reads. */
+  const [signatureSourceFile, setSignatureSourceFile] = useState<File | null>(null);
+  const [cleaningSignature, setCleaningSignature] = useState(false);
   // The background-removal playback for the signature just picked, or null.
   const [signatureReveal, setSignatureReveal] = useState<{ reveal: Reveal; finalUrl: string } | null>(null);
 
@@ -286,6 +301,7 @@ export default function ManageSigningDoctors() {
   const [labInchargePendingSignaturePreview, setLabInchargePendingSignaturePreview] = useState<string | null>(null);
   const labInchargeSignatureInputRef = useRef<HTMLInputElement>(null);
   const labInchargeSignatureCameraRef = useRef<HTMLInputElement>(null);
+  const [labInchargeSignatureSourceFile, setLabInchargeSignatureSourceFile] = useState<File | null>(null);
   const [labInchargeSignatureReveal, setLabInchargeSignatureReveal] = useState<{ reveal: Reveal; finalUrl: string } | null>(null);
 
   // Rule dialog
@@ -618,36 +634,8 @@ export default function ManageSigningDoctors() {
   };
 
   // ── Lab Incharge Signature Upload ────────────────────────────────
-  const handleLabInchargeSignatureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    let file = e.target.files?.[0];
-    if (!file) return;
-
-    const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
-    if (!allowed.includes(file.type)) {
-      toast.error('Only PNG, JPG, or WebP images are allowed');
-      return;
-    }
-
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error('File size must be under 2MB');
-      return;
-    }
-
-    const cleaned = await cleanSignature(file);
-    file = cleaned.file;
-    if (cleaned.reveal) {
-      setLabInchargeSignatureReveal({ reveal: cleaned.reveal, finalUrl: URL.createObjectURL(file) });
-    }
-
-    if (!editingLabInchargeId) {
-      setLabInchargePendingSignatureFile(file);
-      if (labInchargePendingSignaturePreview) URL.revokeObjectURL(labInchargePendingSignaturePreview);
-      setLabInchargePendingSignaturePreview(URL.createObjectURL(file));
-      toast.success('Signature selected — it will be uploaded when you save the lab incharge');
-      if (labInchargeSignatureInputRef.current) labInchargeSignatureInputRef.current.value = '';
-      return;
-    }
-
+  const uploadLabInchargeSignature = async (file: File) => {
+    if (!editingLabInchargeId) return;
     setUploading(true);
     try {
       const { activeBranchId } = useBranchStore.getState();
@@ -669,7 +657,63 @@ export default function ManageSigningDoctors() {
       toast.error('Failed to upload signature');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleLabInchargeSignatureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (!allowed.includes(file.type)) {
+      toast.error('Only PNG, JPG, or WebP images are allowed');
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('File size must be under 2MB');
+      return;
+    }
+
+    setLabInchargeSignatureSourceFile(file);
+
+    if (!editingLabInchargeId) {
+      setLabInchargePendingSignatureFile(file);
+      if (labInchargePendingSignaturePreview) URL.revokeObjectURL(labInchargePendingSignaturePreview);
+      setLabInchargePendingSignaturePreview(URL.createObjectURL(file));
+      toast.success('Signature selected — it will be uploaded when you save the lab incharge');
       if (labInchargeSignatureInputRef.current) labInchargeSignatureInputRef.current.value = '';
+      return;
+    }
+
+    await uploadLabInchargeSignature(file);
+    if (labInchargeSignatureInputRef.current) labInchargeSignatureInputRef.current.value = '';
+  };
+
+  const removeLabInchargeSignatureBackground = async () => {
+    const stored = signatureSrc(labIncharges.find(li => li.id === editingLabInchargeId) || {});
+    const source = labInchargeSignatureSourceFile || (stored ? await fileFromUrl(stored) : null);
+    if (!source) {
+      toast.error('Upload or photograph a signature first');
+      return;
+    }
+    setCleaningSignature(true);
+    try {
+      const cleaned = await cleanSignature(source);
+      if (!cleaned.reveal) {
+        toast.info('Nothing to remove — this signature is already on a clear background');
+        return;
+      }
+      setLabInchargeSignatureReveal({ reveal: cleaned.reveal, finalUrl: URL.createObjectURL(cleaned.file) });
+      if (!editingLabInchargeId) {
+        setLabInchargePendingSignatureFile(cleaned.file);
+        if (labInchargePendingSignaturePreview) URL.revokeObjectURL(labInchargePendingSignaturePreview);
+        setLabInchargePendingSignaturePreview(URL.createObjectURL(cleaned.file));
+      } else {
+        await uploadLabInchargeSignature(cleaned.file);
+      }
+    } finally {
+      setCleaningSignature(false);
     }
   };
 
@@ -760,42 +804,9 @@ export default function ManageSigningDoctors() {
   };
 
   // ── Signature Upload ─────────────────────────────────────────────
-  const handleSignatureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    let file = e.target.files?.[0];
-    if (!file) return;
-
-    // Validate file type
-    const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
-    if (!allowed.includes(file.type)) {
-      toast.error('Only PNG, JPG, or WebP images are allowed');
-      return;
-    }
-
-    // Validate file size (2MB max)
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error('File size must be under 2MB');
-      return;
-    }
-
-    // Drop the paper background and crop to the ink before anything else sees
-    // the file — the pending-save preview then shows what will actually print.
-    // Returns the original untouched if it can't do better.
-    const cleaned = await cleanSignature(file);
-    file = cleaned.file;
-    if (cleaned.reveal) {
-      setSignatureReveal({ reveal: cleaned.reveal, finalUrl: URL.createObjectURL(file) });
-    }
-
-    // If adding a new doctor (not yet saved), store file for later upload
-    if (!editingDoctorId) {
-      setPendingSignatureFile(file);
-      if (pendingSignaturePreview) URL.revokeObjectURL(pendingSignaturePreview);
-      setPendingSignaturePreview(URL.createObjectURL(file));
-      toast.success('Signature selected — it will be uploaded when you save the doctor');
-      if (signatureInputRef.current) signatureInputRef.current.value = '';
-      return;
-    }
-
+  /** POST a signature file for the doctor currently being edited. */
+  const uploadDoctorSignature = async (file: File) => {
+    if (!editingDoctorId) return;
     setUploading(true);
     try {
       const { activeBranchId } = useBranchStore.getState();
@@ -825,8 +836,73 @@ export default function ManageSigningDoctors() {
       toast.error('Failed to upload signature');
     } finally {
       setUploading(false);
-      // Reset file input so same file can be re-selected
+    }
+  };
+
+  const handleSignatureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (!allowed.includes(file.type)) {
+      toast.error('Only PNG, JPG, or WebP images are allowed');
+      return;
+    }
+
+    // Validate file size (2MB max)
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('File size must be under 2MB');
+      return;
+    }
+
+    // Kept so "Remove background" can re-process exactly what was picked.
+    setSignatureSourceFile(file);
+
+    // If adding a new doctor (not yet saved), store file for later upload
+    if (!editingDoctorId) {
+      setPendingSignatureFile(file);
+      if (pendingSignaturePreview) URL.revokeObjectURL(pendingSignaturePreview);
+      setPendingSignaturePreview(URL.createObjectURL(file));
+      toast.success('Signature selected — it will be uploaded when you save the doctor');
       if (signatureInputRef.current) signatureInputRef.current.value = '';
+      return;
+    }
+
+    await uploadDoctorSignature(file);
+    // Reset file input so same file can be re-selected
+    if (signatureInputRef.current) signatureInputRef.current.value = '';
+  };
+
+  /**
+   * Strip the paper off whatever signature is currently shown. Works on a file
+   * just picked AND on one already stored (the base64 copy is fetched back), so
+   * signatures uploaded before this existed can be cleaned without re-scanning.
+   */
+  const removeDoctorSignatureBackground = async () => {
+    const stored = signatureSrc(doctors.find(d => d.id === editingDoctorId) || {});
+    const source = signatureSourceFile || (stored ? await fileFromUrl(stored) : null);
+    if (!source) {
+      toast.error('Upload or photograph a signature first');
+      return;
+    }
+    setCleaningSignature(true);
+    try {
+      const cleaned = await cleanSignature(source);
+      if (!cleaned.reveal) {
+        toast.info('Nothing to remove — this signature is already on a clear background');
+        return;
+      }
+      setSignatureReveal({ reveal: cleaned.reveal, finalUrl: URL.createObjectURL(cleaned.file) });
+      if (!editingDoctorId) {
+        setPendingSignatureFile(cleaned.file);
+        if (pendingSignaturePreview) URL.revokeObjectURL(pendingSignaturePreview);
+        setPendingSignaturePreview(URL.createObjectURL(cleaned.file));
+      } else {
+        await uploadDoctorSignature(cleaned.file);
+      }
+    } finally {
+      setCleaningSignature(false);
     }
   };
 
@@ -1507,6 +1583,21 @@ export default function ManageSigningDoctors() {
                       </Button>
                     )}
                   </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    disabled={uploading || cleaningSignature}
+                    onClick={removeDoctorSignatureBackground}
+                  >
+                    {cleaningSignature ? (
+                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    ) : (
+                      <Wand2 className="h-4 w-4 mr-1" />
+                    )}
+                    {cleaningSignature ? 'Removing background…' : 'Remove background'}
+                  </Button>
                 </div>
               ) : (
                 <div
@@ -1518,7 +1609,7 @@ export default function ManageSigningDoctors() {
                     {uploading ? 'Uploading...' : 'Click to upload signature image'}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    PNG or JPG — the paper background is removed for you
+                    PNG or JPG — remove the paper background after picking
                   </p>
                 </div>
               )}
@@ -1754,6 +1845,21 @@ export default function ManageSigningDoctors() {
                       </Button>
                     )}
                   </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    disabled={uploading || cleaningSignature}
+                    onClick={removeLabInchargeSignatureBackground}
+                  >
+                    {cleaningSignature ? (
+                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    ) : (
+                      <Wand2 className="h-4 w-4 mr-1" />
+                    )}
+                    {cleaningSignature ? 'Removing background…' : 'Remove background'}
+                  </Button>
                 </div>
               ) : (
                 <div
@@ -1765,7 +1871,7 @@ export default function ManageSigningDoctors() {
                     {uploading ? 'Uploading...' : 'Click to upload signature image'}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    PNG or JPG — the paper background is removed for you
+                    PNG or JPG — remove the paper background after picking
                   </p>
                 </div>
               )}
