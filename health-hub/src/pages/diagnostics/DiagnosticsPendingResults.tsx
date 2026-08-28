@@ -58,6 +58,7 @@ const toSupportedPaymentType = (value: unknown): PaymentType => {
 const formatTestList = (
   testOrders: Array<{
     workflowMode?: string;
+    cancelledAt?: string | null;
     noReportAt?: string | null;
     testName?: string;
     testCode?: string;
@@ -70,6 +71,7 @@ const formatTestList = (
   const labels: string[] = [];
   for (const order of testOrders) {
     if (order.workflowMode === "BILL_ONLY") continue;
+    if (order.cancelledAt) continue; // voided — never performed, so never listed
     if (order.noReportAt) continue; // closed as "no report needed" — off the worklist
     let key: string;
     let label: string;
@@ -101,6 +103,7 @@ const formatTestList = (
 const buildTestTokens = (
   testOrders: Array<{
     workflowMode?: string;
+    cancelledAt?: string | null;
     noReportAt?: string | null;
     testName?: string;
     testCode?: string;
@@ -113,6 +116,7 @@ const buildTestTokens = (
   const map = new Map<string, { label: string; ready: boolean }>();
   for (const order of testOrders) {
     if (order.workflowMode === "BILL_ONLY") continue;
+    if (order.cancelledAt) continue; // voided — never performed, so never listed
     if (order.noReportAt) continue; // closed as "no report needed" — off the worklist
     let key: string;
     let label: string;

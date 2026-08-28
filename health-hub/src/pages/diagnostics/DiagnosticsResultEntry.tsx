@@ -155,6 +155,9 @@ interface TestOrder {
     panelMethodItalic?: boolean;
     narrativeTemplateHtml?: string | null;
   } | null;
+  // Voided test. Filtered out at ingest — see the fetch handler — so nothing
+  // below this line ever sees a cancelled order.
+  cancelledAt?: string | null;
   noReportAt?: string | null;
   noReportReason?: string | null;
   noReportBy?: string | null;
@@ -668,7 +671,21 @@ const DiagnosticsResultEntry = () => {
             return;
           }
 
-          data.testOrders = data.testOrders.filter((order: TestOrder) => order.workflowMode !== 'BILL_ONLY');
+          // Strip everything that has no place on the entry surface, once, at
+          // ingest — every consumer below (panel grouping, upload-readiness,
+          // partial-release selector, the ordered-count) reads the filtered
+          // array, so they can never drift apart.
+          //   BILL_ONLY  — nothing to report on.
+          //   cancelledAt — the test was voided. The API deliberately ships
+          //     cancelled orders (the bill + history views need them), but a
+          //     value typed against one is silently DISCARDED on save: the
+          //     save handler builds its lookup from non-cancelled orders only,
+          //     so resolveResultContext() misses and the row is skipped. Left
+          //     visible, they render as empty, permanently-unfillable rows
+          //     (e.g. four dead FASTING BLOOD SUGAR boxes after a cancel+re-add).
+          data.testOrders = data.testOrders.filter(
+            (order: TestOrder) => order.workflowMode !== 'BILL_ONLY' && !order.cancelledAt,
+          );
           const panelExpansion: Record<string, boolean> = {};
           const fetchedTextLayoutByResultKey = new Map<string, string>();
           const fetchedNarrativeTemplateByResultKey = new Map<string, string>();

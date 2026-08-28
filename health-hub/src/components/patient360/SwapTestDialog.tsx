@@ -39,6 +39,7 @@ import { toast } from "sonner";
 import { apiRequest } from "@/lib/utils";
 import { API_BASE } from "@/lib/api";
 import { formatCurrency } from "@/lib/patientDisplay";
+import { buildBilledGroups, type BilledGroup } from "@/lib/billedGroups";
 import { useAuthStore } from "@/store/authStore";
 import type { VisitTimelineItem } from "@/types";
 
@@ -72,14 +73,6 @@ const WORKFLOW_TAG: Record<string, { label: string; className: string }> = {
   EVENT: { label: "Event", className: "bg-red-100 text-red-800" },
 };
 
-interface BilledGroup {
-  productId: string;
-  name: string;
-  totalInPaise: number;
-  isOutsourced: boolean;
-  orderIds: string[];
-}
-
 interface SwapTestDialogProps {
   visit: VisitTimelineItem;
   open: boolean;
@@ -110,28 +103,12 @@ export function SwapTestDialog({ visit, open, onOpenChange, onRemove }: SwapTest
   const [mode, setMode] = useState<"replace" | "add">("replace");
 
   // Active billed items grouped by product (a panel's constituent orders roll
-  // up into one line, matching what the printed bill shows).
-  const groups = useMemo<BilledGroup[]>(() => {
-    const map = new Map<string, BilledGroup>();
-    for (const order of visit.testOrders ?? []) {
-      if (order.cancelledAt || !order.productId) continue;
-      const existing = map.get(order.productId);
-      if (existing) {
-        existing.totalInPaise += order.priceInPaise;
-        existing.isOutsourced = existing.isOutsourced || Boolean(order.isOutsourced);
-        existing.orderIds.push(order.id);
-      } else {
-        map.set(order.productId, {
-          productId: order.productId,
-          name: order.productName || order.testName,
-          totalInPaise: order.priceInPaise,
-          isOutsourced: Boolean(order.isOutsourced),
-          orderIds: [order.id],
-        });
-      }
-    }
-    return Array.from(map.values());
-  }, [visit.testOrders]);
+  // up into one line, matching what the printed bill shows). Shared with the
+  // Cancel/Refund dialog — the two MUST agree on what counts as one billed item.
+  const groups = useMemo<BilledGroup[]>(
+    () => buildBilledGroups(visit.testOrders),
+    [visit.testOrders],
+  );
 
   const [oldProductId, setOldProductId] = useState<string | null>(null);
   const [products, setProducts] = useState<ProductLite[]>([]);
@@ -143,6 +120,8 @@ export function SwapTestDialog({ visit, open, onOpenChange, onRemove }: SwapTest
   const [busy, setBusy] = useState(false);
   // Add mode: multi-select of products to add.
   const [addSelected, setAddSelected] = useState<Set<string>>(new Set());
+  // What the swap would destroy, asked of the server before the user commits.
+  const [swapPreview, setSwapPreview] = useState<{ resultsDeleted: number } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -162,6 +141,36 @@ export function SwapTestDialog({ visit, open, onOpenChange, onRemove }: SwapTest
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, visit.visitId]);
+
+  // A swap HARD-DELETES the outgoing orders and cascades their entered results
+  // away — unlike every other correction path, which soft-cancels. Ask the
+  // server what that costs so the count is on screen BEFORE the user commits,
+  // instead of only in the audit log afterwards. Errors are swallowed: the
+  // real submit surfaces them (price mismatch, duplicate, outsourced).
+  useEffect(() => {
+    if (!open || mode !== "replace" || !oldProductId || !newProductId) {
+      setSwapPreview(null);
+      return;
+    }
+    let stale = false;
+    apiRequest<{ resultsDeleted: number }>(
+      `${API_BASE}/visits/diagnostic/${visit.visitId}/swap-product`,
+      {
+        method: "POST",
+        headers: { "X-Branch-Id": visit.branchId },
+        body: JSON.stringify({ oldProductId, newProductId, preview: true }),
+      },
+    )
+      .then((data) => {
+        if (!stale) setSwapPreview(data);
+      })
+      .catch(() => {
+        if (!stale) setSwapPreview(null);
+      });
+    return () => {
+      stale = true;
+    };
+  }, [open, mode, oldProductId, newProductId, visit.visitId, visit.branchId]);
 
   const selectedGroup = groups.find((group) => group.productId === oldProductId);
   const filtered = useMemo(() => {
@@ -407,6 +416,14 @@ export function SwapTestDialog({ visit, open, onOpenChange, onRemove }: SwapTest
                     })}
                   </div>
                 </div>
+              )}
+
+              {(swapPreview?.resultsDeleted ?? 0) > 0 && (
+                <p className="text-sm text-destructive">
+                  {swapPreview!.resultsDeleted} entered result
+                  {swapPreview!.resultsDeleted === 1 ? "" : "s"} will be deleted
+                  and cannot be recovered.
+                </p>
               )}
 
               <div className="space-y-2">

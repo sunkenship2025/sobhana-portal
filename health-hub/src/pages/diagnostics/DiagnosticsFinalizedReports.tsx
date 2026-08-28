@@ -42,6 +42,7 @@ import { WorklistPager } from '@/components/worklist/WorklistPager';
 const formatTestList = (
   testOrders: Array<{
     workflowMode?: string;
+    cancelledAt?: string | null;
     testName?: string;
     testCode?: string;
     productId?: string | null;
@@ -53,6 +54,7 @@ const formatTestList = (
   const labels: string[] = [];
   for (const order of testOrders) {
     if (order.workflowMode === 'BILL_ONLY') continue;
+    if (order.cancelledAt) continue; // voided — never performed, so never listed
     let key: string;
     let label: string;
     if (order.productId) {
@@ -80,12 +82,18 @@ const formatTestList = (
 // Fall back to the bill-only product names ("USG Abdomen (Bill)") so the row
 // still says what was billed.
 const formatBillOnlyList = (
-  testOrders: Array<{ workflowMode?: string; productName?: string | null; testName?: string }>,
+  testOrders: Array<{
+    workflowMode?: string;
+    cancelledAt?: string | null;
+    productName?: string | null;
+    testName?: string;
+  }>,
 ): string => {
   const seen = new Set<string>();
   const labels: string[] = [];
   for (const order of testOrders) {
     if (order.workflowMode !== 'BILL_ONLY') continue;
+    if (order.cancelledAt) continue; // voided — never performed, so never listed
     const label = order.productName || order.testName || '';
     if (!label || seen.has(label)) continue;
     seen.add(label);
