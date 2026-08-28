@@ -13,12 +13,13 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter,
 } from '@/components/ui/sheet';
 import { useAuthStore } from '@/store/authStore';
-import { cleanSignature } from '@/lib/signatureImage';
+import { cleanSignature, type SignatureReveal as Reveal } from '@/lib/signatureImage';
+import { SignatureReveal } from '@/components/owner/SignatureReveal';
 import { useBranchStore } from '@/store/branchStore';
 import { toast } from 'sonner';
 import { useConfirm } from '@/hooks/use-confirm';
 import {
-  Plus, Pencil, Trash2, UserCheck, Link2, Search, Upload, FileSignature, X, Check,
+  Plus, Pencil, Trash2, UserCheck, Link2, Search, Upload, Camera, FileSignature, X, Check,
 } from 'lucide-react';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -228,6 +229,11 @@ function DepartmentMultiSelect({
  * Render wipes on every redeploy, so `signatureImagePath` 404s for anything
  * uploaded before the last deploy. Mirrors how the report renderer resolves it.
  */
+/** Tablets/phones open a real camera for capture=; a desktop would just get the
+ *  file picker twice, so the camera button only appears on touch devices. */
+const CAN_CAPTURE =
+  typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
+
 function signatureSrc(sig: { signatureImageBase64?: string | null; signatureImagePath?: string | null }): string {
   return sig.signatureImageBase64 || (sig.signatureImagePath ? `${API_BASE_URL}${sig.signatureImagePath}` : '');
 }
@@ -238,6 +244,9 @@ export default function ManageSigningDoctors() {
   const { token } = useAuthStore();
   const { confirm, ConfirmDialog } = useConfirm();
   const signatureInputRef = useRef<HTMLInputElement>(null);
+  const signatureCameraRef = useRef<HTMLInputElement>(null);
+  // The background-removal playback for the signature just picked, or null.
+  const [signatureReveal, setSignatureReveal] = useState<{ reveal: Reveal; finalUrl: string } | null>(null);
 
   const [doctors, setDoctors] = useState<SigningDoctor[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -276,6 +285,8 @@ export default function ManageSigningDoctors() {
   const [labInchargePendingSignatureFile, setLabInchargePendingSignatureFile] = useState<File | null>(null);
   const [labInchargePendingSignaturePreview, setLabInchargePendingSignaturePreview] = useState<string | null>(null);
   const labInchargeSignatureInputRef = useRef<HTMLInputElement>(null);
+  const labInchargeSignatureCameraRef = useRef<HTMLInputElement>(null);
+  const [labInchargeSignatureReveal, setLabInchargeSignatureReveal] = useState<{ reveal: Reveal; finalUrl: string } | null>(null);
 
   // Rule dialog
   const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
@@ -622,7 +633,11 @@ export default function ManageSigningDoctors() {
       return;
     }
 
-    file = await cleanSignature(file);
+    const cleaned = await cleanSignature(file);
+    file = cleaned.file;
+    if (cleaned.reveal) {
+      setLabInchargeSignatureReveal({ reveal: cleaned.reveal, finalUrl: URL.createObjectURL(file) });
+    }
 
     if (!editingLabInchargeId) {
       setLabInchargePendingSignatureFile(file);
@@ -765,7 +780,11 @@ export default function ManageSigningDoctors() {
     // Drop the paper background and crop to the ink before anything else sees
     // the file — the pending-save preview then shows what will actually print.
     // Returns the original untouched if it can't do better.
-    file = await cleanSignature(file);
+    const cleaned = await cleanSignature(file);
+    file = cleaned.file;
+    if (cleaned.reveal) {
+      setSignatureReveal({ reveal: cleaned.reveal, finalUrl: URL.createObjectURL(file) });
+    }
 
     // If adding a new doctor (not yet saved), store file for later upload
     if (!editingDoctorId) {
@@ -1423,32 +1442,71 @@ export default function ManageSigningDoctors() {
                 className="hidden"
                 onChange={handleSignatureUpload}
               />
+              {/* Same handler, but this one opens the camera on a tablet/phone. */}
+              <input
+                ref={signatureCameraRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={handleSignatureUpload}
+              />
 
               {/* Current / pending signature preview */}
-              {(editingDoctorId && signatureSrc(doctors.find(d => d.id === editingDoctorId) || {})) || pendingSignaturePreview ? (
+              {signatureReveal || (editingDoctorId && signatureSrc(doctors.find(d => d.id === editingDoctorId) || {})) || pendingSignaturePreview ? (
                 <div className="space-y-2">
                   <div className="border rounded-lg p-3 bg-muted/30">
-                    <img
-                      src={pendingSignaturePreview || signatureSrc(doctors.find(d => d.id === editingDoctorId) || {})}
-                      alt={pendingSignaturePreview ? 'Selected signature' : 'Current signature'}
-                      className="h-16 mx-auto"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    />
+                    {signatureReveal ? (
+                      <SignatureReveal
+                        reveal={signatureReveal.reveal}
+                        finalUrl={signatureReveal.finalUrl}
+                        onDone={() => {
+                          URL.revokeObjectURL(signatureReveal.reveal.originalUrl);
+                          URL.revokeObjectURL(signatureReveal.reveal.cutoutUrl);
+                          URL.revokeObjectURL(signatureReveal.finalUrl);
+                          setSignatureReveal(null);
+                        }}
+                      />
+                    ) : (
+                      <img
+                        src={pendingSignaturePreview || signatureSrc(doctors.find(d => d.id === editingDoctorId) || {})}
+                        alt={pendingSignaturePreview ? 'Selected signature' : 'Current signature'}
+                        className="h-16 mx-auto"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    )}
                     <p className="text-xs text-center text-muted-foreground mt-1">
-                      {pendingSignaturePreview ? 'Selected signature (will upload on save)' : 'Current signature'}
+                      {signatureReveal
+                        ? 'Background removed and cropped'
+                        : pendingSignaturePreview ? 'Selected signature (will upload on save)' : 'Current signature'}
                     </p>
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    disabled={uploading}
-                    onClick={() => signatureInputRef.current?.click()}
-                  >
-                    <Upload className="h-4 w-4 mr-1" />
-                    {uploading ? 'Uploading...' : 'Replace Signature'}
-                  </Button>
+                  <div className={CAN_CAPTURE ? 'grid grid-cols-2 gap-2' : ''}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      disabled={uploading}
+                      onClick={() => signatureInputRef.current?.click()}
+                    >
+                      <Upload className="h-4 w-4 mr-1" />
+                      {uploading ? 'Uploading...' : 'Replace Signature'}
+                    </Button>
+                    {CAN_CAPTURE && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        disabled={uploading}
+                        onClick={() => signatureCameraRef.current?.click()}
+                      >
+                        <Camera className="h-4 w-4 mr-1" />
+                        Camera
+                      </Button>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div
@@ -1460,9 +1518,22 @@ export default function ManageSigningDoctors() {
                     {uploading ? 'Uploading...' : 'Click to upload signature image'}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    PNG or JPG, transparent background preferred
+                    PNG or JPG — the paper background is removed for you
                   </p>
                 </div>
+              )}
+              {CAN_CAPTURE && !signatureReveal && !pendingSignaturePreview && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  disabled={uploading}
+                  onClick={() => signatureCameraRef.current?.click()}
+                >
+                  <Camera className="h-4 w-4 mr-1" />
+                  Photograph the signature
+                </Button>
               )}
               <p className="text-xs text-muted-foreground">
                 Signature will appear on printed reports for this doctor
@@ -1620,31 +1691,69 @@ export default function ManageSigningDoctors() {
                 className="hidden"
                 onChange={handleLabInchargeSignatureUpload}
               />
+              <input
+                ref={labInchargeSignatureCameraRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={handleLabInchargeSignatureUpload}
+              />
 
-              {(editingLabInchargeId && signatureSrc(labIncharges.find(li => li.id === editingLabInchargeId) || {})) || labInchargePendingSignaturePreview ? (
+              {labInchargeSignatureReveal || (editingLabInchargeId && signatureSrc(labIncharges.find(li => li.id === editingLabInchargeId) || {})) || labInchargePendingSignaturePreview ? (
                 <div className="space-y-2">
                   <div className="border rounded-lg p-3 bg-muted/30">
-                    <img
-                      src={labInchargePendingSignaturePreview || signatureSrc(labIncharges.find(li => li.id === editingLabInchargeId) || {})}
-                      alt={labInchargePendingSignaturePreview ? 'Selected signature' : 'Current signature'}
-                      className="h-16 mx-auto"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    />
+                    {labInchargeSignatureReveal ? (
+                      <SignatureReveal
+                        reveal={labInchargeSignatureReveal.reveal}
+                        finalUrl={labInchargeSignatureReveal.finalUrl}
+                        onDone={() => {
+                          URL.revokeObjectURL(labInchargeSignatureReveal.reveal.originalUrl);
+                          URL.revokeObjectURL(labInchargeSignatureReveal.reveal.cutoutUrl);
+                          URL.revokeObjectURL(labInchargeSignatureReveal.finalUrl);
+                          setLabInchargeSignatureReveal(null);
+                        }}
+                      />
+                    ) : (
+                      <img
+                        src={labInchargePendingSignaturePreview || signatureSrc(labIncharges.find(li => li.id === editingLabInchargeId) || {})}
+                        alt={labInchargePendingSignaturePreview ? 'Selected signature' : 'Current signature'}
+                        className="h-16 mx-auto"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    )}
                     <p className="text-xs text-center text-muted-foreground mt-1">
-                      {labInchargePendingSignaturePreview ? 'Selected signature (will upload on save)' : 'Current signature'}
+                      {labInchargeSignatureReveal
+                        ? 'Background removed and cropped'
+                        : labInchargePendingSignaturePreview ? 'Selected signature (will upload on save)' : 'Current signature'}
                     </p>
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    disabled={uploading}
-                    onClick={() => labInchargeSignatureInputRef.current?.click()}
-                  >
-                    <Upload className="h-4 w-4 mr-1" />
-                    {uploading ? 'Uploading...' : 'Replace Signature'}
-                  </Button>
+                  <div className={CAN_CAPTURE ? 'grid grid-cols-2 gap-2' : ''}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      disabled={uploading}
+                      onClick={() => labInchargeSignatureInputRef.current?.click()}
+                    >
+                      <Upload className="h-4 w-4 mr-1" />
+                      {uploading ? 'Uploading...' : 'Replace Signature'}
+                    </Button>
+                    {CAN_CAPTURE && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        disabled={uploading}
+                        onClick={() => labInchargeSignatureCameraRef.current?.click()}
+                      >
+                        <Camera className="h-4 w-4 mr-1" />
+                        Camera
+                      </Button>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div
@@ -1656,9 +1765,22 @@ export default function ManageSigningDoctors() {
                     {uploading ? 'Uploading...' : 'Click to upload signature image'}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    PNG or JPG, transparent background preferred
+                    PNG or JPG — the paper background is removed for you
                   </p>
                 </div>
+              )}
+              {CAN_CAPTURE && !labInchargeSignatureReveal && !labInchargePendingSignaturePreview && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  disabled={uploading}
+                  onClick={() => labInchargeSignatureCameraRef.current?.click()}
+                >
+                  <Camera className="h-4 w-4 mr-1" />
+                  Photograph the signature
+                </Button>
               )}
               <p className="text-xs text-muted-foreground">
                 Signature will appear on printed reports for this lab incharge

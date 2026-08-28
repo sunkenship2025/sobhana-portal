@@ -99,7 +99,26 @@ function drawToCanvas(
   return ctx.getImageData(0, 0, w, h);
 }
 
-export async function cleanSignature(file: File): Promise<File> {
+/** Frames for the reveal animation. Both URLs are object URLs the CALLER revokes. */
+export interface SignatureReveal {
+  /** The upload as drawn, unscaled aspect. */
+  originalUrl: string;
+  /** Same frame, background removed, NOT yet cropped — so the wipe lines up. */
+  cutoutUrl: string;
+  /** Crop box within that frame, normalised 0-1, for the zoom that follows. */
+  box: { x: number; y: number; w: number; h: number };
+  /** Frame aspect (w/h), so the preview box can match it. */
+  aspect: number;
+}
+
+export interface CleanedSignature {
+  /** Cleaned + cropped, or the ORIGINAL file when nothing could be improved. */
+  file: File;
+  /** null when no background was removed (already-transparent PNG, or fallback). */
+  reveal: SignatureReveal | null;
+}
+
+export async function cleanSignature(file: File): Promise<CleanedSignature> {
   try {
     const bitmap = await createImageBitmap(file);
     const scale = Math.min(1, MAX_DIM / Math.max(bitmap.width, bitmap.height));
@@ -132,7 +151,7 @@ export async function cleanSignature(file: File): Promise<File> {
     }
 
     const box = contentBox(alpha, w, h);
-    if (!box) return file;
+    if (!box) return { file, reveal: null };
 
     const full = document.createElement('canvas');
     full.width = w;
@@ -150,12 +169,29 @@ export async function cleanSignature(file: File): Promise<File> {
       cropped.toBlob(resolve, 'image/png'),
     );
     // The upload endpoint caps at 2MB and keys the stored mime off the extension.
-    if (!blob || blob.size > 2 * 1024 * 1024) return file;
-    return new File([blob], `${file.name.replace(/\.[^.]+$/, '')}.png`, {
+    if (!blob || blob.size > 2 * 1024 * 1024) return { file, reveal: null };
+    const cleaned = new File([blob], `${file.name.replace(/\.[^.]+$/, '')}.png`, {
       type: 'image/png',
     });
+
+    // Only worth animating when a background actually came off.
+    let reveal: SignatureReveal | null = null;
+    if (!alreadyCut) {
+      const cutout = await new Promise<Blob | null>((resolve) =>
+        full.toBlob(resolve, 'image/png'),
+      );
+      if (cutout) {
+        reveal = {
+          originalUrl: URL.createObjectURL(file),
+          cutoutUrl: URL.createObjectURL(cutout),
+          box: { x: box.x / w, y: box.y / h, w: box.w / w, h: box.h / h },
+          aspect: w / h,
+        };
+      }
+    }
+    return { file: cleaned, reveal };
   } catch {
-    return file;
+    return { file, reveal: null };
   }
 }
 
