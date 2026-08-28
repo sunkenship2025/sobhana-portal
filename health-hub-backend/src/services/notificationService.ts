@@ -306,6 +306,13 @@ async function dispatchDiagnosticCompletionNotification(input: {
       return { success: false, error: 'This visit does not have a report-ready notification flow' };
     }
 
+    // Online access switched off for this visit — the link would land the patient
+    // on the "collect at the centre" page, so don't send (or bill for) it at all.
+    if (info.visit.patientLinkDisabledAt) {
+      log.info({ visitId: input.visitId }, 'patient link disabled — skipping report notification');
+      return { success: false, error: 'Online access is switched off for this visit' };
+    }
+
     const formattedPhone = formatPhoneForWhatsApp(info.phone);
 
     const link = await issueReportLinkForVisit(input.visitId, input.preIssuedToken);
@@ -407,6 +414,11 @@ export async function sendBillConfirmation(visitId: string): Promise<void> {
 
     if (!info.bill) {
       log.info({ visitId }, 'no bill found — skipping bill notification');
+      return;
+    }
+
+    if (info.visit.patientLinkDisabledAt) {
+      log.info({ visitId }, 'patient link disabled — skipping bill notification');
       return;
     }
 
@@ -628,6 +640,10 @@ export async function resendBillNotification(
     const info = await getPatientNotificationInfo(visitId);
     if (!info || !info.bill) {
       return { success: false, error: 'Patient, phone, or bill not found' };
+    }
+
+    if (info.visit.patientLinkDisabledAt) {
+      return { success: false, error: 'Online access is switched off for this visit' };
     }
 
     await autoOptIn(info.patient.id, 'STAFF_MANUAL_SEND');

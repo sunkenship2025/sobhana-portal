@@ -16,6 +16,8 @@ import {
   publicReportTokenRateLimit,
 } from '../middleware/rateLimit';
 import { validateToken, recordAccess } from '../services/reportAccessService';
+import { patientLinkBlockForReportVersion } from '../services/patientLinkService';
+import { collectAtCentrePage } from '../lib/publicPageShell';
 import { getReportSnapshot } from '../services/reportSnapshotService';
 import { renderReportHtml } from '../services/reportRendererService';
 import { generateMergedReportPdf } from '../services/mergedReportPdfService';
@@ -57,6 +59,8 @@ type ReportLoadFailure = {
   status: number;
   error: string;
   message: string;
+  /** Set only for LINK_DISABLED — the branch whose phone the blocked page shows. */
+  branchName?: string;
 };
 
 type ReportLoadResult = ReportLoadSuccess | ReportLoadFailure;
@@ -70,6 +74,19 @@ async function loadReportForToken(token: string): Promise<ReportLoadResult> {
       status: 404,
       error: 'REPORT_NOT_FOUND',
       message: 'This report link is invalid or has expired.',
+    };
+  }
+
+  // Staff switched this visit's online access off (the QR on a printed report
+  // reaches this door too).
+  const blocked = await patientLinkBlockForReportVersion(reportVersionId);
+  if (blocked) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'LINK_DISABLED',
+      message: 'This report is not available online. Please collect it at the centre.',
+      branchName: blocked.branchName,
     };
   }
 
@@ -139,6 +156,10 @@ router.get('/:token', publicReportLandingIpRateLimit, publicReportLandingTokenRa
 
     if (!result.ok) {
       res.setHeader('Cache-Control', 'no-store');
+      if (result.error === 'LINK_DISABLED') {
+        res.setHeader('Content-Type', 'text/html');
+        return res.status(403).send(collectAtCentrePage(result.branchName || ''));
+      }
       return res.status(result.status).end();
     }
 

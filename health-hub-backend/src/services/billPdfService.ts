@@ -86,7 +86,9 @@ function getBranchAddress(branchName: string): string {
   return '#4-8-261/3 & 14/NR, Beside Ridge Towers, IDPL, Surya Nagar, Chintal, Hyd - 500037.';
 }
 
-function getBranchPhone(branchName: string): string {
+/** Branch phone exactly as the bill header prints it. Shared with the public
+ *  blocked-link page so the patient is given a number they already have. */
+export function getBranchPhone(branchName: string): string {
   const lower = branchName.toLowerCase();
   if (lower.includes('balanagar')) {
     return '040 23772929, 040 40163301.';

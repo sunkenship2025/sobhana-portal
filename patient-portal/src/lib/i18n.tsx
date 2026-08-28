@@ -88,6 +88,11 @@ const STRINGS = {
   wasUpdatedSub: { en: 'A newer, corrected version has replaced it. Open your reports to view the current one.', te: 'కొత్త, సరిదిద్దిన వెర్షన్ దీన్ని భర్తీ చేసింది. ప్రస్తుత దాన్ని చూడటానికి మీ రిపోర్ట్‌లు తెరవండి.' },
   openReports: { en: 'Open reports', te: 'రిపోర్ట్‌లు తెరవండి' },
   notFound: { en: '{doc} not found', te: '{doc} కనబడలేదు' },
+  atCentre: { en: "This {doc} isn't available online", te: 'ఈ {doc} ఆన్‌లైన్‌లో అందుబాటులో లేదు' },
+  atCentreSub: {
+    en: "Please visit your nearest Sobhana Diagnostics centre to collect it, or call us and we'll help you.",
+    te: 'దయచేసి మీ దగ్గరి శోభన డయాగ్నోస్టిక్స్ కేంద్రానికి వచ్చి తీసుకోండి, లేదా మాకు కాల్ చేయండి, మేము సహాయం చేస్తాము.',
+  },
   notFoundSub: { en: "This {doc} may have been moved. Go back and open it again, or call us and we'll help.", te: 'ఈ {doc} తరలించబడి ఉండవచ్చు. వెనక్కి వెళ్లి మళ్లీ తెరవండి, లేదా మాకు కాల్ చేయండి.' },
   backToReports: { en: 'Back to reports', te: 'రిపోర్ట్‌లకు తిరిగి' },
   cantOpen: { en: "Couldn't open the {doc}", te: '{doc} తెరవలేకపోయాము' },

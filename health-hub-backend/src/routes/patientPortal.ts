@@ -319,7 +319,7 @@ router.get('/reports/:reportVersionId/pdf', patientAuthMiddleware, async (req: P
         versionNum: true,
         report: {
           select: {
-            visit: { select: { patientId: true, status: true, billNumber: true } },
+            visit: { select: { patientId: true, status: true, billNumber: true, patientLinkDisabledAt: true } },
             versions: { where: { status: 'FINALIZED' }, select: { versionNum: true } },
           },
         },
@@ -339,6 +339,12 @@ router.get('/reports/:reportVersionId/pdf', patientAuthMiddleware, async (req: P
     if (version.status !== 'FINALIZED') {
       res.setHeader('Cache-Control', 'no-store');
       return res.status(404).end();
+    }
+    // Staff switched this visit's online access off → "collect at the centre".
+    // 403 (not 404) so the app can tell this apart from a missing document.
+    if (visit.patientLinkDisabledAt) {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(403).json({ error: 'LINK_DISABLED' });
     }
     const maxFinalized = Math.max(...version.report!.versions.map((v) => v.versionNum));
     if (version.versionNum < maxFinalized) {
@@ -402,7 +408,7 @@ router.get('/bills/:visitId/pdf', patientAuthMiddleware, async (req: PatientRequ
   try {
     const visit = await prisma.visit.findUnique({
       where: { id: visitId },
-      select: { patientId: true, status: true, domain: true, billNumber: true, patient: { select: { name: true } } },
+      select: { patientId: true, status: true, domain: true, billNumber: true, patientLinkDisabledAt: true, patient: { select: { name: true } } },
     });
     if (visit && !req.patientIds?.includes(visit.patientId)) {
       logger.warn({ phoneTail: req.patient?.phone.slice(-4), target: visitId, reason: 'ownership' }, 'patient bill access denied');
@@ -410,6 +416,10 @@ router.get('/bills/:visitId/pdf', patientAuthMiddleware, async (req: PatientRequ
     if (!visit || !req.patientIds?.includes(visit.patientId) || visit.status === 'CANCELLED') {
       res.setHeader('Cache-Control', 'no-store');
       return res.status(404).end();
+    }
+    if (visit.patientLinkDisabledAt) {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(403).json({ error: 'LINK_DISABLED' });
     }
     const baseUrl = PUBLIC_ORIGIN; // render assets load from the public host, not locked-down api.
     const result = await generateBillPdf(visitId, visit.domain as 'CLINIC' | 'DIAGNOSTICS', { baseUrl });

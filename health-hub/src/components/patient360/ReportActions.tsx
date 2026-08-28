@@ -55,6 +55,9 @@ interface ReportActionsProps {
   reportActive?: boolean;
   /** When the report was last printed — turns the Print button green + shows a line. */
   reportPrintedAt?: Date | string | null;
+  /** Patient online access switched off — the link would land on the "collect at
+   *  the centre" page, so WhatsApp is blocked (the server refuses it too). */
+  linkDisabled?: boolean;
   onView: () => void;
   onPrint?: () => void;
   onWhatsApp?: () => void;
@@ -68,6 +71,7 @@ export function ReportActions({
   busyAction,
   reportActive = false,
   reportPrintedAt,
+  linkDisabled = false,
   onView,
   onPrint,
   onWhatsApp,
@@ -140,7 +144,8 @@ export function ReportActions({
             variant="outline"
             size="sm"
             className="justify-start text-green-600 hover:bg-green-50 hover:text-green-700 sm:col-span-2"
-            disabled={busy}
+            disabled={busy || linkDisabled}
+            title={linkDisabled ? "Online link is off for this visit" : undefined}
             onClick={onWhatsApp}
           >
             {isAction("whatsapp") ? (

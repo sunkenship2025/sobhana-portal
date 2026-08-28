@@ -598,6 +598,11 @@ export interface VisitTimelineItem {
   // green "Printed · time" affordance in the inspector.
   billPrintedAt?: Date | string | null;
   reportPrintedAt?: Date | string | null;
+  // Patient online-access kill switch. Set ⇒ the report link, the bill QR and
+  // the patient app all answer "collect at the centre" for this visit.
+  patientLinkDisabledAt?: Date | string | null;
+  patientLinkDisabledReason?: string | null;
+  patientLinkDisabledBy?: string | null;
   // Nested discount object (mirrors the flat discount* fields above).
   discount?: VisitDiscount;
   // Refund rollups (per-order cancellation feature). Absent on legacy shapes.

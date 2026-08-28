@@ -119,6 +119,16 @@ function correctionEvent(nv: any): {
         detail: reason ?? "post-bill add", reason,
         amountInPaise: typeof nv?.totalAmountInPaise === "number" ? nv.totalAmountInPaise : null,
       };
+    case "PATIENT_LINK_DISABLED":
+      return {
+        event: "Patient link disabled", category: "access", severity: "high",
+        detail: reason ?? "online access switched off", reason, amountInPaise: null,
+      };
+    case "PATIENT_LINK_ENABLED":
+      return {
+        event: "Patient link re-enabled", category: "access", severity: "info",
+        detail: reason ?? "online access switched back on", reason, amountInPaise: null,
+      };
     default:
       return null;
   }

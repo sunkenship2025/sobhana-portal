@@ -10,7 +10,7 @@ import { useT } from '../lib/i18n';
 // rides along on the credentialed fetch; the download + open-in-new-tab actions remain.
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
-type State = 'loading' | 'ready' | 'notfound' | 'superseded' | 'error';
+type State = 'loading' | 'ready' | 'notfound' | 'superseded' | 'atcentre' | 'error';
 
 export default function DocView() {
   const { kind, id } = useParams();
@@ -57,6 +57,8 @@ export default function DocView() {
       try {
         const res = await fetch(url, { credentials: 'include' });
         if (res.status === 410) return void (!cancelled && setState('superseded'));
+        // Staff switched this visit's online access off — collect it at the centre.
+        if (res.status === 403) return void (!cancelled && setState('atcentre'));
         if (res.status === 404) return void (!cancelled && setState('notfound'));
         if (!res.ok) return void (!cancelled && setState('error'));
         const data = await res.arrayBuffer();
@@ -117,6 +119,16 @@ export default function DocView() {
           <h4>{t('wasUpdated', { doc: label })}</h4>
           <p>{t('wasUpdatedSub')}</p>
           <button className="btn btn-primary" style={{ width: 'auto', padding: '11px 22px' }} onClick={() => nav('/home')}>{t('openReports')}</button>
+        </div>
+      )}
+      {state === 'atcentre' && (
+        <div className="emptywrap">
+          <div className="ic">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1B2B58" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18" /><path d="M5 21V8l7-5 7 5v13" /><path d="M10 21v-6h4v6" /></svg>
+          </div>
+          <h4>{t('atCentre', { doc: label })}</h4>
+          <p>{t('atCentreSub')}</p>
+          <button className="btn btn-primary" style={{ width: 'auto', padding: '11px 22px' }} onClick={() => nav('/help')}>{t('callUs')}</button>
         </div>
       )}
       {state === 'notfound' && (

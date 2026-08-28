@@ -20,6 +20,8 @@ import {
 import { validateBillToken, recordBillAccess } from '../services/billAccessService';
 import { generateBillPdf, fetchBillData } from '../services/billPdfService';
 import { trackLinkAccess } from '../services/linkAccessService';
+import { patientLinkBlock } from '../services/patientLinkService';
+import { collectAtCentrePage } from '../lib/publicPageShell';
 
 const router = Router();
 
@@ -71,6 +73,15 @@ router.get(
       if (!visitId) {
         res.setHeader('Cache-Control', 'no-store');
         return res.status(404).end();
+      }
+
+      // Online access switched off for this visit — serve the branded "collect at
+      // the centre" card instead of the PDF (this link opens in a browser).
+      const blocked = await patientLinkBlock(visitId);
+      if (blocked) {
+        res.setHeader('Content-Type', 'text/html');
+        res.setHeader('Cache-Control', 'no-store');
+        return res.status(403).send(collectAtCentrePage(blocked.branchName));
       }
 
       // 2. Determine domain — try DIAGNOSTICS first, then CLINIC

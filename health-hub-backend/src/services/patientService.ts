@@ -986,6 +986,8 @@ const TIMELINE_INCLUDE = {
     },
     take: 1,
   },
+  // Who switched the patient's online access off (inspector shows who/when/why).
+  patientLinkDisabledByUser: { select: { name: true } },
   clinicVisit: {
     include: { clinicDoctor: { select: { name: true } } },
   },
@@ -1165,6 +1167,10 @@ export async function getPatient360Timeline(patientId: string, filters: Timeline
       billDelivery,
       billPrintedAt: visit.billPrintedAt ?? null,
       reportPrintedAt: visit.reportPrintedAt ?? null,
+      // Patient online-access kill switch (report link / bill QR / patient app).
+      patientLinkDisabledAt: visit.patientLinkDisabledAt ?? null,
+      patientLinkDisabledReason: visit.patientLinkDisabledReason ?? null,
+      patientLinkDisabledBy: visit.patientLinkDisabledByUser?.name ?? null,
     };
 
     if (visit.domain === 'CLINIC' && visit.clinicVisit) {

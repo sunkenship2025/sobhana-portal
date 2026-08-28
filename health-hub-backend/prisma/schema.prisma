@@ -530,7 +530,7 @@ model Branch {
   displayAds                DisplayAd[]
 
   /// Per-branch referral rate overrides (null-branch rows on these tables are the global defaults)
-  referralCategoryRates      ReferralCategoryRate[]
+  referralCategoryRates       ReferralCategoryRate[]
   referralDoctorCategoryRules ReferralDoctorCategoryRule[]
   referralDoctorProductRules  ReferralDoctorProductRule[]
 
@@ -542,21 +542,21 @@ model Branch {
 /// DisplayScreen: a physical waiting-room TV paired to a branch.
 /// Reached unauthenticated via /api/display/:code — the random code IS the credential.
 model DisplayScreen {
-  id        String    @id @default(cuid())
-  branchId  String
-  name      String // e.g. "Ground-floor OP"
-  code      String    @unique // pairing/display token, random, lives in the TV URL
-  scope     String    @default("OP") // OP | OP_IP (display filter; OP-only for now)
-  doctorIds String[]  @default([]) // which doctors show; empty = all with OP visits today
-  holdSeconds Int     @default(18) // how long a "Now Serving" call holds before returning to ads
-  showTrackQr Boolean @default(true) // show the "track your token" QR on the ticker
+  id          String    @id @default(cuid())
+  branchId    String
+  name        String // e.g. "Ground-floor OP"
+  code        String    @unique // pairing/display token, random, lives in the TV URL
+  scope       String    @default("OP") // OP | OP_IP (display filter; OP-only for now)
+  doctorIds   String[]  @default([]) // which doctors show; empty = all with OP visits today
+  holdSeconds Int       @default(18) // how long a "Now Serving" call holds before returning to ads
+  showTrackQr Boolean   @default(true) // show the "track your token" QR on the ticker
   slug        String? // readable URL segment, unique per branch (e.g. "op" → /display/chintal/op)
-  chimeSound  String  @default("dingdong") // call sound played on the TV: dingdong | none
-  isActive  Boolean   @default(true)
-  revokedAt DateTime?
-  lastSeenAt DateTime? // refreshed while a TV holds the SSE stream open; online = within ~60s
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  chimeSound  String    @default("dingdong") // call sound played on the TV: dingdong | none
+  isActive    Boolean   @default(true)
+  revokedAt   DateTime?
+  lastSeenAt  DateTime? // refreshed while a TV holds the SSE stream open; online = within ~60s
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
@@ -602,16 +602,17 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  activeBranch            Branch                 @relation(fields: [activeBranchId], references: [id], onDelete: Restrict)
-  PaymentTransaction      PaymentTransaction[]
-  ExternalReportUpload    ExternalReportUpload[]
-  TestResultEntered       TestResult[]           @relation("TestResultEnteredBy")
-  discountedBills         Bill[]                 @relation("BillDiscountedBy")
-  refundedBills           Bill[]                 @relation("BillRefundedBy")
-  orderRefunds            OrderRefund[]          @relation("OrderRefundCreatedBy")
-  noReportTestOrders      TestOrder[]            @relation("TestOrderNoReportBy")
-  reopenedTestOrders      TestOrder[]            @relation("TestOrderReopenedBy")
-  uploadInsteadTestOrders TestOrder[]            @relation("TestOrderUploadInsteadBy")
+  activeBranch              Branch                 @relation(fields: [activeBranchId], references: [id], onDelete: Restrict)
+  PaymentTransaction        PaymentTransaction[]
+  ExternalReportUpload      ExternalReportUpload[]
+  TestResultEntered         TestResult[]           @relation("TestResultEnteredBy")
+  discountedBills           Bill[]                 @relation("BillDiscountedBy")
+  refundedBills             Bill[]                 @relation("BillRefundedBy")
+  orderRefunds              OrderRefund[]          @relation("OrderRefundCreatedBy")
+  noReportTestOrders        TestOrder[]            @relation("TestOrderNoReportBy")
+  patientLinkDisabledVisits Visit[]                @relation("VisitPatientLinkDisabledBy")
+  reopenedTestOrders        TestOrder[]            @relation("TestOrderReopenedBy")
+  uploadInsteadTestOrders   TestOrder[]            @relation("TestOrderUploadInsteadBy")
 
   @@index([role])
   @@index([activeBranchId])
@@ -652,9 +653,21 @@ model Visit {
   billPrintedAt   DateTime?
   reportPrintedAt DateTime?
 
+  // Patient-facing online access kill switch for this visit. Set → every public
+  // door (report link, bill QR gateway, bill PDF, patient app) answers "collect
+  // at the centre" instead of serving the document, and the report/bill WhatsApp
+  // sends are suppressed. Reversible; owner + lab_incharge only, reason
+  // mandatory for lab_incharge. Deliberately NOT token revocation: a re-finalize
+  // mints fresh tokens, and the patient app has no token to revoke.
+  patientLinkDisabledAt       DateTime?
+  patientLinkDisabledReason   String?
+  patientLinkDisabledByUserId String?
+
   // Relations
   branch  Branch  @relation(fields: [branchId], references: [id], onDelete: Restrict)
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  patientLinkDisabledByUser User? @relation("VisitPatientLinkDisabledBy", fields: [patientLinkDisabledByUserId], references: [id], onDelete: SetNull)
 
   /// Explicit referrals (for diagnostics)
   referrals ReferralDoctor_Visit[]
@@ -795,24 +808,24 @@ model CouponCampaign {
 /// Minted when an EVENT product is billed; rendered on the public /c/:token page;
 /// redeemed once from a diagnostic/clinic bill.
 model Coupon {
-  id               String       @id @default(cuid())
-  code             String       @unique // patient-facing, e.g. BLOOD-4K9X2
-  token            String       @unique // SHA-256 of the public /c/:token link (raw bearer never stored)
-  campaignId       String
-  status           CouponStatus @default(ISSUED)
-  patientId        String? // scalar link — kept isolated from core FKs
-  phone            String? // recipient phone snapshot at issue
-  issuedVisitId    String? // the ₹0 EVENT visit that minted it
-  issuedByUserId   String?
-  expiresAt        DateTime
-  redeemedAt       DateTime?
-  redeemedVisitId  String? // visit whose bill consumed it
-  redeemedBillId   String?
-  redeemedByUserId String?
-  note             String? // free-text staff comment / audit note
-  allowedProductIds String[]    @default([]) // BillableProduct ids this coupon discounts; [] = all in-scope tests (campaign scope)
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  id                String       @id @default(cuid())
+  code              String       @unique // patient-facing, e.g. BLOOD-4K9X2
+  token             String       @unique // SHA-256 of the public /c/:token link (raw bearer never stored)
+  campaignId        String
+  status            CouponStatus @default(ISSUED)
+  patientId         String? // scalar link — kept isolated from core FKs
+  phone             String? // recipient phone snapshot at issue
+  issuedVisitId     String? // the ₹0 EVENT visit that minted it
+  issuedByUserId    String?
+  expiresAt         DateTime
+  redeemedAt        DateTime?
+  redeemedVisitId   String? // visit whose bill consumed it
+  redeemedBillId    String?
+  redeemedByUserId  String?
+  note              String? // free-text staff comment / audit note
+  allowedProductIds String[]     @default([]) // BillableProduct ids this coupon discounts; [] = all in-scope tests (campaign scope)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 
   campaign CouponCampaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
 
@@ -1053,7 +1066,7 @@ model TestResult {
   flag            TestResultFlag? // NORMAL | HIGH | LOW
   notes           String?
   createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt @default(now()) // last edit to this value (for audit "when re-edited")
+  updatedAt       DateTime        @default(now()) @updatedAt // last edit to this value (for audit "when re-edited")
 
   // New architecture: dual FK
   testDefinitionId String? // New-arch FK (nullable during migration)
@@ -2151,21 +2164,21 @@ model BillAccessToken {
 /// For coupons that lack a contextId (no visit/payout), store the coupon code.
 /// Backfilled by trackLinkAccess() in linkAccessService.ts.
 model LinkAccessLog {
-  id              String   @id @default(cuid())
-  linkType        String // BILL | REPORT | COUPON | STATEMENT
-  linkToken       String // the raw public token (bearer, not hashed — already public)
-  contextId       String? // visitId (bill/report), payoutId (statement), null (coupon)
-  ipAddress       String?
-  userAgentRaw    String?
-  deviceModel     String?
-  deviceVendor    String?
-  osName          String?
-  osVersion       String?
-  browserName     String?
-  browserVersion  String?
-  referrer        String?
-  acceptLanguage  String?
-  createdAt       DateTime @default(now())
+  id             String   @id @default(cuid())
+  linkType       String // BILL | REPORT | COUPON | STATEMENT
+  linkToken      String // the raw public token (bearer, not hashed — already public)
+  contextId      String? // visitId (bill/report), payoutId (statement), null (coupon)
+  ipAddress      String?
+  userAgentRaw   String?
+  deviceModel    String?
+  deviceVendor   String?
+  osName         String?
+  osVersion      String?
+  browserName    String?
+  browserVersion String?
+  referrer       String?
+  acceptLanguage String?
+  createdAt      DateTime @default(now())
 
   @@index([linkType, createdAt])
   @@index([linkToken])

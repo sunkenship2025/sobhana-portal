@@ -5517,6 +5517,109 @@ router.post("/:id/confirm-ready", async (req: AuthRequest, res) => {
 // Stamp when the bill or finalized report was printed from the Finalized page,
 // so the print icon turns green ("Printed · time") for every staffer/device.
 // Purely a staff-facing signal — never touches report content or money.
+/**
+ * POST /:id/patient-link  { disabled: boolean, reason?: string }
+ *
+ * Visit-level kill switch for the patient's online access: the report link, the
+ * bill QR gateway, the bill PDF and the patient app all switch to "collect at
+ * the centre", and the report/bill WhatsApp sends stop firing. Reversible.
+ *
+ * Owner + lab_incharge only; lab_incharge must give a reason (owner may). Both
+ * directions write a HIGH/info audit row — otherwise a link could be disabled
+ * with a reason and quietly re-enabled without one.
+ */
+router.post(
+  "/:id/patient-link",
+  requireRole("owner", "lab_incharge"),
+  async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const disabled = req.body?.disabled;
+      const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+
+      if (typeof disabled !== "boolean") {
+        return res.status(400).json({
+          error: "VALIDATION_ERROR",
+          message: "disabled must be true or false",
+        });
+      }
+      if (req.user!.role !== "owner" && !reason) {
+        return res.status(400).json({
+          error: "REASON_REQUIRED",
+          message: "A reason is required",
+        });
+      }
+
+      const visit = await prisma.visit.findFirst({
+        where: { id, branchId: req.branchId, domain: "DIAGNOSTICS" },
+        select: {
+          id: true,
+          branchId: true,
+          billNumber: true,
+          patientId: true,
+          patientLinkDisabledAt: true,
+          patientLinkDisabledReason: true,
+        },
+      });
+
+      if (!visit) {
+        return res.status(404).json({
+          error: "NOT_FOUND",
+          message: "Diagnostic visit not found",
+        });
+      }
+
+      const updated = await prisma.visit.update({
+        where: { id },
+        data: disabled
+          ? {
+              patientLinkDisabledAt: new Date(),
+              patientLinkDisabledReason: reason || null,
+              patientLinkDisabledByUserId: req.user!.id,
+            }
+          : {
+              patientLinkDisabledAt: null,
+              patientLinkDisabledReason: null,
+              patientLinkDisabledByUserId: null,
+            },
+        select: {
+          patientLinkDisabledAt: true,
+          patientLinkDisabledReason: true,
+          patientLinkDisabledByUser: { select: { name: true } },
+        },
+      });
+
+      await logAction({
+        branchId: visit.branchId,
+        actionType: "UPDATE",
+        entityType: "Visit",
+        entityId: visit.id,
+        userId: req.user?.id,
+        oldValues: { patientLinkDisabledAt: visit.patientLinkDisabledAt },
+        newValues: {
+          action: disabled ? "PATIENT_LINK_DISABLED" : "PATIENT_LINK_ENABLED",
+          billNumber: visit.billNumber,
+          patientId: visit.patientId,
+          reason: reason || null,
+        },
+      });
+
+      return res.json({
+        success: true,
+        patientLinkDisabledAt: updated.patientLinkDisabledAt,
+        patientLinkDisabledReason: updated.patientLinkDisabledReason,
+        patientLinkDisabledBy: updated.patientLinkDisabledByUser?.name ?? null,
+      });
+    } catch (err: any) {
+      console.error("Patient link toggle error:", err);
+      return res.status(500).json({
+        error: "INTERNAL_ERROR",
+        message: "Failed to update the patient link",
+      });
+    }
+  },
+);
+
 router.post("/:id/mark-printed", async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;

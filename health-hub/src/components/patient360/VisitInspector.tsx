@@ -26,15 +26,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Ban, Eye, EyeOff, FileText, Loader2, MessageCircle, Printer, ReceiptText, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Ban, Eye, EyeOff, FileText, Link2Off, Loader2, MessageCircle, Printer, ReceiptText, Unlink, X, ZoomIn, ZoomOut } from "lucide-react";
 import { toast } from "sonner";
 import { EditReferralDialog } from "./EditReferralDialog";
 import { FinancialDetailPanel } from "./FinancialDetailPanel";
 import { DeliveryStatusLine } from "./DeliveryStatusLine";
 import { NoReportStatus } from "./NoReportStatus";
+import { PatientLinkDialog } from "./PatientLinkDialog";
 import { RefundDialog } from "./RefundDialog";
 import { ReportActions, canViewReport } from "./ReportActions";
 import { SwapTestDialog } from "./SwapTestDialog";
+import { useAuthStore } from "@/store/authStore";
 import type { UseReportActions } from "@/hooks/patient360/useReportActions";
 import type { VisitTimelineItem } from "@/types";
 
@@ -103,6 +105,7 @@ function InspectorBody({
 }) {
   const { preview, busy, viewReport, viewBill, printReport, sendWhatsApp, sendBillWhatsApp, markPrinted, closePreview } =
     reportActions;
+  const { user } = useAuthStore();
   const isDiagnostic = visit.domain === "DIAGNOSTICS";
 
   // Optimistic "just printed" state so the green Printed line/button appears
@@ -131,6 +134,8 @@ function InspectorBody({
   }, [reportActive, visit.visitId]);
 
   const [refundOpen, setRefundOpen] = useState(false);
+  // null = closed; true = about to disable, false = about to re-enable.
+  const [linkDialog, setLinkDialog] = useState<boolean | null>(null);
   // Order ids to pre-tick in the Cancel/Refund dialog when a test is removed via
   // the trash shortcut in the edit-tests pencil.
   const [refundPreselect, setRefundPreselect] = useState<string[] | null>(null);
@@ -143,8 +148,58 @@ function InspectorBody({
   // available as a money action, and referral edits are unaffected.
   const isFinalized = visit.reportStatus === "FINALIZED" || Boolean(visit.finalizedAt);
   const canRefund = isDiagnostic && hasBill && hasActiveOrders && !isCancelledVisit;
+  // Patient online access (report link + bill QR + patient app) — one switch per
+  // visit, owner + lab incharge only. A cancelled visit's links are already
+  // revoked by the refund flow, so the control stays hidden there.
+  const linkDisabled = !!visit.patientLinkDisabledAt;
+  const canToggleLink =
+    isDiagnostic &&
+    !isCancelledVisit &&
+    (user?.role === "owner" || user?.role === "lab_incharge");
   const canCorrect = isDiagnostic && hasBill && !isCancelledVisit;
   const canEditTests = canCorrect && hasActiveOrders && !isFinalized;
+
+  const linkToggle = canToggleLink ? (
+    <Button
+      variant="ghost"
+      size="icon"
+      className={`h-6 w-6 ${
+        linkDisabled ? "text-amber-600 hover:text-amber-700" : "text-muted-foreground"
+      }`}
+      title={
+        linkDisabled
+          ? "Online link is off — turn it back on"
+          : "Disable the patient's online link"
+      }
+      onClick={() => setLinkDialog(!linkDisabled)}
+    >
+      {linkDisabled ? (
+        <Link2Off className="h-4 w-4" aria-hidden="true" />
+      ) : (
+        <Unlink className="h-4 w-4" aria-hidden="true" />
+      )}
+    </Button>
+  ) : null;
+
+  const linkOffNote = linkDisabled ? (
+    <div className="space-y-0.5">
+      <p className="flex items-center gap-1.5 text-xs text-amber-600">
+        <Link2Off className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span>Online link off · patient asked to collect at the centre</span>
+      </p>
+      {(visit.patientLinkDisabledBy || visit.patientLinkDisabledReason) && (
+        <p className="pl-5 text-xs text-muted-foreground">
+          {[
+            visit.patientLinkDisabledBy,
+            formatPrintedAt(visit.patientLinkDisabledAt),
+            visit.patientLinkDisabledReason,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
+      )}
+    </div>
+  ) : null;
 
   return (
     <div className="space-y-5">
@@ -170,7 +225,10 @@ function InspectorBody({
         <>
           <Separator />
           <div className="space-y-2">
-            <h4 className="text-sm font-medium">Report</h4>
+            <div className="flex items-center gap-1">
+              <h4 className="text-sm font-medium">Report</h4>
+              {linkToggle}
+            </div>
             <ReportActions
               visit={visit}
               patientPhone={patientPhone}
@@ -186,8 +244,10 @@ function InspectorBody({
                 printReport(visit.visitId);
               }}
               onWhatsApp={() => sendWhatsApp(visit.visitId)}
+              linkDisabled={linkDisabled}
             />
             <NoReportStatus visit={visit} />
+            {linkOffNote}
           </div>
         </>
       )}
@@ -195,7 +255,10 @@ function InspectorBody({
       <Separator />
 
       <div className="space-y-2">
-        <h4 className="text-sm font-medium">Bill</h4>
+        <div className="flex items-center gap-1">
+          <h4 className="text-sm font-medium">Bill</h4>
+          {linkToggle}
+        </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {hasBill && (
             <Button
@@ -240,7 +303,8 @@ function InspectorBody({
               variant="outline"
               size="sm"
               className="justify-start text-green-600 hover:bg-green-50 hover:text-green-700 sm:col-span-2"
-              disabled={busy?.visitId === visit.visitId}
+              disabled={busy?.visitId === visit.visitId || linkDisabled}
+              title={linkDisabled ? "Online link is off for this visit" : undefined}
               onClick={() => sendBillWhatsApp(visit.visitId)}
             >
               {busy?.visitId === visit.visitId && busy.action === "whatsapp-bill" ? (
@@ -274,6 +338,7 @@ function InspectorBody({
           </p>
         )}
         <DeliveryStatusLine delivery={visit.billDelivery ?? null} />
+        {!(isDiagnostic && (canViewReport(visit) || hasNoReportOrders)) && linkOffNote}
         {/* Collect-payment deep-link intentionally omitted for v1 (06-frontend-plan §4 / Q5);
             print-bill is the supported path. */}
       </div>
@@ -305,6 +370,14 @@ function InspectorBody({
             if (!o) setRefundPreselect(null);
           }}
           preselectOrderIds={refundPreselect ?? undefined}
+        />
+      )}
+      {canToggleLink && linkDialog !== null && (
+        <PatientLinkDialog
+          visit={visit}
+          disabling={linkDialog}
+          open
+          onOpenChange={(o) => !o && setLinkDialog(null)}
         />
       )}
       {canCorrect && (
