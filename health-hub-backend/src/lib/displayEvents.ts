@@ -34,23 +34,43 @@ export function onBranchChange(branchId: string, fn: () => void): () => void {
  * Reference-catalog changes (price list, dropdowns, definitions) — a SEPARATE
  * channel from the queue events above, so clinic-visit churn never invalidates
  * cached catalogs. Payload = which catalog changed, so a client refetches only
- * that one. Event name is `catalog:<branchId>` — a change only wakes clients on
- * that branch. Cross-branch propagation (a global product edit) rides the client
- * staleTime backstop, not this push.
+ * that one.
+ *
+ * The catalogs themselves are GLOBAL rows (BillableProduct.basePriceInPaise,
+ * doctors, departments…): an edit made while standing on Chintal changes what
+ * every branch quotes and bills. So those fan out to `catalog:*` — every open
+ * tab, whatever branch it sits on. Branch-scoping them meant a price edit left
+ * the other three branches quoting the old price until the page happened to
+ * remount (staleTime never refetches an idle mounted page on its own).
+ *
+ * The two reserved per-branch names stay on the branch channel: `worklist`
+ * fires on EVERY visit write and `inbox` on every inbound message, so fanning
+ * those out would turn one branch's churn into a refetch storm on all of them.
  * ponytail: same single-instance ceiling as above — Redis pub/sub if it scales.
  */
+const GLOBAL_KEY = 'catalog:*';
+const BRANCH_SCOPED = new Set(['worklist', 'inbox']);
+
 export function emitCatalogChange(branchId: string, catalog: string): void {
-  emitter.emit(`catalog:${branchId}`, catalog);
+  emitter.emit(
+    BRANCH_SCOPED.has(catalog) ? `catalog:${branchId}` : GLOBAL_KEY,
+    catalog,
+  );
 }
 
-/** Subscribe to a branch's catalog changes; unsubscribe on disconnect. */
+/** Subscribe to a branch's catalog changes (plus the global ones); unsubscribe
+ *  on disconnect. */
 export function onCatalogChange(
   branchId: string,
   fn: (catalog: string) => void,
 ): () => void {
   const key = `catalog:${branchId}`;
   emitter.on(key, fn);
-  return () => emitter.off(key, fn);
+  emitter.on(GLOBAL_KEY, fn);
+  return () => {
+    emitter.off(key, fn);
+    emitter.off(GLOBAL_KEY, fn);
+  };
 }
 
 /**

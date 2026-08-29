@@ -5,7 +5,7 @@
  * every open tab (over-emit). No framework: `npx tsx src/lib/displayEvents.check.ts`.
  */
 import assert from 'assert';
-import { emitWorklistOnMutation, onCatalogChange } from './displayEvents';
+import { emitCatalogChange, emitWorklistOnMutation, onCatalogChange } from './displayEvents';
 
 /** Drive the middleware through one request and report what it emitted. */
 function run(
@@ -65,5 +65,20 @@ emitWorklistOnMutation(
 );
 offOther();
 assert.deepStrictEqual(otherBranch, []);
+
+// …but a reference catalog IS global: a price edited while standing on b2 changes
+// what b1 quotes, so b1's tabs must be told. This is the ₹18,000-vs-₹24,000 bug.
+const crossBranch: string[] = [];
+const offCross = onCatalogChange('b1', (c) => crossBranch.push(c));
+emitCatalogChange('b2', 'billable-products');
+offCross();
+assert.deepStrictEqual(crossBranch, ['billable-products']);
+
+// A subscriber must not hear the same global edit twice (branch + global channel).
+const once: string[] = [];
+const offOnce = onCatalogChange('b1', (c) => once.push(c));
+emitCatalogChange('b1', 'billable-products');
+offOnce();
+assert.deepStrictEqual(once, ['billable-products']);
 
 console.log('displayEvents: all checks passed');
