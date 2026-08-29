@@ -5,6 +5,7 @@ import { requireRole } from '../middleware/rbac';
 import { branchContextMiddleware } from '../middleware/branch';
 import { logAction } from '../services/auditService';
 import prisma from '../lib/prisma';
+import { emitCatalogChange } from '../lib/displayEvents';
 
 const router = Router();
 
@@ -96,6 +97,7 @@ router.patch('/:id/role', async (req: AuthRequest, res) => {
       userAgent: req.get('user-agent'),
     });
 
+    if (req.branchId) emitCatalogChange(req.branchId, 'users');
     return res.json({ data: updated });
   } catch (err) {
     console.error('Update user role error:', err);
@@ -170,6 +172,7 @@ router.patch('/:id/active', async (req: AuthRequest, res) => {
       userAgent: req.get('user-agent'),
     });
 
+    if (req.branchId) emitCatalogChange(req.branchId, 'users');
     return res.json({ data: updated });
   } catch (err) {
     console.error('Update user active error:', err);

@@ -17,6 +17,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import { requireRole } from '../middleware/rbac';
 import prisma from '../lib/prisma';
+import { emitCatalogChange } from '../lib/displayEvents';
 import { putObject, deleteObjects } from '../services/r2StorageService';
 
 const router = Router();
@@ -174,6 +175,7 @@ router.post('/', upload.array('files', 12), async (req: AuthRequest, res) => {
       },
     });
 
+    if (req.branchId) emitCatalogChange(req.branchId, 'display-ads');
     return res.status(201).json(shape(ad));
   } catch (err: any) {
     console.error('Create display ad error:', err);
@@ -202,6 +204,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     }
 
     const ad = await prisma.displayAd.update({ where: { id }, data });
+    if (req.branchId) emitCatalogChange(req.branchId, 'display-ads');
     return res.json(shape(ad));
   } catch (err: any) {
     console.error('Update display ad error:', err);
@@ -279,6 +282,7 @@ router.put('/:id/media', upload.array('files', 12), async (req: AuthRequest, res
     }
 
     const ad = await prisma.displayAd.update({ where: { id }, data });
+    if (req.branchId) emitCatalogChange(req.branchId, 'display-ads');
     return res.json(shape(ad));
   } catch (err: any) {
     console.error('Edit display ad media error:', err);
@@ -295,6 +299,7 @@ router.delete('/:id', async (req: AuthRequest, res) => {
 
     await deleteObjects(existing.mediaKeys, ADS_BUCKET);
     await prisma.displayAd.delete({ where: { id } });
+    if (req.branchId) emitCatalogChange(req.branchId, 'display-ads');
     return res.json({ ok: true });
   } catch (err: any) {
     console.error('Delete display ad error:', err);

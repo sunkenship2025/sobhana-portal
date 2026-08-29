@@ -11,6 +11,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import { requireRole } from '../middleware/rbac';
 import prisma from '../lib/prisma';
+import { emitCatalogChange } from '../lib/displayEvents';
 import { slugify, branchSlug } from '../lib/displaySlug';
 
 const router = Router();
@@ -99,6 +100,7 @@ router.post('/', async (req: AuthRequest, res) => {
       },
     });
     const bSlug = await branchSlugFor(req.branchId!);
+    if (req.branchId) emitCatalogChange(req.branchId, 'display-screens');
     return res.status(201).json({ ...screen, branchSlug: bSlug });
   } catch (err: any) {
     console.error('Create display screen error:', err);
@@ -130,6 +132,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
 
     const screen = await prisma.displayScreen.update({ where: { id }, data });
     const bSlug = await branchSlugFor(req.branchId!);
+    if (req.branchId) emitCatalogChange(req.branchId, 'display-screens');
     return res.json({ ...screen, branchSlug: bSlug });
   } catch (err: any) {
     console.error('Update display screen error:', err);
@@ -150,6 +153,7 @@ router.post('/:id/revoke', async (req: AuthRequest, res) => {
       where: { id },
       data: { revokedAt: new Date(), isActive: false },
     });
+    if (req.branchId) emitCatalogChange(req.branchId, 'display-screens');
     return res.json(screen);
   } catch (err: any) {
     console.error('Revoke display screen error:', err);
@@ -167,6 +171,7 @@ router.delete('/:id', async (req: AuthRequest, res) => {
     if (!existing) return res.status(404).json({ error: 'NOT_FOUND', message: 'Screen not found' });
 
     await prisma.displayScreen.delete({ where: { id } });
+    if (req.branchId) emitCatalogChange(req.branchId, 'display-screens');
     return res.json({ ok: true });
   } catch (err: any) {
     console.error('Delete display screen error:', err);
