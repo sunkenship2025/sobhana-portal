@@ -8,8 +8,11 @@ export interface DoctorByContact {
 }
 
 const DOCTOR_BY_CONTACT_KEY = "doctorByContact";
-const CLINIC_DOCTORS_LIST_KEY = "clinicDoctorsList";
-const REFERRAL_DOCTORS_LIST_KEY = "referralDoctorsList";
+// Same names the server pushes on /api/events (and the same endpoints as
+// `qk.clinicDoctors` / `qk.referralDoctors`), so an edit on another device
+// invalidates these too instead of leaving them stale for 5 minutes.
+const CLINIC_DOCTORS_LIST_KEY = "clinic-doctors";
+const REFERRAL_DOCTORS_LIST_KEY = "referral-doctors";
 
 /**
  * Shared, cached doctor lookups for the doctor-management forms.

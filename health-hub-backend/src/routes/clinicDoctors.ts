@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import * as doctorService from '../services/doctorService';
+import { emitCatalogChange } from '../lib/displayEvents';
 import { normalizeReferralPayoutInput } from '../services/referralPayoutService';
 
 const router = Router();
@@ -95,6 +96,7 @@ router.post('/', async (req: AuthRequest, res) => {
       userId: req.user?.id
     });
 
+    if (req.branchId) emitCatalogChange(req.branchId, 'clinic-doctors');
     return res.status(201).json(doctor);
   } catch (err: any) {
     if (err.statusCode) {
@@ -172,6 +174,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
       req.user?.id
     );
 
+    if (req.branchId) emitCatalogChange(req.branchId, 'clinic-doctors');
     return res.json(updated);
   } catch (err: any) {
     if (err.statusCode) {
@@ -199,6 +202,7 @@ router.delete('/:id', async (req: AuthRequest, res) => {
       req.user?.id
     );
 
+    if (req.branchId) emitCatalogChange(req.branchId, 'clinic-doctors');
     return res.json(updated);
   } catch (err: any) {
     if (err.statusCode) {

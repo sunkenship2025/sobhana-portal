@@ -89,14 +89,17 @@ export default function OutsideLabs() {
 
   const { data: labs = [], isLoading } = useApiQuery<ExternalLab[]>({
     branchScoped: true,
-    queryKey: qk.externalLabs(branchId),
+    // "all" keeps this off the active-only key New Visit reads — same key +
+    // different URL meant whichever page loaded first served the other one.
+    queryKey: [...qk.externalLabs(branchId), "all"],
     queryFn: () =>
       branchRequest<ExternalLab[]>("/external-labs?includeInactive=true", branchId!),
   });
 
   const { data: products = [] } = useApiQuery<ProductLite[]>({
     branchScoped: true,
-    queryKey: [...qk.externalLabs(branchId), "products"],
+    // Same list New Visit downloads — share its key so a price edit refreshes both.
+    queryKey: qk.billableProducts(branchId),
     queryFn: () => branchRequest<ProductLite[]>("/billable-products", branchId!),
   });
   const productName = (id: string) => products.find((p) => p.id === id)?.name ?? id;

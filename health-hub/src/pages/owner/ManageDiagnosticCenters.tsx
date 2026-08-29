@@ -66,7 +66,8 @@ export default function ManageDiagnosticCenters() {
   // Branch-scoped list (X-Branch-Id header) → branchId belongs in the key.
   const { data: centers = [], isLoading: loading } = useApiQuery<DiagnosticCenter[]>({
     branchScoped: true,
-    queryKey: qk.diagnosticCenters(branchId),
+    // "all" — see OutsideLabs: includeInactive must not share the dropdown's key.
+    queryKey: [...qk.diagnosticCenters(branchId), "all"],
     queryFn: () =>
       branchRequest<DiagnosticCenter[]>(
         '/diagnostic-centers?includeInactive=true',
