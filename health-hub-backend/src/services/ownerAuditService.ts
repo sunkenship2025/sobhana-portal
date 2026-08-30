@@ -334,15 +334,16 @@ export async function getAuditEvents(
     // patient-linked event drills to `/diagnostics/results/{visitId}`, so we
     // match on that path. Only runs when the user actually searches.
     const branchAnd = params.branchId ? { branchId: params.branchId } : {};
-    const [idPatients, billVisits] = await Promise.all([
+    const [matchedPatients, billVisits] = await Promise.all([
       prisma.patient.findMany({
         where: {
           OR: [
+            { name: { contains: q, mode: "insensitive" } },
             { patientNumber: { contains: q, mode: "insensitive" } },
             { identifiers: { some: { value: { contains: q, mode: "insensitive" } } } },
           ],
         },
-        select: { visits: { where: branchAnd, select: { id: true }, take: 200 } },
+        select: { id: true, visits: { where: branchAnd, select: { id: true }, take: 200 } },
         take: 50,
       }),
       prisma.bill.findMany({
@@ -352,7 +353,11 @@ export async function getAuditEvents(
       }),
     ]);
     const visitIds = new Set<string>();
-    for (const p of idPatients) for (const v of p.visits) visitIds.add(v.id);
+    const patientIds: string[] = [];
+    for (const p of matchedPatients) {
+      patientIds.push(p.id);
+      for (const v of p.visits) visitIds.add(v.id);
+    }
     for (const b of billVisits) if (b.visitId) visitIds.add(b.visitId);
     const drillPaths = Array.from(visitIds).map((id) => `/diagnostics/results/${id}`);
 
@@ -363,6 +368,9 @@ export async function getAuditEvents(
         { entityId: { contains: q, mode: "insensitive" } },
         { actorName: { contains: q, mode: "insensitive" } },
         { patientName: { contains: q, mode: "insensitive" } },
+        // Patient-scoped rows (registered / details edited) key entityId to the
+        // patientId, and aren't visit-linked — match those directly.
+        ...(patientIds.length ? [{ entityId: { in: patientIds } }] : []),
         ...(drillPaths.length ? [{ drillTo: { in: drillPaths } }] : []),
       ],
     });
