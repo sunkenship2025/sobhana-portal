@@ -550,9 +550,21 @@ export async function getAuditEventDetail(
       select: { oldValues: true, newValues: true, ipAddress: true, userAgent: true },
     });
     if (al) {
-      diff = buildDiff(parseJson(al.oldValues), parseJson(al.newValues));
       ipAddress = al.ipAddress ?? null;
       userAgent = al.userAgent ?? null;
+      // Patient edit: the audit row only holds field NAMES + counts. The real
+      // before→after per field lives in PatientChangeLog (grouped by requestId),
+      // so pull the actual old→new values from there.
+      const nv = parseJson(al.newValues);
+      if (e.entityType.toLowerCase() === "patient" && nv?.requestId) {
+        const changes = await prisma.patientChangeLog.findMany({
+          where: { requestId: nv.requestId },
+          select: { fieldName: true, oldValue: true, newValue: true },
+        });
+        diff = changes.map((c) => ({ field: c.fieldName, old: c.oldValue, new: c.newValue }));
+      } else {
+        diff = buildDiff(parseJson(al.oldValues), nv);
+      }
     }
   } else if (e.amountInPaise !== null) {
     // Money rows have no field-level diff; show the amount + reason.

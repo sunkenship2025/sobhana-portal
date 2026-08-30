@@ -62,6 +62,8 @@ function classifyAudit(
         return { category: "report", severity: "low", event: "Clinical definition edited" };
       if (et === "clinicalpanel")
         return { category: "report", severity: "low", event: "Clinical panel edited" };
+      if (et === "patient")
+        return { category: "identity", severity: "low", event: "Patient details edited" };
       return { category: "ops", severity: "low", event: `Updated ${entityType}` };
     case AuditActionType.CREATE:
       if (et === "patient")
@@ -152,7 +154,7 @@ export async function projectWindow(
       take: 20000,
       select: {
         id: true, branchId: true, actionType: true, entityType: true,
-        entityId: true, userId: true, createdAt: true, newValues: true,
+        entityId: true, userId: true, createdAt: true, newValues: true, oldValues: true,
       },
     }),
     prisma.bill.findMany({
@@ -248,12 +250,17 @@ export async function projectWindow(
     const editDetail = isResultEdit
       ? `${editCount} value${editCount === 1 ? "" : "s"}${changedList.length ? `: ${changedList.join(", ")}` : ""}${patientName ? ` · ${patientName}` : ""}`
       : null;
+    // Patient edit → show WHICH fields changed (from oldValues.changedFields), so
+    // the row reads "name, age" not a bare "Patient details edited".
+    const patientEditDetail = (et === "patient" && r.actionType === AuditActionType.UPDATE)
+      ? (() => { const ov = parseJson(r.oldValues); const f = ov?.changedFields; return Array.isArray(f) && f.length ? f.join(", ") : null; })()
+      : null;
     return {
       id: `al:${r.id}`, dedupeKey: `al:${r.id}`, branchId: r.branchId,
       occurredAt: r.createdAt, severity: c.severity, category: c.category,
       score: c.severity === "high" ? 4 : c.severity === "medium" ? 2 : 1,
       event: isResultEdit ? "Report values edited" : c.event,
-      detail: editDetail ?? catalogName ?? patientName ?? "",
+      detail: editDetail ?? patientEditDetail ?? catalogName ?? patientName ?? "",
       actorUserId: r.userId, actorName: u?.name ?? null, actorRole: u?.role ?? null,
       entityType: r.entityType, entityId: r.entityId, patientName,
       amountInPaise: null, reason: null,
