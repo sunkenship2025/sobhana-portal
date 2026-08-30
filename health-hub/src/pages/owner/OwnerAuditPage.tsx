@@ -385,19 +385,6 @@ export default function OwnerAuditPage() {
   const detail = detailQuery.data;
 
   const qc = useQueryClient();
-  // Older history isn't projected on read (the feed only auto-materializes the
-  // recent window). This one-off backfill walks a year back so old ranges + the
-  // scorecard's Yearly/All-time fill in. Fire-and-forget; reload after ~30s.
-  const [backfill, setBackfill] = useState<'idle' | 'running'>('idle');
-  const loadOlderHistory = async () => {
-    setBackfill('running');
-    try {
-      await apiRequest(`${API_BASE}/owner/audit/backfill?days=365&branch=${encodeURIComponent(branchValue)}`, { method: 'POST' });
-    } catch {
-      /* best-effort */
-    }
-  };
-
   const [triaging, setTriaging] = useState(false);
   const doTriage = async (status: 'new' | 'ack' | 'resolved') => {
     if (!openRow) return;
@@ -489,11 +476,6 @@ export default function OwnerAuditPage() {
           {QUICK_RANGES.map((r) => (
             <span key={r.label} className="rng" onClick={() => applyQuickRange(r.from)}>{r.label}</span>
           ))}
-          <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink3)' }}>
-            {backfill === 'running'
-              ? 'Backfilling last year… reload in ~30s'
-              : <span className="rng" onClick={loadOlderHistory}>Load older history</span>}
-          </span>
         </div>
 
         {/* KPI strip — action-oriented: what should I check, is money moving,
