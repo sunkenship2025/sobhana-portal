@@ -143,6 +143,7 @@ export async function projectWindow(
   from: Date,
   to: Date,
   branchId: string | null,
+  overwrite = false, // re-label existing rows (backfill only) vs insert-only (hot path)
 ): Promise<number> {
   const branchWhere = branchId ? { branchId } : {};
   const window = { gte: from, lte: to };
@@ -328,11 +329,20 @@ export async function projectWindow(
     };
   });
 
-  // Immutable point events → insert-only (createMany skipDuplicates).
-  const inserted = await prisma.anomalyEvent.createMany({
-    data: [...auditEvents, ...reopenEvents],
-    skipDuplicates: true,
-  });
+  // Point events → insert-only on the hot path (createMany skipDuplicates). On an
+  // overwrite backfill, upsert so existing rows pick up re-classified event/detail
+  // (e.g. old "Updated Patient" → "Patient details edited").
+  const pointEvents = [...auditEvents, ...reopenEvents];
+  let inserted = { count: 0 };
+  if (overwrite) {
+    for (const e of pointEvents) {
+      const { id: _id, dedupeKey, ...rest } = e;
+      await prisma.anomalyEvent.upsert({ where: { dedupeKey }, create: e, update: rest });
+    }
+    inserted.count = pointEvents.length;
+  } else {
+    inserted = await prisma.anomalyEvent.createMany({ data: pointEvents, skipDuplicates: true });
+  }
 
   // Discounts + refunds can change (a discount edited at collect-time) → upsert.
   const mutable = [...discountEvents, ...refundEvents];
@@ -390,7 +400,7 @@ export async function backfillProjection(
     const to = new Date(now - offset);
     const from = new Date(Math.max(now - totalMs, now - offset - chunkMs));
     try {
-      await projectWindow(from, to, branchId);
+      await projectWindow(from, to, branchId, true); // overwrite → relabel stale rows
     } catch (err) {
       console.error("anomaly backfill chunk failed:", err);
     }
