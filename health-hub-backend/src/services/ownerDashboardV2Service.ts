@@ -5,7 +5,9 @@
  * a single call:
  *   - actionQueue       chips that fire when a decision is pending
  *   - moneyToday        gross → discount → commission → net waterfall + cash/online
- *   - payoutLiability   open derived payouts split by doctor type
+ *   - payoutLiability   open (unsettled) derived payouts split by doctor type.
+ *                       The dashboard's Payouts card leads with moneyToday.commissionInPaise
+ *                       (period-scoped) and shows these underneath as the live stock.
  *   - opsPulse          diagnostics / clinic / comms 3-tile status
  *   - revenueTrend      30-day net revenue series (no expected band yet)
  *   - revenueMix        today's net split: reportable / clinic / bill-only+external

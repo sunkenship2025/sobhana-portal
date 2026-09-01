@@ -3,14 +3,14 @@
  *
  * Backed by GET /api/owner/dashboard-v2. A global period slicer scopes the
  * "period zone" (money summary, revenue trend/mix, branch table). The action
- * queue, payout liability, open receivables and ops pulse are current-state
+ * queue, unsettled payouts, open receivables and ops pulse are current-state
  * ("live") and deliberately ignore the slicer — they answer "what needs my
  * decision right now?" regardless of the reporting window.
  *
  * Sections, top to bottom:
  *   - Header strip                 — title, IST timestamp, period + branch filters
  *   - Action queue                 — live chips, conditional
- *   - Money (period) + payout liability (live)  (60/40 split)
+ *   - Money (period) + Payouts (period headline, live unsettled)  (60/40 split)
  *   - Diagnostics / clinic / comms 3-tile pulse (live/today)
  *   - Net revenue trend + revenue mix (period)
  *   - Branch performance table (period, Δ vs prior window)
@@ -468,16 +468,32 @@ function WaterfallRow({
   );
 }
 
-// ----- payout liability -------------------------------------------------
+// ----- payouts ----------------------------------------------------------
 
-function PayoutLiabilityCard({
+/**
+ * Headline follows the date filter; the rest is live.
+ *
+ * It used to lead with all-time unsettled under the heading "Payout liability",
+ * which answered a question nobody on this screen was asking: every other card
+ * moves with the picker at the top, so a figure that ignored it read as one that
+ * did, and "liability" is accountant's language for what an owner thinks of as
+ * what they owe their doctors this month. The period figure is the commission
+ * already accrued in the window — the same number the Money card subtracts, so
+ * the two always agree. The unsettled stock keeps its place below, labelled as
+ * live so it is not mistaken for the period.
+ */
+function PayoutsCard({
   data,
+  money,
+  periodLabel,
 }: {
   data: DashboardV2['payoutLiability'];
+  money: DashboardV2['moneyToday'];
+  periodLabel: string;
 }) {
   return (
     <SectionCard
-      label="Payout liability"
+      label={`Payouts · ${periodLabel}`}
       rightSlot={
         <Link
           to="/owner/payouts"
@@ -487,20 +503,24 @@ function PayoutLiabilityCard({
         </Link>
       }
     >
-      <DisplayNumber>{formatRupees(data.totalInPaise)}</DisplayNumber>
+      <DisplayNumber>{formatRupees(money.commissionInPaise)}</DisplayNumber>
       <div style={{ color: TOKENS.textTertiary, fontSize: 11 }}>
-        Total unsettled · awaiting review or settlement
+        Commission accrued to doctors &amp; centres ({periodLabel})
       </div>
-      <div className="mt-4 space-y-1">
-        <StatRow
-          label="To review"
-          value={formatRupees(data.toReviewInPaise)}
-          emphasize={data.toReviewInPaise > 0 ? 'caution' : undefined}
-        />
-        <StatRow
-          label="Approved, awaiting settlement"
-          value={formatRupees(data.approvedUnpaidInPaise)}
-        />
+      <div className="mt-4">
+        <SectionLabel>Unsettled · live</SectionLabel>
+        <div className="mt-2 space-y-1">
+          <StatRow label="Total unsettled" value={formatRupees(data.totalInPaise)} />
+          <StatRow
+            label="To review"
+            value={formatRupees(data.toReviewInPaise)}
+            emphasize={data.toReviewInPaise > 0 ? 'caution' : undefined}
+          />
+          <StatRow
+            label="Approved, awaiting settlement"
+            value={formatRupees(data.approvedUnpaidInPaise)}
+          />
+        </div>
       </div>
       <div
         className="mt-3 space-y-2 border-t pt-3"
@@ -1103,7 +1123,11 @@ export default function OwnerDashboardV2() {
                 <MoneyTodayCard data={data.moneyToday} periodLabel={periodLabel} />
               </div>
               <div className="flex flex-col gap-4 lg:col-span-2">
-                <PayoutLiabilityCard data={data.payoutLiability} />
+                <PayoutsCard
+                  data={data.payoutLiability}
+                  money={data.moneyToday}
+                  periodLabel={periodLabel}
+                />
                 <OutstandingTile data={data.moneyToday} />
               </div>
             </div>

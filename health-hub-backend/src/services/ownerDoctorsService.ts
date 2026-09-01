@@ -5,7 +5,7 @@
  * who's reviewing & approving payouts, where is referral money flowing.
  *
  * Sections:
- *   - kpis            Net referral revenue / Paid / Liability open / Outsourced
+ *   - kpis            Net kept / net referral / net clinic / commission / rate / outsourced
  *   - leaderboard     One row per doctor with visits, gross, commission, net, owed
  *   - payoutAging     Aging buckets on open DoctorPayoutLedger rows
  *   - externalFlow    REFERRED_TO (outgoing) vs REFERRED_FROM (incoming)

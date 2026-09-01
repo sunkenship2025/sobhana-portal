@@ -157,7 +157,7 @@ router.post('/audit/backfill', async (req: AuthRequest, res) => {
 // GET /api/owner/dashboard-v2?period=today|yesterday|7d|30d|mtd|ytd|custom&branch=<id>
 //   custom also takes &start=YYYY-MM-DD&end=YYYY-MM-DD (IST calendar days, inclusive).
 // The period slicer scopes the money summary, revenue trend/mix and branch table;
-// the action queue, receivables, payout liability and ops pulse stay live.
+// the action queue, receivables, unsettled payouts and ops pulse stay live.
 // branch=all (or omitted) returns cross-branch totals.
 router.get('/dashboard-v2', async (req: AuthRequest, res) => {
   try {
