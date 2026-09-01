@@ -212,7 +212,13 @@ const corsOptions: cors.CorsOptions = {
     'If-Match',
   ],
   exposedHeaders: ['Content-Length', 'X-Request-Id', 'Date'],
-  maxAge: 0, // Don't cache preflight requests
+  // Cache the preflight answer. Every API call carrying Authorization or
+  // X-Branch-Id triggers a preflight, and at maxAge 0 that was 6,955 extra
+  // requests/day — ~45% of ALL traffic — plus a second round trip on every
+  // action staff take. 7200 is Chrome's hard ceiling for preflight caching
+  // (a larger value is silently clamped), and it bounds how long a browser can
+  // keep honouring a stale CORS rule after this list changes.
+  maxAge: 7200,
   preflightContinue: false,
   optionsSuccessStatus: 204,
 };
