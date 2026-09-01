@@ -588,6 +588,17 @@ export interface VisitTimelineItem {
   // True iff a FINALIZED report version carries an abnormal flag (boolean only,
   // never values/test-names). Absent on the legacy /360 view.
   hasAbnormalResults?: boolean;
+  /** Smart Report state for the visit's latest finalized version, or null when
+   *  the package never opted in. `usedFallbackCopy` is the quiet one: the report
+   *  shipped and every number is right, but the model's prose was rejected or
+   *  never arrived, so the patient got template wording instead. */
+  smartReport?: {
+    status: "PENDING" | "READY" | "FAILED" | "SKIPPED";
+    usedFallbackCopy: boolean;
+    sendSuppressed: boolean;
+    score: number | null;
+    skipReason: string | null;
+  } | null;
   // Rollup of the visit's testOrder workflow modes. CLINIC → null.
   workflowMode?: VisitWorkflowMode | null;
   // Latest REPORT-context delivery progression, or null when never sent.

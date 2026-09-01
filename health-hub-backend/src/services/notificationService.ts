@@ -333,9 +333,12 @@ async function dispatchDiagnosticCompletionNotification(input: {
     if (kind === 'final' && SMART_TEMPLATE_NAME) {
       const sr = await prisma.smartReport.findUnique({
         where: { reportVersionId: link.reportVersionId },
-        select: { status: true },
+        select: { status: true, sendSuppressedAt: true },
       });
-      smartReady = sr?.status === 'READY';
+      // A suppressed Smart Report falls back to the plain one-button template, so a
+      // resend after staff kill it does not put the smart link back in front of the
+      // patient.
+      smartReady = sr?.status === 'READY' && !sr.sendSuppressedAt;
     }
     const templateName = kind === 'partial'
       ? PARTIAL_TEMPLATE_NAME

@@ -1050,7 +1050,7 @@ model ReportVersion {
   // E3-10: Access control
   accessTokens ReportAccessToken[]
   accessLogs   ReportAccessLog[]
-  smartReport SmartReport?
+  smartReport  SmartReport?
 
   @@unique([reportId, versionNum])
   @@index([status])
@@ -2251,11 +2251,19 @@ model SmartReport {
   hasCritical      Boolean @default(false)
 
   /// Deterministic output (findings, buckets, trends, chosen content). The audit record.
-  findings           Json?
+  findings         Json?
   /// Validated LLM output: testScore, findingExplanations, advisory.
-  content            Json?
-  usedFallbackCopy   Boolean @default(false)
-  validationFailures Json?
+  content          Json?
+  usedFallbackCopy Boolean @default(false)
+
+  /// Staff kill switch, set AFTER the fact. Generation and the first send are
+  /// fire-and-forget at finalize, so this cannot pre-empt the first message; what
+  /// it does is stop the smart link being served and make every resend fall back
+  /// to the plain one-button template. For a Smart Report that reads wrong.
+  sendSuppressedAt     DateTime?
+  sendSuppressedBy     String?
+  sendSuppressedReason String?
+  validationFailures   Json?
 
   model          String?
   promptVersion  String?

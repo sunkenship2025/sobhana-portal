@@ -26,11 +26,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Ban, Eye, EyeOff, FileText, Link2Off, Loader2, MessageCircle, Printer, ReceiptText, Unlink, X, ZoomIn, ZoomOut } from "lucide-react";
+import { AlertTriangle, Ban, Eye, EyeOff, FileText, Link2Off, Loader2, MessageCircle, Printer, ReceiptText, Sparkles, Unlink, X, ZoomIn, ZoomOut } from "lucide-react";
 import { toast } from "sonner";
 import { EditReferralDialog } from "./EditReferralDialog";
 import { FinancialDetailPanel } from "./FinancialDetailPanel";
 import { DeliveryStatusLine } from "./DeliveryStatusLine";
+import { SmartReportStatusLine } from "./SmartReportStatusLine";
+import { SmartReportActionsDialog } from "./SmartReportActionsDialog";
 import { NoReportStatus } from "./NoReportStatus";
 import { PatientLinkDialog } from "./PatientLinkDialog";
 import { RefundDialog } from "./RefundDialog";
@@ -103,7 +105,7 @@ function InspectorBody({
   patientPhone?: string | null;
   reportActions: UseReportActions;
 }) {
-  const { preview, busy, viewReport, viewBill, printReport, sendWhatsApp, sendBillWhatsApp, markPrinted, closePreview } =
+  const { preview, busy, isBusy, viewReport, viewBill, viewSmartReport, printReport, sendWhatsApp, sendBillWhatsApp, markPrinted, closePreview } =
     reportActions;
   const { user } = useAuthStore();
   const isDiagnostic = visit.domain === "DIAGNOSTICS";
@@ -122,6 +124,8 @@ function InspectorBody({
   const activePreview = preview?.visitId === visit.visitId ? preview : null;
   const reportActive = activePreview?.kind === "report";
   const billActive = activePreview?.kind === "bill";
+  const smartActive = activePreview?.kind === "smart";
+  const smart = visit.smartReport ?? null;
   const billDomain = String(visit.domain).toUpperCase();
   const hasBill = visit.hasBill ?? !!visit.billNumber;
 
@@ -140,6 +144,8 @@ function InspectorBody({
   // the trash shortcut in the edit-tests pencil.
   const [refundPreselect, setRefundPreselect] = useState<string[] | null>(null);
   const [referralEditOpen, setReferralEditOpen] = useState(false);
+  // null = closed; regenerate / withdraw / restore.
+  const [smartDialog, setSmartDialog] = useState<"regenerate" | "withdraw" | "restore" | null>(null);
   const [swapOpen, setSwapOpen] = useState(false);
   const hasActiveOrders = (visit.testOrders ?? []).some((order) => !order.cancelledAt);
   const isCancelledVisit = String(visit.status).toUpperCase() === "CANCELLED";
@@ -260,6 +266,22 @@ function InspectorBody({
           {linkToggle}
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {smart && smart.status === "READY" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="justify-start"
+              disabled={isBusy(visit.visitId, "smart")}
+              onClick={() => void viewSmartReport(visit.visitId)}
+            >
+              {smartActive ? (
+                <EyeOff className="mr-2 h-4 w-4" aria-hidden="true" />
+              ) : (
+                <Sparkles className="mr-2 h-4 w-4" aria-hidden="true" />
+              )}
+              {smartActive ? "Hide Smart Report" : "View Smart Report"}
+            </Button>
+          )}
           {hasBill && (
             <Button
               variant="outline"
@@ -338,6 +360,34 @@ function InspectorBody({
           </p>
         )}
         <DeliveryStatusLine delivery={visit.billDelivery ?? null} />
+        <SmartReportStatusLine smart={smart} />
+        {smart && smart.status !== "SKIPPED" && (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => setSmartDialog("regenerate")}
+            >
+              Regenerate
+            </Button>
+            {smart.status === "READY" && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setSmartDialog(smart.sendSuppressed ? "restore" : "withdraw")}
+              >
+                {smart.sendSuppressed ? "Restore" : "Withdraw"}
+              </Button>
+            )}
+          </div>
+        )}
+        <SmartReportActionsDialog
+          visitId={visit.visitId}
+          mode={smartDialog}
+          onClose={() => setSmartDialog(null)}
+        />
         {!(isDiagnostic && (canViewReport(visit) || hasNoReportOrders)) && linkOffNote}
         {/* Collect-payment deep-link intentionally omitted for v1 (06-frontend-plan §4 / Q5);
             print-bill is the supported path. */}
@@ -411,7 +461,7 @@ function InspectorBody({
         <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
           <div className="flex items-center justify-between border-b bg-muted/40 px-3 py-2">
             <span className="text-xs font-medium text-muted-foreground">
-              {reportActive ? "Report preview" : "Bill preview"}
+              {reportActive ? "Report preview" : smartActive ? "Smart Report preview" : "Bill preview"}
             </span>
             <div className="flex items-center gap-1">
               {reportActive && (
@@ -458,6 +508,12 @@ function InspectorBody({
               key={`report-${zoom}`}
               src={`${activePreview.reportUrl}#toolbar=0&navpanes=0&zoom=${zoom}`}
               title="Report preview"
+              className="h-[68vh] w-full bg-white"
+            />
+          ) : smartActive ? (
+            <iframe
+              src={activePreview.reportUrl}
+              title="Smart Report preview"
               className="h-[68vh] w-full bg-white"
             />
           ) : (

@@ -22,7 +22,7 @@ import { API_BASE } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import { useBranchStore } from "@/store/branchStore";
 
-export type ReportAction = "view" | "print" | "whatsapp" | "whatsapp-bill";
+export type ReportAction = "view" | "print" | "whatsapp" | "whatsapp-bill" | "smart";
 
 export interface ReportBusy {
   visitId: string;
@@ -31,9 +31,11 @@ export interface ReportBusy {
 
 export interface ReportPreview {
   visitId: string;
-  /** 'report' = finalized-report blob PDF; 'bill' = the /bill/print app route. */
-  kind: "report" | "bill";
-  /** Blob URL — only set when kind === 'report'. */
+  /** 'report' = finalized-report blob PDF; 'bill' = the /bill/print app route;
+   *  'smart' = the Smart Report, which is HTML rather than a PDF but rides the
+   *  same blob-URL iframe so the desktop/mobile split needs no second path. */
+  kind: "report" | "bill" | "smart";
+  /** Blob URL — set for 'report' and 'smart'. */
   reportUrl?: string;
 }
 
@@ -48,6 +50,8 @@ export interface UseReportActions {
   viewReport: (visitId: string) => Promise<void>;
   /** Toggle the inline bill preview (embeds the /bill/print route). */
   viewBill: (visitId: string) => void;
+  /** Toggle the inline Smart Report preview. */
+  viewSmartReport: (visitId: string) => Promise<void>;
   /** Open the finalized report in a new tab and auto-print. */
   printReport: (visitId: string) => Promise<void>;
   /** POST /messages/:visitId/send-report (branch-scoped). The ONE WhatsApp path. */
@@ -111,6 +115,34 @@ export function useReportActions(isMobile?: boolean): UseReportActions {
         setPreview({ visitId, kind: "report", reportUrl: url });
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Failed to load report.");
+      } finally {
+        setBusy(null);
+      }
+    },
+    [preview, token, branchId, revoke, closePreview],
+  );
+
+  // The Smart Report arrives as HTML, so it is wrapped in a blob rather than
+  // fetched as a PDF — from there it behaves exactly like the report preview.
+  const viewSmartReport = useCallback(
+    async (visitId: string) => {
+      if (preview?.visitId === visitId && preview.kind === "smart") {
+        closePreview();
+        return;
+      }
+      setBusy({ visitId, action: "smart" });
+      try {
+        const res = await fetch(`${API_BASE}/smart-reports/visits/${visitId}/preview`, {
+          headers: { Authorization: `Bearer ${token}`, "X-Branch-Id": branchId ?? "" },
+        });
+        if (!res.ok) throw new Error("No Smart Report is available for this visit.");
+        const html = await res.text();
+        const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+        revoke();
+        urlRef.current = url;
+        setPreview({ visitId, kind: "smart", reportUrl: url });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to load the Smart Report.");
       } finally {
         setBusy(null);
       }
@@ -216,6 +248,7 @@ export function useReportActions(isMobile?: boolean): UseReportActions {
     isBusy,
     preview,
     viewReport,
+    viewSmartReport,
     viewBill,
     printReport,
     sendWhatsApp,

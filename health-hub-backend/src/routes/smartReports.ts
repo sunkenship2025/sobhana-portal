@@ -97,6 +97,52 @@ router.post('/visits/:visitId/generate', requireRole('owner', 'lab_incharge'), a
   }
 });
 
+/**
+ * Withdraw (or restore) a Smart Report.
+ *
+ * Generation and the first WhatsApp both hang off finalize, fire-and-forget, so
+ * there is no window in which staff could pre-empt the first message. This is the
+ * after-the-fact remedy: the smart page stops being served, and every resend falls
+ * back to the plain one-button template. The signed lab report is untouched.
+ *
+ * Reason is mandatory when withdrawing — this is a deliberate act on something a
+ * patient may already have opened, and the audit trail should say why.
+ */
+router.put('/visits/:visitId/send-suppressed', requireRole('owner', 'lab_incharge'), async (req: AuthRequest, res) => {
+  try {
+    const suppressed = req.body?.suppressed === true;
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    if (suppressed && reason.length < 3) return res.status(400).json({ error: 'REASON_REQUIRED' });
+
+    const reportVersionId = await latestFinalized(req.params.visitId);
+    if (!reportVersionId) return res.status(400).json({ error: 'NO_FINALIZED_REPORT' });
+    const existing = await prisma.smartReport.findUnique({
+      where: { reportVersionId }, select: { id: true },
+    });
+    if (!existing) return res.status(404).json({ error: 'NO_SMART_REPORT' });
+
+    const updated = await prisma.smartReport.update({
+      where: { reportVersionId },
+      data: suppressed
+        ? { sendSuppressedAt: new Date(), sendSuppressedBy: req.user!.id, sendSuppressedReason: reason }
+        : { sendSuppressedAt: null, sendSuppressedBy: null, sendSuppressedReason: null },
+      select: { status: true, usedFallbackCopy: true, sendSuppressedAt: true, score: true },
+    });
+
+    await logAction({
+      branchId: req.branchId!, actionType: 'UPDATE', entityType: 'SmartReport',
+      entityId: reportVersionId, userId: req.user!.id,
+      newValues: { sendSuppressed: suppressed, reason: suppressed ? reason : null, visitId: req.params.visitId },
+      ipAddress: req.ip, userAgent: req.get('user-agent'),
+    });
+
+    return res.json({ success: true, ...updated, sendSuppressed: updated.sendSuppressedAt !== null });
+  } catch (err) {
+    console.error('PUT smart-report send-suppressed failed:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
 // ─── can this package have Smart Reports switched on? ─────────────────────
 router.get('/products/:productId/eligibility', async (_req: AuthRequest, res) => {
   try {

@@ -7,6 +7,7 @@
  * - GET /reports/:token/view  → Rendered HTML view for staff preview / print
  */
 
+import prisma from '../lib/prisma';
 import { Router, Request, Response } from 'express';
 import QRCode from 'qrcode';
 import {
@@ -323,6 +324,16 @@ const smartReportPage = async (req: Request, res: Response) => {
       return res.status(403).send(collectAtCentrePage(loaded.branchName ?? 'the centre'));
     }
     return res.status(loaded.status).send(pageShell(`<h1>${loaded.message}</h1>`));
+  }
+  // Suppression also withdraws the page: the link may already be in a patient's
+  // WhatsApp thread, so refusing to send it again is not enough on its own.
+  const suppressed = await prisma.smartReport.findUnique({
+    where: { reportVersionId: loaded.snapshot.reportVersionId },
+    select: { sendSuppressedAt: true },
+  });
+  if (suppressed?.sendSuppressedAt) {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(404).send(pageShell('<h1>This summary has been withdrawn.</h1><p>Your full lab report is unaffected. Please contact the centre if you need help reading it.</p>'));
   }
   const html = await renderStored(loaded.snapshot.reportVersionId);
   if (!html) return res.status(404).send(pageShell('<h1>No Smart Report is available for this report.</h1>'));

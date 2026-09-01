@@ -1034,6 +1034,38 @@ export async function getPatient360Timeline(patientId: string, filters: Timeline
     }
   }
 
+  // Query 2b — Smart Report state per visit (batched). Staff need to see when a
+  // report shipped with template copy because the model failed or the validator
+  // rejected it: the page still renders and every number is right, so nothing
+  // looks broken — the patient just gets stiff clinical wording instead of the
+  // plain-language summary the product exists to give. Silent unless surfaced.
+  type SmartSnapshot = {
+    status: string;
+    usedFallbackCopy: boolean;
+    sendSuppressed: boolean;
+    score: number | null;
+    skipReason: string | null;
+  };
+  const smartByVisit = new Map<string, SmartSnapshot>();
+  if (dxIds.length > 0) {
+    const smartRows = await prisma.smartReport.findMany({
+      where: { visitId: { in: dxIds } },
+      select: {
+        visitId: true, status: true, usedFallbackCopy: true,
+        sendSuppressedAt: true, score: true, skipReason: true,
+      },
+    });
+    for (const r of smartRows) {
+      smartByVisit.set(r.visitId, {
+        status: r.status,
+        usedFallbackCopy: r.usedFallbackCopy,
+        sendSuppressed: r.sendSuppressedAt !== null,
+        score: r.score,
+        skipReason: r.skipReason,
+      });
+    }
+  }
+
   // Query 3 — latest REPORT + BILL MessageLog per visit (batched). Sorted desc,
   // keep first per (visit, context). Drives the report AND bill delivery lines
   // in the inspector — a bill-only / films-only visit has no report to send but
@@ -1161,6 +1193,7 @@ export async function getPatient360Timeline(patientId: string, filters: Timeline
       reportState: deriveReportState(visit),
       workflowMode: deriveWorkflowMode(visit),
       hasAbnormalResults: abnormalVisitIds.has(visit.id),
+      smartReport: smartByVisit.get(visit.id) ?? null,
       delivery,
       // Bill-side delivery + "already printed" timestamps so the inspector can
       // show the same green Printed / Sent affordances as the Finalized page.
