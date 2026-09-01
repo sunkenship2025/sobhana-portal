@@ -262,3 +262,21 @@ console.log('\n✓ all assertions passed — engine matches the prototype');
 
   console.log(`✓ scoring: anaemia ${as_.score}, critical ${cs.score}, lone raised LDL ${ls.score}`);
 }
+
+// Cover figure follows the patient. Sex comes from the frozen snapshot, so this
+// can never disagree with the rest of the report.
+{
+  const { coverArt } = require('./renderer');
+  const kind = (sex: string | null, ageYears: number | null) =>
+    coverArt({ patient: { sex, ageYears } }).kind;
+  assert.strictEqual(kind('M', 52), 'male');
+  assert.strictEqual(kind('F', 34), 'female');
+  assert.strictEqual(kind('F', 9), 'child', 'a child gets the child figure regardless of sex');
+  assert.strictEqual(kind('M', 9), 'child');
+  assert.strictEqual(kind('M', 13), 'male', '13 is old enough for the adult figure');
+  assert.strictEqual(kind(null, 40), 'male', 'unknown sex falls back rather than leaving a hole');
+  assert.strictEqual(kind(null, null), 'male', 'unknown age must not crash');
+  const svgs = new Set([kind('M', 52), kind('F', 34), kind('M', 9)]);
+  assert.strictEqual(svgs.size, 3, 'the three variants must be distinct');
+  console.log('✓ cover figure: male / female / child / unknown all resolve');
+}

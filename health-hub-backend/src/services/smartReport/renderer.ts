@@ -5,7 +5,10 @@
  * without height/weight, finding cards paginate, and the advisory disappears on
  * a critical result — so the count varies per patient.
  */
-import { BODY_PATH, ICON_SYMBOLS, REPORT_CSS, ART_COVER, ART_YOGA, getBrandLogoDataUri } from './assets';
+import {
+  BODY_PATH, ICON_SYMBOLS, REPORT_CSS, ART_YOGA,
+  ART_COVER_MALE, ART_COVER_FEMALE, ART_COVER_CHILD, getBrandLogoDataUri,
+} from './assets';
 import { iconFor } from './icons';
 import { computeEssentials } from './essentials';
 import { BAND_LABEL } from './score';
@@ -83,6 +86,24 @@ ${numbered.join('\n')}
 </body></html>`;
 }
 
+/** Below this age the cover shows the child figure rather than an adult one. */
+const CHILD_ART_MAX_AGE = 13;
+
+/**
+ * Sex comes from the frozen snapshot, so this cannot drift from the rest of the
+ * report. Unknown or unrecorded sex falls back to the male figure rather than
+ * omitting the art, which would leave a hole in the cover.
+ */
+export function coverArt(d: { patient: { sex: string | null; ageYears: number | null } }):
+  { kind: 'male' | 'female' | 'child'; svg: string } {
+  if (d.patient.ageYears !== null && d.patient.ageYears < CHILD_ART_MAX_AGE) {
+    return { kind: 'child', svg: ART_COVER_CHILD };
+  }
+  return d.patient.sex === 'F'
+    ? { kind: 'female', svg: ART_COVER_FEMALE }
+    : { kind: 'male', svg: ART_COVER_MALE };
+}
+
 const logoImg = () =>
   getBrandLogoDataUri()
     ? '<div class="brandlogo" role="img" aria-label="Sobhana Diagnostic Centre"></div>'
@@ -133,7 +154,7 @@ function cover(d: RenderInput): string {
     <div class="aibadge">&#10022; AI-assisted summary</div>
     <div class="who"><div class="lb">Patient:</div><b>${esc(d.patient.name)}</b>
       <div class="mi">${esc(d.patient.genderLabel)} | ${esc(d.patient.ageDisplay)}</div></div>
-    <div class="coverart">${ART_COVER}</div>
+    <div class="coverart v-${coverArt(d).kind}">${coverArt(d).svg}</div>
   </div>
   <div class="coverfoot">
     <div class="addr"><b>${esc(d.visit.branchName)}</b>${esc(d.visit.branchAddress ?? '')}${d.visit.branchPhone ? `<br>Mob: ${esc(d.visit.branchPhone)}` : ''}</div>
