@@ -1,0 +1,17 @@
+panel_display_name,name_match_keywords,health_icon,tint_hex,emoji_alternative
+Complete Blood Picture,"CBC, Haemogram, Blood Picture",body/blood-drop,#D93025,🩸
+Blood Sugar,"Glucose, FBS, PPBS, HbA1c, Diabetic",devices/diabetes-measure,#7E57C2,🍬
+Lipid Profile,"Lipid, Cholesterol, Cardiac Risk",body/heart-organ,#E53935,🫀
+Liver Function Test,"LFT, Liver, Hepatic",body/liver,#B5651D,🥩
+Kidney Function Test,"KFT, RFT, Renal, Kidney",body/kidneys,#8E44AD,🫘
+Thyroid Profile,"Thyroid, TSH, T3, T4",body/thyroid,#1E88E5,🦋
+Vitamin D,"Vitamin D, 25-OH, Calcium, Bone",body/skeleton,#F9A825,☀️
+Vitamin B12,"B12, Folate, Anaemia Profile",body/blood-cells,#E57373,💊
+Iron Profile,"Iron, Ferritin, TIBC",body/blood-drop,#C62828,🩸
+Urine Routine,"Urine, Stool, Motion",devices/urine-sample,#F9A825,🧪
+Ultrasound / Imaging,"USG, Scan, X-Ray, CT, MRI, Doppler",devices/ultrasound-scanner,#0288D1,🩻
+Culture / Serology,"Culture, Widal, Serology, Dengue, Typhoid",devices/test-tubes,#00897B,🧫
+Pulmonary Function,"PFT, Spirometry, Lung",body/lungs,#26A69A,🫁
+Hormones,"Testosterone, PSA, Prolactin, Fertility",medications/medicines,#5E35B1,⚗️
+Inflammation,"CRP, ESR, RA Factor",body/antibody,#EF6C00,🦠
+*fallback*,(anything unmatched),devices/stethoscope,#5F6368,🩺

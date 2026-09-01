@@ -73,6 +73,7 @@ import labInchargeRuleRoutes from './routes/labInchargeRules';
 import ownerDashboardRoutes from './routes/ownerDashboard';
 import userRoutes from './routes/users';
 import appSettingsRoutes from './routes/appSettings';
+import smartReportRoutes from './routes/smartReports';
 // LEGACY — superseded by /api/clinical-panels pipeline
 // import panelRoutes from './routes/panels';
 import clinicalDefinitionRoutes from './routes/clinicalDefinitions';
@@ -378,6 +379,7 @@ app.use('/api/referral-doctors', referralDoctorRoutes);
 app.use('/api/clinic-doctors', clinicDoctorRoutes);
 app.use('/api/users', userRoutes); // Owner-only team/role management
 app.use('/api/app-settings', appSettingsRoutes); // Org-wide settings (report cloud-sync default)
+app.use('/api/smart-reports', smartReportRoutes); // Smart Reports: staff preview, regenerate, config
 app.use('/api/visits/diagnostic', diagnosticVisitRoutes);
 app.use('/api/visits/clinic', clinicVisitRoutes);
 app.use('/api/display', displayRoutes); // PUBLIC — kiosk queue state, no user auth

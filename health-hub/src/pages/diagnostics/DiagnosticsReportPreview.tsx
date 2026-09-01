@@ -1,5 +1,6 @@
 import { Fragment, useState, useEffect, lazy, Suspense } from 'react';
 import { API_BASE } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -220,6 +221,16 @@ const DiagnosticsReportPreview = () => {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);  // blob URL for iframe
   const [previewLoading, setPreviewLoading] = useState(false);
   const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
+
+  // Smart Report: a second view of the same finalized visit. Not a gate — staff
+  // just flip between the clinical report and the patient-facing one.
+  const [smartStatus, setSmartStatus] = useState<{
+    available: boolean; status: string; skipReason: string | null;
+    score: number | null; usedFallbackCopy: boolean; hasCritical: boolean;
+  } | null>(null);
+  const [smartView, setSmartView] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [smartHtmlUrl, setSmartHtmlUrl] = useState<string | null>(null);
   const latestVersionId = (visit as any)?.report?.versions?.[0]?.id ?? visit?.report?.currentVersion?.id ?? null;
 
   // Fetch visit from API
@@ -291,6 +302,39 @@ const DiagnosticsReportPreview = () => {
       return null;
     });
   }, [visitId, latestVersionId]);
+
+  // Fetch the Smart Report HTML with auth, then hand the iframe a blob URL —
+  // same trick the PDF preview already uses.
+  useEffect(() => {
+    if (!smartView || !visitId) return;
+    let url: string | null = null;
+    let cancelled = false;
+    fetch(`${API_BASE}/smart-reports/visits/${visitId}/preview`, {
+      headers: { Authorization: `Bearer ${token}`, 'X-Branch-Id': activeBranchId },
+    })
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error('unavailable'))))
+      .then((html) => {
+        if (cancelled) return;
+        url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+        setSmartHtmlUrl(url);
+      })
+      .catch(() => { if (!cancelled) toast.error('Smart Report not available'); });
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+      setSmartHtmlUrl(null);
+    };
+  }, [smartView, visitId, token, activeBranchId]);
+
+  useEffect(() => {
+    if (!isFinalized || !visitId) return;
+    let cancelled = false;
+    fetch(`${API_BASE}/smart-reports/visits/${visitId}/status`, { headers: { Authorization: `Bearer ${token}`, 'X-Branch-Id': activeBranchId } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled) setSmartStatus(d); })
+      .catch(() => { if (!cancelled) setSmartStatus(null); });
+    return () => { cancelled = true; };
+  }, [isFinalized, visitId]);
 
   useEffect(() => {
     return () => {
@@ -661,7 +705,55 @@ const DiagnosticsReportPreview = () => {
             </div>
           </div>
           {isFinalized && (
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
+              {smartStatus?.available && (
+                <div className="flex rounded-md border p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setSmartView(false)}
+                    className={cn(
+                      'rounded px-3 py-1.5 text-sm font-medium transition-colors',
+                      !smartView ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    Report
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSmartView(true)}
+                    className={cn(
+                      'rounded px-3 py-1.5 text-sm font-medium transition-colors',
+                      smartView ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    Smart Report
+                  </button>
+                </div>
+              )}
+              {smartView && (
+                <Button
+                  variant="outline"
+                  disabled={regenerating}
+                  onClick={async () => {
+                    setRegenerating(true);
+                    try {
+                      await fetch(`${API_BASE}/smart-reports/visits/${visitId}/generate`, {
+                        method: 'POST',
+                        headers: { Authorization: `Bearer ${token}`, 'X-Branch-Id': activeBranchId },
+                      });
+                      const r = await fetch(`${API_BASE}/smart-reports/visits/${visitId}/status`, { headers: { Authorization: `Bearer ${token}`, 'X-Branch-Id': activeBranchId } });
+                      setSmartStatus(await r.json());
+                      toast.success('Smart Report regenerated');
+                    } catch {
+                      toast.error('Could not regenerate');
+                    } finally {
+                      setRegenerating(false);
+                    }
+                  }}
+                >
+                  {regenerating ? 'Regenerating…' : 'Regenerate'}
+                </Button>
+              )}
               <Button variant="outline" onClick={handlePrint}>
                 <Printer className="mr-2 h-4 w-4" />
                 Print
@@ -1057,6 +1149,37 @@ const DiagnosticsReportPreview = () => {
       </div>
 
       {/* Full-Screen Report Preview Modal */}
+      {smartView && (
+        <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col">
+          <div className="flex items-center justify-between px-6 py-3 border-b bg-background">
+            <div className="flex items-center gap-3">
+              <Eye className="h-5 w-5 text-primary" />
+              <div>
+                <h2 className="font-semibold text-lg">Smart Health Report</h2>
+                <p className="text-xs text-muted-foreground">
+                  This is what the patient sees.
+                  {smartStatus?.score !== null && smartStatus?.score !== undefined && ` Health score ${smartStatus.score} / 100.`}
+                  {smartStatus?.usedFallbackCopy && ' Written from the content library (AI unavailable).'}
+                  {smartStatus?.hasCritical && ' A critical result suppressed the advisory page.'}
+                </p>
+              </div>
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => setSmartView(false)} aria-label="Close Smart Report">
+              <X className="h-5 w-5" />
+            </Button>
+          </div>
+          <div className="flex-1 overflow-auto bg-muted/40">
+            {smartHtmlUrl ? (
+              <iframe title="Smart Health Report" src={smartHtmlUrl} className="w-full h-full border-0 bg-white" />
+            ) : (
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading Smart Report…
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {showPreview && previewUrl && (
         <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col">
           {/* Modal Header */}

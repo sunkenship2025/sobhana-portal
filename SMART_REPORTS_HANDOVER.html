@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HealthFlow Smart Reports — handover</title>
+<style>
+:root{--g:#2E7D32;--g2:#3FA34D;--ink:#14181C;--sub:#5F6B72;--lbl:#93A0A8;--line:#E4E9EC;--bg:#F5F7F8;
+ --ok-b:#E6F4EA;--ok-t:#1E8E3E;--warn-b:#FEF7E0;--warn-t:#96601A;--bad-b:#FCE8E6;--bad-t:#C5221F;--blue:#E8F4FA}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+ font:15px/1.65 "Poppins","Avenir Next","Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1020px;margin:0 auto;padding:0 26px 90px}
+header{background:#fff;border-bottom:1px solid var(--line);margin-bottom:30px}
+.bar{height:6px;background:linear-gradient(90deg,var(--g2),#66BB6A 55%,#8BC34A)}
+.hin{max-width:1020px;margin:0 auto;padding:26px}
+h1{font-size:31px;letter-spacing:-.8px;margin:0 0 4px;font-weight:700}
+.tagline{color:var(--sub);font-size:15px;margin:0}
+.chips{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+.chip{font-size:12px;font-weight:600;border-radius:6px;padding:4px 10px}
+.c-ok{background:var(--ok-b);color:var(--ok-t)} .c-w{background:var(--warn-b);color:var(--warn-t)}
+.c-n{background:var(--blue);color:#0B5A75}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:1.1px;color:var(--lbl);
+ margin:38px 0 12px;font-weight:700}
+h3{font-size:17px;margin:0 0 6px;font-weight:700;letter-spacing:-.2px}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin-bottom:12px}
+.card p{margin:0 0 10px;color:#39434A} .card p:last-child{margin-bottom:0}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.stat{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.stat b{display:block;font-size:27px;font-weight:700;letter-spacing:-1px;line-height:1.15}
+.stat span{font-size:12px;color:var(--sub)}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);
+ border-radius:12px;overflow:hidden;font-size:14px}
+th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--lbl);
+ font-weight:700;padding:11px 16px;background:#FAFBFC;border-bottom:1px solid var(--line)}
+td{padding:11px 16px;border-bottom:1px solid #F1F4F6;vertical-align:top}
+tr:last-child td{border-bottom:0}
+td code,p code,li code{background:#F1F4F6;border-radius:4px;padding:1px 6px;font-size:12.5px;
+ font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.file{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;font-weight:600;color:var(--g)}
+ul{margin:8px 0 0;padding-left:20px;color:#39434A} li{margin-bottom:5px}
+.flow{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px 22px;overflow-x:auto}
+.flow pre{margin:0;font:12.5px/1.75 ui-monospace,SFMono-Regular,Menlo,monospace;color:#39434A}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.note{border-left:3px solid var(--g2);background:#F3F9F4;border-radius:0 10px 10px 0;padding:14px 18px;margin:12px 0}
+.note b{color:var(--g)}
+.warn{border-left:3px solid #E0A63A;background:#FFFBF0;border-radius:0 10px 10px 0;padding:14px 18px;margin:12px 0}
+.ask{border-left:3px solid #C5221F;background:#FEF5F4;border-radius:0 10px 10px 0;padding:16px 20px;margin:12px 0}
+.ask h3{color:#8F1A18}
+footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);color:var(--lbl);font-size:12.5px}
+@media(max-width:760px){.grid,.split{grid-template-columns:1fr 1fr}}
+</style></head><body>
+
+<header><div class="bar"></div><div class="hin">
+  <h1>HealthFlow Smart Reports</h1>
+  <p class="tagline">Turning the lab report HealthFlow already produces into a polished, personalised report for the patient.</p>
+  <div class="chips">
+    <span class="chip c-ok">Design complete</span>
+    <span class="chip c-ok">Prototype rendering</span>
+    <span class="chip c-ok">Content drafted</span>
+    <span class="chip c-w">Not built</span>
+    <span class="chip c-n">Sobhana first → HealthFlow later</span>
+  </div>
+</div></header>
+
+<div class="wrap">
+
+<h2>At a glance</h2>
+<div class="grid" style="grid-template-columns:repeat(5,1fr)">
+  <div class="stat"><b>7</b><span>report pages designed &amp; rendering</span></div>
+  <div class="stat"><b>83</b><span>content rows drafted (0 blank)</span></div>
+  <div class="stat"><b>62</b><span>edge cases with decisions</span></div>
+  <div class="stat"><b>7</b><span>deliverables</span></div>
+  <div class="stat"><b>45</b><span>engineering tasks, sized</span></div>
+</div>
+
+<h2>What you have</h2>
+<table>
+<tr><th style="width:33%">File</th><th>What it's for</th></tr>
+<tr><td><span class="file">SMART_REPORTS_PLAN.md</span><br><span style="font-size:12px;color:var(--lbl)">957 lines</span></td>
+    <td>The full design: product breakdown, workflows, data flow, AI pipeline, page structure, database, APIs, frontend, MVP/V1/Future split, a worked patient example, and the task list. Sections A–M plus <b>A2</b> (package opt-in) and <b>G2</b> (everything to pre-configure).</td></tr>
+<tr><td><span class="file">SMART_REPORTS_EDGE_CASES.md</span><br><span style="font-size:12px;color:var(--lbl)">62 cases</span></td>
+    <td>Every failure mode with a <b>decision</b>, not a shrug — patient demographics, result data shapes, visit lifecycle, trends, content gaps, AI failures, privacy, rendering, operations. This is the "did they think about…" insurance.</td></tr>
+<tr><td><span class="file">smart-report-content.csv</span><br><span style="font-size:12px;color:var(--lbl)">83 rows · 58 analytes</span></td>
+    <td>The clinician-review sheet. Every <code>(test, direction)</code> pair with a drafted patient-facing explanation; 30 of them also carry diet, lifestyle and follow-up test suggestions. <b>Nothing is blank</b> — your clinician corrects rather than composes.</td></tr>
+<tr><td><span class="file">smart-report-panel-icons.csv</span><br><span style="font-size:12px;color:var(--lbl)">16 rows</span></td>
+    <td>Panel → icon mapping with match keywords, tint colours and an emoji column if you ever want to switch back.</td></tr>
+<tr><td><span class="file">SMART_REPORTS_AI_SPEC.md</span><br><span style="font-size:12px;color:var(--lbl)">the safety design</span></td>
+    <td>The actual system prompt, output JSON schema, the seven validator checks, the <b>enumerated</b> banned lexicon, TypeScript payload types, and a worked example including two real rejections. The plan had left this as a task — it's the part everything else protects.</td></tr>
+<tr><td><span class="file">SMART_REPORTS_REVIEW.md</span><br><span style="font-size:12px;color:var(--lbl)">audit + 20 suggestions</span></td>
+    <td>What my own study was missing, honestly listed, and every recommendation — ordered by what I'd do first.</td></tr>
+<tr><td><span class="file">smart-report-prototype.html</span><br><span style="font-size:12px;color:var(--lbl)">self-contained</span></td>
+    <td>The actual report for a fictional patient, all 7 pages, print-ready A4. Open it in a browser; ⌘P shows the PDF.</td></tr>
+</table>
+
+<h2>How it works</h2>
+<div class="flow"><pre>ReportVersion (FINALIZED — snapshot already frozen, ranges + flags resolved)
+      │
+      ├─ eligibility      rules   → is there a Smart-Report-enabled package on this visit?
+      ├─ findings         rules   → value · unit · range · status · direction
+      ├─ score + rollup   formula → 0–100, per-panel counts (ONE set, so they can't disagree)
+      ├─ trends           SQL     → prior finalized value, unit-matched only
+      ├─ content          JOIN    → HealthContentRule + follow-up tests the lab actually sells
+      │
+      ├──────────── everything above is deterministic and unit-testable ────────────
+      │
+      ├─ LLM              ONE call, TWO blocks: the Test Score paragraph + the Advisory page
+      ├─ validator        rules   → schema · numbers grounded · banned lexicon · catalog membership
+      │                             fail → retry once → fall back to template copy
+      └─ renderer → HTML → PDF (existing Puppeteer) → Redis cache → token-gated URL</pre></div>
+
+<div class="note"><b>The one rule everything follows from.</b> The LLM receives a closed, de-identified
+set of facts and may only re-word them. It never produces a number, a status, a test name, a score,
+or a decision about which test to suggest — and a validator rejects any number in its output that
+wasn't in its input.</div>
+
+<h2>Decisions that shape everything</h2>
+<div class="card">
+  <h3>1. Reads one frozen row, never the live catalog</h3>
+  <p>Everything comes from <code>ReportVersion.panelsSnapshot</code>, which already holds age/sex-resolved reference ranges and flags. One primary-key read — and a later price or range edit can never retroactively change a patient's old report.</p>
+</div>
+<div class="card">
+  <h3>2. The clinical report is never touched</h3>
+  <p>Smart Report is a separate document at a separate URL. Not prepended to the merged PDF, no changes to <code>panelsSnapshot</code>, no signature block. It carries no doctor's signature because it is explicitly not a signed clinical document.</p>
+</div>
+<div class="card">
+  <h3>3. Generation can never break a finalize</h3>
+  <p>Fire-and-forget off the finalize route, the same shape as <code>sendReportReady</code>. Four lines inside existing files. If it throws, the finalize is unaffected and the patient still gets their normal report.</p>
+</div>
+<div class="card">
+  <h3>4. Score and panel tiles come from one finding set</h3>
+  <p>The reference report we cloned prints <i>"all 89 parameters normal, score 100%"</i> beside tiles reading <b>7 Abnormal</b>. That's the worst thing this product can do. Ours derives both from the same resolved set, and there's a regression test for it.</p>
+</div>
+<div class="card">
+  <h3>5. It never names a condition</h3>
+  <p>HbA1c of 6.3 reads <i>"above the recommended range"</i>, never <i>"prediabetes"</i>. Naming the condition is a diagnosis and it's the doctor's job. Enforced by a banned lexicon in the validator, not by prompt politeness.</p>
+</div>
+<div class="card">
+  <h3>6. Nothing identifying is sent to the AI provider</h3>
+  <p>No name, patient number, phone, visit number, branch or doctor — the model gets an age band, sex and the finding set, which is all it needs to write copy. Matters doubly with an overseas provider, and it closes the prompt-injection path since no patient free text ever reaches the model. Enforced by a unit test on the payload builder.</p>
+</div>
+
+<h2>Scope — who gets a Smart Report</h2>
+<div class="card">
+  <p>It's a property of the <b>package</b>, not the visit. A one-off Lipid Profile produces nothing; a Master Health Check does. New field <code>BillableProduct.smartReportEnabled</code>, shown in the product editor <b>only for bundles</b>, and only switchable when the resolved package has:</p>
+  <ul>
+    <li>no <code>EXTERNAL_UPLOAD</code> line — an uploaded PDF has no structured values</li>
+    <li>no <code>TEXT_ONLY</code> or <code>IMAGING_NARRATIVE</code> panel — free text has no ranges to score</li>
+  </ul>
+  <p style="margin-top:10px"><code>PROCEDURE_STRUCTURED</code> and <code>BILL_ONLY</code> child lines are explicitly <b>allowed</b> — the first is structured despite its neighbours in the enum, the second carries no results and simply contributes nothing.</p>
+  <p>Extras on the same visit don't disqualify it: a Master Health Check plus a USG still generates, scoped to the package, with the USG listed as "reported separately". Two enabled packages produce one report. Scope resolves from <code>TestOrder.productId</code>, so a later catalog edit can't rewrite history.</p>
+</div>
+
+<h2>The cases that usually get missed</h2>
+<div class="split">
+  <div class="card"><h3>Critical results</h3><p>A score of 71 beside a critical potassium is indefensible. Any critical value replaces the score with <i>"contact the centre today"</i>, sorts that card first, and <b>suppresses the advisory page entirely</b>. That patient should be phoning the lab, not reading a diet page.</p></div>
+  <div class="card"><h3>Children</h3><p>Adult calorie and macro formulas are wrong for a child. Below a configurable age (default 18) we skip the report rather than print bad advice.</p></div>
+  <div class="card"><h3>Pregnancy</h3><p>HealthFlow has no pregnancy flag. If a resolved range is labelled for pregnancy, the advisory page is suppressed and the report says the ranges were interpreted that way. Proper handling is a V1 registration field.</p></div>
+  <div class="card"><h3>Null vs zero</h3><p>An unresulted test is excluded from every count — never silently counted as normal. That's the reference report's bug wearing a different hat.</p></div>
+  <div class="card"><h3>Operator results</h3><p><code>&lt;0.1</code> is never parsed into <code>0.1</code>. A parsed operator is a fabricated value; it's listed, not scored.</p></div>
+  <div class="card"><h3>Puppeteer OOM</h3><p>This codebase has already had one on 512 MB. Smart Report PDFs render lazily on first request through the existing concurrency limiter — finalize writes a row and never launches a browser.</p></div>
+  <div class="card"><h3>Batch finalize</h3><p>60 reports at 6pm would fire 60 concurrent LLM calls and rate-limit the provider, silently degrading the whole evening to template copy. Queue with concurrency 3.</p></div>
+  <div class="card"><h3>Page numbering</h3><p>Page count varies — Health Essentials is omitted without height/weight, cards paginate, the advisory disappears on a critical. Numbers are computed, never hardcoded.</p></div>
+</div>
+
+<h2>Self-audit — what the first pass missed</h2>
+<div class="card">
+  <h3>I specified a duplicate of a system you already have</h3>
+  <p>HealthFlow already has a per-analyte rule engine — <code>InterpretationRule</code> plus <code>matchInterpretationRule()</code>, with numeric operators and text matching, already evaluated into <code>interpretationsSnapshot</code>. I designed <code>HealthContentRule</code> from scratch with the same trigger shape. Corrected: reuse the matcher, keep patient-facing text separate (the existing text names conditions and can't go to patients), and <b>seed the catalog from those rules</b> — the lab has already decided which analytes matter and what they mean.</p>
+</div>
+<div class="card">
+  <h3>Patients already under treatment</h3>
+  <p>A managed diabetic's HbA1c of 7.5 is their doctor's target, not a finding. HealthFlow holds no medication history, so the report cannot know — it would tell them they're "above the recommended range" and suggest avoiding sweets. The disclaimer now always carries: <i>"If you are already being treated for a condition, your doctor's targets for you may differ from the general ranges used here."</i> Cheapest safety line in the product.</p>
+</div>
+<div class="card">
+  <h3>False reassurance was missing from the banned lexicon</h3>
+  <p>I had diagnosis words, drug names and prognosis. I'd missed that <i>"nothing to worry about"</i> and <i>"no need to see a doctor"</i> are as dangerous as a false alarm — the model cannot know either. Now its own category.</p>
+</div>
+
+<h2>What's left before it can ship</h2>
+<table>
+<tr><th style="width:26%">Item</th><th>State</th></tr>
+<tr><td><b>Content catalog</b></td><td><span class="chip c-w">clinician review</span> All 83 rows drafted. A clinician corrects rather than writes — much faster to review than to author. Test codes are plausible guesses and must be reconciled against your real <code>TestDefinition.code</code> values (SQL is in the plan).</td></tr>
+<tr><td><b>Height &amp; weight</b></td><td><span class="chip c-w">2 fields</span> Not captured anywhere today. The Health Essentials page can't render without them and is omitted when either is missing — never estimated.</td></tr>
+<tr><td><b>Cover &amp; advisory art</b></td><td><span class="chip c-w">placeholder</span> The only hand-drawn assets left. The body figure (public domain) and all icons (Health Icons, CC0) are ship-safe.</td></tr>
+<tr><td><b>DPDP consent wording</b></td><td><span class="chip c-w">legal</span> Automated processing of health data with an overseas provider. Needs your legal review — flagged, not answered.</td></tr>
+<tr><td><b>Everything else</b></td><td><span class="chip c-ok">specified</span> 45 sized tasks across backend, AI, database, frontend, PDF, admin, testing and deployment.</td></tr>
+</table>
+
+<h2>Build order</h2>
+<div class="card">
+  <p><b>Start the content catalog on day one</b> — it's the long pole, and it's the only item that can't be parallelised away. Everything else follows: schema → deterministic engines → AI layer + validator → renderer → delivery routes → frontend → the edge-case test suite → ship with the flag off, enable for one branch, review a week of output, then turn it on.</p>
+</div>
+
+<h2>Top recommendations</h2>
+<table>
+<tr><th style="width:22%">Do this</th><th>Why</th></tr>
+<tr><td><b>Dry-run harness first</b></td><td>Generate against the last 50 real finalized visits, write HTML to disk, deliver nothing. This is what makes clinician review real, how you find content gaps, and how you tune the score without a patient seeing anything. Highest-value item on the list.</td></tr>
+<tr><td><b>Ship with a review gate</b></td><td><code>ALWAYS_REVIEW → REVIEW_FIRST_N → AUTO</code>. Retrofitting a queue after a bad report reaches a patient is a much worse day than building it now.</td></tr>
+<tr><td><b>Seed from existing rules</b></td><td>Convert the lab's clinician-facing interpretations into patient language rather than authoring from blank.</td></tr>
+<tr><td><b>Make it append-only</b></td><td><code>@@unique([reportVersionId, version])</code>. Cheap now, impossible later, and the difference between having and not having an answer in a dispute.</td></tr>
+<tr><td><b>Instrument before launch</b></td><td><code>LinkAccessLog</code> already exists — record which document was opened. Otherwise you can't answer the only question that matters in month two.</td></tr>
+<tr><td><b>Run it as an A/B</b></td><td>Half the eligible packages get it for the first month. Re-test conversion is the business case for rolling it across HealthFlow — and you only get that number if you withhold deliberately.</td></tr>
+</table>
+<p style="color:var(--sub);font-size:14px;margin-top:10px">Fourteen more — print path, font size, score toggle, fallback alerting, recall-campaign collision, front-desk brief, doctor-facing variant, packaging — in <span class="file">SMART_REPORTS_REVIEW.md</span>.</p>
+
+<div class="ask">
+  <h3>Three calls I'd like from you</h3>
+  <ul>
+    <li><b>The score formula.</b> Start at 100, −4 per out-of-range, −1 per borderline, capped at −10 per panel. Our example patient scores 59. Does that feel right for your patients?</li>
+    <li><b>Never naming a condition.</b> Safe and defensible, but some owners want the report to be more explicit. It's a one-line change to the lexicon — and one I'd argue against.</li>
+    <li><b>The catalog gate.</b> No content rule ⇒ no explanation, just a row and a status. Maximally safe, but the report is thin until the catalog is filled.</li>
+  </ul>
+</div>
+
+<footer>HealthFlow Smart Reports · design &amp; prototype · 31 Aug 2026 · Sobhana portal first, multi-tenant HealthFlow after.<br>
+Body figure: Wikimedia <i>Human body silhouette.svg</i> (public domain). Icons: Health Icons (CC0). Both ship-safe.</footer>
+</div></body></html>

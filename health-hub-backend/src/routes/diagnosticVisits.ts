@@ -6743,6 +6743,15 @@ router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: A
     // received — e.g. the last remaining test was closed as films-only after a
     // partial report already went out.
     if (shipsNewReportContent) {
+      // Smart Report: FINAL finalize only — never on a partial release, because
+      // scoring half a package is meaningless. Fire-and-forget, exactly like
+      // sendReportReady: a finalize must never fail because of this.
+      import("../services/smartReport/generate").then(({ generateSmartReport }) => {
+        generateSmartReport(draftVersion.id).catch((err) =>
+          console.error("[SmartReport] generation failed (non-blocking):", err?.message),
+        );
+      });
+
       import("../services/notificationService").then(({ sendReportReady }) => {
         sendReportReady(visit.id, accessToken || undefined, "final").catch((err) =>
           console.error(

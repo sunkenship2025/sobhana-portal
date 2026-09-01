@@ -12,6 +12,10 @@
 export type ReportNotificationKind = 'partial' | 'final';
 const PARTIAL_TEMPLATE_NAME = 'lab_report_partial_ready';
 const FINAL_TEMPLATE_NAME = 'lab_report_ready';
+/** Two URL buttons: View Report + View Smart Report. Only used on the FINAL send,
+ *  and only when a Smart Report is READY. Falls back to the single-button template
+ *  until the Meta template is approved (set SMART_REPORT_TEMPLATE to enable). */
+const SMART_TEMPLATE_NAME = process.env.SMART_REPORT_TEMPLATE || '';
 
 import {
   DiagnosticWorkflowMode,
@@ -322,7 +326,20 @@ async function dispatchDiagnosticCompletionNotification(input: {
 
     const reportUrl = `${process.env.PUBLIC_REPORT_BASE_URL || 'http://localhost:3000/reports'}/${link.reportToken}`;
     const kind: ReportNotificationKind = input.kind ?? 'final';
-    const templateName = kind === 'partial' ? PARTIAL_TEMPLATE_NAME : FINAL_TEMPLATE_NAME;
+
+    // Smart Report is only ever generated at the FINAL finalize, so the
+    // two-button template is only ever a possibility here.
+    let smartReady = false;
+    if (kind === 'final' && SMART_TEMPLATE_NAME) {
+      const sr = await prisma.smartReport.findUnique({
+        where: { reportVersionId: link.reportVersionId },
+        select: { status: true },
+      });
+      smartReady = sr?.status === 'READY';
+    }
+    const templateName = kind === 'partial'
+      ? PARTIAL_TEMPLATE_NAME
+      : smartReady ? SMART_TEMPLATE_NAME : FINAL_TEMPLATE_NAME;
 
     await createAndSendTemplateMessage({
       patientId: info.patient.id,
@@ -355,6 +372,16 @@ async function dispatchDiagnosticCompletionNotification(input: {
             { type: 'text', text: link.reportToken },
           ],
         },
+        // Second URL button carries the same token; the template's URL suffix
+        // differs (/reports/{{1}}/smart). Only present on the smart template.
+        ...(smartReady
+          ? [{
+              type: 'button' as const,
+              sub_type: 'url' as const,
+              index: 1,
+              parameters: [{ type: 'text' as const, text: link.reportToken }],
+            }]
+          : []),
       ],
     });
 

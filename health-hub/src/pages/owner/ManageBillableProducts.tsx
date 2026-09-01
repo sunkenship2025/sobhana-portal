@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
+import { branchRequest, useBranchId } from '@/lib/query';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -188,6 +189,7 @@ export default function ManageBillableProducts() {
 
   // Main dialog
   const [dialogOpen, setDialogOpen] = useState(false);
+  const branchId = useBranchId();
   const [editingProduct, setEditingProduct] = useState<BillableProduct | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -204,6 +206,30 @@ export default function ManageBillableProducts() {
   const [formBasePrice, setFormBasePrice] = useState('');
   const [formActive, setFormActive] = useState(true);
   const [formDescription, setFormDescription] = useState('');
+  // Smart Reports: package-level opt-in. Only offered on saved bundles, and only
+  // when the resolved package has no external-upload line and no narrative panel.
+  const [smartEligibility, setSmartEligibility] = useState<{ eligible: boolean; reasons: string[] } | null>(null);
+  const [smartEnabled, setSmartEnabled] = useState(false);
+  const [smartBusy, setSmartBusy] = useState(false);
+
+  useEffect(() => {
+    if (!editingProduct || formType !== 'PANEL_BUNDLE') {
+      setSmartEligibility(null);
+      setSmartEnabled(false);
+      return;
+    }
+    let cancelled = false;
+    branchRequest<{ eligible: boolean; reasons: string[]; enabled: boolean }>(
+      `/smart-reports/products/${editingProduct.id}/eligibility`, branchId,
+    )
+      .then((d) => {
+        if (cancelled) return;
+        setSmartEligibility({ eligible: d.eligible, reasons: d.reasons });
+        setSmartEnabled(d.enabled);
+      })
+      .catch(() => { if (!cancelled) setSmartEligibility(null); });
+    return () => { cancelled = true; };
+  }, [editingProduct, formType, branchId]);
   const [formPayoutCategory, setFormPayoutCategory] = useState('');
   const referralCategories = useReferralCategories();
   const [formPanels, setFormPanels] = useState<ProductPanel[]>([]);
@@ -1003,6 +1029,44 @@ export default function ManageBillableProducts() {
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+          )}
+
+          {editingProduct && formType === 'PANEL_BUNDLE' && (
+            <div className="rounded-lg border p-3 space-y-2">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <Label className="text-sm font-medium">Smart Report for this package</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Patients who buy this package get a plain-language report alongside the lab report.
+                  </p>
+                </div>
+                <Switch
+                  checked={smartEnabled}
+                  disabled={smartBusy || (smartEligibility ? !smartEligibility.eligible : true)}
+                  onCheckedChange={async (v) => {
+                    setSmartBusy(true);
+                    try {
+                      await branchRequest(
+                        `/smart-reports/products/${editingProduct.id}/enabled`,
+                        branchId,
+                        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: v }) },
+                      );
+                      setSmartEnabled(v);
+                      toast.success(v ? 'Smart Report enabled for this package' : 'Smart Report disabled');
+                    } catch {
+                      toast.error('Could not change the Smart Report setting');
+                    } finally {
+                      setSmartBusy(false);
+                    }
+                  }}
+                />
+              </div>
+              {smartEligibility && !smartEligibility.eligible && (
+                <p className="text-xs text-amber-700">
+                  Not available for this package: {smartEligibility.reasons.join('; ')}.
+                </p>
               )}
             </div>
           )}

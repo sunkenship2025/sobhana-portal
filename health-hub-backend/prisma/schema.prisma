@@ -268,6 +268,9 @@ model Patient {
   ageUnit       String    @default("YEARS") // DAYS, MONTHS, YEARS — for smart age display
   gender        Gender
   address       String?
+  /// Smart Reports: captured in billing only when a Smart-Report bundle is in the cart.
+  heightCm      Float?
+  weightKg      Float?
   createdAt     DateTime  @default(now())
 
   // WhatsApp notification consent
@@ -1047,6 +1050,7 @@ model ReportVersion {
   // E3-10: Access control
   accessTokens ReportAccessToken[]
   accessLogs   ReportAccessLog[]
+  smartReport SmartReport?
 
   @@unique([reportId, versionNum])
   @@index([status])
@@ -1950,6 +1954,8 @@ model ClinicalPanel {
   // both the referral commission rate and the payout statement grouping. When
   // null the system falls back to name-inference (payoutCategorize.ts).
   payoutCategory        String?
+  /// Smart Reports: Health Icons name, e.g. "body/liver". Falls back to name-match then stethoscope.
+  icon                  String?
   sampleType            String? // e.g., "WB-EDTA", "Serum", "Urine"
   panelMethodText       String?
   panelMethodItalic     Boolean         @default(false)
@@ -2008,22 +2014,25 @@ model ClinicalPanelItem {
 /// Decoupled from clinical definitions — purely commercial layer.
 /// A product maps to one or more ClinicalPanels (not directly to TestDefinitions).
 model BillableProduct {
-  id               String                 @id @default(cuid())
-  name             String
-  code             String                 @unique
-  description      String?
-  basePriceInPaise Int // Default price (can be overridden per branch)
-  isBundle         Boolean                @default(false) // true = package of multiple panels
-  workflowMode     DiagnosticWorkflowMode @default(REPORTABLE)
-  couponCampaignId String? // EVENT products only: the CouponCampaign to mint a coupon from when billed
+  id                 String                 @id @default(cuid())
+  name               String
+  code               String                 @unique
+  description        String?
+  basePriceInPaise   Int // Default price (can be overridden per branch)
+  isBundle           Boolean                @default(false) // true = package of multiple panels
+  /// Smart Reports: bundles only, and only when the resolved package has no
+  /// EXTERNAL_UPLOAD line and no TEXT_ONLY / IMAGING_NARRATIVE panel.
+  smartReportEnabled Boolean                @default(false)
+  workflowMode       DiagnosticWorkflowMode @default(REPORTABLE)
+  couponCampaignId   String? // EVENT products only: the CouponCampaign to mint a coupon from when billed
   // Grouping bucket for the payout statement (e.g. "X-Ray", "Laboratory").
   // Owner-set per product; when null the statement falls back to the test's
   // department name. No fixed enum — the centre defines its own categories.
-  payoutCategory   String?
-  displayOrder     Int                    @default(0)
-  isActive         Boolean                @default(true)
-  createdAt        DateTime               @default(now())
-  updatedAt        DateTime               @updatedAt
+  payoutCategory     String?
+  displayOrder       Int                    @default(0)
+  isActive           Boolean                @default(true)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
 
   panels                BillableProductPanel[]        @relation("ProductLines")
   parentLines           BillableProductPanel[]        @relation("ProductChildren")
@@ -2204,4 +2213,112 @@ model StatementAccessToken {
 
   @@index([payoutId])
   @@index([expiresAt])
+}
+
+// ============================================================================
+// SMART REPORTS  (see SMART_REPORTS_PLAN.md)
+// ============================================================================
+
+enum SmartReportStatus {
+  PENDING
+  READY
+  FAILED
+  SKIPPED
+}
+
+/// One per finalized ReportVersion. Regeneration REPLACES in place (decision:
+/// generation only happens at the FINAL finalize, so regeneration is rare).
+model SmartReport {
+  id              String            @id @default(cuid())
+  reportVersionId String            @unique
+  visitId         String
+  patientId       String
+  branchId        String
+  status          SmartReportStatus @default(PENDING)
+  /// NO_SMART_REPORT_PRODUCT | PACKAGE_NO_LONGER_ELIGIBLE | NO_ANALYSABLE_TESTS
+  /// | BELOW_MIN_PARAMETERS | PATIENT_BELOW_MIN_AGE | DISABLED | LINK_DISABLED
+  skipReason      String?
+  language        String            @default("en")
+
+  score            Int?
+  scoreBand        String? // ON_TRACK | MOSTLY_ON_TRACK | NEEDS_WORK | SEE_DOCTOR
+  scoredCount      Int     @default(0)
+  outOfRangeCount  Int     @default(0)
+  borderlineCount  Int     @default(0)
+  withinRangeCount Int     @default(0)
+  shownNotScored   Int     @default(0)
+  referredOnly     Int     @default(0)
+  hasCritical      Boolean @default(false)
+
+  /// Deterministic output (findings, buckets, trends, chosen content). The audit record.
+  findings           Json?
+  /// Validated LLM output: testScore, findingExplanations, advisory.
+  content            Json?
+  usedFallbackCopy   Boolean @default(false)
+  validationFailures Json?
+
+  model          String?
+  promptVersion  String?
+  inputTokens    Int?
+  outputTokens   Int?
+  generationMs   Int?
+  configSnapshot Json?
+  generatedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  reportVersion ReportVersion @relation(fields: [reportVersionId], references: [id], onDelete: Cascade)
+
+  @@index([visitId])
+  @@index([patientId])
+  @@index([branchId, createdAt])
+  @@index([status])
+}
+
+/// Null branchId = the global default (same pattern as ReferralCategoryRate).
+model SmartReportConfig {
+  id                     String   @id @default(cuid())
+  branchId               String?  @unique
+  enabled                Boolean  @default(false)
+  recommendationsEnabled Boolean  @default(true)
+  futureTestsEnabled     Boolean  @default(true)
+  trendsEnabled          Boolean  @default(true)
+  essentialsEnabled      Boolean  @default(true)
+  language               String   @default("en")
+  accentColor            String   @default("#3FA34D")
+  tagline                String?
+  websiteLine            String?
+  disclaimerOverride     String?
+  minScoredParameters    Int      @default(5)
+  minPatientAgeYears     Int      @default(18)
+  maxFindingPages        Int      @default(3)
+  model                  String   @default("deepseek-v4-flash")
+  monthlyBudgetPaise     Int?
+  updatedAt              DateTime @updatedAt
+}
+
+/// Patient-facing content catalog. Trigger shape mirrors InterpretationRule so the
+/// existing matcher semantics carry over; the TEXT is patient-facing, unlike
+/// InterpretationRule.interpretationText which names conditions.
+model HealthContentRule {
+  id                 String   @id @default(cuid())
+  language           String   @default("en")
+  testCode           String
+  direction          String // HIGH | LOW | ANY
+  tier               Int      @default(1) // 1 = explanation only, 2 = + advice
+  title              String
+  whatItMeans        String
+  dos                Json     @default("[]")
+  donts              Json     @default("[]")
+  lifestyle          Json     @default("[]")
+  suggestedTestCodes Json     @default("[]")
+  followUpWeeks      Int?
+  severity           String   @default("STANDARD")
+  displayOrder       Int      @default(0)
+  isActive           Boolean  @default(true)
+  updatedAt          DateTime @updatedAt
+
+  @@unique([language, testCode, direction])
+  @@index([testCode, direction])
+  @@index([isActive])
 }

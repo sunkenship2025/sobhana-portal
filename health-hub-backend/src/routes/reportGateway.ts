@@ -250,6 +250,16 @@ router.get(
       if (visit.status === 'COMPLETED' && latestFinalizedId) {
         const reportToken = await createAccessToken(latestFinalizedId);
         res.setHeader('Cache-Control', 'no-store');
+
+        // A Smart Report exists -> offer both documents rather than jumping
+        // straight to the PDF. Zero Meta dependency: the choice lives here.
+        const smart = await prisma.smartReport.findUnique({
+          where: { reportVersionId: latestFinalizedId },
+          select: { status: true },
+        });
+        if (smart?.status === 'READY') {
+          return res.send(smartChoicePage(reportToken));
+        }
         return res.redirect(302, `/reports/${reportToken}`);
       }
 
@@ -295,5 +305,17 @@ router.get(
     }
   },
 );
+
+/** Two doors: the plain-language Smart Report, or the full signed lab report. */
+function smartChoicePage(token: string): string {
+  return pageShell(`
+    <h1>Your report is ready</h1>
+    <p>We have prepared two documents for you.</p>
+    <a class="btn" href="/reports/${token}/smart">Your Smart Health Report</a>
+    <a class="btn secondary" href="/reports/${token}">Full laboratory report (PDF)</a>
+    <p class="muted">The Smart Health Report explains your results in plain language.
+      Your signed laboratory report remains the official document.</p>
+  `);
+}
 
 export default router;

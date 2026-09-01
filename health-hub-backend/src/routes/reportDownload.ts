@@ -17,11 +17,13 @@ import {
 } from '../middleware/rateLimit';
 import { validateToken, recordAccess } from '../services/reportAccessService';
 import { patientLinkBlockForReportVersion } from '../services/patientLinkService';
-import { collectAtCentrePage } from '../lib/publicPageShell';
+import { collectAtCentrePage, pageShell } from '../lib/publicPageShell';
 import { getReportSnapshot } from '../services/reportSnapshotService';
 import { renderReportHtml } from '../services/reportRendererService';
 import { generateMergedReportPdf } from '../services/mergedReportPdfService';
 import { trackLinkAccess } from '../services/linkAccessService';
+import { renderStored } from '../services/smartReport/present';
+import { smartReportPdf } from '../services/smartReport/pdf';
 
 const router = Router();
 
@@ -295,6 +297,47 @@ router.get('/:token/view', publicReportIpRateLimit, publicReportTokenRateLimit, 
       message: 'Failed to generate report view.',
     });
   }
+});
+
+/**
+ * Smart Report — patient-facing. Reuses loadReportForToken, so validateToken,
+ * the patient-link kill switch, the rate limiters and access logging all apply.
+ * Rendered lazily: the PDF browser only starts when someone actually asks.
+ */
+router.get('/:token/smart', publicReportLandingIpRateLimit, publicReportLandingTokenRateLimit, async (req: Request, res: Response) => {
+  const loaded = await loadReportForToken(req.params.token);
+  if (!loaded.ok) {
+    res.setHeader('Cache-Control', 'no-store');
+    if (loaded.error === 'LINK_DISABLED') {
+      return res.status(403).send(collectAtCentrePage(loaded.branchName ?? 'the centre'));
+    }
+    return res.status(loaded.status).send(pageShell(`<h1>${loaded.message}</h1>`));
+  }
+  const html = await renderStored(loaded.snapshot.reportVersionId);
+  if (!html) return res.status(404).send(pageShell('<h1>No Smart Report is available for this report.</h1>'));
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  return res.send(html);
+});
+
+router.get('/:token/smart.pdf', publicReportIpRateLimit, publicReportTokenRateLimit, async (req: Request, res: Response) => {
+  const loaded = await loadReportForToken(req.params.token);
+  if (!loaded.ok) {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(loaded.status).json({ error: loaded.error, message: loaded.message });
+  }
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  const qrDataUrl = await QRCode.toDataURL(`${baseUrl}/reports/${req.params.token}/smart`, {
+    width: 100, margin: 1, color: { dark: '#000000', light: '#ffffff' },
+  });
+  const html = await renderStored(loaded.snapshot.reportVersionId, qrDataUrl);
+  if (!html) return res.status(404).json({ error: 'NO_SMART_REPORT' });
+
+  const pdf = await smartReportPdf(loaded.snapshot.reportVersionId, html);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="smart-health-report.pdf"`);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.send(pdf);
 });
 
 export default router;

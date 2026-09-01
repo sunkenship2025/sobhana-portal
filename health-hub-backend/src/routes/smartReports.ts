@@ -1,0 +1,196 @@
+/**
+ * Smart Reports — staff + admin surface.
+ * Public (patient) routes live in reportDownload.ts so they reuse the existing
+ * token door: validateToken + patientLinkBlock + rate limiters.
+ */
+import { Router } from 'express';
+import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { requireRole } from '../middleware/rbac';
+import prisma from '../lib/prisma';
+import { logAction } from '../services/auditService';
+import { generateSmartReport } from '../services/smartReport/generate';
+import { renderStored } from '../services/smartReport/present';
+import { checkPackage } from '../services/smartReport/packageEligibility';
+import { loadConfig } from '../services/smartReport/config';
+
+const router = Router();
+router.use(authMiddleware);
+
+/** Latest finalized version for a visit — everything below keys off this. */
+async function latestFinalized(visitId: string): Promise<string | null> {
+  const v = await prisma.reportVersion.findFirst({
+    where: { status: 'FINALIZED', report: { visitId } },
+    orderBy: { versionNum: 'desc' },
+    select: { id: true },
+  });
+  return v?.id ?? null;
+}
+
+// ─── status for the preview toggle ────────────────────────────────────────
+router.get('/visits/:visitId/status', async (req: AuthRequest, res) => {
+  try {
+    const reportVersionId = await latestFinalized(req.params.visitId);
+    if (!reportVersionId) return res.json({ available: false, status: 'NO_REPORT' });
+
+    const sr = await prisma.smartReport.findUnique({
+      where: { reportVersionId },
+      select: {
+        status: true, skipReason: true, score: true, scoreBand: true,
+        usedFallbackCopy: true, hasCritical: true, generatedAt: true,
+      },
+    });
+    return res.json({
+      available: sr?.status === 'READY',
+      reportVersionId,
+      status: sr?.status ?? 'PENDING',
+      skipReason: sr?.skipReason ?? null,
+      score: sr?.score ?? null,
+      scoreBand: sr?.scoreBand ?? null,
+      usedFallbackCopy: sr?.usedFallbackCopy ?? false,
+      hasCritical: sr?.hasCritical ?? false,
+      generatedAt: sr?.generatedAt ?? null,
+    });
+  } catch (err) {
+    console.error('GET smart-report status failed:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+// ─── staff HTML preview (the [Report | Smart Report] toggle target) ───────
+router.get('/visits/:visitId/preview', async (req: AuthRequest, res) => {
+  try {
+    const reportVersionId = await latestFinalized(req.params.visitId);
+    if (!reportVersionId) return res.status(404).send('No finalized report for this visit.');
+    const html = await renderStored(reportVersionId);
+    if (!html) return res.status(404).send('No Smart Report for this visit yet.');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    return res.send(html);
+  } catch (err) {
+    console.error('GET smart-report preview failed:', err);
+    return res.status(500).send('Failed to render Smart Report');
+  }
+});
+
+// ─── regenerate ───────────────────────────────────────────────────────────
+router.post('/visits/:visitId/generate', requireRole('owner', 'lab_incharge'), async (req: AuthRequest, res) => {
+  try {
+    const reportVersionId = await latestFinalized(req.params.visitId);
+    if (!reportVersionId) return res.status(400).json({ error: 'NO_FINALIZED_REPORT' });
+
+    await generateSmartReport(reportVersionId);
+    await logAction({
+      branchId: req.branchId!, actionType: 'UPDATE', entityType: 'SmartReport',
+      entityId: reportVersionId, userId: req.user!.id,
+      newValues: { regenerated: true, visitId: req.params.visitId },
+      ipAddress: req.ip, userAgent: req.get('user-agent'),
+    });
+
+    const sr = await prisma.smartReport.findUnique({
+      where: { reportVersionId },
+      select: { status: true, skipReason: true, score: true, usedFallbackCopy: true },
+    });
+    return res.json({ success: true, ...sr });
+  } catch (err) {
+    console.error('POST smart-report generate failed:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+// ─── can this package have Smart Reports switched on? ─────────────────────
+router.get('/products/:productId/eligibility', async (_req: AuthRequest, res) => {
+  try {
+    const [check, product] = await Promise.all([
+      checkPackage(_req.params.productId),
+      prisma.billableProduct.findUnique({
+        where: { id: _req.params.productId },
+        select: { smartReportEnabled: true },
+      }),
+    ]);
+    return res.json({ ...check, enabled: product?.smartReportEnabled ?? false });
+  } catch (err) {
+    console.error('GET package eligibility failed:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+router.put('/products/:productId/enabled', requireRole('owner', 'lab_incharge'), async (req: AuthRequest, res) => {
+  try {
+    const enabled = Boolean(req.body?.enabled);
+    if (enabled) {
+      const check = await checkPackage(req.params.productId);
+      if (!check.eligible) {
+        return res.status(400).json({ error: 'PACKAGE_NOT_ELIGIBLE', reasons: check.reasons });
+      }
+    }
+    await prisma.billableProduct.update({
+      where: { id: req.params.productId },
+      data: { smartReportEnabled: enabled },
+    });
+    return res.json({ success: true, smartReportEnabled: enabled });
+  } catch (err) {
+    console.error('PUT product smart-report toggle failed:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+// ─── height / weight, captured in billing when a Smart-Report bundle is billed ──
+// The UI lives in the billing screen (wireframes pending); this is the endpoint
+// it calls. Both optional: the Health Essentials page is omitted when either is
+// missing, never estimated.
+router.put('/patients/:patientId/measurements', async (req: AuthRequest, res) => {
+  try {
+    const h = req.body?.heightCm;
+    const w = req.body?.weightKg;
+    const num = (v: unknown) => (v === null || v === '' || v === undefined ? null : Number(v));
+    const heightCm = num(h);
+    const weightKg = num(w);
+    if ((heightCm !== null && !(heightCm > 30 && heightCm < 260))
+      || (weightKg !== null && !(weightKg > 1 && weightKg < 400))) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Height or weight is out of range' });
+    }
+    const patient = await prisma.patient.update({
+      where: { id: req.params.patientId },
+      data: { heightCm, weightKg },
+      select: { id: true, heightCm: true, weightKg: true },
+    });
+    return res.json(patient);
+  } catch (err) {
+    console.error('PUT patient measurements failed:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+// ─── config ───────────────────────────────────────────────────────────────
+router.get('/config', async (req: AuthRequest, res) => {
+  try {
+    return res.json(await loadConfig(req.branchId ?? null));
+  } catch (err) {
+    console.error('GET smart-report config failed:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+const EDITABLE = [
+  'enabled', 'recommendationsEnabled', 'futureTestsEnabled', 'trendsEnabled',
+  'essentialsEnabled', 'language', 'accentColor', 'tagline', 'websiteLine',
+  'disclaimerOverride', 'minScoredParameters', 'minPatientAgeYears',
+  'maxFindingPages', 'model', 'monthlyBudgetPaise',
+] as const;
+
+router.put('/config', requireRole('owner', 'lab_incharge'), async (req: AuthRequest, res) => {
+  try {
+    const data: Record<string, unknown> = {};
+    for (const k of EDITABLE) if (k in (req.body ?? {})) data[k] = req.body[k];
+    const existing = await prisma.smartReportConfig.findFirst({ where: { branchId: null } });
+    const saved = existing
+      ? await prisma.smartReportConfig.update({ where: { id: existing.id }, data })
+      : await prisma.smartReportConfig.create({ data: { branchId: null, ...data } as any });
+    return res.json(saved);
+  } catch (err) {
+    console.error('PUT smart-report config failed:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+export default router;
