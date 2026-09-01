@@ -156,7 +156,11 @@ export async function generateSmartReport(reportVersionId: string): Promise<void
     if (!scope.ok) return void (await skip(scope.skipReason ?? 'NO_SMART_REPORT_PRODUCT'));
 
     const snapshot = version.panelsSnapshot as unknown as SnapshotLike;
-    const buckets = buildBuckets(snapshot, scope.inScopePanelIds.size ? scope.inScopePanelIds : null);
+    const buckets = buildBuckets(
+      snapshot,
+      scope.inScopePanelIds.size ? scope.inScopePanelIds : null,
+      cfg.excludedTestCodes,
+    );
     if (buckets.counts.scored === 0) return void (await skip('NO_ANALYSABLE_TESTS'));
     if (buckets.counts.scored < cfg.minScoredParameters) return void (await skip('BELOW_MIN_PARAMETERS'));
 

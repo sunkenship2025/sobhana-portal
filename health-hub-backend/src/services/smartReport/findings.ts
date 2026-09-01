@@ -110,6 +110,7 @@ export interface SnapshotLike {
 export function buildBuckets(
   snapshot: SnapshotLike,
   inScopePanelIds: Set<string> | null,
+  excludedTestCodes: readonly string[] = [],
 ): Buckets {
   const findings: Finding[] = [];   // out of range -> get cards
   const borderline: Finding[] = []; // inside the range, near a limit -> counts only, no card
@@ -164,6 +165,12 @@ export function buildBuckets(
           rollup.notScored += 1;
           continue;
         }
+
+        // A row describing the SAMPLE rather than the patient — urine volume is
+        // the clear case — must not be scored, carded or counted. It told a
+        // patient their urine QUANTITY was "Very high", which reads as something
+        // being wrong with them when nothing is.
+        if (excludedTestCodes.includes(t.testCode)) continue;
 
         const value = t.value as number;
         const critical =

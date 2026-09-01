@@ -6,6 +6,7 @@ export type SmartConfig = {
   accentColor: string; tagline: string | null; websiteLine: string | null;
   disclaimerOverride: string | null; minScoredParameters: number;
   minPatientAgeYears: number; maxFindingPages: number; model: string;
+  excludedTestCodes: string[];
 };
 
 const DEFAULTS: SmartConfig = {
@@ -14,6 +15,7 @@ const DEFAULTS: SmartConfig = {
   accentColor: '#1E6CA8', tagline: null, websiteLine: null,
   disclaimerOverride: null, minScoredParameters: 5,
   minPatientAgeYears: 18, maxFindingPages: 3, model: 'deepseek-v4-flash',
+  excludedTestCodes: ['CUE_QTY', 'CUE_COL', 'CUE_APP', 'CUE_RXN', 'CUE_SG'],
 };
 
 /** Branch row wins over the global (null-branch) row — same ladder as referral rates. */

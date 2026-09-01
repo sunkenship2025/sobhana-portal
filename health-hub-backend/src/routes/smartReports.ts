@@ -230,6 +230,7 @@ router.get('/visits/:visitId/draft-preview', async (req: AuthRequest, res) => {
     const buckets = buildBuckets(
       snapshot as unknown as SnapshotLike,
       scope.inScopePanelIds.size ? scope.inScopePanelIds : null,
+      cfg.excludedTestCodes,
     );
     if (buckets.counts.scored < cfg.minScoredParameters) {
       return res.status(409).json({ error: 'BELOW_MIN_PARAMETERS', scored: buckets.counts.scored });

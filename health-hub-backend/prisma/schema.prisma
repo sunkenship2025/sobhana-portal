@@ -2297,6 +2297,12 @@ model SmartReportConfig {
   tagline                String?
   websiteLine            String?
   disclaimerOverride     String?
+  /// Test codes the Smart Report must never score. Some rows on a report are
+  /// properties of the SAMPLE rather than findings about the patient — urine
+  /// volume is the clear case — and scoring them tells a patient something is
+  /// wrong with them when nothing is. There is no reliable automatic signal for
+  /// this, so it is an explicit list the centre owns.
+  excludedTestCodes      String[] @default(["CUE_QTY", "CUE_COL", "CUE_APP", "CUE_RXN", "CUE_SG"])
   minScoredParameters    Int      @default(5)
   minPatientAgeYears     Int      @default(18)
   maxFindingPages        Int      @default(3)

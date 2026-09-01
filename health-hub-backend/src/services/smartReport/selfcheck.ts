@@ -380,3 +380,24 @@ console.log('\n✓ all assertions passed — engine matches the prototype');
   }
   console.log('✓ insulin: treatment blocked, test explanation allowed');
 }
+
+// Sample properties must not be scored. Urine QUANTITY was reported to a patient
+// as "Very high", which reads as something being wrong with them.
+{
+  const t = (c: string, n: string, v: number, lo: number | null, hi: number | null, u: string) =>
+    ({ testCode: c, testName: n, value: v, textValue: null, flag: null, referenceMin: lo, referenceMax: hi,
+       referenceText: null, referenceUnit: u, criticalMin: null, criticalMax: null });
+  const urine = { departments: [{ panels: [{ panelId: 'p_cue', displayName: 'Urine Complete Examination',
+    layoutType: 'PROCEDURE_STRUCTURED', tests: [
+      t('CUE_QTY', 'QUANTITY', 20, 30, 50, 'mL'),
+      t('CUE_PUS', 'PUS CELLS', 8, 2, 5, '/HPF')] }] }] } as unknown as SnapshotLike;
+
+  const unfiltered = buildBuckets(urine, null);
+  assert.strictEqual(unfiltered.counts.scored, 2, 'without the list both rows score');
+
+  const filtered = buildBuckets(urine, null, ['CUE_QTY']);
+  assert.strictEqual(filtered.counts.scored, 1, 'the excluded row is not scored');
+  assert.ok(!filtered.findings.some((f) => f.code === 'CUE_QTY'), 'and never carded');
+  assert.ok(filtered.findings.some((f) => f.code === 'CUE_PUS'), 'a real finding still is');
+  console.log('✓ excluded tests: sample properties are neither scored nor carded');
+}
