@@ -230,7 +230,7 @@ function pageAnalysis(d: RenderInput): string {
 // ---------------------------------------------------------------- 02
 /** Icons already sat unused in ICON_SYMBOLS; the .eh/.eico hooks were in the CSS too. */
 const eIcon = (id: string, tint: string) =>
-  `<span class="eico"><svg class="hi" style="color:${tint}" width="17" height="17"><use href="#${id}"/></svg></span>`;
+  `<span class="eico"><svg class="hi" style="color:${tint}" width="19" height="19"><use href="#${id}"/></svg></span>`;
 
 function pageEssentials(d: RenderInput, e: ReturnType<typeof computeEssentials>): string {
   return `<section class="page">${head(d)}
@@ -256,14 +256,14 @@ function pageEssentials(d: RenderInput, e: ReturnType<typeof computeEssentials>)
         Start your day with water, eat within 90 mins of waking, and aim to sleep before 11 PM.</p></div>
     <h2>Macronutrients &amp; More</h2>
     <div class="macros">
-      <div class="ecard" style="min-height:110px"><div class="eh">${eIcon('i-protein', '#C5221F')}<b class="tt">Protein</b></div>
-        <p>Supports muscle repair; eat lean meats, beans, or dairy.</p><div class="val" style="font-size:20px">${e.macros.protein}</div></div>
-      <div class="ecard" style="min-height:110px"><div class="eh">${eIcon('i-carb', '#B06000')}<b class="tt">Carbohydrates</b></div>
-        <p>Primary energy source; eat whole grains &amp; fibre foods.</p><div class="val" style="font-size:20px">${e.macros.carbs}</div></div>
-      <div class="ecard" style="min-height:110px"><div class="eh">${eIcon('i-fat', '#B08900')}<b class="tt">Fats</b></div>
-        <p>Essential for hormone health; eat healthy fats like nuts.</p><div class="val" style="font-size:20px">${e.macros.fats}</div></div>
-      <div class="ecard" style="min-height:110px"><div class="eh">${eIcon('i-fiber', '#1E8E3E')}<b class="tt">Fiber</b></div>
-        <p>Aids digestion &amp; overall health; don't skip fruits and veggies.</p><div class="val" style="font-size:20px">${e.macros.fiber}</div></div>
+      <div class="ecard"><div class="eh">${eIcon('i-protein', '#C5221F')}<b class="tt">Protein</b></div>
+        <p>Supports muscle repair; eat lean meats, beans, or dairy.</p><div class="val">${e.macros.protein}</div></div>
+      <div class="ecard"><div class="eh">${eIcon('i-carb', '#B06000')}<b class="tt">Carbohydrates</b></div>
+        <p>Primary energy source; eat whole grains &amp; fibre foods.</p><div class="val">${e.macros.carbs}</div></div>
+      <div class="ecard"><div class="eh">${eIcon('i-fat', '#B08900')}<b class="tt">Fats</b></div>
+        <p>Essential for hormone health; eat healthy fats like nuts.</p><div class="val">${e.macros.fats}</div></div>
+      <div class="ecard"><div class="eh">${eIcon('i-fiber', '#1E8E3E')}<b class="tt">Fiber</b></div>
+        <p>Aids digestion &amp; overall health; don't skip fruits and veggies.</p><div class="val">${e.macros.fiber}</div></div>
     </div>
     <div class="goalbox"><div class="goalrow"><b>Calorie Intake<br>Based on Goals</b>
       <div><span>Weight Loss</span><b>${e.goals.loss.toLocaleString()} Cal</b></div>

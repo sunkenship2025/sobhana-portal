@@ -141,20 +141,27 @@ h2:first-child{margin-top:0}
 .figure .bodyfig{width:250px;display:block}
 
 /* page 02 */
-.ess{display:grid;grid-template-columns:1fr 1fr 1.75fr;gap:11px}
-.ecard{border:1px solid var(--line);border-radius:11px;padding:13px 14px;min-height:116px}
-.ecard .eh{display:flex;align-items:center;gap:8px}
-.ecard .eico{width:30px;height:30px;border-radius:50%;background:#F4F8FB;display:grid;place-items:center;flex:none}
+/* First two columns widened so 'Daily Water Intake' stays on one line beside its
+   icon; the energy card keeps enough width for its three figures. */
+.ess{display:grid;grid-template-columns:1.12fr 1.12fr 1.75fr;gap:11px}
+/* Flex column so the big number sits on a shared baseline across the row. Without
+   it the value floats to wherever the description happens to end, and Fiber's
+   three-line description pushed its number below the other three. */
+.ecard{border:1px solid var(--line);border-radius:11px;padding:14px 15px;min-height:116px;
+  display:flex;flex-direction:column}
+.ecard .eh{display:flex;align-items:center;gap:9px}
+.ecard .eico{width:32px;height:32px;border-radius:50%;background:#F4F8FB;display:grid;place-items:center;flex:none}
 .rhythmart{display:grid;place-items:center;margin-top:10px}
 .rhythmart svg{height:118px;width:auto;max-width:100%}
-.ecard b.tt{font-size:12.5px;font-weight:600}
-.ecard p{margin:5px 0 0;font-size:10px;color:var(--lbl);line-height:1.45}
-.ecard .val{font-size:23px;font-weight:700;margin-top:10px;letter-spacing:-.5px}
-.three{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.ecard b.tt{font-size:12.8px;font-weight:700;line-height:1.25;letter-spacing:-.1px}
+.ecard p{margin:8px 0 0;font-size:10.4px;color:var(--sub);line-height:1.5}
+.ecard .val{font-size:23px;font-weight:700;margin-top:auto;padding-top:12px;letter-spacing:-.5px;line-height:1}
+.macros .ecard .val{font-size:20.5px}
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:auto;padding-top:12px;align-items:end}
 .three div{border-left:1px solid var(--line);padding-left:11px}
 .three div:first-child{border-left:0;padding-left:0}
-.three span{display:block;font-size:10px;color:var(--lbl)}
-.three b{font-size:15.5px;font-weight:700}
+.three span{display:block;font-size:10px;color:var(--lbl);margin-bottom:3px}
+.three b{font-size:15px;font-weight:700;line-height:1;letter-spacing:-.3px;white-space:nowrap}
 .infobox{background:var(--blue-box);border-radius:11px;padding:14px 16px;margin-top:13px}
 .infobox b{display:block;font-size:13px;margin-bottom:5px}
 .infobox p{margin:0;font-size:11.5px;color:#40474D;line-height:1.6}
