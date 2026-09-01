@@ -6,6 +6,7 @@ import { branchContextMiddleware } from '../middleware/branch';
 import { logAction } from '../services/auditService';
 import prisma from '../lib/prisma';
 import { emitCatalogChange } from '../lib/displayEvents';
+import { invalidateAuthUser } from '../middleware/branch';
 
 const router = Router();
 
@@ -84,6 +85,9 @@ router.patch('/:id/role', async (req: AuthRequest, res) => {
       data: { role },
       select: { id: true, name: true, email: true, role: true, isActive: true },
     });
+    // branchContextMiddleware caches this row for 60s; drop it so a demotion
+    // binds on the next request rather than at TTL expiry.
+    await invalidateAuthUser(id);
 
     await logAction({
       branchId: req.branchId!,
@@ -159,6 +163,8 @@ router.patch('/:id/active', async (req: AuthRequest, res) => {
       data: { isActive },
       select: { id: true, name: true, email: true, role: true, isActive: true },
     });
+    // Disabling an account must lock it out NOW, not in 60s.
+    await invalidateAuthUser(id);
 
     await logAction({
       branchId: req.branchId!,
