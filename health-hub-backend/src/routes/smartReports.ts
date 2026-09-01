@@ -9,7 +9,15 @@ import { requireRole } from '../middleware/rbac';
 import prisma from '../lib/prisma';
 import { logAction } from '../services/auditService';
 import { generateSmartReport } from '../services/smartReport/generate';
-import { renderStored } from '../services/smartReport/present';
+import { renderStored, renderDraft } from '../services/smartReport/present';
+import { produceSmartReport } from '../services/smartReport/generate';
+import { buildBuckets, type SnapshotLike } from '../services/smartReport/findings';
+import { resolveVisitScope } from '../services/smartReport/eligibility';
+import { buildEphemeralSnapshot } from '../services/reportSnapshotService';
+// The completeness rule lives with finalize, and is imported rather than
+// restated: a second copy would drift, and then the preview would offer itself
+// on a report finalize still considers incomplete.
+import { findIncompleteOrders, hasMeaningfulResultRow } from './diagnosticVisits';
 import { checkPackage } from '../services/smartReport/packageEligibility';
 import { loadConfig } from '../services/smartReport/config';
 
@@ -139,6 +147,107 @@ router.put('/visits/:visitId/send-suppressed', requireRole('owner', 'lab_incharg
     return res.json({ success: true, ...updated, sendSuppressed: updated.sendSuppressedAt !== null });
   } catch (err) {
     console.error('PUT smart-report send-suppressed failed:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+/** Is every reportable order on this visit filled in? Same rule finalize applies. */
+async function draftCompleteness(visitId: string): Promise<{ complete: boolean; pending: string[] }> {
+  const visit = await prisma.visit.findUnique({
+    where: { id: visitId },
+    select: {
+      testOrders: {
+        select: {
+          id: true, testId: true, workflowMode: true, noReportAt: true, cancelledAt: true,
+          externalUploads: { select: { id: true } },
+          test: { select: { name: true, isPanel: true, childTests: { select: { id: true } } } },
+        },
+      },
+      report: {
+        select: {
+          versions: {
+            orderBy: { versionNum: 'desc' }, take: 1,
+            select: { testResults: { select: { testOrderId: true, testId: true, value: true, textValue: true, notes: true } } },
+          },
+        },
+      },
+    },
+  });
+  if (!visit) return { complete: false, pending: [] };
+
+  const results = visit.report?.versions?.[0]?.testResults ?? [];
+  const filled = new Set(
+    results.filter(hasMeaningfulResultRow).map((r) => `${r.testOrderId}:${r.testId}`),
+  );
+  const incomplete = findIncompleteOrders(visit.testOrders as any, filled);
+  return {
+    complete: incomplete.length === 0,
+    pending: incomplete.map((o: any) => o.test?.name ?? 'a test'),
+  };
+}
+
+/**
+ * Draft preview: the Smart Report for a visit that has NOT been finalized yet.
+ *
+ * Runs produceSmartReport over buildEphemeralSnapshot — the same snapshot the
+ * draft PDF preview is built from, and the same pipeline the real generation
+ * uses — so what staff see here is what the patient will get. Nothing is
+ * persisted: no SmartReport row, no WhatsApp, no access token.
+ *
+ * Refuses unless every reportable order has a result. A score computed over half
+ * a package is meaningless, and the completeness rule is imported from the
+ * finalize route rather than restated so the two cannot drift.
+ */
+router.get('/visits/:visitId/draft-status', async (req: AuthRequest, res) => {
+  try {
+    const status = await draftCompleteness(req.params.visitId);
+    return res.json(status);
+  } catch (err) {
+    console.error('GET smart-report draft-status failed:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+router.get('/visits/:visitId/draft-preview', async (req: AuthRequest, res) => {
+  try {
+    const visitId = req.params.visitId;
+    const status = await draftCompleteness(visitId);
+    if (!status.complete) {
+      return res.status(409).json({ error: 'INCOMPLETE_REPORT', pending: status.pending });
+    }
+
+    const cfg = await loadConfig(req.branchId ?? null);
+    if (!cfg.enabled) return res.status(409).json({ error: 'DISABLED' });
+
+    const scope = await resolveVisitScope(visitId, cfg);
+    if (!scope.ok) return res.status(409).json({ error: scope.skipReason ?? 'NO_SMART_REPORT_PRODUCT' });
+
+    const snapshot = await buildEphemeralSnapshot(visitId);
+    const buckets = buildBuckets(
+      snapshot as unknown as SnapshotLike,
+      scope.inScopePanelIds.size ? scope.inScopePanelIds : null,
+    );
+    if (buckets.counts.scored < cfg.minScoredParameters) {
+      return res.status(409).json({ error: 'BELOW_MIN_PARAMETERS', scored: buckets.counts.scored });
+    }
+
+    const visit = await prisma.visit.findUnique({
+      where: { id: visitId },
+      select: { id: true, createdAt: true, patientId: true },
+    });
+    if (!visit) return res.status(404).json({ error: 'VISIT_NOT_FOUND' });
+
+    const produced = await produceSmartReport({
+      buckets, visit, patientSnapshot: snapshot.patient as any, scope, cfg,
+      logRef: `draft:${visitId}`,
+    });
+
+    const html = await renderDraft(snapshot, produced, scope, cfg);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    return res.send(html);
+  } catch (err) {
+    console.error('GET smart-report draft-preview failed:', err);
     return res.status(500).json({ error: 'INTERNAL_ERROR' });
   }
 });

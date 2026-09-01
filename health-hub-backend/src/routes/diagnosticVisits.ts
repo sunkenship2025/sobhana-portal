@@ -236,7 +236,7 @@ function isManualDerivedOverrideNote(
   return notes?.trim() === DERIVED_MANUAL_OVERRIDE_NOTE;
 }
 
-function hasMeaningfulResultRow(result: {
+export function hasMeaningfulResultRow(result: {
   value?: number | null;
   textValue?: string | null;
   notes?: string | null;
@@ -284,6 +284,53 @@ function collectSnapshotTestOrderIds(node: unknown, acc: Set<string>): void {
       }
     }
   }
+}
+
+/**
+ * Which orders still have no result, i.e. what stops a COMPLETE finalize.
+ *
+ * Exported because the Smart Report draft preview has to answer the same question
+ * before it will offer itself, and a second copy of this rule would drift from the
+ * finalize gate. One definition, two callers.
+ */
+export function findIncompleteOrders<T extends {
+  id: string;
+  testId: string;
+  workflowMode?: DiagnosticWorkflowMode | null;
+  noReportAt?: Date | null;
+  cancelledAt?: Date | null;
+  externalUploads: unknown[];
+  test?: { isPanel?: boolean | null; childTests?: Array<{ id: string }> | null } | null;
+}>(orders: T[], meaningfulDraftResultKeys: Set<string>): T[] {
+  return orders.filter((order) => {
+    const mode = order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE;
+
+    // Orders closed as "no written report needed" (films only) don't block
+    // finalize — same as cancelled orders, they're not part of the report.
+    if (order.noReportAt) {
+      return false;
+    }
+
+    // A cancelled order is not part of the report either (it was voided off the
+    // bill). Mirror getReportInclusionOrders — without this, a cancelled
+    // reportable test with no result is wrongly counted as "still pending" and
+    // blocks the complete-report finalize.
+    if (order.cancelledAt) {
+      return false;
+    }
+
+    if (mode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD) {
+      return order.externalUploads.length === 0;
+    }
+
+    if (mode !== DiagnosticWorkflowMode.REPORTABLE) {
+      return false;
+    }
+
+    return getExpectedResultTestIds(order).some(
+      (testId) => !meaningfulDraftResultKeys.has(`${order.id}:${testId}`),
+    );
+  });
 }
 
 function getExpectedResultTestIds(order: {
@@ -6554,35 +6601,7 @@ router.post("/:id/finalize", requireRole("owner", "lab_incharge"), async (req: A
         .filter(hasMeaningfulResultRow)
         .map((result) => `${result.testOrderId}:${result.testId}`),
     );
-    const incompleteOrders = visit.testOrders.filter((order) => {
-      const mode = order.workflowMode ?? DiagnosticWorkflowMode.REPORTABLE;
-
-      // Orders closed as "no written report needed" (films only) don't block
-      // finalize — same as cancelled orders, they're not part of the report.
-      if (order.noReportAt) {
-        return false;
-      }
-
-      // A cancelled order is not part of the report either (it was voided off the
-      // bill). Mirror getReportInclusionOrders — without this, a cancelled
-      // reportable test with no result is wrongly counted as "still pending" and
-      // blocks the complete-report finalize.
-      if (order.cancelledAt) {
-        return false;
-      }
-
-      if (mode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD) {
-        return order.externalUploads.length === 0;
-      }
-
-      if (mode !== DiagnosticWorkflowMode.REPORTABLE) {
-        return false;
-      }
-
-      return getExpectedResultTestIds(order).some(
-        (testId) => !meaningfulDraftResultKeys.has(`${order.id}:${testId}`),
-      );
-    });
+    const incompleteOrders = findIncompleteOrders(visit.testOrders, meaningfulDraftResultKeys);
 
     if (incompleteOrders.length > 0) {
       return res.status(400).json({
