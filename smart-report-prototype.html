@@ -110,6 +110,9 @@ h2:first-child{margin-top:0}
 .ess{display:grid;grid-template-columns:1fr 1fr 1.75fr;gap:11px}
 .ecard{border:1px solid var(--line);border-radius:11px;padding:13px 14px;min-height:116px}
 .ecard .eh{display:flex;align-items:center;gap:8px}
+.ecard .eico{width:30px;height:30px;border-radius:50%;background:#F4F8FB;display:grid;place-items:center;flex:none}
+.rhythmart{display:grid;place-items:center;margin-top:10px}
+.rhythmart svg{height:118px;width:auto;max-width:100%}
 .ecard b.tt{font-size:12.5px;font-weight:600}
 .ecard p{margin:5px 0 0;font-size:10px;color:var(--lbl);line-height:1.45}
 .ecard .val{font-size:23px;font-weight:700;margin-top:10px;letter-spacing:-.5px}
@@ -260,7 +263,7 @@ h2:first-child{margin-top:0}
       <div class="tx"><b>Urine Routine</b><div class="bd"><span class="pill p-pen">Descriptive</span></div></div></div></div>
     </div>
   </div>
-  <div class="pfoot"><span>Plot 42, Chintal Main Road, Quthbullapur, Hyderabad 500054, India · +91 90000 12345</span><b>01 / 08</b></div>
+  <div class="pfoot"><span>Plot 42, Chintal Main Road, Quthbullapur, Hyderabad 500054, India · +91 90000 12345</span><b>01 / 07</b></div>
 </section>
 <section class="page"><div class="topbar"></div>
   <div class="phead">
@@ -279,11 +282,11 @@ h2:first-child{margin-top:0}
     <p class="sub">Calorie, Nutrition and Lifestyle Recommendations to Keep you Healthy.</p>
     <h2>Daily Health Essentials</h2>
     <div class="ess">
-      <div class="ecard"><b class="tt" style="display:block">Daily Water Intake</b>
+      <div class="ecard"><div class="eh"><span class="eico"><svg class="hi" style="color:#1A73E8" width="17" height="17"><use href="#i-water"/></svg></span><b class="tt">Daily Water Intake</b></div>
         <p>Based on your body weight and activity level.</p><div class="val">2.9L</div></div>
-      <div class="ecard"><b class="tt" style="display:block">Sleep's Intake</b>
+      <div class="ecard"><div class="eh"><span class="eico"><svg class="hi" style="color:#5E4B8B" width="17" height="17"><use href="#i-sleep"/></svg></span><b class="tt">Sleep's Intake</b></div>
         <p>Quality sleep boosts metabolism and aids recovery.</p><div class="val">7-8 Hours</div></div>
-      <div class="ecard"><b class="tt">Energy Expenditure</b>
+      <div class="ecard"><div class="eh"><span class="eico"><svg class="hi" style="color:#D93025" width="17" height="17"><use href="#i-energy"/></svg></span><b class="tt">Energy Expenditure</b></div>
         <p style="margin-top:4px">No. of calories your body needs to maintain your weight.</p>
         <div class="three">
           <div><span>Less Active</span><b>1,953 Cal</b></div>
@@ -296,13 +299,13 @@ h2:first-child{margin-top:0}
         Start your day with water, eat within 90 mins of waking, and aim to sleep before 11 PM.</p></div>
     <h2>Macronutrients &amp; More</h2>
     <div class="macros">
-      <div class="ecard" style="min-height:110px"><b class="tt" style="display:block">Protein</b>
+      <div class="ecard" style="min-height:110px"><div class="eh"><span class="eico"><svg class="hi" style="color:#C5221F" width="17" height="17"><use href="#i-protein"/></svg></span><b class="tt">Protein</b></div>
         <p>Supports muscle repair; eat lean meats, beans, or dairy.</p><div class="val" style="font-size:20px">66–164g</div></div>
-      <div class="ecard" style="min-height:110px"><b class="tt" style="display:block">Carbohydrates</b>
+      <div class="ecard" style="min-height:110px"><div class="eh"><span class="eico"><svg class="hi" style="color:#B06000" width="17" height="17"><use href="#i-carb"/></svg></span><b class="tt">Carbohydrates</b></div>
         <p>Primary energy source; eat whole grains &amp; fibre foods.</p><div class="val" style="font-size:20px">284–410g</div></div>
-      <div class="ecard" style="min-height:110px"><b class="tt" style="display:block">Fats</b>
+      <div class="ecard" style="min-height:110px"><div class="eh"><span class="eico"><svg class="hi" style="color:#B08900" width="17" height="17"><use href="#i-fat"/></svg></span><b class="tt">Fats</b></div>
         <p>Essential for hormone health; eat healthy fats like nuts.</p><div class="val" style="font-size:20px">56–98g</div></div>
-      <div class="ecard" style="min-height:110px"><b class="tt" style="display:block">Fiber</b>
+      <div class="ecard" style="min-height:110px"><div class="eh"><span class="eico"><svg class="hi" style="color:#1E8E3E" width="17" height="17"><use href="#i-fiber"/></svg></span><b class="tt">Fiber</b></div>
         <p>Aids digestion &amp; overall health; don't skip fruits and veggies.</p><div class="val" style="font-size:20px">30–38g</div></div>
     </div>
     <div class="goalbox"><div class="goalrow"><b>Calorie Intake<br>Based on Goals</b>
@@ -310,8 +313,9 @@ h2:first-child{margin-top:0}
       <div><span>Weight Gain</span><b>3,023 Cal</b></div>
       <div><span>Weight Maintenance</span><b>2,523 Cal</b></div></div>
       <hr><p>These are general targets from your height, weight, age and sex — not from your test results.</p></div>
+    <div class="rhythmart"><svg id="a912c975-66fe-4859-a220-a6b1f8a45b45" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="-32.46 -32.46 1147.02 648.50"><path id="f49d3234-3c8e-421e-8fbc-1882acc2b62b" data-name="Path 2362" d="M932.524,741.78851H276.399c-6.707-.007-12.142-4.606-12.15-10.281v-474.768c.008-5.676,5.443-10.275,12.15-10.281H932.525c6.707.007,12.14295,4.606,12.15,10.282v474.77C944.66707,737.18847,939.232,741.78851,932.524,741.78851Zm-656.125-491.218c-4.024,0-7.286,2.763-7.29,6.169v474.771c0,3.405,3.266,6.165,7.291,6.169H932.526c4.024,0,7.286-2.764,7.29-6.169v-474.771c0-3.405-3.266-6.165-7.29-6.169Z" transform="translate(-58.95203 -158.21149)" fill="#e6e6e6"></path><path id="aa45fc53-812a-4d29-b97e-7f1282d3d680" data-name="Path 2484" d="M546.258,439.30148l175.00007-34.992,3.8,96.011-13.7,108.762,9.9,129.708H532.525l4.912-150.492s-42.112-59.417-17.303-119.308Z" transform="translate(-58.95203 -158.21149)" fill="#185484"></path><path id="ab28f9f1-3872-4572-9db3-fdc0c2b56930" data-name="Path 2485" d="M936.476,211.54248a28.21206,28.21206,0,0,1-26.5,34.191l-167.814,194.6-39.016-47.35,177.224-176.392a28.365,28.365,0,0,1,56.109-5.045Z" transform="translate(-58.95203 -158.21149)" fill="#feb8b8"></path><path id="e38d1f50-71d2-4502-a947-37a79b1baefe" data-name="Path 2486" d="M778.697,419.09451a12.636,12.636,0,0,1-4.181,9.668l-47.187,42.478a35.1342,35.1342,0,1,1-54.3-44.6l32.94111-54.51a12.65,12.65,0,0,1,18.885-3.21l49.25305,40.7a12.63693,12.63693,0,0,1,4.589,9.483Z" transform="translate(-58.95203 -158.21149)" fill="#185484"></path><path id="a4438e3b-f1f0-4fb4-883b-23c73ca92a93" data-name="Path 2487" d="M271.86,668.85352a28.21306,28.21306,0,0,1,31.334-29.828l195.113-167.211,31.469,52.668-201.685,147.8a28.365,28.365,0,0,1-56.231-3.432Z" transform="translate(-58.95203 -158.21149)" fill="#feb8b8"></path><circle id="b8db2fb6-f3e1-4f6c-8969-65ed1b7fc810" data-name="Ellipse 85" cx="568.62999" cy="126.80999" r="71.242" fill="#2F3A45"></circle><path id="a8ffa943-ba12-47ea-a3ce-887fe10517d1" data-name="Path 2488" d="M458.995,487.3255a12.63794,12.63794,0,0,1,5.584-8.932l53.027-34.917a35.132,35.132,0,1,1,47.29144,51.96679q-.14941.136-.30036.27021l-40.751,48.961a12.65014,12.65014,0,0,1-19.152.34l-42.588-47.625a12.63515,12.63515,0,0,1-3.115-10.064Z" transform="translate(-58.95203 -158.21149)" fill="#185484"></path><circle id="b8556b8d-ea4d-44f1-881d-63b03cbd5c82" data-name="Ellipse 491" cx="561.88999" cy="171.78799" r="64.502" fill="#feb8b8"></circle><path id="b12de61e-1204-4bc3-8fe3-5af6696e169c" data-name="Path 574" d="M664.769,158.21149a38.943,38.943,0,0,1-22.472,15.447c-15.713,4.208-.128,27.819-.128,27.819s-5.667-8.586,2.507-17.679S666.005,168.48949,664.769,158.21149Z" transform="translate(-58.95203 -158.21149)" fill="#2F3A45"></path><circle id="b3381070-dd63-42ff-a7f2-d7b052b00dac" data-name="Ellipse 87" cx="580.43297" cy="48.93" r="19.854" fill="#2F3A45"></circle><path id="a59edb5f-8afb-4734-b526-6942bc6c3436" data-name="Path 575" d="M669.053,223.78349c-16.186-6.122-43.136-9.226-57-7.1l1.9-13.885c13.33,6.889,40.157,10.127,57,7.1Z" transform="translate(-58.95203 -158.21149)" fill="#185484"></path><path id="a799e502-b5ec-41bb-ac2d-d7f36e72d183" data-name="Path 576" d="M631.657,226.38049s-20.285,33.74-67.454,46.371-.385,83.513-.385,83.513-17.012-25.775,7.526-53.072S635.369,257.23349,631.657,226.38049Z" transform="translate(-58.95203 -158.21149)" fill="#2F3A45"></path><path id="b966a1bb-b26c-4365-9b42-58e2bab2452b" data-name="Path 577" d="M639.344,226.7015s19.487,46.344,40.881,50.726,19.771,77.61-13.685,88.591c0,0,24.4-42.93,3.543-71.721S636.058,242.74649,639.344,226.7015Z" transform="translate(-58.95203 -158.21149)" fill="#2F3A45"></path><rect id="f9722a62-0ff9-4c04-8bc3-c55c9a508670" data-name="Rectangle 254" y="580.58" width="1082.09595" height="2" fill="#e6e6e6"></rect><path d="M247.83008,691.25848a19.087,19.087,0,0,0-19.086-19.088h-.0011v-14.683H155.327v72.66107a9.564,9.564,0,0,0,9.564,9.564h54.288a9.564,9.564,0,0,0,9.564-9.564V710.34644A19.088,19.088,0,0,0,247.83008,691.25848Zm-19.087,11.74494-.00012.00012v-23.493a11.74646,11.74646,0,0,1,.00012,23.49292Z" transform="translate(-58.95203 -158.21149)" fill="#e6e6e6"></path><path id="aa566eb5-3f42-4528-81f0-de30369d1f39" data-name="Path 776" d="M1032.41906,669.92748c14.376,15.426,15.119,38.1,15.119,38.1s-22.565-2.338-36.941-17.764-15.119-38.1-15.119-38.1S1018.043,654.50151,1032.41906,669.92748Z" transform="translate(-58.95203 -158.21149)" fill="#e6e6e6"></path><path id="abd5ca91-6d07-45db-b5e3-f61f3053fe6d" data-name="Path 777" d="M1077.676,694.00652c-15.426,14.376-38.1,15.119-38.1,15.119s2.338-22.565,17.764-36.941,38.1-15.119,38.1-15.119S1093.103,679.63048,1077.676,694.00652Z" transform="translate(-58.95203 -158.21149)" fill="#e6e6e6"></path><path id="ab90bebd-a5e2-40ec-8bc4-54c2d6be70fa" data-name="Path 778" d="M1073.842,739.7935h-56.739a5.8,5.8,0,0,1-5.219-3.265l-12.353-25.395a5.8,5.8,0,0,1,5.219-8.342h81.446a5.80007,5.80007,0,0,1,5.219,8.342l-12.353,25.394a5.8,5.8,0,0,1-5.219,3.265Z" transform="translate(-58.95203 -158.21149)" fill="#e5e5e5"></path></svg></div>
   </div>
-  <div class="pfoot"><span>Plot 42, Chintal Main Road, Quthbullapur, Hyderabad 500054, India · +91 90000 12345</span><b>02 / 08</b></div>
+  <div class="pfoot"><span>Plot 42, Chintal Main Road, Quthbullapur, Hyderabad 500054, India · +91 90000 12345</span><b>02 / 07</b></div>
 </section>
 <section class="page"><div class="topbar"></div>
   <div class="phead">
@@ -356,26 +360,7 @@ h2:first-child{margin-top:0}
     <div class="gauge"><div class="gtrack"><i class="lo"></i><i class="no"></i><i class="hi"></i></div>
       <div class="gmark"><i style="left:11.933333333333332%"></i></div>
       <div class="glabels"><span>Low</span><span>Reference 30 – 100 ng/mL</span><span>High</span></div></div>
-    <p>Vitamin D helps your body absorb calcium and keeps bones and muscles working well.</p></div>
-  </div>
-  <div class="pfoot"><span>Not a diagnosis. Please discuss these results with your doctor.</span><b>03 / 08</b></div>
-</section>
-<section class="page"><div class="topbar"></div>
-  <div class="phead">
-    <div class="logo"><div class="brandlogo" role="img" aria-label="Sobhana Diagnostic Centre"></div>
-      <div><span>Accurate Results, Explained Simply</span></div></div>
-    <div class="web"><span class="globe"><svg class="hi" style="color:#185484" width="14" height="14"><use href="#i-globe"/></svg></span>www.sobhanadiagnostics.in</div>
-  </div>
-  <div class="strip">
-    <div><span>Name</span><b>Mr. Ramesh Kumar</b></div>
-    <div><span>Patient ID</span><b>P-04127</b></div>
-    <div><span>Basic Info.</span><b>Male | 52 Year</b></div>
-    <div><span>Report Date</span><b>31-08-2026</b></div>
-  </div>
-  <div class="content">
-    <h1>Detailed Test Insights</h1>
-    <p class="sub">Continued from the previous page.</p>
-    <div class="fcard"><div class="fhead">
+    <p>Vitamin D helps your body absorb calcium and keeps bones and muscles working well.</p></div><div class="fcard"><div class="fhead">
       <span class="ico"><svg class="hi" style="color:#B5651D" width="18" height="18"><use href="#i-liver"/></svg></span>
       <div class="nm"><b>SGPT / ALT</b><span>Liver Function Test</span></div>
       <div class="rv"><b>62</b> <small>U/L</small><br><span class="pill p-bad">High</span></div></div>
@@ -389,23 +374,9 @@ h2:first-child{margin-top:0}
     <div class="gauge"><div class="gtrack"><i class="lo"></i><i class="no"></i><i class="hi"></i></div>
       <div class="gmark"><i style="left:79.34%"></i></div>
       <div class="glabels"><span>Low</span><span>Reference 70 – 100 mg/dL</span><span>High</span></div></div>
-    <p>This is your blood sugar after an overnight fast, so it shows how your body handles sugar at rest.</p></div><div class="fcard"><div class="fhead">
-      <span class="ico"><svg class="hi" style="color:#E53935" width="18" height="18"><use href="#i-heart"/></svg></span>
-      <div class="nm"><b>Total Cholesterol</b><span>Lipid Profile</span></div>
-      <div class="rv"><b>232</b> <small>mg/dL</small><br><span class="pill p-bad">High</span></div></div>
-    <div class="gauge"><div class="gtrack"><i class="lo"></i><i class="no"></i><i class="hi"></i></div>
-      <div class="gmark"><i style="left:78.54666666666667%"></i></div>
-      <div class="glabels"><span>Low</span><span>Reference &lt; 200 mg/dL</span><span>High</span></div></div>
-    <p>This is the sum of all the cholesterol carried in your blood.</p></div><div class="fcard"><div class="fhead">
-      <span class="ico"><svg class="hi" style="color:#7E57C2" width="18" height="18"><use href="#i-sugar"/></svg></span>
-      <div class="nm"><b>HbA1c</b><span>Blood Sugar</span></div>
-      <div class="rv"><b>6.3</b> <small>%</small><br><span class="pill p-bad">High</span></div></div>
-    <div class="gauge"><div class="gtrack"><i class="lo"></i><i class="no"></i><i class="hi"></i></div>
-      <div class="gmark"><i style="left:76.37543859649122%"></i></div>
-      <div class="glabels"><span>Low</span><span>Reference &lt; 5.7 %</span><span>High</span></div></div>
-    <p>HbA1c reflects your average blood sugar over roughly the last three months, so it is less affected by what you ate yesterday.</p><span class="ftrend">&#8593; from 5.9 % on 12 Feb 2026</span></div>
+    <p>This is your blood sugar after an overnight fast, so it shows how your body handles sugar at rest.</p></div>
   </div>
-  <div class="pfoot"><span>Not a diagnosis. Please discuss these results with your doctor.</span><b>04 / 08</b></div>
+  <div class="pfoot"><span>Not a diagnosis. Please discuss these results with your doctor.</span><b>03 / 07</b></div>
 </section>
 <section class="page"><div class="topbar"></div>
   <div class="phead">
@@ -423,6 +394,20 @@ h2:first-child{margin-top:0}
     <h1>Detailed Test Insights</h1>
     <p class="sub">Continued from the previous page.</p>
     <div class="fcard"><div class="fhead">
+      <span class="ico"><svg class="hi" style="color:#E53935" width="18" height="18"><use href="#i-heart"/></svg></span>
+      <div class="nm"><b>Total Cholesterol</b><span>Lipid Profile</span></div>
+      <div class="rv"><b>232</b> <small>mg/dL</small><br><span class="pill p-bad">High</span></div></div>
+    <div class="gauge"><div class="gtrack"><i class="lo"></i><i class="no"></i><i class="hi"></i></div>
+      <div class="gmark"><i style="left:78.54666666666667%"></i></div>
+      <div class="glabels"><span>Low</span><span>Reference &lt; 200 mg/dL</span><span>High</span></div></div>
+    <p>This is the sum of all the cholesterol carried in your blood.</p></div><div class="fcard"><div class="fhead">
+      <span class="ico"><svg class="hi" style="color:#7E57C2" width="18" height="18"><use href="#i-sugar"/></svg></span>
+      <div class="nm"><b>HbA1c</b><span>Blood Sugar</span></div>
+      <div class="rv"><b>6.3</b> <small>%</small><br><span class="pill p-bad">High</span></div></div>
+    <div class="gauge"><div class="gtrack"><i class="lo"></i><i class="no"></i><i class="hi"></i></div>
+      <div class="gmark"><i style="left:76.37543859649122%"></i></div>
+      <div class="glabels"><span>Low</span><span>Reference &lt; 5.7 %</span><span>High</span></div></div>
+    <p>HbA1c reflects your average blood sugar over roughly the last three months, so it is less affected by what you ate yesterday.</p><span class="ftrend">&#8593; from 5.9 % on 12 Feb 2026</span></div><div class="fcard"><div class="fhead">
       <span class="ico"><svg class="hi" style="color:#D93025" width="18" height="18"><use href="#i-blood"/></svg></span>
       <div class="nm"><b>MCV</b><span>Complete Blood Picture</span></div>
       <div class="rv"><b>76</b> <small>fL</small><br><span class="pill p-mild">Slightly low</span></div></div>
@@ -450,24 +435,9 @@ h2:first-child{margin-top:0}
     <div class="gauge"><div class="gtrack"><i class="lo"></i><i class="no"></i><i class="hi"></i></div>
       <div class="gmark"><i style="left:25.96923076923077%"></i></div>
       <div class="glabels"><span>Low</span><span>Reference 13 – 17 g/dL</span><span>High</span></div></div>
-    <p>Haemoglobin is the protein in red blood cells that carries oxygen around your body.</p><span class="ftrend">&#8595; from 12.9 g/dL on 12 Feb 2026</span></div><h2 style="font-size:13.5px;font-weight:700;margin:12px 0 3px">Results reported in words</h2>
-    <p style="font-size:10.5px;color:#7A8189;margin:0 0 7px">Described in words rather than numbers, so they carry no range to score against and are not part of your health score.</p>
-    <table style="width:100%;border-collapse:collapse;font-size:11.5px">
-      <thead><tr><th style="text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.6px;color:#9AA0A6;font-weight:700;padding:6px 8px;border-bottom:1px solid #E8EAED">Parameter</th><th style="text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.6px;color:#9AA0A6;font-weight:700;padding:6px 8px;border-bottom:1px solid #E8EAED">Your result</th><th style="text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.6px;color:#9AA0A6;font-weight:700;padding:6px 8px;border-bottom:1px solid #E8EAED">Usually expected</th></tr></thead>
-      <tbody><tr><td style="padding:5px 8px;border-bottom:1px solid #F3F5F7;">Urine — Colour</td>
-      <td style="padding:5px 8px;border-bottom:1px solid #F3F5F7;font-weight:600">Pale yellow</td>
-      <td style="padding:5px 8px;border-bottom:1px solid #F3F5F7;color:#7A8189">Pale yellow</td></tr><tr><td style="padding:5px 8px;border-bottom:1px solid #F3F5F7;">Urine — Albumin</td>
-      <td style="padding:5px 8px;border-bottom:1px solid #F3F5F7;font-weight:600">Trace</td>
-      <td style="padding:5px 8px;border-bottom:1px solid #F3F5F7;color:#7A8189">Nil</td></tr><tr><td style="padding:5px 8px;border-bottom:1px solid #F3F5F7;">Urine — Sugar</td>
-      <td style="padding:5px 8px;border-bottom:1px solid #F3F5F7;font-weight:600">Nil</td>
-      <td style="padding:5px 8px;border-bottom:1px solid #F3F5F7;color:#7A8189">Nil</td></tr><tr><td style="padding:5px 8px;">Urine — Pus cells</td>
-      <td style="padding:5px 8px;font-weight:600">2-3 /hpf</td>
-      <td style="padding:5px 8px;color:#7A8189">0-5 /hpf</td></tr></tbody></table><div style="background:#F4F6F8;border-radius:10px;padding:10px 14px;margin-top:11px;font-size:10.5px;color:#5F6368;line-height:1.6">
-        <b style="color:#1A1A1A">Reported separately:</b> USG Abdomen —
-        attached to your full report as-is. We do not re-interpret another centre's report.
-      </div>
+    <p>Haemoglobin is the protein in red blood cells that carries oxygen around your body.</p><span class="ftrend">&#8595; from 12.9 g/dL on 12 Feb 2026</span></div>
   </div>
-  <div class="pfoot"><span>Not a diagnosis. Please discuss these results with your doctor.</span><b>05 / 08</b></div>
+  <div class="pfoot"><span>Not a diagnosis. Please discuss these results with your doctor.</span><b>04 / 07</b></div>
 </section>
 <section class="page"><div class="topbar"></div>
   <div class="phead">
@@ -609,7 +579,7 @@ h2:first-child{margin-top:0}
       whose units or normal range changed between visits is left out rather than compared
       wrongly.</p>
   </div>
-  <div class="pfoot"><span>Plot 42, Chintal Main Road, Quthbullapur, Hyderabad 500054, India · +91 90000 12345</span><b>06 / 08</b></div>
+  <div class="pfoot"><span>Plot 42, Chintal Main Road, Quthbullapur, Hyderabad 500054, India · +91 90000 12345</span><b>05 / 07</b></div>
 </section>
 <section class="page"><div class="topbar"></div>
   <div class="phead">
@@ -652,6 +622,23 @@ h2:first-child{margin-top:0}
           <td class="v">12.4</td><td class="u">g/dL</td>
           <td class="s down">&#8595; 0.5</td></tr></tbody></table>
     <p style="font-size:10.2px;color:#9AA0A6;margin:6px 0 0">Only parameters measured in the same unit at both visits are compared. An arrow shows the direction of change, not whether it is good or bad.</p>
+    <h2 style="font-size:13.5px;font-weight:700;margin:12px 0 3px">Results reported in words</h2>
+    <p style="font-size:10.5px;color:#7A8189;margin:0 0 7px">Described in words rather than numbers, so they carry no range to score against and are not part of your health score.</p>
+    <table style="width:100%;border-collapse:collapse;font-size:11.5px">
+      <thead><tr><th style="text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.6px;color:#9AA0A6;font-weight:700;padding:6px 8px;border-bottom:1px solid #E8EAED">Parameter</th><th style="text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.6px;color:#9AA0A6;font-weight:700;padding:6px 8px;border-bottom:1px solid #E8EAED">Your result</th><th style="text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.6px;color:#9AA0A6;font-weight:700;padding:6px 8px;border-bottom:1px solid #E8EAED">Usually expected</th></tr></thead>
+      <tbody><tr><td style="padding:5px 8px;border-bottom:1px solid #F3F5F7;">Urine — Colour</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #F3F5F7;font-weight:600">Pale yellow</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #F3F5F7;color:#7A8189">Pale yellow</td></tr><tr><td style="padding:5px 8px;border-bottom:1px solid #F3F5F7;">Urine — Albumin</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #F3F5F7;font-weight:600">Trace</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #F3F5F7;color:#7A8189">Nil</td></tr><tr><td style="padding:5px 8px;border-bottom:1px solid #F3F5F7;">Urine — Sugar</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #F3F5F7;font-weight:600">Nil</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #F3F5F7;color:#7A8189">Nil</td></tr><tr><td style="padding:5px 8px;">Urine — Pus cells</td>
+      <td style="padding:5px 8px;font-weight:600">2-3 /hpf</td>
+      <td style="padding:5px 8px;color:#7A8189">0-5 /hpf</td></tr></tbody></table>
+    <div style="background:#F4F6F8;border-radius:10px;padding:10px 14px;margin-top:11px;font-size:10.5px;color:#5F6368;line-height:1.6">
+      <b style="color:#1A1A1A">Reported separately:</b> USG Abdomen —
+      attached to your full report as-is. We do not re-interpret another centre's report.
+    </div>
     <h2>Worth discussing with your doctor</h2>
       <div class="sumgrid"><div class="sumcard s-watch"><h3>Results outside range</h3><ul><li>LDL Cholesterol is very high at 158 mg/dL</li><li>TSH is very high at 5.9 µIU/mL</li><li>Triglycerides is very high at 210 mg/dL</li><li>Vitamin D (25-OH) is very low at 18 ng/mL</li><li>SGPT / ALT is high at 62 U/L</li></ul></div>
       <div class="sumcard s-good"><h3>What this report is</h3><ul>
@@ -660,7 +647,7 @@ h2:first-child{margin-top:0}
         <li>Your signed laboratory report remains the official document</li>
       </ul></div></div>
   </div>
-  <div class="pfoot"><span>Plot 42, Chintal Main Road, Quthbullapur, Hyderabad 500054, India · +91 90000 12345</span><b>07 / 08</b></div>
+  <div class="pfoot"><span>Plot 42, Chintal Main Road, Quthbullapur, Hyderabad 500054, India · +91 90000 12345</span><b>06 / 07</b></div>
 </section>
 <section class="page"><div class="topbar"></div>
   <div class="phead">
@@ -727,6 +714,6 @@ h2:first-child{margin-top:0}
       </div></div>
     <div class="disclaim"><b>Please read.</b> This summary was prepared automatically from your laboratory results. The values, reference ranges and status labels come from your signed report; the health summary and this advisory page are written by an AI assistant and checked against those values. It does not diagnose any condition, does not recommend any medicine, and does not replace a consultation. <b>If you are already being treated for a condition, your doctor's targets for you may differ from the general ranges used here.</b> If any result worries you, call us on +91 90000 12345.</div>
   </div>
-  <div class="pfoot"><span>Plot 42, Chintal Main Road, Quthbullapur, Hyderabad 500054, India · +91 90000 12345</span><b>08 / 08</b></div>
+  <div class="pfoot"><span>Plot 42, Chintal Main Road, Quthbullapur, Hyderabad 500054, India · +91 90000 12345</span><b>07 / 07</b></div>
 </section>
 </body></html>

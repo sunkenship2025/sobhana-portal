@@ -6,7 +6,7 @@
  * a critical result — so the count varies per patient.
  */
 import {
-  BODY_PATH, ICON_SYMBOLS, REPORT_CSS, ART_YOGA, ART_DIET, ART_LIFESTYLE,
+  BODY_PATH, ICON_SYMBOLS, REPORT_CSS, ART_YOGA, ART_DIET, ART_LIFESTYLE, ART_RHYTHM,
   ART_COVER_MALE, ART_COVER_FEMALE, ART_COVER_CHILD, getBrandLogoDataUri,
 } from './assets';
 import { iconFor } from './icons';
@@ -55,17 +55,18 @@ export function renderSmartReportHtml(d: RenderInput): string {
     : null;
   if (ess) pages.push(pageEssentials(d, ess));
 
-  // The final findings page also carries the "reported in words" table and the
-  // referred-separately note, so it holds fewer cards or the page overflows.
-  // Cards are then spread evenly rather than filling early pages and leaving a stub.
-  const lastCap = d.qualitative.length || d.referred.length ? CARDS_PER_PAGE - 2 : CARDS_PER_PAGE;
+  // The "reported in words" table and the referred note now live on the summary
+  // page, so every findings page holds a full complement. Cards are spread evenly
+  // across the minimum number of pages: twelve findings used to become three pages
+  // of four, which is a page of print and PDF weight for nothing.
+  //
+  // Pages are NOT padded when there is little to show. A patient with two abnormal
+  // results gets one short page, and that is correct — filler would be worse.
   const chunks: Finding[][] = [];
   if (d.findings.length === 0) {
     chunks.push([]);
-  } else if (d.findings.length <= lastCap) {
-    chunks.push(d.findings);
   } else {
-    const pageCount = 1 + Math.ceil((d.findings.length - lastCap) / CARDS_PER_PAGE);
+    const pageCount = Math.ceil(d.findings.length / CARDS_PER_PAGE);
     const per = Math.ceil(d.findings.length / pageCount);
     for (let i = 0; i < d.findings.length; i += per) chunks.push(d.findings.slice(i, i + per));
   }
@@ -227,6 +228,10 @@ function pageAnalysis(d: RenderInput): string {
 }
 
 // ---------------------------------------------------------------- 02
+/** Icons already sat unused in ICON_SYMBOLS; the .eh/.eico hooks were in the CSS too. */
+const eIcon = (id: string, tint: string) =>
+  `<span class="eico"><svg class="hi" style="color:${tint}" width="17" height="17"><use href="#${id}"/></svg></span>`;
+
 function pageEssentials(d: RenderInput, e: ReturnType<typeof computeEssentials>): string {
   return `<section class="page">${head(d)}
   <div class="content">
@@ -234,11 +239,11 @@ function pageEssentials(d: RenderInput, e: ReturnType<typeof computeEssentials>)
     <p class="sub">Calorie, Nutrition and Lifestyle Recommendations to Keep you Healthy.</p>
     <h2>Daily Health Essentials</h2>
     <div class="ess">
-      <div class="ecard"><b class="tt" style="display:block">Daily Water Intake</b>
+      <div class="ecard"><div class="eh">${eIcon('i-water', '#1A73E8')}<b class="tt">Daily Water Intake</b></div>
         <p>Based on your body weight and activity level.</p><div class="val">${e.waterL}L</div></div>
-      <div class="ecard"><b class="tt" style="display:block">Sleep's Intake</b>
+      <div class="ecard"><div class="eh">${eIcon('i-sleep', '#5E4B8B')}<b class="tt">Sleep's Intake</b></div>
         <p>Quality sleep boosts metabolism and aids recovery.</p><div class="val">${e.sleep}</div></div>
-      <div class="ecard"><b class="tt">Energy Expenditure</b>
+      <div class="ecard"><div class="eh">${eIcon('i-energy', '#D93025')}<b class="tt">Energy Expenditure</b></div>
         <p style="margin-top:4px">No. of calories your body needs to maintain your weight.</p>
         <div class="three">
           <div><span>Less Active</span><b>${e.tdee.sedentary.toLocaleString()} Cal</b></div>
@@ -251,13 +256,13 @@ function pageEssentials(d: RenderInput, e: ReturnType<typeof computeEssentials>)
         Start your day with water, eat within 90 mins of waking, and aim to sleep before 11 PM.</p></div>
     <h2>Macronutrients &amp; More</h2>
     <div class="macros">
-      <div class="ecard" style="min-height:110px"><b class="tt" style="display:block">Protein</b>
+      <div class="ecard" style="min-height:110px"><div class="eh">${eIcon('i-protein', '#C5221F')}<b class="tt">Protein</b></div>
         <p>Supports muscle repair; eat lean meats, beans, or dairy.</p><div class="val" style="font-size:20px">${e.macros.protein}</div></div>
-      <div class="ecard" style="min-height:110px"><b class="tt" style="display:block">Carbohydrates</b>
+      <div class="ecard" style="min-height:110px"><div class="eh">${eIcon('i-carb', '#B06000')}<b class="tt">Carbohydrates</b></div>
         <p>Primary energy source; eat whole grains &amp; fibre foods.</p><div class="val" style="font-size:20px">${e.macros.carbs}</div></div>
-      <div class="ecard" style="min-height:110px"><b class="tt" style="display:block">Fats</b>
+      <div class="ecard" style="min-height:110px"><div class="eh">${eIcon('i-fat', '#B08900')}<b class="tt">Fats</b></div>
         <p>Essential for hormone health; eat healthy fats like nuts.</p><div class="val" style="font-size:20px">${e.macros.fats}</div></div>
-      <div class="ecard" style="min-height:110px"><b class="tt" style="display:block">Fiber</b>
+      <div class="ecard" style="min-height:110px"><div class="eh">${eIcon('i-fiber', '#1E8E3E')}<b class="tt">Fiber</b></div>
         <p>Aids digestion &amp; overall health; don't skip fruits and veggies.</p><div class="val" style="font-size:20px">${e.macros.fiber}</div></div>
     </div>
     <div class="goalbox"><div class="goalrow"><b>Calorie Intake<br>Based on Goals</b>
@@ -265,6 +270,7 @@ function pageEssentials(d: RenderInput, e: ReturnType<typeof computeEssentials>)
       <div><span>Weight Gain</span><b>${e.goals.gain.toLocaleString()} Cal</b></div>
       <div><span>Weight Maintenance</span><b>${e.goals.maintain.toLocaleString()} Cal</b></div></div>
       <hr><p>These are general targets from your height, weight, age and sex — not from your test results.</p></div>
+    <div class="rhythmart">${ART_RHYTHM}</div>
   </div>
   ${foot(addr(d))}
 </section>`;
@@ -272,19 +278,12 @@ function pageEssentials(d: RenderInput, e: ReturnType<typeof computeEssentials>)
 
 // ---------------------------------------------------------------- 03..N
 function pageFindings(d: RenderInput, chunk: Finding[], idx: number, of: number): string {
-  const last = idx === of - 1;
   const cards = chunk.map((f) => card(f)).join('');
-  const words = last && d.qualitative.length ? qualitativeTable(d) : '';
-  const note = last && d.referred.length
-    ? `<div style="background:#F4F6F8;border-radius:10px;padding:10px 14px;margin-top:11px;font-size:10.5px;color:#5F6368;line-height:1.6">
-        <b style="color:#1A1A1A">Reported separately:</b> ${esc(d.referred.map((r) => r.name).join(', '))} —
-        ${d.referred.some((r) => r.reason === 'EXTERNAL_UPLOAD') ? "attached to your full report as-is. We do not re-interpret another centre's report." : 'described in words on your full report for your doctor to read.'}
-      </div>` : '';
   return `<section class="page">${head(d)}
   <div class="content">
     <h1>Detailed Test Insights</h1>
     <p class="sub">${idx === 0 ? 'Every result outside your reference range, explained in plain language.' : 'Continued from the previous page.'}</p>
-    ${cards}${words}${note}
+    ${cards}
   </div>
   ${foot('Not a diagnosis. Please discuss these results with your doctor.')}
 </section>`;
@@ -408,6 +407,11 @@ function pageSummary(d: RenderInput): string {
         grade, a diagnosis, or a prediction. ${esc(BAND_LABEL[d.band])}.`}</p>
     </div>
     ${table}
+    ${d.qualitative.length ? qualitativeTable(d) : ''}
+    ${d.referred.length ? `<div style="background:#F4F6F8;border-radius:10px;padding:10px 14px;margin-top:11px;font-size:10.5px;color:#5F6368;line-height:1.6">
+      <b style="color:#1A1A1A">Reported separately:</b> ${esc(d.referred.map((r) => r.name).join(', '))} —
+      ${d.referred.some((r) => r.reason === 'EXTERNAL_UPLOAD') ? "attached to your full report as-is. We do not re-interpret another centre's report." : 'described in words on your full report for your doctor to read.'}
+    </div>` : ''}
     ${attention ? `<h2>Worth discussing with your doctor</h2>
       <div class="sumgrid"><div class="sumcard s-watch"><h3>Results outside range</h3><ul>${attention}</ul></div>
       <div class="sumcard s-good"><h3>What this report is</h3><ul>
