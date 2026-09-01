@@ -443,12 +443,19 @@ function pageAdvisory(d: RenderInput): string {
   <div class="content">
     <h1>Health Advisory <span class="aitag">&#10022; AI WRITTEN</span></h1>
     <p class="sub">Diet and Lifestyle Recommendations Based Upon Your Results</p>
+    ${d.content.advisory.dietBlocks.length || d.content.advisory.lifestyleBlocks.length ? `
     <div class="advgrid">
       <div class="adv a-diet"><h3>Suggested Diet</h3>${blocks(d.content.advisory.dietBlocks)}
         <div class="art">${ART_DIET}</div></div>
       <div class="adv a-life"><h3>Suggested Lifestyle</h3>${blocks(d.content.advisory.lifestyleBlocks)}
         <div class="art">${ART_LIFESTYLE}</div></div>
-    </div>
+    </div>` : `
+    <div class="infobox">
+      <b>No specific diet or lifestyle advice for these results</b>
+      <p>The tests in this package do not have general advice attached to them — what
+        to do about these results depends on your history and your examination, which
+        is your doctor's call rather than something this summary should guess at.</p>
+    </div>`}
     ${future}
     <div class="disclaim"><b>Please read.</b> ${disclaimer}</div>
   </div>
