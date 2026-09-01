@@ -304,7 +304,18 @@ router.get('/:token/view', publicReportIpRateLimit, publicReportTokenRateLimit, 
  * the patient-link kill switch, the rate limiters and access logging all apply.
  * Rendered lazily: the PDF browser only starts when someone actually asks.
  */
-router.get('/:token/smart', publicReportLandingIpRateLimit, publicReportLandingTokenRateLimit, async (req: Request, res: Response) => {
+/**
+ * Two paths to the same page. Meta requires a template's dynamic URL variable to
+ * be APPENDED TO THE END of the URL, so '/reports/{{1}}/smart' — token in the
+ * middle — is rejected outright. '/reports/smart/{{1}}' puts the token last and is
+ * accepted. The original path stays: it is already in the gateway page, the staff
+ * preview and any link already sent to a patient.
+ *
+ * Unambiguous against the neighbouring routes: '/smart/ABC' cannot match
+ * '/:token/smart' (its second segment would have to be the literal 'smart') and
+ * cannot match '/:token' (that is a single segment).
+ */
+const smartReportPage = async (req: Request, res: Response) => {
   const loaded = await loadReportForToken(req.params.token);
   if (!loaded.ok) {
     res.setHeader('Cache-Control', 'no-store');
@@ -318,7 +329,10 @@ router.get('/:token/smart', publicReportLandingIpRateLimit, publicReportLandingT
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
   return res.send(html);
-});
+};
+
+router.get('/smart/:token', publicReportLandingIpRateLimit, publicReportLandingTokenRateLimit, smartReportPage);
+router.get('/:token/smart', publicReportLandingIpRateLimit, publicReportLandingTokenRateLimit, smartReportPage);
 
 router.get('/:token/smart.pdf', publicReportIpRateLimit, publicReportTokenRateLimit, async (req: Request, res: Response) => {
   const loaded = await loadReportForToken(req.params.token);

@@ -1,5 +1,5 @@
 {
-  "_note": "NOT SUBMITTED. Awaiting Pranav's approval before scripts/submit-wa-templates.mjs.",
+  "_note": "NOT SUBMITTED. Awaiting approval. Meta requires a dynamic URL variable to be appended to the END of the url, so the smart link uses /reports/smart/{{1}} rather than /reports/{{1}}/smart. Both paths serve the same page.",
   "name": "lab_report_ready_smart",
   "language": "en",
   "category": "UTILITY",
@@ -7,7 +7,14 @@
     {
       "type": "BODY",
       "text": "Hi {{1}},\n\n your lab report (Bill No: {{2}}) from Sobhana Diagnostics is ready.\n\nAlong with your usual report, we have prepared a Smart Report - a simple summary of what your results mean, in plain language.\n\nYou can view both using the buttons below.\n\nThank you.",
-      "example": { "body_text": [["Mr. Ramesh Kumar", "B-2451"]] }
+      "example": {
+        "body_text": [
+          [
+            "Mr. Ramesh Kumar",
+            "B-2451"
+          ]
+        ]
+      }
     },
     {
       "type": "BUTTONS",
@@ -16,13 +23,17 @@
           "type": "URL",
           "text": "View Report",
           "url": "https://reports.sobhanaportal.com/reports/{{1}}",
-          "example": ["https://reports.sobhanaportal.com/reports/ABC12345"]
+          "example": [
+            "https://reports.sobhanaportal.com/reports/ABC12345"
+          ]
         },
         {
           "type": "URL",
           "text": "View Smart Report",
-          "url": "https://reports.sobhanaportal.com/reports/{{1}}/smart",
-          "example": ["https://reports.sobhanaportal.com/reports/ABC12345/smart"]
+          "url": "https://reports.sobhanaportal.com/reports/smart/{{1}}",
+          "example": [
+            "https://reports.sobhanaportal.com/reports/smart/ABC12345"
+          ]
         }
       ]
     }
