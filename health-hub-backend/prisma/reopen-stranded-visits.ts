@@ -8,8 +8,12 @@
  * Sends it back to DRAFT, creating the DiagnosticReport + v1 draft when the
  * visit was originally billed bill-only (no report row exists at all).
  *
- *   npx tsx prisma/reopen-stranded-visits.ts            # dry run
- *   npx tsx prisma/reopen-stranded-visits.ts --commit   # apply
+ * --commit only ever touches the bill numbers you name. Being COMPLETED with a
+ * live reportable order is not proof a visit is unwanted-COMPLETED, so the
+ * blast radius stays whatever you typed. --all opts out of that.
+ *
+ *   npx tsx prisma/reopen-stranded-visits.ts                          # dry run
+ *   npx tsx prisma/reopen-stranded-visits.ts --commit D-BLN-002264    # apply to one
  */
 import { PrismaClient, DiagnosticWorkflowMode } from '@prisma/client';
 
@@ -17,6 +21,8 @@ const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL } },
 });
 const COMMIT = process.argv.includes('--commit');
+const ALL = process.argv.includes('--all');
+const ONLY = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
 
 async function main() {
   const candidates = await prisma.visit.findMany({
@@ -59,10 +65,21 @@ async function main() {
         `${v.report ? '' : '  (+ needs report/draft)'}`,
     );
   }
-  console.log(`\n${stranded.length} stranded visit(s). ${COMMIT ? 'Applying...' : 'Dry run — pass --commit to fix.'}`);
+  console.log(`\n${stranded.length} stranded visit(s). ${COMMIT ? '' : 'Dry run — pass --commit <billNumber...> to fix.'}`);
   if (!COMMIT) return;
+  if (ONLY.length === 0 && !ALL) {
+    console.log('Name the bill numbers to reopen (or pass --all). Nothing written.');
+    return;
+  }
 
-  for (const v of stranded) {
+  const targets = ALL ? stranded : stranded.filter((v) => ONLY.includes(v.billNumber ?? ''));
+  const missing = ONLY.filter((bill) => !targets.some((v) => v.billNumber === bill));
+  if (missing.length > 0) {
+    console.log(`Not stranded (or not found), skipping: ${missing.join(', ')}`);
+  }
+  console.log(`Applying to ${targets.length}...`);
+
+  for (const v of targets) {
     await prisma.$transaction(async (tx) => {
       await tx.visit.update({ where: { id: v.id }, data: { status: 'DRAFT' } });
       if (!v.report) {
