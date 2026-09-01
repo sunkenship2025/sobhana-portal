@@ -30,6 +30,12 @@ export interface Finding {
   magnitude: Magnitude;
   /** clamp(round(deviation * 12), 1, 6); borderline = 1. */
   points: number;
+  /**
+   * 0..1, how serious this result is. Anchored to the clinician-set critical
+   * bound when the catalog has one (value AT the critical bound = 1.0), else to
+   * a 60%-past-the-limit fallback. This, not the point count, drives the score.
+   */
+  severity: number;
   label: string;
   priorValue: number | null;
   priorDate: string | null;

@@ -43,7 +43,7 @@ const followUps = [
 
 (async () => {
   const b = buildBuckets(snapshot, null);
-  const s = computeScore([...b.findings, ...b.borderline]);
+  const s = computeScore([...b.findings, ...b.borderline], b.counts.scored);
   const payload = buildPayload({
     age: 52, sex: 'M', packageName: 'Master Health Check',
     counts: b.counts, score: s.score, scoreBand: s.band,

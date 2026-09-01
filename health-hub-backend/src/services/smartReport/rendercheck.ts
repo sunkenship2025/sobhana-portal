@@ -31,7 +31,7 @@ const snapshot: SnapshotLike = { departments: [{ panels: [
 ] }], externalUploads: [{ productName: 'USG Abdomen' }] };
 
 const b = buildBuckets(snapshot, null);
-const s = computeScore([...b.findings, ...b.borderline]);
+const s = computeScore([...b.findings, ...b.borderline], b.counts.scored);
 
 // catalog sentences (as the seeded HealthContentRule rows would supply)
 const CAT: Record<string,string> = {

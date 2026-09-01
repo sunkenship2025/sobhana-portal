@@ -1,0 +1,34 @@
+# PROPOSED adult critical ("panic") bounds — REQUIRES CLINICIAN SIGN-OFF before loading.
+# These do two jobs in Smart Reports, which is why only TRUE panic values belong here:
+#   1. a result past these bounds prints "One of your results needs urgent attention,
+#      contact the centre today" and suppresses the diet/lifestyle advisory entirely;
+#   2. they anchor the score's severity scale — a value AT the bound reads as maximum
+#      severity, which caps the report at 30/100 "Please see your doctor soon".
+# A test with NO critical bound can never be scored worse than moderate (ceiling 62/100),
+# because nothing in the number itself says whether 58% above the limit is an emergency
+# (haemoglobin) or routine (LDL). Leaving a row blank is a safe, deliberate choice.
+# Blank = not set. Values are for ADULTS; paediatric ranges are out of scope for MVP.
+test_code,test_name,critical_low,critical_high,unit,note
+HB,Haemoglobin,7.0,20.0,g/dL,transfusion-threshold low; hyperviscosity high
+PLT,Platelet Count,0.5,10.0,lakh/cmm,bleeding risk low; thrombosis risk high
+WBC,WBC Count,2000,30000,/cmm,neutropenia low; leukaemoid/leukaemia high
+FBS,Fasting Blood Sugar,50,400,mg/dL,hypoglycaemia low; DKA/HHS risk high
+RBS,Random Blood Sugar,50,400,mg/dL,same thresholds as fasting
+PPBS,Post Prandial Blood Sugar,50,450,mg/dL,post-meal allows a higher ceiling
+K,Potassium,2.8,6.2,mmol/L,arrhythmia risk both ends
+NA,Sodium,120,160,mmol/L,seizure risk low; severe dehydration high
+CA,Calcium,6.0,13.0,mg/dL,tetany low; crisis high
+CL,Chloride,80,115,mmol/L,marks severe acid-base disturbance
+CREAT,Creatinine,,4.0,mg/dL,acute kidney injury
+UREA,Blood Urea,,100,mg/dL,uraemia
+BUN,Blood Urea Nitrogen,,80,mg/dL,uraemia (BUN is ~urea/2.14)
+TBIL,Bilirubin (Total),,15.0,mg/dL,severe hyperbilirubinaemia
+ALT,SGPT / ALT,,500,U/L,acute hepatocellular injury
+AST,SGOT / AST,,500,U/L,acute hepatocellular injury
+TRIG,Triglycerides,,500,mg/dL,acute pancreatitis risk
+EGFR,eGFR,15,,mL/min/1.73m2,kidney failure
+# Deliberately NOT set — high values matter clinically but are not same-day emergencies,
+# and setting them here would fire the urgent banner on routine health-check findings:
+# HBA1C, LDL, TCHOL, HDL, VLDL, TSH, T3, T4, FT3, FT4, VITD, VITB12, FERRITIN, IRON,
+# TIBC, TSAT, PSA, TESTO, CRP, ESR, ALP, GGT, ALB, TPROT, GLOB, AGRATIO, DBIL, URIC,
+# MCV, MCH, MCHC, PCV, RBC, RDW, NEUT, LYMPH, MONO, EOS, FOLATE, CHOLHDL

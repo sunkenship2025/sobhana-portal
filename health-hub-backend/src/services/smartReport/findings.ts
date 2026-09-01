@@ -28,6 +28,39 @@ export function magnitudeOf(deviation: number): Magnitude {
   return 'MARKED';
 }
 
+/** Without a critical bound, this much past the limit is as far as we will read. */
+const SEVERE_DEVIATION = 1.0;
+/**
+ * Ceiling on severity we are willing to INFER. 58% above the limit is an
+ * emergency for haemoglobin and unremarkable for LDL, and nothing in the result
+ * itself tells us which. So a test with no clinician-set critical bound can never
+ * be called worse than moderate, and the way to let a test drive the score down
+ * is to give it critical bounds in the catalog — a clinical decision, not ours.
+ */
+const INFERRED_SEVERITY_CAP = 0.5;
+/** Borderline sits inside its range — it should nudge the score, not dent it. */
+const BORDERLINE_SEVERITY = 0.05;
+
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
+/**
+ * Severity is what a clinician would recognise, not what the arithmetic says.
+ * Where the catalog defines a critical bound we scale against it, so haemoglobin
+ * 7.2 against a critical floor of 7.0 reads as near-maximal rather than as a
+ * middling 45% deviation. Without a critical bound we fall back to the deviation.
+ */
+export function severityOf(
+  t: { referenceMin: number | null; referenceMax: number | null; criticalMin: number | null; criticalMax: number | null },
+  value: number, status: FindingStatus, deviation: number,
+): number {
+  if (status === 'CRITICAL_HIGH' || status === 'CRITICAL_LOW') return 1;
+  if (status === 'BORDERLINE') return BORDERLINE_SEVERITY;
+  const { referenceMin: lo, referenceMax: hi, criticalMin: cLo, criticalMax: cHi } = t;
+  if (hi !== null && value > hi && cHi !== null && cHi > hi) return clamp01((value - hi) / (cHi - hi));
+  if (lo !== null && value < lo && cLo !== null && cLo < lo) return clamp01((lo - value) / (lo - cLo));
+  return Math.min(INFERRED_SEVERITY_CAP, clamp01(deviation / SEVERE_DEVIATION));
+}
+
 export function pointsFor(deviation: number): number {
   return Math.max(1, Math.min(MAX_POINTS, Math.round(deviation * POINTS_PER_DEVIATION)));
 }
@@ -213,6 +246,7 @@ function baseFinding(
     deviation,
     magnitude,
     points,
+    severity: severityOf(t, value, status, deviation),
     label: labelFor(status, magnitude),
     priorValue: null,
     priorDate: null,

@@ -73,11 +73,10 @@ const snapshot: SnapshotLike = {
 };
 
 const b = buildBuckets(snapshot, null);
-const s = computeScore([...b.findings, ...b.borderline]);
+const s = computeScore([...b.findings, ...b.borderline], b.counts.scored);
 const byCode = Object.fromEntries(b.findings.map((f) => [f.code, f]));
 
-console.log(`score ${s.score}  deduction ${s.deduction}`);
-console.log('panel deductions', s.perPanel);
+console.log(`score ${s.score}  ceiling ${s.ceiling}  worst severity ${s.worstSeverity.toFixed(2)}  breadth ${s.breadth.toFixed(3)}`);
 console.log(
   'counts', JSON.stringify(b.counts),
 );
@@ -88,7 +87,8 @@ console.log('qualitative:', b.qualitative.map((q) => q.name).join(', '));
 console.log('referred:', b.referred.map((r) => r.name).join(', '));
 
 // ---- assertions: must match smart-report-prototype.html ----
-assert.strictEqual(s.score, 68, 'score must be 68');
+assert.strictEqual(s.score, 62, 'reference patient scores 62 (was 68 under the old point sum)');
+assert.strictEqual(s.band, 'NEEDS_WORK', 'and lands in the same band it always did');
 assert.strictEqual(s.band, 'NEEDS_WORK');
 assert.strictEqual(b.counts.outOfRange, 12, '12 outside range');
 assert.strictEqual(b.counts.borderline, 2, 'uric acid + RBC borderline');
@@ -109,7 +109,9 @@ assert.strictEqual(byCode.HDL.label, 'Slightly low');
 assert.strictEqual(byCode.FBS.label, 'High');
 assert.strictEqual(byCode.ALT.label, 'High');
 assert.strictEqual(b.borderline.find((f) => f.code === 'URIC')?.label, 'Borderline');
-assert.strictEqual(s.perPanel.p_lipid, 10, 'lipid panel capped at 10 (raw 14)');
+// severity, not point count, sets the ceiling — and the ceiling must bind
+assert.ok(s.score <= s.ceiling, 'score must never exceed the severity ceiling');
+assert.ok(s.worstSeverity > 0 && s.worstSeverity <= 1, 'severity stays in 0..1');
 assert.ok(!b.findings.some((f) => f.status === 'BORDERLINE'), 'borderline must never be carded');
 
 // score and tiles must be projections of ONE set — the reference report's fatal bug
@@ -217,4 +219,46 @@ console.log('\n✓ all assertions passed — engine matches the prototype');
   usesName.testScore.paragraph = `Your Anaemia Profile score is ${s.score} out of 100.`;
   assert.ok(validate(usesName, anaemiaPayload).ok, 'package name must not trip the lexicon');
   console.log('✓ lexicon: 4 false positives fixed, real hits still caught');
+}
+
+// Regression: the small-package scoring bug. Under the old point sum a one-panel
+// package had a floor of 90, so profound anaemia read "90 / 100, On track".
+{
+  const crit = (c: string, n: string, v: number, lo: number|null, hi: number|null, u: string, cl: number|null, ch: number|null) =>
+    ({ testCode: c, testName: n, value: v, textValue: null, flag: null, referenceMin: lo, referenceMax: hi,
+       referenceText: null, referenceUnit: u, criticalMin: cl, criticalMax: ch });
+
+  // Hb 7.2 against a clinician-set critical floor of 7.0
+  const anaemia = { departments: [{ panels: [{ panelId: 'p_cbc', displayName: 'Complete Blood Picture',
+    layoutType: 'STANDARD_TABLE', tests: [
+      crit('HB','Haemoglobin',7.2,13.0,17.0,'g/dL',7.0,null),
+      crit('MCV','MCV',64,80,100,'fL',null,null),
+      crit('PCV','PCV',26,40,50,'%',null,null)] }] }] } as unknown as SnapshotLike;
+  const ab = buildBuckets(anaemia, null);
+  const as_ = computeScore([...ab.findings, ...ab.borderline], ab.counts.scored);
+  assert.ok(as_.score < 50, `Hb 7.2 must not read as on track (got ${as_.score})`);
+  assert.strictEqual(as_.band, 'SEE_DOCTOR', 'severe anaemia must say see your doctor');
+
+  // a critical result caps the score hard, however much else is normal
+  const critical = { departments: [{ panels: [{ panelId: 'p_sugar', displayName: 'Blood Sugar',
+    layoutType: 'STANDARD_TABLE', tests: [
+      crit('FBS','Fasting Blood Sugar',412,70,100,'mg/dL',50,250),
+      crit('HBA1C','HbA1c',12.9,null,5.7,'%',null,null)] }] }] } as unknown as SnapshotLike;
+  const cb = buildBuckets(critical, null);
+  const cs = computeScore([...cb.findings, ...cb.borderline], cb.counts.scored);
+  assert.ok(cb.hasCritical, 'critical bound must flag');
+  assert.ok(cs.score <= 30, `critical result caps the score (got ${cs.score})`);
+
+  // severity we merely INFER can never exceed moderate — LDL 158 is not an emergency
+  const ldl = { departments: [{ panels: [{ panelId: 'p_lipid', displayName: 'Lipid Profile',
+    layoutType: 'STANDARD_TABLE', tests: [crit('LDL','LDL Cholesterol',158,null,100,'mg/dL',null,null)] }] }] } as unknown as SnapshotLike;
+  const lb = buildBuckets(ldl, null);
+  const ls = computeScore([...lb.findings, ...lb.borderline], lb.counts.scored);
+  assert.ok(ls.worstSeverity <= 0.5, 'no critical bound => severity capped at moderate');
+  assert.ok(ls.band !== 'SEE_DOCTOR', 'a raised LDL alone must not say see your doctor soon');
+
+  // breadth is its own signal, but only once enough was measured to mean anything
+  assert.ok(!ls.crowded, 'one abnormal out of one measurement is not a crowded report');
+
+  console.log(`✓ scoring: anaemia ${as_.score}, critical ${cs.score}, lone raised LDL ${ls.score}`);
 }

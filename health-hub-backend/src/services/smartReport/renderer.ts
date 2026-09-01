@@ -184,6 +184,10 @@ function pageAnalysis(d: RenderInput): string {
     <div class="tscore">
       <h3>Test Score <span class="aitag">&#10022; AI WRITTEN</span></h3>
       <p>${esc(d.content.testScore.paragraph)}</p>
+      <p class="scorenote">This score describes the results measured at this visit, not your overall
+        health, and it is not a diagnosis. It cannot know about any medicine or treatment you are
+        already taking, so a result kept steady by treatment still counts as outside its range.
+        Please read it together with your doctor.</p>
     </div>
     <div class="bodywrap">
       <div class="tcol">${tiles.slice(0, half).join('')}</div>
@@ -332,15 +336,18 @@ function pageSummary(d: RenderInput): string {
     <p class="sub">Where you stand today${trended.length ? ', and how it compares with your last visit' : ''}.</p>
     <div class="goalbox" style="margin-top:0">
       <div class="goalrow" style="grid-template-columns:1.15fr repeat(4,1fr)">
-        <b>Health Score<br>${d.score} / 100</b>
+        <b>Test Score<br>${d.hasCritical ? 'Not scored' : `${d.score} / 100`}</b>
         <div><span>Outside range</span><b style="color:#C5221F">${d.counts.outOfRange}</b></div>
         <div><span>Borderline</span><b style="color:#96601A">${d.counts.borderline}</b></div>
         <div><span>Within range</span><b style="color:#1E8E3E">${d.counts.withinRange}</b></div>
         <div><span>Not scored</span><b style="color:#9AA0A6">${d.counts.shownNotScored + d.counts.referredOnly}</b></div>
       </div><hr>
-      <p>Each result outside its range costs points in proportion to how far out it is — 5% past the
-        limit costs one point, 50% past costs six, and no single test group can cost more than ten.
-        It is not a grade, a diagnosis, or a prediction. ${esc(BAND_LABEL[d.band])}.</p>
+      <p>${d.hasCritical
+        ? 'One of your results needs urgent attention, so we have not reduced this report to a single number. Please contact the centre today.'
+        : `The score starts at 100 and falls with how many of the results measured today sit outside
+        their range and how far outside they are. Your most abnormal single result also sets a limit
+        on the score, so one serious finding is never cancelled out by many normal ones. It is not a
+        grade, a diagnosis, or a prediction. ${esc(BAND_LABEL[d.band])}.`}</p>
     </div>
     ${table}
     ${attention ? `<h2>Worth discussing with your doctor</h2>

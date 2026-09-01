@@ -66,7 +66,7 @@ export async function generateSmartReport(reportVersionId: string): Promise<void
       futureTests: cfg.futureTestsEnabled && !buckets.hasCritical,
     });
 
-    const score = computeScore([...buckets.findings, ...buckets.borderline]);
+    const score = computeScore([...buckets.findings, ...buckets.borderline], buckets.counts.scored);
     const patient = version.patientSnapshot as any;
     const payload = buildPayload({
       age: scope.patientAgeYears,

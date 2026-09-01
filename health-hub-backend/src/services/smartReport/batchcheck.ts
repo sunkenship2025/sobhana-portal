@@ -17,18 +17,23 @@ const q = (c: string, n: string, txt: string) =>
 const p = (id: string, name: string, tests: any[], layout = 'STANDARD_TABLE') => ({ panelId: id, displayName: name, layoutType: layout, tests });
 
 const CBC = (hb: number, mcv: number, pcv: number) => p('p_cbc', 'Complete Blood Picture', [
-  t('HB','Haemoglobin',hb,13.0,17.0,'g/dL'), t('RBC','RBC Count',4.6,4.5,5.5,'mill/cmm'),
-  t('WBC','WBC Count',7200,4000,11000,'/cmm'), t('PLT','Platelet Count',2.1,1.5,4.1,'lakh/cmm'),
+  t('HB','Haemoglobin',hb,13.0,17.0,'g/dL',{ criticalMin: 7.0 }),
+  t('RBC','RBC Count',4.6,4.5,5.5,'mill/cmm'),
+  t('WBC','WBC Count',7200,4000,11000,'/cmm',{ criticalMin: 2000, criticalMax: 30000 }),
+  t('PLT','Platelet Count',2.1,1.5,4.1,'lakh/cmm',{ criticalMin: 0.5 }),
   t('MCV','MCV',mcv,80,100,'fL'), t('PCV','PCV',pcv,40,50,'%')]);
 const SUGAR = (fbs: number, a1c: number) => p('p_sugar','Blood Sugar',[
-  t('FBS','Fasting Blood Sugar',fbs,70,100,'mg/dL'), t('HBA1C','HbA1c',a1c,null,5.7,'%')]);
+  t('FBS','Fasting Blood Sugar',fbs,70,100,'mg/dL',{ criticalMin: 50, criticalMax: 250 }),
+  t('HBA1C','HbA1c',a1c,null,5.7,'%')]);
 const LIPID = (tc: number, ldl: number, hdl: number, tg: number) => p('p_lipid','Lipid Profile',[
   t('TCHOL','Total Cholesterol',tc,null,200,'mg/dL'), t('LDL','LDL Cholesterol',ldl,null,100,'mg/dL'),
   t('HDL','HDL Cholesterol',hdl,40,null,'mg/dL'), t('TRIG','Triglycerides',tg,null,150,'mg/dL')]);
 const THY = (tsh: number) => p('p_thy','Thyroid Profile',[
   t('TSH','TSH',tsh,0.4,4.0,'µIU/mL'), t('T3','T3 (Total)',1.1,0.8,2.0,'ng/mL'), t('T4','T4 (Total)',8.2,5.1,14.1,'µg/dL')]);
 const KFT = (cr: number, urea: number, uric: number) => p('p_kft','Kidney Function Test',[
-  t('CREAT','Creatinine',cr,0.7,1.3,'mg/dL'), t('UREA','Blood Urea',urea,15,40,'mg/dL'), t('URIC','Uric Acid',uric,3.5,7.2,'mg/dL')]);
+  t('CREAT','Creatinine',cr,0.7,1.3,'mg/dL',{ criticalMax: 4.0 }),
+  t('UREA','Blood Urea',urea,15,40,'mg/dL',{ criticalMax: 100 }),
+  t('URIC','Uric Acid',uric,3.5,7.2,'mg/dL')]);
 const LFT = (alt: number, ast: number) => p('p_lft','Liver Function Test',[
   t('ALT','SGPT / ALT',alt,null,50,'U/L'), t('AST','SGOT / AST',ast,null,50,'U/L'),
   t('TBIL','Bilirubin (Total)',0.9,0.3,1.2,'mg/dL'), t('ALB','Albumin',4.3,3.5,5.2,'g/dL')]);
@@ -77,7 +82,7 @@ const MODEL = process.env.SMART_REPORT_LLM_MODEL || 'deepseek-v4-flash';
   for (const pr of PROFILES) {
     const snapshot = { departments: [{ panels: pr.panels }] } as unknown as SnapshotLike;
     const b = buildBuckets(snapshot, null);
-    const s = computeScore([...b.findings, ...b.borderline]);
+    const s = computeScore([...b.findings, ...b.borderline], b.counts.scored);
     const payload = buildPayload({
       age: pr.age, sex: pr.sex, packageName: pr.pkg, counts: b.counts, score: s.score,
       scoreBand: s.band, findings: b.findings, contentLines: CONTENT, followUps: pr.followUps, language: 'en',

@@ -49,6 +49,7 @@ body{margin:0;background:#DFE3E8;color:var(--ink);
  box-shadow:0 1px 3px rgba(0,0,0,.12),0 14px 34px rgba(0,0,0,.10);display:flex;flex-direction:column}
 .topbar{height:7px;background:linear-gradient(90deg,var(--g1),var(--g2) 55%,var(--g3));flex:none}
 .phead{display:flex;align-items:center;justify-content:space-between;padding:13px 40px 11px;flex:none}
+.tscore .scorenote{font-size:9.5px;line-height:1.55;color:#9AA0A6;margin:9px 0 0;max-width:660px;padding-top:8px;border-top:1px solid #EEF0F2}
 .logo{display:flex;align-items:center;gap:9px}
 .brandlogo{height:30px;width:110px;flex:none}
 .cover .brandlogo{height:44px;width:162px}

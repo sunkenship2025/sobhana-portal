@@ -50,7 +50,8 @@ Return a JSON object with exactly these keys:
     "followUpReasons": [ { "productCode": string, "reason": string } ]
   }
 }
-testScore.paragraph: 2-3 sentences, at most 480 characters.
+testScore.paragraph: 2-3 sentences, at most 480 characters. Call it the "test score", never the
+"health score" - it scores the results measured today, not the person.
 findingExplanations: one entry per finding with needsExplanation true, at most 200 characters each.
 dietBlocks / lifestyleBlocks: at most 3 blocks each, at most 2 dos and 2 donts per block.
 Headings at most 60 characters. Each do/dont line at most 160 characters.

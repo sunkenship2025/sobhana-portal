@@ -16,7 +16,7 @@ export function templateContent(input: {
     `This report covers your ${packageName} package.`,
     `${counts.scored} ${counts.scored === 1 ? 'parameter was' : 'parameters were'} scored, of which ${counts.outOfRange} ${counts.outOfRange === 1 ? 'is' : 'are'} outside the reference range` +
       (counts.borderline ? ` and ${counts.borderline} ${counts.borderline === 1 ? 'is' : 'are'} borderline` : '') + '.',
-    `Your health score is ${score} out of 100 (${BAND_LABEL[input.band].toLowerCase()}).`,
+    `Your test score is ${score} out of 100 (${BAND_LABEL[input.band].toLowerCase()}).`,
     'Please go through the results marked below with your doctor.',
   ];
 
