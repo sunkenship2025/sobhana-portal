@@ -244,8 +244,11 @@ export async function resolveByTestDefinition(
     const maxOk = range.maxAgeDays === null || patientAgeDays <= range.maxAgeDays;
 
     if (minOk && maxOk) {
-      // If the matching range doesn't have a unit, fall back to TestDefinition default
-      const unit = range.referenceUnit ?? fallback?.referenceUnit ?? null;
+      // If the matching range doesn't have a unit, fall back to TestDefinition
+      // default. `||` not `??`: the pre-cache code guarded with `if (!unit)`, so
+      // an EMPTY STRING falls back too. The inner `??` is deliberate — a blank
+      // default resolved to "" before, not null.
+      const unit = range.referenceUnit || (fallback?.referenceUnit ?? null);
 
       return {
         referenceMin: range.referenceMin,
@@ -292,8 +295,9 @@ export async function resolveReferenceRange(
     const maxOk = range.maxAgeDays === null || patientAgeDays <= range.maxAgeDays;
 
     if (minOk && maxOk) {
-      // If the matching range doesn't have a unit, fall back to LabTest default
-      const unit = range.referenceUnit ?? test?.referenceUnit ?? null;
+      // If the matching range doesn't have a unit, fall back to LabTest default.
+      // `||` not `??` — see resolveByTestDefinition above.
+      const unit = range.referenceUnit || (test?.referenceUnit ?? null);
 
       return {
         referenceMin: range.referenceMin,
