@@ -5,7 +5,7 @@
  * without height/weight, finding cards paginate, and the advisory disappears on
  * a critical result — so the count varies per patient.
  */
-import { BODY_PATH, ICON_SYMBOLS, REPORT_CSS, COVER_HEX, getBrandLogoDataUri } from './assets';
+import { BODY_PATH, ICON_SYMBOLS, REPORT_CSS, ART_COVER, ART_YOGA, getBrandLogoDataUri } from './assets';
 import { iconFor } from './icons';
 import { computeEssentials } from './essentials';
 import { BAND_LABEL } from './score';
@@ -133,7 +133,7 @@ function cover(d: RenderInput): string {
     <div class="aibadge">&#10022; AI-assisted summary</div>
     <div class="who"><div class="lb">Patient:</div><b>${esc(d.patient.name)}</b>
       <div class="mi">${esc(d.patient.genderLabel)} | ${esc(d.patient.ageDisplay)}</div></div>
-    ${COVER_HEX}
+    <div class="coverart">${ART_COVER}</div>
   </div>
   <div class="coverfoot">
     <div class="addr"><b>${esc(d.visit.branchName)}</b>${esc(d.visit.branchAddress ?? '')}${d.visit.branchPhone ? `<br>Mob: ${esc(d.visit.branchPhone)}` : ''}</div>
@@ -371,7 +371,7 @@ function pageAdvisory(d: RenderInput): string {
 
   const reasons = new Map(d.content.advisory.followUpReasons.map((r) => [r.productCode, r.reason]));
   const future = d.followUps.length ? `<div class="future">
-      <div></div><div><h3>Suggested Future Tests</h3>
+      <div class="futureart">${ART_YOGA}</div><div><h3>Suggested Future Tests</h3>
       ${d.followUps.map((f) => `<div class="ln"><b>${esc(f.productName)} ${f.weeks === 0 ? '(now)' : `(after ${f.weeks} weeks)`}</b>${reasons.get(f.productCode) ? ` - ${esc(reasons.get(f.productCode) as string)}` : ''}</div>`).join('')}
       </div></div>` : '';
 
