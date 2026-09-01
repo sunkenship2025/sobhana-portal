@@ -9,12 +9,18 @@
  *     would go stale + trip the AI validator's grounding check)
  *   - no gendered phrasing (ranges are rendered separately; Gender=O exists)
  *   - tier 2 rows should carry at least one piece of advice
+ *   - every diet_dont must READ as a prohibition. They render under a cross, so a
+ *     row like "Mention any B12 supplement to your doctor" told the patient the
+ *     opposite of what was meant. Caught once; now it cannot ship again.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 
 const CSV = path.resolve(__dirname, '../../smart-report-content.csv');
 const DRY = process.argv.includes('--dry');
+
+/** A dont-line must actually forbid something; it is rendered beside a cross. */
+const PROHIBITION = /^(avoid|limit|cut down|do not|don't|reduce|stop|skip|no )/i;
 
 function parseCsv(text: string): Record<string, string>[] {
   const rows: string[][] = [];
@@ -58,6 +64,11 @@ async function main() {
     if (r.what_it_means.length > 220) problems.push(`${id}: what_it_means too long`);
     if (r.tier === '2' && !r.diet_do && !r.diet_dont && !r.lifestyle && !r.follow_up_test_codes) {
       problems.push(`${id}: tier 2 with no advice`);
+    }
+    // A dont-line renders under a cross. One row read "Mention any B12 supplement
+    // to your doctor", which told the patient the opposite of what was meant.
+    if (r.diet_dont && !PROHIBITION.test(r.diet_dont.trim())) {
+      problems.push(`${id}: diet_dont does not read as a prohibition — it renders under a cross`);
     }
   }
 
