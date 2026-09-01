@@ -326,15 +326,6 @@ const DiagnosticsReportPreview = () => {
     };
   }, [smartView, visitId, token, activeBranchId]);
 
-  useEffect(() => {
-    if (!isFinalized || !visitId) return;
-    let cancelled = false;
-    fetch(`${API_BASE}/smart-reports/visits/${visitId}/status`, { headers: { Authorization: `Bearer ${token}`, 'X-Branch-Id': activeBranchId } })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!cancelled) setSmartStatus(d); })
-      .catch(() => { if (!cancelled) setSmartStatus(null); });
-    return () => { cancelled = true; };
-  }, [isFinalized, visitId]);
 
   useEffect(() => {
     return () => {
@@ -386,6 +377,21 @@ const DiagnosticsReportPreview = () => {
     ? snapshotTests.some((result) => isAbnormalFlag(result.flag))
     : results.some((r) => r.flag === 'HIGH' || r.flag === 'LOW');
   const isFinalized = visit.hasFinalizedReport === true;
+
+  // Must sit BELOW `isFinalized`: the dependency array is evaluated during
+  // render, so declaring this effect above it put the const in its temporal
+  // dead zone and threw "Cannot access before initialization" — a white screen
+  // on the whole preview page. tsc does not flag it; the reference is inside a
+  // hook argument, so it reads as deferred.
+  useEffect(() => {
+    if (!isFinalized || !visitId) return;
+    let cancelled = false;
+    fetch(`${API_BASE}/smart-reports/visits/${visitId}/status`, { headers: { Authorization: `Bearer ${token}`, 'X-Branch-Id': activeBranchId } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled) setSmartStatus(d); })
+      .catch(() => { if (!cancelled) setSmartStatus(null); });
+    return () => { cancelled = true; };
+  }, [isFinalized, visitId]);
   const dueAmountInPaise = visit.dueAmountInPaise ?? 0;
   const hasDue = dueAmountInPaise > 0;
   // A due blocks finalize/release for everyone EXCEPT owners, who may override
