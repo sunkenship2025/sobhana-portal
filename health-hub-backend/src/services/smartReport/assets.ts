@@ -57,6 +57,14 @@ body{margin:0;background:#DFE3E8;color:var(--ink);
 .coverart.v-male svg{height:96%}
 .coverart.v-female svg{height:92%}
 .coverart.v-child svg{height:74%}
+.trendgrid{display:grid;grid-template-columns:1fr 1fr;gap:13px 14px;margin-top:4px}
+.tcell{border:1px solid #E8EAED;border-radius:11px;padding:11px 12px 9px;background:#FCFDFE}
+.thead{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px}
+.thead b{font-size:12.4px;font-weight:700;color:var(--ink)}
+.thead span{font-size:9.5px;color:#9AA0A6}
+.tchart{width:100%;height:116px;display:block}
+.tverdict{font-size:10px;color:#5F6368;margin-top:3px}
+.tnote{font-size:9.5px;line-height:1.55;color:#9AA0A6;margin:13px 0 0;padding-top:9px;border-top:1px solid #EEF0F2}
 .futureart{display:flex;align-items:center;justify-content:center;padding:6px 12px 0}
 .futureart svg{width:100%;height:auto;max-height:200px}
 .scorenote{font-size:9.5px;line-height:1.55;color:#9AA0A6;margin:9px 0 0;max-width:660px;padding-top:8px;border-top:1px solid #EEF0F2}

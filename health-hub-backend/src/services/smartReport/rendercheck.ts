@@ -85,6 +85,23 @@ content.advisory.followUpReasons = [
   {productCode:'VITD',reason:'To recheck the level, if your doctor advises a supplement'},
 ];
 
+// A patient on his third annual check, so the charts have something to draw.
+// Only values whose unit and reference range match today's are comparable.
+const HISTORY: Record<string, Array<[string, number]>> = {
+  HBA1C: [['2024-09-02', 5.8], ['2025-09-10', 6.0]],
+  FBS:   [['2024-09-02', 104], ['2025-09-10', 111]],
+  LDL:   [['2024-09-02', 176], ['2025-09-10', 168]],
+  TRIG:  [['2024-09-02', 189], ['2025-09-10', 203]],
+  TSH:   [['2024-09-02', 3.6], ['2025-09-10', 4.8]],
+  HB:    [['2024-09-02', 13.4], ['2025-09-10', 12.9]],
+  VITD:  [['2025-09-10', 22]],
+  ALT:   [['2024-09-02', 41], ['2025-09-10', 55]],
+};
+for (const f of b.findings) {
+  const h = HISTORY[f.code];
+  if (h) f.history = [...h.map(([date, value]) => ({ date, value })), { value: f.value, date: '' }];
+}
+
 const html = renderSmartReportHtml({
   patient:{name:'Mr. Ramesh Kumar',genderLabel:'Male',ageDisplay:'52 Year',patientNumber:'P-04127',heightCm:170,weightKg:82,ageYears:52,sex:'M'},
   visit:{billNumber:'D-MPR-04812',branchName:'Sobhana Diagnostics',branchAddress:'Plot 42, Chintal Main Road, Quthbullapur, Hyderabad 500054, India',branchPhone:'+91 90000 12345',reportDate:'31-08-2026'},

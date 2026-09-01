@@ -39,6 +39,9 @@ export interface Finding {
   label: string;
   priorValue: number | null;
   priorDate: string | null;
+  /** Oldest -> newest, current visit last. Only points that are truly comparable:
+   *  same unit AND same reference range. Empty when there is no usable history. */
+  history: TrendPoint[];
   ruleId: string | null;
   needsExplanation: boolean;
   explanation: string | null;
@@ -68,6 +71,8 @@ export interface PanelRollup {
   borderline: number;
   notScored: number;
 }
+
+export interface TrendPoint { value: number; date: string }
 
 export interface Counts {
   measured: number;

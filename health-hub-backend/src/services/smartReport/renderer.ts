@@ -11,11 +11,14 @@ import {
 } from './assets';
 import { iconFor } from './icons';
 import { computeEssentials } from './essentials';
+import { trendChart, trendVerdict, MIN_POINTS } from './chart';
 import { BAND_LABEL } from './score';
 import type { Finding, PanelRollup, QualitativeRow, ReferredOnly, Counts, ScoreBand } from './types';
 import type { GeneratedContent } from './validate';
 
 const CARDS_PER_PAGE = 6;
+/** Two columns, four rows — measured to fill the page without spilling to a second. */
+const CHARTS_PER_PAGE = 8;
 
 export interface RenderInput {
   patient: { name: string; genderLabel: string; ageDisplay: string; patientNumber: string; heightCm: number | null; weightKg: number | null; ageYears: number | null; sex: string };
@@ -68,6 +71,9 @@ export function renderSmartReportHtml(d: RenderInput): string {
   }
 
   chunks.forEach((chunk, i) => pages.push(pageFindings(d, chunk, i, chunks.length)));
+
+  const trendable = d.findings.filter((f) => f.history.length >= MIN_POINTS);
+  if (trendable.length) pages.push(pageTrends(d, trendable));
 
   pages.push(pageSummary(d));
   if (!d.advisorySuppressed) pages.push(pageAdvisory(d));
@@ -331,6 +337,37 @@ function qualitativeTable(d: RenderInput): string {
     <table style="width:100%;border-collapse:collapse;font-size:11.5px">
       <thead><tr><th style="${th}">Parameter</th><th style="${th}">Your result</th><th style="${th}">Usually expected</th></tr></thead>
       <tbody>${rows}</tbody></table>`;
+}
+
+// ---------------------------------------------------------------- trends
+/**
+ * One page, never more. A full-size chart for each of twelve abnormal findings
+ * would roughly double the report; the charts are ranked worst-first (the same
+ * order as the finding cards, so both tell one story) and the page says plainly
+ * how many it could not show rather than truncating in silence.
+ */
+function pageTrends(d: RenderInput, trendable: Finding[]): string {
+  const shown = trendable.slice(0, CHARTS_PER_PAGE);
+  const hidden = trendable.length - shown.length;
+
+  const cells = shown.map((f) => `<div class="tcell">
+      <div class="thead"><b>${esc(f.name)}</b>${f.unit ? `<span>${esc(f.unit)}</span>` : ''}</div>
+      ${trendChart(f)}
+      <div class="tverdict">${esc(trendVerdict(f))}</div>
+    </div>`).join('');
+
+  return `<section class="page">${head(d)}
+  <div class="content">
+    <h1>How your results are changing</h1>
+    <p class="sub">Each chart shows this test across your recent visits. The green band is the
+      normal range for you.</p>
+    <div class="trendgrid">${cells}</div>
+    <p class="tnote">Only results measured the same way at every visit are charted here, so a test
+      whose units or normal range changed between visits is left out rather than compared
+      wrongly.${hidden > 0 ? ` ${hidden} more ${hidden === 1 ? 'result has' : 'results have'} history that is not shown on this page.` : ''}</p>
+  </div>
+  ${foot(addr(d))}
+</section>`;
 }
 
 // ---------------------------------------------------------------- summary

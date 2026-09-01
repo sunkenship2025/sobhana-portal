@@ -280,3 +280,55 @@ console.log('\n✓ all assertions passed — engine matches the prototype');
   assert.strictEqual(svgs.size, 3, 'the three variants must be distinct');
   console.log('✓ cover figure: male / female / child / unknown all resolve');
 }
+
+// Trend charts. The comparability rules are the whole point: a chart that plots
+// incomparable readings against one shaded band is worse than no chart.
+{
+  const { attachHistory } = require('./trends');
+  const { trendChart, trendVerdict, MIN_POINTS } = require('./chart');
+  const base = () => ({
+    code: 'HBA1C', unit: '%', value: 6.3, refLow: null, refHigh: 5.7,
+    history: [] as Array<{ value: number; date: string }>,
+  });
+
+  // a matching prior visit charts
+  const ok = base();
+  attachHistory([ok], new Map([['HBA1C', [{ value: 6.0, unit: '%', date: '2025-09-10', refLow: null, refHigh: 5.7 }]]]));
+  assert.strictEqual(ok.history.length, 2, 'prior + current');
+  assert.strictEqual(ok.history[1].value, 6.3, 'current reading is last');
+
+  // a different unit is dropped, never converted
+  const unit = base();
+  attachHistory([unit], new Map([['HBA1C', [{ value: 42, unit: 'mmol/mol', date: '2025-09-10', refLow: null, refHigh: 5.7 }]]]));
+  assert.strictEqual(unit.history.length, 0, 'unit mismatch must not be charted');
+
+  // a different reference range is dropped too — ranges are age-resolved, so the
+  // same analyte can be measured against a different band at a later age
+  const range = base();
+  attachHistory([range], new Map([['HBA1C', [{ value: 6.0, unit: '%', date: '2025-09-10', refLow: null, refHigh: 6.5 }]]]));
+  assert.strictEqual(range.history.length, 0, 'range mismatch must not be charted');
+
+  // one point is not a trend
+  const lone = base();
+  assert.strictEqual(trendChart(lone as any), '', 'no chart without ' + MIN_POINTS + ' points');
+
+  // verdicts are computed from distance to the range, not from raw direction
+  const closer = { ...base(), history: [{ value: 7.4, date: '2025-01-01' }, { value: 6.3, date: '' }] };
+  assert.ok(trendVerdict(closer as any).includes('Closer'), 'falling toward the range reads as closer');
+  const further = { ...base(), history: [{ value: 5.9, date: '2025-01-01' }, { value: 6.3, date: '' }] };
+  assert.ok(trendVerdict(further as any).includes('Further'), 'rising away from the range reads as further');
+  const backIn = { ...base(), value: 5.4, history: [{ value: 6.4, date: '2025-01-01' }, { value: 5.4, date: '' }] };
+  assert.ok(trendVerdict(backIn as any).includes('Back inside'), 'crossing into range is called out');
+  // a value that fell but is still out of range must NOT read as back inside
+  assert.ok(!trendVerdict(closer as any).includes('Back inside'), 'still out of range is not back inside');
+
+  // uneven gaps must not be drawn as even spacing, or the chart lies about pace
+  const uneven = { ...base(), history: [
+    { value: 6.0, date: '2024-01-01' }, { value: 6.1, date: '2025-12-01' }, { value: 6.3, date: '' }] };
+  const svg = trendChart(uneven as any);
+  const xs = [...svg.matchAll(/<circle cx="([\d.]+)"/g)].map((m) => Number(m[1]));
+  assert.strictEqual(xs.length, 3, 'one dot per reading');
+  assert.ok(xs[1] - xs[0] > xs[2] - xs[1], 'a 23-month gap must be drawn wider than a short one');
+
+  console.log('✓ trends: unit + range guards, verdicts, real-date spacing');
+}

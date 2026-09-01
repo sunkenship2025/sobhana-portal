@@ -250,6 +250,7 @@ function baseFinding(
     label: labelFor(status, magnitude),
     priorValue: null,
     priorDate: null,
+    history: [],
     ruleId: null,
     needsExplanation: true,
     explanation: null,

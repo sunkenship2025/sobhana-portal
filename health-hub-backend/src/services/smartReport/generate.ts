@@ -10,7 +10,7 @@ import { loadConfig } from './config';
 import { resolveVisitScope } from './eligibility';
 import { buildBuckets, type SnapshotLike } from './findings';
 import { computeScore } from './score';
-import { loadPriorValues, attachTrends } from './trends';
+import { loadPriorValues, attachTrends, loadHistory, attachHistory } from './trends';
 import { attachContent } from './content';
 import { buildPayload, assertDeidentified, PROMPT_VERSION } from './payload';
 import { callModel } from './llm';
@@ -56,6 +56,9 @@ export async function generateSmartReport(reportVersionId: string): Promise<void
     if (cfg.trendsEnabled) {
       const priors = await loadPriorValues(visit.patientId, visit.createdAt, visit.id);
       attachTrends(buckets.findings, priors);
+      // series for the trend charts; the prior-value line above still covers the
+      // common case of a patient with exactly one earlier visit
+      attachHistory(buckets.findings, await loadHistory(visit.patientId, visit.createdAt, visit.id));
     }
 
     // A critical result suppresses the advisory entirely — that patient should be
