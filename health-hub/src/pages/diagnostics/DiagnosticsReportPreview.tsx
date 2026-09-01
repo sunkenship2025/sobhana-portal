@@ -227,6 +227,9 @@ const DiagnosticsReportPreview = () => {
   const [smartDraft, setSmartDraft] = useState<{ complete: boolean; pending: string[] } | null>(null);
   const [smartUrl, setSmartUrl] = useState<string | null>(null);
   const [smartLoading, setSmartLoading] = useState(false);
+  // set when the draft preview errors — releases the Next gate below so a
+  // failing Smart Report can never trap staff short of finalizing
+  const [smartFailed, setSmartFailed] = useState(false);
   const latestVersionId = (visit as any)?.report?.versions?.[0]?.id ?? visit?.report?.currentVersion?.id ?? null;
 
   // Fetch visit from API
@@ -340,6 +343,7 @@ const DiagnosticsReportPreview = () => {
       .catch(() => {
         if (cancelled) return;
         toast.error('Could not prepare the Smart Report');
+        setSmartFailed(true);
         setSmartTab('report');
       })
       .finally(() => { if (!cancelled) setSmartLoading(false); });
@@ -1108,7 +1112,7 @@ const DiagnosticsReportPreview = () => {
       {showPreview && previewUrl && (
         <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col">
           {/* Modal Header */}
-          <div className="flex items-center justify-between px-6 py-3 border-b bg-background">
+          <div className="relative flex items-center justify-between px-6 py-3 border-b bg-background">
             <div className="flex items-center gap-3">
               <Eye className="h-5 w-5 text-primary" />
               <div>
@@ -1126,7 +1130,8 @@ const DiagnosticsReportPreview = () => {
                   Sparkles mark used for the feature there, and lifts when active.
                   Greyed until every reportable order has a value — the finalize
                   rule, so it cannot offer itself on a report finalize refuses. */}
-              <Tabs value={smartTab} onValueChange={(v) => setSmartTab(v as 'report' | 'smart')} className="ml-4">
+              <Tabs value={smartTab} onValueChange={(v) => setSmartTab(v as 'report' | 'smart')}
+                className="absolute left-1/2 -translate-x-1/2">
                 <TabsList className="h-8 p-0.5">
                   <TabsTrigger value="report" className="h-7 px-3 text-xs">
                     Report
@@ -1156,7 +1161,17 @@ const DiagnosticsReportPreview = () => {
               </Tabs>
             </div>
             <div className="flex items-center gap-2">
-              {canFinalize && canReleasePartial ? (
+              {/* On the Report tab, when a Smart Report is ready, the primary
+                  action is Next rather than Finalize: the patient gets the
+                  summary, so staff should have read it before it goes. Skipped
+                  when there is nothing to show, or when the preview failed, so
+                  this can never block finalizing. */}
+              {smartTab === 'report' && smartDraft?.complete && !smartFailed ? (
+                <Button variant="default" size="sm" onClick={() => setSmartTab('smart')}>
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Next — Smart Report
+                </Button>
+              ) : canFinalize && canReleasePartial ? (
                 <Button
                   variant="default"
                   size="sm"
