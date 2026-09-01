@@ -119,6 +119,21 @@ function workflowBadgeColor(workflowMode: string) {
 // choice — so derive the display type: an Event by workflow, a Custom Package once
 // it carries more than one line item, otherwise a single Panel (bundle) or an
 // Individual Test. Keeps the Type column + filter meaningful after the round-trip.
+/**
+ * Both PANEL_BUNDLE and CUSTOM_PACKAGE are isBundle=true in the database; only
+ * INDIVIDUAL_TEST is not. Worth stating because the 3-way type here is DERIVED,
+ * not stored — effectiveProductType() promotes anything with more than one line
+ * to CUSTOM_PACKAGE, so a real health-check package never reads as PANEL_BUNDLE.
+ * Gating the Smart Report toggle on PANEL_BUNDLE alone hid it from every package
+ * it was built for and showed it only on single panels.
+ *
+ * Eligibility itself stays with the backend (checkPackage reads isBundle), so
+ * this only decides whether to ask.
+ */
+function isBundleType(t: string): boolean {
+  return t === 'CUSTOM_PACKAGE' || t === 'PANEL_BUNDLE';
+}
+
 function effectiveProductType(p: BillableProduct): string {
   if (p.workflowMode === 'EVENT') return 'EVENT';
   const lineCount = p.panelCount ?? p.panels?.length ?? 0;
@@ -213,7 +228,7 @@ export default function ManageBillableProducts() {
   const [smartBusy, setSmartBusy] = useState(false);
 
   useEffect(() => {
-    if (!editingProduct || formType !== 'PANEL_BUNDLE') {
+    if (!editingProduct || !isBundleType(formType)) {
       setSmartEligibility(null);
       setSmartEnabled(false);
       return;
@@ -1033,7 +1048,7 @@ export default function ManageBillableProducts() {
             </div>
           )}
 
-          {editingProduct && formType === 'PANEL_BUNDLE' && (
+          {editingProduct && isBundleType(formType) && (
             <div className="rounded-lg border p-3 space-y-2">
               <div className="flex items-start justify-between gap-4">
                 <div>
