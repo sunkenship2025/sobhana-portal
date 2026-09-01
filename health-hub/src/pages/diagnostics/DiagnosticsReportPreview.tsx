@@ -17,7 +17,8 @@ import { formatPatientName } from '@/lib/patientDisplay';
 const PdfPreview = lazy(() =>
   import('@/components/diagnostics/PdfPreview').then((m) => ({ default: m.PdfPreview }))
 );
-import { AlertTriangle, ArrowLeft, CheckCircle2, Lock, Printer, MessageCircle, Loader2, Eye, X, Download } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, Lock, Printer, MessageCircle, Loader2, Eye, X, Download, Sparkles } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1120,36 +1121,39 @@ const DiagnosticsReportPreview = () => {
                     : 'This is how the final PDF will look to the patient. No data has been saved.'}
                 </p>
               </div>
-              {/* Greyed until every reportable order has a value — the same rule
-                  finalize applies, so this cannot offer itself on a report
-                  finalize would still refuse. */}
-              <div className="ml-4 inline-flex rounded-md border p-0.5">
-                <Button
-                  variant={smartTab === 'report' ? 'secondary' : 'ghost'}
-                  size="sm"
-                  className="h-7 px-3 text-xs"
-                  onClick={() => setSmartTab('report')}
-                >
-                  Report
-                </Button>
-                <Button
-                  variant={smartTab === 'smart' ? 'secondary' : 'ghost'}
-                  size="sm"
-                  className="h-7 px-3 text-xs"
-                  disabled={!smartDraft?.complete || smartLoading}
-                  title={
-                    smartDraft?.complete
-                      ? 'Plain-language summary for the patient'
-                      : smartDraft?.pending?.length
-                        ? `Enter all results first — still pending: ${smartDraft.pending.slice(0, 3).join(', ')}`
-                        : 'Available once all results are entered'
-                  }
-                  onClick={() => setSmartTab('smart')}
-                >
-                  {smartLoading && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
-                  Smart Report
-                </Button>
-              </div>
+              {/* Same Tabs primitive as the Admin Config header, so it reads as a
+                  control this app already has. The Smart Report side carries the
+                  Sparkles mark used for the feature there, and lifts when active.
+                  Greyed until every reportable order has a value — the finalize
+                  rule, so it cannot offer itself on a report finalize refuses. */}
+              <Tabs value={smartTab} onValueChange={(v) => setSmartTab(v as 'report' | 'smart')} className="ml-4">
+                <TabsList className="h-8 p-0.5">
+                  <TabsTrigger value="report" className="h-7 px-3 text-xs">
+                    Report
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="smart"
+                    disabled={!smartDraft?.complete || smartLoading}
+                    title={
+                      smartDraft?.complete
+                        ? 'Plain-language summary for the patient'
+                        : smartDraft?.pending?.length
+                          ? `Enter all results first — still pending: ${smartDraft.pending.slice(0, 3).join(', ')}`
+                          : 'Available once all results are entered'
+                    }
+                    className="h-7 gap-1.5 px-3 text-xs transition-all
+                      data-[state=active]:bg-gradient-to-r data-[state=active]:from-sky-50 data-[state=active]:to-indigo-50
+                      data-[state=active]:text-[#185484] data-[state=active]:font-semibold
+                      data-[state=active]:ring-1 data-[state=active]:ring-sky-200
+                      data-[state=active]:shadow-[0_0_14px_-3px_rgba(24,84,132,0.55)]"
+                  >
+                    {smartLoading
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <Sparkles className="h-3.5 w-3.5 text-[#185484]" />}
+                    Smart Report
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
             </div>
             <div className="flex items-center gap-2">
               {canFinalize && canReleasePartial ? (

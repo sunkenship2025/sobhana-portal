@@ -216,8 +216,12 @@ router.get('/visits/:visitId/draft-preview', async (req: AuthRequest, res) => {
       return res.status(409).json({ error: 'INCOMPLETE_REPORT', pending: status.pending });
     }
 
+    // Deliberately NOT gated on cfg.enabled. That flag arms generation at finalize
+    // and the patient WhatsApp; this route sends nothing and persists nothing, it
+    // only lets staff read what a patient WOULD get. Requiring the same switch
+    // would mean turning delivery on in order to review the content first, which
+    // is exactly backwards.
     const cfg = await loadConfig(req.branchId ?? null);
-    if (!cfg.enabled) return res.status(409).json({ error: 'DISABLED' });
 
     const scope = await resolveVisitScope(visitId, cfg);
     if (!scope.ok) return res.status(409).json({ error: scope.skipReason ?? 'NO_SMART_REPORT_PRODUCT' });
