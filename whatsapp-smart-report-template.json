@@ -1,38 +1,42 @@
 {
-  "_note": "NOT SUBMITTED. Awaiting approval. Meta requires a dynamic URL variable to be appended to the END of the url, so the smart link uses /reports/smart/{{1}} rather than /reports/{{1}}/smart. Both paths serve the same page.",
-  "name": "lab_report_ready_smart",
-  "language": "en",
-  "category": "UTILITY",
-  "components": [
+  "_note": "SUBMITTED to Meta 2026-09-01, id=2037161693590435, status=PENDING, category=UTILITY. Meta ACCEPTED two dynamic URL buttons in one template - the open question is settled. The variable must be appended to the END of the url, which is why the smart link is /reports/smart/{{1}} and not /reports/{{1}}/smart; both paths serve the same page. Enable by setting SMART_REPORT_TEMPLATE=lab_report_ready_smart once status=APPROVED.",
+  "templates": [
     {
-      "type": "BODY",
-      "text": "Hi {{1}},\n\n your lab report (Bill No: {{2}}) from Sobhana Diagnostics is ready.\n\nAlong with your usual report, we have prepared a Smart Report - a simple summary of what your results mean, in plain language.\n\nYou can view both using the buttons below.\n\nThank you.",
-      "example": {
-        "body_text": [
-          [
-            "Mr. Ramesh Kumar",
-            "B-2451"
-          ]
-        ]
-      }
-    },
-    {
-      "type": "BUTTONS",
-      "buttons": [
+      "name": "lab_report_ready_smart",
+      "language": "en",
+      "category": "UTILITY",
+      "components": [
         {
-          "type": "URL",
-          "text": "View Report",
-          "url": "https://reports.sobhanaportal.com/reports/{{1}}",
-          "example": [
-            "https://reports.sobhanaportal.com/reports/ABC12345"
-          ]
+          "type": "BODY",
+          "text": "Hi {{1}},\n\n your lab report (Bill No: {{2}}) from Sobhana Diagnostics is ready.\n\nAlong with your usual report, we have prepared a Smart Report - a simple summary of what your results mean, in plain language.\n\nYou can view both using the buttons below.\n\nThank you.",
+          "example": {
+            "body_text": [
+              [
+                "Mr. Ramesh Kumar",
+                "B-2451"
+              ]
+            ]
+          }
         },
         {
-          "type": "URL",
-          "text": "View Smart Report",
-          "url": "https://reports.sobhanaportal.com/reports/smart/{{1}}",
-          "example": [
-            "https://reports.sobhanaportal.com/reports/smart/ABC12345"
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "View Report",
+              "url": "https://reports.sobhanaportal.com/reports/{{1}}",
+              "example": [
+                "https://reports.sobhanaportal.com/reports/ABC12345"
+              ]
+            },
+            {
+              "type": "URL",
+              "text": "View Smart Report",
+              "url": "https://reports.sobhanaportal.com/reports/smart/{{1}}",
+              "example": [
+                "https://reports.sobhanaportal.com/reports/smart/ABC12345"
+              ]
+            }
           ]
         }
       ]
