@@ -220,6 +220,12 @@ const DiagnosticsReportPreview = () => {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);  // blob URL for iframe
   const [previewLoading, setPreviewLoading] = useState(false);
   const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
+  // Smart Report, previewed from the DRAFT — offered only once every reportable
+  // order has a value, because a score over half a package is meaningless.
+  const [smartTab, setSmartTab] = useState<'report' | 'smart'>('report');
+  const [smartDraft, setSmartDraft] = useState<{ complete: boolean; pending: string[] } | null>(null);
+  const [smartUrl, setSmartUrl] = useState<string | null>(null);
+  const [smartLoading, setSmartLoading] = useState(false);
   const latestVersionId = (visit as any)?.report?.versions?.[0]?.id ?? visit?.report?.currentVersion?.id ?? null;
 
   // Fetch visit from API
@@ -299,6 +305,47 @@ const DiagnosticsReportPreview = () => {
       }
     };
   }, [previewUrl]);
+
+  // NOTE: these sit above `if (loading)` / `if (!visit)` on purpose. A hook after
+  // a conditional return is React #310 and blanks the whole page, and reading a
+  // const declared below those returns is a temporal dead zone. Both happened.
+  useEffect(() => {
+    if (!showPreview || !visitId || !token || !activeBranchId) return;
+    let cancelled = false;
+    fetch(`${API_BASE}/smart-reports/visits/${visitId}/draft-status`, {
+      headers: { Authorization: `Bearer ${token}`, 'X-Branch-Id': activeBranchId },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled) setSmartDraft(d); })
+      .catch(() => { if (!cancelled) setSmartDraft(null); });
+    return () => { cancelled = true; };
+  }, [showPreview, visitId, token, activeBranchId]);
+
+  useEffect(() => {
+    if (smartTab !== 'smart' || smartUrl || !visitId || !token || !activeBranchId) return;
+    let cancelled = false;
+    setSmartLoading(true);
+    fetch(`${API_BASE}/smart-reports/visits/${visitId}/draft-preview`, {
+      headers: { Authorization: `Bearer ${token}`, 'X-Branch-Id': activeBranchId },
+    })
+      .then(async (r) => {
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'PREVIEW_FAILED');
+        return r.text();
+      })
+      .then((html) => {
+        if (cancelled) return;
+        setSmartUrl(URL.createObjectURL(new Blob([html], { type: 'text/html' })));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        toast.error('Could not prepare the Smart Report');
+        setSmartTab('report');
+      })
+      .finally(() => { if (!cancelled) setSmartLoading(false); });
+    return () => { cancelled = true; };
+  }, [smartTab, smartUrl, visitId, token, activeBranchId]);
+
+  useEffect(() => () => { if (smartUrl) URL.revokeObjectURL(smartUrl); }, [smartUrl]);
 
   if (loading) {
     return (
@@ -1064,8 +1111,44 @@ const DiagnosticsReportPreview = () => {
             <div className="flex items-center gap-3">
               <Eye className="h-5 w-5 text-primary" />
               <div>
-                <h2 className="font-semibold text-lg">Report Preview</h2>
-                <p className="text-xs text-muted-foreground">This is how the final PDF will look to the patient. No data has been saved.</p>
+                <h2 className="font-semibold text-lg">
+                  {smartTab === 'smart' ? 'Smart Report Preview' : 'Report Preview'}
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  {smartTab === 'smart'
+                    ? 'The plain-language summary the patient will get alongside this report. Nothing has been saved or sent.'
+                    : 'This is how the final PDF will look to the patient. No data has been saved.'}
+                </p>
+              </div>
+              {/* Greyed until every reportable order has a value — the same rule
+                  finalize applies, so this cannot offer itself on a report
+                  finalize would still refuse. */}
+              <div className="ml-4 inline-flex rounded-md border p-0.5">
+                <Button
+                  variant={smartTab === 'report' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-7 px-3 text-xs"
+                  onClick={() => setSmartTab('report')}
+                >
+                  Report
+                </Button>
+                <Button
+                  variant={smartTab === 'smart' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-7 px-3 text-xs"
+                  disabled={!smartDraft?.complete || smartLoading}
+                  title={
+                    smartDraft?.complete
+                      ? 'Plain-language summary for the patient'
+                      : smartDraft?.pending?.length
+                        ? `Enter all results first — still pending: ${smartDraft.pending.slice(0, 3).join(', ')}`
+                        : 'Available once all results are entered'
+                  }
+                  onClick={() => setSmartTab('smart')}
+                >
+                  {smartLoading && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+                  Smart Report
+                </Button>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -1114,7 +1197,11 @@ const DiagnosticsReportPreview = () => {
                 </div>
               }
             >
-              <PdfPreview src={previewUrl} />
+              {smartTab === 'smart' && smartUrl ? (
+                <iframe src={smartUrl} title="Smart Report preview" className="h-full w-full bg-white" />
+              ) : (
+                <PdfPreview src={previewUrl} />
+              )}
             </Suspense>
           </div>
         </div>
