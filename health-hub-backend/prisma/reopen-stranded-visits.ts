@@ -27,7 +27,7 @@ async function main() {
         some: {
           cancelledAt: null,
           noReportAt: null,
-          workflowMode: { not: DiagnosticWorkflowMode.BILL_ONLY },
+          workflowMode: { in: [DiagnosticWorkflowMode.REPORTABLE, DiagnosticWorkflowMode.EXTERNAL_UPLOAD] },
         },
       },
     },
@@ -39,7 +39,7 @@ async function main() {
       patient: { select: { name: true } },
       report: { select: { id: true, versions: { select: { status: true } } } },
       testOrders: {
-        where: { cancelledAt: null, noReportAt: null, workflowMode: { not: DiagnosticWorkflowMode.BILL_ONLY } },
+        where: { cancelledAt: null, noReportAt: null, workflowMode: { in: [DiagnosticWorkflowMode.REPORTABLE, DiagnosticWorkflowMode.EXTERNAL_UPLOAD] } },
         select: { testNameSnapshot: true },
       },
     },

@@ -246,13 +246,15 @@ async function reopenVisitForEntry(
   addedOrders: Array<{ workflowMode: DiagnosticWorkflowMode }>,
 ) {
   if (visit.status !== "COMPLETED") return;
-  if (
-    addedOrders.every(
-      (order) => order.workflowMode === DiagnosticWorkflowMode.BILL_ONLY,
-    )
-  ) {
-    return;
-  }
+  // Same allowlist as getReportInclusionOrders — only REPORTABLE and
+  // EXTERNAL_UPLOAD land on the entry screen. BILL_ONLY and EVENT (₹0 camp
+  // participation) never produce a report, so they must not reopen a visit.
+  const reopens = addedOrders.some(
+    (order) =>
+      order.workflowMode === DiagnosticWorkflowMode.REPORTABLE ||
+      order.workflowMode === DiagnosticWorkflowMode.EXTERNAL_UPLOAD,
+  );
+  if (!reopens) return;
 
   await tx.visit.update({ where: { id: visit.id }, data: { status: "DRAFT" } });
   if (!visit.report) {
