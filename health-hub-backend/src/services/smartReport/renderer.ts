@@ -6,7 +6,7 @@
  * a critical result — so the count varies per patient.
  */
 import {
-  BODY_PATH, ICON_SYMBOLS, REPORT_CSS, ART_YOGA,
+  BODY_PATH, ICON_SYMBOLS, REPORT_CSS, ART_YOGA, ART_DIET, ART_LIFESTYLE,
   ART_COVER_MALE, ART_COVER_FEMALE, ART_COVER_CHILD, getBrandLogoDataUri,
 } from './assets';
 import { iconFor } from './icons';
@@ -403,8 +403,10 @@ function pageAdvisory(d: RenderInput): string {
     <h1>Health Advisory <span class="aitag">&#10022; AI WRITTEN</span></h1>
     <p class="sub">Diet and Lifestyle Recommendations Based Upon Your Results</p>
     <div class="advgrid">
-      <div class="adv a-diet"><h3>Suggested Diet</h3>${blocks(d.content.advisory.dietBlocks)}</div>
-      <div class="adv a-life"><h3>Suggested Lifestyle</h3>${blocks(d.content.advisory.lifestyleBlocks)}</div>
+      <div class="adv a-diet"><h3>Suggested Diet</h3>${blocks(d.content.advisory.dietBlocks)}
+        <div class="art">${ART_DIET}</div></div>
+      <div class="adv a-life"><h3>Suggested Lifestyle</h3>${blocks(d.content.advisory.lifestyleBlocks)}
+        <div class="art">${ART_LIFESTYLE}</div></div>
     </div>
     ${future}
     <div class="disclaim"><b>Please read.</b> ${disclaimer}</div>
