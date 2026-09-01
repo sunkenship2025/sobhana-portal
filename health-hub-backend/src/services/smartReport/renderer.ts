@@ -230,7 +230,7 @@ function pageAnalysis(d: RenderInput): string {
 // ---------------------------------------------------------------- 02
 /** Icons already sat unused in ICON_SYMBOLS; the .eh/.eico hooks were in the CSS too. */
 const eIcon = (id: string, tint: string) =>
-  `<span class="eico"><svg class="hi" style="color:${tint}" width="19" height="19"><use href="#${id}"/></svg></span>`;
+  `<span class="eico"><svg class="hi" style="color:${tint}" width="23" height="23"><use href="#${id}"/></svg></span>`;
 
 function pageEssentials(d: RenderInput, e: ReturnType<typeof computeEssentials>): string {
   return `<section class="page">${head(d)}
