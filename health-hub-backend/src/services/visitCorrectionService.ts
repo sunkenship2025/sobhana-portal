@@ -28,7 +28,7 @@ import {
 import { resolveProducts } from "./productOrderService";
 import { categorize } from "./payoutCategorize";
 import { recomputeBillFinancialsForSubtotal } from "./billFinancialService";
-import { DiagnosticWorkflowMode } from "@prisma/client";
+import { DiagnosticWorkflowMode, Prisma } from "@prisma/client";
 
 export class CorrectionError extends Error {
   constructor(
@@ -204,6 +204,7 @@ async function loadVisitForCorrection(visitId: string, branchId: string) {
       testOrders: true,
       report: {
         select: {
+          id: true,
           versions: {
             select: {
               id: true,
@@ -220,6 +221,48 @@ async function loadVisitForCorrection(visitId: string, branchId: string) {
     throw new CorrectionError(404, "NOT_FOUND", "Diagnostic visit not found");
   }
   return visit;
+}
+
+/**
+ * Inverse of the worklist's auto-complete (reevaluateVisitCompletion): when a
+ * correction puts a live report-inclusion order back onto a COMPLETED visit,
+ * the visit has to return to the entry queue. Pending Results lists DRAFT +
+ * WAITING only, so without this the added test is billed and then invisible —
+ * nowhere to enter it, while Finalized still shows the visit as done.
+ *
+ * Neither caller can reach here with a FINALIZED version (both refuse one), so
+ * a visit that already has a report still has its v1 DRAFT to write into. A
+ * visit billed as pure bill-only has no DiagnosticReport at all — create one,
+ * or result entry dies with "No draft report version found".
+ */
+async function reopenVisitForEntry(
+  tx: Prisma.TransactionClient,
+  visit: {
+    id: string;
+    branchId: string;
+    status: string;
+    report: { id: string } | null;
+  },
+  addedOrders: Array<{ workflowMode: DiagnosticWorkflowMode }>,
+) {
+  if (visit.status !== "COMPLETED") return;
+  if (
+    addedOrders.every(
+      (order) => order.workflowMode === DiagnosticWorkflowMode.BILL_ONLY,
+    )
+  ) {
+    return;
+  }
+
+  await tx.visit.update({ where: { id: visit.id }, data: { status: "DRAFT" } });
+  if (!visit.report) {
+    const report = await tx.diagnosticReport.create({
+      data: { visitId: visit.id, branchId: visit.branchId },
+    });
+    await tx.reportVersion.create({
+      data: { reportId: report.id, versionNum: 1, status: "DRAFT" },
+    });
+  }
 }
 
 export async function changeVisitReferral(params: {
@@ -676,6 +719,7 @@ export async function swapVisitProduct(params: {
     await tx.testOrder.deleteMany({
       where: { id: { in: targetOrders.map((order) => order.id) } },
     });
+    await reopenVisitForEntry(tx, visit, resolved.testOrders);
   }, { timeout: 30_000 });
 
   await logAction({
@@ -959,6 +1003,7 @@ export async function addProductsToVisit(params: {
         where: { id: visitId },
         data: { totalAmountInPaise: newTotalInPaise },
       });
+      await reopenVisitForEntry(tx, visit, orderRows);
       if (visit.bill) {
         await tx.bill.updateMany({
           where: { visitId },
