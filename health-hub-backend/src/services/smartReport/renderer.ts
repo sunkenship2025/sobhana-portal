@@ -36,6 +36,8 @@ export interface RenderInput {
   followUps: { productCode: string; productName: string; weeks: number }[];
   content: GeneratedContent;
   advisorySuppressed: boolean;
+  /** True when the catalog had nothing and the model wrote the advice itself. */
+  adviceAiWritten?: boolean;
   essentialsEnabled: boolean;
   qrDataUrl?: string;
 }
@@ -425,6 +427,14 @@ function pageSummary(d: RenderInput): string {
 }
 
 // ---------------------------------------------------------------- advisory
+/**
+ * Marks advice the model wrote itself, i.e. where no reviewed catalog line existed.
+ * A patient cannot tell the two apart otherwise, and they carry different weight:
+ * one has a clinician behind it and the other does not.
+ */
+const aiAdviceTag = (d: RenderInput) =>
+  d.adviceAiWritten ? '<span class="aitag">&#10022; AI WRITTEN</span>' : '';
+
 function pageAdvisory(d: RenderInput): string {
   const blocks = (list: GeneratedContent['advisory']['dietBlocks']) => list.map((b) => `
     <div class="blk"><b>${esc(b.heading)}</b>
@@ -445,9 +455,9 @@ function pageAdvisory(d: RenderInput): string {
     <p class="sub">Diet and Lifestyle Recommendations Based Upon Your Results</p>
     ${d.content.advisory.dietBlocks.length || d.content.advisory.lifestyleBlocks.length ? `
     <div class="advgrid">
-      <div class="adv a-diet"><h3>Suggested Diet</h3>${blocks(d.content.advisory.dietBlocks)}
+      <div class="adv a-diet"><h3>Suggested Diet${aiAdviceTag(d)}</h3>${blocks(d.content.advisory.dietBlocks)}
         <div class="art">${ART_DIET}</div></div>
-      <div class="adv a-life"><h3>Suggested Lifestyle</h3>${blocks(d.content.advisory.lifestyleBlocks)}
+      <div class="adv a-life"><h3>Suggested Lifestyle${aiAdviceTag(d)}</h3>${blocks(d.content.advisory.lifestyleBlocks)}
         <div class="art">${ART_LIFESTYLE}</div></div>
     </div>` : `
     <div class="infobox">

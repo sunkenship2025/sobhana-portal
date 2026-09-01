@@ -69,6 +69,7 @@ export async function buildRenderInput(
     followUps: f.followUps ?? [],
     content: sr.content as any,
     advisorySuppressed: Boolean(f.advisorySuppressed),
+    adviceAiWritten: Boolean(f.adviceAiWritten),
     essentialsEnabled: cfg.essentialsEnabled,
     qrDataUrl,
   };
@@ -92,7 +93,7 @@ function titleOf(t?: string | null): string {
  */
 export async function renderDraft(
   snapshot: any,
-  produced: { buckets: any; score: any; content: any; generated: any; advisoryOn: boolean },
+  produced: { buckets: any; score: any; content: any; generated: any; advisoryOn: boolean; adviceAiWritten?: boolean },
   scope: { packageNames: string[] },
   cfg: Awaited<ReturnType<typeof loadConfig>>,
 ): Promise<string> {
@@ -140,6 +141,7 @@ export async function renderDraft(
     followUps: produced.content.followUps,
     content: produced.generated,
     advisorySuppressed: !produced.advisoryOn,
+    adviceAiWritten: produced.adviceAiWritten,
     essentialsEnabled: cfg.essentialsEnabled,
   });
 }

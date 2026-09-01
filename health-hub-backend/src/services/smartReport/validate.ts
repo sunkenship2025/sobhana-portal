@@ -115,10 +115,12 @@ export function validate(raw: unknown, payload: SmartReportPayload): ValidationR
     failures.push(`banned phrase "${hit}"`);
   }
 
-  // 4. content membership — no advice when none was supplied
-  if (payload.contentLines.length === 0 && (adv.dietBlocks.length || adv.lifestyleBlocks.length)) {
-    failures.push('advice invented with no content lines supplied');
-  }
+  // 4. content membership. The model MAY now write advice where the catalog
+  //    supplied none — Pranav's call, on the basis that a fever panel producing no
+  //    advice at all is a worse product. What it may not do is dress an invention
+  //    as clinician-authored: when contentLines is empty the advisory is labelled
+  //    as AI-written in the report, and the banned-remedy lexicon above is the only
+  //    check on WHAT it suggests, since advice quality is not machine-checkable.
 
   // 5. follow-up membership
   const okCodes = new Set(payload.followUps.map((f) => f.productCode));

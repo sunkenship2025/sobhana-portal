@@ -120,7 +120,11 @@ export async function produceSmartReport(a: ProduceArgs) {
   }
 
 
-  return { buckets, score, content, generated, usedFallback, failures, inputTokens, outputTokens, advisoryOn };
+  // No catalog line means whatever advice appears is the model's own, which the
+  // report has to say out loud rather than let it pass as clinician-authored.
+  const adviceAiWritten = advisoryOn && content.contentLines.length === 0
+    && (generated.advisory.dietBlocks.length > 0 || generated.advisory.lifestyleBlocks.length > 0);
+  return { buckets, score, content, generated, usedFallback, failures, inputTokens, outputTokens, advisoryOn, adviceAiWritten };
 }
 
 export async function generateSmartReport(reportVersionId: string): Promise<void> {
@@ -186,6 +190,7 @@ export async function generateSmartReport(reportVersionId: string): Promise<void
         score,
         followUps: content.followUps,
         advisorySuppressed: !advisoryOn,
+      adviceAiWritten: produced.adviceAiWritten,
       } as any,
       content: generated as any,
       usedFallbackCopy: usedFallback,

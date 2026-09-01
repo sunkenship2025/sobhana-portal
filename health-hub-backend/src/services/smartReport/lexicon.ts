@@ -15,9 +15,25 @@ export const BANNED: RegExp[] = [
   /\byou have\s+(?:a|an|the)?\s*(?:mild|severe|early|chronic|acute)?\s*\w*(?:itis|osis|emia|aemia|opathy|disease|disorder|syndrome|deficiency|infection|condition)\b/i, /\byou are suffering\b/i, /\bindicates that you have\b/i, /\bis caused by\b/i,
   /\bdiagnos/i, /\bconfirms\b/i, /\bconsistent with\b/i,
   // treatment
+  // Unproven remedies. Now that the model may write its own advice when the
+  // catalog has none, this is the only backstop on WHAT it may suggest — advice
+  // quality is not otherwise machine-checkable. Papaya leaf leads the list on
+  // purpose: it is the standard folk answer to low platelets in a dengue season,
+  // which is exactly the fever-panel case that prompted allowing this at all.
+  /\bpapaya\s*-?\s*leaf/i, /\bgiloy\b/i, /\btinospora\b/i, /\bcolloidal silver\b/i,
+  /\bnoni\b/i, /\bwheatgrass\b/i, /\bapple cider vinegar\b/i, /\bmiracle\b/i,
+  /\bhome remed/i, /\bnatural remed/i, /\bfolk remed/i, /\bdetox/i, /\bcleanse\b/i,
+  /\bimmunity boost/i, /\bboosts? your immunity\b/i, /\bmegadose/i, /\bmega dose\b/i,
+  /\bcures?\b/i, /\bwill heal\b/i, /\bhomeopath/i, /\bayurvedic (medicine|treatment)\b/i,
+  /\bsiddha\b/i, /\bunani\b/i,
   /\bprescri/i, /\bdosage\b/i, /\b\d+\s?mg\b(?!\s*\/)/i, /\btablet\b/i, /\bcapsule\b/i, /\binjection\b/i,
   /\b(start|begin|take)\s+(a\s+)?supplement/i, /\bstop taking\b/i, /\bmedication\b/i,
-  /\bmetformin\b/i, /\bthyroxine\b/i, /\batorvastatin\b/i, /\bstatin\b/i, /\binsulin\b/i,
+  /\bmetformin\b/i, /\bthyroxine\b/i, /\batorvastatin\b/i, /\bstatin\b/i,
+  // 'insulin' is also the NAME of a test we run, so ban it only where it reads as
+  // a treatment. Explaining what fasting insulin measures is legitimate; telling a
+  // patient to start, stop or adjust it is not.
+  /\b(start|stop|begin|adjust|increase|decrease|take|inject|need|needs|require)\s+(\w+\s+){0,2}insulin\b/i,
+  /\binsulin\s+(injection|therapy|dose|dosage|shot|pen|treatment)\b/i,
   // prognosis
   /\bwill develop\b/i, /\bwill lead to\b/i, /\bwill cause\b/i, /\brisk of death\b/i,
   /\blife-?threatening\b/i, /\bfatal\b/i,

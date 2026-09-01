@@ -332,3 +332,51 @@ console.log('\n✓ all assertions passed — engine matches the prototype');
 
   console.log('✓ trends: unit + range guards, verdicts, real-date spacing');
 }
+
+// Remedy backstop. With AI-written advice permitted where the catalog is silent,
+// this list is the only check on WHAT it may suggest — nothing else can score the
+// safety of a sentence of advice.
+{
+  const { findBanned } = require('./lexicon');
+  const quackery = [
+    'Drink papaya leaf juice to raise your platelets',
+    'Take giloy every morning',
+    'A colloidal silver supplement will help',
+    'Try this home remedy for fever',
+    'A three-day detox will clear it',
+    'This will cure the infection',
+    'Eat amla to boost your immunity',
+    'Ask about ayurvedic treatment',
+  ];
+  for (const s of quackery) {
+    assert.ok(findBanned(s).length > 0, `must ban: "${s}"`);
+  }
+  // ordinary dietary advice must survive — the point is to block remedies, not food
+  const fine = [
+    'Include ragi, spinach, dates and jaggery',
+    'Add lemon or amla to iron-rich meals',
+    'Drink water steadily through the day',
+    'Walk briskly for 30 minutes on most days',
+    'Eat vegetables or dal before the rice portion of a meal',
+  ];
+  for (const s of fine) {
+    assert.deepStrictEqual(findBanned(s), [], `must NOT ban ordinary advice: "${s}"`);
+  }
+  console.log('✓ remedy lexicon: 8 quack claims blocked, 5 ordinary advice lines pass');
+}
+
+// 'insulin' names both a drug and a test we sell. Banning the bare word blocked
+// the model from explaining a fasting insulin result at all.
+{
+  const { findBanned } = require('./lexicon');
+  for (const s of ['You may need insulin', 'Start insulin therapy', 'an insulin injection', 'increase your insulin']) {
+    assert.ok(findBanned(s).length > 0, `must ban as treatment: "${s}"`);
+  }
+  for (const s of [
+    'Fasting insulin measures how much insulin your body makes overnight',
+    'Insulin is the hormone that moves sugar from your blood into your cells',
+  ]) {
+    assert.deepStrictEqual(findBanned(s), [], `must allow as explanation: "${s}"`);
+  }
+  console.log('✓ insulin: treatment blocked, test explanation allowed');
+}
