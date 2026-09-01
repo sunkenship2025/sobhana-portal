@@ -17,6 +17,8 @@ export interface BillInfo {
 }
 
 export interface ReportItem {
+  /** Server-side gate: READY and not withdrawn. Absent = do not offer it. */
+  hasSmartReport?: boolean;
   visitId: string;
   reportVersionId: string;
   date: string;

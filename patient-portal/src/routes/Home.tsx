@@ -43,6 +43,15 @@ function VisitActions({ report }: { report: ReportItem }) {
   return (
     <div className="vacts">
       <button className="mini solid" onClick={() => nav(`/view/report/${report.reportVersionId}`)}>{t('view')}</button>
+      {report.hasSmartReport && (
+        <button
+          className="mini"
+          title={t('smartReportHint')}
+          onClick={() => nav(`/smart/${report.reportVersionId}`)}
+        >
+          {t('smartReport')}
+        </button>
+      )}
       <a className="mini icon" title={t('downloadReport')} href={pdfUrl('reports', report.reportVersionId, true)}><i className="di" /></a>
       <BillIcons visitId={report.visitId} due={owed ? report.bill.dueInPaise : 0} />
     </div>

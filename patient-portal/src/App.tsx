@@ -8,6 +8,7 @@ import Help from './routes/Help';
 
 // pdf.js is heavy — load the document viewer only when a patient opens one.
 const DocView = lazy(() => import('./routes/DocView'));
+const SmartView = lazy(() => import('./routes/SmartView'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,6 +49,14 @@ export default function App() {
               element={
                 <Suspense fallback={<div className="screen"><div className="pdfstage"><div className="skel" style={{ width: '100%', maxWidth: 820, height: '60vh' }} /></div></div>}>
                   <DocView />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/smart/:id"
+              element={
+                <Suspense fallback={<div className="screen"><div className="pdfstage"><div className="skel" style={{ width: '100%', maxWidth: 820, height: '60vh' }} /></div></div>}>
+                  <SmartView />
                 </Suspense>
               }
             />

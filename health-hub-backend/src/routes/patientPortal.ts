@@ -27,6 +27,7 @@ import {
 import { normalizePhone, requestOtp, verifyOtp } from '../services/patientOtpService';
 import { findPatientsByIdentifier } from '../services/patientMatchingService';
 import { mapBillFinancials } from '../services/patientService';
+import { renderStored } from '../services/smartReport/present';
 import { getReportSnapshot } from '../services/reportSnapshotService';
 import { generateMergedReportPdf, cacheVariantFor } from '../services/mergedReportPdfService';
 import { getCachedMergedPdf } from '../services/mergedReportPdfCache';
@@ -175,7 +176,13 @@ async function buildOverview(patientIds: string[]) {
         select: {
           versions: {
             where: { status: 'FINALIZED' },
-            select: { id: true, versionNum: true, finalizedAt: true },
+            select: {
+              id: true, versionNum: true, finalizedAt: true,
+              // Drives whether the app offers the Smart Report button at all. A
+              // withdrawn one reads as absent here, so the button disappears
+              // rather than leading to a dead end.
+              smartReport: { select: { status: true, sendSuppressedAt: true } },
+            },
             orderBy: { versionNum: 'desc' },
           },
         },
@@ -213,7 +220,9 @@ async function buildOverview(patientIds: string[]) {
       const isNew = finalized.finalizedAt
         ? Date.now() - finalized.finalizedAt.getTime() < NEW_WINDOW_MS
         : false;
-      b.reports.push({ ...base, reportVersionId: finalized.id, isNew, bill }); // bill.due may be >0 (owner override)
+      const sr = finalized.smartReport;
+      const hasSmartReport = sr?.status === 'READY' && !sr.sendSuppressedAt;
+      b.reports.push({ ...base, reportVersionId: finalized.id, isNew, bill, hasSmartReport }); // bill.due may be >0 (owner override)
     } else if (fin.dueAmountInPaise > 0) {
       b.awaitingPayment.push({ ...base, bill });
     } else {
@@ -395,6 +404,76 @@ router.get('/reports/:reportVersionId/pdf', patientAuthMiddleware, async (req: P
     return res.send(buffer);
   } catch (err) {
     logger.error({ err }, 'patient report pdf failed');
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(500).end();
+  }
+});
+
+/**
+ * The Smart Report, for a patient who signed into the portal rather than tapping
+ * the WhatsApp button. Without this the same patient sees a different product
+ * depending on how they arrived.
+ *
+ * Same guard chain as the report PDF above — ownership re-proved from the
+ * document upward, superseded versions refused, staff link-disable honoured —
+ * plus the withdrawal check, since a Smart Report can be pulled after it was
+ * sent. HTML rather than PDF, so nothing is cached or rendered by Puppeteer here.
+ */
+router.get('/reports/:reportVersionId/smart', patientAuthMiddleware, async (req: PatientRequest, res) => {
+  const { reportVersionId } = req.params;
+  try {
+    const version = await prisma.reportVersion.findUnique({
+      where: { id: reportVersionId },
+      select: {
+        status: true,
+        versionNum: true,
+        smartReport: { select: { status: true, sendSuppressedAt: true } },
+        report: {
+          select: {
+            visit: { select: { patientId: true, status: true, patientLinkDisabledAt: true } },
+            versions: { where: { status: 'FINALIZED' }, select: { versionNum: true } },
+          },
+        },
+      },
+    });
+    const visit = version?.report?.visit;
+    if (visit && !req.patientIds?.includes(visit.patientId)) {
+      logger.warn({ phoneTail: req.patient?.phone.slice(-4), target: reportVersionId, reason: 'ownership' }, 'patient smart report access denied');
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    if (!version || !visit || !req.patientIds?.includes(visit.patientId) || visit.status === 'CANCELLED') {
+      return res.status(404).end();
+    }
+    if (version.status !== 'FINALIZED') return res.status(404).end();
+    if (visit.patientLinkDisabledAt) return res.status(403).json({ error: 'LINK_DISABLED' });
+
+    const maxFinalized = Math.max(...version.report!.versions.map((v) => v.versionNum));
+    if (version.versionNum < maxFinalized) return res.status(410).json({ error: 'REPORT_SUPERSEDED' });
+
+    const sr = version.smartReport;
+    if (!sr || sr.status !== 'READY') return res.status(404).json({ error: 'NO_SMART_REPORT' });
+    if (sr.sendSuppressedAt) return res.status(404).json({ error: 'SMART_REPORT_WITHDRAWN' });
+
+    const html = await renderStored(reportVersionId);
+    if (!html) return res.status(404).json({ error: 'NO_SMART_REPORT' });
+
+    prisma.reportAccessLog
+      .create({
+        data: {
+          reportVersionId,
+          accessType: 'VIEW',
+          accessedVia: 'PATIENT_PORTAL',
+          actorPhone: req.patient?.phone,
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        },
+      })
+      .catch((err) => logger.warn({ err }, 'patient smart report access log failed'));
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(html);
+  } catch (err) {
+    logger.error({ err }, 'patient smart report failed');
     res.setHeader('Cache-Control', 'no-store');
     return res.status(500).end();
   }

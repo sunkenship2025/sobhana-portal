@@ -28,6 +28,11 @@ export function pdfUrl(kind: 'reports' | 'bills', id: string, download = false):
   return `${BASE}/api/patient/${kind}/${id}/pdf${download ? '?download=1' : ''}`;
 }
 
+/** The Smart Report is HTML, not a PDF — DocView's pdf.js viewer cannot show it. */
+export function smartUrl(reportVersionId: string): string {
+  return `${BASE}/api/patient/reports/${reportVersionId}/smart`;
+}
+
 export const api = {
   requestOtp: (phone: string) =>
     req<void>('/auth/request-otp', { method: 'POST', body: JSON.stringify({ phone }) }),

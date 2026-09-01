@@ -97,6 +97,14 @@ const STRINGS = {
   backToReports: { en: 'Back to reports', te: 'రిపోర్ట్‌లకు తిరిగి' },
   cantOpen: { en: "Couldn't open the {doc}", te: '{doc} తెరవలేకపోయాము' },
   cantOpenSub: { en: 'Please try again in a moment, or open it in a new tab.', te: 'కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి, లేదా కొత్త ట్యాబ్‌లో తెరవండి.' },
+  // Smart Report. Telugu here is DRAFT like the rest of this file — the product
+  // name is transliterated rather than translated, which is how patients say it.
+  smartReport: { en: 'Smart Report', te: 'స్మార్ట్ రిపోర్ట్' },
+  smartReportHint: {
+    en: 'What your results mean, in simple words',
+    te: 'మీ ఫలితాల అర్థం, సులభమైన మాటల్లో',
+  },
+  smartLoading: { en: 'Opening your Smart Report…', te: 'మీ స్మార్ట్ రిపోర్ట్ తెరుస్తున్నాము…' },
 };
 
 type Key = keyof typeof STRINGS;
