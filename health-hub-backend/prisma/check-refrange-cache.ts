@@ -70,10 +70,21 @@ async function main() {
   });
   console.log(`${withRanges.length} definitions carry ranges; ${withRanges.length * AGES.length * 2} combos to check.\n`);
 
+  // One definition at a time is ~4 sequential round trips per combo, which over
+  // a laptop-to-Oregon link is ten minutes. The checks are independent, so fan
+  // out over definitions and let the latency overlap.
   let checked = 0;
+  let done = 0;
   const failures: string[] = [];
-  for (const { testDefinitionId } of withRanges) {
-    for (const [label, years] of AGES) {
+  const CONCURRENCY = 8;
+  const queue = [...withRanges];
+
+  const worker = async () => {
+    for (;;) {
+      const next = queue.shift();
+      if (!next) return;
+      const { testDefinitionId } = next;
+      for (const [label, years] of AGES) {
       for (const gender of [Gender.M, Gender.F]) {
         const yearOfBirth = new Date().getFullYear() - (label === 'newborn' || label === 'infant' ? 0 : years);
         const dob = label === 'newborn' ? new Date(Date.now() - 2 * 86400_000)
@@ -94,8 +105,14 @@ async function main() {
           );
         }
       }
+      }
+      done++;
+      process.stdout.write(`\r  ${done}/${withRanges.length} definitions`);
     }
-  }
+  };
+
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  process.stdout.write('\n');
 
   console.log(`checked ${checked} combos`);
   if (failures.length) {
