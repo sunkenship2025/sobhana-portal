@@ -86,6 +86,13 @@ export async function callModel(
         // content came back empty on 8 of 10 real reports, so leave real headroom.
         max_tokens: Number(process.env.SMART_REPORT_LLM_MAX_TOKENS) || 8000,
         response_format: { type: 'json_object' },
+        // deepseek-v4-flash reasons by default: ~4,900 hidden tokens before the
+        // first character of JSON, which is ~45s of the ~50s wait. This task is
+        // formatting already-grounded findings into prose — the reasoning buys
+        // nothing. Set SMART_REPORT_LLM_THINKING=1 to restore it without a deploy.
+        ...(process.env.SMART_REPORT_LLM_THINKING === '1'
+          ? {}
+          : { thinking: { type: 'disabled' } }),
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: JSON.stringify(payload) },
