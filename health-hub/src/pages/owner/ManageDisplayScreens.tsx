@@ -48,6 +48,8 @@ type Screen = {
   isActive: boolean;
   revokedAt: string | null;
   createdAt: string;
+  /** TV is holding the display stream open right now (presence, 60s window). */
+  online?: boolean;
 };
 type Doc = { id: string; name: string; specialty?: string; isActive?: boolean; roomLabel?: string | null };
 
@@ -196,6 +198,9 @@ export default function ManageDisplayScreens() {
                     <span className="font-semibold">{s.name}</span>
                     <Badge variant="secondary">{s.scope === 'OP_IP' ? 'OP + IP' : 'OP'}</Badge>
                     {!s.isActive && <Badge variant="outline">Paused</Badge>}
+                    {/* Only worth saying when it's actionable: a paused screen is
+                        offline by definition, so don't say it twice. */}
+                    {s.isActive && s.online === false && <Badge variant="outline">Offline</Badge>}
                   </div>
                   <div className="text-sm text-muted-foreground">
                     {s.doctorIds.length === 0
