@@ -13,6 +13,7 @@ import { requireRole } from '../middleware/rbac';
 import prisma from '../lib/prisma';
 import { emitCatalogChange } from '../lib/displayEvents';
 import { slugify, branchSlug } from '../lib/displaySlug';
+import { onlineScreenIds } from '../lib/displayPresence';
 
 const router = Router();
 router.use(authMiddleware);
@@ -59,12 +60,12 @@ router.get('/', async (req: AuthRequest, res) => {
       orderBy: { createdAt: 'desc' },
     });
     const bSlug = await branchSlugFor(req.branchId!);
-    const onlineFloor = Date.now() - 60_000; // seen within 60s = TV currently streaming
+    const online = await onlineScreenIds(screens);
     return res.json(
       screens.map((s) => ({
         ...s,
         branchSlug: bSlug,
-        online: !!s.lastSeenAt && s.lastSeenAt.getTime() >= onlineFloor,
+        online: online.has(s.id),
       })),
     );
   } catch (err: any) {

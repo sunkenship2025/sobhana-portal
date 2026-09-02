@@ -16,6 +16,7 @@ import { getObjectStream } from '../services/r2StorageService';
 import QRCode from 'qrcode';
 import { branchSlug } from '../lib/displaySlug';
 import { onBranchChange } from '../lib/displayEvents';
+import { markScreenSeen } from '../lib/displayPresence';
 
 // The track-your-token QR is stable per URL — generate once, then serve from cache.
 const trackQrCache = new Map<string, string>();
@@ -356,20 +357,17 @@ router.get('/:branchSlug/:screenSlug/stream', async (req: Request, res: Response
     debounce = setTimeout(() => { debounce = null; sendState(); }, 150);
   };
 
-  // Presence: stamp lastSeenAt while the TV holds this stream open. online =
-  // lastSeenAt within ~60s (two heartbeats). ponytail: one write / 25s / screen;
-  // batch or move to an in-memory registry only if screen count makes it matter.
+  // Presence while the TV holds this stream open. The 25s heartbeat now
+  // refreshes a Redis key instead of writing to Postgres on every beat — see
+  // lib/displayPresence.ts for why, and for how lastSeenAt survives as a real
+  // "last seen at all".
   //
   // `?track=1` marks a PATIENT phone on /track — it consumes the same state but
   // must not count as presence, or a lobby full of phones would report the screen
   // online long after the TV itself died.
   const isPatientTracker = req.query.track === '1';
   const touch = () =>
-    isPatientTracker
-      ? undefined
-      : prisma.displayScreen
-          .update({ where: { id: resolved.screen.id }, data: { lastSeenAt: new Date() } })
-          .catch(() => {});
+    isPatientTracker ? undefined : markScreenSeen(resolved.screen.id);
 
   await sendState(); // initial state on connect (also covers EventSource reconnect)
   if (closed) return; // client left during the initial compute — don't wire a leaking timer/listener
