@@ -326,7 +326,13 @@ const DiagnosticsReportPreview = () => {
   }, [showPreview, visitId, token, activeBranchId]);
 
   useEffect(() => {
-    if (smartTab !== 'smart' || smartUrl || !visitId || !token || !activeBranchId) return;
+    // Pre-warm: start as soon as the preview OPENS, not when Next is pressed.
+    // Generation is ~35-50s because every DeepSeek model available is a reasoning
+    // model — measured 5,448 reasoning tokens of 5,910 on flash, and the effort
+    // parameter is accepted but ignored. Staff spend that long reading the lab
+    // report, so running it in the background hides the wait entirely.
+    const wanted = smartTab === 'smart' || (showPreview && smartDraft?.complete === true);
+    if (!wanted || smartUrl || smartLoading || !visitId || !token || !activeBranchId) return;
     let cancelled = false;
     setSmartLoading(true);
     fetch(`${API_BASE}/smart-reports/visits/${visitId}/draft-preview`, {
@@ -342,13 +348,17 @@ const DiagnosticsReportPreview = () => {
       })
       .catch(() => {
         if (cancelled) return;
-        toast.error('Could not prepare the Smart Report');
         setSmartFailed(true);
-        setSmartTab('report');
+        // only surface a failure the user is actually waiting on; a pre-warm that
+        // fails in the background should stay quiet and just leave Next hidden
+        if (smartTab === 'smart') {
+          toast.error('Could not prepare the Smart Report');
+          setSmartTab('report');
+        }
       })
       .finally(() => { if (!cancelled) setSmartLoading(false); });
     return () => { cancelled = true; };
-  }, [smartTab, smartUrl, visitId, token, activeBranchId]);
+  }, [smartTab, smartUrl, smartLoading, showPreview, smartDraft?.complete, visitId, token, activeBranchId]);
 
   useEffect(() => () => { if (smartUrl) URL.revokeObjectURL(smartUrl); }, [smartUrl]);
 
