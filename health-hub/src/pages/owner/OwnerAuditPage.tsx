@@ -968,10 +968,13 @@ export default function OwnerAuditPage() {
                     );
                   }
 
-                  // Non-report rows (money / referral / catalog): the field diff is the story.
+                  // Non-report rows (money / referral / catalog). A real edit has a
+                  // before→after; a money FACT (payment / discount / refund) has no
+                  // "before" — render those as plain values, not a diff against a dash.
+                  const factsOnly = !!detail && detail.diff.length > 0 && detail.diff.every((d) => d.old == null);
                   return (
                     <div className="sec">
-                      <h5>What changed</h5>
+                      <h5>{factsOnly ? 'Details' : 'What changed'}</h5>
                       {detailQuery.isLoading && <div className="sm" style={{ color: '#888780' }}>Loading…</div>}
                       {detail && detail.diff.length === 0 && (
                         <div className="sm" style={{ color: '#888780' }}>{openRow.detail || 'No recorded field changes for this event.'}</div>
@@ -980,8 +983,12 @@ export default function OwnerAuditPage() {
                         <div key={d.field} style={{ marginBottom: 8 }}>
                           <div style={{ color: '#888780', fontSize: 11, marginBottom: 2 }}>{d.field}</div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-                            <span style={{ background: '#fef2f2', color: '#A32D2D', borderRadius: 5, padding: '2px 7px', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.old ?? '—'}</span>
-                            <span style={{ color: '#888780' }}>→</span>
+                            {d.old != null && (
+                              <>
+                                <span style={{ background: '#fef2f2', color: '#A32D2D', borderRadius: 5, padding: '2px 7px', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.old}</span>
+                                <span style={{ color: '#888780' }}>→</span>
+                              </>
+                            )}
                             <span style={{ background: 'rgba(15,110,86,0.08)', color: '#0F6E56', borderRadius: 5, padding: '2px 7px', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.new ?? '—'}</span>
                           </div>
                         </div>

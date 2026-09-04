@@ -575,10 +575,10 @@ export async function getAuditEventDetail(
       }
     }
   } else if (e.amountInPaise !== null) {
-    // Money rows have no field-level diff; show the amount + reason.
+    // Money rows have no field-level diff; show the amount + reason/method.
     diff = [
       { field: "amount", old: null, new: `₹${(e.amountInPaise / 100).toLocaleString("en-IN")}` },
-      { field: "reason", old: null, new: e.reason ?? "—" },
+      { field: e.sourceKind === "payment" ? "method" : "reason", old: null, new: e.reason ?? "—" },
     ];
   }
 
