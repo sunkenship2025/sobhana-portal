@@ -8,6 +8,9 @@
  *   - AuditLog        (deletes, finalizes, payouts, drafts, role changes …)
  *   - Bill discounts  (₹ amount + reason + who → the real money signal)
  *   - OrderRefund     (refunds / cancellations, ₹ amount + reason)
+ *   - PaymentTransaction (due collected AFTER billing — cash/large/late = the
+ *                         "silently cleared due" signal; at-billing payment is
+ *                         already covered by the "Visit billed" audit row)
  *
  * Freshness without a scheduler: the read path calls `ensureProjected()` which
  * re-projects a bounded recent window, throttled per branch. Historical beyond
@@ -27,6 +30,9 @@ export type Category =
   | "ops";
 
 const LARGE_AMOUNT_PAISE = 200000; // ₹2,000
+// A payment landing within an hour of billing is the at-billing collection
+// (already surfaced as "Visit billed"). Later than that = a due collection.
+const DUE_COLLECTION_MIN_LAG_MS = 60 * 60 * 1000;
 
 /** Classify a raw AuditLog row into the display taxonomy. Finalize + access are
  *  routine baselines (INFO) — the alarm is editing AFTER finalize / bulk access. */
@@ -82,6 +88,23 @@ function classifyAudit(
 
 const band = (score: number): Severity =>
   score >= 4 ? "high" : score >= 2 ? "medium" : "low";
+
+/** Score a post-billing due collection into an anomaly severity. Baseline low (a
+ *  routine due collection is expected); bumped for the risky shape — big amount,
+ *  days late, large cash (no paper trail). Pure + exported so it is checkable
+ *  without a DB (prisma/check-due-collection-anomaly.ts). */
+export function scoreDueCollection(
+  amountInPaise: number,
+  paymentType: string,
+  daysLate: number,
+): { score: number; severity: Severity } {
+  let score = 1;
+  if (amountInPaise >= LARGE_AMOUNT_PAISE) score += 1;
+  if (daysLate >= 3) score += 1;
+  if (daysLate >= 14) score += 1;
+  if (paymentType === "CASH" && amountInPaise >= LARGE_AMOUNT_PAISE) score += 1;
+  return { score, severity: band(score) };
+}
 
 const rupees = (paise: number) =>
   `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
@@ -148,7 +171,7 @@ export async function projectWindow(
   const branchWhere = branchId ? { branchId } : {};
   const window = { gte: from, lte: to };
 
-  const [auditRows, bills, refunds, reopens] = await Promise.all([
+  const [auditRows, bills, refunds, reopens, payments] = await Promise.all([
     prisma.auditLog.findMany({
       where: { createdAt: window, ...branchWhere },
       orderBy: { createdAt: "desc" },
@@ -189,6 +212,25 @@ export async function projectWindow(
         visit: { select: { id: true, patient: { select: { name: true } } } },
       },
     }),
+    prisma.paymentTransaction.findMany({
+      where: {
+        transactionType: "PAYMENT",
+        transactionDate: window,
+        ...(branchId ? { bill: { branchId } } : {}),
+      },
+      orderBy: { transactionDate: "desc" },
+      take: 8000,
+      select: {
+        id: true, amountInPaise: true, paymentType: true, transactionDate: true,
+        referenceData: true, collectedByUserId: true,
+        bill: {
+          select: {
+            id: true, branchId: true, billNumber: true, billedAt: true, paymentStatus: true,
+            visit: { select: { id: true, patient: { select: { name: true } } } },
+          },
+        },
+      },
+    }),
   ]);
 
   // Batched actor-name lookup across all sources.
@@ -197,6 +239,7 @@ export async function projectWindow(
     ...bills.map((b) => b.discountedByUserId),
     ...refunds.map((r) => r.createdByUserId),
     ...reopens.map((r) => r.reopenedByUserId),
+    ...payments.map((p) => p.collectedByUserId),
   ].filter((v): v is string => Boolean(v))));
   const users = userIds.length
     ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, role: true } })
@@ -329,10 +372,40 @@ export async function projectWindow(
     };
   });
 
+  // Due collected AFTER billing. Baseline low (a routine due collection belongs on
+  // the bill, not the alarm list) — bumped for the risky shape: big amount, days
+  // late, large cash (no paper trail). The at-billing payment is filtered out (it's
+  // the "Visit billed" row). Immutable fact → point event.
+  const paymentEvents: ProjRow[] = payments.flatMap((p) => {
+    const bill = p.bill;
+    if (!bill) return [];
+    const lagMs = p.transactionDate.getTime() - bill.billedAt.getTime();
+    if (lagMs < DUE_COLLECTION_MIN_LAG_MS) return []; // at-billing collection
+    const daysLate = Math.floor(lagMs / 864e5);
+    const isCash = p.paymentType === "CASH";
+    const { score, severity } = scoreDueCollection(p.amountInPaise, p.paymentType, daysLate);
+    const u = p.collectedByUserId ? userMap.get(p.collectedByUserId) : null;
+    const patientName = bill.visit?.patient?.name ?? null;
+    const when = daysLate <= 0 ? "same day" : `${daysLate}d after billing`;
+    const settled = bill.paymentStatus === "PAID" ? " → bill settled" : "";
+    return [{
+      id: `pay:${p.id}`, dedupeKey: `pay:${p.id}`, branchId: bill.branchId,
+      occurredAt: p.transactionDate, severity, category: "money", score,
+      event: "Due collected",
+      detail: `${p.paymentType} ${rupees(p.amountInPaise)} · ${when}${settled}${patientName ? ` · ${patientName}` : ""}`,
+      actorUserId: p.collectedByUserId, actorName: u?.name ?? null, actorRole: u?.role ?? null,
+      entityType: "Bill", entityId: bill.id, patientName,
+      amountInPaise: p.amountInPaise,
+      reason: `${p.paymentType}${p.referenceData ? ` · ${p.referenceData}` : isCash ? " · no reference" : ""}`,
+      drillTo: bill.visit ? `/diagnostics/results/${bill.visit.id}` : null,
+      sourceKind: "payment", sourceId: p.id,
+    }];
+  });
+
   // Point events → insert-only on the hot path (createMany skipDuplicates). On an
   // overwrite backfill, upsert so existing rows pick up re-classified event/detail
   // (e.g. old "Updated Patient" → "Patient details edited").
-  const pointEvents = [...auditEvents, ...reopenEvents];
+  const pointEvents = [...auditEvents, ...reopenEvents, ...paymentEvents];
   let inserted = { count: 0 };
   if (overwrite) {
     for (const e of pointEvents) {
