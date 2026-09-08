@@ -2204,9 +2204,9 @@ const DiagnosticsNewVisit = () => {
                   Health Essentials page is omitted when either is missing, never
                   estimated. Prefilled from the patient's last recorded values. */}
               {showMeasurements && (
-                <div className="smart-glow rounded-md border border-blue-200 bg-blue-50/60 p-3">
+                <div className="smart-glow rounded-md border p-3">
                   <div className="mb-2 flex justify-end">
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
                       <Sparkles className="h-3 w-3" aria-hidden="true" />
                       Smart Report
                     </span>
