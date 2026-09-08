@@ -11,7 +11,7 @@ import { checkPackage } from './packageEligibility';
 export type SkipReason =
   | 'DISABLED' | 'LINK_DISABLED' | 'NO_SMART_REPORT_PRODUCT'
   | 'PACKAGE_NO_LONGER_ELIGIBLE' | 'PATIENT_BELOW_MIN_AGE'
-  | 'NO_ANALYSABLE_TESTS' | 'BELOW_MIN_PARAMETERS';
+  | 'NO_ANALYSABLE_TESTS' | 'BELOW_MIN_PARAMETERS' | 'NO_MEASUREMENTS';
 
 export interface VisitScope {
   ok: boolean;
@@ -38,6 +38,8 @@ export async function resolveVisitScope(
     where: { id: visitId },
     select: {
       patientLinkDisabledAt: true,
+      heightCm: true,
+      weightKg: true,
       patient: { select: { yearOfBirth: true, dateOfBirth: true } },
       testOrders: {
         where: { cancelledAt: null, noReportAt: null },
@@ -74,6 +76,15 @@ export async function resolveVisitScope(
   }
   if (!stillValid.length) {
     return { ok: false, skipReason: 'PACKAGE_NO_LONGER_ELIGIBLE', ...empty, patientAgeYears: ageYears };
+  }
+
+  // No height/weight recorded at billing -> no Smart Report at all. Not merely a
+  // missing Essentials page: without them the report loses the part patients
+  // actually recognise, so it is not shown, not generated and not sent. Checked
+  // AFTER the product check so an ordinary visit still reports the honest
+  // NO_SMART_REPORT_PRODUCT rather than blaming a measurement nobody owed.
+  if (visit.heightCm == null || visit.weightKg == null) {
+    return { ok: false, skipReason: 'NO_MEASUREMENTS', ...empty, patientAgeYears: ageYears };
   }
 
   const validIds = new Set(stillValid.map((p) => p.id));

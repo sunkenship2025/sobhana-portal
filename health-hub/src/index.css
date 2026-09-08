@@ -556,3 +556,14 @@
     font-weight: 700;
   }
 }
+
+/* One-shot glow for a section that has just appeared — the Smart Report
+   height/weight capture shows up mid-form when an eligible package is billed,
+   and a permanent tint reads as an error state in a billing screen. */
+@keyframes smartGlow {
+  0%   { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+  18%  { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.30); }
+  100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+}
+.smart-glow { animation: smartGlow 2.2s ease-out 1; }
+@media (prefers-reduced-motion: reduce) { .smart-glow { animation: none; } }

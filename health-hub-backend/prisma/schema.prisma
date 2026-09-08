@@ -2255,6 +2255,7 @@ model SmartReport {
   status          SmartReportStatus @default(PENDING)
   /// NO_SMART_REPORT_PRODUCT | PACKAGE_NO_LONGER_ELIGIBLE | NO_ANALYSABLE_TESTS
   /// | BELOW_MIN_PARAMETERS | PATIENT_BELOW_MIN_AGE | DISABLED | LINK_DISABLED
+  /// | NO_MEASUREMENTS (height/weight not captured at billing)
   skipReason      String?
   language        String            @default("en")
 

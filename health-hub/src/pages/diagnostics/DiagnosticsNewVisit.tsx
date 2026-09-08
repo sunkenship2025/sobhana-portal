@@ -39,6 +39,7 @@ import {
   Plus,
   Phone,
   Check,
+  Sparkles,
 } from "lucide-react";
 import { BillReceipt } from "@/components/print/BillReceipt";
 import {
@@ -168,7 +169,6 @@ const DiagnosticsNewVisit = () => {
   // Stored on the Patient, so a returning patient arrives prefilled.
   const [minSmartAge, setMinSmartAge] = useState<number | null>(null);
   const [measurements, setMeasurements] = useState({ heightCm: "", weightKg: "" });
-  const [measurementsMissing, setMeasurementsMissing] = useState(false);
 
   // E2-10: Validation errors
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>(
@@ -792,15 +792,6 @@ const DiagnosticsNewVisit = () => {
     }
     if (selectedProducts.length === 0) {
       toast.error("Please select at least one test");
-      return false;
-    }
-    // Mandatory once a Smart-Report package is billed for an adult: the Health
-    // Essentials page is omitted entirely when either is missing, and nobody
-    // goes back to add them after the bill is printed.
-    if (showMeasurements && (!measurements.heightCm.trim() || !measurements.weightKg.trim())) {
-      setMeasurementsMissing(true);
-      toast.error("Enter height and weight for the Smart Report");
-      goToStep(!measurements.heightCm.trim() ? 40 : 42);
       return false;
     }
     if (
@@ -2213,15 +2204,16 @@ const DiagnosticsNewVisit = () => {
                   Health Essentials page is omitted when either is missing, never
                   estimated. Prefilled from the patient's last recorded values. */}
               {showMeasurements && (
-                <div
-                  className={`grid grid-cols-2 gap-3 rounded-md border p-3 ${
-                    measurementsMissing
-                      ? "bg-destructive/5 border-destructive"
-                      : "bg-blue-50 border-blue-200"
-                  }`}
-                >
+                <div className="smart-glow rounded-md border border-blue-200 bg-blue-50/60 p-3">
+                  <div className="mb-2 flex justify-end">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700">
+                      <Sparkles className="h-3 w-3" aria-hidden="true" />
+                      Smart Report
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <Label htmlFor="heightCm">Height (cm) *</Label>
+                    <Label htmlFor="heightCm">Height (cm)</Label>
                     <Input
                       id="heightCm"
                       type="number"
@@ -2229,17 +2221,15 @@ const DiagnosticsNewVisit = () => {
                       placeholder="Height"
                       data-focus-step={40}
                       onKeyDown={handleFlowKey}
-                      className={measurementsMissing && !measurements.heightCm.trim() ? "border-destructive" : ""}
                       value={measurements.heightCm}
-                      onChange={(e) => {
-                        setMeasurements((m) => ({ ...m, heightCm: e.target.value }));
-                        if (measurementsMissing) setMeasurementsMissing(false);
-                      }}
+                      onChange={(e) =>
+                        setMeasurements((m) => ({ ...m, heightCm: e.target.value }))
+                      }
                       disabled={isSubmitting}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="weightKg">Weight (kg) *</Label>
+                    <Label htmlFor="weightKg">Weight (kg)</Label>
                     <Input
                       id="weightKg"
                       type="number"
@@ -2247,14 +2237,13 @@ const DiagnosticsNewVisit = () => {
                       placeholder="Weight"
                       data-focus-step={42}
                       onKeyDown={handleFlowKey}
-                      className={measurementsMissing && !measurements.weightKg.trim() ? "border-destructive" : ""}
                       value={measurements.weightKg}
-                      onChange={(e) => {
-                        setMeasurements((m) => ({ ...m, weightKg: e.target.value }));
-                        if (measurementsMissing) setMeasurementsMissing(false);
-                      }}
+                      onChange={(e) =>
+                        setMeasurements((m) => ({ ...m, weightKg: e.target.value }))
+                      }
                       disabled={isSubmitting}
                     />
+                  </div>
                   </div>
                 </div>
               )}
