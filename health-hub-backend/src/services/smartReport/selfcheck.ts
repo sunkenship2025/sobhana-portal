@@ -205,6 +205,8 @@ console.log('\n✓ all assertions passed — engine matches the prototype');
   const real = [
     'you have high cholesterol',
     'you have a thyroid disorder',
+    'you have an iron deficiency',
+    'you have a urinary tract infection',
     'this suggests you have anaemia',
     'take 500 mg twice daily',
   ];
@@ -219,6 +221,35 @@ console.log('\n✓ all assertions passed — engine matches the prototype');
   usesName.testScore.paragraph = `Your Anaemia Profile score is ${s.score} out of 100.`;
   assert.ok(validate(usesName, anaemiaPayload).ok, 'package name must not trip the lexicon');
   console.log('✓ lexicon: 4 false positives fixed, real hits still caught');
+
+  // Category words are definitional in an explanation and a diagnosis elsewhere.
+  // Banning them outright rejected every ESR and CBC report the model wrote — the
+  // lab's own printed clinical notes say "ESR may be elevated in infection".
+  const { BANNED_OUTSIDE_EXPLANATIONS } = require('./lexicon');
+  for (const line of [
+    'White blood cells help your body fight infection',
+    'ESR can rise with infection or inflammation',
+    'Ferritin reflects the iron stored in your body',
+  ]) {
+    assert.deepStrictEqual(findBanned(line), [], `explanation must be allowed: "${line}"`);
+  }
+  // ...but the same words are still refused outside findingExplanations.
+  for (const line of ['This points to an infection', 'a metabolic disorder', 'an iron deficiency']) {
+    assert.ok(
+      findBanned(line, BANNED_OUTSIDE_EXPLANATIONS).length > 0,
+      `must be banned outside explanations: "${line}"`,
+    );
+  }
+  // Ordinary advice numbers pass; the score paragraph stays strictly grounded.
+  const advNums = JSON.parse(JSON.stringify(good));
+  advNums.advisory.lifestyleBlocks = [{
+    heading: 'Rest', dos: ['Aim for 7 to 8 hours of sleep', 'Walk 30 minutes on 5 days a week'], donts: [],
+  }];
+  assert.ok(validate(advNums, payload).ok, 'generic advice numbers must not be rejected');
+  const badScore = JSON.parse(JSON.stringify(good));
+  badScore.testScore.paragraph = 'Your score is 42 out of 100 and your sugar was 320.';
+  assert.ok(!validate(badScore, payload).ok, 'ungrounded number in the score paragraph must still fail');
+  console.log('✓ category words: definitional in explanations, diagnosis elsewhere');
 }
 
 // Regression: the small-package scoring bug. Under the old point sum a one-panel

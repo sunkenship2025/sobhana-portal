@@ -8,11 +8,14 @@ export const BANNED: RegExp[] = [
   /\bthyroiditis\b/i, /\bfatty liver\b/i, /\bhepatitis\b/i, /\bcirrhosis\b/i, /\bjaundice\b/i,
   /\bcancer\b/i, /\bcarcinoma\b/i, /\btumou?r\b/i, /\bmalignan/i, /\bkidney disease\b/i,
   /\brenal failure\b/i, /\bCKD\b/, /\bheart disease\b/i, /\batherosclerosis\b/i,
-  /\bhypertension\b/i, /\bgout\b/i, /\bosteoporosis\b/i, /\bdeficiency\b/i, /\bsyndrome\b/i,
-  /\bdisorder\b/i, /\binfection\b/i,
+  /\bhypertension\b/i, /\bgout\b/i, /\bosteoporosis\b/i,
   // certainty and causation
   /\byou have\s+(?:a|an|the)?\s*(?:mild|severe|early|chronic|acute)?\s*(?:high|low|elevated|raised|poor|abnormal|too much|too little)\b/i,
-  /\byou have\s+(?:a|an|the)?\s*(?:mild|severe|early|chronic|acute)?\s*\w*(?:itis|osis|emia|aemia|opathy|disease|disorder|syndrome|deficiency|infection|condition)\b/i, /\byou are suffering\b/i, /\bindicates that you have\b/i, /\bis caused by\b/i,
+  // (?:\w+\s+)* so a MULTI-WORD condition is caught too: "you have a thyroid
+  // disorder", "you have an iron deficiency", "you have a urinary tract infection".
+  // \w* alone stopped at the space, and the blunt bare-word bans were covering
+  // that gap by accident.
+  /\byou have\s+(?:a|an|the)?\s*(?:mild|severe|early|chronic|acute)?\s*(?:\w+\s+)*\w*(?:itis|osis|emia|aemia|opathy|disease|disorder|syndrome|deficiency|infection|condition)\b/i, /\byou are suffering\b/i, /\bindicates that you have\b/i, /\bis caused by\b/i,
   /\bdiagnos/i, /\bconfirms\b/i, /\bconsistent with\b/i,
   // treatment
   // Unproven remedies. Now that the model may write its own advice when the
@@ -45,9 +48,22 @@ export const BANNED: RegExp[] = [
 /** Cyrillic / Arabic / Devanagari / CJK — used to catch a wrong-language reply. */
 export const NON_LATIN = /[Ѐ-ӿ؀-ۿऀ-ॿ一-鿿]/;
 
-export function findBanned(text: string): string[] {
+/**
+ * Generic category words. Inside a findingExplanation these are DEFINITIONAL —
+ * "white blood cells help your body fight infection" is what the test means, and
+ * the lab's own printed clinical notes say the same thing. Banning them outright
+ * rejected every ESR and CBC report the model wrote. Everywhere else they read as
+ * a diagnosis, so they stay banned there. Naming a SPECIFIC disease (diabetes,
+ * cancer, hepatitis...) remains banned everywhere, explanations included, and
+ * check 2b separately stops an explanation asserting this patient's result.
+ */
+export const BANNED_OUTSIDE_EXPLANATIONS: RegExp[] = [
+  /\bdeficiency\b/i, /\bsyndrome\b/i, /\bdisorder\b/i, /\binfection\b/i,
+];
+
+export function findBanned(text: string, list: RegExp[] = BANNED): string[] {
   const hits: string[] = [];
-  for (const re of BANNED) {
+  for (const re of list) {
     const m = text.match(re);
     if (m) hits.push(m[0]);
   }

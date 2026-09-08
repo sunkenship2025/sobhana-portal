@@ -2,7 +2,7 @@
  * Eight checks. Any failure => retry once => second failure => template copy.
  * The report always ships; only the prose degrades.
  */
-import { findBanned, NON_LATIN } from './lexicon';
+import { findBanned, BANNED_OUTSIDE_EXPLANATIONS, NON_LATIN } from './lexicon';
 import type { SmartReportPayload } from './payload';
 
 export interface GeneratedContent {
@@ -92,14 +92,24 @@ export function validate(raw: unknown, payload: SmartReportPayload): ValidationR
   //    they are instead barred from asserting a result at all, just below.
   const allowed = new Set(JSON.stringify(payload).match(/\d+/g) ?? []);
   allowed.add('100');
-  const grounded = [
-    c.testScore.paragraph,
+  // A number in the SCORE PARAGRAPH reads as a result or a threshold, so it must
+  // have come from the payload.
+  for (const n of c.testScore.paragraph.match(/\d+/g) ?? []) {
+    if (!allowed.has(n)) failures.push(`ungrounded number "${n}"`);
+  }
+  // Advisory lines are different: "walk 30 minutes", "8 hours of sleep", "7 days"
+  // are ordinary advice, not claims about this patient. When the catalog is silent
+  // — or the advisory is suppressed, so contentLines is empty — the payload carries
+  // no numbers at all, and strict grounding rejected every generic suggestion the
+  // model made. Small integers pass here; anything dose-shaped is still caught by
+  // the banned lexicon (\d+ mg, tablet, capsule, dosage, prescri...).
+  const advisoryText = [
     ...adv.dietBlocks.flatMap((b) => [b.heading ?? '', ...(b.dos ?? []), ...(b.donts ?? [])]),
     ...adv.lifestyleBlocks.flatMap((b) => [b.heading ?? '', ...(b.dos ?? []), ...(b.donts ?? [])]),
     ...adv.followUpReasons.map((r) => r.reason ?? ''),
   ].join('   ');
-  for (const n of grounded.match(/\d+/g) ?? []) {
-    if (!allowed.has(n)) failures.push(`ungrounded number "${n}"`);
+  for (const n of advisoryText.match(/\d+/g) ?? []) {
+    if (!allowed.has(n) && Number(n) > 60) failures.push(`ungrounded number "${n}"`);
   }
 
   // 2b. an explanation says what a test MEASURES, never what this patient's result
@@ -112,6 +122,13 @@ export function validate(raw: unknown, payload: SmartReportPayload): ValidationR
   //    are stripped first: "Anaemia Profile" is our own product name, and firing
   //    the disease-word rule on it rejected every anaemia package outright.
   for (const hit of findBanned(stripPayloadNames(blob, payload))) {
+    failures.push(`banned phrase "${hit}"`);
+  }
+  // Category words (infection, disorder, deficiency, syndrome) are definitional in
+  // an explanation and a diagnosis anywhere else, so they are checked only outside
+  // findingExplanations. See BANNED_OUTSIDE_EXPLANATIONS.
+  const nonExplanatory = [c.testScore.paragraph, advisoryText].join('   ');
+  for (const hit of findBanned(stripPayloadNames(nonExplanatory, payload), BANNED_OUTSIDE_EXPLANATIONS)) {
     failures.push(`banned phrase "${hit}"`);
   }
 
