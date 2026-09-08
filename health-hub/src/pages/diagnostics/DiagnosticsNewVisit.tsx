@@ -168,6 +168,7 @@ const DiagnosticsNewVisit = () => {
   // Stored on the Patient, so a returning patient arrives prefilled.
   const [minSmartAge, setMinSmartAge] = useState<number | null>(null);
   const [measurements, setMeasurements] = useState({ heightCm: "", weightKg: "" });
+  const [measurementsMissing, setMeasurementsMissing] = useState(false);
 
   // E2-10: Validation errors
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>(
@@ -743,6 +744,26 @@ const DiagnosticsNewVisit = () => {
 
   // Single source of truth for synchronous bill validation. Gates the confirm
   // dialog and is re-checked inside handleSubmit (defense in depth).
+  // Age in YEARS. ageUnit is DAYS or MONTHS for infants, so a raw `age` of 20 can
+  // mean 20 months — comparing it to a year threshold directly would offer the
+  // Smart Report capture for a toddler.
+  const yearsOld = (() => {
+    const dob = selectedPatient?.dateOfBirth ?? (newPatient.dateOfBirth || null);
+    if (dob) return Math.floor((Date.now() - new Date(dob).getTime()) / 31557600000);
+    const raw = selectedPatient ? selectedPatient.age : Number(newPatient.age);
+    if (!Number.isFinite(raw)) return null;
+    const unit = selectedPatient ? (selectedPatient.ageUnit ?? "YEARS") : newPatient.ageUnit;
+    if (unit === "DAYS") return Math.floor(raw / 365.25);
+    if (unit === "MONTHS") return Math.floor(raw / 12);
+    return raw;
+  })();
+
+  const billsSmartReport = selectedProducts.some(
+    (id) => products.find((prod) => prod.id === id)?.smartReportEnabled,
+  );
+  const showMeasurements =
+    billsSmartReport && minSmartAge !== null && yearsOld !== null && yearsOld >= minSmartAge;
+
   const runBillValidation = (): boolean => {
     if (!token || !activeBranch) {
       toast.error("Not authenticated");
@@ -771,6 +792,15 @@ const DiagnosticsNewVisit = () => {
     }
     if (selectedProducts.length === 0) {
       toast.error("Please select at least one test");
+      return false;
+    }
+    // Mandatory once a Smart-Report package is billed for an adult: the Health
+    // Essentials page is omitted entirely when either is missing, and nobody
+    // goes back to add them after the bill is printed.
+    if (showMeasurements && (!measurements.heightCm.trim() || !measurements.weightKg.trim())) {
+      setMeasurementsMissing(true);
+      toast.error("Enter height and weight for the Smart Report");
+      goToStep(!measurements.heightCm.trim() ? 40 : 42);
       return false;
     }
     if (
@@ -838,26 +868,6 @@ const DiagnosticsNewVisit = () => {
       weightKg: "",
     });
   }, [selectedPatient?.id, selectedPatient?.heightCm]);
-
-  // Age in YEARS. ageUnit is DAYS or MONTHS for infants, so a raw `age` of 20 can
-  // mean 20 months — comparing it to a year threshold directly would offer the
-  // Smart Report capture for a toddler.
-  const yearsOld = (() => {
-    const dob = selectedPatient?.dateOfBirth ?? (newPatient.dateOfBirth || null);
-    if (dob) return Math.floor((Date.now() - new Date(dob).getTime()) / 31557600000);
-    const raw = selectedPatient ? selectedPatient.age : Number(newPatient.age);
-    if (!Number.isFinite(raw)) return null;
-    const unit = selectedPatient ? (selectedPatient.ageUnit ?? "YEARS") : newPatient.ageUnit;
-    if (unit === "DAYS") return Math.floor(raw / 365.25);
-    if (unit === "MONTHS") return Math.floor(raw / 12);
-    return raw;
-  })();
-
-  const billsSmartReport = selectedProducts.some(
-    (id) => products.find((prod) => prod.id === id)?.smartReportEnabled,
-  );
-  const showMeasurements =
-    billsSmartReport && minSmartAge !== null && yearsOld !== null && yearsOld >= minSmartAge;
 
   const handleSubmit = async () => {
     // A second click must never start a second registration: each run creates a
@@ -2183,7 +2193,7 @@ const DiagnosticsNewVisit = () => {
                     );
                   });
                 }}
-                onDone={() => goToStep(60)}
+                onDone={() => goToStep(showMeasurements ? 40 : 60)}
                 focusStep={38}
                 disabled={isSubmitting}
               />
@@ -2203,32 +2213,46 @@ const DiagnosticsNewVisit = () => {
                   Health Essentials page is omitted when either is missing, never
                   estimated. Prefilled from the patient's last recorded values. */}
               {showMeasurements && (
-                <div className="grid grid-cols-2 gap-3">
+                <div
+                  className={`grid grid-cols-2 gap-3 rounded-md border p-3 ${
+                    measurementsMissing
+                      ? "bg-destructive/5 border-destructive"
+                      : "bg-blue-50 border-blue-200"
+                  }`}
+                >
                   <div className="space-y-2">
-                    <Label htmlFor="heightCm">Height (cm)</Label>
+                    <Label htmlFor="heightCm">Height (cm) *</Label>
                     <Input
                       id="heightCm"
                       type="number"
                       inputMode="decimal"
                       placeholder="Height"
+                      data-focus-step={40}
+                      onKeyDown={handleFlowKey}
+                      className={measurementsMissing && !measurements.heightCm.trim() ? "border-destructive" : ""}
                       value={measurements.heightCm}
-                      onChange={(e) =>
-                        setMeasurements((m) => ({ ...m, heightCm: e.target.value }))
-                      }
+                      onChange={(e) => {
+                        setMeasurements((m) => ({ ...m, heightCm: e.target.value }));
+                        if (measurementsMissing) setMeasurementsMissing(false);
+                      }}
                       disabled={isSubmitting}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="weightKg">Weight (kg)</Label>
+                    <Label htmlFor="weightKg">Weight (kg) *</Label>
                     <Input
                       id="weightKg"
                       type="number"
                       inputMode="decimal"
                       placeholder="Weight"
+                      data-focus-step={42}
+                      onKeyDown={handleFlowKey}
+                      className={measurementsMissing && !measurements.weightKg.trim() ? "border-destructive" : ""}
                       value={measurements.weightKg}
-                      onChange={(e) =>
-                        setMeasurements((m) => ({ ...m, weightKg: e.target.value }))
-                      }
+                      onChange={(e) => {
+                        setMeasurements((m) => ({ ...m, weightKg: e.target.value }));
+                        if (measurementsMissing) setMeasurementsMissing(false);
+                      }}
                       disabled={isSubmitting}
                     />
                   </div>
