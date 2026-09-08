@@ -19,6 +19,7 @@ export interface ProductForSelector {
   description: string | null;
   panelCount: number;
   isActive: boolean;
+  smartReportEnabled?: boolean;   // drives the height/weight capture in billing
 }
 
 interface ProductSelectorProps {

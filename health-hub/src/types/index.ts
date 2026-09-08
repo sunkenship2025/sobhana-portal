@@ -55,6 +55,10 @@ export interface Patient {
   address?: string;
   identifiers: PatientIdentifier[];
   whatsappOptIn?: boolean; // WhatsApp delivery preference (summary/PATCH shapes)
+  // Captured in billing when a Smart-Report package is billed. Stored on the
+  // PATIENT, not the visit, so the next visit prefills from last time.
+  heightCm?: number | null;
+  weightKg?: number | null;
   createdAt: Date;
 }
 

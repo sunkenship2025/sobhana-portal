@@ -162,6 +162,13 @@ const DiagnosticsNewVisit = () => {
     whatsappOptIn: true, // Default: opted in for WhatsApp notifications
   });
 
+  // Height / weight for Smart Reports. Shown ONLY when a Smart-Report package is
+  // being billed AND the patient meets the age floor — the Health Essentials page
+  // is the only thing that uses them, and it is not produced for children.
+  // Stored on the Patient, so a returning patient arrives prefilled.
+  const [minSmartAge, setMinSmartAge] = useState<number | null>(null);
+  const [measurements, setMeasurements] = useState({ heightCm: "", weightKg: "" });
+
   // E2-10: Validation errors
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>(
     {},
@@ -810,6 +817,43 @@ const DiagnosticsNewVisit = () => {
     else openConfirmBill();
   };
 
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API_BASE}/smart-reports/config`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((c) => { if (c) setMinSmartAge(Number(c.minPatientAgeYears ?? 18)); })
+      .catch(() => undefined);   // no config, no capture — never blocks billing
+  }, [token]);
+
+  useEffect(() => {
+    setMeasurements({
+      heightCm: selectedPatient?.heightCm != null ? String(selectedPatient.heightCm) : "",
+      weightKg: selectedPatient?.weightKg != null ? String(selectedPatient.weightKg) : "",
+    });
+  }, [selectedPatient?.id, selectedPatient?.heightCm, selectedPatient?.weightKg]);
+
+  // Age in YEARS. ageUnit is DAYS or MONTHS for infants, so a raw `age` of 20 can
+  // mean 20 months — comparing it to a year threshold directly would offer the
+  // Smart Report capture for a toddler.
+  const yearsOld = (() => {
+    const dob = selectedPatient?.dateOfBirth ?? (newPatient.dateOfBirth || null);
+    if (dob) return Math.floor((Date.now() - new Date(dob).getTime()) / 31557600000);
+    const raw = selectedPatient ? selectedPatient.age : Number(newPatient.age);
+    if (!Number.isFinite(raw)) return null;
+    const unit = selectedPatient ? (selectedPatient.ageUnit ?? "YEARS") : newPatient.ageUnit;
+    if (unit === "DAYS") return Math.floor(raw / 365.25);
+    if (unit === "MONTHS") return Math.floor(raw / 12);
+    return raw;
+  })();
+
+  const billsSmartReport = selectedProducts.some(
+    (id) => products.find((prod) => prod.id === id)?.smartReportEnabled,
+  );
+  const showMeasurements =
+    billsSmartReport && minSmartAge !== null && yearsOld !== null && yearsOld >= minSmartAge;
+
   const handleSubmit = async () => {
     // A second click must never start a second registration: each run creates a
     // Patient + Visit + Bill + PaymentTransaction with a freshly allocated bill
@@ -1223,6 +1267,30 @@ const DiagnosticsNewVisit = () => {
             duration: 4000,
           });
         }, 500);
+      }
+
+      // Non-blocking, like the opt-in PATCH above: measurements are optional and
+      // must never fail a bill that has already been taken.
+      if (showMeasurements && (measurements.heightCm || measurements.weightKg)) {
+        try {
+          await fetch(
+            `${API_BASE}/smart-reports/patients/${patient!.id}/measurements`,
+            {
+              method: "PUT",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+                "X-Branch-Id": activeBranch.id,
+              },
+              body: JSON.stringify({
+                heightCm: measurements.heightCm || null,
+                weightKg: measurements.weightKg || null,
+              }),
+            },
+          );
+        } catch (_) {
+          /* non-blocking */
+        }
       }
 
       setSuccessData({ visitView });
@@ -2124,6 +2192,41 @@ const DiagnosticsNewVisit = () => {
               <CardTitle className="text-base font-semibold">Billing</CardTitle>
             </CardHeader>
             <CardContent className="px-5 pb-5 pt-3 space-y-3">
+              {/* Only for a Smart-Report package on an adult; both optional — the
+                  Health Essentials page is omitted when either is missing, never
+                  estimated. Prefilled from the patient's last recorded values. */}
+              {showMeasurements && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="heightCm">Height (cm)</Label>
+                    <Input
+                      id="heightCm"
+                      type="number"
+                      inputMode="decimal"
+                      placeholder="Height"
+                      value={measurements.heightCm}
+                      onChange={(e) =>
+                        setMeasurements((m) => ({ ...m, heightCm: e.target.value }))
+                      }
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="weightKg">Weight (kg)</Label>
+                    <Input
+                      id="weightKg"
+                      type="number"
+                      inputMode="decimal"
+                      placeholder="Weight"
+                      value={measurements.weightKg}
+                      onChange={(e) =>
+                        setMeasurements((m) => ({ ...m, weightKg: e.target.value }))
+                      }
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                </div>
+              )}
               {externalLabs.length > 0 && selectedProducts.length > 0 && (
                 <div className="space-y-2">
                   <Label>Outsource to outside lab (optional)</Label>
