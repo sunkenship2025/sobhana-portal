@@ -268,6 +268,9 @@ router.get('/visits/:visitId/draft-preview', async (req: AuthRequest, res) => {
       renderMs: Date.now() - tLlm,
       scored: buckets.counts.scored,
       fallback: produced.usedFallback,
+      // why the model output was rejected — without these a fallback is silent
+      // and the report quietly degrades to template copy
+      failures: produced.failures,
     }));
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
