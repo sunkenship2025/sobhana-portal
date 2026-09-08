@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, lazy, Suspense } from 'react';
+import { Fragment, useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { API_BASE } from '@/lib/api';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -230,6 +230,11 @@ const DiagnosticsReportPreview = () => {
   // set when the draft preview errors — releases the Next gate below so a
   // failing Smart Report can never trap staff short of finalizing
   const [smartFailed, setSmartFailed] = useState(false);
+  // In-flight guard as a ref, NOT state. As state it was its own dependency, so
+  // setting it re-ran the effect below, whose cleanup cancelled the request it
+  // had just started — the response was thrown away and setSmartLoading(false)
+  // never ran, so the spinner stayed up forever.
+  const smartInFlight = useRef(false);
   const latestVersionId = (visit as any)?.report?.versions?.[0]?.id ?? visit?.report?.currentVersion?.id ?? null;
 
   // Fetch visit from API
@@ -327,13 +332,12 @@ const DiagnosticsReportPreview = () => {
 
   useEffect(() => {
     // Pre-warm: start as soon as the preview OPENS, not when Next is pressed.
-    // Generation is ~35-50s because every DeepSeek model available is a reasoning
-    // model — measured 5,448 reasoning tokens of 5,910 on flash, and the effort
-    // parameter is accepted but ignored. Staff spend that long reading the lab
-    // report, so running it in the background hides the wait entirely.
+    // Measured ~7.4s end to end in production (snapshot ~100ms, the rest is the
+    // model). Staff spend longer than that reading the lab report, so starting
+    // here hides the wait entirely.
     const wanted = smartTab === 'smart' || (showPreview && smartDraft?.complete === true);
-    if (!wanted || smartUrl || smartLoading || !visitId || !token || !activeBranchId) return;
-    let cancelled = false;
+    if (!wanted || smartUrl || smartInFlight.current || !visitId || !token || !activeBranchId) return;
+    smartInFlight.current = true;
     setSmartLoading(true);
     fetch(`${API_BASE}/smart-reports/visits/${visitId}/draft-preview`, {
       headers: { Authorization: `Bearer ${token}`, 'X-Branch-Id': activeBranchId },
@@ -343,11 +347,9 @@ const DiagnosticsReportPreview = () => {
         return r.text();
       })
       .then((html) => {
-        if (cancelled) return;
         setSmartUrl(URL.createObjectURL(new Blob([html], { type: 'text/html' })));
       })
       .catch(() => {
-        if (cancelled) return;
         setSmartFailed(true);
         // only surface a failure the user is actually waiting on; a pre-warm that
         // fails in the background should stay quiet and just leave Next hidden
@@ -356,9 +358,8 @@ const DiagnosticsReportPreview = () => {
           setSmartTab('report');
         }
       })
-      .finally(() => { if (!cancelled) setSmartLoading(false); });
-    return () => { cancelled = true; };
-  }, [smartTab, smartUrl, smartLoading, showPreview, smartDraft?.complete, visitId, token, activeBranchId]);
+      .finally(() => { smartInFlight.current = false; setSmartLoading(false); });
+  }, [smartTab, smartUrl, showPreview, smartDraft?.complete, visitId, token, activeBranchId]);
 
   useEffect(() => () => { if (smartUrl) URL.revokeObjectURL(smartUrl); }, [smartUrl]);
 
