@@ -15,7 +15,7 @@ import { loadPriorValues, attachTrends, loadHistory, attachHistory } from './tre
 import { attachContent } from './content';
 import { buildPayload, assertDeidentified, PROMPT_VERSION } from './payload';
 import { callModel } from './llm';
-import { validate, clampLengths, dropResultClaims, type GeneratedContent } from './validate';
+import { validate, sanitize, clampLengths, dropResultClaims, type GeneratedContent } from './validate';
 import { templateContent } from './fallback';
 import { withSlot } from './queue';
 
@@ -94,14 +94,25 @@ export async function produceSmartReport(a: ProduceArgs) {
   let inputTokens: number | null = null;
   let outputTokens: number | null = null;
 
-  // Same input as last time -> reuse. Re-validated rather than trusted: the
+  // Deterministic, clinician-written copy. Built up front for two reasons: sanitize
+  // needs a safe score paragraph to substitute when the model's own is unusable,
+  // and this is the last resort if the model never answers at all.
+  const template = templateContent({
+    packageName: payload.packageName, counts: buckets.counts,
+    score: score.score, band: score.band, findings: buckets.findings,
+    contentLines: advisoryOn ? content.contentLines : [],
+    followUps: content.followUps,
+  });
+
+  // Same input as last time -> reuse. Re-sanitized rather than trusted: the
   // guardrails change (they changed today), and content stored under an older,
   // wronger ruleset must not get a free pass.
   if (a.reuse?.content && a.reuse.inputHash === inputHash) {
-    const v = validate(a.reuse.content, payload);
-    if (v.ok && v.content) {
-      generated = v.content;
+    const s = sanitize(a.reuse.content, payload, template.testScore.paragraph);
+    if (s.content) {
+      generated = s.content;
       reusedStored = true;
+      failures.push(...s.dropped.map((d) => `reused, dropped: ${d}`));
     }
   }
 
@@ -110,22 +121,27 @@ export async function produceSmartReport(a: ProduceArgs) {
       const res = await withSlot(() => callModel(cfg.model, payload));
       inputTokens = res.inputTokens;
       outputTokens = res.outputTokens;
-      const v = validate(dropResultClaims(clampLengths(res.parsed)), payload);
-      if (v.ok && v.content) generated = v.content;
-      else failures.push(...v.failures.map((f) => `attempt${attempt + 1}: ${f}`));
+      // Salvage rather than reject: an offending line is dropped and the rest of
+      // the generation still ships. Only unsalvageable damage (wrong shape, no
+      // score paragraph, wrong language) retries.
+      const s = sanitize(dropResultClaims(clampLengths(res.parsed)), payload, template.testScore.paragraph);
+      if (s.content) {
+        generated = s.content;
+        failures.push(...s.dropped.map((d) => `attempt${attempt + 1} dropped: ${d}`));
+      } else {
+        failures.push(...s.dropped.map((f) => `attempt${attempt + 1}: ${f}`));
+      }
     } catch (err: any) {
       failures.push(`attempt${attempt + 1}: ${err?.message ?? String(err)}`);
     }
   }
 
   if (!generated) {
+    // Reached ONLY when the model never returned anything usable — no key, network
+    // failure, timeout, or two structurally broken responses. A guardrail hit no
+    // longer lands here; it drops the offending line and keeps the report.
     usedFallback = true;
-    generated = templateContent({
-      packageName: payload.packageName, counts: buckets.counts,
-      score: score.score, band: score.band, findings: buckets.findings,
-      contentLines: advisoryOn ? content.contentLines : [],
-      followUps: content.followUps,
-    });
+    generated = template;
   } else {
     // Fold generated explanations onto the findings that asked for one.
     const byCode = new Map(generated.findingExplanations.map((e) => [e.code, e.sentence]));

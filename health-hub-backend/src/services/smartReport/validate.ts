@@ -174,6 +174,103 @@ export function validate(raw: unknown, payload: SmartReportPayload): ValidationR
   return failures.length ? { ok: false, failures } : { ok: true, failures: [], content: c };
 }
 
+/**
+ * Salvage, not reject. validate() is all-or-nothing, which meant ONE bad sentence
+ * threw away an entire good report and shipped clinician-written template copy in
+ * its place — production ran usedFallbackCopy on every report because explanations
+ * legitimately said "infection". Dropping an offending line is exactly as safe as
+ * rejecting the report (the patient never sees it either way) and keeps everything
+ * else the model wrote.
+ *
+ * Returns null content only for damage nothing can be salvaged from: wrong shape,
+ * missing score paragraph, or wrong language. Those retry, and only a model that
+ * never answers at all reaches the template.
+ *
+ * `safeParagraph` is the deterministic template score paragraph, substituted when
+ * the model's own paragraph is unsafe — it is required copy, so it cannot be dropped.
+ */
+export function sanitize(
+  raw: unknown,
+  payload: SmartReportPayload,
+  safeParagraph: string,
+): { content: GeneratedContent | null; dropped: string[] } {
+  const dropped: string[] = [];
+  const c = raw as GeneratedContent;
+  if (!c || typeof c !== 'object') return { content: null, dropped: ['not an object'] };
+  if (!c.testScore || typeof c.testScore.paragraph !== 'string' || !c.testScore.paragraph.trim()) {
+    return { content: null, dropped: ['missing testScore.paragraph'] };
+  }
+  if (!Array.isArray(c.findingExplanations)) c.findingExplanations = [];
+  const adv = c.advisory ?? ({} as GeneratedContent['advisory']);
+  adv.dietBlocks = adv.dietBlocks ?? [];
+  adv.lifestyleBlocks = adv.lifestyleBlocks ?? [];
+  adv.followUpReasons = adv.followUpReasons ?? [];
+  c.advisory = adv;
+
+  // Language is a whole-output property — there is no per-line salvage.
+  if (payload.language === 'en' && NON_LATIN.test(collectText(c).join('   '))) {
+    return { content: null, dropped: ['non-English output'] };
+  }
+
+  const allowed = new Set(JSON.stringify(payload).match(/\d+/g) ?? []);
+  allowed.add('100');
+  const clean = (t: string) => stripPayloadNames(t, payload);
+  const bannedAnywhere = (t: string) => findBanned(clean(t));
+  // Outside an explanation, generic category words read as a diagnosis.
+  const bannedHere = (t: string) => [
+    ...findBanned(clean(t)),
+    ...findBanned(clean(t), BANNED_OUTSIDE_EXPLANATIONS),
+  ];
+  // Small integers are ordinary advice ("30 minutes", "8 hours"); dose-shaped text
+  // is caught by the lexicon, not by grounding.
+  const ungrounded = (t: string) =>
+    (t.match(/\d+/g) ?? []).filter((n) => !allowed.has(n) && Number(n) > 60);
+
+  // Score paragraph: required, so substitute rather than drop.
+  const paraBad = [
+    ...bannedHere(c.testScore.paragraph),
+    ...(c.testScore.paragraph.match(/\d+/g) ?? []).filter((n) => !allowed.has(n)),
+  ];
+  if (paraBad.length) {
+    dropped.push(`score paragraph replaced (${paraBad.join(', ')})`);
+    c.testScore.paragraph = safeParagraph;
+  }
+
+  // Explanations: definitional by contract, so category words are allowed here.
+  const needs = new Set(payload.findings.filter((f) => f.needsExplanation).map((f) => f.code));
+  c.findingExplanations = c.findingExplanations.filter((e) => {
+    const hits = bannedAnywhere(e.sentence ?? '');
+    if (hits.length) { dropped.push(`explanation ${e.code}: ${hits.join(', ')}`); return false; }
+    if (statesResult(e.sentence ?? '')) { dropped.push(`explanation ${e.code}: states a result`); return false; }
+    if (!needs.has(e.code)) { dropped.push(`explanation ${e.code}: not requested`); return false; }
+    return true;
+  });
+
+  const keepLine = (l: string, where: string) => {
+    const hits = [...bannedHere(l), ...ungrounded(l).map((n) => `number ${n}`)];
+    if (hits.length) { dropped.push(`${where}: ${hits.join(', ')}`); return false; }
+    return true;
+  };
+  const cleanBlocks = (blocks: GeneratedContent['advisory']['dietBlocks'], where: string) =>
+    blocks.filter((b) => {
+      const bad = bannedHere(b.heading ?? '');
+      if (bad.length) { dropped.push(`${where} heading: ${bad.join(', ')}`); return false; }
+      b.dos = (b.dos ?? []).filter((l) => keepLine(l, where));
+      b.donts = (b.donts ?? []).filter((l) => keepLine(l, where));
+      return b.dos.length > 0 || b.donts.length > 0;
+    });
+  adv.dietBlocks = cleanBlocks(adv.dietBlocks, 'diet');
+  adv.lifestyleBlocks = cleanBlocks(adv.lifestyleBlocks, 'lifestyle');
+
+  const okCodes = new Set(payload.followUps.map((f) => f.productCode));
+  adv.followUpReasons = adv.followUpReasons.filter((r) => {
+    if (!okCodes.has(r.productCode)) { dropped.push(`follow-up ${r.productCode}: unknown`); return false; }
+    return keepLine(r.reason ?? '', `follow-up ${r.productCode}`);
+  });
+
+  return { content: c, dropped };
+}
+
 /** Removes payload-supplied proper names so our own catalog wording can't trip the lexicon. */
 function stripPayloadNames(blob: string, payload: SmartReportPayload): string {
   const names = [

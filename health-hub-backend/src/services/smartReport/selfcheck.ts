@@ -250,6 +250,51 @@ console.log('\n✓ all assertions passed — engine matches the prototype');
   badScore.testScore.paragraph = 'Your score is 42 out of 100 and your sugar was 320.';
   assert.ok(!validate(badScore, payload).ok, 'ungrounded number in the score paragraph must still fail');
   console.log('✓ category words: definitional in explanations, diagnosis elsewhere');
+
+  // Salvage, not reject. One bad line must cost that line, not the whole report —
+  // production shipped template copy on EVERY report because the all-or-nothing
+  // path discarded good generations over a single word.
+  const { sanitize } = require('./validate');
+  const SAFE = 'Your test score is 55 out of 100.';
+
+  const oneBad = JSON.parse(JSON.stringify(good));
+  oneBad.findingExplanations = [
+    { code: 'LDL', sentence: 'LDL is the cholesterol that can build up in the walls of your blood vessels.' },
+    { code: 'LDL', sentence: 'This is consistent with prediabetes.' },
+  ];
+  const r = sanitize(oneBad, payload, SAFE);
+  assert.ok(r.content, 'a single bad explanation must not discard the report');
+  assert.strictEqual(r.content.findingExplanations.length, 1, 'only the offending explanation is dropped');
+  assert.strictEqual(r.content.advisory.dietBlocks.length, 1, 'advisory survives');
+  assert.strictEqual(r.content.testScore.paragraph, good.testScore.paragraph, 'clean paragraph is kept');
+
+  // An unsafe score paragraph is REPLACED, not fatal — it is required copy.
+  const badPara = JSON.parse(JSON.stringify(good));
+  badPara.testScore.paragraph = 'This pattern is consistent with prediabetes.';
+  const r2b = sanitize(badPara, payload, SAFE);
+  assert.ok(r2b.content, 'an unsafe paragraph must not discard the report');
+  assert.strictEqual(r2b.content.testScore.paragraph, SAFE, 'paragraph substituted with template copy');
+  assert.strictEqual(r2b.content.findingExplanations.length, 1, 'explanations survive a bad paragraph');
+
+  // A block loses only its offending line; a block left with nothing is dropped.
+  const badLine = JSON.parse(JSON.stringify(good));
+  badLine.advisory.dietBlocks[0].dos = ['Eat more oats', 'Try papaya leaf extract'];
+  const r3 = sanitize(badLine, payload, SAFE);
+  assert.strictEqual(r3.content.advisory.dietBlocks[0].dos.length, 1, 'only the quack line is dropped');
+  const allBad = JSON.parse(JSON.stringify(good));
+  allBad.advisory.dietBlocks[0].dos = ['Try giloy'];
+  allBad.advisory.dietBlocks[0].donts = ['Avoid detox teas'];
+  const r4 = sanitize(allBad, payload, SAFE);
+  assert.strictEqual(r4.content.advisory.dietBlocks.length, 0, 'an emptied block is removed');
+
+  // Only unsalvageable damage returns null — that is what retries, and only a model
+  // that never answers reaches the template.
+  assert.strictEqual(sanitize({}, payload, SAFE).content, null, 'missing paragraph is unsalvageable');
+  assert.strictEqual(sanitize('nope', payload, SAFE).content, null, 'non-object is unsalvageable');
+  const hindi = JSON.parse(JSON.stringify(good));
+  hindi.testScore.paragraph = 'आपका स्कोर 55 है';
+  assert.strictEqual(sanitize(hindi, payload, SAFE).content, null, 'wrong language is unsalvageable');
+  console.log('✓ salvage: a bad line costs that line, not the report');
 }
 
 // Regression: the small-package scoring bug. Under the old point sum a one-panel
