@@ -10,7 +10,7 @@ import prisma from '../lib/prisma';
 import { logAction } from '../services/auditService';
 import { generateSmartReport } from '../services/smartReport/generate';
 import { renderStored, renderDraft } from '../services/smartReport/present';
-import { produceSmartReport } from '../services/smartReport/generate';
+import { produceSmartReport, persistDraftSmartReport } from '../services/smartReport/generate';
 import { buildBuckets, type SnapshotLike } from '../services/smartReport/findings';
 import { resolveVisitScope } from '../services/smartReport/eligibility';
 import { buildEphemeralSnapshot } from '../services/reportSnapshotService';
@@ -151,14 +151,26 @@ router.put('/visits/:visitId/send-suppressed', requireRole('owner', 'lab_incharg
   }
 });
 
-/** Is every reportable order on this visit filled in? Same rule finalize applies. */
-async function draftCompleteness(visitId: string): Promise<{ complete: boolean; pending: string[] }> {
+/**
+ * Is every order in the SMART-REPORT BUNDLE filled in? Same completeness rule
+ * finalize applies, narrowed to the products that actually feed the report.
+ *
+ * Visit-wide was the wrong scope: buildBuckets only ever scores panels in
+ * scope.inScopePanelIds, so an unrelated order on the same visit — a standalone
+ * X-ray next to a Master Health Check — could block the preview while being
+ * unable to appear in it or move the score. Inside the bundle the rule stays
+ * absolute: no partial, because a score over half a package is meaningless.
+ */
+async function draftCompleteness(
+  visitId: string,
+  inScopeProductIds: Set<string>,
+): Promise<{ complete: boolean; pending: string[] }> {
   const visit = await prisma.visit.findUnique({
     where: { id: visitId },
     select: {
       testOrders: {
         select: {
-          id: true, testId: true, workflowMode: true, noReportAt: true, cancelledAt: true,
+          id: true, testId: true, productId: true, workflowMode: true, noReportAt: true, cancelledAt: true,
           externalUploads: { select: { id: true } },
           test: { select: { name: true, isPanel: true, childTests: { select: { id: true } } } },
         },
@@ -179,7 +191,14 @@ async function draftCompleteness(visitId: string): Promise<{ complete: boolean; 
   const filled = new Set(
     results.filter(hasMeaningfulResultRow).map((r) => `${r.testOrderId}:${r.testId}`),
   );
-  const incomplete = findIncompleteOrders(visit.testOrders as any, filled);
+  const inBundle = visit.testOrders.filter(
+    (o) => o.productId && inScopeProductIds.has(o.productId),
+  );
+  // findIncompleteOrders([]) is [], which would read as "complete" and let a
+  // preview through with nothing entered. scope.ok already implies a non-empty
+  // bundle, but that invariant lives in another function — so fail closed here.
+  if (!inBundle.length) return { complete: false, pending: [] };
+  const incomplete = findIncompleteOrders(inBundle as any, filled);
   return {
     complete: incomplete.length === 0,
     pending: incomplete.map((o: any) => o.test?.name ?? 'a test'),
@@ -200,7 +219,12 @@ async function draftCompleteness(visitId: string): Promise<{ complete: boolean; 
  */
 router.get('/visits/:visitId/draft-status', async (req: AuthRequest, res) => {
   try {
-    const status = await draftCompleteness(req.params.visitId);
+    const cfg = await loadConfig(req.branchId ?? null);
+    const scope = await resolveVisitScope(req.params.visitId, cfg);
+    // Nothing on this visit produces a Smart Report — report it as not-ready so
+    // the tab stays disabled, rather than enabling it to fail with a 409 later.
+    if (!scope.ok) return res.json({ complete: false, pending: [] });
+    const status = await draftCompleteness(req.params.visitId, scope.inScopeProductIds);
     return res.json(status);
   } catch (err) {
     console.error('GET smart-report draft-status failed:', err);
@@ -211,10 +235,6 @@ router.get('/visits/:visitId/draft-status', async (req: AuthRequest, res) => {
 router.get('/visits/:visitId/draft-preview', async (req: AuthRequest, res) => {
   try {
     const visitId = req.params.visitId;
-    const status = await draftCompleteness(visitId);
-    if (!status.complete) {
-      return res.status(409).json({ error: 'INCOMPLETE_REPORT', pending: status.pending });
-    }
 
     // Deliberately NOT gated on cfg.enabled. That flag arms generation at finalize
     // and the patient WhatsApp; this route sends nothing and persists nothing, it
@@ -230,6 +250,13 @@ router.get('/visits/:visitId/draft-preview', async (req: AuthRequest, res) => {
     const tCfg = Date.now();
     const scope = await resolveVisitScope(visitId, cfg);
     if (!scope.ok) return res.status(409).json({ error: scope.skipReason ?? 'NO_SMART_REPORT_PRODUCT' });
+
+    // Completeness needs the scope, so it runs after it: only the enabled bundle
+    // has to be fully entered.
+    const status = await draftCompleteness(visitId, scope.inScopeProductIds);
+    if (!status.complete) {
+      return res.status(409).json({ error: 'INCOMPLETE_REPORT', pending: status.pending });
+    }
 
     const tScope = Date.now();
     const snapshot = await buildEphemeralSnapshot(visitId);
@@ -251,10 +278,35 @@ router.get('/visits/:visitId/draft-preview', async (req: AuthRequest, res) => {
       patientId: snapshot.patient.patientId,
     };
 
+    // Reuse a previous generation when nothing about the model's input changed.
+    // Not only to skip a paid call: the model is non-deterministic, so re-asking
+    // would show staff different words each time they opened the same report.
+    const prior = await prisma.smartReport.findUnique({
+      where: { reportVersionId: snapshot.reportVersionId },
+      select: { inputHash: true, content: true, usedFallbackCopy: true },
+    });
+
+    const produceStarted = Date.now();
     const produced = await produceSmartReport({
       buckets, visit, patientSnapshot: snapshot.patient as any, scope, cfg,
       logRef: `draft:${visitId}`,
+      // A stored fallback is template copy, not a generation — reusing it would
+      // permanently pin the report to the non-AI path.
+      reuse: prior && !prior.usedFallbackCopy
+        ? { inputHash: prior.inputHash, content: prior.content }
+        : null,
     });
+
+    // Persisted so finalize can hand the patient exactly these words, and so a
+    // fallback is visible instead of silently degrading.
+    await persistDraftSmartReport({
+      reportVersionId: snapshot.reportVersionId,
+      visitId,
+      patientId: snapshot.patient.patientId,
+      branchId: req.branchId ?? snapshot.visit.branchId,
+      cfg, scope, produced,
+      generationMs: Date.now() - produceStarted,
+    }).catch((e) => console.error('smart-report draft persist failed:', e));
 
     const tLlm = Date.now();
     const html = await renderDraft(snapshot, produced, scope, cfg);
@@ -268,6 +320,7 @@ router.get('/visits/:visitId/draft-preview', async (req: AuthRequest, res) => {
       renderMs: Date.now() - tLlm,
       scored: buckets.counts.scored,
       fallback: produced.usedFallback,
+      reused: produced.reusedStored,
       // why the model output was rejected — without these a fallback is silent
       // and the report quietly degrades to template copy
       failures: produced.failures,

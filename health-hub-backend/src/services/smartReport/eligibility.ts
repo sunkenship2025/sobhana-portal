@@ -17,6 +17,10 @@ export interface VisitScope {
   ok: boolean;
   skipReason?: SkipReason;
   inScopePanelIds: Set<string>;
+  /** Products with Smart Reports on. The completeness gate filters test orders by
+   *  this: only the enabled bundle has to be fully entered, because only its
+   *  panels are ever scored. */
+  inScopeProductIds: Set<string>;
   packageNames: string[];
   patientAgeYears: number | null;
 }
@@ -25,7 +29,10 @@ export async function resolveVisitScope(
   visitId: string,
   cfg: { minPatientAgeYears: number },
 ): Promise<VisitScope> {
-  const empty = { inScopePanelIds: new Set<string>(), packageNames: [], patientAgeYears: null };
+  const empty = {
+    inScopePanelIds: new Set<string>(), inScopeProductIds: new Set<string>(),
+    packageNames: [], patientAgeYears: null,
+  };
 
   const visit = await prisma.visit.findUnique({
     where: { id: visitId },
@@ -79,6 +86,7 @@ export async function resolveVisitScope(
   return {
     ok: true,
     inScopePanelIds,
+    inScopeProductIds: validIds,
     packageNames: stillValid.map((p) => p.name),
     patientAgeYears: ageYears,
   };

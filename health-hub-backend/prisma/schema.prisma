@@ -2221,6 +2221,12 @@ model StatementAccessToken {
 
 enum SmartReportStatus {
   PENDING
+  /// Written by the pre-finalize draft preview. Deliberately NOT READY: the
+  /// notification service and the patient gateway both switch on status ===
+  /// 'READY', and a draft shares its ReportVersion id with the finalized one, so
+  /// writing READY early would arm the two-button WhatsApp and the patient smart
+  /// link before anyone finalized anything. Promoted to READY at finalize.
+  DRAFT
   READY
   FAILED
   SKIPPED
@@ -2265,6 +2271,15 @@ model SmartReport {
   sendSuppressedReason String?
   validationFailures   Json?
 
+  /// sha256 of the de-identified model payload. The payload IS the model's whole
+  /// input, so an identical hash means identical input: reuse the stored content
+  /// instead of paying for a second, non-deterministic generation. Any edited
+  /// result changes a finding, which changes the payload, which changes this —
+  /// invalidation is automatic and needs no cache-busting anywhere.
+  inputHash      String?
+  /// When the draft preview last produced this row. Not an approval: pre-warm
+  /// fires when the preview modal opens, so staff may never have read it.
+  previewedAt    DateTime?
   model          String?
   promptVersion  String?
   inputTokens    Int?

@@ -4,6 +4,7 @@
  *
  * Never throws to the caller: a finalize must not be able to fail because of this.
  */
+import { createHash } from 'node:crypto';
 import prisma from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { loadConfig } from './config';
@@ -37,6 +38,13 @@ export interface ProduceArgs {
   cfg: Awaited<ReturnType<typeof loadConfig>>;
   /** identifies the run in logs — a version id, or a visit id for a draft */
   logRef: string;
+  /**
+   * A previously stored generation to reuse when the model input has not changed.
+   * The payload is the model's ENTIRE input, so an equal hash means an equal
+   * question — and re-asking a non-deterministic model would give the patient
+   * different words than the ones staff previewed.
+   */
+  reuse?: { inputHash: string | null; content: unknown } | null;
 }
 
 export async function produceSmartReport(a: ProduceArgs) {
@@ -77,11 +85,25 @@ export async function produceSmartReport(a: ProduceArgs) {
     patient?.name, patient?.patientNumber, patient?.phone, patient?.address,
   ].filter(Boolean));
 
+  const inputHash = createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+
   let generated: GeneratedContent | null = null;
   let usedFallback = false;
+  let reusedStored = false;
   const failures: string[] = [];
   let inputTokens: number | null = null;
   let outputTokens: number | null = null;
+
+  // Same input as last time -> reuse. Re-validated rather than trusted: the
+  // guardrails change (they changed today), and content stored under an older,
+  // wronger ruleset must not get a free pass.
+  if (a.reuse?.content && a.reuse.inputHash === inputHash) {
+    const v = validate(a.reuse.content, payload);
+    if (v.ok && v.content) {
+      generated = v.content;
+      reusedStored = true;
+    }
+  }
 
   for (let attempt = 0; attempt < 2 && !generated; attempt += 1) {
     try {
@@ -124,7 +146,11 @@ export async function produceSmartReport(a: ProduceArgs) {
   // report has to say out loud rather than let it pass as clinician-authored.
   const adviceAiWritten = advisoryOn && content.contentLines.length === 0
     && (generated.advisory.dietBlocks.length > 0 || generated.advisory.lifestyleBlocks.length > 0);
-  return { buckets, score, content, generated, usedFallback, failures, inputTokens, outputTokens, advisoryOn, adviceAiWritten };
+  return {
+    buckets, score, content, generated, usedFallback, failures,
+    inputTokens, outputTokens, advisoryOn, adviceAiWritten,
+    inputHash, reusedStored,
+  };
 }
 
 export async function generateSmartReport(reportVersionId: string): Promise<void> {
@@ -164,51 +190,39 @@ export async function generateSmartReport(reportVersionId: string): Promise<void
     if (buckets.counts.scored === 0) return void (await skip('NO_ANALYSABLE_TESTS'));
     if (buckets.counts.scored < cfg.minScoredParameters) return void (await skip('BELOW_MIN_PARAMETERS'));
 
+    // The pre-finalize preview may already have generated exactly this content.
+    // Reusing it is not just a saved call: the model is non-deterministic, so
+    // regenerating here would hand the patient different words than the ones staff
+    // read before pressing finalize.
+    const priorDraft = await prisma.smartReport.findUnique({
+      where: { reportVersionId },
+      select: { inputHash: true, content: true, usedFallbackCopy: true },
+    });
+
     const produced = await produceSmartReport({
       buckets, visit, patientSnapshot: version.patientSnapshot as any,
       scope, cfg, logRef: reportVersionId,
+      // Never reuse a fallback — that would freeze template copy in permanently
+      // and quietly stop the report ever being AI-written again.
+      reuse: priorDraft && !priorDraft.usedFallbackCopy
+        ? { inputHash: priorDraft.inputHash, content: priorDraft.content }
+        : null,
     });
-    const { score, content, generated, usedFallback, failures, inputTokens, outputTokens, advisoryOn } = produced;
+    const { score, usedFallback } = produced;
 
     await upsert({
       ...base,
       status: 'READY',
       skipReason: null,
-      score: score.score,
-      scoreBand: score.band,
-      scoredCount: buckets.counts.scored,
-      outOfRangeCount: buckets.counts.outOfRange,
-      borderlineCount: buckets.counts.borderline,
-      withinRangeCount: buckets.counts.withinRange,
-      shownNotScored: buckets.counts.shownNotScored,
-      referredOnly: buckets.counts.referredOnly,
-      hasCritical: buckets.hasCritical,
-      findings: {
-        packageNames: scope.packageNames,
-        findings: buckets.findings,
-        borderline: buckets.borderline,
-        qualitative: buckets.qualitative,
-        referred: buckets.referred,
-        panels: buckets.panels,
-        counts: buckets.counts,
-        score,
-        followUps: content.followUps,
-        advisorySuppressed: !advisoryOn,
-      adviceAiWritten: produced.adviceAiWritten,
-      } as any,
-      content: generated as any,
-      usedFallbackCopy: usedFallback,
-      validationFailures: failures.length ? (failures as any) : undefined,
-      model: cfg.model,
-      promptVersion: PROMPT_VERSION,
-      inputTokens: inputTokens ?? undefined,
-      outputTokens: outputTokens ?? undefined,
-      generationMs: Date.now() - started,
+      ...resultColumns(produced, scope, cfg, Date.now() - started),
       generatedAt: new Date(),
     });
 
     log.info(
-      { reportVersionId, score: score.score, fallback: usedFallback, ms: Date.now() - started },
+      {
+        reportVersionId, score: score.score, fallback: usedFallback,
+        reusedDraft: produced.reusedStored, ms: Date.now() - started,
+      },
       'smart report generated',
     );
   } catch (err: any) {
@@ -220,6 +234,88 @@ export async function generateSmartReport(reportVersionId: string): Promise<void
       generationMs: Date.now() - started,
     }).catch(() => undefined);
   }
+}
+
+/**
+ * The persisted shape of a generation. Shared so a DRAFT row and the READY row it
+ * is promoted to cannot drift — they must describe the same thing, or "what staff
+ * previewed" stops meaning "what the patient got".
+ */
+function resultColumns(
+  produced: Awaited<ReturnType<typeof produceSmartReport>>,
+  scope: Awaited<ReturnType<typeof resolveVisitScope>>,
+  cfg: Awaited<ReturnType<typeof loadConfig>>,
+  generationMs: number,
+) {
+  const { buckets, score, content, generated, usedFallback, failures } = produced;
+  return {
+    score: score.score,
+    scoreBand: score.band,
+    scoredCount: buckets.counts.scored,
+    outOfRangeCount: buckets.counts.outOfRange,
+    borderlineCount: buckets.counts.borderline,
+    withinRangeCount: buckets.counts.withinRange,
+    shownNotScored: buckets.counts.shownNotScored,
+    referredOnly: buckets.counts.referredOnly,
+    hasCritical: buckets.hasCritical,
+    findings: {
+      packageNames: scope.packageNames,
+      findings: buckets.findings,
+      borderline: buckets.borderline,
+      qualitative: buckets.qualitative,
+      referred: buckets.referred,
+      panels: buckets.panels,
+      counts: buckets.counts,
+      score,
+      followUps: content.followUps,
+      advisorySuppressed: !produced.advisoryOn,
+      adviceAiWritten: produced.adviceAiWritten,
+    } as any,
+    content: generated as any,
+    usedFallbackCopy: usedFallback,
+    validationFailures: failures.length ? (failures as any) : undefined,
+    inputHash: produced.inputHash,
+    model: cfg.model,
+    promptVersion: PROMPT_VERSION,
+    inputTokens: produced.inputTokens ?? undefined,
+    outputTokens: produced.outputTokens ?? undefined,
+    generationMs,
+  };
+}
+
+/**
+ * Persist what the pre-finalize preview produced. status DRAFT, never READY —
+ * notificationService and reportGateway both switch on READY, and a draft shares
+ * its ReportVersion id with the finalized one.
+ */
+export async function persistDraftSmartReport(args: {
+  reportVersionId: string;
+  visitId: string;
+  patientId: string;
+  branchId: string;
+  cfg: Awaited<ReturnType<typeof loadConfig>>;
+  scope: Awaited<ReturnType<typeof resolveVisitScope>>;
+  produced: Awaited<ReturnType<typeof produceSmartReport>>;
+  generationMs: number;
+}): Promise<void> {
+  const existing = await prisma.smartReport.findUnique({
+    where: { reportVersionId: args.reportVersionId },
+    select: { status: true },
+  });
+  // Never downgrade a real generation to a draft.
+  if (existing && existing.status !== 'DRAFT' && existing.status !== 'PENDING') return;
+  await upsert({
+    reportVersionId: args.reportVersionId,
+    visitId: args.visitId,
+    patientId: args.patientId,
+    branchId: args.branchId,
+    language: args.cfg.language,
+    configSnapshot: args.cfg as any,
+    status: 'DRAFT',
+    skipReason: null,
+    ...resultColumns(args.produced, args.scope, args.cfg, args.generationMs),
+    previewedAt: new Date(),
+  });
 }
 
 /** Regeneration REPLACES — one Smart Report per report version, by decision. */
