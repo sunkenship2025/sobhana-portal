@@ -154,6 +154,11 @@ export interface PatientSnapshot {
   ageDisplay: string; // Smart display: "45 Years", "7 Months", "18 Days"
   phone: string | null;
   address: string | null;
+  /// Measured at this visit. Frozen here so a finalized report's BMI cannot change
+  /// when the patient is weighed again — these were previously read live off
+  /// Patient at render time.
+  heightCm: number | null;
+  weightKg: number | null;
 }
 
 /** Compute a human-friendly age string from DOB or yearOfBirth + ageUnit */
@@ -1738,6 +1743,8 @@ export async function createReportSnapshot(
     ageDisplay: computeAgeDisplay(patient.yearOfBirth, patient.dateOfBirth, (patient as any).ageUnit),
     phone: patient.identifiers[0]?.value || null,
     address: patient.address,
+    heightCm: (visit as any).heightCm ?? null,
+    weightKg: (visit as any).weightKg ?? null,
   };
   
   const visitSnapshot: VisitSnapshot = {
@@ -1949,6 +1956,8 @@ export async function buildEphemeralSnapshot(
     ageDisplay: computeAgeDisplay(patient.yearOfBirth, patient.dateOfBirth, (patient as any).ageUnit),
     phone: patient.identifiers[0]?.value || null,
     address: patient.address,
+    heightCm: (visit as any).heightCm ?? null,
+    weightKg: (visit as any).weightKg ?? null,
   };
 
   // Build visit snapshot — use current time as placeholder for finalizedAt
@@ -2222,6 +2231,9 @@ export async function buildDraftPanelSnapshot(input: DraftPanelPreviewInput): Pr
     ageDisplay: computeAgeDisplay(yearOfBirth, p.dateOfBirth ?? null, p.ageUnit ?? null),
     phone: p.phone ?? null,
     address: p.address ?? null,
+    // Layout preview only — no real visit, so no measurements and no Essentials page.
+    heightCm: null,
+    weightKg: null,
   };
 
   const nowIso = new Date().toISOString();

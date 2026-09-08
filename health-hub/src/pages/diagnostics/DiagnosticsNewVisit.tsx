@@ -1274,12 +1274,14 @@ const DiagnosticsNewVisit = () => {
         }, 500);
       }
 
-      // Non-blocking, like the opt-in PATCH above: measurements are optional and
-      // must never fail a bill that has already been taken.
+      // Recorded against the VISIT, not the patient: weight changes between
+      // visits, and a single mutable value on Patient made a finalized report's
+      // BMI move whenever the patient came back. Non-blocking, like the opt-in
+      // PATCH above — a bill already taken must never fail over a measurement.
       if (showMeasurements && (measurements.heightCm || measurements.weightKg)) {
         try {
           await fetch(
-            `${API_BASE}/smart-reports/patients/${patient!.id}/measurements`,
+            `${API_BASE}/smart-reports/visits/${visitView.visit.id}/measurements`,
             {
               method: "PUT",
               headers: {

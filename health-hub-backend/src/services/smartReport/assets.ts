@@ -126,6 +126,7 @@ h2:first-child{margin-top:0}
 .metric .mv{font-size:26px;font-weight:700;margin-top:12px;letter-spacing:-.6px}
 .metric .mv small{font-size:12.5px;font-weight:600;color:#5F6368}
 .metric .mv em{font-style:normal;font-size:13px;font-weight:600;color:#D93025}
+.metric .mtrend{font-size:11px;font-weight:600;color:#5F6368;margin-top:5px}
 .tscore{margin-top:16px}
 .tscore h3{font-size:13px;font-weight:700;margin:0 0 4px}
 .tscore p{margin:0;font-size:12.3px;color:#4A5056}

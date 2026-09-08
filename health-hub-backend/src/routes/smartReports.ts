@@ -372,28 +372,50 @@ router.put('/products/:productId/enabled', requireRole('owner', 'lab_incharge'),
 });
 
 // ─── height / weight, captured in billing when a Smart-Report bundle is billed ──
-// The UI lives in the billing screen (wireframes pending); this is the endpoint
-// it calls. Both optional: the Health Essentials page is omitted when either is
-// missing, never estimated.
-router.put('/patients/:patientId/measurements', async (req: AuthRequest, res) => {
+// Stored on the VISIT. They used to live on Patient and be read LIVE at render
+// time, so re-weighing a patient silently rewrote the BMI on every one of their
+// past finalized reports — the mutation the frozen snapshots exist to prevent.
+// Both optional: the Health Essentials page is omitted when either is missing,
+// never estimated.
+router.put('/visits/:visitId/measurements', async (req: AuthRequest, res) => {
   try {
-    const h = req.body?.heightCm;
-    const w = req.body?.weightKg;
     const num = (v: unknown) => (v === null || v === '' || v === undefined ? null : Number(v));
-    const heightCm = num(h);
-    const weightKg = num(w);
+    const heightCm = num(req.body?.heightCm);
+    const weightKg = num(req.body?.weightKg);
+    // NaN fails both comparisons, so non-numeric input is rejected here too.
     if ((heightCm !== null && !(heightCm > 30 && heightCm < 260))
       || (weightKg !== null && !(weightKg > 1 && weightKg < 400))) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Height or weight is out of range' });
     }
-    const patient = await prisma.patient.update({
-      where: { id: req.params.patientId },
-      data: { heightCm, weightKg },
-      select: { id: true, heightCm: true, weightKg: true },
+    // Blank means "not measured", never "erase what was measured". A recorded
+    // weight is a real observation and a point on the patient's trend; a later
+    // save that leaves the field empty must not destroy it.
+    const data: { heightCm?: number; weightKg?: number } = {};
+    if (heightCm !== null) data.heightCm = heightCm;
+    if (weightKg !== null) data.weightKg = weightKg;
+    if (!Object.keys(data).length) {
+      const current = await prisma.visit.findUnique({
+        where: { id: req.params.visitId },
+        select: { id: true, patientId: true, heightCm: true, weightKg: true },
+      });
+      return res.json(current);
+    }
+    const visit = await prisma.visit.update({
+      where: { id: req.params.visitId },
+      data,
+      select: { id: true, patientId: true, heightCm: true, weightKg: true },
     });
-    return res.json(patient);
+    // Height carries forward to prefill the next bill. Weight deliberately does
+    // not — it is re-measured each visit, and a stale prefill accepted without
+    // anyone noticing is exactly how a wrong BMI reaches a patient.
+    if (heightCm !== null) {
+      await prisma.patient
+        .update({ where: { id: visit.patientId }, data: { heightCm } })
+        .catch(() => undefined);
+    }
+    return res.json(visit);
   } catch (err) {
-    console.error('PUT patient measurements failed:', err);
+    console.error('PUT visit measurements failed:', err);
     return res.status(500).json({ error: 'INTERNAL_ERROR' });
   }
 });

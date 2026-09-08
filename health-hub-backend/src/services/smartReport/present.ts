@@ -3,6 +3,51 @@ import prisma from '../../lib/prisma';
 import { loadConfig } from './config';
 import { renderSmartReportHtml, type RenderInput } from './renderer';
 
+/**
+ * Weight at this patient's recent visits, oldest first, including this one. Only
+ * possible now that weight is recorded per VISIT — a single mutable field on
+ * Patient had no history to plot.
+ */
+async function weightHistoryFor(
+  patientId: string,
+  upTo: Date | null,
+): Promise<{ date: string; kg: number }[]> {
+  if (!patientId) return [];
+  const rows = await prisma.visit
+    .findMany({
+      where: {
+        patientId,
+        weightKg: { not: null },
+        ...(upTo ? { createdAt: { lte: upTo } } : {}),
+      },
+      select: { createdAt: true, weightKg: true },
+      orderBy: { createdAt: 'desc' },
+      take: 6,
+    })
+    .catch(() => [] as { createdAt: Date; weightKg: number | null }[]);
+  return rows
+    .reverse()
+    .map((r) => ({ date: r.createdAt.toISOString(), kg: r.weightKg as number }));
+}
+
+/**
+ * Height/weight for the report. Prefers the values frozen into patientSnapshot at
+ * THIS visit. Falls back to the live Patient row only for reports finalized before
+ * measurements moved onto the visit — that older path is precisely why re-weighing
+ * a patient used to rewrite the BMI on every one of their past reports.
+ */
+async function measurementsFor(
+  patientSnap: any,
+): Promise<{ heightCm: number | null; weightKg: number | null }> {
+  const h = typeof patientSnap?.heightCm === 'number' ? patientSnap.heightCm : null;
+  const w = typeof patientSnap?.weightKg === 'number' ? patientSnap.weightKg : null;
+  if (h !== null || w !== null) return { heightCm: h, weightKg: w };
+  const legacy = await prisma.patient
+    .findUnique({ where: { id: patientSnap?.patientId ?? '' }, select: { heightCm: true, weightKg: true } })
+    .catch(() => null);
+  return { heightCm: legacy?.heightCm ?? null, weightKg: legacy?.weightKg ?? null };
+}
+
 export async function buildRenderInput(
   reportVersionId: string,
   qrDataUrl?: string,
@@ -22,11 +67,11 @@ export async function buildRenderInput(
   const visitSnap = (sr.reportVersion.visitSnapshot ?? {}) as any;
   const cfg = await loadConfig(sr.branchId);
 
-  // height/weight are live on Patient (captured in billing), not in the snapshot
-  const patient = await prisma.patient.findUnique({
-    where: { id: patientSnap.patientId ?? '' },
-    select: { heightCm: true, weightKg: true },
-  }).catch(() => null);
+  const patient = await measurementsFor(patientSnap);
+  const weightHistory = await weightHistoryFor(
+    patientSnap.patientId ?? '',
+    visitSnap.finalizedAt ? new Date(visitSnap.finalizedAt) : (visitSnap.createdAt ? new Date(visitSnap.createdAt) : null),
+  );
 
   const genderLabel = patientSnap.gender === 'F' ? 'Female' : patientSnap.gender === 'M' ? 'Male' : 'Other';
   const reportDate = visitSnap.finalizedAt
@@ -41,6 +86,7 @@ export async function buildRenderInput(
       patientNumber: patientSnap.patientNumber ?? '',
       heightCm: patient?.heightCm ?? null,
       weightKg: patient?.weightKg ?? null,
+      weightHistory,
       ageYears: typeof patientSnap.age === 'number' ? patientSnap.age : null,
       sex: patientSnap.gender ?? 'O',
     },
@@ -99,9 +145,11 @@ export async function renderDraft(
 ): Promise<string> {
   const patientSnap = snapshot.patient ?? {};
   const visitSnap = snapshot.visit ?? {};
-  const patient = await prisma.patient
-    .findUnique({ where: { id: patientSnap.patientId ?? '' }, select: { heightCm: true, weightKg: true } })
-    .catch(() => null);
+  const patient = await measurementsFor(patientSnap);
+  const weightHistory = await weightHistoryFor(
+    patientSnap.patientId ?? '',
+    visitSnap.finalizedAt ? new Date(visitSnap.finalizedAt) : (visitSnap.createdAt ? new Date(visitSnap.createdAt) : null),
+  );
 
   const b = produced.buckets;
   return renderSmartReportHtml({
@@ -112,6 +160,7 @@ export async function renderDraft(
       patientNumber: patientSnap.patientNumber ?? '',
       heightCm: patient?.heightCm ?? null,
       weightKg: patient?.weightKg ?? null,
+      weightHistory,
       ageYears: typeof patientSnap.age === 'number' ? patientSnap.age : null,
       sex: patientSnap.gender ?? 'O',
     },

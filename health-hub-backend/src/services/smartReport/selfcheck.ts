@@ -295,6 +295,26 @@ console.log('\n✓ all assertions passed — engine matches the prototype');
   hindi.testScore.paragraph = 'आपका स्कोर 55 है';
   assert.strictEqual(sanitize(hindi, payload, SAFE).content, null, 'wrong language is unsalvageable');
   console.log('✓ salvage: a bad line costs that line, not the report');
+
+  // Weight trend. Only possible because weight is recorded per VISIT — the single
+  // mutable Patient.weightKg had no history, and worse, was read live so a
+  // re-weigh rewrote the BMI on every past finalized report.
+  const { weightTrend } = require('./renderer');
+  const day = (iso: string, kg: number) => ({ date: iso, kg });
+  assert.strictEqual(weightTrend(undefined), '', 'no history -> nothing');
+  assert.strictEqual(weightTrend([day('2026-03-14T00:00:00Z', 72)]), '', 'one point is not a trend');
+  const down = weightTrend([day('2026-03-14T00:00:00Z', 74), day('2026-09-08T00:00:00Z', 72.4)]);
+  assert.ok(down.includes('1.6 kg less than'), `expected a loss, got: ${down}`);
+  assert.ok(down.includes('14 Mar 2026'), 'names the date it is comparing against');
+  const up = weightTrend([day('2026-03-14T00:00:00Z', 70), day('2026-09-08T00:00:00Z', 72)]);
+  assert.ok(up.includes('2 kg more than'), `expected a gain, got: ${up}`);
+  const same = weightTrend([day('2026-03-14T00:00:00Z', 72), day('2026-09-08T00:00:00Z', 72.05)]);
+  assert.ok(same.includes('Same as'), 'sub-100g is noise, not a change');
+  // No judgement: whether a change is good is clinical, and nothing here knows.
+  for (const out of [down, up]) {
+    assert.ok(!/good|bad|great|concern|improv|worse|↑|↓|▲|▼/i.test(out), `must stay neutral: ${out}`);
+  }
+  console.log('✓ weight trend: factual, neutral, needs two real measurements');
 }
 
 // Regression: the small-package scoring bug. Under the old point sum a one-panel

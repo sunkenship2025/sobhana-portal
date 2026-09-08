@@ -21,7 +21,9 @@ const CARDS_PER_PAGE = 6;
 const CHARTS_PER_PAGE = 8;
 
 export interface RenderInput {
-  patient: { name: string; genderLabel: string; ageDisplay: string; patientNumber: string; heightCm: number | null; weightKg: number | null; ageYears: number | null; sex: string };
+  patient: { name: string; genderLabel: string; ageDisplay: string; patientNumber: string; heightCm: number | null; weightKg: number | null; ageYears: number | null; sex: string;
+    /** oldest first, including this visit — drives the weight trend on the tile */
+    weightHistory?: { date: string; kg: number }[] };
   visit: { billNumber: string; branchName: string; branchAddress: string | null; branchPhone: string | null; reportDate: string; collectedAt?: string | null };
   brand: { tagline: string; website: string; accent: string; disclaimer: string | null };
   packageName: string;
@@ -172,6 +174,24 @@ function cover(d: RenderInput): string {
 </section>`;
 }
 
+/**
+ * Weight change since the last visit that recorded one. Stated as a plain fact
+ * with no arrow and no colour: whether losing or gaining is good is a clinical
+ * judgement, and nothing here knows the patient's context. Needs two real
+ * measurements, which only became possible once weight moved onto the visit.
+ */
+export function weightTrend(h?: { date: string; kg: number }[]): string {
+  if (!h || h.length < 2) return '';
+  const last = h[h.length - 1];
+  const prev = h[h.length - 2];
+  const diff = last.kg - prev.kg;
+  const when = new Date(prev.date).toLocaleDateString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric',
+  });
+  if (Math.abs(diff) < 0.1) return `<div class="mtrend">Same as ${when}</div>`;
+  return `<div class="mtrend">${num(Math.abs(diff))} kg ${diff > 0 ? 'more' : 'less'} than ${when}</div>`;
+}
+
 // ---------------------------------------------------------------- 01
 function pageAnalysis(d: RenderInput): string {
   const ess = d.patient.heightCm && d.patient.weightKg && d.patient.ageYears !== null
@@ -180,7 +200,8 @@ function pageAnalysis(d: RenderInput): string {
 
   const metrics = ess ? `<div class="metrics">
       <div class="metric m-w"><div class="mt">Weight</div>
-        <div class="mv">${num(d.patient.weightKg as number)} <small>kg</small></div></div>
+        <div class="mv">${num(d.patient.weightKg as number)} <small>kg</small></div>
+        ${weightTrend(d.patient.weightHistory)}</div>
       <div class="metric m-h"><div class="mt">Height</div>
         <div class="mv">${num(d.patient.heightCm as number)} <small>cm</small></div></div>
       <div class="metric m-b"><div class="mt">BMI - (18.5 to 24.9)</div>

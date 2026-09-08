@@ -269,7 +269,11 @@ model Patient {
   gender        Gender
   address       String?
   /// Smart Reports: captured in billing only when a Smart-Report bundle is in the cart.
+  /// Last recorded height, kept ONLY to prefill the billing form. The value a
+  /// report renders comes from Visit.heightCm frozen into patientSnapshot.
   heightCm      Float?
+  /// DEPRECATED — superseded by Visit.weightKg. Never read for a report: a single
+  /// mutable weight made past reports' BMI change whenever the patient returned.
   weightKg      Float?
   createdAt     DateTime  @default(now())
 
@@ -648,6 +652,14 @@ model Visit {
   totalAmountInPaise Int // Sum of bill items
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
+
+  // Measured at billing when a Smart-Report package is billed. On the VISIT, not
+  // the patient: weight changes between visits, and Patient.weightKg made a
+  // FINALIZED report's BMI move every time the patient was re-weighed — the exact
+  // mutation the frozen snapshots exist to prevent. Frozen into patientSnapshot at
+  // finalize; Patient.heightCm survives only as a prefill convenience.
+  heightCm Float?
+  weightKg Float?
 
   // Set when the bill / finalized report is printed from the Finalized page.
   // Drives the green "Printed · time" affordance so staff can see at a glance
