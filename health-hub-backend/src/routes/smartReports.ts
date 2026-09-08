@@ -221,12 +221,19 @@ router.get('/visits/:visitId/draft-preview', async (req: AuthRequest, res) => {
     // only lets staff read what a patient WOULD get. Requiring the same switch
     // would mean turning delivery on in order to review the content first, which
     // is exactly backwards.
+    // Stage timings, because the staff-facing wait had only ever been measured
+    // from a laptop across the Pacific — where a DB round trip is ~285ms and the
+    // Redis reference-range cache is absent, so both look far worse than they are.
+    const t0 = Date.now();
     const cfg = await loadConfig(req.branchId ?? null);
 
+    const tCfg = Date.now();
     const scope = await resolveVisitScope(visitId, cfg);
     if (!scope.ok) return res.status(409).json({ error: scope.skipReason ?? 'NO_SMART_REPORT_PRODUCT' });
 
+    const tScope = Date.now();
     const snapshot = await buildEphemeralSnapshot(visitId);
+    const tSnap = Date.now();
     const buckets = buildBuckets(
       snapshot as unknown as SnapshotLike,
       scope.inScopePanelIds.size ? scope.inScopePanelIds : null,
@@ -236,18 +243,32 @@ router.get('/visits/:visitId/draft-preview', async (req: AuthRequest, res) => {
       return res.status(409).json({ error: 'BELOW_MIN_PARAMETERS', scored: buckets.counts.scored });
     }
 
-    const visit = await prisma.visit.findUnique({
-      where: { id: visitId },
-      select: { id: true, createdAt: true, patientId: true },
-    });
-    if (!visit) return res.status(404).json({ error: 'VISIT_NOT_FOUND' });
+    // The snapshot already carries the visit; a second findUnique here was a
+    // redundant round trip.
+    const visit = {
+      id: snapshot.visit.visitId,
+      createdAt: new Date(snapshot.visit.createdAt),
+      patientId: snapshot.patient.patientId,
+    };
 
     const produced = await produceSmartReport({
       buckets, visit, patientSnapshot: snapshot.patient as any, scope, cfg,
       logRef: `draft:${visitId}`,
     });
 
+    const tLlm = Date.now();
     const html = await renderDraft(snapshot, produced, scope, cfg);
+    console.log('[smart-report draft-preview] timing', JSON.stringify({
+      visitId,
+      totalMs: Date.now() - t0,
+      configMs: tCfg - t0,
+      scopeMs: tScope - tCfg,
+      snapshotMs: tSnap - tScope,
+      produceMs: tLlm - tSnap,
+      renderMs: Date.now() - tLlm,
+      scored: buckets.counts.scored,
+      fallback: produced.usedFallback,
+    }));
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     return res.send(html);
