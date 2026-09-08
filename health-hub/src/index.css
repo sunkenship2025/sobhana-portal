@@ -563,8 +563,23 @@
    permanently coloured block reads as an error state in a billing form. */
 @keyframes smartGlow {
   0%   { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
-  18%  { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.35); }
+  10%  { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.38); }
+  35%  { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+  50%  { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.32); }
+  75%  { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+  85%  { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.22); }
   100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
 }
-.smart-glow { animation: smartGlow 2s ease-out 1; }
-@media (prefers-reduced-motion: reduce) { .smart-glow { animation: none; } }
+.smart-glow { animation: smartGlow 6s ease-out 1; }
+
+/* The badge keeps a gentle pulse after the border settles, so the section stays
+   identifiable as the Smart Report capture without a permanent coloured block. */
+@keyframes smartBadgePulse {
+  0%, 100% { opacity: .7; filter: drop-shadow(0 0 0 rgba(59, 130, 246, 0)); }
+  50%      { opacity: 1;  filter: drop-shadow(0 0 3px rgba(59, 130, 246, .6)); }
+}
+.smart-badge { animation: smartBadgePulse 2.6s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .smart-glow, .smart-badge { animation: none; }
+}

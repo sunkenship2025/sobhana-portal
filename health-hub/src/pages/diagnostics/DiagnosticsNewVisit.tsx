@@ -2206,7 +2206,7 @@ const DiagnosticsNewVisit = () => {
               {showMeasurements && (
                 <div className="smart-glow rounded-md border p-3">
                   <div className="mb-2 flex justify-end">
-                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                    <span className="smart-badge inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
                       <Sparkles className="h-3 w-3" aria-hidden="true" />
                       Smart Report
                     </span>
@@ -2245,6 +2245,9 @@ const DiagnosticsNewVisit = () => {
                     />
                   </div>
                   </div>
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    The Smart Report is only generated and sent when both are filled.
+                  </p>
                 </div>
               )}
               {externalLabs.length > 0 && selectedProducts.length > 0 && (
