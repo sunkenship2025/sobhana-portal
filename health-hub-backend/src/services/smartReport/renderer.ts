@@ -180,6 +180,27 @@ function cover(d: RenderInput): string {
  * judgement, and nothing here knows the patient's context. Needs two real
  * measurements, which only became possible once weight moved onto the visit.
  */
+/**
+ * Sparkline for the weight tile. Axis-less on purpose — the sentence beside it
+ * carries the magnitude and the date; this only shows the SHAPE. Needs the same
+ * two real measurements the sentence does.
+ */
+export function weightSpark(h?: { date: string; kg: number }[]): string {
+  if (!h || h.length < 2) return '';
+  const W = 88, H = 24, P = 4;   // P keeps the extremes off the stroke edge
+  const ks = h.map((pt) => pt.kg);
+  const lo = Math.min(...ks), hi = Math.max(...ks);
+  const flat = hi === lo;                       // no divide-by-zero; a flat run sits centred
+  const x = (i: number) => P + (i * (W - 2 * P)) / (h.length - 1);
+  const y = (k: number) => (flat ? H / 2 : H - P - ((k - lo) / (hi - lo)) * (H - 2 * P));
+  const pts = h.map((pt, i) => `${x(i).toFixed(1)},${y(pt.kg).toFixed(1)}`).join(' ');
+  const lastX = x(h.length - 1).toFixed(1);
+  const lastY = y(h[h.length - 1].kg).toFixed(1);
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true">`
+    + `<polyline points="${pts}" fill="none" stroke="#8A9096" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>`
+    + `<circle cx="${lastX}" cy="${lastY}" r="2.6" fill="#1A73E8"/></svg>`;
+}
+
 export function weightTrend(h?: { date: string; kg: number }[]): string {
   if (!h || h.length < 2) return '';
   const last = h[h.length - 1];
@@ -201,7 +222,8 @@ function pageAnalysis(d: RenderInput): string {
   const metrics = ess ? `<div class="metrics">
       <div class="metric m-w"><div class="mt">Weight</div>
         <div class="mv">${num(d.patient.weightKg as number)} <small>kg</small></div>
-        ${weightTrend(d.patient.weightHistory)}</div>
+        ${weightTrend(d.patient.weightHistory)}
+        ${weightSpark(d.patient.weightHistory)}</div>
       <div class="metric m-h"><div class="mt">Height</div>
         <div class="mv">${num(d.patient.heightCm as number)} <small>cm</small></div></div>
       <div class="metric m-b"><div class="mt">BMI - (18.5 to 24.9)</div>

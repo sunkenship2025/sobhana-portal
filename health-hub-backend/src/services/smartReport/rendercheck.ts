@@ -103,7 +103,7 @@ for (const f of b.findings) {
 }
 
 const html = renderSmartReportHtml({
-  patient:{name:'Mr. Ramesh Kumar',genderLabel:'Male',ageDisplay:'52 Year',patientNumber:'P-04127',heightCm:170,weightKg:82,ageYears:52,sex:'M'},
+  patient:{name:'Mr. Ramesh Kumar',genderLabel:'Male',ageDisplay:'52 Year',patientNumber:'P-04127',heightCm:170,weightKg:82,ageYears:52,sex:'M',weightHistory:[{date:'2025-09-02T00:00:00Z',kg:88},{date:'2026-01-14T00:00:00Z',kg:85.5},{date:'2026-05-06T00:00:00Z',kg:83.6},{date:'2026-08-31T00:00:00Z',kg:82}]},
   visit:{billNumber:'D-MPR-04812',branchName:'Sobhana Diagnostics',branchAddress:'Plot 42, Chintal Main Road, Quthbullapur, Hyderabad 500054, India',branchPhone:'+91 90000 12345',reportDate:'31-08-2026'},
   brand:{tagline:'Accurate Results, Explained Simply',website:'www.sobhanadiagnostics.in',accent:'#1E6CA8',disclaimer:null},
   packageName:'Master Health Check', score:s.score, band:s.band, counts:b.counts, hasCritical:b.hasCritical,

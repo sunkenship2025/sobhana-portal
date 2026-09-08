@@ -127,6 +127,10 @@ h2:first-child{margin-top:0}
 .metric .mv small{font-size:12.5px;font-weight:600;color:#5F6368}
 .metric .mv em{font-style:normal;font-size:13px;font-weight:600;color:#D93025}
 .metric .mtrend{font-size:11px;font-weight:600;color:#5F6368;margin-top:5px}
+/* absolute so the sparkline costs NO tile height: the metrics row is a uniform
+   grid, so anything that grows the weight tile leaves dead space under Height
+   and BMI. It sits in the otherwise-unused top-right slot. */
+.metric .spark{position:absolute;top:13px;right:12px}
 .tscore{margin-top:16px}
 .tscore h3{font-size:13px;font-weight:700;margin:0 0 4px}
 .tscore p{margin:0;font-size:12.3px;color:#4A5056}
