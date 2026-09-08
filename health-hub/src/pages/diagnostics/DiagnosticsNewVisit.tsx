@@ -830,9 +830,14 @@ const DiagnosticsNewVisit = () => {
   useEffect(() => {
     setMeasurements({
       heightCm: selectedPatient?.heightCm != null ? String(selectedPatient.heightCm) : "",
-      weightKg: selectedPatient?.weightKg != null ? String(selectedPatient.weightKg) : "",
+      // Weight is deliberately NOT prefilled. Height barely moves in an adult, but
+      // weight is the thing being re-measured — and a stale value nobody noticed
+      // was prefilled would put a wrong BMI on the patient's report. Blank means
+      // "not measured today", which the Essentials page treats as "omit", never
+      // as "reuse the old one".
+      weightKg: "",
     });
-  }, [selectedPatient?.id, selectedPatient?.heightCm, selectedPatient?.weightKg]);
+  }, [selectedPatient?.id, selectedPatient?.heightCm]);
 
   // Age in YEARS. ageUnit is DAYS or MONTHS for infants, so a raw `age` of 20 can
   // mean 20 months — comparing it to a year threshold directly would offer the
