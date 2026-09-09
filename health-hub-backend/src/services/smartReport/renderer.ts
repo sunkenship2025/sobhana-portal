@@ -6,10 +6,10 @@
  * a critical result — so the count varies per patient.
  */
 import {
-  BODY_PATH, ICON_SYMBOLS, REPORT_CSS, ART_YOGA, ART_DIET, ART_LIFESTYLE, ART_RHYTHM,
+  BODY_CONTOUR, ICON_SYMBOLS, REPORT_CSS, ART_YOGA, ART_DIET, ART_LIFESTYLE, ART_RHYTHM,
   ART_COVER_MALE, ART_COVER_FEMALE, ART_COVER_CHILD, getBrandLogoDataUri,
 } from './assets';
-import { iconFor } from './icons';
+import { iconFor, anchorFor } from './icons';
 import { computeEssentials } from './essentials';
 import { trendChart, trendVerdict, MIN_POINTS } from './chart';
 import { BAND_LABEL } from './score';
@@ -236,8 +236,28 @@ function pageAnalysis(d: RenderInput): string {
         <p style="margin:4px 0 0;font-size:12.5px;color:#5F2120">Please contact the centre today on ${esc(d.visit.branchPhone ?? 'the number below')}. Do not wait for your next appointment.</p>
       </div>` : '';
 
+  // Numbered correspondence between body and tiles. Numbers run top-to-bottom by
+  // anatomical height, so the body reads downward and the tile numbers agree with
+  // it. Panels with no honest anatomical site (systemic markers, imaging) get no
+  // dot and no number rather than a made-up location.
+  const anchored = d.panels
+    .map((p) => ({ p, a: anchorFor(p.name, p.icon) }))
+    .filter((x): x is { p: typeof d.panels[number]; a: { x: number; y: number } } => x.a !== null)
+    .sort((x, y) => x.a.y - y.a.y);
+  const bodyNum = new Map<string, number>();
+  anchored.forEach((x, i) => bodyNum.set(x.p.name, i + 1));
+
+  const dots = anchored
+    .map((x) => {
+      const n = bodyNum.get(x.p.name);
+      return `<circle class="bdot" cx="${x.a.x}" cy="${x.a.y}" r="7.5"/>`
+        + `<text class="bdotn" x="${x.a.x}" y="${x.a.y + 3}">${n}</text>`;
+    })
+    .join('');
+
   const tiles = d.panels.map((p) => {
     const ic = iconFor(p.name, p.icon);
+    const n = bodyNum.get(p.name);
     const pills = [
       p.withinRange ? `<span class="pill p-ok">${p.withinRange} Normal</span>` : '',
       p.outOfRange ? `<span class="pill p-bad">${p.outOfRange} Abnormal</span>` : '',
@@ -245,7 +265,7 @@ function pageAnalysis(d: RenderInput): string {
       p.notScored && !p.withinRange && !p.outOfRange ? `<span class="pill p-pen">Descriptive</span>` : '',
     ].join('');
     return `<div class="tile"><span class="ico"><svg class="hi" style="color:${ic.tint}" width="26" height="26"><use href="#${ic.id}"/></svg></span>
-      <div class="tx"><b>${esc(p.name)}</b><div class="bd">${pills}</div></div></div>`;
+      <div class="tx"><b>${n ? `<span class="n">${n}</span>` : ''}${esc(p.name)}</b><div class="bd">${pills}</div></div></div>`;
   });
   const half = Math.ceil(tiles.length / 2);
 
@@ -264,7 +284,10 @@ function pageAnalysis(d: RenderInput): string {
     </div>
     <div class="bodywrap">
       <div class="tcol">${tiles.slice(0, half).join('')}</div>
-      <div class="figure"><svg class="bodyfig" viewBox="0 0 970 2200"><g transform="translate(41.5,630.92)"><path d="${BODY_PATH}" fill="#F3C69C"/></g></svg></div>
+      <div class="figure"><svg class="bodyfig" viewBox="0 0 180 190" aria-hidden="true">
+        <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">
+          <circle cx="90" cy="23" r="16"/><path d="${BODY_CONTOUR}"/>
+        </g>${dots}</svg></div>
       <div class="tcol">${tiles.slice(half).join('')}</div>
     </div>
   </div>

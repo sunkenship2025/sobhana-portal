@@ -329,6 +329,29 @@ console.log('\n✓ all assertions passed — engine matches the prototype');
     'the raw array really does score nothing — this is what the wrapper prevents',
   );
   console.log('✓ panelsSnapshot shape: stored array is wrapped for buildBuckets');
+
+  // Body figure anchors. The dots are r=7.5 (15px across) in a 180x190 box, so any
+  // two anchors closer than ~18px render as a smudge — which happened on the first
+  // attempt, right where the figure is meant to be precise.
+  const { anchorFor: anch } = require('./icons');
+  const sites: [string, { x: number; y: number }][] = [];
+  for (const name of ['Complete Blood Picture', 'Blood Sugar', 'Lipid Profile', 'Liver Function Test',
+                       'Kidney Function Test', 'Thyroid Profile', 'Vitamin D (25-OH)', 'Urine Routine']) {
+    const a = anch(name);
+    assert.ok(a, `${name} should have an anatomical anchor`);
+    sites.push([name, a]);
+  }
+  for (let i = 0; i < sites.length; i++) {
+    for (let j = i + 1; j < sites.length; j++) {
+      const [an, a] = sites[i]; const [bn, b] = sites[j];
+      const d2 = Math.hypot(a.x - b.x, a.y - b.y);
+      assert.ok(d2 >= 18, `anchors too close: ${an} and ${bn} are ${d2.toFixed(1)} apart`);
+    }
+  }
+  // Systemic markers must NOT be given a made-up location.
+  assert.strictEqual(anch('Vitamin B12'), null, 'B12 is systemic — no anatomical site');
+  assert.strictEqual(anch('USG Abdomen'), null, 'imaging varies — no fixed site');
+  console.log('✓ body anchors: no overlapping dots, systemic panels unplaced');
 }
 
 // Regression: the small-package scoring bug. Under the old point sum a one-panel
