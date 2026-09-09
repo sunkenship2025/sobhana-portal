@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { branchRequest, useBranchId } from '@/lib/query';
+import { useBranchStore } from '@/store/branchStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -24,6 +25,8 @@ interface Config {
   minPatientAgeYears: number;
   maxFindingPages: number;
   model: string;
+  /** Where these values came from. 'global' = inherited by every branch. */
+  scope?: 'branch' | 'global';
 }
 
 const TOGGLES: { key: keyof Config; label: string; hint: string }[] = [
@@ -36,14 +39,53 @@ const TOGGLES: { key: keyof Config; label: string; hint: string }[] = [
 
 export default function ManageSmartReports() {
   const branchId = useBranchId();
+  const activeBranch = useBranchStore((s) => s.activeBranch);
   const [cfg, setCfg] = useState<Config | null>(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
+  const load = () =>
     branchRequest<Config>('/smart-reports/config', branchId)
       .then(setCfg)
       .catch(() => toast.error('Could not load Smart Report settings'));
-  }, [branchId]);
+
+  useEffect(() => { void load(); }, [branchId]);
+
+  const overriddenHere = cfg?.scope === 'branch';
+  const branchName = activeBranch?.name ?? 'this branch';
+
+  /** Create the override, seeded server-side from the inherited values. */
+  const overrideForBranch = async () => {
+    if (!cfg) return;
+    setSaving(true);
+    try {
+      await branchRequest('/smart-reports/config', branchId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...cfg, scope: 'branch' }),
+      });
+      await load();
+      toast.success(`Smart Reports now set separately for ${branchName}`);
+    } catch {
+      toast.error('Could not create the branch override');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Deleting the row IS the "use shared settings" state — there is no third value. */
+  const useShared = async () => {
+    if (!window.confirm(`Discard the Smart Report settings for ${branchName} and follow the shared settings again?`)) return;
+    setSaving(true);
+    try {
+      await branchRequest('/smart-reports/config', branchId, { method: 'DELETE' });
+      await load();
+      toast.success(`${branchName} now follows the shared settings`);
+    } catch {
+      toast.error('Could not remove the branch override');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const set = <K extends keyof Config>(k: K, v: Config[K]) =>
     setCfg((c) => (c ? { ...c, [k]: v } : c));
@@ -55,9 +97,13 @@ export default function ManageSmartReports() {
       await branchRequest('/smart-reports/config', branchId, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(cfg),
+        body: JSON.stringify({ ...cfg, scope: cfg.scope ?? 'global' }),
       });
-      toast.success('Smart Report settings saved');
+      toast.success(
+        cfg.scope === 'branch'
+          ? `Saved for ${branchName}`
+          : 'Saved for all branches',
+      );
     } catch {
       toast.error('Could not save settings');
     } finally {
@@ -84,6 +130,29 @@ export default function ManageSmartReports() {
             final finalize, and only for packages you have switched on under Billable Products.
           </p>
         </div>
+      </div>
+
+      {/* Which settings am I editing? The page loads branch-scoped values, so without
+          this an owner edits at one branch and silently changes all of them. */}
+      <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+        <div>
+          <p className="text-sm font-medium">
+            {overriddenHere ? `Set separately for ${branchName}` : 'Shared by all branches'}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {overriddenHere
+              ? 'Other branches keep following the shared settings.'
+              : 'Changes here apply to every branch.'}
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={saving}
+          onClick={overriddenHere ? useShared : overrideForBranch}
+        >
+          {overriddenHere ? 'Use shared settings' : `Set separately for ${branchName}`}
+        </Button>
       </div>
 
       <div className="space-y-4 rounded-lg border p-4">
@@ -148,7 +217,9 @@ export default function ManageSmartReports() {
       </div>
 
       <div className="flex justify-end">
-        <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</Button>
+        <Button onClick={save} disabled={saving}>
+          {saving ? 'Saving…' : overriddenHere ? `Save for ${branchName}` : 'Save for all branches'}
+        </Button>
       </div>
     </div>
   );
