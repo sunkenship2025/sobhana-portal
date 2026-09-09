@@ -21,7 +21,10 @@ export interface ValidationResult {
   content?: GeneratedContent;
 }
 
-const MAX = { paragraph: 480, explanation: 200, line: 160, heading: 60, reason: 160 };
+// Measured against the rendered A4 pages, not guessed: page 01 overflows at 520
+// characters of score paragraph, and the finding pages overflow at 320 per
+// explanation. These are layout limits, so raising them silently breaks the PDF.
+const MAX = { paragraph: 500, explanation: 280, line: 160, heading: 60, reason: 160 };
 
 /**
  * Length is a layout concern, not a safety one — a reason two characters over the

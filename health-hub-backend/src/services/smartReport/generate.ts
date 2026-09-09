@@ -85,7 +85,13 @@ export async function produceSmartReport(a: ProduceArgs) {
     patient?.name, patient?.patientNumber, patient?.phone, patient?.address,
   ].filter(Boolean));
 
-  const inputHash = createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+  // The MODEL and the PROMPT VERSION belong in the key alongside the payload: the
+  // same question asked of a different model, or under different instructions, is
+  // not the same question. Hashing the payload alone meant a prompt change was
+  // invisible here and stored drafts kept being served under the old rules.
+  const inputHash = createHash('sha256')
+    .update(JSON.stringify({ payload, model: cfg.model, prompt: PROMPT_VERSION }))
+    .digest('hex');
 
   let generated: GeneratedContent | null = null;
   let usedFallback = false;

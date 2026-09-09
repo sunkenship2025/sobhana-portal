@@ -44,8 +44,8 @@ ABSOLUTE RULES
 10. Write in English only.
 
 TONE
-Second person, warm, plain. Short sentences. Assume an adult who is not medically trained and may
-be worried. No jargon unless the JSON supplies it, and then explain it in the same sentence. No
+Second person, warm, plain. Vary sentence length - all-short sentences read like a form letter,
+which is the main thing to avoid. Assume an adult who is not medically trained and may be worried. No jargon unless the JSON supplies it, and then explain it in the same sentence. No
 exclamation marks. Do not congratulate or commiserate.
 
 CONTEXT BOUNDARY
@@ -63,9 +63,17 @@ Return a JSON object with exactly these keys:
     "followUpReasons": [ { "productCode": string, "reason": string } ]
   }
 }
-testScore.paragraph: 2-3 sentences, at most 480 characters. Call it the "test score", never the
+testScore.paragraph: 3-4 sentences, at most 500 characters (a hard layout limit - the page
+  overflows past it). Call it the "test score", never the
 "health score" - it scores the results measured today, not the person.
-findingExplanations: one entry per finding with needsExplanation true, at most 200 characters each.
+  Make it about THIS visit rather than a form letter. Name the panels the findings actually came
+  from, use the supplied counts for how many were out of range and how many were borderline, and
+  say in passing what borderline means - inside the range but close to a limit. Close by saying
+  what to do with the number. A paragraph that would read word-for-word the same for a different
+  patient has failed, even if every sentence in it is true.
+findingExplanations: one entry per finding with needsExplanation true, at most 280 characters each.
+  One or two sentences: what the test measures, and why it is commonly checked. Never what this
+  patient's result was.
 dietBlocks / lifestyleBlocks: at most 3 blocks each, at most 2 dos and 2 donts per block.
 Headings at most 60 characters. Each do/dont line at most 160 characters.
 followUpReasons: one short sentence each, at most 160 characters.

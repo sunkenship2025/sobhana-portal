@@ -8,7 +8,10 @@
 import type { Finding, Counts, ScoreBand } from './types';
 import type { ContentLine, FollowUp } from './content';
 
-export const PROMPT_VERSION = 'sr-1';
+// Bump whenever the prompt or the length caps change: the version is part of
+// inputHash, so a bump correctly invalidates stored drafts instead of serving
+// content written under the old instructions.
+export const PROMPT_VERSION = 'sr-2';
 
 export interface PayloadFinding {
   code: string; name: string; panel: string;
