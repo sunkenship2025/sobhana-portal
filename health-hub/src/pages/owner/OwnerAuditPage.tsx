@@ -324,10 +324,14 @@ export default function OwnerAuditPage() {
 
   const [cursor, setCursor] = useState<string | null>(null);
   const [stack, setStack] = useState<string[]>([]);
+  const [accessCursor, setAccessCursor] = useState<string | null>(null);
+  const [accessStack, setAccessStack] = useState<string[]>([]);
   const filterKey = `${branchValue}|${q}|${fromIso}|${toIso}|${catList}|${sevList}|${statusList}`;
   useEffect(() => {
     setCursor(null);
     setStack([]);
+    setAccessCursor(null);
+    setAccessStack([]);
   }, [filterKey]);
 
   const query = useQuery<AuditEventsResponse>({
@@ -423,14 +427,15 @@ export default function OwnerAuditPage() {
 
   // Access & disclosure — who viewed / printed / downloaded reports (header window).
   const accessQuery = useQuery<AccessResponse>({
-    queryKey: ['owner-audit-access', branchValue, fromIso, toIso],
+    queryKey: ['owner-audit-access', branchValue, fromIso, toIso, accessCursor],
     enabled: tab === 'access',
     queryFn: () => {
       const p = new URLSearchParams();
       p.set('branch', branchValue);
       if (fromIso) p.set('from', fromIso);
       if (toIso) p.set('to', toIso);
-      p.set('limit', '100');
+      if (accessCursor) p.set('cursor', accessCursor);
+      p.set('limit', '50');
       return apiRequest<AccessResponse>(`${API_BASE}/owner/audit/access?${p.toString()}`);
     },
     staleTime: 45 * 1000,
@@ -793,6 +798,35 @@ export default function OwnerAuditPage() {
                   })}
                 </tbody>
               </table>
+            )}
+            {accessQuery.data && (accessQuery.data.nextCursor || accessStack.length > 0) && (
+              <div className="pager">
+                <span className="faint" style={{ color: '#888780' }}>
+                  Page {accessStack.length + 1} · 50 / page · keyset cursor · only this page is fetched
+                </span>
+                <span style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    className="pgbtn"
+                    onClick={() => {
+                      if (!accessStack.length) return;
+                      const copy = [...accessStack];
+                      const prev = copy.pop() ?? '';
+                      setAccessStack(copy);
+                      setAccessCursor(prev || null);
+                    }}
+                    disabled={!accessStack.length || accessQuery.isFetching}
+                  >‹ Prev</button>
+                  <button
+                    className="pgbtn"
+                    onClick={() => {
+                      if (!accessQuery.data?.nextCursor) return;
+                      setAccessStack((prev) => [...prev, accessCursor ?? '']);
+                      setAccessCursor(accessQuery.data.nextCursor);
+                    }}
+                    disabled={!accessQuery.data?.nextCursor || accessQuery.isFetching}
+                  >Next ›</button>
+                </span>
+              </div>
             )}
             <div className="note-b" style={{ textAlign: 'left', padding: '12px 16px' }}>
               Latest report accesses in the selected window (from ReportAccessLog). Backs the "who saw my report" /
