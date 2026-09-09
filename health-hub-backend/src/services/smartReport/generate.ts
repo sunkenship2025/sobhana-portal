@@ -175,6 +175,19 @@ export async function produceSmartReport(a: ProduceArgs) {
   };
 }
 
+/**
+ * panelsSnapshot is persisted as the departments ARRAY (createReportSnapshot does
+ * `panelsSnapshot: snapshot.departments`), and every other reader treats it as
+ * DepartmentSnapshot[]. buildBuckets wants { departments }. Casting the array
+ * straight across left snapshot.departments undefined, so buildBuckets saw zero
+ * panels, counts.scored was 0, and EVERY finalize skipped NO_ANALYSABLE_TESTS —
+ * the real generation had never run once. Only the draft preview worked, because
+ * it passes the whole ReportSnapshot object.
+ */
+export function asSnapshot(stored: unknown): SnapshotLike {
+  return (Array.isArray(stored) ? { departments: stored } : stored) as SnapshotLike;
+}
+
 export async function generateSmartReport(reportVersionId: string): Promise<void> {
   const started = Date.now();
   try {
@@ -203,7 +216,15 @@ export async function generateSmartReport(reportVersionId: string): Promise<void
     const scope = await resolveVisitScope(visit.id, cfg);
     if (!scope.ok) return void (await skip(scope.skipReason ?? 'NO_SMART_REPORT_PRODUCT'));
 
-    const snapshot = version.panelsSnapshot as unknown as SnapshotLike;
+    // panelsSnapshot is persisted as the departments ARRAY (see
+    // createReportSnapshot: `panelsSnapshot: snapshot.departments`), and every
+    // other reader treats it as DepartmentSnapshot[]. buildBuckets wants
+    // { departments }, so casting the array straight across left
+    // snapshot.departments undefined -> zero panels -> counts.scored === 0 ->
+    // skip('NO_ANALYSABLE_TESTS') on EVERY finalize. The real generation had
+    // therefore never run once; only the draft preview worked, because it passes
+    // the whole ReportSnapshot. Accept either shape.
+    const snapshot = asSnapshot(version.panelsSnapshot);
     const buckets = buildBuckets(
       snapshot,
       scope.inScopePanelIds.size ? scope.inScopePanelIds : null,

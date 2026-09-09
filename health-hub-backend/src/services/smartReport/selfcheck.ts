@@ -315,6 +315,20 @@ console.log('\n✓ all assertions passed — engine matches the prototype');
     assert.ok(!/good|bad|great|concern|improv|worse|↑|↓|▲|▼/i.test(out), `must stay neutral: ${out}`);
   }
   console.log('✓ weight trend: factual, neutral, needs two real measurements');
+
+  // panelsSnapshot is stored as the departments ARRAY. Handing that straight to
+  // buildBuckets scored nothing, so every finalize skipped NO_ANALYSABLE_TESTS
+  // and the real generation never ran — the draft preview hid it by passing the
+  // whole snapshot object.
+  const { asSnapshot } = require('./generate');
+  const depts = [{ panels: [{ panelId: 'p', displayName: 'P', layoutType: 'STANDARD_TABLE', tests: [] }] }];
+  assert.deepStrictEqual(asSnapshot(depts), { departments: depts }, 'array is wrapped');
+  assert.deepStrictEqual(asSnapshot({ departments: depts }), { departments: depts }, 'object passes through');
+  assert.strictEqual(
+    buildBuckets(depts as any, null).counts.scored, 0,
+    'the raw array really does score nothing — this is what the wrapper prevents',
+  );
+  console.log('✓ panelsSnapshot shape: stored array is wrapped for buildBuckets');
 }
 
 // Regression: the small-package scoring bug. Under the old point sum a one-panel
