@@ -479,9 +479,15 @@ router.put('/config', requireRole('owner', 'lab_incharge'), async (req: AuthRequ
     // somebody deliberately diverged — that is what keeps this from becoming a
     // per-branch config nobody remembers to maintain.
     const branchScoped = req.body?.scope === 'branch';
-    const branchId = branchScoped ? (req.branchId ?? null) : null;
+    // Prefer the explicit body value, fall back to the X-Branch-Id header. Relying
+    // on the header alone produced NO_BRANCH whenever the caller had not set it,
+    // which looked like a server fault rather than a missing branch.
+    const branchId = branchScoped ? (req.body?.branchId || req.branchId || null) : null;
     if (branchScoped && !branchId) {
       return res.status(400).json({ error: 'NO_BRANCH', message: 'No active branch to override' });
+    }
+    if (branchId && !(await prisma.branch.findUnique({ where: { id: branchId }, select: { id: true } }))) {
+      return res.status(400).json({ error: 'UNKNOWN_BRANCH', message: 'That branch does not exist' });
     }
     const existing = await prisma.smartReportConfig.findFirst({ where: { branchId } });
     const saved = existing

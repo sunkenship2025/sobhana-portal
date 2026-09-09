@@ -39,7 +39,11 @@ const TOGGLES: { key: keyof Config; label: string; hint: string }[] = [
 
 export default function ManageSmartReports() {
   const branchId = useBranchId();
-  const activeBranch = useBranchStore((s) => s.activeBranch);
+  // The store exposes activeBranchId + branches (and a getActiveBranch getter);
+  // there is no `activeBranch` field. Reading one silently gave undefined, which
+  // is why the button read "this branch" and no branch id reached the request.
+  const branches = useBranchStore((s) => s.branches);
+  const activeBranch = branches.find((b) => b.id === branchId);
   const [cfg, setCfg] = useState<Config | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -61,12 +65,12 @@ export default function ManageSmartReports() {
       await branchRequest('/smart-reports/config', branchId, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...cfg, scope: 'branch' }),
+        body: JSON.stringify({ ...cfg, scope: 'branch', branchId }),
       });
       await load();
       toast.success(`Smart Reports now set separately for ${branchName}`);
-    } catch {
-      toast.error('Could not create the branch override');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not create the branch override');
     } finally {
       setSaving(false);
     }
@@ -148,7 +152,8 @@ export default function ManageSmartReports() {
         <Button
           variant="outline"
           size="sm"
-          disabled={saving}
+          disabled={saving || !branchId}
+          title={branchId ? undefined : 'Pick a branch first'}
           onClick={overriddenHere ? useShared : overrideForBranch}
         >
           {overriddenHere ? 'Use shared settings' : `Set separately for ${branchName}`}
