@@ -220,6 +220,9 @@ async function draftCompleteness(
 router.get('/visits/:visitId/draft-status', async (req: AuthRequest, res) => {
   try {
     const cfg = await loadConfig(req.branchId ?? null);
+    // Switched off for this branch: no tab, no toggle, no trace. Staff at a branch
+    // that has not adopted Smart Reports should never see the feature exists.
+    if (!cfg.enabled) return res.json({ complete: false, pending: [], enabled: false });
     const scope = await resolveVisitScope(req.params.visitId, cfg);
     // Nothing on this visit produces a Smart Report — report it as not-ready so
     // the tab stays disabled, rather than enabling it to fail with a 409 later.
@@ -236,16 +239,16 @@ router.get('/visits/:visitId/draft-preview', async (req: AuthRequest, res) => {
   try {
     const visitId = req.params.visitId;
 
-    // Deliberately NOT gated on cfg.enabled. That flag arms generation at finalize
-    // and the patient WhatsApp; this route sends nothing and persists nothing, it
-    // only lets staff read what a patient WOULD get. Requiring the same switch
-    // would mean turning delivery on in order to review the content first, which
-    // is exactly backwards.
+    // Gated on cfg.enabled. This route used to be deliberately ungated so content
+    // could be reviewed before arming delivery — but with the switch now per
+    // branch, OFF has to mean the feature is invisible, not merely unsent. A
+    // branch that wants to review first turns it on for that branch alone.
     // Stage timings, because the staff-facing wait had only ever been measured
     // from a laptop across the Pacific — where a DB round trip is ~285ms and the
     // Redis reference-range cache is absent, so both look far worse than they are.
     const t0 = Date.now();
     const cfg = await loadConfig(req.branchId ?? null);
+    if (!cfg.enabled) return res.status(409).json({ error: 'DISABLED' });
 
     const tCfg = Date.now();
     const scope = await resolveVisitScope(visitId, cfg);
@@ -423,12 +426,42 @@ router.put('/visits/:visitId/measurements', async (req: AuthRequest, res) => {
 // ─── config ───────────────────────────────────────────────────────────────
 router.get('/config', async (req: AuthRequest, res) => {
   try {
-    return res.json(await loadConfig(req.branchId ?? null));
+    const branchId = req.branchId ?? null;
+    // `scope` lets the UI say "inherited from global" vs "overridden here" without
+    // re-deriving the ladder client-side and getting it subtly different.
+    const override = branchId
+      ? await prisma.smartReportConfig.findFirst({ where: { branchId }, select: { id: true } })
+      : null;
+    const cfg = await loadConfig(branchId);
+    return res.json({ ...cfg, scope: override ? 'branch' : 'global', branchId });
   } catch (err) {
     console.error('GET smart-report config failed:', err);
     return res.status(500).json({ error: 'INTERNAL_ERROR' });
   }
 });
+
+/**
+ * Drop this branch's override so it inherits the global default again. Deleting
+ * the row IS the "use global" state — no third value, nothing to keep in sync.
+ */
+router.delete('/config', requireRole('owner', 'lab_incharge'), async (req: AuthRequest, res) => {
+  try {
+    const branchId = req.branchId ?? null;
+    if (!branchId) return res.status(400).json({ error: 'NO_BRANCH' });
+    await prisma.smartReportConfig.deleteMany({ where: { branchId } });
+    return res.json({ ...(await loadConfig(branchId)), scope: 'global', branchId });
+  } catch (err) {
+    console.error('DELETE smart-report config failed:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
+});
+
+/** loadConfig returns derived shape; only real columns can be written back. */
+function stripComputed(cfg: Awaited<ReturnType<typeof loadConfig>>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of EDITABLE) if (k in cfg) out[k] = (cfg as any)[k];
+  return out;
+}
 
 const EDITABLE = [
   'enabled', 'recommendationsEnabled', 'futureTestsEnabled', 'trendsEnabled',
@@ -441,10 +474,23 @@ router.put('/config', requireRole('owner', 'lab_incharge'), async (req: AuthRequ
   try {
     const data: Record<string, unknown> = {};
     for (const k of EDITABLE) if (k in (req.body ?? {})) data[k] = req.body[k];
-    const existing = await prisma.smartReportConfig.findFirst({ where: { branchId: null } });
+    // scope 'branch' writes an override for the ACTIVE branch; anything else edits
+    // the global default every branch inherits. A branch row exists only when
+    // somebody deliberately diverged — that is what keeps this from becoming a
+    // per-branch config nobody remembers to maintain.
+    const branchScoped = req.body?.scope === 'branch';
+    const branchId = branchScoped ? (req.branchId ?? null) : null;
+    if (branchScoped && !branchId) {
+      return res.status(400).json({ error: 'NO_BRANCH', message: 'No active branch to override' });
+    }
+    const existing = await prisma.smartReportConfig.findFirst({ where: { branchId } });
     const saved = existing
       ? await prisma.smartReportConfig.update({ where: { id: existing.id }, data })
-      : await prisma.smartReportConfig.create({ data: { branchId: null, ...data } as any });
+      // A brand-new override starts from the INHERITED values, not the hardcoded
+      // defaults — otherwise flipping one switch silently resets everything else.
+      : await prisma.smartReportConfig.create({
+          data: { branchId, ...(branchId ? stripComputed(await loadConfig(null)) : {}), ...data } as any,
+        });
     return res.json(saved);
   } catch (err) {
     console.error('PUT smart-report config failed:', err);

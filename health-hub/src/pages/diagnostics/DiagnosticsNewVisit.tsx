@@ -167,7 +167,7 @@ const DiagnosticsNewVisit = () => {
   // being billed AND the patient meets the age floor — the Health Essentials page
   // is the only thing that uses them, and it is not produced for children.
   // Stored on the Patient, so a returning patient arrives prefilled.
-  const [minSmartAge, setMinSmartAge] = useState<number | null>(null);
+  const [smartCfg, setSmartCfg] = useState<{ enabled: boolean; minPatientAgeYears: number } | null>(null);
   const [measurements, setMeasurements] = useState({ heightCm: "", weightKg: "" });
 
   // E2-10: Validation errors
@@ -761,8 +761,13 @@ const DiagnosticsNewVisit = () => {
   const billsSmartReport = selectedProducts.some(
     (id) => products.find((prod) => prod.id === id)?.smartReportEnabled,
   );
+  // Off for this branch => the capture, the badge and the note all disappear.
+  // A branch that has not adopted Smart Reports should see no trace of them.
   const showMeasurements =
-    billsSmartReport && minSmartAge !== null && yearsOld !== null && yearsOld >= minSmartAge;
+    !!smartCfg?.enabled
+    && billsSmartReport
+    && yearsOld !== null
+    && yearsOld >= smartCfg.minPatientAgeYears;
 
   const runBillValidation = (): boolean => {
     if (!token || !activeBranch) {
@@ -838,15 +843,21 @@ const DiagnosticsNewVisit = () => {
     else openConfirmBill();
   };
 
+  // Branch-scoped on purpose: the switch resolves branch-over-global, so switching
+  // branch must re-resolve it rather than reuse the previous branch's answer.
   useEffect(() => {
-    if (!token) return;
+    if (!token || !activeBranch) return;
     fetch(`${API_BASE}/smart-reports/config`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, "X-Branch-Id": activeBranch.id },
     })
       .then((r) => (r.ok ? r.json() : null))
-      .then((c) => { if (c) setMinSmartAge(Number(c.minPatientAgeYears ?? 18)); })
-      .catch(() => undefined);   // no config, no capture — never blocks billing
-  }, [token]);
+      .then((c) => {
+        setSmartCfg(
+          c ? { enabled: !!c.enabled, minPatientAgeYears: Number(c.minPatientAgeYears ?? 18) } : null,
+        );
+      })
+      .catch(() => setSmartCfg(null));   // no config, no capture — never blocks billing
+  }, [token, activeBranch]);
 
   useEffect(() => {
     setMeasurements({
