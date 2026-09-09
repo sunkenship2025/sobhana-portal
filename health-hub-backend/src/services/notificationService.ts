@@ -13,9 +13,15 @@ export type ReportNotificationKind = 'partial' | 'final';
 const PARTIAL_TEMPLATE_NAME = 'lab_report_partial_ready';
 const FINAL_TEMPLATE_NAME = 'lab_report_ready';
 /** Two URL buttons: View Report + View Smart Report. Only used on the FINAL send,
- *  and only when a Smart Report is READY. Falls back to the single-button template
- *  until the Meta template is approved (set SMART_REPORT_TEMPLATE to enable). */
-const SMART_TEMPLATE_NAME = process.env.SMART_REPORT_TEMPLATE || '';
+ *  and only when a Smart Report is READY.
+ *
+ *  Was env-gated (SMART_REPORT_TEMPLATE) while the Meta template was PENDING, so
+ *  a deploy could not send against a template that did not exist yet. Approved
+ *  2026-09, so it is now a constant like its two siblings above. The env var was
+ *  also a SILENT second gate: unset, smartReady was never evaluated and the plain
+ *  template went out with no skip reason and nothing in the logs to explain it.
+ *  On/off lives in SmartReportConfig.enabled, per branch. */
+const SMART_TEMPLATE_NAME = 'lab_report_ready_smart';
 
 import {
   DiagnosticWorkflowMode,
@@ -330,7 +336,7 @@ async function dispatchDiagnosticCompletionNotification(input: {
     // Smart Report is only ever generated at the FINAL finalize, so the
     // two-button template is only ever a possibility here.
     let smartReady = false;
-    if (kind === 'final' && SMART_TEMPLATE_NAME) {
+    if (kind === 'final') {
       const sr = await prisma.smartReport.findUnique({
         where: { reportVersionId: link.reportVersionId },
         select: { status: true, sendSuppressedAt: true },
