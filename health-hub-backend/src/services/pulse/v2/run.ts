@@ -35,6 +35,17 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
     chips: [{ label: 'patients not back in 90 days', q: 'how many patients have not returned in 90 days' }, { label: 'new patients this month', q: 'new patients this month' }], state: { ...state, lastQ: q } };
 
   let steps = (plan.steps || []).slice(0, 6);
+  // A registry tool computes one fixed thing. If it is the ONLY step and the question carries a
+  // qualifier its arguments cannot express, the number will be right for a different question —
+  // the "Chintal billed 14,111 tests" failure. Send those to query, which sees the whole sentence.
+  const QUALIFIED = /\bmedian\b|\bpercentile\b|\baverage\b|\bper\b|\bnever\b|\bmore than\b|\bat least\b|\beach\b|\bdistinct\b|\bunique\b|\bboth\b|\bwithout\b|\bexcept\b|\bonly\b|\bcame back\b|\breturn(ed)?\b|\brepeat\b|\bfirst[- ]?(ever|time|visit)\b|\bstopped\b|\bnot\b|\bno\b |\bwhich day\b|\bhighest\b.*\bday\b/i;
+  const REGISTRY = new Set(['metric', 'compare', 'derive']);
+  if (steps.length === 1 && REGISTRY.has(steps[0]?.tool) && QUALIFIED.test(q))
+    steps = [{ tool: 'query', label: steps[0].label || 'answer the question', args: { question: q } }];
+  // A single query step answers the whole question, so it gets the owner's words verbatim. The
+  // analyst's paraphrase drops qualifiers ("in August", "excluding cancelled") often enough to
+  // matter, and the SQL is then written for a subtly different question.
+  if (steps.length === 1 && steps[0]?.tool === 'query') steps[0].args = { ...steps[0].args, question: q };
   if (!steps.length) return { kind: 'refuse', reason: 'no_plan', text: "I couldn't work out what to measure for that. Try naming the number you want — collection, cases, due, referrals.", state: { ...state, lastQ: q } };
 
   const evidence: Evidence[] = [];
@@ -42,7 +53,7 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
   for (rounds = 1; rounds <= MAX_ROUNDS; rounds++) {
     const base = evidence.length;
     const got = await pool(3, steps.map((s, i) => () => runStep(s, base + i, k)));
-    calls += got.filter((e) => e.tool === 'query').length;      // only query steps cost a call
+    calls += got.filter((e) => e.tool === 'query').length;      // only query steps cost a call (repairs may add one more)
     evidence.push(...got);
     // A one-step plan that worked has nothing to interpret — go straight to the answer. This is
     // the common case ("last month collection how much") and it saves a whole round trip.

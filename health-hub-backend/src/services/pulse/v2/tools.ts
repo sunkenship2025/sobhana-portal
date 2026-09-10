@@ -10,6 +10,7 @@ import { query, IST, todayIST, pool } from '../db';
 import { METRICS, METRIC_DIMS, DIMS, dimJoin, dimOk, FROMS } from '../catalog';
 import { scalar, periods, baseline as baselineOf, addDays, fmt } from '../diagnostic';
 import { generate } from '../sqlPath';
+import { llmJson } from '../llm';
 import { validate } from '../validator';
 import { repairIdents, type Knowledge } from '../knowledge';
 
@@ -24,6 +25,50 @@ export interface Evidence {
 }
 
 const P = (spec: string) => periods(spec || 'month');
+
+/**
+ * A filter the analyst asked for, turned into SQL — or a hard error.
+ *
+ * The rule that matters: a tool that cannot apply a filter must FAIL, never quietly drop it.
+ * "chintal last month how many tests" once returned every branch's 14,111 and labelled it
+ * Chintal. A wrong number with a confident label is the worst thing this system can do.
+ */
+function buildFilter(metric: string, f: any): { where: string[]; join: string } | { error: string } {
+  if (!f || typeof f !== 'object' || !Object.keys(f).length) return { where: [], join: '' };
+  const where: string[] = []; let join = '';
+  for (const [dim, rawVal] of Object.entries(f)) {
+    if (rawVal == null || rawVal === '') continue;
+    if (!DIMS[dim]) return { error: `cannot filter by '${dim}' — filterable dimensions are ${Object.keys(DIMS).join(', ')}` };
+    if (!dimOk(metric, dim)) return { error: `'${metric}' cannot be filtered by '${dim}'` };
+    const j = dimJoin(metric, dim); if (j && !join.includes(j)) join += j;
+    const vals = (Array.isArray(rawVal) ? rawVal : [rawVal]).map((v) => String(v).replace(/'/g, "''")).slice(0, 20);
+    where.push(`${DIMS[dim]} IN (${vals.map((v) => `'${v}'`).join(', ')})`);
+  }
+  return { where, join };
+}
+/** Every dimension value that exists, so a filter can be checked before it silently matches nothing. */
+let DIMVALS: Record<string, Set<string>> | null = null;
+async function dimValues(): Promise<Record<string, Set<string>>> {
+  if (DIMVALS) return DIMVALS;
+  const out: Record<string, Set<string>> = {};
+  const pairs: [string, string][] = [['branch', 'SELECT code v FROM "Branch"'], ['domain', `SELECT DISTINCT domain::text v FROM "Visit"`],
+    ['payment_type', `SELECT DISTINCT "paymentType"::text v FROM "PaymentTransaction"`], ['payout_category', `SELECT DISTINCT "payoutCategorySnapshot" v FROM "TestOrder" WHERE "payoutCategorySnapshot" IS NOT NULL`]];
+  for (const [d, sql] of pairs) { const r = await query(sql, [], 500); out[d] = new Set((r.rows || []).map((x: any) => String(x.v))); }
+  DIMVALS = out; return out;
+}
+async function checkFilter(metric: string, f: any) {
+  const built = buildFilter(metric, f);
+  if ('error' in built) return built;
+  const vals = await dimValues();
+  for (const [dim, rawVal] of Object.entries(f || {})) {
+    if (!vals[dim] || !vals[dim].size) continue;
+    for (const v of (Array.isArray(rawVal) ? rawVal : [rawVal])) {
+      if (v != null && v !== '' && !vals[dim].has(String(v)))
+        return { error: `'${v}' is not a known ${dim}. Known values: ${[...vals[dim]].slice(0, 8).join(', ')}` };
+    }
+  }
+  return built;
+}
 const U = (m: string) => METRICS[m]?.u ?? null;
 export const KNOWN_METRICS = Object.keys(METRICS);
 export const KNOWN_DIMS = Object.keys(DIMS);
@@ -32,14 +77,17 @@ export const KNOWN_DIMS = Object.keys(DIMS);
 async function t_metric(a: any): Promise<Partial<Evidence>> {
   const m = a.metric, p = P(a.period);
   if (!METRICS[m]) return { ok: false, error: `no such metric '${m}'` };
-  const v = await scalar(m, p.cur.from, p.cur.to);
-  return { ok: v !== null, metric: m, unit: U(m), period: p.cur, summary: { metric: m, period: `${p.cur.from}..${p.cur.to}`, value: fmt(v, U(m)) }, data: { value: v } };
+  const f = await checkFilter(m, a.filter); if ('error' in f) return { ok: false, error: f.error };
+  const v = await scalar(m, p.cur.from, p.cur.to, f.join, null, f.where);
+  const scope = a.filter && Object.keys(a.filter).length ? Object.entries(a.filter).map(([k, x]) => `${k}=${x}`).join(', ') : 'all';
+  return { ok: v !== null, metric: m, unit: U(m), period: p.cur, summary: { metric: m, period: `${p.cur.from}..${p.cur.to}`, scope, value: fmt(v, U(m)) }, data: { value: v } };
 }
 /** metric this period vs the comparable previous one */
 async function t_compare(a: any): Promise<Partial<Evidence>> {
   const m = a.metric, p = P(a.period);
   if (!METRICS[m]) return { ok: false, error: `no such metric '${m}'` };
-  const [now, before] = await Promise.all([scalar(m, p.cur.from, p.cur.to), scalar(m, p.prev.from, p.prev.to)]);
+  const f = await checkFilter(m, a.filter); if ('error' in f) return { ok: false, error: f.error };
+  const [now, before] = await Promise.all([scalar(m, p.cur.from, p.cur.to, f.join, null, f.where), scalar(m, p.prev.from, p.prev.to, f.join, null, f.where)]);
   if (now === null || before === null) return { ok: false, error: 'metric unavailable for that period' };
   const pct = before ? Number(((now - before) / Math.abs(before) * 100).toFixed(1)) : null;
   return { ok: true, metric: m, unit: U(m), period: p, summary: { metric: m, now: fmt(now, U(m)), before: fmt(before, U(m)), changePct: pct, comparison: p.note }, data: { now, before, changePct: pct, cur: p.cur, prev: p.prev, note: p.note } };
@@ -49,8 +97,9 @@ async function t_breakdown(a: any): Promise<Partial<Evidence>> {
   const m = a.metric, d = a.dimension, p = P(a.period);
   if (!METRICS[m]) return { ok: false, error: `no such metric '${m}'` };
   if (!DIMS[d] || !dimOk(m, d)) return { ok: false, error: `'${m}' cannot be split by '${d}'. Supported: ${(METRIC_DIMS[m] || []).join(', ')}` };
-  const join = dimJoin(m, d);
-  const [cur, prev] = await Promise.all([scalar(m, p.cur.from, p.cur.to, join, DIMS[d]), scalar(m, p.prev.from, p.prev.to, join, DIMS[d])]);
+  const f = await checkFilter(m, a.filter); if ('error' in f) return { ok: false, error: f.error };
+  const join = dimJoin(m, d) + (f.join.includes(dimJoin(m, d)) ? '' : f.join);
+  const [cur, prev] = await Promise.all([scalar(m, p.cur.from, p.cur.to, join, DIMS[d], f.where), scalar(m, p.prev.from, p.prev.to, join, DIMS[d], f.where)]);
   if (!cur) return { ok: false, error: 'no rows' };
   const pm = new Map<string, number>((prev || []).map((r: any) => [r.k, r.v]));
   const total = cur.reduce((s: number, r: any) => s + r.v, 0);
@@ -140,11 +189,26 @@ async function t_query(a: any, k: Knowledge): Promise<Partial<Evidence>> {
   const q = String(a.question || '').slice(0, 300);
   if (!q) return { ok: false, error: 'no question given' };
   const gen = await generate(k, q);
-  const sql = repairIdents(k, gen.sql);
-  const bad = validate(sql); if (bad) return { ok: false, error: `blocked: ${bad}`, sql };
-  const ex = await query(sql, [], 200);
+  let sql = repairIdents(k, gen.sql);
+  let bad = validate(sql);
+  let ex = bad ? { err: `blocked: ${bad}` } as any : await query(sql, [], 200);
+  // Typed repair, one attempt — the same contract the single-call path has always had. A query
+  // that errors or comes back empty is told WHICH way it failed and rewritten. Without this the
+  // analyst path silently loses every question whose first draft misses.
+  if (ex.err || !ex.rows?.length) {
+    const kind = bad ? 'BLOCKED_BY_POLICY' : ex.err && /does not exist/.test(ex.err) ? 'MISSING_IDENTIFIER'
+      : ex.err && /syntax/i.test(ex.err) ? 'SYNTAX' : ex.err ? 'RUNTIME' : 'EMPTY_RESULT';
+    try {
+      const f = await llmJson<{ sql?: string }>(
+        `Repair PostgreSQL. FAILURE CLASS: ${kind}. ${kind === 'BLOCKED_BY_POLICY' ? 'The query violated a safety rule; rewrite it to satisfy the rule.' : kind === 'EMPTY_RESULT' ? 'It ran but matched nothing — the filter, the period or the join is probably wrong.' : ''} Return JSON {"sql":"..."}.`,
+        `${gen.ctx}\n\nSQL\n${sql}\n\nOUTCOME\n${ex.err || '0 rows'}`, { maxTokens: 900 });
+      const s2 = repairIdents(k, f.sql || '');
+      if (s2 && !validate(s2)) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; } }
+    } catch { /* keep the first outcome */ }
+  }
   if (ex.err) return { ok: false, error: ex.err, sql };
-  return { ok: true, sql, summary: { question: q, rowCount: ex.rows!.length, rows: ex.rows!.slice(0, 12) }, data: { rows: ex.rows } };
+  if (!ex.rows?.length) return { ok: false, error: 'no rows matched', sql };
+  return { ok: true, sql, summary: { question: q, rowCount: ex.rows.length, rows: ex.rows.slice(0, 12) }, data: { rows: ex.rows } };
 }
 
 

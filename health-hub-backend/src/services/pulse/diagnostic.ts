@@ -11,9 +11,9 @@ import type { Route } from './router';
 const rupees = (v: number) => '₹' + (Math.round(v) / 100).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 export const fmt = (v: number | null | undefined, u?: string | null) => v == null ? '—' : u === 'paise' ? rupees(v) : u === 'ratio' ? (v * 100).toFixed(1) + '%' : u === 'minutes' ? `${Math.round(v / 60)}h` : Number(v).toLocaleString('en-IN');
 
-export async function scalar(metric: string, from: string, to: string, extraJoin = '', dimExpr: string | null = null): Promise<any> {
+export async function scalar(metric: string, from: string, to: string, extraJoin = '', dimExpr: string | null = null, where: string[] = []): Promise<any> {
   const M = METRICS[metric], F = FROMS[metric]; if (!M || !F) return null;
-  const [fromClause, timeCol] = F; const w: string[] = []; if (M.filt) w.push(M.filt);
+  const [fromClause, timeCol] = F; const w: string[] = [...where]; if (M.filt) w.push(M.filt);
   if (timeCol) { w.push(`(${timeCol} ${IST}) >= '${from}'`); w.push(`(${timeCol} ${IST}) < '${to}'`); }
   const sel = dimExpr ? `${dimExpr} AS k, ${M.sql} AS v` : `${M.sql} AS v`;
   const ex = await query(`SELECT ${sel} FROM ${fromClause}${extraJoin}${w.length ? ` WHERE ${w.join(' AND ')}` : ''}${dimExpr ? ' GROUP BY 1' : ''}`);

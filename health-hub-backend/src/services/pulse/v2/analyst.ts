@@ -15,18 +15,28 @@ import type { Evidence } from './tools';
 
 const metricLines = Object.entries(METRICS).map(([n, m]) => `  ${n} [${m.u}] ${m.d.split('.')[0]}${METRIC_DIMS[n] ? ` · splits by: ${METRIC_DIMS[n].join(', ')}` : ''}`).join('\n');
 
-const TOOLBOX = `TOOLS — every one below is exact and costs nothing but a database round-trip,
-except "query", which writes new SQL and is slower. Prefer the others.
+const TOOLBOX = `TOOLS
 
-  metric      {metric, period}                         one figure
-  compare     {metric, period}                         this period vs the comparable one before
-  breakdown   {metric, dimension, period}              split, with each part's share of the change
+  query       {question}
+      Writes SQL for exactly the question you give it, against the full schema, with the house
+      metric definitions and this centre's conventions already in the prompt. It is the ACCURATE
+      general tool and the right default for any question that asks for a specific figure.
+      Give it the question in full, including every qualifier — the branch, the period, the
+      condition. It handles anything: cohorts, medians, anti-joins, self-joins, per-parent
+      averages, "never", "more than two", "each", a single named day.
+
+  The tools below are FAST and exact, but each computes one fixed thing. Use one only when the
+  question is exactly that thing with no extra condition. If the question adds a qualifier the
+  tool's arguments cannot express, use "query" instead — a close number is a wrong number.
+
+  metric      {metric, period, filter}                 one figure. filter e.g. {branch:"CNT"}
+  compare     {metric, period, filter}                 this period vs the comparable one before
+  breakdown   {metric, dimension, period, filter}      split, with each part's share of the change
   rank        {metric, dimension, period, limit}       top members of a dimension
   trend       {metric, bucket:"day|week|month", buckets}   the series over time
   baseline    {metric, period}                         is this normal, or genuinely unusual?
   anomaly     {metrics:[...], period}                  which headline numbers are off-normal
-  derive      {numerator, denominator, period}         a metric the registry lacks, e.g. revenue ÷ visits
-  query       {question}                               anything the tools above cannot express
+  derive      {numerator, denominator, period}         one metric divided by another
 
 OPERATIONAL TOOLS — states of the business, not metrics. These are what an owner can act on.
   receivables      {}                                money earned and not collected, and where
@@ -34,12 +44,12 @@ OPERATIONAL TOOLS — states of the business, not metrics. These are what an own
   quiet_doctors    {period, priorDays}               referrers who used to send work and stopped
   leakage          {period}                          discount, cancellation and refund rates
 
-METRICS
+METRICS — the house definitions, used by the tools above and available to "query" too
 ${metricLines}
 
-DIMENSIONS: ${KNOWN_DIMS.join(', ')}
+DIMENSIONS: ${KNOWN_DIMS.join(', ')}   (branch codes: CNT, BLN, JGG, IDPL)
 PERIODS: "month" (month-to-date vs the same days last month), "week" (trailing 7 vs previous 7),
-         or an explicit "YYYY-MM" for a whole calendar month.`;
+         "last_month", an explicit "YYYY-MM", "today", "yesterday", "last_30_days".`;
 
 export const PLAN_SYS = () => `You are the analyst for an Indian diagnostic centre's owner. Today is ${todayIST()} (IST).
 
@@ -52,6 +62,15 @@ and a decomposition. "What should I worry about" needs a scan, not a report. "Ho
 needs a few headline numbers and nothing else.
 
 ${TOOLBOX}
+
+DEFAULT TO "query" FOR A FIGURE
+If the owner is asking what a number is, plan one "query" step with their question in full. That is
+usually the whole plan. Reach for a fixed tool only when the question is precisely that metric over
+that period with no extra condition, or when you are decomposing, trending, checking normality or
+scanning operations — that is what those tools are for.
+"average tests per diagnostics visit" is a query, not test_orders ÷ visits: the population is
+diagnostics visits including those with none, which derive cannot express.
+Never answer about everything and label it as a subset.
 
 RULES
  · 1 to 6 steps. Fewer is better. Never add a step whose result you would not use.
