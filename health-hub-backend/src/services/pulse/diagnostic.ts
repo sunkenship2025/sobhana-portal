@@ -88,12 +88,41 @@ export function periods(kind: string, today = todayIST()) {
   return { cur: { from: curFrom, to: curTo }, prev: { from: dstr(py, pm, 1), to: curFrom }, partial: false, days: 30, note: 'full calendar month vs the previous full month' };
 }
 
-export interface DiagAnswer { kind: 'status' | 'diagnose'; text: string; period: string; window: any; kpis?: Kpi[]; metric?: string | null; unit?: string | null; total?: any; movers?: { name: string; delta: number; share: number | null; by: string }[]; premiseCorrected?: boolean; baseline?: any; }
+export interface DiagAnswer { kind: 'status' | 'diagnose' | 'advise'; findings?: { title: string; detail: string; metric?: string }[]; text: string; period: string; window: any; kpis?: Kpi[]; metric?: string | null; unit?: string | null; total?: any; movers?: { name: string; delta: number; share: number | null; by: string }[]; premiseCorrected?: boolean; baseline?: any; }
 
 export async function runDiagnostic(q: string, r: Route, state: { metric?: string | null; period?: string | null } = {}, followUp = false): Promise<DiagAnswer> {
   const metric = r.metric || (followUp ? state.metric : null) || null;
   const period = /\b(week|month|hafte|mahine|last|previous|pichh?le)\b|20\d\d-\d\d/i.test(q) || !followUp ? r.period : (state.period || r.period);
   const P = periods(period);
+  if (r.mode === 'ADVISE') {
+    // Advice is not a KPI dump. Find the weak spots deterministically, then let the model
+    // rank and phrase them. Every number it sees is pre-computed here.
+    const kpis = await status(P.cur, P.prev);
+    const rev = await diagnose('revenue', P.cur, P.prev);
+    const [dueRow, lateRow, cancelRow, discRow] = await Promise.all([
+      query(`SELECT COALESCE(SUM(b."totalAmountInPaise"-b."discountAmountInPaise"-b."couponDiscountInPaise"-b."reversedChargeInPaise"-b."paidAmountInPaise"),0)::bigint v, count(*)::int n FROM "Bill" b WHERE b."paymentStatus"<>'PAID'`),
+      query(`SELECT count(*)::int v FROM "Visit" v JOIN "DiagnosticReport" dr ON dr."visitId"=v.id WHERE v."createdAt" < now() - interval '24 hours' AND v."createdAt" > now() - interval '30 days' AND NOT EXISTS (SELECT 1 FROM "ReportVersion" rv WHERE rv."reportId"=dr.id AND rv.status='FINALIZED')`),
+      query(`SELECT ROUND(100.0*count(*) FILTER (WHERE o."cancelledAt" IS NOT NULL)/NULLIF(count(*),0),1) v FROM "TestOrder" o WHERE (o."createdAt" ${IST}) >= '${P.cur.from}'`),
+      query(`SELECT ROUND(100.0*SUM(b."discountAmountInPaise"+b."couponDiscountInPaise")/NULLIF(SUM(b."totalAmountInPaise"),0),1) v FROM "Bill" b WHERE (b."billedAt" ${IST}) >= '${P.cur.from}'`),
+    ]);
+    // doctors who referred before and have gone quiet — the highest-value thing in this data
+    const quiet = await query(`SELECT rd.name k, count(*)::int n FROM "ReferralDoctor_Visit" r JOIN "ReferralDoctor" rd ON rd.id=r."referralDoctorId"
+      WHERE r."deletedAt" IS NULL AND (r."createdAt" ${IST}) >= '${addDays(P.cur.from, -60)}' AND (r."createdAt" ${IST}) < '${P.cur.from}'
+        AND NOT EXISTS (SELECT 1 FROM "ReferralDoctor_Visit" r2 WHERE r2."referralDoctorId"=rd.id AND r2."deletedAt" IS NULL AND (r2."createdAt" ${IST}) >= '${P.cur.from}')
+      GROUP BY 1 ORDER BY 2 DESC LIMIT 5`);
+    const signals = {
+      LANGUAGE: langOf(q), period, window: P, comparison: P.note,
+      headline: kpis.map((k) => ({ metric: k.metric, now: fmt(k.current, k.unit), changePct: k.deltaPct })),
+      moneyNotCollected: { amount: fmt(Number(dueRow.rows?.[0]?.v || 0), 'paise'), openBills: Number(dueRow.rows?.[0]?.n || 0) },
+      reportsPendingOver24h: Number(lateRow.rows?.[0]?.v || 0),
+      cancellationRatePct: Number(cancelRow.rows?.[0]?.v || 0),
+      discountAsPctOfBilling: Number(discRow.rows?.[0]?.v || 0),
+      doctorsWhoStoppedReferring: (quiet.rows || []).map((r) => ({ name: r.k, referralsInPrior60Days: Number(r.n) })),
+      biggestNegativeMovers: rev.breakdowns.flatMap((b) => b.top.filter((t: any) => t.delta < 0).slice(0, 2).map((t: any) => ({ by: b.dimension, name: t.k, change: fmt(t.delta, rev.unit) }))).slice(0, 5),
+    };
+    const out = await llmJson<{ answer?: string; findings?: any[] }>(ADVISE_SYS, JSON.stringify(signals), { maxTokens: 800 });
+    return { kind: 'advise', text: out.answer || '', period, window: P, kpis, findings: (out.findings || []).slice(0, 4) };
+  }
   if (r.mode === 'STATUS') {
     const kpis = await status(P.cur, P.prev);
     const payload = { LANGUAGE: langOf(q), period, window: P, comparison: P.note, kpis: kpis.map((k) => ({ metric: k.metric, now: fmt(k.current, k.unit), before: fmt(k.previous, k.unit), changePct: k.deltaPct, direction: k.direction })) };
@@ -123,6 +152,19 @@ export async function runDiagnostic(q: string, r: Route, state: { metric?: strin
   const movers = d.breakdowns.flatMap((b) => b.top.slice(0, 3).map((t: any) => ({ name: t.k, delta: t.delta, share: t.shareOfChangePct, by: b.dimension }))).sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta)).slice(0, 6);
   return { kind: 'diagnose', text: out.answer || '', period, window: P, kpis, metric: m, unit: d.unit, total: d.total, movers, premiseCorrected: !premiseHolds, baseline: base };
 }
+
+const ADVISE_SYS = `A diagnostic-centre owner asked what they should DO to improve the business.
+You are given SIGNALS already computed from their data. Do not restate the headline numbers as a
+report — they can see those.
+RULES
+ · Pick the 2-4 signals that actually represent money or work being lost, and say what to do about
+   each. Money sitting uncollected, reports past 24h, doctors who have stopped referring, a
+   discount rate that is climbing, a branch going backwards.
+ · Use ONLY the numbers given, exactly as written. Never invent or compute one.
+ · Be specific and blunt: "₹4,752 is sitting unpaid across 12 bills" beats "consider following up".
+ · If a signal looks healthy, do not pad the list with it. Two real things beat four vague ones.
+ · Write in the LANGUAGE given. No SQL, no column names, no consultant filler.
+Return JSON {"answer":"2-3 sentence opening","findings":[{"title":"<=6 words","detail":"one or two sentences, with the number"}]}.`;
 
 const NARRATE = `You are a clinic analytics assistant. You are given PRE-COMPUTED facts from the database.
 Write 2-4 sentences. RULES:

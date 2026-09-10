@@ -10,8 +10,10 @@ import { validate } from './validator';
 import { chooseShape, guessMetric, type Shape } from './shapes';
 import { METRIC_DIMS, DIM_LABEL, METRICS } from './catalog';
 import { assemble, repairIdents, SYS, type Knowledge } from './knowledge';
+import { langOf } from './db';
 
 export interface Provenance { sql: string; tables: string[]; rowCount: number; assumptions?: string; repaired?: string; }
+export interface Ctx { lastQ?: string | null; lastSql?: string | null; }
 export interface SqlAnswer {
   kind: 'sql'; shape: Shape; rows: Row[]; metric: string | null; unit: string | null;
   chips: { label: string; q: string }[]; warning?: { kind: 'disagreement'; text: string }; provenance: Provenance;
@@ -21,8 +23,15 @@ const tablesIn = (s: string) => [...new Set([...String(s).matchAll(/(?:from|join
 const canon = (rows: Row[]) => rows.flatMap((r) => Object.values(r).filter((v) => typeof v === 'number')).sort((a: any, b: any) => a - b);
 const same = (a: number[], b: number[]) => a.length === b.length && a.every((x, i) => Math.abs(x - b[i]) <= Math.max(0.011, Math.abs(b[i]) * 1e-9));
 
-async function generate(k: Knowledge, q: string, opts: { temperature?: number; bustCache?: boolean } = {}) {
-  const ctx = assemble(k, q);
+async function generate(k: Knowledge, q: string, opts: { temperature?: number; bustCache?: boolean; prev?: Ctx } = {}) {
+  let ctx = assemble(k, q);
+  if (opts.prev?.lastQ) {
+    // A follow-up is a modification of the previous query, not a new question. Show the model
+    // what it just ran; without this "i meant trajectory wise" loses the metric and the period.
+    ctx = ctx.replace('\n\nQUESTION\n', `\n\nTHE PREVIOUS QUESTION IN THIS CONVERSATION\n${opts.prev.lastQ}\n` +
+      (opts.prev.lastSql ? `THE QUERY THAT ANSWERED IT\n${opts.prev.lastSql}\n` : '') +
+      `\nThe question below may be a FOLLOW-UP that changes one thing about that query — the grouping,\nthe period, the metric, or the shape. Keep everything it does not change. "trajectory"/"trend"\nmeans bucket the same metric over time; "rate wise" means a percentage or per-unit view.\n\nQUESTION\n`);
+  }
   const j = await llmJson<{ sql?: string; assumptions?: string }>(SYS(), ctx, { maxTokens: 900, ...opts });
   return { sql: repairIdents(k, j.sql || ''), assumptions: j.assumptions, ctx };
 }
@@ -45,22 +54,41 @@ async function execute(k: Knowledge, q: string, gen: { sql: string; ctx: string 
   return { sql, rows: ex.rows, err: ex.err };
 }
 
-export async function sqlAnswer(k: Knowledge, q: string): Promise<SqlAnswer | { kind: 'error'; text: string; provenance?: Provenance }> {
-  const gen = await generate(k, q);
+export async function sqlAnswer(k: Knowledge, q: string, prev?: Ctx): Promise<SqlAnswer | { kind: 'error'; text: string; provenance?: Provenance }> {
+  const gen = await generate(k, q, { prev });
   const r = await execute(k, q, gen);
   if (r.err) return { kind: 'error', text: r.err, provenance: { sql: r.sql, tables: tablesIn(r.sql), rowCount: 0, assumptions: gen.assumptions } };
   const rows = r.rows || [];
   const shape = chooseShape(q, rows);
   const metric = guessMetric(q);
   const unit = metric ? METRICS[metric]?.u ?? null : null;
-  const chips: SqlAnswer['chips'] = [];
-  if (metric && METRIC_DIMS[metric]) for (const d of METRIC_DIMS[metric].slice(0, 3)) if (!new RegExp(d.replace('_', ' ')).test(q.toLowerCase())) chips.push({ label: DIM_LABEL[d] || d, q: `${q}, ${DIM_LABEL[d] || d}` });
-  if (metric && !/why|kyun/i.test(q)) chips.push({ label: 'why?', q: `why did ${q.replace(/how (much|many)/i, '').trim()} change` });
+  // Follow-ups the model proposes from THIS answer — the registry only knows which dimensions
+  // exist, not that Chintal is up 35% or that one doctor carries a third of the total.
+  let chips: SqlAnswer['chips'] = [];
+  try {
+    const preview = JSON.stringify(rows.slice(0, 8), (_k, v) => typeof v === 'bigint' ? Number(v) : v).slice(0, 700);
+    const j = await llmJson<{ chips?: { label: string; q: string }[] }>(
+      `You suggest the next question a diagnostic-centre owner would ask, having just seen this answer.
+Return 2-4 suggestions. Each is {"label": "<= 4 words, lower case", "q": "the full question to ask"}.
+RULES
+ · Base them on what the RESULT actually shows — a branch that dropped, a doctor who dominates,
+   a total that looks off. Generic "by branch" is only worth suggesting if nothing specific stands out.
+ · Never repeat what the question already asked. Never suggest a patient list, a name or a phone number.
+ · Only things this database can answer: money, visits, tests, reports, referrals, discounts, payouts.
+ · Write the label in ${langOf(q)}.
+Return JSON {"chips":[...]}.`,
+      `QUESTION\n${q}\n\nRESULT (${rows.length} rows)\n${preview}`, { maxTokens: 260 });
+    chips = (j.chips || []).filter((c) => c && typeof c.label === 'string' && typeof c.q === 'string' && c.label.length <= 28).slice(0, 4);
+  } catch { /* fall through to the registry defaults */ }
+  if (!chips.length) {
+    if (metric && METRIC_DIMS[metric]) for (const d of METRIC_DIMS[metric].slice(0, 3)) if (!new RegExp(d.replace('_', ' ')).test(q.toLowerCase())) chips.push({ label: DIM_LABEL[d] || d, q: `${q}, ${DIM_LABEL[d] || d}` });
+    if (metric && !/why|kyun/i.test(q)) chips.push({ label: 'why?', q: `why did ${q.replace(/how (much|many)/i, '').trim()} change` });
+  }
   // second independent sample — only where a wrong number costs money. Marks, never repairs.
   let warning: SqlAnswer['warning'];
   if (WORTH_CHECKING.test(q) && rows.length) {
     try {
-      const g2 = await generate(k, q, { temperature: 0.7, bustCache: true });
+      const g2 = await generate(k, q, { temperature: 0.7, bustCache: true, prev });
       const s2 = g2.sql; if (s2 && !validate(s2)) { const ex2 = await query(s2);
         if (!ex2.err && ex2.rows && !same(canon(rows) as number[], canon(ex2.rows) as number[]))
           warning = { kind: 'disagreement', text: 'A second, independently written query returned a different answer. Worth checking before you act on this.' }; }

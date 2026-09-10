@@ -12,7 +12,7 @@ import { entityCard } from './entity';
 import { guessMetric } from './shapes';
 export { todayPack } from './today';
 
-export interface PulseState { lastQ?: string | null; metric?: string | null; period?: string | null; kind?: string | null; }
+export interface PulseState { lastQ?: string | null; lastSql?: string | null; metric?: string | null; period?: string | null; kind?: string | null; }
 export type Answer = any;
 
 const FRAGMENT = /^(and|aur|what about|kya)?\s*[a-z0-9 .'-]{2,40}\??$/i;
@@ -51,7 +51,7 @@ export async function ask(rawQ: string, state: PulseState = {}): Promise<Answer>
     }
     followUp = true;
   }
-  const next: PulseState = { lastQ: q, metric: guessMetric(q) || state.metric || null, period: state.period || null, kind: null };
+  const next: PulseState = { lastQ: q, lastSql: null, metric: guessMetric(q) || state.metric || null, period: state.period || null, kind: null };
 
   const amb = ambiguousEntity(k, q);
   if (amb) return { kind: 'pick', term: amb.term, options: amb.options.slice(0, 20).map((o) => ({ id: o.id, name: o.name, kind: o.kind })), text: `Which ${amb.term}?`, state: { ...state, lastQ: q } };
@@ -65,8 +65,16 @@ export async function ask(rawQ: string, state: PulseState = {}): Promise<Answer>
   if (r?.mode === 'LADDER') { const a = await ladderAnswer(q, r.period); return { ...a, state: { ...next, kind: 'ladder', period: r.period } }; }
   if (r) { const a = await runDiagnostic(q, r, state, followUp); return { ...a, state: { ...next, kind: a.kind, metric: a.metric || next.metric, period: a.period } }; }
 
-  const a = await sqlAnswer(k, q);
-  if (a.kind === 'error') return { kind: 'refuse', reason: 'not_answerable', text: "I couldn't turn that into a query the safety rules allow. Try naming the number you want — collection, cases, due, referrals.", provenance: a.provenance, state: next };
+  const a = await sqlAnswer(k, q, { lastQ: state.lastQ, lastSql: state.lastSql });
+  if (a.kind === 'error') {
+    // patient-level output is blocked by design — say which page has it rather than sounding evasive
+    const phi = /patient-level table requires an aggregate|column not granted/i.test(a.text) || /\b(name|phone|number|contact|list of (all )?(patients|dues|bills))\b/i.test(q);
+    return { kind: 'refuse', reason: phi ? 'patient_level' : 'not_answerable',
+      text: phi ? "I can give you totals and counts, never a list of patients with names or phone numbers — Pulse has no access to those columns. For a working list of dues, open Money → Bills and filter to unpaid; it has the names, numbers and amounts, and it can be exported."
+                : "I couldn't turn that into a query. Try naming the number you want — collection, cases, due, referrals.",
+      chips: phi ? [{ label: 'total due', q: 'total due how much' }, { label: 'due branch wise', q: 'due branch wise' }, { label: 'open Money → Bills', q: '/money/bills' }] : undefined,
+      provenance: a.provenance, state: next };
+  }
   if (a.shape === 'empty') return { kind: 'refuse', reason: 'no_rows', text: 'Nothing matched for that. If this is something the centre does not record, the answer is that we do not have it — not that it is zero.', provenance: a.provenance, state: next };
-  return { ...a, followUp, state: { ...next, kind: 'sql' } };
+  return { ...a, followUp, state: { ...next, kind: 'sql', lastSql: a.provenance?.sql || null } };
 }

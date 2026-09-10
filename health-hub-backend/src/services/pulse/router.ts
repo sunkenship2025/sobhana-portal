@@ -4,7 +4,7 @@
  * this scores 24/24 for ~250 tokens.
  */
 import { llmJson } from './llm';
-export type Mode = 'STATUS' | 'DIAGNOSE' | 'DIAGNOSE_AUTO' | 'OUT_OF_SCOPE' | 'LADDER';
+export type Mode = 'STATUS' | 'DIAGNOSE' | 'DIAGNOSE_AUTO' | 'OUT_OF_SCOPE' | 'LADDER' | 'ADVISE';
 export interface Route { mode: Mode; metric: string | null; period: string; }
 
 const ROUTER_SYS = `Classify one question from a diagnostic-centre owner into exactly one intent.
@@ -19,6 +19,9 @@ OUT_OF_SCOPE — answering would need data the centre does not hold: what compet
            labs did, where a patient went instead, market share, why someone chose elsewhere.
            A query would return 0 rows and 0 is NOT evidence those things did not happen.
            Choose this rather than letting an empty result be reported as a fact about the world.
+ADVISE   — asks what to DO, not what a number is: "how can I improve the business", "what should
+           I focus on", "where am I losing money", "kya karna chahiye", "how do I grow". Answer by
+           finding the weak spots in the data and naming them — never a plain KPI dump.
 LADDER   — any question about PROFIT, MARGIN or "are we making money" ("profit kitna",
            "margin", "kya bacha"). Profit itself cannot be computed here, but the money that
            IS recorded can be walked down step by step, so this gets its own answer rather
@@ -41,7 +44,7 @@ The owner's words for these:
   discount / chhoot                                     -> discount_total
   reports / report finalize                             -> reports_finalized
   "loss" / "nuksan" / "lost money" about a period       -> revenue
-Return JSON {"intent":"STATUS|DIAGNOSE|SQL|OUT_OF_SCOPE|LADDER","metric":null}.`;
+Return JSON {"intent":"STATUS|DIAGNOSE|SQL|OUT_OF_SCOPE|LADDER|ADVISE","metric":null}.`;
 
 const METRIC_WORDS: Record<string, RegExp> = {
   revenue: /revenue|collect|money|earning|income|cash|turnover|sales|kamai|paisa/i, visits: /visit|footfall|case|patient volume|traffic/i,
@@ -79,6 +82,7 @@ export async function routeIntent(q: string, knownEntity = false): Promise<Route
     // a question that names a doctor / branch / test we know is never out of scope
     if (intent === 'OUT_OF_SCOPE') return knownEntity ? null : { mode: 'OUT_OF_SCOPE', metric: null, period: period(q) };
     // the model over-applies LADDER to "how was last month"; profit needs a profit word
+    if (intent === 'ADVISE') return { mode: 'ADVISE', metric: null, period: period(q) };
     if (intent === 'LADDER') return /profit|margin|making money|make money|nafa|munafa|bacha|kamaya|earn/i.test(q) ? { mode: 'LADDER', metric: null, period: period(q) } : { mode: 'STATUS', metric: null, period: period(q) };
     if (intent !== 'STATUS' && intent !== 'DIAGNOSE') return routeRegex(q);
     const metric = j.metric && j.metric in METRIC_WORDS ? j.metric : null;

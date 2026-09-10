@@ -147,6 +147,19 @@ function Diagnose({ a }: { a: Answer }) {
     </div>
   );
 }
+function Advise({ a }: { a: Answer }) {
+  const f: any[] = a.findings || [];
+  return (
+    <div className="space-y-2">
+      {a.text && <p className="text-[13px] leading-relaxed">{a.text}</p>}
+      {f.map((x, i) => (
+        <Card key={i} className="border-l-[3px] border-l-[#25397a]">
+          <div className="text-[13px] font-semibold">{x.title}</div>
+          <div className="mt-0.5 text-[12.5px] leading-snug text-muted-foreground">{x.detail}</div>
+        </Card>))}
+    </div>
+  );
+}
 function Ladder({ a }: { a: Answer }) {
   const L = a.ladder;
   return (
@@ -194,6 +207,7 @@ export function AnswerView({ a, onAsk }: { a: Answer; onAsk: (q: string) => void
     body = s === 'scalar' ? <Scalar a={a} /> : s === 'kpis' ? <Kpis a={a} /> : s === 'compare' ? <Compare a={a} /> : s === 'list' ? <List a={a} /> : s === 'ranked' ? <List a={a} ranked /> : s === 'series' ? <Series a={a} /> : <Table a={a} />;
   } else if (a.kind === 'status') body = <Status a={a} />;
   else if (a.kind === 'diagnose') body = <Diagnose a={a} />;
+  else if (a.kind === 'advise') body = <Advise a={a} />;
   else if (a.kind === 'ladder') body = <Ladder a={a} />;
   else if (a.kind === 'entity') body = <Entity a={a} />;
   else if (a.kind === 'pick') return <Pick a={a} onAsk={onAsk} />;
@@ -218,6 +232,7 @@ export function oneLine(a?: Answer): string {
   if (a.kind === 'entity') return a.facts?.[0]?.value || a.entity?.name || '';
   if (a.kind === 'diagnose') return a.total ? `${a.total.deltaPct > 0 ? '+' : ''}${a.total.deltaPct ?? ''}%` : '';
   if (a.kind === 'status') return 'overview';
+  if (a.kind === 'advise') return `${a.findings?.length || 0} things to fix`;
   return a.kind;
 }
 export { rupees };
