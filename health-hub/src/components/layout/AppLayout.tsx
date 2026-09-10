@@ -3,6 +3,7 @@ import { ContextBanner } from './ContextBanner';
 import type { AppContext } from '@/types';
 import { useBranchStore } from '@/store/branchStore';
 import { getBranchCSSVars } from '@/lib/branchTheme';
+import { Pulse } from '@/components/pulse/Pulse';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -23,6 +24,9 @@ export function AppLayout({ children, context, subContext, hideContextBanner = f
     <div className="min-h-screen print:min-h-0 bg-background" style={branchVars as React.CSSProperties}>
       <div className="print:hidden">
         <Sidebar />
+      </div>
+      <div className="print:hidden">
+        <Pulse />
       </div>
       <main className="min-h-screen md:ml-64 print:m-0 print:min-h-0">
         {!hideContextBanner && (

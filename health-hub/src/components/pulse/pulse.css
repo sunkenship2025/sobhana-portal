@@ -1,0 +1,18 @@
+/* Pulse orb — the one new visual primitive. Orb 9 (halo × emissive) in the sidebar navy,
+   a shade darker. One fixed colour on every branch. Idle breathes at 5.5s; thinking is the
+   same motion at 1.1s — no spinner, no shape change. */
+.pulse-orb{width:48px;height:48px;border-radius:50%;position:relative;
+  background:radial-gradient(circle at 50% 48%,#ffffff 0%,#d6ddf5 11%,#4c63ad 34%,#1f3068 66%,#0d1531 100%);
+  box-shadow:0 0 14px 3px rgba(48,72,146,.45),0 0 0 7px rgba(27,43,88,.12),0 0 0 15px rgba(27,43,88,.06),0 0 0 24px rgba(27,43,88,.03),0 8px 18px rgba(13,21,49,.38),inset 0 0 8px rgba(255,255,255,.55);
+  animation:pulse-breath 5.5s ease-in-out infinite,pulse-halo 5.5s ease-in-out infinite;
+  transition:transform .12s ease-out}
+.pulse-orb:hover{transform:scale(1.06)}
+.pulse-orb.is-thinking{animation-duration:1.1s,1.1s}
+.pulse-orb.is-small{width:18px;height:18px;animation:none;box-shadow:0 0 6px 1px rgba(48,72,146,.45),inset 0 0 4px rgba(255,255,255,.55)}
+@keyframes pulse-breath{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
+@keyframes pulse-halo{0%,100%{box-shadow:0 0 14px 3px rgba(48,72,146,.45),0 0 0 7px rgba(27,43,88,.12),0 0 0 15px rgba(27,43,88,.06),0 0 0 24px rgba(27,43,88,.03),0 8px 18px rgba(13,21,49,.38),inset 0 0 8px rgba(255,255,255,.55)}
+  50%{box-shadow:0 0 22px 6px rgba(48,72,146,.55),0 0 0 9px rgba(27,43,88,.15),0 0 0 19px rgba(27,43,88,.08),0 0 0 30px rgba(27,43,88,.04),0 8px 18px rgba(13,21,49,.38),inset 0 0 10px rgba(255,255,255,.7)}}
+.pulse-badge{position:absolute;top:-2px;right:-2px;width:12px;height:12px;border-radius:50%;background:#D91C2B;border:2px solid hsl(var(--background))}
+.pulse-label{font-size:9.5px;font-weight:700;letter-spacing:.18em;color:#25397a}
+.pulse-panel{box-shadow:0 16px 48px rgba(0,0,0,.18)}
+@media (prefers-reduced-motion:reduce){.pulse-orb{animation:none}}

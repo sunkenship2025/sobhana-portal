@@ -1,0 +1,56 @@
+/**
+ * Pulse — read-only database access.
+ *
+ * Every Pulse query runs as `analytics_ro`: a Postgres role with SELECT on a whitelist of
+ * tables, COLUMN-level grants on Patient/User, default_transaction_read_only and an 8s
+ * statement_timeout. The role is the real boundary; the validator in validator.ts is belt
+ * and braces on top of it. Nothing in this module can write.
+ */
+import { PrismaClient } from '@prisma/client';
+
+const url = process.env.ANALYTICS_DATABASE_URL;
+if (!url) {
+  // Fail loudly at import time: silently falling back to the app's write-capable
+  // connection would defeat the whole point of the role.
+  console.warn('[pulse] ANALYTICS_DATABASE_URL not set — Pulse endpoints will refuse to run');
+}
+export const ro = url ? new PrismaClient({ datasources: { db: { url } } }) : null;
+
+export type Row = Record<string, unknown>;
+export interface Exec { rows?: Row[]; err?: string; truncated?: boolean; }
+
+/** BigInt / Decimal / Date -> JSON-safe. Money stays in paise; the UI formats. */
+export function normalise(rows: unknown[]): Row[] {
+  return (rows as Row[]).map((r) => {
+    const o: Row = {};
+    for (const [k, v] of Object.entries(r)) {
+      if (typeof v === 'bigint') o[k] = Number(v);
+      else if (v instanceof Date) o[k] = v.toISOString();
+      else if (v && typeof v === 'object' && typeof (v as any).toNumber === 'function') o[k] = (v as any).toNumber();
+      else o[k] = v;
+    }
+    return o;
+  });
+}
+
+export const MAX_ROWS = 200;
+
+/** Run a SELECT on the read-only role. Never throws; errors come back as a string. */
+export async function query(sql: string, params: unknown[] = [], limit = MAX_ROWS): Promise<Exec> {
+  if (!ro) return { err: 'analytics database not configured' };
+  try {
+    const rows = await ro.$queryRawUnsafe(sql, ...params);
+    const out = normalise(rows as unknown[]);
+    return { rows: out.length > limit ? out.slice(0, limit) : out, truncated: out.length > limit };
+  } catch (e: any) {
+    const msg = String(e?.message || e).split('\n').filter(Boolean).pop() || 'query failed';
+    return { err: msg.slice(0, 160) };
+  }
+}
+
+/** Today's calendar date in IST as YYYY-MM-DD. All period maths is done on these strings. */
+export function todayIST(): string {
+  const d = new Date(Date.now() + 5.5 * 3600 * 1000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+export const IST = `AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata'`;

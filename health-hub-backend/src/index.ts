@@ -37,6 +37,7 @@ initSentry();
 
 // Routes
 import authRoutes from './routes/auth';
+import pulseRoutes from './routes/pulse';
 import branchRoutes from './routes/branches';
 import patientRoutes from './routes/patients';
 import patientPortalRoutes from './routes/patientPortal';
@@ -407,6 +408,12 @@ app.use('/api/signing-rules', signingRuleRoutes);
 app.use('/api/signing-lab-incharges', signingLabInchargeRoutes);
 app.use('/api/lab-incharge-rules', labInchargeRuleRoutes);
 app.use('/api/owner', ownerDashboardRoutes);
+app.use('/api/pulse', pulseRoutes); // Pulse: owner AI analytics over the analytics_ro role
+// Pulse knowledge (schema shape, coverage, value index) takes ~30s to build; do it at boot,
+// not on the owner's first question. Fire-and-forget; a failure only means a slow first ask.
+if (process.env.ANALYTICS_DATABASE_URL) {
+  import('./services/pulse/knowledge').then((m) => { m.ensureKnowledge().catch((e) => console.warn('[pulse] warm-up failed:', e?.message)); setInterval(() => m.ensureKnowledge().catch(() => {}), 6 * 3600 * 1000).unref(); });
+}
 // LEGACY — superseded by /api/clinical-panels
 // app.use('/api/panels', panelRoutes);
 
