@@ -5,7 +5,7 @@
  * Every figure is computed here and pre-formatted; the model narrates STRINGS, and any sentence
  * containing a rupee figure it was not given is dropped. Structural, not a plea.
  */
-import { query, IST } from './db';
+import { query, IST, langOf } from './db';
 import { llmJson } from './llm';
 import { periods } from './diagnostic';
 
@@ -36,7 +36,7 @@ RULES
  · Walk the rungs in order: what came in, what each payout took out, what is left.
  · Then say plainly that the remainder is NOT profit, and name what is missing.
  · Offer to work out the real figure if they supply those costs.
- · Plain business English, 3-5 sentences. Hinglish if the question was in Hinglish.
+ · 3-5 sentences, in the LANGUAGE given in the input. English means plain business English. Never switch on your own.
 Return JSON {"answer":"..."}.`;
 
 export async function ladderAnswer(q: string, periodKind: string) {
@@ -44,7 +44,7 @@ export async function ladderAnswer(q: string, periodKind: string) {
   const L = await contributionLadder(P.cur.from, P.cur.to);
   const allowed = new Set<string>(); for (const r of L.rungs) { allowed.add(r.amount.replace(/\D/g, '')); if (r.leaves) allowed.add(r.leaves.replace(/\D/g, '')); } allowed.add(L.remaining.replace(/\D/g, ''));
   let text = '';
-  try { const j = await llmJson<{ answer?: string }>(SYS, JSON.stringify({ question: q, ladder: L.rungs, leftAfterRecordedPayouts: L.remaining, notRecorded: L.missing, period: L.period }), { maxTokens: 500 }); text = String(j.answer || ''); } catch { /* the card stands on its own */ }
+  try { const j = await llmJson<{ answer?: string }>(SYS, JSON.stringify({ LANGUAGE: langOf(q), question: q, ladder: L.rungs, leftAfterRecordedPayouts: L.remaining, notRecorded: L.missing, period: L.period }), { maxTokens: 500 }); text = String(j.answer || ''); } catch { /* the card stands on its own */ }
   // structural guard: any sentence carrying a rupee figure we did not supply is dropped
   const kept: string[] = []; for (const s of text.split(/(?<=[.!?])\s+/)) { const bad = [...s.matchAll(/₹\s?[\d,]+/g)].some((m) => !allowed.has(m[0].replace(/\D/g, ''))); if (!bad) kept.push(s); }
   return { kind: 'ladder' as const, text: kept.join(' '), ladder: L, period: periodKind, window: P };

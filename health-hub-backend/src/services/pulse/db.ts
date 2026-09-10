@@ -54,3 +54,6 @@ export function todayIST(): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 export const IST = `AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata'`;
+
+/** Hinglish only when the question itself carries Roman-script Hindi; otherwise English. */
+export const langOf = (q: string) => /\b(kitn[ae]|kaisa|kaise|kyun|kya|hai|hain|raha|rahi|rahe|mahine|mahina|hafte|hafta|bhi|nahi|zyada|kam|chal|kar|dena|aaya|aaye|gir|badh|paisa|kamai|bacha|nuksan|kharcha|baaki|kal|abhi|sab|theek)\b/i.test(q) ? 'Hinglish' : 'English';

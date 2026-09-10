@@ -3,7 +3,7 @@
  * text-to-SQL questions: they need ~20 queries, a baseline, and attribution. Every query here
  * is generated deterministically from the registry — the model never writes SQL, it narrates.
  */
-import { query, todayIST, IST } from './db';
+import { query, todayIST, IST, langOf } from './db';
 import { METRICS, FROMS, DIMS, DIMJOIN, dimOk } from './catalog';
 import { llmJson } from './llm';
 import type { Route } from './router';
@@ -96,7 +96,7 @@ export async function runDiagnostic(q: string, r: Route, state: { metric?: strin
   const P = periods(period);
   if (r.mode === 'STATUS') {
     const kpis = await status(P.cur, P.prev);
-    const payload = { period, window: P, comparison: P.note, kpis: kpis.map((k) => ({ metric: k.metric, now: fmt(k.current, k.unit), before: fmt(k.previous, k.unit), changePct: k.deltaPct, direction: k.direction })) };
+    const payload = { LANGUAGE: langOf(q), period, window: P, comparison: P.note, kpis: kpis.map((k) => ({ metric: k.metric, now: fmt(k.current, k.unit), before: fmt(k.previous, k.unit), changePct: k.deltaPct, direction: k.direction })) };
     const out = await llmJson<{ answer?: string }>(NARRATE, JSON.stringify(payload), { maxTokens: 500 });
     return { kind: 'status', text: out.answer || '', period, window: P, kpis };
   }
@@ -116,7 +116,7 @@ export async function runDiagnostic(q: string, r: Route, state: { metric?: strin
   }
   const d = await diagnose(m, P.cur, P.prev);
   const base = await baseline(m, P.cur, 8, period === 'week' ? 7 : period === 'month' ? P.days || 9 : 30);
-  const payload = { period, window: P, comparison: P.note, metric: m, now: fmt(d.total.current, d.unit), before: fmt(d.total.previous, d.unit), changePct: d.total.deltaPct, premiseHolds,
+  const payload = { LANGUAGE: langOf(q), period, window: P, comparison: P.note, metric: m, now: fmt(d.total.current, d.unit), before: fmt(d.total.previous, d.unit), changePct: d.total.deltaPct, premiseHolds,
     baseline: base ? { verdict: base.verdict, typicalForThisPeriod: fmt(base.baselineMean, d.unit), comparedAcross: `${base.periodsCompared} recent periods`, standardDeviations: base.z, underlyingTrendPctPerPeriod: base.trendPctPerPeriod } : null,
     contributors: d.breakdowns.map((b) => ({ by: b.dimension, top: b.top.slice(0, 3).map((t: any) => ({ name: t.k, change: fmt(t.delta, d.unit), shareOfChangePct: t.shareOfChangePct })) })) };
   const out = await llmJson<{ answer?: string }>(NARRATE, JSON.stringify(payload), { maxTokens: 700 });
@@ -132,7 +132,8 @@ Write 2-4 sentences. RULES:
    verdict is "within normal range", open by saying the business is tracking normally and the
    period-on-period swing is ordinary — do not dramatise it.
  · If a contributor moved against the trend, say so — that is the useful part.
- · Plain business English. No SQL, no column names, no hedging. Reply in Hinglish if the question was.
+ · Write in the LANGUAGE given in the input — English means plain business English, Hinglish means
+   Roman-script Hindi-English. Never switch languages on your own. No SQL, no column names, no hedging.
 If the comparison note says month-to-date, SAY the comparison is like-for-like so far this month.
 If premiseHolds is false, the user's assumption was wrong — OPEN by correcting it plainly, then give the real picture.
 Return JSON {"answer":"..."}.`;
