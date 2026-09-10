@@ -9,13 +9,14 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
 import { branchContextMiddleware } from '../middleware/branch';
 import { ask, todayPack } from '../services/pulse';
-import { ensureKnowledge, refreshKnowledge } from '../services/pulse/knowledge';
+import { ensureKnowledge, refreshKnowledge, touchNames } from '../services/pulse/knowledge';
 import { logAction } from '../services/auditService';
 
 const router = Router();
 router.use(authMiddleware, branchContextMiddleware, requireRole('owner'));
 
 router.get('/today', async (_req, res) => {
+  touchNames();   // the panel is opening: pick up any doctors/tests added since the last look
   try { res.json(await todayPack()); } catch (e: any) { res.status(503).json({ error: 'pulse_unavailable', message: String(e?.message || e).slice(0, 200) }); }
 });
 

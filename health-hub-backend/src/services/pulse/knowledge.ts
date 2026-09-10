@@ -240,6 +240,10 @@ export async function ensureKnowledge(): Promise<Knowledge> {
   if (!building) building = build().then((k) => { K = k; building = null; return k; }).catch((e) => { building = null; throw e; });
   return building;
 }
+/** Refresh names when Pulse OPENS (called from /today), throttled to once a minute so a panel
+ *  opened ten times in a row costs one round of six queries, not ten. Hourly remains the floor. */
+const OPEN_TTL = 60 * 1000;
+export function touchNames(): void { if (K && Date.now() - K.namesAt >= OPEN_TTL) refreshNames().catch(() => {}); }
 /** Force a full rebuild — the owner's "I just added a doctor / changed the schema" button. */
 export async function refreshKnowledge(): Promise<Knowledge> { K = null; return ensureKnowledge(); }
 let refreshingNames = false;
