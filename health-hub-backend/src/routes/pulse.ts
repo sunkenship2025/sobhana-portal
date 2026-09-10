@@ -16,7 +16,7 @@ const router = Router();
 router.use(authMiddleware, branchContextMiddleware, requireRole('owner'));
 
 router.get('/today', async (_req, res) => {
-  touchNames();   // the panel is opening: pick up any doctors/tests added since the last look
+  touchNames();   // the panel is opening: if a doctor/test/branch was added or the schema changed, refresh
   try { res.json(await todayPack()); } catch (e: any) { res.status(503).json({ error: 'pulse_unavailable', message: String(e?.message || e).slice(0, 200) }); }
 });
 

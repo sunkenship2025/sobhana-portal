@@ -223,7 +223,7 @@ const TYPE = (d: string) => /timestamp/.test(d) ? 'ts' : /^date$/.test(d) ? 'dat
   /bool/.test(d) ? 'bool' : /json/.test(d) ? 'json' : /USER-DEFINED/.test(d) ? 'enum' : 'str';
 
 export interface Knowledge {
-  builtAt: number; namesAt: number; registryHealth: Record<string, string>; enums: string; graphSchema: string; coverage: string;
+  builtAt: number; namesAt: number; fingerprint: string; registryHealth: Record<string, string>; enums: string; graphSchema: string; coverage: string;
   vidx: Record<string, { tab: string; col: string; val: string; exact: boolean }[]>;
   idents: string[]; names: { kind: 'doctor' | 'clinicDoctor' | 'branch' | 'test' | 'department'; id: string; name: string; sub?: string }[];
 }
@@ -240,16 +240,36 @@ export async function ensureKnowledge(): Promise<Knowledge> {
   if (!building) building = build().then((k) => { K = k; building = null; return k; }).catch((e) => { building = null; throw e; });
   return building;
 }
-/** Refresh names when Pulse OPENS (called from /today), throttled to once a minute so a panel
- *  opened ten times in a row costs one round of six queries, not ten. Hourly remains the floor. */
-const OPEN_TTL = 60 * 1000;
-export function touchNames(): void { if (K && Date.now() - K.namesAt >= OPEN_TTL) refreshNames().catch(() => {}); }
+/** One cheap query that changes whenever a doctor, test, branch or department is added or
+ *  renamed, or the schema gains/loses a column. Compared on every panel open. */
+async function fingerprint(): Promise<string> {
+  const r = await query(`SELECT
+    (SELECT count(*) FROM "ReferralDoctor") rd, (SELECT max("updatedAt") FROM "ReferralDoctor") rdu,
+    (SELECT count(*) FROM "ClinicDoctor") cd, (SELECT max("updatedAt") FROM "ClinicDoctor") cdu,
+    (SELECT count(*) FROM "Branch") br, (SELECT count(*) FROM "Department") dp,
+    (SELECT count(DISTINCT "testCodeSnapshot") FROM "TestOrder") tc,
+    (SELECT count(*) FROM information_schema.columns WHERE table_schema='public') cols`);
+  return r.err ? '' : JSON.stringify(r.rows?.[0] ?? {});
+}
+/** Called when Pulse OPENS (from /today). If nothing changed, nothing happens. A new doctor or
+ *  test triggers a name refresh; a schema change triggers a full rebuild. Throttled to 30s so a
+ *  panel opened ten times in a row costs one query. Never blocks the answer. */
+let lastCheck = 0;
+export function touchNames(): void {
+  if (!K || Date.now() - lastCheck < 30_000) return; lastCheck = Date.now();
+  fingerprint().then((fp) => {
+    if (!K || !fp || fp === K.fingerprint) return;
+    const before = JSON.parse(K.fingerprint || '{}'), now = JSON.parse(fp);
+    if (before.cols !== now.cols) { console.log('[pulse] schema changed — full rebuild'); refreshKnowledge().catch(() => {}); }
+    else { console.log('[pulse] names changed — refreshing'); refreshNames(fp).catch(() => {}); }
+  }).catch(() => {});
+}
 /** Force a full rebuild — the owner's "I just added a doctor / changed the schema" button. */
 export async function refreshKnowledge(): Promise<Knowledge> { K = null; return ensureKnowledge(); }
 let refreshingNames = false;
-async function refreshNames(): Promise<void> {
+async function refreshNames(fp?: string): Promise<void> {
   if (!K || refreshingNames) return; refreshingNames = true;
-  try { const { vidx, names } = await buildNames(); K = { ...K, vidx, names, namesAt: Date.now() }; console.log(`[pulse] names refreshed — ${names.length} names`); }
+  try { const { vidx, names } = await buildNames(); K = { ...K, vidx, names, namesAt: Date.now(), fingerprint: fp ?? K.fingerprint }; console.log(`[pulse] names refreshed — ${names.length} names`); }
   finally { refreshingNames = false; }
 }
 
@@ -321,7 +341,7 @@ the figure. Do NOT substitute a different column and label it as the thing they 
   const { vidx, names } = await buildNames();
   const registryHealth = await checkRegistry();
   console.log(`[pulse] knowledge built in ${Date.now() - t0}ms — ${fact.length} fact, ${dim.length} dim tables, ${hollow.length} hollow columns, ${Object.keys(vidx).length} value terms, ${Object.values(registryHealth).filter((v) => v !== 'ok').length} broken metrics`);
-  return { builtAt: Date.now(), namesAt: Date.now(), registryHealth, enums, graphSchema, coverage, vidx, idents: [...idents], names };
+  return { builtAt: Date.now(), namesAt: Date.now(), fingerprint: await fingerprint(), registryHealth, enums, graphSchema, coverage, vidx, idents: [...idents], names };
 }
 
 async function buildNames(): Promise<{ vidx: Knowledge['vidx']; names: Knowledge['names'] }> {
