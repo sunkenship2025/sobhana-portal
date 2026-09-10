@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiCall } from '@/lib/query';
+import { branchRequest } from '@/lib/query';
+import { useBranchStore } from '@/store/branchStore';
+const bid = () => useBranchStore.getState().activeBranchId || '';
 
 export interface Chip { label: string; q: string; }
 export interface PulseState { lastQ?: string | null; metric?: string | null; period?: string | null; kind?: string | null; }
@@ -15,7 +17,7 @@ const TTL = 5 * 60 * 1000;
 /** Fetch the empty-state pack; cached 5 min, safe to call on hover (prefetch). */
 export function fetchToday(): Promise<Today> {
   if (todayCache && Date.now() - todayCache.at < TTL) return Promise.resolve(todayCache.data);
-  if (!todayInflight) todayInflight = apiCall<Today>('/pulse/today').then((d) => { todayCache = { at: Date.now(), data: d }; todayInflight = null; return d; }).catch((e) => { todayInflight = null; throw e; });
+  if (!todayInflight) todayInflight = branchRequest<Today>('/pulse/today', bid()).then((d) => { todayCache = { at: Date.now(), data: d }; todayInflight = null; return d; }).catch((e) => { todayInflight = null; throw e; });
   return todayInflight;
 }
 
@@ -40,7 +42,7 @@ export function usePulse() {
     const id = idRef.current++;
     setTurns((ts) => [...ts.map((t) => ({ ...t, collapsed: true })), { id, q: text, pending: true }]);
     try {
-      const answer = await apiCall<Answer>('/pulse/ask', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ q: text, state: stateRef.current }) });
+      const answer = await branchRequest<Answer>('/pulse/ask', bid(), { method: 'POST', body: JSON.stringify({ q: text, state: stateRef.current }) });
       if (answer.state) stateRef.current = answer.state;
       setTurns((ts) => ts.map((t) => t.id === id ? { ...t, answer, pending: false } : t));
     } catch (e: any) {
