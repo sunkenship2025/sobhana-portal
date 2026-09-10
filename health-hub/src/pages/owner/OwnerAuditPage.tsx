@@ -133,6 +133,15 @@ const SCORE_PERIODS: Array<{ key: string; label: string; from: (() => Date) | nu
 const pad = (n: number) => String(n).padStart(2, '0');
 const toLocalInput = (d: Date) =>
   `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+// "Thu, 10 Sept 2026 · 12:00 am → 11:59 pm" for a same-day window; both ends in
+// full otherwise. formatIstDateTime already emits "<date> · <time>".
+const rangeLabel = (from: string, to: string): string => {
+  const a = formatIstDateTime(from);
+  const b = formatIstDateTime(to);
+  const [aDate, aTime] = a.split(' · ');
+  const [bDate, bTime] = b.split(' · ');
+  return aDate && aDate === bDate ? `${aDate} · ${aTime} → ${bTime}` : `${a} → ${b}`;
+};
 const localToIso = (local: string): string | null => {
   if (!local) return null;
   const d = new Date(local);
@@ -162,7 +171,6 @@ const CSS = `
 .ap .searchclear{position:absolute;right:13px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:var(--ink3);cursor:pointer;font-size:14px;line-height:1}
 .ap .search:focus,.ap .dt:focus{outline:none;border-color:var(--accent)}
 .ap .btn:hover,.ap .sel:hover{border-color:#cdd2da}
-.ap .perfnote{font-size:11px;color:var(--ink3)}
 .ap .qfilters{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0 2px 14px}
 .ap .qfilters .flabel{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);font-weight:650;margin-right:2px}
 .ap .qfilters .fdiv{width:1px;height:16px;background:var(--border);margin:0 4px}
@@ -172,8 +180,6 @@ const CSS = `
 .ap .qchip .sw{width:8px;height:8px;border-radius:2px;display:inline-block}
 .ap .qfilters .fclear{font-size:11px;color:var(--accent);cursor:pointer;background:none;border:0;padding:2px 4px;font-family:inherit}
 .ap .qr{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:-4px 0 14px}
-.ap .qr .rng{background:transparent;border:0;padding:2px 4px;font-size:11.5px;color:var(--ink2);cursor:pointer;text-decoration:underline;text-underline-offset:2px;text-decoration-color:var(--border)}
-.ap .qr .rng:hover{color:var(--ink)}
 .ap .kpis{display:grid;grid-template-columns:1.5fr 1fr 1.1fr;gap:12px;margin-bottom:14px}
 .ap .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow)}
 .ap .kpi{padding:12px 14px}
@@ -272,9 +278,14 @@ export default function OwnerAuditPage() {
   // Default to TODAY (start of the calendar day → now).
   const [fromLocal, setFromLocal] = useState(() => toLocalInput(startOfToday()));
   const [toLocal, setToLocal] = useState(() => toLocalInput(new Date()));
-  const applyQuickRange = (from: () => Date) => {
-    setFromLocal(toLocalInput(from()));
+  // Which quick range is on screen. Derived state would be flaky — `to` is
+  // pinned to now() at click time and drifts — so the click records it, and
+  // hand-picking either date drops back to no range selected.
+  const [activeRange, setActiveRange] = useState<string | null>('Today');
+  const applyQuickRange = (r: (typeof QUICK_RANGES)[number]) => {
+    setFromLocal(toLocalInput(r.from()));
     setToLocal(toLocalInput(new Date()));
+    setActiveRange(r.label);
   };
 
   const [searchInput, setSearchInput] = useState('');
@@ -457,7 +468,7 @@ export default function OwnerAuditPage() {
             <h1>Audit &amp; Anomalies</h1>
             <div className="sub">
               {data
-                ? `${formatIstDateTime(data.from)} → ${formatIstDateTime(data.to)} · ${summary?.total ?? 0} events in window · live`
+                ? `${rangeLabel(data.from, data.to)} · ${summary?.total ?? 0} events · live`
                 : 'Loading…'}
             </div>
           </div>
@@ -468,18 +479,21 @@ export default function OwnerAuditPage() {
                 <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
               ))}
             </select>
-            <input className="dt" type="datetime-local" value={fromLocal} onChange={(e) => setFromLocal(e.target.value)} />
+            <input className="dt" type="datetime-local" value={fromLocal} onChange={(e) => { setFromLocal(e.target.value); setActiveRange(null); }} />
             <span className="faint" style={{ color: '#888780' }}>→</span>
-            <input className="dt" type="datetime-local" value={toLocal} onChange={(e) => setToLocal(e.target.value)} />
+            <input className="dt" type="datetime-local" value={toLocal} onChange={(e) => { setToLocal(e.target.value); setActiveRange(null); }} />
             <button className="btn" onClick={() => query.refetch()}>{query.isFetching ? '⟳…' : '⟳'}</button>
           </div>
         </div>
 
         <div className="qr">
-          <span className="perfnote">⚡ Loads only the visible page · cursor-paginated · up to 1 year</span>
           <span className="faint" style={{ fontSize: 11, color: '#888780' }}>Quick range:</span>
           {QUICK_RANGES.map((r) => (
-            <span key={r.label} className="rng" onClick={() => applyQuickRange(r.from)}>{r.label}</span>
+            <button
+              key={r.label}
+              className={`qchip${activeRange === r.label ? ' on' : ''}`}
+              onClick={() => applyQuickRange(r)}
+            >{r.label}</button>
           ))}
         </div>
 
@@ -802,7 +816,7 @@ export default function OwnerAuditPage() {
             {accessQuery.data && (accessQuery.data.nextCursor || accessStack.length > 0) && (
               <div className="pager">
                 <span className="faint" style={{ color: '#888780' }}>
-                  Page {accessStack.length + 1} · 50 / page · keyset cursor · only this page is fetched
+                  Page {accessStack.length + 1}
                 </span>
                 <span style={{ display: 'flex', gap: 10 }}>
                   <button
@@ -916,7 +930,7 @@ export default function OwnerAuditPage() {
 
               <div className="pager">
                 <span className="faint" style={{ color: '#888780' }}>
-                  Page {pageNum} · 50 / page · keyset cursor · only this page is fetched
+                  Page {pageNum}
                 </span>
                 <span style={{ display: 'flex', gap: 10 }}>
                   <button className="pgbtn" onClick={goPrev} disabled={!stack.length || query.isFetching}>‹ Prev</button>
@@ -927,11 +941,6 @@ export default function OwnerAuditPage() {
           </div>
         )}
 
-        <div className="note-b">
-          Reads the materialized AnomalyEvent model — severity / category / search / date-range all filter server-side,
-          keyset-paginated over up to 1 year, only the current page fetched. Discounts &amp; refunds show ₹ amount + reason.
-          Staff scorecard &amp; Access tabs and triage arrive next.
-        </div>
       </div>
 
       {/* detail drawer */}
