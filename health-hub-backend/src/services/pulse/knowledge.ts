@@ -256,7 +256,7 @@ async function checkRegistry(): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   const today = todayIST();
   await Promise.all(Object.entries(M).map(async ([name, m]) => {
-    const fr = F[name]; if (!fr) { out[name] = 'ok (no diagnostic FROM)'; return; }
+    const fr = F[name]; if (!fr) { out[name] = 'unchecked'; return; }
     const w: string[] = []; if (m.filt) w.push(m.filt); if (fr[1]) w.push(`(${fr[1]} AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') >= '${today}'`);
     const r = await query(`SELECT ${m.sql} AS v FROM ${fr[0]}${w.length ? ` WHERE ${w.join(' AND ')}` : ''}`);
     out[name] = r.err ? `BROKEN: ${r.err}` : 'ok';

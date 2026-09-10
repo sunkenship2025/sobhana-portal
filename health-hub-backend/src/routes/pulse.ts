@@ -20,7 +20,7 @@ router.get('/today', async (_req, res) => {
 });
 
 router.get('/health', async (_req, res) => {
-  try { const k = await ensureKnowledge(); const broken = Object.entries(k.registryHealth).filter(([, v]) => v !== 'ok');
+  try { const k = await ensureKnowledge(); const broken = Object.entries(k.registryHealth).filter(([, v]) => v.startsWith('BROKEN'));
     res.status(broken.length ? 500 : 200).json({ ok: broken.length === 0, builtAt: k.builtAt, namesAt: k.namesAt, valueTerms: Object.keys(k.vidx).length, names: k.names.length, registry: k.registryHealth }); }
   catch (e: any) { res.status(503).json({ ok: false, message: String(e?.message || e).slice(0, 200) }); }
 });

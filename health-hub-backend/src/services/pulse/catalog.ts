@@ -87,6 +87,10 @@ export const FROMS: Record<string, [string, string]> = {
   discount_total: ['"Bill" b JOIN "Visit" v ON v.id=b."visitId" JOIN "Branch" br ON br.id=b."branchId"', 'b."billedAt"'],
   refund_total: ['"OrderRefund" orf JOIN "Visit" v ON v.id=orf."visitId" JOIN "Branch" br ON br.id=orf."branchId"', 'orf."createdAt"'],
   commission: ['"DoctorPayoutLedger" pl JOIN "Branch" br ON br.id=pl."branchId"', 'pl."periodStartDate"'],
+  // rate metrics: no Branch join, so no breakdowns — but the formula is still exercised by the self-check
+  abnormal_rate: ['"TestResult" r', ''],
+  cancellation_rate: ['"TestOrder" o', 'o."createdAt"'],
+  delivery_rate: ['"MessageLog" m', 'm."createdAt"'],
 };
 export const DIMS: Record<string, string> = {
   branch: 'br.code',
