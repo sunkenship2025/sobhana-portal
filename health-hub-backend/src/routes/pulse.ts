@@ -9,7 +9,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
 import { branchContextMiddleware } from '../middleware/branch';
 import { ask, todayPack } from '../services/pulse';
-import { ensureKnowledge } from '../services/pulse/knowledge';
+import { ensureKnowledge, refreshKnowledge } from '../services/pulse/knowledge';
 import { logAction } from '../services/auditService';
 
 const router = Router();
@@ -20,7 +20,14 @@ router.get('/today', async (_req, res) => {
 });
 
 router.get('/health', async (_req, res) => {
-  try { const k = await ensureKnowledge(); res.json({ ok: true, builtAt: k.builtAt, valueTerms: Object.keys(k.vidx).length, names: k.names.length }); }
+  try { const k = await ensureKnowledge(); const broken = Object.entries(k.registryHealth).filter(([, v]) => v !== 'ok');
+    res.status(broken.length ? 500 : 200).json({ ok: broken.length === 0, builtAt: k.builtAt, namesAt: k.namesAt, valueTerms: Object.keys(k.vidx).length, names: k.names.length, registry: k.registryHealth }); }
+  catch (e: any) { res.status(503).json({ ok: false, message: String(e?.message || e).slice(0, 200) }); }
+});
+
+/** Rebuild everything now — after adding doctors/tests or changing the schema. ~60s on Neon. */
+router.post('/refresh', async (_req, res) => {
+  try { const k = await refreshKnowledge(); res.json({ ok: true, builtAt: k.builtAt, names: k.names.length, registry: k.registryHealth }); }
   catch (e: any) { res.status(503).json({ ok: false, message: String(e?.message || e).slice(0, 200) }); }
 });
 

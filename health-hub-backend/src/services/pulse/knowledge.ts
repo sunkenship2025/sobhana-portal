@@ -223,18 +223,46 @@ const TYPE = (d: string) => /timestamp/.test(d) ? 'ts' : /^date$/.test(d) ? 'dat
   /bool/.test(d) ? 'bool' : /json/.test(d) ? 'json' : /USER-DEFINED/.test(d) ? 'enum' : 'str';
 
 export interface Knowledge {
-  builtAt: number; enums: string; graphSchema: string; coverage: string;
+  builtAt: number; namesAt: number; registryHealth: Record<string, string>; enums: string; graphSchema: string; coverage: string;
   vidx: Record<string, { tab: string; col: string; val: string; exact: boolean }[]>;
   idents: string[]; names: { kind: 'doctor' | 'clinicDoctor' | 'branch' | 'test' | 'department'; id: string; name: string; sub?: string }[];
 }
 let K: Knowledge | null = null;
 let building: Promise<Knowledge> | null = null;
-const TTL = 6 * 3600 * 1000;
+const TTL = 6 * 3600 * 1000;          // schema shape, coverage, row counts — slow (~60 queries)
+const NAMES_TTL = 60 * 60 * 1000;     // doctors, tests, branches, value index — cheap (6 queries)
 
 export async function ensureKnowledge(): Promise<Knowledge> {
-  if (K && Date.now() - K.builtAt < TTL) return K;
+  if (K && Date.now() - K.builtAt < TTL) {
+    if (Date.now() - K.namesAt >= NAMES_TTL) refreshNames().catch(() => {});   // never blocks an answer
+    return K;
+  }
   if (!building) building = build().then((k) => { K = k; building = null; return k; }).catch((e) => { building = null; throw e; });
   return building;
+}
+/** Force a full rebuild — the owner's "I just added a doctor / changed the schema" button. */
+export async function refreshKnowledge(): Promise<Knowledge> { K = null; return ensureKnowledge(); }
+let refreshingNames = false;
+async function refreshNames(): Promise<void> {
+  if (!K || refreshingNames) return; refreshingNames = true;
+  try { const { vidx, names } = await buildNames(); K = { ...K, vidx, names, namesAt: Date.now() }; console.log(`[pulse] names refreshed — ${names.length} names`); }
+  finally { refreshingNames = false; }
+}
+
+/** Run every registry formula once over a tiny window. A schema change that breaks a formula
+ *  must show up here, on /health, not in an owner's answer. */
+async function checkRegistry(): Promise<Record<string, string>> {
+  const { METRICS: M, FROMS: F } = await import('./catalog');
+  const out: Record<string, string> = {};
+  const today = todayIST();
+  await Promise.all(Object.entries(M).map(async ([name, m]) => {
+    const fr = F[name]; if (!fr) { out[name] = 'ok (no diagnostic FROM)'; return; }
+    const w: string[] = []; if (m.filt) w.push(m.filt); if (fr[1]) w.push(`(${fr[1]} AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') >= '${today}'`);
+    const r = await query(`SELECT ${m.sql} AS v FROM ${fr[0]}${w.length ? ` WHERE ${w.join(' AND ')}` : ''}`);
+    out[name] = r.err ? `BROKEN: ${r.err}` : 'ok';
+    if (r.err) console.error(`[pulse] registry metric '${name}' is broken: ${r.err}`);
+  }));
+  return out;
 }
 
 async function build(): Promise<Knowledge> {
@@ -286,7 +314,13 @@ meaningless, and a query over one returns a confident zero rather than an error.
 ${hollow.join('\n')}
 If a question needs one of these, say the business does not record it and ask the owner for
 the figure. Do NOT substitute a different column and label it as the thing they asked for.` : '';
-  // value index + name directory
+  const { vidx, names } = await buildNames();
+  const registryHealth = await checkRegistry();
+  console.log(`[pulse] knowledge built in ${Date.now() - t0}ms — ${fact.length} fact, ${dim.length} dim tables, ${hollow.length} hollow columns, ${Object.keys(vidx).length} value terms, ${Object.values(registryHealth).filter((v) => v !== 'ok').length} broken metrics`);
+  return { builtAt: Date.now(), namesAt: Date.now(), registryHealth, enums, graphSchema, coverage, vidx, idents: [...idents], names };
+}
+
+async function buildNames(): Promise<{ vidx: Knowledge['vidx']; names: Knowledge['names'] }> {
   const COMMON = new Set(('time with rate the and for from that this these those have has had was were are is be been all any both each few more most other some such only own same than too very can will just now new old one two three first last next total sub main top low high full part end start over under out up down value values count number amount level type kind form line list set group order test tests result results report reports visit visits patient patients doctor branch bill month year day week time date name code left right front back side inner outer upper lower single double multi non pre post anti semi mid').split(' '));
   const vidx: Knowledge['vidx'] = {};
   const put = (term: unknown, tab: string, col: string, val: string, exact = false) => {
@@ -300,8 +334,7 @@ the figure. Do NOT substitute a different column and label it as the thing they 
   for (const r of (await query('SELECT DISTINCT "testCodeSnapshot" c, "testNameSnapshot" n FROM "TestOrder" WHERE "testCodeSnapshot" IS NOT NULL', [], 100000)).rows || []) { put(r.c, 'TestOrder', 'testCodeSnapshot', String(r.c), true); for (const w of String(r.n).split(/[^A-Za-z0-9]+/)) if (w.length > 3) put(w, 'TestOrder', 'testCodeSnapshot', String(r.c)); names.push({ kind: 'test', id: String(r.c), name: String(r.n), sub: String(r.c) }); }
   for (const r of (await query('SELECT id, name FROM "ClinicDoctor"', [], 100000)).rows || []) { for (const w of String(r.name).split(/[^A-Za-z0-9]+/)) if (w.length > 3) put(w, 'ClinicDoctor', 'name', String(r.name)); names.push({ kind: 'clinicDoctor', id: String(r.id), name: String(r.name) }); }
   for (const r of (await query('SELECT id, name FROM "ReferralDoctor"', [], 100000)).rows || []) { for (const w of String(r.name).split(/[^A-Za-z0-9]+/)) if (w.length > 3 && w.toLowerCase() !== 'name') put(w, 'ReferralDoctor', 'name', String(r.name)); names.push({ kind: 'doctor', id: String(r.id), name: String(r.name) }); }
-  console.log(`[pulse] knowledge built in ${Date.now() - t0}ms — ${fact.length} fact, ${dim.length} dim tables, ${hollow.length} hollow columns, ${Object.keys(vidx).length} value terms`);
-  return { builtAt: Date.now(), enums, graphSchema, coverage, vidx, idents: [...idents], names };
+  return { vidx, names };
 }
 
 // ── question-time helpers ──────────────────────────────────────────────────
