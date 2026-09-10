@@ -11,6 +11,7 @@ import { ladderAnswer } from './ladder';
 import { entityCard } from './entity';
 import { guessMetric } from './shapes';
 export { todayPack } from './today';
+import { analyse } from './v2/run';
 
 export interface PulseState { lastQ?: string | null; lastSql?: string | null; metric?: string | null; period?: string | null; kind?: string | null; }
 export type Answer = any;
@@ -26,8 +27,11 @@ function isFragment(q: string, namesKnown: boolean): boolean {
   return true;
 }
 
-export async function ask(rawQ: string, state: PulseState = {}): Promise<Answer> {
+export async function ask(rawQ: string, state: PulseState = {}, opts: { v2?: boolean } = {}): Promise<Answer> {
   const k = await ensureKnowledge();
+  // V2: one general analyst that plans the analysis, instead of a router that picks a fixed path.
+  // The guards below (picker, entity card) still run first — they are cheaper and exact.
+  const useV2 = opts.v2 ?? process.env.PULSE_V2 !== '0';
   let q = String(rawQ || '').trim().slice(0, 500);
   if (!q) return { kind: 'refuse', reason: 'empty', text: 'Ask me something about the business.', state };
   // FOLLOW-UP: a short fragment ("and kompally?", "branch wise", "vs july") inherits the last
@@ -59,6 +63,10 @@ export async function ask(rawQ: string, state: PulseState = {}): Promise<Answer>
   const ent = followUp ? null : await entityCard(k, q);
   if (ent) return { ...ent, state: { ...next, kind: 'entity' } };
 
+  if (useV2 && !forceSql) {
+    try { return await analyse(q, { ...state, lastQ: q === state.lastQ ? state.lastQ : (followUp ? state.lastQ : null) }); }
+    catch (e) { console.warn('[pulse] v2 failed, falling back:', (e as any)?.message); }
+  }
   const r = forceSql ? null : await routeIntent(q, mentionsKnown(k, q));
   if (r?.mode === 'OUT_OF_SCOPE') return { kind: 'refuse', reason: 'out_of_scope', text: "I can't see that — only what happens inside your centre is recorded. I didn't run a query, so there's no number to give you.",
     chips: [{ label: 'patients who did not return in 90 days', q: 'how many patients have not returned in 90 days' }, { label: 'first-visit patients this month', q: 'new patients this month' }], state: { ...next, kind: 'refuse' } };

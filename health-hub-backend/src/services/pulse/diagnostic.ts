@@ -3,15 +3,15 @@
  * text-to-SQL questions: they need ~20 queries, a baseline, and attribution. Every query here
  * is generated deterministically from the registry — the model never writes SQL, it narrates.
  */
-import { query, todayIST, IST, langOf } from './db';
-import { METRICS, FROMS, DIMS, DIMJOIN, dimOk } from './catalog';
+import { query, todayIST, IST, langOf, pool } from './db';
+import { METRICS, FROMS, DIMS, dimJoin, dimOk } from './catalog';
 import { llmJson } from './llm';
 import type { Route } from './router';
 
 const rupees = (v: number) => '₹' + (Math.round(v) / 100).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 export const fmt = (v: number | null | undefined, u?: string | null) => v == null ? '—' : u === 'paise' ? rupees(v) : u === 'ratio' ? (v * 100).toFixed(1) + '%' : u === 'minutes' ? `${Math.round(v / 60)}h` : Number(v).toLocaleString('en-IN');
 
-async function scalar(metric: string, from: string, to: string, extraJoin = '', dimExpr: string | null = null): Promise<any> {
+export async function scalar(metric: string, from: string, to: string, extraJoin = '', dimExpr: string | null = null): Promise<any> {
   const M = METRICS[metric], F = FROMS[metric]; if (!M || !F) return null;
   const [fromClause, timeCol] = F; const w: string[] = []; if (M.filt) w.push(M.filt);
   if (timeCol) { w.push(`(${timeCol} ${IST}) >= '${from}'`); w.push(`(${timeCol} ${IST}) < '${to}'`); }
@@ -24,7 +24,7 @@ export interface Period { from: string; to: string; }
 export interface Kpi { metric: string; unit: string; current: number; previous: number; deltaPct: number | null; direction: string; }
 
 export async function status(cur: Period, prev: Period, metrics = ['revenue', 'visits', 'test_orders', 'reports_finalized', 'net_billed', 'discount_total']): Promise<Kpi[]> {
-  const pairs = await Promise.all(metrics.map((m) => Promise.all([scalar(m, cur.from, cur.to), scalar(m, prev.from, prev.to)])));
+  const pairs = await pool(3, metrics.map((m) => () => Promise.all([scalar(m, cur.from, cur.to), scalar(m, prev.from, prev.to)])));
   const out: Kpi[] = [];
   metrics.forEach((m, i) => {
     const [a, b] = pairs[i]; if (a === null || b === null) return;
@@ -40,8 +40,9 @@ export const addDays = (iso: string, n: number) => { const [y, m, d] = iso.split
 export async function baseline(metric: string, cur: Period, periodsBack = 8, lengthDays = 7) {
   const wins: { from: string; to: string }[] = []; let to = cur.from;
   for (let i = 0; i < periodsBack; i++) { const from = addDays(to, -lengthDays); wins.unshift({ from, to }); to = from; }
-  const vs = await Promise.all(wins.map((w) => scalar(metric, w.from, w.to)));
-  const hist = wins.map((w, i) => ({ ...w, v: vs[i] })).filter((h) => h.v !== null) as { from: string; to: string; v: number }[];
+  // One bucketed query for the whole history — eight round-trips per metric was the single
+  // biggest source of latency, and with several metrics it exhausted the connection pool.
+  const hist = await historyBuckets(metric, wins);
   if (hist.length < 3) return null;
   const vals = hist.map((h) => h.v); const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
   const sd = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length) || 0;
@@ -52,6 +53,19 @@ export async function baseline(metric: string, cur: Period, periodsBack = 8, len
     trendPctPerPeriod: mean ? Number((slope / mean * 100).toFixed(1)) : null, verdict: Math.abs(z) < 1.5 ? 'within normal range' : z <= -1.5 ? 'genuinely below normal' : 'genuinely above normal' };
 }
 
+/** All windows of a metric in ONE query, bucketed by the window each row falls into. */
+async function historyBuckets(metric: string, wins: { from: string; to: string }[]): Promise<{ from: string; to: string; v: number }[]> {
+  const M = METRICS[metric], F = FROMS[metric];
+  if (!M || !F || !F[1]) return [];
+  const w: string[] = []; if (M.filt) w.push(M.filt);
+  w.push(`(${F[1]} ${IST}) >= '${wins[0].from}'`); w.push(`(${F[1]} ${IST}) < '${wins[wins.length - 1].to}'`);
+  const cases = wins.map((x, i) => `WHEN (${F[1]} ${IST}) >= '${x.from}' AND (${F[1]} ${IST}) < '${x.to}' THEN ${i}`).join(' ');
+  const ex = await query(`SELECT (CASE ${cases} END) b, ${M.sql} v FROM ${F[0]} WHERE ${w.join(' AND ')} GROUP BY 1`, [], 100);
+  if (ex.err || !ex.rows) return [];
+  const by = new Map<number, number>(); for (const r of ex.rows) if (r.b !== null) by.set(Number(r.b), Number(r.v));
+  return wins.map((x, i) => ({ ...x, v: by.get(i) ?? 0 })).filter((_, i) => by.has(i));
+}
+
 /** Decompose a metric's movement across every dimension it supports; rank by |contribution|. */
 export async function diagnose(metric: string, cur: Period, prev: Period) {
   const total: any = { current: await scalar(metric, cur.from, cur.to), previous: await scalar(metric, prev.from, prev.to) };
@@ -59,7 +73,7 @@ export async function diagnose(metric: string, cur: Period, prev: Period) {
   total.deltaPct = total.previous ? Number((total.delta / Math.abs(total.previous) * 100).toFixed(1)) : null;
   const breakdowns: { dimension: string; top: any[] }[] = [];
   const dims = Object.entries(DIMS).filter(([dim]) => dimOk(metric, dim));
-  const results = await Promise.all(dims.map(([dim, expr]) => { const join = DIMJOIN[dim] || ''; return Promise.all([scalar(metric, cur.from, cur.to, join, expr), scalar(metric, prev.from, prev.to, join, expr)]); }));
+  const results = await pool(3, dims.map(([dim, expr]) => () => { const join = dimJoin(metric, dim); return Promise.all([scalar(metric, cur.from, cur.to, join, expr), scalar(metric, prev.from, prev.to, join, expr)]); }));
   for (let i = 0; i < dims.length; i++) {
     const [dim] = dims[i]; const [a, b] = results[i];
     if (!a || !b) continue;
@@ -76,6 +90,17 @@ export async function diagnose(metric: string, cur: Period, prev: Period) {
 /** Deterministic period resolution on IST calendar-day strings — never Date/toISOString. */
 export function periods(kind: string, today = todayIST()) {
   const [Y, M, D] = today.split('-').map(Number);
+  const k0 = String(kind || 'month').toLowerCase().trim().replace(/[\s_]+/g, '-');
+  // Accept the shapes an analyst actually writes; anything unrecognised falls back to
+  // month-to-date rather than producing NaN dates and an empty result nobody can explain.
+  if (k0 === 'today') { return { cur: { from: today, to: addDays(today, 1) }, prev: { from: addDays(today, -1), to: today }, partial: true, days: 1, note: 'today vs yesterday' }; }
+  if (k0 === 'yesterday') { const y = addDays(today, -1); return { cur: { from: y, to: today }, prev: { from: addDays(y, -1), to: y }, partial: false, days: 1, note: 'yesterday vs the day before' }; }
+  if (k0 === 'last-month' || k0 === 'previous-month') { const pm = M === 1 ? 12 : M - 1, py = M === 1 ? Y - 1 : Y; kind = `${py}-${String(pm).padStart(2, '0')}`; }
+  else if (k0 === 'this-month' || k0 === 'month-to-date' || k0 === 'mtd') kind = 'month';
+  else if (k0 === 'last-week' || k0 === 'this-week' || k0 === 'week-to-date') kind = 'week';
+  else if (/^last-(\d+)-days?$/.test(k0)) { const n = Math.min(Number(k0.match(/\d+/)![0]), 180); const from = addDays(today, -n); return { cur: { from, to: today }, prev: { from: addDays(from, -n), to: from }, partial: false, days: n, note: `trailing ${n} days vs the ${n} before` }; }
+  else if (/^last-(\d+)-months?$/.test(k0)) { const n = Math.min(Number(k0.match(/\d+/)![0]), 24); const sm = ((M - n - 1) % 12 + 12) % 12 + 1, sy = Y + Math.floor((M - n - 1) / 12); const from = dstr(sy, sm, 1), to = dstr(Y, M, 1); const pn = dstr(sy - (sm - n <= 0 ? 1 : 0), ((sm - n - 1) % 12 + 12) % 12 + 1, 1); return { cur: { from, to }, prev: { from: pn, to: from }, partial: false, days: n * 30, note: `${n} whole months vs the ${n} before` }; }
+  else if (k0 !== 'month' && k0 !== 'week' && !/^\d{4}-\d{2}$/.test(k0)) kind = 'month';
   if (kind === 'week') { const curFrom = addDays(today, -7); return { cur: { from: curFrom, to: today }, prev: { from: addDays(curFrom, -7), to: curFrom }, partial: false, days: 7, note: 'trailing 7 days vs the 7 before' }; }
   if (kind === 'month') {
     const elapsed = Math.max(D - 1, 1); const curFrom = dstr(Y, M, 1);

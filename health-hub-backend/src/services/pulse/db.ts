@@ -8,7 +8,11 @@
  */
 import { PrismaClient } from '@prisma/client';
 
-const url = process.env.ANALYTICS_DATABASE_URL;
+let url = process.env.ANALYTICS_DATABASE_URL;
+// A plan can fan out to dozens of small queries. Prisma's default pool (cpus*2+1) starves under
+// that and every step after the first few dies with "Timed out fetching a new connection" — which
+// then reads as "no data" rather than as a failure. Raise the pool and let it wait.
+if (url && !/connection_limit=/.test(url)) url += (url.includes('?') ? '&' : '?') + 'connection_limit=25&pool_timeout=20';
 if (!url) {
   // Fail loudly at import time: silently falling back to the app's write-capable
   // connection would defeat the whole point of the role.
@@ -34,6 +38,15 @@ export function normalise(rows: unknown[]): Row[] {
 }
 
 export const MAX_ROWS = 200;
+
+/** Run tasks with bounded concurrency — the database is the scarce resource, not the CPU. */
+export async function pool<T>(limit: number, tasks: (() => Promise<T>)[]): Promise<T[]> {
+  const out: T[] = new Array(tasks.length); let i = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, async () => {
+    while (i < tasks.length) { const n = i++; out[n] = await tasks[n](); }
+  }));
+  return out;
+}
 
 /** Run a SELECT on the read-only role. Never throws; errors come back as a string. */
 export async function query(sql: string, params: unknown[] = [], limit = MAX_ROWS): Promise<Exec> {

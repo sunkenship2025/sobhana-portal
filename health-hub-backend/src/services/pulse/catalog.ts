@@ -103,7 +103,13 @@ export const DIMS: Record<string, string> = {
 export const DIMJOIN: Record<string, string> = {
   referring_doctor: ' LEFT JOIN "ReferralDoctor_Visit" rdv ON rdv."visitId"=v.id AND rdv."deletedAt" IS NULL LEFT JOIN "ReferralDoctor" rd ON rd.id=rdv."referralDoctorId"',
 };
+/** Some metrics reach a dimension by a different path. commission already carries the doctor id. */
+export const DIMJOIN_FOR: Record<string, Record<string, string>> = {
+  commission: { referring_doctor: ' LEFT JOIN "ReferralDoctor" rd ON rd.id=pl."referralDoctorId"' },
+};
+export const dimJoin = (metric: string, dim: string) => DIMJOIN_FOR[metric]?.[dim] ?? DIMJOIN[dim] ?? '';
 export function dimOk(metric: string, dim: string): boolean {
+  if (DIMJOIN_FOR[metric]?.[dim]) return true;
   const from = FROMS[metric]?.[0] || '';
   if (dim === 'payout_category' || dim === 'test') return /"TestOrder"/.test(from);
   if (dim === 'payment_type') return /"PaymentTransaction"/.test(from);

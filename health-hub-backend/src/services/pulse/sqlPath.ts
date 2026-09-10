@@ -23,7 +23,7 @@ const tablesIn = (s: string) => [...new Set([...String(s).matchAll(/(?:from|join
 const canon = (rows: Row[]) => rows.flatMap((r) => Object.values(r).filter((v) => typeof v === 'number')).sort((a: any, b: any) => a - b);
 const same = (a: number[], b: number[]) => a.length === b.length && a.every((x, i) => Math.abs(x - b[i]) <= Math.max(0.011, Math.abs(b[i]) * 1e-9));
 
-async function generate(k: Knowledge, q: string, opts: { temperature?: number; bustCache?: boolean; prev?: Ctx } = {}) {
+export async function generate(k: Knowledge, q: string, opts: { temperature?: number; bustCache?: boolean; prev?: Ctx } = {}) {
   let ctx = assemble(k, q);
   if (opts.prev?.lastQ) {
     // A follow-up is a modification of the previous query, not a new question. Show the model

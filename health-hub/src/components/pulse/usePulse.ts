@@ -6,7 +6,7 @@ const bid = () => useBranchStore.getState().activeBranchId || '';
 export interface Chip { label: string; q: string; }
 export interface PulseState { lastQ?: string | null; metric?: string | null; period?: string | null; kind?: string | null; }
 export interface Answer { kind: string; [k: string]: any; state?: PulseState; }
-export interface Turn { id: number; q: string; answer?: Answer; error?: string; pending?: boolean; collapsed?: boolean; }
+export interface Turn { id: number; q: string; answer?: Answer; error?: string; pending?: boolean; collapsed?: boolean; steps?: string[]; }
 export interface Today { date: string; sofar?: boolean; collectionToday: number; vsUsual: number | null; cases: number; due: number; lateReports: number; chips: Chip[]; }
 
 const SIZE_KEY = 'pulse.size';
@@ -26,6 +26,7 @@ export function usePulse() {
   const [expanded, setExpanded] = useState<boolean>(() => { try { return localStorage.getItem(SIZE_KEY) === 'lg'; } catch { return false; } });
   const [turns, setTurns] = useState<Turn[]>([]);
   const [today, setToday] = useState<Today | null>(null);
+  const branchName = useBranchStore((s) => s.getActiveBranch?.()?.name || null);
   const [todayFailed, setTodayFailed] = useState(false);
   const stateRef = useRef<PulseState>({});
   const idRef = useRef(1);
@@ -55,5 +56,5 @@ export function usePulse() {
 
   const toggleCollapse = useCallback((id: number) => setTurns((ts) => ts.map((t) => t.id === id ? { ...t, collapsed: !t.collapsed } : t)), []);
   const reset = useCallback(() => { setTurns([]); stateRef.current = {}; }, []);
-  return { open, setOpen, expanded, setExpanded, turns, today, todayFailed, thinking, ask, prefetch, toggleCollapse, reset, context: stateRef.current };
+  return { open, setOpen, expanded, setExpanded, turns, today, todayFailed, thinking, ask, prefetch, toggleCollapse, reset, branchName, context: stateRef.current };
 }

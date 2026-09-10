@@ -1,67 +1,141 @@
 import { useEffect, useRef, useState } from 'react';
-import { AnswerView, Chips, oneLine, Card } from './PulseCards';
+import { Artifact } from './PulseArtifacts';
 import { rupees } from './format';
-import type { usePulse } from './usePulse';
+import type { usePulse, Turn } from './usePulse';
 
 type P = ReturnType<typeof usePulse>;
+
+const Chips = ({ chips, onAsk }: { chips?: { label: string; q: string }[]; onAsk: (q: string) => void }) =>
+  !chips?.length ? null : (
+    <div className="flex flex-wrap gap-1.5 pt-0.5">
+      {chips.map((c, i) => (
+        <button key={i} type="button" onClick={() => onAsk(c.q)}
+          className="rounded-full border bg-background px-3 py-1 text-[11.5px] font-medium transition-colors hover:border-foreground/25 hover:bg-muted">
+          {c.label}
+        </button>))}
+    </div>);
+
+/** The wait shows the analysis, not a spinner — the plan is the most reassuring thing we have. */
+function Thinking({ steps }: { steps?: string[] }) {
+  const [n, setN] = useState(0);
+  useEffect(() => { const t = setInterval(() => setN((x) => x + 1), 1400); return () => clearInterval(t); }, []);
+  const line = steps?.length ? steps[Math.min(n, steps.length - 1)] : ['Working out what to look at…', 'Reading the numbers…', 'Putting it together…'][Math.min(n, 2)];
+  return <div className="pulse-step py-1"><i /><span>{line}</span></div>;
+}
+
+function TurnView({ t, onAsk, onExpand }: { t: Turn; onAsk: (q: string) => void; onExpand: () => void }) {
+  const a = t.answer;
+  if (t.collapsed && a) return (
+    <button type="button" onClick={onExpand}
+      className="flex w-full items-baseline justify-between border-b border-dashed pb-2 text-left text-[12px] text-muted-foreground transition-colors hover:text-foreground">
+      <span className="truncate pr-3">{t.q}</span>
+      <span className="shrink-0 text-[11px]">{a.kind === 'analysis' ? `${a.artifacts?.length || 0 ? 'shown' : 'answered'}` : a.kind}</span>
+    </button>);
+  return (
+    <div className="pulse-turn space-y-2.5">
+      <div className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-muted px-3.5 py-2 text-[13.5px] leading-snug">{t.q}</div>
+      {t.pending && <Thinking steps={t.steps} />}
+      {t.error && <p className="text-[13px] text-[#D91C2B]">{t.error}</p>}
+      {a && <>
+        {a.text && <p className="whitespace-pre-line text-[13.5px] leading-[1.65]">{a.text}</p>}
+        {(a.artifacts || []).map((x: any, i: number) => <Artifact key={i} a={x} evidence={a.evidence || []} />)}
+        {a.kind === 'refuse' && !a.text && <p className="text-[13.5px]">I couldn't answer that.</p>}
+        <Chips chips={a.chips} onAsk={onAsk} />
+        {a.evidence?.length > 0 && (
+          <details className="text-[11px] text-muted-foreground">
+            <summary className="cursor-pointer select-none py-0.5 hover:text-foreground">how this was worked out</summary>
+            <ol className="mt-1.5 space-y-1 border-l pl-3">
+              {a.evidence.filter((e: any) => e.ok).map((e: any) => (
+                <li key={e.step}><span className="font-medium text-foreground">{e.label}</span>
+                  <span className="ml-1.5 opacity-70">{e.tool}</span>
+                  {e.sql && <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 font-mono text-[10px] leading-snug">{e.sql}</pre>}
+                </li>))}
+            </ol>
+          </details>)}
+      </>}
+    </div>);
+}
+
 export function PulsePanel({ p, onClose }: { p: P; onClose: () => void }) {
   const [text, setText] = useState('');
   const scroller = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => { input.current?.focus(); }, []);
   useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' }); }, [p.turns.length, p.thinking]);
+  useEffect(() => { const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [onClose]);
   const submit = (q?: string) => { const v = (q ?? text).trim(); if (!v) return; setText(''); p.ask(v); };
   const empty = p.turns.length === 0;
 
   return (
-    <div className={`pulse-panel fixed bottom-6 right-6 z-50 flex flex-col overflow-hidden rounded-2xl border bg-card ${p.expanded ? 'h-[min(720px,calc(100vh-48px))] w-[min(560px,calc(100vw-48px))]' : 'h-[min(560px,calc(100vh-48px))] w-[min(400px,calc(100vw-48px))]'}`} role="dialog" aria-label="Pulse">
+    <div className={`pulse-panel fixed bottom-6 right-6 z-50 flex flex-col overflow-hidden rounded-2xl border bg-card ${p.expanded ? 'h-[min(760px,calc(100vh-48px))] w-[min(600px,calc(100vw-48px))]' : 'h-[min(600px,calc(100vh-48px))] w-[min(420px,calc(100vw-48px))]'}`}
+      role="dialog" aria-label="Pulse">
+
       <div className="flex items-center gap-2.5 border-b px-4 py-3">
         <div className={`pulse-orb is-small ${p.thinking ? 'is-thinking' : ''}`} />
         <span className="pulse-label">PULSE</span>
-        <span className="ml-auto text-[11px] text-muted-foreground">{p.context.period ? `${p.context.period} · ` : ''}All branches</span>
-        <button type="button" title={p.expanded ? 'Smaller' : 'Larger'} onClick={() => p.setExpanded(!p.expanded)} className="ml-1 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">⤡</button>
-        {!empty && <button type="button" title="Start over" onClick={p.reset} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">↺</button>}
-        <button type="button" title="Close" onClick={onClose} className="rounded p-1 text-lg leading-none text-muted-foreground hover:bg-muted hover:text-foreground">×</button>
+        <span className="ml-auto truncate text-[11px] text-muted-foreground">{p.branchName || 'All branches'}</span>
+        <button type="button" title={p.expanded ? 'Smaller' : 'Larger'} onClick={() => p.setExpanded(!p.expanded)}
+          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+            {p.expanded ? <><path d="M10 6h-4v4" /><path d="M14 2l-8 8" /></> : <><path d="M6 2h8v8" /><path d="M14 2l-8 8" /><path d="M2 14l4-4" /></>}
+          </svg></button>
+        {!empty && <button type="button" title="Start over" onClick={p.reset}
+          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+            <path d="M13.5 8a5.5 5.5 0 1 1-1.9-4.1" /><path d="M13.5 2v3h-3" /></svg></button>}
+        <button type="button" title="Close (Esc)" onClick={onClose}
+          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" /></svg></button>
       </div>
 
-      <div ref={scroller} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
+      <div ref={scroller} className="pulse-scroll flex-1 space-y-4 overflow-y-auto px-4 py-4">
         {empty && (p.today ? (
-          <>
-            <Card><div className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">Collection today</div>
-              <div className="mt-0.5 text-[22px] font-semibold tracking-tight">{rupees(p.today.collectionToday)}{p.today.sofar && <span className="ml-2 text-xs font-normal text-muted-foreground">so far</span>}{p.today.vsUsual != null && <span className={`ml-2 text-xs font-semibold ${p.today.vsUsual < 0 ? 'text-[#D91C2B]' : 'text-green-700'}`}>{p.today.vsUsual > 0 ? '↑' : '↓'} {Math.abs(p.today.vsUsual)}% vs usual</span>}</div></Card>
-            <Card><div className="flex gap-6">
-              <div><div className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">Cases</div><div className="text-lg font-semibold">{p.today.cases}</div></div>
-              <div><div className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">Pending due</div><div className="text-lg font-semibold">{rupees(p.today.due, { compact: true })}</div></div>
-              <div><div className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">Reports &gt;24h</div><div className={`text-lg font-semibold ${p.today.lateReports ? 'text-[#D91C2B]' : ''}`}>{p.today.lateReports}</div></div>
-            </div></Card>
+          <div className="space-y-3">
+            <div className="rounded-xl border bg-card px-4 py-3">
+              <div className="text-[10.5px] font-medium uppercase tracking-[.08em] text-muted-foreground">Collection today</div>
+              <div className="mt-1 text-[26px] font-semibold leading-none tracking-tight">
+                {rupees(p.today.collectionToday)}
+                {p.today.sofar && <span className="ml-2 text-xs font-normal text-muted-foreground">so far</span>}
+                {p.today.vsUsual != null && <span className={`ml-2 text-xs font-semibold ${p.today.vsUsual < 0 ? 'text-[#D91C2B]' : 'text-green-700'}`}>
+                  {p.today.vsUsual > 0 ? '↑' : '↓'} {Math.abs(p.today.vsUsual)}% vs usual</span>}
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {[['Cases', String(p.today.cases), false], ['Pending due', rupees(p.today.due, { compact: true }), false],
+                ['Reports >24h', String(p.today.lateReports), p.today.lateReports > 0]].map(([l, v, warn]) => (
+                <div key={l as string} className="rounded-xl border bg-card px-3 py-2.5">
+                  <div className="text-[10px] text-muted-foreground">{l}</div>
+                  <div className={`mt-0.5 text-[17px] font-semibold ${warn ? 'text-[#D91C2B]' : ''}`}>{v}</div>
+                </div>))}
+            </div>
             <Chips chips={p.today.chips} onAsk={submit} />
-          </>
+          </div>
         ) : p.todayFailed ? (
-          <div className="pt-2"><p className="text-[15px] font-semibold">Hey.</p><p className="text-[13px] text-muted-foreground">What would you like to look into?</p>
-            <Chips chips={[{ label: 'Collection', q: 'this month collection how much' }, { label: 'Cases', q: 'cases this month branch wise' }, { label: 'Referrals', q: 'doctor wise cases this month top 5' }, { label: 'Reports late?', q: 'reports late kitne hain' }]} onAsk={submit} /></div>
+          <div className="pt-2">
+            <p className="text-[16px] font-semibold">Hey.</p>
+            <p className="mb-2.5 text-[13px] text-muted-foreground">What would you like to look into?</p>
+            <Chips onAsk={submit} chips={[{ label: 'Collection', q: 'this month collection how much' },
+              { label: 'Cases', q: 'cases this month branch wise' }, { label: 'Referrals', q: 'doctor wise cases this month top 5' },
+              { label: 'Where am I losing money', q: 'where am i losing money' }]} />
+          </div>
         ) : (
-          <div className="space-y-3 pt-1"><div className="h-3 w-2/5 animate-pulse rounded bg-muted" /><div className="h-6 w-3/5 animate-pulse rounded bg-muted" /><div className="h-3 w-1/2 animate-pulse rounded bg-muted" /></div>
-        ))}
-
-        {p.turns.map((t) => t.collapsed && t.answer && t.answer.kind !== 'pick' ? (
-          <button key={t.id} type="button" onClick={() => p.toggleCollapse(t.id)} className="flex w-full items-center justify-between border-b border-dashed pb-1.5 text-left text-[12px] text-muted-foreground hover:text-foreground">
-            <span className="truncate pr-3">{t.q}</span><span className="shrink-0 font-medium text-foreground">{oneLine(t.answer)}</span>
-          </button>
-        ) : (
-          <div key={t.id} className="space-y-2">
-            <div className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-muted px-3 py-1.5 text-[13px]">{t.q}</div>
-            {t.pending && <div className="flex items-center gap-1.5 py-1"><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#25397a]" /><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#25397a] [animation-delay:150ms]" /><i className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#25397a] [animation-delay:300ms]" /></div>}
-            {t.error && <p className="text-[13px] text-[#D91C2B]">{t.error}</p>}
-            {t.answer && <AnswerView a={t.answer} onAsk={submit} />}
+          <div className="space-y-3 pt-1">
+            <div className="h-3 w-2/5 animate-pulse rounded bg-muted" />
+            <div className="h-7 w-3/5 animate-pulse rounded bg-muted" />
+            <div className="grid grid-cols-3 gap-2">{[0, 1, 2].map((i) => <div key={i} className="h-14 animate-pulse rounded-xl bg-muted" />)}</div>
           </div>
         ))}
+
+        {p.turns.map((t) => <TurnView key={t.id} t={t} onAsk={submit} onExpand={() => p.toggleCollapse(t.id)} />)}
       </div>
 
       <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="flex items-center gap-2 border-t px-4 py-3">
         <input ref={input} value={text} onChange={(e) => setText(e.target.value)} placeholder="Ask Pulse…" disabled={p.thinking}
-          className="h-10 flex-1 rounded-full border bg-background px-4 text-[14px] outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring disabled:opacity-60" />
-        <button type="submit" disabled={p.thinking || !text.trim()} aria-label="Ask" className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-40">↑</button>
+          className="h-11 flex-1 rounded-full border bg-background px-4 text-[14px] outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-ring disabled:opacity-60" />
+        <button type="submit" disabled={p.thinking || !text.trim()} aria-label="Ask"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-35">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" /></svg>
+        </button>
       </form>
-    </div>
-  );
+    </div>);
 }
