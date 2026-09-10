@@ -46,7 +46,10 @@ export function usePulse() {
       if (answer.state) stateRef.current = answer.state;
       setTurns((ts) => ts.map((t) => t.id === id ? { ...t, answer, pending: false } : t));
     } catch (e: any) {
-      setTurns((ts) => ts.map((t) => t.id === id ? { ...t, error: String(e?.message || 'Pulse is unavailable right now.'), pending: false } : t));
+      // a raw "HTTP 502" is not an answer; say what happened in the owner's terms
+      const m = String(e?.message || '');
+      const friendly = /401|403/.test(m) ? 'Pulse is for the owner account.' : /400/.test(m) ? "Pulse didn't receive that question — try once more." : /5\d\d|unavailable|fetch/i.test(m) ? "Pulse couldn't reach the database just now. Try again in a moment." : m || 'Pulse is unavailable right now.';
+      setTurns((ts) => ts.map((t) => t.id === id ? { ...t, error: friendly, pending: false } : t));
     }
   }, []);
 
