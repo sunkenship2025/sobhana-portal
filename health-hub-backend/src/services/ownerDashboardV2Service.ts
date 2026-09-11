@@ -5,7 +5,7 @@
  * a single call:
  *   - actionQueue       chips that fire when a decision is pending
  *   - moneyToday        gross → discount → commission → net waterfall + cash/online
- *   - payoutLiability   open (unsettled) derived payouts split by doctor type.
+ *   - payoutLiability   commission accrued to date, split by doctor type.
  *                       The dashboard's Payouts card leads with moneyToday.commissionInPaise
  *                       (period-scoped) and shows these underneath as the live stock.
  *   - opsPulse          diagnostics / clinic / comms 3-tile status
@@ -53,7 +53,6 @@ export interface CustomRange {
 export type ActionChipType =
   | 'late_reports'
   | 'unpaid_aged'
-  | 'payouts_to_review'
   | 'whatsapp_failed'
   | 'large_discount'
   | 'dormant_branch'
@@ -94,11 +93,6 @@ export interface MoneyToday {
 
 export interface PayoutLiability {
   totalInPaise: number;
-  // Split of the total by stage: toReview matches the payouts_to_review chip
-  // (reviewedAt == null && paidAt == null); approvedUnpaid is reviewed but not
-  // yet paid (reviewedAt != null && paidAt == null). Sum == totalInPaise.
-  toReviewInPaise: number;
-  approvedUnpaidInPaise: number;
   byType: {
     referralInPaise: number;
     clinicInPaise: number;
@@ -358,7 +352,6 @@ export async function getOwnerDashboardV2(
     // action queue inputs
     lateDraftCount,
     unpaidAgedAgg,
-    payoutsToReviewAgg,
     waFailedCount,
     largeDiscountCount,
     identityChangeNoReasonCount,
@@ -428,15 +421,6 @@ export async function getOwnerDashboardV2(
         ...billBranchWhere,
       },
       select: { totalAmountInPaise: true, paidAmountInPaise: true },
-    }),
-    prisma.doctorPayoutLedger.aggregate({
-      where: {
-        deletedAt: null,
-        reviewedAt: null,
-        paidAt: null,
-        ...(branchId ? { branchId } : {}),
-      },
-      _sum: { derivedAmountInPaise: true },
     }),
     prisma.messageLog.count({
       where: {
@@ -783,17 +767,6 @@ export async function getOwnerDashboardV2(
     });
   }
 
-  const payoutsToReview = payoutsToReviewAgg._sum.derivedAmountInPaise ?? 0;
-  if (payoutsToReview > 0) {
-    actionQueue.push({
-      type: 'payouts_to_review',
-      severity: 'medium',
-      label: `${formatRupeesShort(payoutsToReview)} payouts to review`,
-      amountInPaise: payoutsToReview,
-      drillTo: '/owner/payouts?status=derived',
-    });
-  }
-
   if (waFailedCount > 0) {
     actionQueue.push({
       type: 'whatsapp_failed',
@@ -939,8 +912,6 @@ export async function getOwnerDashboardV2(
   // ----- payout liability -------------------------------------------------
   const liability: PayoutLiability = {
     totalInPaise: 0,
-    toReviewInPaise: 0,
-    approvedUnpaidInPaise: 0,
     byType: { referralInPaise: 0, clinicInPaise: 0, diagnosticCenterInPaise: 0 },
   };
   for (const row of payoutLiabilityRows) {
@@ -951,15 +922,6 @@ export async function getOwnerDashboardV2(
     else if (row.doctorType === 'DIAGNOSTIC_CENTER')
       liability.byType.diagnosticCenterInPaise = amt;
   }
-  // Stage split: toReview MUST equal the payouts_to_review chip definition
-  // (reviewedAt == null && paidAt == null). approvedUnpaid is the remainder of
-  // the open (paidAt == null) liability — i.e. reviewed but not yet paid.
-  liability.toReviewInPaise = payoutsToReviewAgg._sum.derivedAmountInPaise ?? 0;
-  liability.approvedUnpaidInPaise = Math.max(
-    0,
-    liability.totalInPaise - liability.toReviewInPaise,
-  );
-
   // ----- ops pulse -------------------------------------------------------
   const tatDurations = diagFinalizedTodaySamples
     .filter((r) => r.report?.visit?.createdAt && r.finalizedAt)

@@ -82,7 +82,9 @@ export interface RecentPayoutRow {
   periodStart: string;
   periodEnd: string;
   amountInPaise: number;
-  status: 'paid' | 'reviewed' | 'derived';
+  // Payouts are checked here, not settled here — there is no review step to be
+  // mid-way through, so a row is either marked paid or simply accrued.
+  status: 'paid' | 'accrued';
   reference: string | null;
 }
 
@@ -550,20 +552,16 @@ export async function getOwnerDoctors(
 
   // --- recent payouts ------------------------------------------------------
   const recentPayouts: RecentPayoutRow[] = payoutsRecent.map((r) => {
-    const status: RecentPayoutRow['status'] = r.paidAt
-      ? 'paid'
-      : r.reviewedAt
-        ? 'reviewed'
-        : 'derived';
+    const status: RecentPayoutRow['status'] = r.paidAt ? 'paid' : 'accrued';
     const doctorName =
       r.referralDoctor?.name ??
       r.clinicDoctor?.name ??
       r.diagnosticCenter?.name ??
       '—';
-    let reference: string | null = r.paymentReferenceId ?? null;
-    if (!reference) {
-      reference = status === 'reviewed' ? 'awaiting payment' : status === 'derived' ? 'needs review' : null;
-    }
+    // Reference is the payment reference. No payment, no reference — it used to
+    // fall back to "needs review", which put a standing to-do in a column that
+    // is meant to hold a cheque number.
+    const reference: string | null = r.paymentReferenceId ?? null;
     return {
       id: r.id,
       doctorName,

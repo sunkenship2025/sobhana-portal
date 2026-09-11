@@ -76,7 +76,7 @@ interface DoctorsResponse {
     periodStart: string;
     periodEnd: string;
     amountInPaise: number;
-    status: 'paid' | 'reviewed' | 'derived';
+    status: 'paid' | 'accrued';
     reference: string | null;
   }>;
 }
@@ -368,12 +368,9 @@ function RecentPayoutsCard({ rows }: { rows: DoctorsResponse['recentPayouts'] })
           </thead>
           <tbody>
             {rows.map((r) => {
+              // Accrued is a resting state, not a warning — no caution amber.
               const statusColor =
-                r.status === 'paid'
-                  ? TOKENS.healthy
-                  : r.status === 'reviewed'
-                    ? TOKENS.info
-                    : TOKENS.caution;
+                r.status === 'paid' ? TOKENS.healthy : TOKENS.textTertiary;
               return (
                 <tr key={r.id} style={{ borderTop: `0.5px solid ${TOKENS.border}` }}>
                   <td className="py-2">
@@ -403,7 +400,7 @@ function RecentPayoutsCard({ rows }: { rows: DoctorsResponse['recentPayouts'] })
                         textTransform: 'capitalize',
                       }}
                     >
-                      {r.status === 'derived' ? 'pending review' : r.status}
+                      {r.status}
                     </span>
                   </td>
                   <td className="py-2" style={{ color: TOKENS.textSecondary }}>

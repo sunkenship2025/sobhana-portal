@@ -48,7 +48,6 @@ import {
 type ActionChipType =
   | 'late_reports'
   | 'unpaid_aged'
-  | 'payouts_to_review'
   | 'whatsapp_failed'
   | 'large_discount'
   | 'dormant_branch'
@@ -85,8 +84,6 @@ interface DashboardV2 {
   };
   payoutLiability: {
     totalInPaise: number;
-    toReviewInPaise: number;
-    approvedUnpaidInPaise: number;
     byType: {
       referralInPaise: number;
       clinicInPaise: number;
@@ -183,7 +180,7 @@ function ActionQueue({ chips }: { chips: ActionChip[] }) {
   }
 
   // Sort by severity (high > medium > low), then by amount desc. There are only
-  // 7 chip types, so the cap of 7 shows them all — no overflow chip.
+  // 6 chip types, so the cap of 7 shows them all — no overflow chip.
   const sorted = [...chips]
     .sort((a, b) => {
       const sev = severityRank(b.severity) - severityRank(a.severity);
@@ -471,16 +468,15 @@ function WaterfallRow({
 // ----- payouts ----------------------------------------------------------
 
 /**
- * Headline follows the date filter; the rest is live.
+ * Headline follows the date filter; the per-payee split is accrued-to-date.
  *
- * It used to lead with all-time unsettled under the heading "Payout liability",
- * which answered a question nobody on this screen was asking: every other card
- * moves with the picker at the top, so a figure that ignored it read as one that
- * did, and "liability" is accountant's language for what an owner thinks of as
- * what they owe their doctors this month. The period figure is the commission
- * already accrued in the window — the same number the Money card subtracts, so
- * the two always agree. The unsettled stock keeps its place below, labelled as
- * live so it is not mistaken for the period.
+ * The card used to carry a settlement ladder — total unsettled, to review,
+ * approved-awaiting-settlement. Payouts are not settled through this system,
+ * they are only checked here, so `reviewedAt` was never once set in 1,472
+ * ledger rows: "to review" always equalled the total and "approved, awaiting
+ * settlement" was a permanent zero. Two of the three rows carried no
+ * information. What is left is the question the screen can actually answer —
+ * how much commission accrued, and to whom.
  */
 function PayoutsCard({
   data,
@@ -508,36 +504,23 @@ function PayoutsCard({
         Commission accrued to doctors &amp; centres ({periodLabel})
       </div>
       <div className="mt-4">
-        <SectionLabel>Unsettled · live</SectionLabel>
-        <div className="mt-2 space-y-1">
-          <StatRow label="Total unsettled" value={formatRupees(data.totalInPaise)} />
+        {/* Accrued to date, not the window above — say so, or it reads as the
+            headline's breakdown. */}
+        <SectionLabel>By payee · accrued to date</SectionLabel>
+        <div className="mt-2 space-y-2">
           <StatRow
-            label="To review"
-            value={formatRupees(data.toReviewInPaise)}
-            emphasize={data.toReviewInPaise > 0 ? 'caution' : undefined}
+            label="Referral doctors"
+            value={formatRupees(data.byType.referralInPaise)}
           />
           <StatRow
-            label="Approved, awaiting settlement"
-            value={formatRupees(data.approvedUnpaidInPaise)}
+            label="Clinic doctors"
+            value={formatRupees(data.byType.clinicInPaise)}
+          />
+          <StatRow
+            label="External centers"
+            value={formatRupees(data.byType.diagnosticCenterInPaise)}
           />
         </div>
-      </div>
-      <div
-        className="mt-3 space-y-2 border-t pt-3"
-        style={{ borderColor: TOKENS.border }}
-      >
-        <StatRow
-          label="Referral doctors"
-          value={formatRupees(data.byType.referralInPaise)}
-        />
-        <StatRow
-          label="Clinic doctors"
-          value={formatRupees(data.byType.clinicInPaise)}
-        />
-        <StatRow
-          label="External centers"
-          value={formatRupees(data.byType.diagnosticCenterInPaise)}
-        />
       </div>
     </SectionCard>
   );
