@@ -9,7 +9,8 @@ import { ensureKnowledge, mentionsKnown, scopeTermsIn } from '../knowledge';
 import { pool } from '../db';
 import { runStep, type Evidence } from './tools';
 import { completeSpec, lineage, type AnalysisSpec } from './spec';
-import { askPlan, askInsight, askResponse } from './analyst';
+import { askPlan, askInvestigate, askResponse } from './analyst';
+import { normalise, merge, resolved, openMaterial, brief, type Investigation } from './investigation';
 import { contractFor, inferJob, checkAnswer, simplify } from './contract';
 import { renderOptions, describeEvidence, JOBS } from './capability';
 import { buildTurnArtifacts, artifactContext, hasArtifactReference, type LastTurn } from './artifacts';
@@ -17,7 +18,23 @@ import { buildTurnArtifacts, artifactContext, hasArtifactReference, type LastTur
 /* Limits are a safety net against unproductive wandering, not a latency ceiling. A hard stop at
    3 queries produced shallow answers to questions that deserved a real investigation; the loop
    now continues while the analyst says the next step is worth taking, within a generous budget. */
-const MAX_STEPS = 16, MAX_ROUNDS = 4, MAX_MS = 45_000;
+// An investigation earns more time than a lookup, but the ceiling has to be real: the deadline
+// used to be checked only between rounds, so a four-round investigation ran 116s against a 45s
+// budget. It is now checked before dispatching any step, which is where the time actually goes.
+/* Three rounds is where investigations actually converged in testing; the fourth mostly spent
+   another 40 seconds to move confidence from medium to medium. NEW_ROUND_BY is a wall-clock gate
+   rather than an estimate, because the time goes INSIDE the tools — leakage and anomaly each run
+   several queries — and a per-step estimate cannot see that. */
+const MAX_STEPS = 16, MAX_ROUNDS = 3, MAX_MS = 75_000, MAX_CALLS = 9, NEW_ROUND_BY = 40_000;
+/* Reserved for the investigate call plus the round it would buy plus the final response. Without
+   it the deadline passes at 55s, then an unbounded model call and another round run anyway. */
+const ROUND_RESERVE = 30_000;
+/* A query step is its own model call plus a database round trip — reckon on this much each. */
+const STEP_COST = 12_000;
+/* A per-step timeout was tried here and removed. It did not move the worst case at all — 114s
+   with it, 114s without — because the cost is seven sequential model calls, not any one step.
+   What it DID do was turn a slow-but-correct dues count into "nothing came back for that". A
+   guard that cannot help but can refuse a good answer is worse than no guard. */
 
 export interface V2Answer {
   kind: 'analysis'; goal: string; text: string; artifacts: any[]; chips: { label: string; q: string }[];
@@ -79,7 +96,21 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
 
   const evidence: Evidence[] = [];
   let findings: any[] = [];
+  let inv: Investigation | null = null;
   for (rounds = 1; rounds <= MAX_ROUNDS; rounds++) {
+    // the deadline is checked HERE, before the work, not only after a round has already overrun
+    if (rounds > 1 && Date.now() - t0 > MAX_MS) break;
+    // Fan-out is bounded by the time left, not by what the analyst asked for. A round of six
+    // query steps is six model calls and six round trips; asking for all of them at second 40 is
+    // how a 60s budget became 130s.
+    const left = MAX_MS - (Date.now() - t0);
+    if (rounds > 1) steps = steps.slice(0, Math.max(1, Math.floor(left / STEP_COST)));
+    // The expensive steps are the "query" ones — each writes SQL with its own model call. The
+    // registry tools are deterministic and effectively free, so breadth through them is fine.
+    // Round 1 takes its plan straight from the analyst and was never bounded at all: six query
+    // steps is six model calls spent before any budget check gets to run.
+    let budget = Math.max(1, Math.min(3, Math.floor((MAX_CALLS - calls - 2) / 1)));
+    steps = steps.filter((s: any) => s?.tool !== 'query' || budget-- > 0);
     const base = evidence.length;
     const got = await pool(3, steps.map((s, i) => () => runStep(s, base + i, k, spec)));
     for (const e of got) if (e.ok && !e.means) e.means = lineage(spec, e.detail);
@@ -88,11 +119,20 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
     // A one-step plan that worked has nothing to interpret — go straight to the answer. This is
     // the common case ("last month collection how much") and it saves a whole round trip.
     if (rounds === 1 && evidence.length === 1 && evidence[0].ok) break;
-    if (evidence.length >= MAX_STEPS || rounds === MAX_ROUNDS || Date.now() - t0 > MAX_MS) break;
-    const ins = await askInsight(q, plan.goal || '', evidence); calls++;
+    if (evidence.length >= MAX_STEPS || rounds === MAX_ROUNDS || calls >= MAX_CALLS) break;
+    // Another round costs a model call, the steps it asks for, and delays the answer. Past this
+    // point the answer we already have beats a better one the owner is still waiting for.
+    if (Date.now() - t0 > NEW_ROUND_BY) break;
+    const ins = await askInvestigate(q, plan.goal || '', evidence, brief(inv)); calls++;
     findings = ins.findings || findings;
-    if (ins.enough !== false || !ins.steps?.length) break;
-    steps = ins.steps.slice(0, Math.max(0, MAX_STEPS - evidence.length));
+    inv = merge(inv, normalise(ins, plan.goal || ''));
+    // Continue because something MATERIAL is still open, not because the model wants to keep
+    // going — and stop when nothing cheap is left that would change what the owner is told.
+    if (resolved(inv)) break;
+    const next = (Array.isArray(ins.next) ? ins.next : [])
+      .filter((s: any) => s && s.tool && (!s.resolves || openMaterial(inv).some((h) => h.id === s.resolves)));
+    if (!next.length) break;                       // nothing proposed that resolves an open claim
+    steps = next.slice(0, Math.max(0, MAX_STEPS - evidence.length));
     if (!steps.length) break;
   }
 
@@ -127,7 +167,7 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
     return idx.length > 0 && idx.every((i: any) => byIdx.get(Number(i))?.ok);   // never render a failed step
   }).slice(0, 4);
 
-  let res = await askResponse(q, plan.goal || '', usable, findings, contract); calls++;
+  let res = await askResponse(q, plan.goal || '', usable, findings, contract, undefined, brief(inv)); calls++;
   let artifacts = keepArtifacts(res.artifacts || []);
   let text = String(res.text || findings[0]?.detail || '').trim();
 
@@ -137,7 +177,7 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
   let check = checkAnswer(contract, text, artifacts, allowed);
   if (!check.ok) {
     try {
-      const again = await askResponse(q, plan.goal || '', usable, findings, contract, check.note); calls++;
+      const again = await askResponse(q, plan.goal || '', usable, findings, contract, check.note, brief(inv)); calls++;
       const a2 = keepArtifacts(again.artifacts || []), t2 = String(again.text || '').trim();
       if (t2 && checkAnswer(contract, t2, a2, allowed).ok) { res = again; text = t2; artifacts = a2; check = { ok: true, violations: [] }; }
       else if (t2 && a2.length >= artifacts.length) { res = again; text = t2; artifacts = a2; }
@@ -155,7 +195,7 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
   }
 
   const turnArtifacts = buildTurnArtifacts(artifacts, evidence);
-  return { kind: 'analysis', goal: plan.goal || '', spec, job, text, artifacts, findings,
+  return { kind: 'analysis', goal: plan.goal || '', spec, job, investigation: brief(inv), text, artifacts, findings,
     chips: (res.suggest || []).filter((c: any) => c?.label && c?.q).slice(0, 4),
     evidence: evidence.map((e) => ({ step: e.step, tool: e.tool, label: e.label, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, detail: e.detail, summary: e.summary, data: e.data, sql: e.sql, error: e.error })),
     meta: { calls, ms: Date.now() - t0, steps: evidence.length, rounds },

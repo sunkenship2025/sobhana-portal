@@ -170,24 +170,42 @@ attribution when you will quantify the contributors, explanation when the answer
 "How much did we collect" is magnitude. "Who owes me" is enumeration. What can actually be drawn
 is decided later, from the evidence.`;
 
-export const INSIGHT_SYS = () => `You are reading the evidence from an analysis you planned, for a
-diagnostic centre's owner. Today is ${todayIST()} (IST).
+export const INVESTIGATE_SYS = () => `You are investigating a question for a diagnostic centre's
+owner, the way an analyst does. Today is ${todayIST()} (IST).
 
-Decide ONE thing: is this enough to answer the question well, or is there an obvious next step that
-would materially improve the answer?
+You are NOT deciding whether you feel finished. You are keeping track of what is still unknown
+that would change what the owner is told.
 
-Ask for more ONLY when the evidence points somewhere specific and unexplained — a decomposition
-showed one contributor carrying most of a change and you have not looked into it; a number is far
-from normal and you do not know why. Do not ask for more out of thoroughness. Do not ask for
-something you already have.
+HYPOTHESES are claims that can be true or false, not topics. "Branch contribution" is a topic and
+is useless here. "The fall is concentrated in two branches" is a claim. "The fall is volume, not
+realisation" is a claim — and it is a DIFFERENT claim from the first, so confirming one does not
+confirm the other.
+
+For a question about why something moved, the ways it can happen are the hypotheses: which
+members moved, whether it is volume or value per case, whether the mix shifted, whether one-off
+events explain it. Propose them, then close them off with evidence.
+
+Each round:
+ · mark every hypothesis confirmed, rejected, or still open, citing the evidence steps that bear
+   on it. Silence is not confirmation — a claim nothing tested is still open.
+ · say what remains materially unknown. Material means: if it went the other way, the owner would
+   be told something different. Anything that would not change the conclusion is NOT material,
+   however interesting.
+ · note contradictions between steps rather than quietly averaging them away.
+ · propose next steps ONLY where each one resolves a NAMED open hypothesis. A step that resolves
+   nothing is thoroughness, and thoroughness is how a question costs ten queries and says nothing.
+ · when nothing material is open, stop and write the findings.
 
 ${TOOLBOX}
 
-Return JSON either
-  {"enough": true, "findings": [{"title":"<=7 words","detail":"one or two sentences, with the numbers"}]}
-or
-  {"enough": false, "why":"what is still unexplained", "steps":[{"tool":"...","label":"...","args":{...}}]}
-Findings must use ONLY the formatted values given to you. Never compute or invent a number.`;
+Return JSON
+{"objective":"what this investigation has to establish",
+ "hypotheses":[{"id":"h1","claim":"...","status":"open|confirmed|rejected","evidence":[0,2],"material":true,"note":"..."}],
+ "unresolved":["..."], "contradictions":["..."], "confidence":"low|medium|high",
+ "next":[{"tool":"...","label":"<=6 words","args":{...},"resolves":"h1"}],
+ "findings":[{"title":"<=7 words","detail":"one or two sentences, with the numbers"}]}
+Leave "next" empty when nothing material is open. Findings must use ONLY the formatted values
+given to you. Never compute or invent a number.`;
 
 const ARTIFACTS = `ARTIFACT TYPES — attach one only when it genuinely helps:
   {"type":"kpi","label":"...","evidence":<step>}          one big number, with its change
@@ -227,6 +245,9 @@ ${c.rowsInProse ? '' : ' · Do NOT recite individual rows one after another in t
 ${c.needsArtifact && (c.canShow || []).length ? ` · You MUST attach one of: ${(c.canShow || []).join(', ')} — the detail belongs there.\n` : ''}\
 ${(c.canShow || []).length ? ` · Only these can truthfully represent this evidence: ${(c.canShow || []).join(', ')}. Nothing else is available, because nothing else fits the data.\n` : ' · No artifact fits this evidence. Answer in words.\n'}\
  · Never attach an artifact that only repeats a single figure the sentence already gave.
+ · When an investigation is given, the answer is about its OBJECTIVE. Lead with what was
+   established, say plainly what was ruled out if it matters, and name what is still open rather
+   than implying more certainty than the evidence carries. Never recite the hypothesis list.
  · Say which denominator a percentage uses. "98.7% of the change" and "72.6% of the total" are
    different claims; never put one where the owner asked for the other.
 
@@ -263,12 +284,30 @@ export const askPlan = (q: string, ctx: string) =>
   llmJson<Plan>(`${PLAN_SYS()}\n\n${SCOPE_RULE}`, `${ctx}QUESTION\n${q}`,
     { maxTokens: ctx.length > 1200 ? 1400 : 900 });
 
-export const askInsight = (q: string, goal: string, ev: Evidence[]) =>
-  llmJson<{ enough?: boolean; why?: string; steps?: any[]; findings?: any[] }>(INSIGHT_SYS(),
-    JSON.stringify({ question: q, goal, evidence: ev.map((e) => ({ step: e.step, label: e.label, tool: e.tool, ok: e.ok, result: e.summary, error: e.error })) }), { maxTokens: 700 });
+/** A summary small enough to re-send every round. Drops the long tail of a row list rather than
+ *  slicing the JSON text, which produces something unparseable. */
+function clip(summary: any, max = 1200): any {
+  if (summary == null) return summary;
+  if (JSON.stringify(summary).length <= max) return summary;
+  const out: any = Array.isArray(summary) ? [] : {};
+  for (const [k, v] of Object.entries(summary)) {
+    out[k] = Array.isArray(v) ? v.slice(0, 6) : v;
+    if (JSON.stringify(out).length > max) { out[k] = Array.isArray(v) ? `${v.length} rows (elided)` : '(elided)'; }
+  }
+  return out;
+}
 
-export const askResponse = (q: string, goal: string, ev: Evidence[], findings: any[], c: Contract, repair?: string) =>
+export const askInvestigate = (q: string, goal: string, ev: Evidence[], prior?: any) =>
+  llmJson<any>(INVESTIGATE_SYS(),
+    JSON.stringify({ question: q, goal, investigationSoFar: prior,
+      // Only what succeeded, and only a readable slice of it. Every round re-sent the full
+      // summaries of every step, so the prompt grew with the investigation and so did the
+      // latency of the call that decides whether to continue it.
+      evidence: ev.filter((e) => e.ok).map((e) => ({ step: e.step, label: e.label, tool: e.tool, result: clip(e.summary) })) }),
+    { maxTokens: 1800 });
+
+export const askResponse = (q: string, goal: string, ev: Evidence[], findings: any[], c: Contract, repair?: string, investigation?: any) =>
   llmJson<{ text?: string; artifacts?: any[]; suggest?: any[] }>(RESPOND_SYS(c) + (repair ? `\n\nYOUR LAST ATTEMPT WAS REJECTED: ${repair}\nRewrite it. Move the detail into the artifact and keep the conclusion in the sentences.` : ''),
-    JSON.stringify({ LANGUAGE: langOf(q), question: q, goal, findings,
+    JSON.stringify({ LANGUAGE: langOf(q), question: q, goal, findings, investigation,
       evidence: ev.map((e) => ({ step: e.step, label: e.label, tool: e.tool, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, result: e.summary,
         rows: writerRows(e.data?.rows ?? (e.summary as any)?.rows) })) }), { maxTokens: 900 });
