@@ -9,6 +9,11 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 ## [Unreleased]
 
 ### Added
+
+- **Payouts Redesign:** Comprehensive overhaul of payouts, introducing external lab configurations, new pay-run worklists, per-payee statements, and WhatsApp delivery of payout statements.
+- **Patient 360 Enhancements:** Added intelligent search, paginated timelines, inline bill preview, and WhatsApp bill sending functionality.
+- **Queue Optimistic UI:** Implemented immediate UI feedback for "Mark Done" / "Start" actions in the OP/IP queues for better perceived performance.
+- **Print Adjustments:** Refined PDF generation to reserve proper letterhead spaces, consistently scale text across panels, and ensure signatures dock to the bottom of physical reports.
 - **New Visit Flow UI/UX Improvements:** Redesigned the diagnostics and clinic new visit pages with a cleaner single-column layout, improved "sticky" bottom bar, focused keyboard navigation, and portalled `Radix Popover` drop-downs to prevent collision and cut-offs.
 - **Shared UI Components:** Extracted repeated structural and state-representing elements into new shared components: `PageHeader`, `LoadingState`, and `EmptyState`.
 - **Visit Defaults Persistence:** Added `visitDefaultsStore` Zustand store to automatically persist the front-desk operator's last choices (e.g., payment mode, consulting doctor) for seamless repetitive data entry.
