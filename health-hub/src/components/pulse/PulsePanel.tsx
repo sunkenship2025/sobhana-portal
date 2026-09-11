@@ -10,7 +10,7 @@ const Chips = ({ chips, onAsk }: { chips?: { label: string; q: string }[]; onAsk
     <div className="flex flex-wrap gap-1.5 pt-0.5">
       {chips.map((c, i) => (
         <button key={i} type="button" onClick={() => onAsk(c.q)}
-          className="rounded-full border bg-background px-3 py-1 text-[11.5px] font-medium transition-colors hover:border-foreground/25 hover:bg-muted">
+          className="pulse-chip rounded-full border bg-background px-3 py-1 text-[11.5px] font-medium">
           {c.label}
         </button>))}
     </div>);
@@ -37,12 +37,12 @@ function TurnView({ t, onAsk, onExpand }: { t: Turn; onAsk: (q: string) => void;
       {t.pending && <Thinking steps={t.steps} />}
       {t.error && <p className="text-[13px] text-[#D91C2B]">{t.error}</p>}
       {a && <>
-        {a.text && <p className="whitespace-pre-line text-[13.5px] leading-[1.65]">{a.text}</p>}
+        {a.text && <p className="pulse-answer whitespace-pre-line text-[13.5px] leading-[1.65]">{a.text}</p>}
         {(a.artifacts || []).map((x: any, i: number) => <Artifact key={i} a={x} evidence={a.evidence || []} />)}
         {a.kind === 'refuse' && !a.text && <p className="text-[13.5px]">I couldn't answer that.</p>}
         <Chips chips={a.chips} onAsk={onAsk} />
         {a.evidence?.length > 0 && (
-          <details className="text-[11px] text-muted-foreground">
+          <details className="pulse-evidence text-[11px] text-muted-foreground">
             <summary className="cursor-pointer select-none py-0.5 hover:text-foreground">how this was worked out</summary>
             <ol className="mt-1.5 space-y-1 border-l pl-3">
               {a.evidence.filter((e: any) => e.ok).map((e: any) => (
@@ -67,7 +67,7 @@ export function PulsePanel({ p, onClose }: { p: P; onClose: () => void }) {
   const empty = p.turns.length === 0;
 
   return (
-    <div className={`pulse-panel fixed bottom-9 right-9 z-50 print:hidden flex flex-col overflow-hidden rounded-2xl border bg-card ${p.expanded ? 'h-[min(760px,calc(100vh-48px))] w-[min(600px,calc(100vw-48px))]' : 'h-[min(600px,calc(100vh-48px))] w-[min(420px,calc(100vw-48px))]'}`}
+    <div className={`pulse-scope pulse-panel fixed bottom-9 right-9 z-50 print:hidden flex flex-col overflow-hidden rounded-2xl border bg-card ${p.expanded ? 'h-[min(760px,calc(100vh-48px))] w-[min(600px,calc(100vw-48px))]' : 'h-[min(600px,calc(100vh-48px))] w-[min(420px,calc(100vw-48px))]'}`}
       role="dialog" aria-label="Pulse">
 
       <div className="flex items-center gap-2.5 border-b px-4 py-3">
