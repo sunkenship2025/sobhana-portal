@@ -88,6 +88,16 @@ export async function diagnose(metric: string, cur: Period, prev: Period) {
 }
 
 /** Deterministic period resolution on IST calendar-day strings — never Date/toISOString. */
+/** The window as a human would read it. `to` is EXCLUSIVE everywhere in here, and handing the
+ *  responder "2026-09-01..2026-09-11" got written up as "covering 1–11 September" when the 11th
+ *  was not in the number — today's ₹15,650 was missing from a figure that claimed to include it.
+ *  Whatever the window is, the label now names the last day actually counted. */
+export function windowLabel(cur: { from: string; to: string }, partial?: boolean): string {
+  const last = addDays(cur.to, -1);
+  if (cur.from === last) return cur.from;
+  return `${cur.from}..${last}${partial ? ' (today not counted — the period is still running)' : ''}`;
+}
+
 export function periods(kind: string, today = todayIST()) {
   const [Y, M, D] = today.split('-').map(Number);
   const k0 = String(kind || 'month').toLowerCase().trim().replace(/[\s_]+/g, '-');

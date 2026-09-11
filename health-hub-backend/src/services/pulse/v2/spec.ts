@@ -37,6 +37,22 @@ const COLUMNS: Record<string, RegExp> = {
   referring_doctor: /"?ReferralDoctor"?|"?referralDoctorId"?/i,
   test: /"?testCodeSnapshot"?|"?testDefinitionId"?/i,
   payout_category: /"?payoutCategorySnapshot"?/i,
+  modality: /"?payoutCategorySnapshot"?/i,
+  service_kind: /"?payoutCategorySnapshot"?/i,
+};
+
+/** Dimensions whose value is a rolled-up label rather than a literal in the data. 'IMAGING' and
+ *  'Ultrasound' are names for a SET of payout categories, so the label itself never appears in
+ *  the SQL — the categories it stands for do. Requiring the literal here rejected every correct
+ *  query. For these the column is the whole check. */
+const DERIVED = new Set(['modality', 'service_kind']);
+
+/** What each rolled-up label actually means, for the repair instruction. */
+const DERIVED_SETS: Record<string, string> = {
+  IMAGING: `'Ultrasound','Ultrasound Tiffa','2D Echo','X-Ray','Dental X-Ray','CT / MRI'`,
+  LABORATORY: `'Laboratory'`,
+  Ultrasound: `'Ultrasound','Ultrasound Tiffa','2D Echo'`,
+  'X-Ray': `'X-Ray','Dental X-Ray'`,
 };
 
 export interface SpecCheck { ok: boolean; missing: ScopeConstraint[]; note?: string }
@@ -53,6 +69,7 @@ export function verifySpec(spec: AnalysisSpec | null | undefined, sql: string): 
     if (!c?.dimension || !c?.value) return false;
     const col = COLUMNS[c.dimension];
     const hasCol = col ? col.test(s) : new RegExp(`"?${c.dimension}"?`, 'i').test(s);
+    if (DERIVED.has(c.dimension)) return !hasCol;
     // the literal, case-insensitively, allowing a quoted or IN-list form
     const v = String(c.value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const hasVal = new RegExp(`'${v}'`, 'i').test(s) || new RegExp(`\\b${v}\\b`, 'i').test(s);
@@ -64,7 +81,9 @@ export function verifySpec(spec: AnalysisSpec | null | undefined, sql: string): 
 
 /** A repair instruction naming exactly what went missing. */
 export function specRepairHint(check: SpecCheck): string {
-  return `The query must restrict to ${check.missing.map((m) => `${DIMS[m.dimension] || m.dimension} = '${m.value}'`).join(' AND ')}. `
+  return `The query must restrict to ${check.missing.map((m) => DERIVED_SETS[m.value]
+    ? `o."payoutCategorySnapshot" IN (${DERIVED_SETS[m.value]})`
+    : `${DIMS[m.dimension] || m.dimension} = '${m.value}'`).join(' AND ')}. `
     + `The owner asked for ${check.missing.map((m) => `"${m.term}"`).join(' and ')}, so a total that includes anything else is the wrong answer. Add the filter and keep everything else.`;
 }
 
@@ -73,9 +92,16 @@ export function completeSpec(spec: AnalysisSpec | null | undefined): AnalysisSpe
   if (!spec) return null;
   const scope: ScopeConstraint[] = [];
   for (const c of spec.scope || []) {
-    if (c?.dimension && c?.value && DIMS[c.dimension]) { scope.push(c); continue; }
+    // Live data beats the planner's guess. "ultrasound" was arriving as
+    // {dimension:'test', value:'ultrasound'} — a test code that does not exist — and because the
+    // dimension NAME was valid it passed straight through unchecked. verifySpec then did its job
+    // and forced o."testCodeSnapshot" = 'ultrasound' into the SQL to satisfy the constraint, so
+    // the owner got a confident 0 instead of 265. A validator that can only check a constraint
+    // reached the SQL will happily enforce a wrong one; the constraint itself has to be grounded
+    // first. Only fall back to what the planner wrote when the term resolves to nothing.
     const hit = resolveTerm(c?.term || '')[0];
-    if (hit?.dimension && hit.value) scope.push({ term: c.term, dimension: hit.dimension, value: hit.value });
+    if (hit?.dimension && hit.value) { scope.push({ term: c.term, dimension: hit.dimension, value: hit.value }); continue; }
+    if (c?.dimension && c?.value && DIMS[c.dimension]) scope.push(c);
   }
   const metric = spec.measure?.metric && METRICS[spec.measure.metric] ? spec.measure.metric : null;
   return { ...spec, scope, measure: spec.measure ? { ...spec.measure, metric } : undefined };

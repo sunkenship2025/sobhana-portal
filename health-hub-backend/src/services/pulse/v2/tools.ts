@@ -8,7 +8,7 @@
  */
 import { query, IST, todayIST, pool } from '../db';
 import { METRICS, METRIC_DIMS, DIMS, dimJoin, dimOk, FROMS } from '../catalog';
-import { scalar, periods, baseline as baselineOf, addDays, fmt } from '../diagnostic';
+import { scalar, periods, baseline as baselineOf, addDays, fmt, windowLabel } from '../diagnostic';
 import { generate } from '../sqlPath';
 import { llmJson } from '../llm';
 import { validate } from '../validator';
@@ -109,7 +109,7 @@ async function t_metric(a: any): Promise<Partial<Evidence>> {
   const f = await checkFilter(m, a.filter); if ('error' in f) return { ok: false, error: f.error };
   const v = await scalar(m, p.cur.from, p.cur.to, f.join, null, f.where);
   const scope = a.filter && Object.keys(a.filter).length ? Object.entries(a.filter).map(([k, x]) => `${k}=${x}`).join(', ') : 'all';
-  return { ok: v !== null, metric: m, unit: U(m), period: p.cur, summary: { metric: m, period: `${p.cur.from}..${p.cur.to}`, scope, value: fmt(v, U(m)) }, data: { value: v } };
+  return { ok: v !== null, metric: m, unit: U(m), period: p.cur, summary: { metric: m, period: windowLabel(p.cur, (p as any).partial), scope, value: fmt(v, U(m)) }, data: { value: v } };
 }
 /** metric this period vs the comparable previous one */
 async function t_compare(a: any): Promise<Partial<Evidence>> {
@@ -331,7 +331,7 @@ async function t_leakage(a: any): Promise<Partial<Evidence>> {
   const dd: any = d.rows?.[0] || {}, cc: any = c.rows?.[0] || {}, rr: any = rf.rows?.[0] || {};
   const gross = Number(dd.g || 0);
   return { ok: true, unit: 'paise', period: p.cur,
-    summary: { period: `${p.cur.from}..${p.cur.to}`, grossBilled: fmt(gross, 'paise'),
+    summary: { period: windowLabel(p.cur, (p as any).partial), grossBilled: fmt(gross, 'paise'),
       discountGiven: fmt(Number(dd.v || 0), 'paise'), discountPctOfGross: gross ? Number((Number(dd.v || 0) / gross * 100).toFixed(1)) : null,
       cancelledOrders: Number(cc.c || 0), cancelledValue: fmt(Number(cc.v || 0), 'paise'), cancelRatePct: Number(cc.t) ? Number((Number(cc.c) / Number(cc.t) * 100).toFixed(1)) : null,
       refunded: fmt(Number(rr.v || 0), 'paise'), refundEvents: Number(rr.n || 0) },

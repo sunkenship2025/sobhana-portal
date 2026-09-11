@@ -62,7 +62,7 @@ export const METRIC_DIMS: Record<string, string[]> = {
   outstanding: ['branch'],
   visits: ['branch', 'domain', 'referring_doctor'],
   unique_patients: ['branch', 'domain'],
-  test_orders: ['branch', 'test', 'payout_category', 'referring_doctor'],
+  test_orders: ['branch', 'test', 'payout_category', 'modality', 'service_kind', 'referring_doctor'],
   reports_finalized: ['branch'],
   tat_p50: ['branch'],
   discount_total: ['branch'],
@@ -72,6 +72,7 @@ export const METRIC_DIMS: Record<string, string[]> = {
 export const DIM_LABEL: Record<string, string> = {
   branch: 'branch wise', payment_type: 'by payment mode', referring_doctor: 'doctor wise',
   domain: 'diagnostics vs clinic', test: 'by test', payout_category: 'by category',
+  modality: 'by modality', service_kind: 'scans vs lab work',
 };
 
 /** Deterministic FROM clauses for the diagnostic engine (registry-generated queries). */
@@ -96,6 +97,21 @@ export const DIMS: Record<string, string> = {
   branch: 'br.code',
   domain: 'v.domain::text',
   payout_category: `COALESCE(o."payoutCategorySnapshot",'(none)')`,
+  // The raw payout categories split one modality across several rows — 'Ultrasound' and
+  // 'Ultrasound Tiffa' and '2D Echo' are all ultrasound, an echo being a cardiac one. Asked
+  // "how many ultrasound scans", a single-value filter on the raw column silently answers a
+  // third of the question. These two roll them up so a set can be filtered with one value.
+  modality: `CASE
+      WHEN o."payoutCategorySnapshot" IN ('Ultrasound','Ultrasound Tiffa','2D Echo') THEN 'Ultrasound'
+      WHEN o."payoutCategorySnapshot" IN ('X-Ray','Dental X-Ray') THEN 'X-Ray'
+      WHEN o."payoutCategorySnapshot" = 'CT / MRI' THEN 'CT / MRI'
+      WHEN o."payoutCategorySnapshot" = 'ECG / Cardiology' THEN 'ECG / Cardiology'
+      WHEN o."payoutCategorySnapshot" = 'Laboratory' THEN 'Laboratory'
+      ELSE '(uncategorised)' END`,
+  service_kind: `CASE
+      WHEN o."payoutCategorySnapshot" IN ('Ultrasound','Ultrasound Tiffa','2D Echo','X-Ray','Dental X-Ray','CT / MRI') THEN 'IMAGING'
+      WHEN o."payoutCategorySnapshot" = 'Laboratory' THEN 'LABORATORY'
+      ELSE '(uncategorised)' END`,
   test: 'o."testCodeSnapshot"',
   referring_doctor: `COALESCE(rd.name,'(none)')`,
   payment_type: 'pt."paymentType"::text',
@@ -111,7 +127,7 @@ export const dimJoin = (metric: string, dim: string) => DIMJOIN_FOR[metric]?.[di
 export function dimOk(metric: string, dim: string): boolean {
   if (DIMJOIN_FOR[metric]?.[dim]) return true;
   const from = FROMS[metric]?.[0] || '';
-  if (dim === 'payout_category' || dim === 'test') return /"TestOrder"/.test(from);
+  if (dim === 'payout_category' || dim === 'test' || dim === 'modality' || dim === 'service_kind') return /"TestOrder"/.test(from);
   if (dim === 'payment_type') return /"PaymentTransaction"/.test(from);
   if (dim === 'domain' || dim === 'referring_doctor') return /"Visit"/.test(from);
   return /"Branch"/.test(from);

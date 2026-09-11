@@ -42,7 +42,12 @@ router.post('/ask', async (req: AuthRequest, res) => {
     // AuditActionType has no PULSE value yet (adding one is a migration); REPORT_ACCESS with
     // entityType 'Pulse' keeps it filterable until then.
     logAction({ userId: req.user!.id, branchId: req.branchId || '', actionType: 'REPORT_ACCESS', entityType: 'Pulse', entityId: String(answer.kind || 'unknown'),
-      newValues: { q: q.slice(0, 300), kind: answer.kind, shape: answer.shape, sql: answer.provenance?.sql?.slice(0, 1000), ms: Date.now() - t0 } }).catch(() => {});
+      newValues: { q: q.slice(0, 300), kind: answer.kind, shape: answer.shape, sql: answer.provenance?.sql?.slice(0, 1000), ms: Date.now() - t0,
+        // Replaying this log against the database is how the real defects were found — a figure
+        // 100x too large, a "complete" list missing a debtor, a feature reported as non-existent.
+        // Without the answer and the refusal reason none of that was visible after the fact.
+        reason: (answer as any).reason, text: String((answer as any).text || '').slice(0, 600),
+        steps: (answer as any).meta?.steps, calls: (answer as any).meta?.calls } }).catch(() => {});
     res.json(answer);
   } catch (e: any) {
     res.status(502).json({ kind: 'refuse', reason: 'error', text: 'Pulse could not answer that just now. Try again in a moment.', detail: String(e?.message || e).slice(0, 200) });

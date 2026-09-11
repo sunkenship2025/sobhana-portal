@@ -110,6 +110,20 @@ COUNTING A PARENT THROUGH A ONE-TO-MANY CHILD
 
 export const ONTOLOGY = `BUSINESS ONTOLOGY — how the business concepts relate
 
+WHAT COUNTS AS A SCAN — a definition, not a guess
+  A "scan" is an IMAGING order. It is identified by TestOrder."payoutCategorySnapshot" being
+  one of: 'Ultrasound', 'Ultrasound Tiffa', 'X-Ray', 'Dental X-Ray', 'CT / MRI', '2D Echo'.
+  Everything in 'Laboratory' is a blood or sample test and is NOT a scan.
+  "scan", "scans", "imaging", "radiology" all mean this set. "ultrasound" alone means
+  'Ultrasound' plus 'Ultrasound Tiffa' plus '2D Echo' (an echo is an ultrasound of the heart);
+  say which you counted. "x-ray" means 'X-Ray' plus 'Dental X-Ray'.
+  Counting every diagnostics test order as a scan overstates it by roughly ten times — most
+  orders are lab work. Never answer a scan question with a plain test-order count.
+  payoutCategorySnapshot is NULL on orders placed before 2026-08-01, when the field was
+  introduced. For a scan count on any period reaching into July, say that those orders carry
+  no category rather than silently dropping or including them.
+
+
 CONCEPT HIERARCHY
   Patient ──has many──> Visit ──is one of──> { Diagnostics visit, Clinic visit }
   Visit   ──has one───> Bill ──has many──> PaymentTransaction, OrderRefund
@@ -143,6 +157,13 @@ test identity     TestOrder."testCodeSnapshot"  (frozen at order time; NOT testD
                   is versioned — one analyte has many definition rows and undercounts)
 test department   TestOrder."testDefinitionId" → TestDefinition."departmentId" → Department.name
 payout category   TestOrder."payoutCategorySnapshot"  (frozen at billing; NOT BillableProduct.payoutCategory)
+scan / imaging    NOT a test-name match — no test is literally called "ultrasound"; the names are
+                  'USG OF ABDOMEN', 'X-RAY CHEST PA' and so on, so ILIKE '%ultrasound%' returns 0.
+                  Use the payout category. Copy these exactly:
+                    a scan       o."payoutCategorySnapshot" IN ('Ultrasound','Ultrasound Tiffa','2D Echo','X-Ray','Dental X-Ray','CT / MRI')
+                    ultrasound   o."payoutCategorySnapshot" IN ('Ultrasound','Ultrasound Tiffa','2D Echo')
+                    x-ray        o."payoutCategorySnapshot" IN ('X-Ray','Dental X-Ray')
+                    lab work     o."payoutCategorySnapshot" = 'Laboratory'
 branch            Branch."code" (CNT/BLN/JGG/IDPL); Branch."name" is the long form
 product           TestOrder."productId" → BillableProduct.name
 referring doctor  ReferralDoctor_Visit (deletedAt IS NULL) → ReferralDoctor.name
@@ -394,6 +415,14 @@ export const concepts = () => CONCEPTS;
 /** The owner's words that are not literal data values — synonyms a lookup cannot discover. */
 const SYNONYMS: Concept[] = [
   { term: 'lab', dimension: 'domain', value: 'DIAGNOSTICS', meaning: 'the lab side — tests and scans, excluding consultation fees', source: 'glossary' },
+  { term: 'scan', dimension: 'service_kind', value: 'IMAGING', meaning: 'an imaging order — ultrasound, x-ray, CT/MRI or echo. NOT lab work', source: 'glossary' },
+  { term: 'scans', dimension: 'service_kind', value: 'IMAGING', meaning: 'imaging orders — ultrasound, x-ray, CT/MRI, echo. Excludes Laboratory', source: 'glossary' },
+  { term: 'imaging', dimension: 'service_kind', value: 'IMAGING', meaning: 'ultrasound, x-ray, CT/MRI and echo orders', source: 'glossary' },
+  { term: 'radiology', dimension: 'service_kind', value: 'IMAGING', meaning: 'the imaging orders — same as scans', source: 'glossary' },
+  { term: 'ultrasound', dimension: 'modality', value: 'Ultrasound', meaning: 'ultrasound orders, including Tiffa and 2D Echo (a cardiac ultrasound)', source: 'glossary' },
+  { term: 'usg', dimension: 'modality', value: 'Ultrasound', meaning: 'ultrasound — including Tiffa and 2D Echo', source: 'glossary' },
+  { term: 'x-ray', dimension: 'modality', value: 'X-Ray', meaning: 'x-ray orders, including dental x-ray', source: 'glossary' },
+  { term: 'xray', dimension: 'modality', value: 'X-Ray', meaning: 'x-ray orders, including dental x-ray', source: 'glossary' },
   { term: 'diagnostics', dimension: 'domain', value: 'DIAGNOSTICS', meaning: 'the lab side of the business', source: 'glossary' },
   { term: 'tests', dimension: 'domain', value: 'DIAGNOSTICS', meaning: 'lab work', source: 'glossary' },
   { term: 'scans', dimension: 'domain', value: 'DIAGNOSTICS', meaning: 'imaging, part of the lab side', source: 'glossary' },
