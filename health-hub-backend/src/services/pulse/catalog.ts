@@ -98,6 +98,13 @@ export const FROMS: Record<string, [string, string]> = {
  *  SPLITS, where their movement reads as a business finding, but never from a centre-wide total,
  *  where silently changing what a total covers would be the worse sin. */
 export const TEST_BRANCHES = ['JGG', 'IDPL'];
+/** Their full names, because a free query selects br.name as readily as br.code and the filter
+ *  that only knew the codes let "Jagathgiri Gutta (Kidcare)" straight through. */
+export const TEST_BRANCH_NAMES = ['Jagathgiri Gutta (Kidcare)', 'IDPL (Kidcare)'];
+export const isTestBranch = (v: any) => {
+  const t = String(v ?? '').trim();
+  return TEST_BRANCHES.includes(t) || TEST_BRANCH_NAMES.includes(t) || /\(kidcare\)/i.test(t);
+};
 
 /**
  * What a patient still owes, as one expression. Written down once because writing it per tool

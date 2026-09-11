@@ -38,8 +38,14 @@ export interface Hypothesis {
   material?: boolean;
 }
 
+export type StoppingReason = 'resolved' | 'insufficient_evidence' | 'resource_limit';
+
 export interface Investigation {
   objective: string;
+  /** false when we stopped with something material still open */
+  complete?: boolean;
+  /** why we stopped — "we could not investigate further" is itself analytical information */
+  stoppingReason?: StoppingReason;
   hypotheses: Hypothesis[];
   /** material unknowns not yet expressed as a hypothesis */
   unresolved: string[];
@@ -50,6 +56,19 @@ export interface Investigation {
 
 export const emptyInvestigation = (objective = ''): Investigation =>
   ({ objective, hypotheses: [], unresolved: [], contradictions: [], confidence: 'low' });
+
+/**
+ * Why the loop stopped, and whether that counts as finished. The old code broke out when the
+ * model proposed no next step, which silently turned "I could not investigate this" into "I am
+ * done" — the comment claimed the invariant was "continue while something MATERIAL is open" but
+ * the implementation was "continue if the model suggested something". Those are not the same,
+ * and the difference is whether the owner is told the answer is incomplete.
+ */
+export function conclude(inv: Investigation | null, reason: StoppingReason): Investigation | null {
+  if (!inv) return inv;
+  const open = openMaterial(inv).length > 0 || inv.unresolved.length > 0;
+  return { ...inv, complete: !open, stoppingReason: open ? reason : 'resolved' };
+}
 
 const STATUSES: HypothesisStatus[] = ['open', 'confirmed', 'rejected'];
 
@@ -149,6 +168,8 @@ export function brief(inv: Investigation | null): any {
   const pick = (s: HypothesisStatus) => inv.hypotheses.filter((h) => h.status === s).map((h) => h.claim);
   return {
     objective: inv.objective,
+    complete: inv.complete !== false,
+    stoppingReason: inv.stoppingReason,
     established: pick('confirmed'),
     ruledOut: pick('rejected'),
     stillOpen: openMaterial(inv).map((h) => h.claim),

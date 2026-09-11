@@ -86,11 +86,22 @@ const columnIsNumeric = (list: any[], k: string) => {
   return vals.filter((v) => Number.isFinite(toNum(v))).length / vals.length >= 0.8;
 };
 
+/**
+ * Where a step's rows live. The tools disagree — registry tools use `parts`, a free query uses
+ * `rows`, receivables uses `byBranch` — and every consumer that knew only one of them silently
+ * rendered nothing. One lookup, shared by the structure reader and the buildability check, so
+ * the two can never drift apart.
+ */
+export function rowsOf(e: Evidence): any[] {
+  const s: any = e?.summary || {};
+  const r = (e?.data as any)?.rows ?? s.rows ?? s.parts ?? s.top ?? s.byBranch ?? s.doctors ?? [];
+  return Array.isArray(r) ? r : [];
+}
+
 /** Deterministic. Never looks at the question — only at what the analysis actually produced. */
 export function describeEvidence(e: Evidence): EvidenceStructure {
   const s: any = e.summary || {};
-  const rows: any[] = (e.data as any)?.rows ?? s.rows ?? s.parts ?? s.top ?? s.byBranch ?? [];
-  const list = Array.isArray(rows) ? rows : [];
+  const list = rowsOf(e);
   const rowCount = list.length;
   const first = list.find((r) => r && typeof r === 'object') || {};
   const keys = Object.keys(first);
@@ -131,9 +142,17 @@ export function describeEvidence(e: Evidence): EvidenceStructure {
 
 export interface RendererCapability {
   type: string;
-  /** hard gates. Unsatisfied means NOT A CANDIDATE — never a low score. */
+  /** hard structural gates. Unsatisfied means NOT A CANDIDATE — never a low score. */
   requires: Partial<Record<keyof EvidenceStructure, any>>;
-  /** the analytical jobs this structure genuinely expresses */
+  /**
+   * Can the frontend actually construct this renderer's input from this step? Returns how many
+   * elements it would draw, or null if it cannot be built. Structure alone was not enough: a
+   * breakdown bound to a query step passed `dimensions: 1`, then looked for summary.parts, found
+   * the rows under summary.rows, drew nothing, and still painted a titled empty card. Capability
+   * may no longer call a step drawable when the renderer would find nothing in it.
+   */
+  buildable: (e: Evidence, st: EvidenceStructure) => number | null;
+  /** the analytical jobs this structure genuinely expresses — RANKING ONLY, never a gate */
   expresses: AnalyticalJob[];
   /** soft signals: structure this renderer uses well when present */
   prefers?: (keyof EvidenceStructure)[];
@@ -146,23 +165,48 @@ export interface RendererCapability {
  * the selection logic changes, which is the whole point — the previous design needed an edit to
  * a central ordered table for every new type, and that table is what kept breaking.
  */
+const n0 = (v: any) => { const n = Number(String(v ?? '').replace(/[^\d.-]/g, '')); return Number.isFinite(n) ? n : 0; };
+/** rows carrying a label and a value — what every bar-shaped renderer needs to exist */
+const labelled = (e: Evidence) => rowsOf(e).filter((r) => r && typeof r === 'object'
+  && Object.keys(r).some((c) => typeof r[c] === 'string')
+  && Object.keys(r).some((c) => Number.isFinite(toNum(r[c]))));
+
 export const CAPABILITIES: RendererCapability[] = [
-  { type: 'kpi', requires: { cardinality: 'one' }, expresses: ['magnitude'], rows: [0, 1] },
-  { type: 'compare', requires: { hasDeltas: true, cardinality: 'one' }, expresses: ['comparison', 'magnitude'], rows: [0, 2] },
+  { type: 'kpi', requires: { cardinality: 'one' }, expresses: ['magnitude'], rows: [0, 1],
+    buildable: (e, st) => ((e.summary as any)?.value != null || (e.summary as any)?.now != null || st.rowCount === 1) ? 1 : null },
+
+  { type: 'compare', requires: { hasDeltas: true, cardinality: 'one' }, expresses: ['comparison', 'magnitude'], rows: [0, 2],
+    buildable: (e) => ((e.summary as any)?.now != null && (e.summary as any)?.before != null) ? 2 : null },
+
   { type: 'waterfall', requires: { hasDeltas: true, dimensions: 1 }, expresses: ['attribution', 'explanation'],
-    prefers: ['hasDeltas'], rows: [2, 10] },
-  { type: 'pareto', requires: { partsOfWhole: true, dimensions: 1 }, expresses: ['concentration', 'attribution'],
-    prefers: ['partsOfWhole'], rows: [4, 20] },
+    prefers: ['hasDeltas'], rows: [2, 10],
+    buildable: (e) => { const n = labelled(e).filter((r: any) => n0(r.change ?? r.delta) !== 0).length; return n >= 2 ? n : null; } },
+
+  { type: 'pareto', requires: { partsOfWhole: true, dimensions: 1 }, expresses: ['concentration', 'attribution', 'opportunity'],
+    prefers: ['partsOfWhole'], rows: [4, 20],
+    buildable: (e) => { const n = labelled(e).filter((r: any) => n0(r.value ?? r.v) > 0).length; return n >= 3 ? n : null; } },
+
   { type: 'breakdown', requires: { dimensions: 1 }, expresses: ['composition', 'concentration', 'comparison'],
-    prefers: ['partsOfWhole'], rows: [2, 12] },
-  { type: 'ranking', requires: { dimensions: 1 }, expresses: ['ranking', 'concentration'], rows: [2, 20] },
-  { type: 'chart', requires: { isTimeSeries: true }, expresses: ['progression'], prefers: ['isTimeSeries'], rows: [3, 60] },
-  { type: 'funnel', requires: { hasStages: true }, expresses: ['conversion'], prefers: ['hasStages'], rows: [0, 8] },
-  { type: 'distribution', requires: { numericSpread: true }, expresses: ['variability'], prefers: ['numericSpread'], rows: [6, 5000] },
-  { type: 'table', requires: { dimensions: 1 }, expresses: ['enumeration', 'comparison', 'composition'], rows: [1, 200] },
+    prefers: ['partsOfWhole'], rows: [2, 12],
+    buildable: (e) => { const n = labelled(e).length; return n >= 2 ? n : null; } },
+
+  { type: 'ranking', requires: { dimensions: 1 }, expresses: ['ranking', 'concentration'], rows: [2, 20],
+    buildable: (e) => { const n = labelled(e).length; return n >= 2 ? n : null; } },
+
+  { type: 'chart', requires: { isTimeSeries: true }, expresses: ['progression'], prefers: ['isTimeSeries'], rows: [3, 60],
+    buildable: (e) => { const n = ((e.data as any)?.rows || []).length; return n >= 3 ? n : null; } },
+
+  { type: 'funnel', requires: { hasStages: true }, expresses: ['conversion'], prefers: ['hasStages'], rows: [0, 8],
+    buildable: (e) => { const n = ((e.summary as any)?.stages || []).length; return n >= 2 ? n : null; } },
+
+  { type: 'distribution', requires: { numericSpread: true }, expresses: ['variability'], prefers: ['numericSpread'], rows: [6, 5000],
+    buildable: (e) => { const n = rowsOf(e).length; return n >= 6 ? n : null; } },
+
+  { type: 'table', requires: { dimensions: 1 }, expresses: ['enumeration', 'comparison', 'composition'], rows: [1, 200],
+    buildable: (e) => { const n = rowsOf(e).filter((r) => r && typeof r === 'object').length; return n >= 1 ? n : null; } },
 ];
 
-export interface Candidate { type: string; score: number; why: string }
+export interface Candidate { type: string; score: number; why: string; elements: number }
 
 /** Is every hard gate satisfied? */
 function admissible(cap: RendererCapability, st: EvidenceStructure): boolean {
@@ -180,11 +224,19 @@ function admissible(cap: RendererCapability, st: EvidenceStructure): boolean {
  * scored here is already a truthful representation of the evidence; the score only decides which
  * truthful option is most useful.
  */
-export function rankRenderers(e: Evidence, job: AnalyticalJob | null | undefined, askedFor?: string): Candidate[] {
+/**
+ * `prefer` is a presentation the owner asked for in their own words — resolved UPSTREAM by the
+ * analyst and passed here as a renderer type. This layer never sees the sentence. Matching the
+ * renderer's NAME against the question was the last piece of question-word matching in the
+ * capability layer, and it was the same mistake in a smaller font.
+ */
+export function rankRenderers(e: Evidence, job: AnalyticalJob | null | undefined, prefer?: string | null): Candidate[] {
   const st = describeEvidence(e);
   const out: Candidate[] = [];
   for (const cap of CAPABILITIES) {
     if (!admissible(cap, st)) continue;
+    const elements = cap.buildable(e, st);
+    if (elements == null) continue;              // the renderer could not construct its input
     let score = 0; const why: string[] = [];
 
     // job fit — the dominant term, but never the only one
@@ -197,28 +249,29 @@ export function rankRenderers(e: Evidence, job: AnalyticalJob | null | undefined
     if (used) { score += 0.15 * Math.min(used, 2); why.push('uses the structure present'); }
 
     // readability: comfortable row count
+    // readability is about what would actually be DRAWN, not how many rows exist
     const [lo, hi] = cap.rows || [0, 1e9];
-    if (st.rowCount >= lo && st.rowCount <= hi) { score += 0.15; why.push('reads well at this size'); }
+    if (elements >= lo && elements <= hi) { score += 0.15; why.push('reads well at this size'); }
     else score -= 0.1;
 
     // cardinality fit
     if (cap.requires.cardinality === st.cardinality) score += 0.08;
 
     // the owner asked for something by name
-    if (askedFor && new RegExp(`\\b${cap.type}\\b`, 'i').test(askedFor)) { score += 0.2; why.push('the owner asked for it'); }
+    if (prefer && prefer === cap.type) { score += 0.25; why.push('the owner asked for this'); }
 
-    out.push({ type: cap.type, score: Number(score.toFixed(3)), why: why.join(', ') || 'valid for this evidence' });
+    out.push({ type: cap.type, elements, score: Number(score.toFixed(3)), why: why.join(', ') || 'valid for this evidence' });
   }
   return out.sort((a, b) => b.score - a.score);
 }
 
 /** The renderable options across every usable step, best first, de-duplicated by type. */
-export function renderOptions(evidence: Evidence[], job: AnalyticalJob | null | undefined, askedFor?: string):
-  { type: string; step: number; score: number; why: string }[] {
-  const all: { type: string; step: number; score: number; why: string }[] = [];
+export function renderOptions(evidence: Evidence[], job: AnalyticalJob | null | undefined, prefer?: string | null):
+  { type: string; step: number; score: number; why: string; elements: number }[] {
+  const all: { type: string; step: number; score: number; why: string; elements: number }[] = [];
   for (const e of evidence) {
     if (!e.ok) continue;
-    for (const c of rankRenderers(e, job, askedFor)) all.push({ ...c, step: e.step });
+    for (const c of rankRenderers(e, job, prefer)) all.push({ ...c, step: e.step });
   }
   all.sort((a, b) => b.score - a.score);
   const seen = new Set<string>();

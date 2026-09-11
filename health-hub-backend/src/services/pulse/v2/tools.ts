@@ -7,7 +7,7 @@
  * things before deciding what matters.
  */
 import { query, IST, todayIST, pool } from '../db';
-import { METRICS, METRIC_DIMS, DIMS, dimJoin, dimOk, FROMS, TEST_BRANCHES, DUE, OWES } from '../catalog';
+import { METRICS, METRIC_DIMS, DIMS, dimJoin, dimOk, FROMS, TEST_BRANCHES, isTestBranch, DUE, OWES } from '../catalog';
 import { scalar, periods, baseline as baselineOf, addDays, fmt, windowLabel } from '../diagnostic';
 import { generate } from '../sqlPath';
 import { llmJson } from '../llm';
@@ -524,7 +524,7 @@ const TRANSIENT = /connection pool|timed out|ECONNRESET|terminating connection/i
  *  keys data.rows by `k` but summary.parts by `name`, and the waterfall renders parts — so a
  *  filter that only knew `k` left JGG on the chart while appearing to work. Matching is on the
  *  VALUE being exactly a test branch code, so a doctor or test called `name` is never touched. */
-const BRANCH_COL = /^(k|name|branch|branch_code|code|who)$/i;
+const BRANCH_COL = /^(k|name|branch|branch_?code|branch_?name|code|who)$/i;
 
 /**
  * Test branches never reach a rendered row. CENTRAL on purpose: six tools build branch-keyed
@@ -542,7 +542,7 @@ function hideTestBranches(e: Evidence, args: any): Evidence {
   const out: string[] = [];
   const scrub = (rows: any): any => !Array.isArray(rows) ? rows : rows.filter((r: any) => {
     if (!r || typeof r !== 'object') return true;
-    const hit = Object.entries(r).find(([c, v]) => BRANCH_COL.test(c) && TEST_BRANCHES.includes(String(v)));
+    const hit = Object.entries(r).find(([c, v]) => BRANCH_COL.test(c) && isTestBranch(v));
     if (hit) out.push(String(hit[1]));
     return !hit;
   });

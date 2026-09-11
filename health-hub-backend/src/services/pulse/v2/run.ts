@@ -10,7 +10,7 @@ import { pool } from '../db';
 import { runStep, type Evidence } from './tools';
 import { completeSpec, lineage, type AnalysisSpec } from './spec';
 import { askPlan, askInvestigate, askResponse } from './analyst';
-import { normalise, merge, resolved, openMaterial, brief, enforce, type Investigation } from './investigation';
+import { normalise, merge, resolved, openMaterial, brief, enforce, conclude, type Investigation } from './investigation';
 import { contractFor, inferJob, checkAnswer, simplify } from './contract';
 import { renderOptions, describeEvidence, JOBS } from './capability';
 import { buildTurnArtifacts, artifactContext, hasArtifactReference, type LastTurn } from './artifacts';
@@ -22,11 +22,12 @@ import { rank as rankOpportunities } from './opportunity';
 // An investigation earns more time than a lookup, but the ceiling has to be real: the deadline
 // used to be checked only between rounds, so a four-round investigation ran 116s against a 45s
 // budget. It is now checked before dispatching any step, which is where the time actually goes.
-/* Three rounds is where investigations actually converged in testing; the fourth mostly spent
-   another 40 seconds to move confidence from medium to medium. NEW_ROUND_BY is a wall-clock gate
-   rather than an estimate, because the time goes INSIDE the tools — leakage and anomaly each run
-   several queries — and a per-step estimate cannot see that. */
-const MAX_STEPS = 16, MAX_ROUNDS = 3, MAX_MS = 75_000, MAX_CALLS = 9, NEW_ROUND_BY = 40_000;
+/* EMERGENCY CEILINGS, not targets. These exist for a bug or a model that will not converge —
+   they are not the analytical stopping condition, which is whether the question has actually
+   been established. For money questions a defensible answer in 25 seconds beats a plausible one
+   in 8, so the loop is allowed to keep going while it is closing real hypotheses; hitting one of
+   these is a FAILURE mode that the answer has to disclose, not a normal finish. */
+const MAX_STEPS = 40, MAX_ROUNDS = 8, MAX_MS = 180_000, MAX_CALLS = 30;
 /* Reserved for the investigate call plus the round it would buy plus the final response. Without
    it the deadline passes at 55s, then an unbounded model call and another round run anyway. */
 const ROUND_RESERVE = 30_000;
@@ -132,10 +133,9 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     // A one-step plan that worked has nothing to interpret — go straight to the answer. This is
     // the common case ("last month collection how much") and it saves a whole round trip.
     if (rounds === 1 && evidence.length === 1 && evidence[0].ok) break;
-    if (evidence.length >= MAX_STEPS || rounds === MAX_ROUNDS || calls >= MAX_CALLS) break;
-    // Another round costs a model call, the steps it asks for, and delays the answer. Past this
-    // point the answer we already have beats a better one the owner is still waiting for.
-    if (Date.now() - t0 > NEW_ROUND_BY) break;
+    if (evidence.length >= MAX_STEPS || rounds === MAX_ROUNDS || calls >= MAX_CALLS) { inv = conclude(inv, 'resource_limit'); break; }
+    // Reserve enough to write the answer; otherwise keep going while something is open.
+    if (Date.now() - t0 > MAX_MS - ROUND_RESERVE) { inv = conclude(inv, 'resource_limit'); break; }
     say('Checking what that rules out', 'phase');
     const ins = await askInvestigate(q, plan.goal || '', evidence, brief(inv)); calls++;
     findings = ins.findings || findings;
@@ -156,12 +156,14 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     }
     // Continue because something MATERIAL is still open, not because the model wants to keep
     // going — and stop when nothing cheap is left that would change what the owner is told.
-    if (resolved(inv)) break;
+    if (resolved(inv)) { inv = conclude(inv, 'resolved'); break; }
     const next = (Array.isArray(ins.next) ? ins.next : [])
       .filter((s: any) => s && s.tool && (!s.resolves || openMaterial(inv).some((h) => h.id === s.resolves)));
-    if (!next.length) break;                       // nothing proposed that resolves an open claim
+    // Nothing proposed that would resolve an open claim. That is not "done" — it is the end of
+    // what we could establish, and the answer has to say so rather than presenting a conclusion.
+    if (!next.length) { inv = conclude(inv, 'insufficient_evidence'); break; }
     steps = next.slice(0, Math.max(0, MAX_STEPS - evidence.length));
-    if (!steps.length) break;
+    if (!steps.length) { inv = conclude(inv, 'resource_limit'); break; }
   }
 
   const usable = evidence.filter((e) => e.ok);
@@ -180,7 +182,8 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   // What can truthfully be drawn from what came back — computed from the rows, not the wording.
   // A renderer whose requirements the evidence does not meet is not an option at all, which is
   // what stops a "required" waterfall from shipping with nothing in it.
-  const options = renderOptions(usable, job, q);
+  // NOT the question — a presentation the analyst resolved from it, as a renderer type.
+  const options = renderOptions(usable, job, (plan as any).present);
   const allowed = options.map((o) => o.type);
   // the structure behind whatever we are most likely to show tunes the contract
   const pIdx = options.length ? usable.findIndex((e) => e.step === options[0].step) : 0;

@@ -165,6 +165,12 @@ Return JSON {"goal":"one sentence","job":"<one of the list below>",
 "steps":[{"tool":"...","label":"<=6 words","args":{...}}]}.
 
 "job" is what the owner is trying to UNDERSTAND, exactly one of:
+ · "present" is OPTIONAL and only for when the owner explicitly asked to SEE something in a
+   particular form — "show me a chart", "as a table", "graph it". Give the renderer type:
+   chart, table, breakdown, ranking, waterfall, pareto, funnel, distribution, kpi, compare.
+   Omit it otherwise. It is a nudge in the ranking, never a guarantee — if the evidence cannot
+   support that form, it will not be drawn, because a chart of data that cannot be charted is
+   not a favour to anyone.
   · use "opportunity" when the question is what to FIX, improve, optimise or spend on. That job,
     and only that job, owes an economic estimate for each thing it proposes. "Which doctor saw
     the most patients" is informational and needs no rupee figure — inventing one there is noise.
@@ -288,6 +294,11 @@ ${(c.canShow || []).length ? ` · Only these can truthfully represent this evide
    what it is — an unexplained gap worth testing — never as "the biggest lever" or with an
    invented benefit. Ranking an untested idea above a measured one is the worst thing you can do
    to someone deciding where to spend money.
+ · If the investigation says complete:false, SAY SO IN THE VERDICT ITSELF, not buried in a
+   caveat. "I could not establish X" is analytical information the owner needs before acting,
+   and presenting a conclusion as settled when a material question was never closed is the one
+   failure that costs them money. stoppingReason tells you which: insufficient_evidence means
+   nothing further could be measured; resource_limit means it was cut short.
  · When an investigation is given, the answer is about its OBJECTIVE. Lead with what was
    established, say plainly what was ruled out if it matters, and name what is still open rather
    than implying more certainty than the evidence carries. Never recite the hypothesis list.
@@ -343,7 +354,7 @@ run together is the thing this structure exists to prevent. Omit any segment you
 real to put in.
 "suggest" is 2 to 4 follow-ups a real owner would ask next, from what the evidence shows.`;
 
-export interface Plan { goal?: string; spec?: any; steps?: any[]; outOfScope?: boolean; why?: string; phi?: boolean; job?: AnalyticalJob; }
+export interface Plan { goal?: string; spec?: any; steps?: any[]; outOfScope?: boolean; why?: string; phi?: boolean; job?: AnalyticalJob; present?: string; }
 
 /** "for all branches" / "overall" widens the scope — it drops the filter. Read as an exclusion
  *  ("everything except JGG") it inverts the owner's meaning, which is what used to happen. */
