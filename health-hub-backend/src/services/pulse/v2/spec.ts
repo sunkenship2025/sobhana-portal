@@ -12,7 +12,7 @@
  * a warning — and the repair is told exactly which one went missing.
  */
 import { DIMS, METRICS } from '../catalog';
-import { resolveTerm } from '../knowledge';
+import { resolveTerm, concepts } from '../knowledge';
 import { periods } from '../diagnostic';
 
 export interface ScopeConstraint {
@@ -22,6 +22,9 @@ export interface ScopeConstraint {
   dimension: string;
   /** the literal it must filter on, e.g. DIAGNOSTICS, CNT */
   value: string;
+  /** when the term covers several literals — "my business" is CNT and BLN, not a branch called
+   *  "CNT,BLN". Defaults to [value]; every one of them must survive into the SQL. */
+  values?: string[];
 }
 /**
  * When the question is about. Resolved to real dates during grounding, because "last week" is
@@ -82,6 +85,7 @@ export interface SpecCheck { ok: boolean; missing: ScopeConstraint[]; timeMissin
  * this accepts any of them, and only fails when the SQL restricts NO time column at all or
  * restricts one to a window that is plainly not the one asked for.
  */
+const PERIOD_WORD = /\b(today|yesterday|now|week|weeks|month|months|quarter|year|years|day|days|period|fortnight|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|q[1-4]|ytd|mtd|since|until|between|last|past|previous|this|current|recent|so far)\b|\d{4}-\d{2}|\d{1,2}\/\d{1,2}/i;
 const ALL_TIME = /\b(all[- ]?time|ever|lifetime|in total|overall|to date|since (we |the )?(start|beginning|opening)|entire history)\b/i;
 
 function timeHonoured(t: TimeConstraint | undefined, sql: string): boolean {
@@ -91,7 +95,11 @@ function timeHonoured(t: TimeConstraint | undefined, sql: string): boolean {
   if (ALL_TIME.test(t.phrase || '') || ALL_TIME.test(t.period || '')) return true;
   // Only verify a period the OWNER asked for. A planner default is not a commitment, and
   // enforcing it would be the validator inventing a constraint rather than checking one.
-  if (!t.phrase) return true;
+  // Nor is a mislabel: "ik there is gorowth" arrived as the owner's time phrase, resolved to
+  // month-to-date, and was then enforced on a question about doctors who STOPPED referring —
+  // a window in which, by definition, they have no revenue. The owner's words bind us only when
+  // they actually name a period.
+  if (!t.phrase || !PERIOD_WORD.test(t.phrase)) return true;
   const s = String(sql);
   // does it restrict a time column at all?
   const touchesTime = /"?(transactionDate|billedAt|createdAt|finalizedAt|occurredAt|updatedAt|cancelledAt|sentAt)"?/i.test(s)
@@ -128,9 +136,14 @@ export function verifySpec(spec: AnalysisSpec | null | undefined, sql: string): 
     const col = COLUMNS[c.dimension];
     const hasCol = col ? col.test(s) : new RegExp(`"?${c.dimension}"?`, 'i').test(s);
     if (DERIVED.has(c.dimension)) return !hasCol;
-    // the literal, case-insensitively, allowing a quoted or IN-list form
-    const v = String(c.value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const hasVal = new RegExp(`'${v}'`, 'i').test(s) || new RegExp(`\\b${v}\\b`, 'i').test(s);
+    // every literal, case-insensitively, in a quoted or IN-list form. A multi-value constraint
+    // was checked as one string: the SQL said IN ('CNT','BLN') and the check looked for the
+    // literal 'CNT,BLN', so five correct queries were rejected for dropping a constraint they
+    // had honoured. A validator that rejects correct work is worse than no validator.
+    const hasVal = (c.values?.length ? c.values : [c.value]).every((one) => {
+      const v = String(one).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`'${v}'`, 'i').test(s) || new RegExp(`\\b${v}\\b`, 'i').test(s);
+    });
     return !(hasCol && hasVal);
   });
   const notes = [
@@ -155,6 +168,10 @@ export function specRepairHint(check: SpecCheck): string {
     + `The owner asked for ${check.missing.map((m) => `"${m.term}"`).join(' and ')}, so a total that includes anything else is the wrong answer. Add the filter and keep everything else.`;
 }
 
+/** The literals a dimension actually takes, from the live semantic index. */
+const valuesFor = (dim: string) =>
+  new Set(concepts().filter((c) => c.dimension === dim && c.value).map((c) => String(c.value)));
+
 /** Fill in scope the analyst named but did not resolve, from the live semantic index. */
 export function completeSpec(spec: AnalysisSpec | null | undefined): AnalysisSpec | null {
   if (!spec) return null;
@@ -169,7 +186,16 @@ export function completeSpec(spec: AnalysisSpec | null | undefined): AnalysisSpe
     // first. Only fall back to what the planner wrote when the term resolves to nothing.
     const hit = resolveTerm(c?.term || '')[0];
     if (hit?.dimension && hit.value) { scope.push({ term: c.term, dimension: hit.dimension, value: hit.value }); continue; }
-    if (c?.dimension && c?.value && DIMS[c.dimension]) scope.push(c);
+    // The same bug wearing a new costume. "ultrasound" got through because the DIMENSION name was
+    // valid; so did branch = "CNT,BLN", which is not a branch but two, and which then became a
+    // hard gate every correct query failed. A valid dimension is not a grounded constraint — the
+    // VALUE has to exist too, and an ungrounded one is dropped rather than enforced, because
+    // enforcing a constraint we cannot verify is how a validator manufactures wrong answers.
+    if (!c?.dimension || !c?.value || !DIMS[c.dimension]) continue;
+    const known = valuesFor(c.dimension);
+    const values = String(c.value).split(',').map((v) => v.trim()).filter((v) => v && (!known.size || known.has(v)));
+    if (!values.length) continue;
+    scope.push({ term: c.term, dimension: c.dimension, value: values[0], values });
   }
   const metric = spec.measure?.metric && METRICS[spec.measure.metric] ? spec.measure.metric : null;
 

@@ -66,7 +66,9 @@ export function Opportunities({ list, considered }: { list: Opportunity[]; consi
 function Incomplete({ i }: { i: { reason: string; open: string[] } }) {
   const why = i.reason === 'resource_limit'
     ? 'This was cut short before the analysis finished.'
-    : 'I could not establish everything this answer depends on.';
+    : i.reason === 'stagnation'
+      ? 'I stopped because further queries were no longer telling me anything new.'
+      : 'I could not establish everything this answer depends on.';
   return (
     <div className="rounded-lg border-l-2 bg-muted/40 px-3 py-2 text-[12.5px] leading-[1.5]"
       style={{ borderColor: 'var(--pulse-down)' }}>

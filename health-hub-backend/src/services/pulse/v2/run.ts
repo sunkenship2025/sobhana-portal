@@ -10,7 +10,8 @@ import { pool } from '../db';
 import { runStep, type Evidence } from './tools';
 import { completeSpec, lineage, type AnalysisSpec } from './spec';
 import { askPlan, askInvestigate, askResponse } from './analyst';
-import { normalise, merge, resolved, openMaterial, brief, enforce, conclude, type Investigation } from './investigation';
+import { normalise, merge, resolved, openMaterial, brief, enforce, conclude, measure, stagnating, coverage,
+  missingRequirements, type Investigation, type RoundProgress } from './investigation';
 import { contractFor, inferJob, checkAnswer, simplify } from './contract';
 import { renderOptions, describeEvidence, JOBS } from './capability';
 import { buildTurnArtifacts, artifactContext, hasArtifactReference, type LastTurn } from './artifacts';
@@ -28,7 +29,19 @@ import { groundNumbers } from './grounding';
    been established. For money questions a defensible answer in 25 seconds beats a plausible one
    in 8, so the loop is allowed to keep going while it is closing real hypotheses; hitting one of
    these is a FAILURE mode that the answer has to disclose, not a normal finish. */
-const MAX_STEPS = 40, MAX_ROUNDS = 8, MAX_MS = 180_000, MAX_CALLS = 30;
+const MAX_STEPS = 40, MAX_ROUNDS = 12, MAX_MS = 180_000, MAX_CALLS = 30;
+/* A cap cannot tell an investigation that is working from one that is stuck, so it punishes both.
+   Asked how to grow the business, the loop spent eight rounds and fifteen query attempts on the
+   two hypotheses that mattered, got one to run, and was cut off by the round count with exactly
+   those two open — at 82s of a 180s budget. It did not run out of time or ideas; it ran out of
+   permission while repeating a failure.
+   What we actually want to stop is a loop making no progress. A round is PRODUCTIVE if it brought
+   back usable evidence or settled a claim. One barren round is worth allowing — the analyst may
+   change approach. Two in a row means the third will be barren too, and the honest reason is that
+   we could not establish it, not that we ran out of rounds. */
+/* Stagnation is judged over a window, not a single barren round: one barren round is normal,
+   and stopping on it would be the cap again wearing a new hat. */
+const STAGNATION_WINDOW = 3;
 /* Reserved for the investigate call plus the round it would buy plus the final response. Without
    it the deadline passes at 55s, then an unbounded model call and another round run anyway. */
 const ROUND_RESERVE = 30_000;
@@ -111,6 +124,9 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   let findings: any[] = [];
   let inv: Investigation | null = null;
   const announced = new Set<string>();   // a verdict is news once, not once per round
+  const seen = new Set<string>();       // evidence signatures — the same rows twice is not news
+  const dims = new Set<string>();       // what has been looked at, so breadth counts as progress
+  const history: RoundProgress[] = [];
   for (rounds = 1; rounds <= MAX_ROUNDS; rounds++) {
     // the deadline is checked HERE, before the work, not only after a round has already overrun
     if (rounds > 1 && Date.now() - t0 > MAX_MS) break;
@@ -124,9 +140,15 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     // Round 1 takes its plan straight from the analyst and was never bounded at all: six query
     // steps is six model calls spent before any budget check gets to run.
     let budget = Math.max(1, Math.min(3, Math.floor((MAX_CALLS - calls - 2) / 1)));
+    // A query step with no question cannot run; dispatching it burns a step slot and a round to
+    // produce the error "no question given". The question lives in args — checking s.question
+    // instead silently dropped EVERY query step, which is the same mistake as verifying a fix
+    // with a probe that shares the bug.
+    steps = steps.filter((s: any) => s?.tool !== 'query' || String(s?.args?.question || '').trim());
     steps = steps.filter((s: any) => s?.tool !== 'query' || budget-- > 0);
     for (const s of steps) if (s?.label) say(String(s.label).slice(0, 70), 'step');
     const base = evidence.length;
+    const missingBefore = missingRequirements(inv, evidence);
     const got = await pool(3, steps.map((s, i) => () => runStep(s, base + i, k, spec)));
     for (const e of got) if (e.ok && !e.means) e.means = lineage(spec, e.detail);
     calls += got.filter((e) => e.tool === 'query').length;      // only query steps cost a call (repairs may add one more)
@@ -158,10 +180,31 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     // Continue because something MATERIAL is still open, not because the model wants to keep
     // going — and stop when nothing cheap is left that would change what the owner is told.
     if (resolved(inv)) { inv = conclude(inv, 'resolved'); break; }
-    const next = (Array.isArray(ins.next) ? ins.next : [])
+    // Did this round change what we know? Not "was it allowed" — measured, and the ONLY analytical
+    // reason to stop short of resolved. A question that genuinely needs thirty queries gets them.
+    const p = measure({ got, seen, dims, before, missingBefore, inv, evidence });
+    history.push(p);
+    if (stagnating(history, STAGNATION_WINDOW)) {
+      say('No longer learning anything new from this line of enquiry', 'phase');
+      inv = conclude(inv, 'stagnation'); break;
+    }
+    let next = (Array.isArray(ins.next) ? ins.next : [])
       .filter((s: any) => s && s.tool && (!s.resolves || openMaterial(inv).some((h) => h.id === s.resolves)));
-    // Nothing proposed that would resolve an open claim. That is not "done" — it is the end of
-    // what we could establish, and the answer has to say so rather than presenting a conclusion.
+    // Nothing proposed that would resolve an open claim. Before accepting that, ask the better
+    // question: not "what else could I look at" but "what evidence is still REQUIRED". Each open
+    // claim already named the analysis it needs; if any of that never ran, the next step is not a
+    // matter of opinion and does not need a model to invent it. This is also the only place the
+    // model's silence used to end an investigation — an empty "next" is "I am done" in a
+    // structured coat, and the controller, not the model, decides that.
+    if (!next.length) {
+      next = openMaterial(inv).flatMap((h) => coverage(h, evidence).missing.slice(0, 2)
+        .map((r) => ({ tool: r.tool, label: `${r.metric || r.tool}${r.dimension ? ` by ${r.dimension}` : ''}`.slice(0, 60),
+          args: { metric: r.metric, dimension: r.dimension }, resolves: h.id })))
+        .slice(0, 3);
+      if (next.length) say('Going after what these claims still need', 'phase');
+    }
+    // Genuinely the end of what we could establish — and the answer has to say so rather than
+    // presenting a conclusion.
     if (!next.length) { inv = conclude(inv, 'insufficient_evidence'); break; }
     steps = next.slice(0, Math.max(0, MAX_STEPS - evidence.length));
     if (!steps.length) { inv = conclude(inv, 'resource_limit'); break; }
@@ -264,6 +307,7 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
       rows: Array.isArray((e.data as any)?.rows) ? (e.data as any).rows.length : null,
       error: e.error, sql: e.sql?.slice(0, 600), means: e.means })),
     investigation: inv ? { objective: inv.objective, confidence: inv.confidence,
+      complete: inv.complete, stoppingReason: inv.stoppingReason, progress: history,
       hypotheses: inv.hypotheses.map((h) => ({ id: h.id, status: h.status, material: h.material, claim: h.claim })),
       unresolved: inv.unresolved, contradictions: inv.contradictions } : null,
     render: { structures: structures.map((st, i) => ({ step: usable[i]?.step, ...st })),

@@ -32,7 +32,11 @@ export async function generate(k: Knowledge, q: string, opts: { temperature?: nu
       (opts.prev.lastSql ? `THE QUERY THAT ANSWERED IT\n${opts.prev.lastSql}\n` : '') +
       `\nThe question below may be a FOLLOW-UP that changes one thing about that query — the grouping,\nthe period, the metric, or the shape. Keep everything it does not change. "trajectory"/"trend"\nmeans bucket the same metric over time; "rate wise" means a percentage or per-unit view.\n\nQUESTION\n`);
   }
-  const j = await llmJson<{ sql?: string; assumptions?: string }>(SYS(), ctx, { maxTokens: 900, ...opts });
+  // 900 fits a SELECT with a GROUP BY. It does not fit the four-CTE queries the harder questions
+  // need — "what were the ten quiet doctors worth before they went quiet" truncated mid-string
+  // six times in one investigation, each costing a model call and a round to produce
+  // "model response was not JSON". The budget was quietly deciding which questions are answerable.
+  const j = await llmJson<{ sql?: string; assumptions?: string }>(SYS(), ctx, { maxTokens: 2200, ...opts });
   return { sql: repairIdents(k, j.sql || ''), assumptions: j.assumptions, ctx };
 }
 
@@ -46,7 +50,7 @@ async function execute(k: Knowledge, q: string, gen: { sql: string; ctx: string 
       : ex.err && /syntax/i.test(ex.err) ? 'SYNTAX' : ex.err ? 'RUNTIME' : 'EMPTY_RESULT';
     try {
       const f = await llmJson<{ sql?: string }>(`Repair PostgreSQL. FAILURE CLASS: ${kind}. ${kind === 'BLOCKED_BY_POLICY' ? 'The query violated a safety rule; rewrite it to satisfy the rule.' : ''} Return JSON {"sql":"..."}.`,
-        `${gen.ctx}\n\nSQL\n${sql}\n\nOUTCOME\n${ex.err || '0 rows'}`, { maxTokens: 900 });
+        `${gen.ctx}\n\nSQL\n${sql}\n\nOUTCOME\n${ex.err || '0 rows'}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
       if (s2 && !validate(s2)) { const ex2 = await query(s2); if (!ex2.err && ex2.rows && ex2.rows.length) return { sql: s2, rows: ex2.rows, repaired: kind }; }
     } catch { /* keep the original outcome */ }

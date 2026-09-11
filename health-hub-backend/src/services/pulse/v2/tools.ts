@@ -64,6 +64,12 @@ const P = (spec: string) => periods(spec || 'month');
  * "chintal last month how many tests" once returned every branch's 14,111 and labelled it
  * Chintal. A wrong number with a confident label is the worst thing this system can do.
  */
+/** A filter value may arrive as a list or as one comma-joined string. "CNT,BLN" is two branches,
+ *  not a branch named "CNT,BLN" — read literally it matched nothing and the tool rejected the
+ *  step. Normalised in one place so buildFilter and checkFilter cannot disagree about it. */
+const filterValues = (raw: any): string[] =>
+  (Array.isArray(raw) ? raw : String(raw).split(',')).map((v) => String(v).trim()).filter(Boolean).slice(0, 20);
+
 function buildFilter(metric: string, f: any): { where: string[]; join: string } | { error: string } {
   if (!f || typeof f !== 'object' || !Object.keys(f).length) return { where: [], join: '' };
   const where: string[] = []; let join = '';
@@ -72,7 +78,7 @@ function buildFilter(metric: string, f: any): { where: string[]; join: string } 
     if (!DIMS[dim]) return { error: `cannot filter by '${dim}' — filterable dimensions are ${Object.keys(DIMS).join(', ')}` };
     if (!dimOk(metric, dim)) return { error: `'${metric}' cannot be filtered by '${dim}'` };
     const j = dimJoin(metric, dim); if (j && !join.includes(j)) join += j;
-    const vals = (Array.isArray(rawVal) ? rawVal : [rawVal]).map((v) => String(v).replace(/'/g, "''")).slice(0, 20);
+    const vals = filterValues(rawVal).map((v) => v.replace(/'/g, "''"));
     where.push(`${DIMS[dim]} IN (${vals.map((v) => `'${v}'`).join(', ')})`);
   }
   return { where, join };
@@ -93,7 +99,7 @@ async function checkFilter(metric: string, f: any) {
   const vals = await dimValues();
   for (const [dim, rawVal] of Object.entries(f || {})) {
     if (!vals[dim] || !vals[dim].size) continue;
-    for (const v of (Array.isArray(rawVal) ? rawVal : [rawVal])) {
+    for (const v of filterValues(rawVal)) {
       if (v != null && v !== '' && !vals[dim].has(String(v)))
         return { error: `'${v}' is not a known ${dim}. Known values: ${[...vals[dim]].slice(0, 8).join(', ')}` };
     }
@@ -229,7 +235,7 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promis
   if (!check.ok && !ex.err) {
     try {
       const f = await llmJson<{ sql?: string }>(`Repair PostgreSQL. The query answers a WIDER question than was asked. ${specRepairHint(check)} Return JSON {"sql":"..."}.`,
-        `${gen.ctx}\n\nSQL\n${sql}\n\nPROBLEM\n${check.note}`, { maxTokens: 900 });
+        `${gen.ctx}\n\nSQL\n${sql}\n\nPROBLEM\n${check.note}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
       if (s2 && !validate(s2) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; check = { ok: true, missing: [] }; } }
     } catch { /* fall through to the rejection below */ }
@@ -244,7 +250,7 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promis
     try {
       const f = await llmJson<{ sql?: string }>(
         `Repair PostgreSQL. FAILURE CLASS: ${kind}. ${kind === 'BLOCKED_BY_POLICY' ? 'The query violated a safety rule; rewrite it to satisfy the rule.' : kind === 'EMPTY_RESULT' ? 'It ran but matched nothing — the filter, the period or the join is probably wrong.' : ''} Return JSON {"sql":"..."}.`,
-        `${gen.ctx}\n\nSQL\n${sql}\n\nOUTCOME\n${ex.err || '0 rows'}`, { maxTokens: 900 });
+        `${gen.ctx}\n\nSQL\n${sql}\n\nOUTCOME\n${ex.err || '0 rows'}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
       if (s2 && !validate(s2)) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; } }
     } catch { /* keep the first outcome */ }
@@ -262,7 +268,7 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promis
     try {
       const f = await llmJson<{ sql?: string }>(
         `Repair PostgreSQL. FAILURE CLASS: DUE_DEFINITION. A due is the arithmetic, never the status flag. Filter on (b."totalAmountInPaise" - b."discountAmountInPaise" - b."couponDiscountInPaise" - b."reversedChargeInPaise" - b."paidAmountInPaise") > 0 and remove any "paymentStatus" condition. Counting PATIENTS means COUNT(DISTINCT v."patientId") via "Visit", not a count of bills. Change nothing else. Return JSON {"sql":"..."}.`,
-        `${gen.ctx}\n\nSQL\n${sql}`, { maxTokens: 900 });
+        `${gen.ctx}\n\nSQL\n${sql}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
       if (s2 && !validate(s2) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; } }
     } catch { /* keep what we had */ }
@@ -278,7 +284,7 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promis
     try {
       const f = await llmJson<{ sql?: string }>(
         `Repair PostgreSQL. FAILURE CLASS: MONEY_ALIAS. The query reads paise columns but no output column is named "*_paise", so the caller cannot tell paise from rupees. Re-alias every money output column to end in "_paise", through any CTE. Change nothing else. Return JSON {"sql":"..."}.`,
-        `${gen.ctx}\n\nSQL\n${sql}\n\nCOLUMNS\n${cols0.join(', ')}`, { maxTokens: 900 });
+        `${gen.ctx}\n\nSQL\n${sql}\n\nCOLUMNS\n${cols0.join(', ')}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
       if (s2 && !validate(s2) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; } }
     } catch { /* fall through */ }
