@@ -16,15 +16,17 @@
  * silent double — the wrong way to fail, but the safe one, for a message
  * carrying a day's revenue.
  *
- * THE LINK: no token, no public route. The message links into the portal and
- * the existing login gate protects it (ProtectedRoute now carries the intended
- * URL through login, so the link still lands after signing in). The template's
- * URL button has the origin baked in at approval time, so all this sends is the
- * query suffix — which is why nothing here needs a base-URL env var.
+ * THE LINK: the same bearer-token system bills and reports already use — 32
+ * bytes of CSPRNG, only the SHA-256 hash stored, served unauthenticated at
+ * /day-sheet/:token beside /reports/:token and /bills/view/:token. One token per
+ * branch per night, so two branches are two links in two messages. Unlike a
+ * bill link these always expire (72h): a bill is the patient's own receipt, this
+ * is a branch's takings for a day.
  */
 import prisma from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { getMoneyDaySheet, type DaySheetDomain } from './ownerMoneyService';
+import { createDaySheetToken } from './daySheetAccessService';
 import {
   sendTemplate,
   isWhatsAppEnabled,
@@ -33,7 +35,7 @@ import {
 } from './whatsappCloudService';
 
 export const DAY_SHEET = 'DAY_SHEET';
-const TEMPLATE = 'owner_day_sheet';
+const TEMPLATE = 'owner_day_sheet_v2';
 
 /** How late a missed night may still be sent, in minutes. */
 const GRACE_MINUTES = 8 * 60;
@@ -77,22 +79,6 @@ async function ownerPhones(): Promise<string[]> {
   return [...new Set(owners.map((o) => (o.phone ?? '').trim()).filter(Boolean))];
 }
 
-/**
- * The query suffix appended to the template's baked-in origin. These are the
- * money page's OWN filter params (branch/period/start/end/domain) plus `sheet`,
- * so the link sets the page's normal state rather than triggering a hidden mode.
- */
-export function daySheetLinkSuffix(branchId: string, domain: string, dateKey: string): string {
-  return new URLSearchParams({
-    sheet: 'day',
-    period: 'custom',
-    start: dateKey,
-    end: dateKey,
-    branch: branchId,
-    domain,
-  }).toString();
-}
-
 async function sendDaySheet(
   schedule: { branchId: string; domain: string },
   dateKey: string,
@@ -118,6 +104,14 @@ async function sendDaySheet(
     schedule.domain as DaySheetDomain,
   );
 
+  // A fresh token per night per branch. The template's URL button carries the
+  // origin, so the parameter is just the token.
+  const token = await createDaySheetToken({
+    branchId: schedule.branchId,
+    domain: schedule.domain,
+    sheetDate: dateKey,
+  });
+
   const components: TemplateComponent[] = [
     {
       type: 'body',
@@ -133,9 +127,7 @@ async function sendDaySheet(
       type: 'button',
       sub_type: 'url',
       index: 0,
-      parameters: [
-        { type: 'text', text: daySheetLinkSuffix(schedule.branchId, schedule.domain, dateKey) },
-      ],
+      parameters: [{ type: 'text', text: token }],
     },
   ];
 

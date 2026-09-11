@@ -11,6 +11,7 @@ import {
   DaySheetDomain as MoneyDaySheetDomain,
 } from '../services/ownerMoneyService';
 import { buildDaySheetWorkbook } from '../services/moneyDaySheetExportService';
+import { buildDaySheetHtml } from '../services/daySheetHtmlService';
 import { getOwnerDoctors, PeriodKey as DoctorsPeriod } from '../services/ownerDoctorsService';
 import { getOwnerOperations } from '../services/ownerOperationsService';
 import { getAuditEvents, getAuditEventDetail, getStaffScorecard, getReportAccess, setEventTriage } from '../services/ownerAuditService';
@@ -220,8 +221,9 @@ router.get('/money', async (req: AuthRequest, res) => {
 });
 
 // GET /api/owner/money/day-sheet?period=...&branch=...&start=...&end=...&format=xlsx
-//   Per-bill register for the selected window. JSON by default (drives the
-//   printable sheet); format=xlsx streams an Excel workbook.
+//   Per-bill register for the selected window. JSON by default; format=html
+//   returns the printable document (the SAME renderer the public token link
+//   uses, so print and WhatsApp can never disagree); format=xlsx streams Excel.
 router.get('/money/day-sheet', async (req: AuthRequest, res) => {
   try {
     const { period, branchId, range } = parseMoneyQuery(req);
@@ -241,6 +243,11 @@ router.get('/money/day-sheet', async (req: AuthRequest, res) => {
       );
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       return res.send(buffer);
+    }
+
+    if ((req.query.format as string) === 'html') {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.type('html').send(buildDaySheetHtml(data));
     }
 
     return res.json(data);

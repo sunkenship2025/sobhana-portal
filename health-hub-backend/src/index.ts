@@ -52,6 +52,7 @@ import reportRoutes from './routes/reports';
 import reportDownloadRoutes from './routes/reportDownload';
 import billRoutes from './routes/bills';
 import billDownloadRoutes from './routes/billDownload';
+import daySheetDownloadRoutes from './routes/daySheetDownload';
 import statementDownloadRoutes from './routes/statementDownload';
 import reportGatewayRoutes from './routes/reportGateway';
 import displayRoutes from './routes/display';
@@ -365,6 +366,7 @@ app.use('/reports', reportDownloadRoutes);
 // Bill PDF download (token-based, no auth required) - PUBLIC ROUTE
 // Patient-facing bill PDF for WhatsApp links: /bills/view/:token
 app.use('/bills/view', billDownloadRoutes);
+app.use('/day-sheet', daySheetDownloadRoutes); // public, token-gated nightly day sheet
 // Report gateway (token-based, no auth) — QR on the bill lands here and resolves
 // to the finalized report / partial interstitial / "being processed" page: /r/:token
 app.use('/r', reportGatewayRoutes);

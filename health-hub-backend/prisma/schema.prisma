@@ -2412,3 +2412,28 @@ model ScheduledMessageRun {
   @@unique([kind, branchId, domain, runDate])
   @@index([sentAt])
 }
+
+/// DaySheetAccessToken: bearer link to one night's day sheet, mirroring
+/// BillAccessToken / ReportAccessToken exactly — SHA-256 hash stored, raw token
+/// sent in the WhatsApp URL, access counted on every open.
+///
+/// Unlike a bill token this one ALWAYS expires. A bill link is a patient's own
+/// receipt and may live forever; this is a branch's takings for a day, so the
+/// link stops working once it has served the purpose it was sent for.
+model DaySheetAccessToken {
+  id             String    @id @default(cuid())
+  token          String    @unique // SHA-256 hash of the raw bearer token
+  branchId       String
+  domain         String // 'DIAGNOSTICS' | 'CLINIC'
+  /// IST calendar date the sheet covers, 'YYYY-MM-DD'.
+  sheetDate      String
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  accessCount    Int       @default(0)
+  lastAccessedAt DateTime?
+  lastAccessedIp String?
+  createdAt      DateTime  @default(now())
+
+  @@index([branchId, sheetDate])
+  @@index([expiresAt])
+}
