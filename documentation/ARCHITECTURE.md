@@ -29,8 +29,9 @@ A **multi-branch, role-based** healthcare portal for diagnostics and clinic visi
 | Role | Capabilities |
 |---|---|
 | `staff` | Register patients, create bills/visits, enter results, finalize reports |
-| `doctor` | Review finalized reports, doctor dashboard |
-| `owner` | Everything `staff` + `doctor` can do, plus payouts, audit logs, test catalog, signing-doctor management |
+| `lab_incharge` | Manage lab operations and workflow |
+| `sales` | Manage sales operations |
+| `owner` | Everything `staff` + `lab_incharge` + `sales` can do, plus payouts, audit logs, test catalog, signing-doctor management |
 | `admin` | Reserved — used for cross-branch admin tooling |
 
 **Domains**
@@ -197,11 +198,10 @@ React Router 6 with `<ProtectedRoute>`:
 
 | Path prefix | Roles |
 |---|---|
-| `/diagnostics/*` | `staff`, `owner` |
+| `/diagnostics/*` | `staff`, `owner`, `lab_incharge` |
 | `/clinic/*` | `staff`, `owner` |
-| `/doctor` | `doctor`, `owner` |
 | `/owner/*` | `owner` |
-| `/bill-print/:visitId`, `/report/:visitId` | `staff`, `owner`, `doctor` |
+| `/bill-print/:visitId`, `/report/:visitId` | `staff`, `owner` |
 | `/reports/*` | public — served by backend, not React Router |
 
 Code-splitting today: `AdminConfigCenter` lazy-loads its 5–7 admin tab pages, and `DiagnosticsReportPreview` lazy-loads `PdfPreview` (react-pdf is ~140 KB gzipped). Other routes are eagerly imported — see [Known architectural debts](#9-known-architectural-debts).

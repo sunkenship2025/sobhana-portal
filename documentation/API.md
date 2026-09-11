@@ -70,6 +70,8 @@ The hot file — 17 endpoints, ~3,900 LOC (see [DECISIONS ADR-015](DECISIONS.md)
 | POST | `/:id/confirm-ready` | Mark report as ready for staff review |
 | POST | `/:id/finalize` | Finalize: snapshot + token + WhatsApp fanout. Blocked if `due > 0`. |
 | POST | `/:id/release-partial` | Finalize the current DRAFT as a partial release and open a fresh DRAFT for remaining work. Optional body `{ testOrderIds: string[] }` scopes the release to a subset; unselected draft results are carried forward into the next DRAFT. Snapshots are scoped to the selection (results + external uploads). Without a body, falls back to legacy "release every draft result" behaviour. |
+| POST | `/:id/refund` | Cancel test orders and refund overpayment. Whole-order cancellation voids each selected order's remaining charge off the bill, and returns overpaid amount as a REFUND ledger row. |
+| POST | `/:id/swap-product` | Replace a mistakenly billed product with a SAME-PRICE one (typo fixes). Money-neutral by construction. |
 | GET | `/:id/preview-report` | Returns the merged PDF as a blob (matches what the patient gets). Optional `?testOrderIds=a,b,c` (or repeated query params) scopes the preview to a subset, used by the partial-release selector so the preview matches what `release-partial` will ship byte-for-byte. |
 | GET | `/:id/report-snapshot` | JSON snapshot for the in-app preview screen |
 | GET | `/:id/finalized-report` | Staff-only HTML view of the latest finalized version |
@@ -169,6 +171,17 @@ Source: [`testInputConfigs.ts`](../health-hub-backend/src/routes/testInputConfig
 
 Source: [`billableProducts.ts`](../health-hub-backend/src/routes/billableProducts.ts).
 
+### Users — `/api/users`
+
+Owner-only user management, globally scoped (not branch-scoped).
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/` | List team members |
+| PATCH | `/:id/role` | Change a member's role (staff, lab_incharge, sales) |
+
+Source: [`users.ts`](../health-hub-backend/src/routes/users.ts).
+
 ### External Uploads — `/api/external-uploads`
 
 PDF uploads for `EXTERNAL_UPLOAD` workflow mode (e.g. outsourced reports).
@@ -193,6 +206,20 @@ Source: [`externalUploads.ts`](../health-hub-backend/src/routes/externalUploads.
 | `/api/signing-rules` | Department → signing-doctor assignment |
 
 Sources: `referralDoctors.ts`, `clinicDoctors.ts`, `doctors.ts`, `signingDoctors.ts`, `signingRules.ts` → service: `signingDoctorService`.
+
+### External Labs — `/api/external-labs`
+
+Outside lab management for outsourced tests and their specific payout rules.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/` | List outside labs |
+| GET | `/:id` | Single outside lab detail |
+| POST | `/` | Create outside lab |
+| PATCH | `/:id` | Update outside lab |
+| DELETE | `/:id` | Deactivate outside lab |
+
+Source: [`externalLabs.ts`](../health-hub-backend/src/routes/externalLabs.ts).
 
 ### Diagnostic Centers — `/api/diagnostic-centers`
 
@@ -223,6 +250,7 @@ Source: [`branches.ts`](../health-hub-backend/src/routes/branches.ts).
 | GET | `/:id` | Detail with derivation breakdown |
 | POST | `/derive` | Re-derive payouts for a period (idempotent — refreshes `DoctorPayoutLedger`) |
 | POST | `/:id/mark-paid` | Mark as paid (immutable thereafter) |
+| POST | `/:id/send-statement` | WhatsApp the statement to the payee |
 
 Source: [`payouts.ts`](../health-hub-backend/src/routes/payouts.ts) → service: `payoutService`.
 
