@@ -314,6 +314,7 @@ Repeated ~150 times across pages. Centralizing it in a `lib/apiClient.ts` + reac
 | `ClinicDoctor` | In-house consulting doctor |
 | `SigningDoctor` + `SigningRule` | Doctor whose signature appears on reports + assignment rules per department |
 | `DiagnosticReferralCenter` + `DiagnosticCenter_Visit` | External diagnostic centers (referred-to / referred-from) |
+| `ExternalLab` + `ExternalLabProductRule` | Vendor labs for outsourced tests and per-product commission overrides |
 
 ### Operational
 
@@ -323,6 +324,7 @@ Repeated ~150 times across pages. Centralizing it in a `lib/apiClient.ts` + reac
 | `MessageLog` | WhatsApp / SMS delivery log |
 | `DoctorPayoutLedger` | Payout snapshots per period |
 | `ExternalReportUpload` | PDFs uploaded for `EXTERNAL_UPLOAD` workflow, stored in R2, soft-deleted via `deletedAt` |
+| `StatementAccessToken` | Secure token for external payout statements sent via WhatsApp |
 
 ### Key constraints
 
@@ -438,11 +440,11 @@ authStore.checkTokenExpiration() → auto-logout on expired exp claim
 - `requireRole(...)` middleware factory.
 - Branch isolation is **application-enforced** — every Prisma query filters by `branchId`. Not enforced at DB level (no Row Level Security). Consistency depends on developer discipline; one missed filter is a data leak.
 
-### Public report & bill tokens
+### Public report, bill, and statement tokens
 - 12-char base64url bearer (~72 bits entropy → infeasible to brute-force).
-- Only the SHA-256 hash is stored (`ReportAccessToken.token`). Bearer is not recoverable.
+- Only the SHA-256 hash is stored (`ReportAccessToken.token`, `StatementAccessToken.token`). Bearer is not recoverable.
 - Tokens currently do not expire (`expiresAt: null`). Setting `expiresAt` is supported by the schema with no code change.
-- Every access logged to `ReportAccessLog` (IP, user-agent, accessType: VIEW/DOWNLOAD/PRINT).
+- Every report access is logged to `ReportAccessLog` (IP, user-agent, accessType: VIEW/DOWNLOAD/PRINT). Payout statements use identical token mechanics for WhatsApp sharing.
 
 ### Transport
 - HTTPS in production (Render terminates TLS).
@@ -505,7 +507,7 @@ These exist; they're tracked here so newcomers don't think they're invisible.
 
 1. **`diagnosticVisits.ts` is ~3,800 LOC** — needs to be split per endpoint into a feature folder. Most "fix the bill" commits in git history land here.
 2. **Dual FK migration in flight** — `TestOrder.testId` (legacy `LabTest`) and `TestOrder.testDefinitionId` (new) both populated. Code branches on which is present. Finishing the migration is a tracked refactor.
-3. **`@tanstack/react-query` partial adoption** — while newer flows (patient search, doctor lookups) use React Query, many older pages still reconstruct `fetch()` calls inline (~150 sites). Migrating one page at a time is incremental.
+3. **`@tanstack/react-query` partial adoption** — newer flows (Patient360 Canonical view, doctor lookups) use React Query. A systematic migration playbook exists but is currently paused after tier 4 (many older `Manage*` pages and clinical data entry still use direct `fetch()`). See `react-query-migration-playbook.md`.
 4. **`react-hook-form` + `zod` installed, unused** — forms hand-rolled with `useState`. Same incremental migration plan.
 5. **No automated test suite** — see [`TESTING.md`](TESTING.md) for the strategy.
 6. **CSP disabled** in Helmet config — `contentSecurityPolicy: false`. Should be re-enabled with a tested policy.

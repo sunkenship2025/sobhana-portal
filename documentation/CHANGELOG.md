@@ -9,6 +9,10 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 ## [Unreleased]
 
 ### Added
+- **Payouts System Redesign:** Complete overhaul of the payouts system supporting outside-lab vendor payouts with new models `ExternalLab` and `ExternalLabProductRule`. Includes WhatsApp statement delivery powered by `StatementAccessToken`.
+- **Owner Dashboard Overhaul:** Introduced `OwnerDashboardV2` featuring decision-grade UI, full-width trend charts, and URL-based branch query parameters for shareability.
+- **Patient360 Redesign:** Rewrote Patient360 to a Canonical Patient View with smart search, inline PDF report/bill previews, timeline filtering, and robust due-balance calculation. Adopts React Query.
+- **Database Schema Updates:** Added `ExternalLab`, `ExternalLabProductRule`, `StatementAccessToken` to the schema and introduced a `LAB` type to `PayoutDoctorType`.
 - **New Visit Flow UI/UX Improvements:** Redesigned the diagnostics and clinic new visit pages with a cleaner single-column layout, improved "sticky" bottom bar, focused keyboard navigation, and portalled `Radix Popover` drop-downs to prevent collision and cut-offs.
 - **Shared UI Components:** Extracted repeated structural and state-representing elements into new shared components: `PageHeader`, `LoadingState`, and `EmptyState`.
 - **Visit Defaults Persistence:** Added `visitDefaultsStore` Zustand store to automatically persist the front-desk operator's last choices (e.g., payment mode, consulting doctor) for seamless repetitive data entry.
