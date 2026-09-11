@@ -13,7 +13,7 @@
  * table was, and "why is the second one so high?" resolves to a row, not to a database lookup.
  */
 import { writerRows, type Evidence } from './tools';
-import type { AnswerShape } from './shape';
+import type { AnalyticalJob } from './capability';
 
 export interface ArtifactMeaning {
   metric?: string | null;
@@ -36,7 +36,7 @@ export interface TurnArtifact {
 
 export interface LastTurn {
   question: string;
-  shape: AnswerShape;
+  job: AnalyticalJob;
   text: string;
   artifacts: TurnArtifact[];
 }

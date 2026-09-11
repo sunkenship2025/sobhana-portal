@@ -10,8 +10,8 @@ import { pool } from '../db';
 import { runStep, type Evidence } from './tools';
 import { completeSpec, lineage, type AnalysisSpec } from './spec';
 import { askPlan, askInsight, askResponse } from './analyst';
-import { deriveShape, CONTRACTS, checkAnswer, simplify } from './shape';
-import { renderOptions } from './capability';
+import { contractFor, inferJob, checkAnswer, simplify } from './contract';
+import { renderOptions, describeEvidence, JOBS } from './capability';
 import { buildTurnArtifacts, artifactContext, hasArtifactReference, type LastTurn } from './artifacts';
 
 /* Limits are a safety net against unproductive wandering, not a latency ceiling. A hard stop at
@@ -101,16 +101,21 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
     text: 'Nothing came back for that. If it is something the centre does not record, the answer is that we do not have it — not that it is zero.',
     provenance: { sql: evidence.find((e) => e.sql)?.sql, tables: [], rowCount: 0 }, state: { ...state, lastQ: q } };
 
-  // What KIND of answer does this question deserve? The question leads — "how much did revenue
-  // change" is a figure even when the query returned a row per branch — with the plan and the
-  // evidence corroborating, and a bare follow-up inheriting the shape of the turn before it.
-  const shape = deriveShape(q, plan, evidence, { lastShape: last?.shape ?? null, isFollowUp: !!state?.lastQ });
+  // What kind of understanding is owed. The ANALYST declares it; if the plan came back without
+  // one it is inferred from the STRUCTURE of what came back, never from the wording — that ladder
+  // is what this replaced. A bare follow-up inherits the job of the turn before it.
+  const structures = usable.map(describeEvidence);
+  const job = (plan.job && JOBS.includes(plan.job) ? plan.job : null)
+    ?? (state?.lastQ && last?.job ? last.job : null)
+    ?? inferJob(structures);
   // What can truthfully be drawn from what came back — computed from the rows, not the wording.
   // A renderer whose requirements the evidence does not meet is not an option at all, which is
   // what stops a "required" waterfall from shipping with nothing in it.
-  const options = renderOptions(usable, plan.job, q);
+  const options = renderOptions(usable, job, q);
   const allowed = options.map((o) => o.type);
-  const contract = { ...CONTRACTS[shape], canShow: allowed };
+  // the structure behind whatever we are most likely to show tunes the contract
+  const pIdx = options.length ? usable.findIndex((e) => e.step === options[0].step) : 0;
+  const contract = { ...contractFor(job, structures[pIdx >= 0 ? pIdx : 0]), canShow: allowed };
 
   const byIdx = new Map(evidence.map((e) => [e.step, e]));
   const keepArtifacts = (list: any[]) => (list || []).filter((a: any) => {
@@ -150,11 +155,11 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
   }
 
   const turnArtifacts = buildTurnArtifacts(artifacts, evidence);
-  return { kind: 'analysis', goal: plan.goal || '', spec, shape, job: plan.job ?? null, text, artifacts, findings,
+  return { kind: 'analysis', goal: plan.goal || '', spec, job, text, artifacts, findings,
     chips: (res.suggest || []).filter((c: any) => c?.label && c?.q).slice(0, 4),
     evidence: evidence.map((e) => ({ step: e.step, tool: e.tool, label: e.label, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, detail: e.detail, summary: e.summary, data: e.data, sql: e.sql, error: e.error })),
     meta: { calls, ms: Date.now() - t0, steps: evidence.length, rounds },
     state: { ...state, lastQ: q, kind: 'analysis', lastPlan: steps.map((s: any) => ({ tool: s.tool, args: s.args })),
       // the answer survives the turn as an object the next question can point at
-      lastTurn: { question: q, shape, text, artifacts: turnArtifacts } as LastTurn } } as V2Answer;
+      lastTurn: { question: q, job, text, artifacts: turnArtifacts } as LastTurn } } as V2Answer;
 }

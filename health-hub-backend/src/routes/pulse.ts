@@ -42,7 +42,7 @@ router.post('/ask', async (req: AuthRequest, res) => {
     // AuditActionType has no PULSE value yet (adding one is a migration); REPORT_ACCESS with
     // entityType 'Pulse' keeps it filterable until then.
     logAction({ userId: req.user!.id, branchId: req.branchId || '', actionType: 'REPORT_ACCESS', entityType: 'Pulse', entityId: String(answer.kind || 'unknown'),
-      newValues: { q: q.slice(0, 300), kind: answer.kind, shape: answer.shape, sql: answer.provenance?.sql?.slice(0, 1000), ms: Date.now() - t0,
+      newValues: { q: q.slice(0, 300), kind: answer.kind, shape: answer.shape, job: (answer as any).job, sql: answer.provenance?.sql?.slice(0, 1000), ms: Date.now() - t0,
         // Replaying this log against the database is how the real defects were found — a figure
         // 100x too large, a "complete" list missing a debtor, a feature reported as non-existent.
         // Without the answer and the refusal reason none of that was visible after the fact.

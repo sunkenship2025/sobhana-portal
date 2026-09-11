@@ -11,7 +11,7 @@ import { llmJson } from '../llm';
 import { langOf, todayIST } from '../db';
 import { METRICS, METRIC_DIMS } from '../catalog';
 import { KNOWN_DIMS, writerRows } from './tools';
-import type { Contract } from './shape';
+import type { Contract } from './contract';
 import { JOBS, type AnalyticalJob } from './capability';
 import { conceptSummary } from '../knowledge';
 import type { Evidence } from './tools';
@@ -212,7 +212,7 @@ const ARTIFACTS = `ARTIFACT TYPES — attach one only when it genuinely helps:
 export const RESPOND_SYS = (c: Contract) => `You are answering a diagnostic centre's owner, as their analyst.
 You have the evidence and what it showed.
 
-THIS ANSWER IS A ${c.shape.toUpperCase()}. Allocate the information accordingly.
+THE OWNER IS TRYING TO UNDERSTAND: ${c.job.toUpperCase()}. Allocate the information accordingly.
 
   PROSE     — ${c.prose}
   ARTIFACT  — ${c.artifact}
