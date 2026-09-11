@@ -76,16 +76,19 @@ export function PulsePanel({ p, onClose }: { p: P; onClose: () => void }) {
         <span className="ml-auto truncate text-[11px] text-muted-foreground">{p.branchName || 'All branches'}</span>
         <button type="button" title={p.expanded ? 'Smaller' : 'Larger'} onClick={() => p.setExpanded(!p.expanded)}
           className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-            {p.expanded ? <><path d="M10 6h-4v4" /><path d="M14 2l-8 8" /></> : <><path d="M6 2h8v8" /><path d="M14 2l-8 8" /><path d="M2 14l4-4" /></>}
+          {/* corner brackets: outward to grow, inward to shrink. No diagonal — it read as a broken glyph. */}
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            {p.expanded
+              ? <><path d="M13 6H10V3" /><path d="M3 10h3v3" /></>
+              : <><path d="M10 2.5h3.5V6" /><path d="M6 13.5H2.5V10" /></>}
           </svg></button>
         {!empty && <button type="button" title="Start over" onClick={p.reset}
           className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-            <path d="M13.5 8a5.5 5.5 0 1 1-1.9-4.1" /><path d="M13.5 2v3h-3" /></svg></button>}
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M13.5 8a5.5 5.5 0 1 1-1.9-4.1" /><path d="M13.5 2.2V5.4H10.3" /></svg></button>}
         <button type="button" title="Close (Esc)" onClick={onClose}
           className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" /></svg></button>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M4 4l8 8M12 4l-8 8" /></svg></button>
       </div>
 
       <div ref={scroller} className="pulse-scroll flex-1 space-y-4 overflow-y-auto px-4 py-4">
