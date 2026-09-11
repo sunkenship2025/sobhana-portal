@@ -20,11 +20,14 @@
 import 'dotenv/config';
 import { ask } from './src/services/pulse/index';
 import { rowsOf } from './src/services/pulse/v2/capability';
+import { groundNumbers, unsupported } from './src/services/pulse/v2/grounding';
 
 type Check = 'FINISHED_OPEN' | 'UNSIZED_LEVER' | 'UNGROUNDED' | 'TEST_BRANCH' | 'DENIED'
   | 'FALSE_PREMISE' | 'EMPTY_ARTIFACT' | 'FELL_BACK';
 
-interface Case { q: string; why: string; expect?: Check[]; state?: 'carry' }
+interface Case { q: string; why: string; expect?: Check[]; state?: 'carry';
+  /** the centre genuinely does not record this — saying so is the RIGHT answer, not a denial */
+  absent?: boolean }
 
 const CASES: Case[] = [
   // premise the data contradicts — revenue is UP
@@ -41,9 +44,9 @@ const CASES: Case[] = [
   { q: 'what was last week collection chintal only lab', why: 'every qualifier must survive' },
 
   // things that do not exist — must refuse, not invent
-  { q: 'how much profit did we make last month', why: 'no cost data exists anywhere' },
-  { q: 'what is our biggest expense', why: 'no expense table' },
-  { q: 'how much did we spend on salaries', why: 'no payroll data' },
+  { q: 'how much profit did we make last month', why: 'no cost data exists anywhere', absent: true },
+  { q: 'what is our biggest expense', why: 'no expense table', absent: true },
+  { q: 'how much did we spend on salaries', why: 'no payroll data', absent: true },
 
   // things that DO exist — must not deny
   { q: 'which staff member should i review', why: 'AnomalyEvent exists; denying it is the worst answer' },
@@ -72,20 +75,7 @@ const CASES: Case[] = [
 const NUM = /₹\s?[\d,]+(?:\.\d+)?|\b\d+(?:\.\d+)?\s?%|\b\d[\d,]*(?:\.\d+)?\b/g;
 const DENY = /no field|not record|does not record|no way to|cannot see|we do not have|there is no data/i;
 
-function evidenceNumbers(ev: any[]): number[] {
-  const out: number[] = [];
-  const walk = (x: any) => {
-    if (x == null) return;
-    if (typeof x === 'number') { if (Number.isFinite(x)) out.push(Math.abs(x)); return; }
-    if (typeof x === 'string') { for (const m of x.matchAll(/-?[\d,]*\.?\d+/g)) { const n = Number(m[0].replace(/,/g, '')); if (Number.isFinite(n)) out.push(Math.abs(n)); } return; }
-    if (Array.isArray(x)) return x.forEach(walk);
-    if (typeof x === 'object') for (const v of Object.values(x)) walk(v);
-  };
-  for (const e of ev || []) { walk(e?.summary); walk(e?.data); }
-  return [...out, ...out.map((n) => n / 100), ...out.map((n) => n * 100)];
-}
-
-function audit(a: any): { flags: Check[]; notes: string[] } {
+function audit(a: any, c: Case): { flags: Check[]; notes: string[] } {
   const flags: Check[] = []; const notes: string[] = [];
   const text = String(a?.segments?.verdict ? [a.segments.verdict, ...(a.segments.points || []).map((p: any) => p.text), a.segments.caveat, a.segments.action].filter(Boolean).join(' ') : a?.text || '');
   const ev = (a?.evidence || []).filter((e: any) => e.ok);
@@ -104,17 +94,11 @@ function audit(a: any): { flags: Check[]; notes: string[] } {
     if (!o.rupeeValue) { flags.push('UNSIZED_LEVER'); notes.push(`unsized: ${o.title}`); break; }
   }
 
-  // numbers that came from nowhere
-  const have = evidenceNumbers(ev);
-  if (have.length) {
-    const bad: string[] = [];
-    for (const m of text.matchAll(NUM)) {
-      const n = Number(String(m[0]).replace(/[^\d.]/g, ''));
-      if (!Number.isFinite(n) || (n <= 12 && Number.isInteger(n)) || (n >= 1900 && n <= 2100)) continue;
-      if (!have.some((h) => h === n || (h !== 0 && Math.abs(h - n) / Math.max(Math.abs(h), 1) < 0.011))) bad.push(m[0]);
-    }
-    if (bad.length) { flags.push('UNGROUNDED'); notes.push(`invented: ${[...new Set(bad)].slice(0, 4).join(', ')}`); }
-  }
+  // numbers that came from nowhere. One definition, shared with the product — this measures
+  // COMPLIANCE with it. Whether the definition is right is a separate question, answered by the
+  // unit cases in grounding, not by this suite quietly agreeing with itself.
+  const bad = ev.length ? unsupported(groundNumbers(text, ev)) : [];
+  if (bad.length) { flags.push('UNGROUNDED'); notes.push(`unsupported: ${bad.slice(0, 4).join(', ')}`); }
 
   // test branches in anything that renders
   for (const e of ev) {
@@ -123,8 +107,9 @@ function audit(a: any): { flags: Check[]; notes: string[] } {
     if (hit) { flags.push('TEST_BRANCH'); notes.push(`${e.tool} rows carry a test branch`); break; }
   }
 
-  // denying something the centre records
-  if (DENY.test(text) && /staff|mistake|anomal|open|report|deliver|referr/i.test(text)) {
+  // Denying something the centre DOES record. Where the data genuinely is absent — costs,
+  // payroll, expenses — saying so is the right answer and flagging it was my test being wrong.
+  if (!c.absent && DENY.test(text) && /staff|mistake|anomal|report open|delivery|referr/i.test(text)) {
     flags.push('DENIED'); notes.push('claims something is not recorded');
   }
 
@@ -149,7 +134,7 @@ function audit(a: any): { flags: Check[]; notes: string[] } {
     try { a = await ask(c.q, c.state === 'carry' ? state : {}, { v2: true }); }
     catch (e: any) { a = { kind: 'error', text: String(e?.message) }; }
     if (a?.state) state = a.state;
-    const { flags, notes } = audit(a);
+    const { flags, notes } = audit(a, c);
     results.push({ c, flags, notes, ms: Date.now() - t, job: a?.job ?? a?.kind ?? '?', calls: a?.trace?.calls ?? 0 });
     const mark = flags.length ? '✗' : '✓';
     console.log(`${mark} ${String(a?.job ?? a?.kind ?? '?').padEnd(13)} ${String(Math.round((Date.now() - t) / 1000)).padStart(3)}s ${String(a?.trace?.calls ?? '-').padStart(2)}c  ${c.q.slice(0, 52)}`);

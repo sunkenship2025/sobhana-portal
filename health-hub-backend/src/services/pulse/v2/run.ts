@@ -15,6 +15,7 @@ import { contractFor, inferJob, checkAnswer, simplify } from './contract';
 import { renderOptions, describeEvidence, JOBS } from './capability';
 import { buildTurnArtifacts, artifactContext, hasArtifactReference, type LastTurn } from './artifacts';
 import { rank as rankOpportunities } from './opportunity';
+import { groundNumbers } from './grounding';
 
 /* Limits are a safety net against unproductive wandering, not a latency ceiling. A hard stop at
    3 queries produced shallow answers to questions that deserved a real investigation; the loop
@@ -258,6 +259,9 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     contract: { job: contract.job, maxNumbers: contract.maxNumbers, needsArtifact: contract.needsArtifact,
       rowsInProse: contract.rowsInProse, canShow: allowed },
     validation: { violations: firstViolations, stillBroken: checkAnswer(contract, text, artifacts, allowed, usable).violations, repaired, simplified },
+    // where every figure in the shipped answer came from — exact, derived, ordinary, or nowhere
+    grounding: groundNumbers(text, usable).map((g) => ({ n: g.text, kind: g.provenance.kind,
+      how: (g.provenance as any).how ?? (g.provenance as any).why ?? (g.provenance as any).fact?.label })),
     answer: { text, artifacts: artifacts.map((a: any) => a.type), chips: (res.suggest || []).map((c: any) => c?.label) },
     timing: { toEvidence: tRender - t0, toAnswer: Date.now() - tRender },
   };

@@ -18,6 +18,7 @@
  * four deltas is still the wrong answer, so the budget is numbers, never sentences.
  */
 import type { AnalyticalJob, EvidenceStructure } from './capability';
+import { groundNumbers, unsupported } from './grounding';
 
 export interface Contract {
   job: AnalyticalJob;
@@ -198,47 +199,6 @@ const NUM = /₹\s?[\d,]+(?:\.\d+)?|\b\d+(?:\.\d+)?\s?%|\b\d[\d,]*(?:\.\d+)?\b/g
 const countNumbers = (t: string) => (String(t).match(NUM) || []).length;
 const sentencesOf = (t: string) => String(t).split(/(?<=[.!?])\s+/).filter((s) => s.trim().length > 1);
 
-/** Every number the evidence actually produced, normalised — formatted strings and raw rows. */
-function evidenceNumbers(evidence: any[]): number[] {
-  const out: number[] = [];
-  const walk = (x: any) => {
-    if (x == null) return;
-    if (typeof x === 'number') { if (Number.isFinite(x)) out.push(Math.abs(x)); return; }
-    if (typeof x === 'string') { for (const m of x.matchAll(/-?[\d,]*\.?\d+/g)) { const n = Number(m[0].replace(/,/g, '')); if (Number.isFinite(n)) out.push(Math.abs(n)); } return; }
-    if (Array.isArray(x)) return x.forEach(walk);
-    if (typeof x === 'object') for (const v of Object.values(x)) walk(v);
-  };
-  for (const e of evidence || []) { walk(e?.summary); walk((e as any)?.data); walk(e?.means); }
-  // paise/rupee pairs both count as present, since the writer sees the formatted form
-  return [...out, ...out.map((n) => n / 100), ...out.map((n) => n * 100)];
-}
-
-/**
- * Is every figure in the prose one the analysis actually produced?
- *
- * The rules have always said "use ONLY the values in the evidence, never compute or invent a
- * number", and the writer broke it anyway: it reported "roughly 200 more patients a month" from
- * arithmetic nobody asked for, and "668 reports" while the chart directly beneath it showed
- * 402 + 261 = 663. Counting numbers was never going to catch that — a budget says how MANY may
- * appear, not where they came from. This is the same idea as verifySpec: state the contract, then
- * check the output against it deterministically instead of trusting the instruction.
- */
-function ungrounded(text: string, evidence: any[]): string[] {
-  const have = evidenceNumbers(evidence);
-  if (!have.length) return [];
-  const near = (n: number) => have.some((h) => h === n || (h !== 0 && Math.abs(h - n) / Math.max(Math.abs(h), 1) < 0.011));
-  const bad: string[] = [];
-  for (const m of String(text || '').matchAll(/₹\s?([\d,]+(?:\.\d+)?)|\b(\d[\d,]*(?:\.\d+)?)\s?%|\b(\d[\d,]*(?:\.\d+)?)\b/g)) {
-    const raw = m[1] ?? m[2] ?? m[3]; if (!raw) continue;
-    const n = Number(String(raw).replace(/,/g, ''));
-    if (!Number.isFinite(n)) continue;
-    if (n <= 12 && Number.isInteger(n)) continue;          // "two levers", "three things"
-    if (n >= 1900 && n <= 2100 && Number.isInteger(n)) continue;   // a year
-    if (!near(n)) bad.push(raw);
-  }
-  return [...new Set(bad)].slice(0, 6);
-}
-
 /** Did the response honour its contract? About information allocation, not length. */
 export function checkAnswer(c: Contract, text: string, artifacts: any[], allowed?: string[], evidence?: any[]): ContractCheck {
   const v: string[] = [];
@@ -251,8 +211,10 @@ export function checkAnswer(c: Contract, text: string, artifacts: any[], allowed
   const worst = sentencesOf(t).reduce((m, s) => Math.max(m, countNumbers(s)), 0);
   if (worst > 3) v.push(`one sentence carries ${worst} numbers; no sentence should carry more than 3`);
 
-  const invented = evidence ? ungrounded(t, evidence) : [];
-  if (invented.length) v.push(`these figures are not in the evidence: ${invented.join(', ')} — every number must come from a step, never from your own arithmetic`);
+  // Not "does this number appear somewhere in the pile" — does it come from a step, or follow
+  // from two of them by arithmetic an analyst would actually write.
+  const invented = evidence ? unsupported(groundNumbers(t, evidence)) : [];
+  if (invented.length) v.push(`these figures do not come from any step, and cannot be derived from two that do: ${invented.join(', ')} — state only what the analysis produced`);
 
   // An artifact is owed only when the job wants one AND the evidence can actually support one.
   const ok = allowed && allowed.length ? allowed : null;
