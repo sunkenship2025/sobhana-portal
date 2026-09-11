@@ -245,7 +245,11 @@ the artifact carry the four rows.
 ${c.rowsInProse ? '' : ' · Do NOT recite individual rows one after another in the text.\n'}\
  · At most ${c.maxNumbers} numbers in the whole answer, and never more than 3 in one sentence.
 ${c.needsArtifact && (c.canShow || []).length ? ` · You MUST attach one of: ${(c.canShow || []).join(', ')} — the detail belongs there.\n` : ''}\
-${(c.canShow || []).length ? ` · Only these can truthfully represent this evidence: ${(c.canShow || []).join(', ')}. Nothing else is available, because nothing else fits the data.\n` : ' · No artifact fits this evidence. Answer in words.\n'}\
+${(c.canShow || []).length ? ` · Only these can truthfully represent this evidence: ${(c.canShow || []).join(', ')}. "artifactOptions" ranks them for THIS question — prefer the top of that list, and do not attach a low-scoring one just because it is allowed.\n` : ' · No artifact fits this evidence. Answer in words.\n'}\
+ · An artifact must SUPPORT the claim the sentences make. If you argue that one branch is the
+   problem, do not attach a chart of the centre-wide total — it shows the opposite of your point,
+   because the split you are arguing about is exactly what it hides. Attach the step that carries
+   the breakdown, or attach nothing.\
  · Never attach an artifact that only repeats a single figure the sentence already gave.
  · When an investigation is given, the answer is about its OBJECTIVE. Lead with what was
    established, say plainly what was ruled out if it matters, and name what is still open rather
@@ -310,8 +314,8 @@ export const askInvestigate = (q: string, goal: string, ev: Evidence[], prior?: 
       evidence: ev.filter((e) => e.ok).map((e) => ({ step: e.step, label: e.label, tool: e.tool, result: clip(e.summary) })) }),
     { maxTokens: 1800 });
 
-export const askResponse = (q: string, goal: string, ev: Evidence[], findings: any[], c: Contract, repair?: string, investigation?: any) =>
+export const askResponse = (q: string, goal: string, ev: Evidence[], findings: any[], c: Contract, repair?: string, investigation?: any, ranked?: any[]) =>
   llmJson<{ text?: string; artifacts?: any[]; suggest?: any[] }>(RESPOND_SYS(c) + (repair ? `\n\nYOUR LAST ATTEMPT WAS REJECTED: ${repair}\nRewrite it. Move the detail into the artifact and keep the conclusion in the sentences.` : ''),
-    JSON.stringify({ LANGUAGE: langOf(q), question: q, goal, findings, investigation,
+    JSON.stringify({ LANGUAGE: langOf(q), question: q, goal, findings, investigation, artifactOptions: ranked,
       evidence: ev.map((e) => ({ step: e.step, label: e.label, tool: e.tool, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, result: e.summary,
         rows: writerRows(e.data?.rows ?? (e.summary as any)?.rows) })) }), { maxTokens: 900 });

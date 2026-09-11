@@ -190,7 +190,7 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   }).slice(0, 4);
 
   say('Writing it up', 'phase');
-  let res = await askResponse(q, plan.goal || '', usable, findings, contract, undefined, brief(inv)); calls++;
+  let res = await askResponse(q, plan.goal || '', usable, findings, contract, undefined, brief(inv), options); calls++;
   let artifacts = keepArtifacts(res.artifacts || []);
   let text = String(res.text || findings[0]?.detail || '').trim();
 
@@ -198,18 +198,18 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   // contract is never shipped as written: a wall of serialised rows is a wrong answer even when
   // every number in it is right.
   let repaired = false, simplified = false;
-  let check = checkAnswer(contract, text, artifacts, allowed);
+  let check = checkAnswer(contract, text, artifacts, allowed, usable);
   // what was wrong BEFORE the repair — recording the post-repair state says nothing
   const firstViolations = check.violations;
   if (!check.ok) {
     try {
-      const again = await askResponse(q, plan.goal || '', usable, findings, contract, check.note, brief(inv)); calls++;
+      const again = await askResponse(q, plan.goal || '', usable, findings, contract, check.note, brief(inv), options); calls++;
       const a2 = keepArtifacts(again.artifacts || []), t2 = String(again.text || '').trim();
       repaired = true;
-      if (t2 && checkAnswer(contract, t2, a2, allowed).ok) { res = again; text = t2; artifacts = a2; check = { ok: true, violations: [] }; }
+      if (t2 && checkAnswer(contract, t2, a2, allowed, usable).ok) { res = again; text = t2; artifacts = a2; check = { ok: true, violations: [] }; }
       else if (t2 && a2.length >= artifacts.length) { res = again; text = t2; artifacts = a2; }
     } catch { /* keep the first attempt */ }
-    if (!checkAnswer(contract, text, artifacts, allowed).ok) {
+    if (!checkAnswer(contract, text, artifacts, allowed, usable).ok) {
       // still over budget: force on the best-scoring renderer the evidence actually supports,
       // then keep the sentences carrying the conclusion and drop the ones reciting detail
       if (contract.needsArtifact && options.length && !artifacts.some((a: any) => allowed.includes(a.type))) {
@@ -242,7 +242,7 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
       admissible: options, chosen: artifacts.map((a: any) => ({ type: a.type, step: a.evidence })) },
     contract: { job: contract.job, maxNumbers: contract.maxNumbers, needsArtifact: contract.needsArtifact,
       rowsInProse: contract.rowsInProse, canShow: allowed },
-    validation: { violations: firstViolations, stillBroken: checkAnswer(contract, text, artifacts, allowed).violations, repaired, simplified },
+    validation: { violations: firstViolations, stillBroken: checkAnswer(contract, text, artifacts, allowed, usable).violations, repaired, simplified },
     answer: { text, artifacts: artifacts.map((a: any) => a.type), chips: (res.suggest || []).map((c: any) => c?.label) },
     timing: { toEvidence: tRender - t0, toAnswer: Date.now() - tRender },
   };
