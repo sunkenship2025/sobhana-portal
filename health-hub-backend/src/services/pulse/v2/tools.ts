@@ -7,7 +7,7 @@
  * things before deciding what matters.
  */
 import { query, IST, todayIST, pool } from '../db';
-import { METRICS, METRIC_DIMS, DIMS, dimJoin, dimOk, FROMS } from '../catalog';
+import { METRICS, METRIC_DIMS, DIMS, dimJoin, dimOk, FROMS, TEST_BRANCHES } from '../catalog';
 import { scalar, periods, baseline as baselineOf, addDays, fmt, windowLabel } from '../diagnostic';
 import { generate } from '../sqlPath';
 import { llmJson } from '../llm';
@@ -24,6 +24,8 @@ export interface Evidence {
   /** full rows for the UI to render */
   data?: any;
   unit?: string | null; metric?: string | null; dimension?: string | null; period?: any;
+  /** how long this step took, for the trace */
+  ms?: number;
   sql?: string; error?: string;
 }
 
@@ -500,7 +502,41 @@ export const TOOLS: Record<string, (a: any, k: Knowledge) => Promise<Partial<Evi
 };
 
 const TRANSIENT = /connection pool|timed out|ECONNRESET|terminating connection/i;
+/** Columns that carry a branch code across the tools. */
+const BRANCH_COL = /^(k|branch|branch_code|code)$/i;
+
+/**
+ * Test branches never reach a rendered row. CENTRAL on purpose: six tools build branch-keyed
+ * rows independently — breakdown, receivables, pending_reports, delivery, anomalies, worklist —
+ * and fixing one of them left JGG and IDPL sitting on the next chart the owner looked at. A
+ * cross-cutting rule enforced per tool is a rule every new tool re-breaks.
+ *
+ * Totals are untouched: they are a rounding error either way, and silently changing what a total
+ * covers is worse than including it. Only SPLITS are filtered, and only when the owner did not
+ * name the branch.
+ */
+function hideTestBranches(e: Evidence, args: any): Evidence {
+  const asked = JSON.stringify(args || {}).toUpperCase();
+  if (TEST_BRANCHES.some((b) => asked.includes(b))) return e;
+  const out: string[] = [];
+  const scrub = (rows: any): any => !Array.isArray(rows) ? rows : rows.filter((r: any) => {
+    if (!r || typeof r !== 'object') return true;
+    const hit = Object.entries(r).find(([c, v]) => BRANCH_COL.test(c) && TEST_BRANCHES.includes(String(v)));
+    if (hit) out.push(String(hit[1]));
+    return !hit;
+  });
+  const s: any = e.summary && typeof e.summary === 'object' ? { ...e.summary } : e.summary;
+  if (s && typeof s === 'object') for (const key of ['parts', 'rows', 'byBranch', 'top']) if (Array.isArray(s[key])) s[key] = scrub(s[key]);
+  const d: any = (e.data as any)?.rows ? { ...(e.data as any), rows: scrub((e.data as any).rows) } : e.data;
+  if (!out.length) return e;
+  const uniq = [...new Set(out)];
+  if (s && typeof s === 'object') s.excluded = `${uniq.join(', ')} — test branches, not real trade`;
+  return { ...e, summary: s, data: d,
+    means: [e.means, `${uniq.join(' and ')} left out: test branches`].filter(Boolean).join(' · ') };
+}
+
 export async function runStep(step: any, i: number, k: Knowledge, spec?: AnalysisSpec | null): Promise<Evidence> {
+  const t0 = Date.now();
   const tool = String(step?.tool || '');
   const label = String(step?.label || tool);
   const fn = TOOLS[tool];
@@ -519,7 +555,7 @@ export async function runStep(step: any, i: number, k: Knowledge, spec?: Analysi
       const r = tool === 'query' ? await t_query(args, k, spec) : await fn(args, k);
       if (!r.detail && bits) (r as any).detail = bits;
       if (!r.ok && TRANSIENT.test(String(r.error || '')) && attempt === 0) { await new Promise((s) => setTimeout(s, 400)); continue; }
-      return { step: i, tool, label, ok: !!r.ok, summary: r.summary ?? null, ...r } as Evidence;
+      return hideTestBranches({ step: i, tool, label, ok: !!r.ok, summary: r.summary ?? null, ...r, ms: Date.now() - t0 } as Evidence, step.args);
     } catch (e: any) {
       const msg = String(e?.message || e);
       if (TRANSIENT.test(msg) && attempt === 0) { await new Promise((s) => setTimeout(s, 400)); continue; }

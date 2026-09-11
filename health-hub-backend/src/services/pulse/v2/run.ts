@@ -166,6 +166,7 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   // one it is inferred from the STRUCTURE of what came back, never from the wording — that ladder
   // is what this replaced. A bare follow-up inherits the job of the turn before it.
   const structures = usable.map(describeEvidence);
+  const tRender = Date.now();
   const job = (plan.job && JOBS.includes(plan.job) ? plan.job : null)
     ?? (state?.lastQ && last?.job ? last.job : null)
     ?? inferJob(structures);
@@ -196,11 +197,15 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   // Generate → validate → repair once → deterministic simplify. An answer that violates its
   // contract is never shipped as written: a wall of serialised rows is a wrong answer even when
   // every number in it is right.
+  let repaired = false, simplified = false;
   let check = checkAnswer(contract, text, artifacts, allowed);
+  // what was wrong BEFORE the repair — recording the post-repair state says nothing
+  const firstViolations = check.violations;
   if (!check.ok) {
     try {
       const again = await askResponse(q, plan.goal || '', usable, findings, contract, check.note, brief(inv)); calls++;
       const a2 = keepArtifacts(again.artifacts || []), t2 = String(again.text || '').trim();
+      repaired = true;
       if (t2 && checkAnswer(contract, t2, a2, allowed).ok) { res = again; text = t2; artifacts = a2; check = { ok: true, violations: [] }; }
       else if (t2 && a2.length >= artifacts.length) { res = again; text = t2; artifacts = a2; }
     } catch { /* keep the first attempt */ }
@@ -212,12 +217,36 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
         artifacts = [{ type: best.type, label: byIdx.get(best.step)?.label || 'detail', evidence: best.step }, ...artifacts].slice(0, 4);
       }
       const simple = simplify(contract, text, artifacts);
-      if (simple.dropped) text = simple.text;
+      if (simple.dropped) { text = simple.text; simplified = true; }
     }
   }
 
   const turnArtifacts = buildTurnArtifacts(artifacts, evidence);
-  return { kind: 'analysis', goal: plan.goal || '', spec, job, investigation: brief(inv), text, artifacts, findings,
+
+  // THE TRACE — every decision this turn made, so the architecture can be researched rather
+  // than guessed at. Everything found today came from replaying the log; the log only held
+  // summaries, so each defect needed a fresh reproduction to see. This is what it should have
+  // been recording all along.
+  const trace = {
+    v: 1,
+    question: q, job, ms: Date.now() - t0, calls, rounds, steps: evidence.length,
+    plan: { goal: plan.goal, job: plan.job ?? null, spec,
+      proposed: (plan.steps || []).map((s: any) => ({ tool: s?.tool, label: s?.label, args: s?.args })) },
+    executed: evidence.map((e) => ({ i: e.step, tool: e.tool, label: e.label, ok: e.ok, ms: e.ms ?? null,
+      rows: Array.isArray((e.data as any)?.rows) ? (e.data as any).rows.length : null,
+      error: e.error, sql: e.sql?.slice(0, 600), means: e.means })),
+    investigation: inv ? { objective: inv.objective, confidence: inv.confidence,
+      hypotheses: inv.hypotheses.map((h) => ({ id: h.id, status: h.status, material: h.material, claim: h.claim })),
+      unresolved: inv.unresolved, contradictions: inv.contradictions } : null,
+    render: { structures: structures.map((st, i) => ({ step: usable[i]?.step, ...st })),
+      admissible: options, chosen: artifacts.map((a: any) => ({ type: a.type, step: a.evidence })) },
+    contract: { job: contract.job, maxNumbers: contract.maxNumbers, needsArtifact: contract.needsArtifact,
+      rowsInProse: contract.rowsInProse, canShow: allowed },
+    validation: { violations: firstViolations, stillBroken: checkAnswer(contract, text, artifacts, allowed).violations, repaired, simplified },
+    answer: { text, artifacts: artifacts.map((a: any) => a.type), chips: (res.suggest || []).map((c: any) => c?.label) },
+    timing: { toEvidence: tRender - t0, toAnswer: Date.now() - tRender },
+  };
+  return { kind: 'analysis', goal: plan.goal || '', spec, job, investigation: brief(inv), trace, text, artifacts, findings,
     chips: (res.suggest || []).filter((c: any) => c?.label && c?.q).slice(0, 4),
     evidence: evidence.map((e) => ({ step: e.step, tool: e.tool, label: e.label, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, detail: e.detail, summary: e.summary, data: e.data, sql: e.sql, error: e.error })),
     meta: { calls, ms: Date.now() - t0, steps: evidence.length, rounds },

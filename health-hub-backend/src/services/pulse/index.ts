@@ -3,7 +3,7 @@
  * chosen by the shape of what came back. The model decides what to compute, never how to
  * show it. Conversation state is four fields the client echoes back; history is never resent.
  */
-import { ensureKnowledge, ambiguousEntity, mentionsKnown } from './knowledge';
+import { ensureKnowledge, knowledgeReady, ambiguousEntity, mentionsKnown } from './knowledge';
 import { routeIntent } from './router';
 import { sqlAnswer } from './sqlPath';
 import { runDiagnostic } from './diagnostic';

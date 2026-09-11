@@ -307,6 +307,10 @@ let building: Promise<Knowledge> | null = null;
 const TTL = 6 * 3600 * 1000;          // schema shape, coverage, row counts — slow (~60 queries)
 const NAMES_TTL = 60 * 60 * 1000;     // doctors, tests, branches, value index — cheap (6 queries)
 
+/** Is the schema already built? A cold build takes over a minute, and the caller needs to say
+ *  so rather than leave the owner watching a silent stream. */
+export const knowledgeReady = () => K !== null;
+
 export async function ensureKnowledge(): Promise<Knowledge> {
   if (K && Date.now() - K.builtAt < TTL) {
     if (Date.now() - K.namesAt >= NAMES_TTL) refreshNames().catch(() => {});   // never blocks an answer

@@ -93,6 +93,12 @@ export const FROMS: Record<string, [string, string]> = {
   cancellation_rate: ['"TestOrder" o', 'o."createdAt"'],
   delivery_rate: ['"MessageLog" m', 'm."createdAt"'],
 };
+/** Branches that exist only for testing. The owner told us; the row counts do not say it — JGG
+ *  has 29 lifetime visits and IDPL 8, against CNT's 3,011. They are excluded from dimension
+ *  SPLITS, where their movement reads as a business finding, but never from a centre-wide total,
+ *  where silently changing what a total covers would be the worse sin. */
+export const TEST_BRANCHES = ['JGG', 'IDPL'];
+
 export const DIMS: Record<string, string> = {
   branch: 'br.code',
   domain: 'v.domain::text',

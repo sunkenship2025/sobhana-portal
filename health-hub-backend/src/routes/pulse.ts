@@ -32,6 +32,33 @@ router.post('/refresh', async (_req, res) => {
   catch (e: any) { res.status(503).json({ ok: false, message: String(e?.message || e).slice(0, 200) }); }
 });
 
+/**
+ * The full decision trace for one turn, written as its own audit row. Every defect found in
+ * Pulse so far was found by replaying this log against the database — and the log held only
+ * summaries, so each one needed a fresh reproduction before it could even be seen. This records
+ * what the turn actually decided: the plan, every step and how long it took, which hypotheses
+ * were settled, which renderers the evidence admitted and which was chosen, and whether the
+ * response had to be repaired.
+ *
+ * Kept as a SEPARATE row from the answer audit so the answer row stays small and readable, and
+ * so a trace can be dropped or retained on its own schedule.
+ */
+function logTrace(req: AuthRequest, answer: any, ms: number) {
+  const trace = (answer as any)?.trace;
+  if (!trace) return;
+  let payload = trace;
+  // A runaway investigation must not write a megabyte into the audit table.
+  try {
+    if (JSON.stringify(trace).length > 24_000) {
+      payload = { ...trace, executed: (trace.executed || []).map((e: any) => ({ ...e, sql: undefined })),
+        answer: { ...trace.answer, text: String(trace.answer?.text || '').slice(0, 400) }, truncated: true };
+    }
+  } catch { return; }
+  logAction({ userId: req.user!.id, branchId: req.branchId || '', actionType: 'REPORT_ACCESS',
+    entityType: 'PulseTrace', entityId: String(answer.job || answer.kind || 'turn'),
+    newValues: { ...payload, ms } }).catch(() => {});
+}
+
 router.post('/ask', async (req: AuthRequest, res) => {
   const q = String(req.body?.q || '').trim();
   if (!q) { res.status(400).json({ error: 'q required' }); return; }
@@ -48,7 +75,9 @@ router.post('/ask', async (req: AuthRequest, res) => {
         // Without the answer and the refusal reason none of that was visible after the fact.
         reason: (answer as any).reason, text: String((answer as any).text || '').slice(0, 600),
         steps: (answer as any).meta?.steps, calls: (answer as any).meta?.calls } }).catch(() => {});
-    res.json(answer);
+    logTrace(req, answer, Date.now() - t0);
+    const { trace: _t, ...clean } = answer as any;   // the trace is for the log, not the wire
+    res.json(clean);
   } catch (e: any) {
     res.status(502).json({ kind: 'refuse', reason: 'error', text: 'Pulse could not answer that just now. Try again in a moment.', detail: String(e?.message || e).slice(0, 200) });
   }
@@ -81,7 +110,9 @@ router.post('/ask/stream', async (req: AuthRequest, res) => {
       newValues: { q: q.slice(0, 300), kind: answer.kind, job: (answer as any).job, sql: answer.provenance?.sql?.slice(0, 1000), ms: Date.now() - t0,
         reason: (answer as any).reason, text: String((answer as any).text || '').slice(0, 600),
         steps: (answer as any).meta?.steps, calls: (answer as any).meta?.calls, streamed: true } }).catch(() => {});
-    send('answer', answer);
+    logTrace(req, answer, Date.now() - t0);
+    const { trace: _t, ...clean } = answer as any;
+    send('answer', clean);
   } catch (e: any) {
     send('answer', { kind: 'refuse', reason: 'error', text: 'Pulse could not answer that just now. Try again in a moment.', detail: String(e?.message || e).slice(0, 200) });
   } finally { clearInterval(beat); res.end(); }
