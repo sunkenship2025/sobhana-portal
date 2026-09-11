@@ -115,12 +115,31 @@ export function buildDaySheetHtml(data: DaySheetResponse, autoPrint = true): str
   td.due { color: #b91c1c; font-weight: 600; }
   tfoot td { font-weight: 700; background: #fafafa; }
   .empty { text-align: center; color: #888; padding: 18px; }
+  /* Totals repeated above the table: on a long sheet the tfoot is pages away,
+     and the totals are what most people open this for. */
+  .totals { display: flex; flex-wrap: wrap; gap: 0; border: 0.5px solid #d0d0d0;
+            margin-bottom: 14px; page-break-inside: avoid; }
+  .totals div { flex: 1 1 0; min-width: 92px; padding: 7px 9px; border-right: 0.5px solid #d0d0d0; }
+  .totals div:last-child { border-right: 0; }
+  .totals .k { font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em; color: #777; }
+  .totals .v { font-size: 13px; font-weight: 700; white-space: nowrap; margin-top: 1px; }
+  .totals .due .v { color: #b91c1c; }
   @media print { body { margin: 10mm; } thead { display: table-header-group; } }
 </style>
 </head>
 <body>
   <h1>${esc(heading)} — ${esc(scope)}</h1>
   <div class="sub">${esc(rangeLabel(data))} · ${t.count} bill${t.count === 1 ? '' : 's'} · generated ${esc(istDateTime(data.generatedAt))}</div>
+  <div class="totals">
+    <div><div class="k">Bills</div><div class="v">${t.count}</div></div>
+    <div><div class="k">Gross</div><div class="v">${rupees(t.grossInPaise)}</div></div>
+    <div><div class="k">Discount</div><div class="v">${rupees(t.discountInPaise)}</div></div>
+    <div><div class="k">Cash</div><div class="v">${rupees(t.cashInPaise)}</div></div>
+    <div><div class="k">Online</div><div class="v">${rupees(t.onlineInPaise)}</div></div>
+    <div><div class="k">Collected</div><div class="v">${rupees(t.paidInPaise)}</div></div>
+    <div><div class="k">Refund</div><div class="v">${rupees(t.refundedInPaise)}</div></div>
+    <div class="${t.dueInPaise > 0 ? 'due' : ''}"><div class="k">Due</div><div class="v">${rupees(t.dueInPaise)}</div></div>
+  </div>
   <table>
     <thead>
       <tr>
