@@ -43,7 +43,7 @@ const pct = (n: number, d: number) => d ? `${Math.round(n / d * 100)}%` : '—';
   for (const c of (only ? CASES.filter((x) => x.q.includes(only)) : CASES)) {
     const t0 = Date.now();
     let a: any;
-    try { a = await ask(c.q, {}, { v2: true } as any); }
+    try { a = await ask(c.q, {}); }
     catch (e: any) { console.log(`THREW: ${e?.message}`); continue; }
     const tr = a?.trace || {};
     // No trace means V2 threw and V1 answered — a different pipeline answering a different

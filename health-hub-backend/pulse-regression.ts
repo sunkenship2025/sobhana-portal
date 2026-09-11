@@ -101,7 +101,7 @@ const CASES: Array<{ id: string; q: string; truth: () => Promise<string>; note: 
     const t = Date.now();
     let txt = '';
     try {
-      const a: any = await ask(c.q, {}, { v2: true });
+      const a: any = await ask(c.q, {});
       // The answer is text PLUS artifacts. Shapes that push detail onto the screen (breakdown,
       // ranking, list) deliberately keep per-row numbers OUT of the prose, so asserting on text
       // alone marks a correct answer wrong — the figure is in the table, which is where the

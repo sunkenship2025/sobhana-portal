@@ -131,7 +131,7 @@ function audit(a: any, c: Case): { flags: Check[]; notes: string[] } {
   for (const c of CASES) {
     const t = Date.now();
     let a: any;
-    try { a = await ask(c.q, c.state === 'carry' ? state : {}, { v2: true }); }
+    try { a = await ask(c.q, c.state === 'carry' ? state : {}); }
     catch (e: any) { a = { kind: 'error', text: String(e?.message) }; }
     if (a?.state) state = a.state;
     const { flags, notes } = audit(a, c);
