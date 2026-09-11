@@ -206,6 +206,20 @@ Source: [`diagnosticCenters.ts`](../health-hub-backend/src/routes/diagnosticCent
 
 Source: [`departments.ts`](../health-hub-backend/src/routes/departments.ts).
 
+### External Labs — `/api/external-labs`
+
+External laboratory vendor management for outsourced tests, tracking vendor rates and per-product rules.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/` | List external labs |
+| GET | `/:id` | Get external lab details + product overrides |
+| POST | `/` | Create external lab |
+| PATCH | `/:id` | Update external lab details |
+| DELETE | `/:id` | Delete external lab |
+
+Source: [`externalLabs.ts`](../health-hub-backend/src/routes/externalLabs.ts) → service: `externalLabService`.
+
 ### Branches — `/api/branches`
 
 | Method | Path | Purpose |
@@ -223,6 +237,8 @@ Source: [`branches.ts`](../health-hub-backend/src/routes/branches.ts).
 | GET | `/:id` | Detail with derivation breakdown |
 | POST | `/derive` | Re-derive payouts for a period (idempotent — refreshes `DoctorPayoutLedger`) |
 | POST | `/:id/mark-paid` | Mark as paid (immutable thereafter) |
+| POST | `/:id/statement` | Send payout statement to payee via WhatsApp |
+| GET | `/statements/view/:token` | Public, token-gated inline PDF download for payout statements |
 
 Source: [`payouts.ts`](../health-hub-backend/src/routes/payouts.ts) → service: `payoutService`.
 
