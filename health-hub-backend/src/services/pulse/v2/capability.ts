@@ -57,19 +57,32 @@ export interface EvidenceStructure {
   hasTarget: boolean;
 }
 
+// Only SEMANTIC ROLES are named here — whether a column is a delta or a share is a meaning, not
+// a data type. What is a dimension and what is a measure is read off the VALUES, because a name
+// whitelist is the same brittle keyword table this file exists to delete: it had "reason" in it
+// and still scored dimensions=0, because a stray digit in a value made the column look numeric.
 const KEY = {
-  delta: /^(change|delta|diff|movement|vs_?prev|prev|before|shareOfChange)/i,
+  delta: /(change|delta|diff|movement|vs_?prev|^prev|^before|shareOfChange)/i,
   share: /(share|pct|percent|proportion)/i,
   time: /^(day|date|month|week|bucket|period|k)$/i,
-  name: /^(name|k|label|branch|doctor|reason|category|test|staff|who|department|type|modality)/i,
 };
 const isDateish = (v: any) => typeof v === 'string' && /^\d{4}-\d{2}(-\d{2})?$/.test(v);
+// A value is a number only if the WHOLE string is one — "₹28,075" and "36.3%" are, "R0" and
+// "NOREFARAL" are not. Stripping non-digits first turned "R0" into 0 and every text column into
+// a measure.
+const NUMERIC = /^[\s₹$]*-?[\d,]+(\.\d+)?[\s%]*$/;
 const toNum = (v: any) => {
   if (typeof v === 'number') return Number.isFinite(v) ? v : NaN;
-  const t = String(v ?? '').replace(/[^\d.-]/g, '');
-  if (!t || !/\d/.test(t)) return NaN;          // '' → Number('') is 0, which is finite: a text
-  const n = Number(t);                           // column would have counted as a measure
+  const t = String(v ?? '').trim();
+  if (!NUMERIC.test(t)) return NaN;
+  const n = Number(t.replace(/[^\d.-]/g, ''));
   return Number.isFinite(n) ? n : NaN;
+};
+/** A column's role, decided by what most of its values actually are. */
+const columnIsNumeric = (list: any[], k: string) => {
+  const vals = list.slice(0, 40).map((r) => r?.[k]).filter((v) => v != null && v !== '');
+  if (!vals.length) return false;
+  return vals.filter((v) => Number.isFinite(toNum(v))).length / vals.length >= 0.8;
 };
 
 /** Deterministic. Never looks at the question — only at what the analysis actually produced. */
@@ -81,8 +94,8 @@ export function describeEvidence(e: Evidence): EvidenceStructure {
   const first = list.find((r) => r && typeof r === 'object') || {};
   const keys = Object.keys(first);
 
-  const numericKeys = keys.filter((k) => Number.isFinite(toNum(first[k])));
-  const nameKeys = keys.filter((k) => KEY.name.test(k) && !Number.isFinite(toNum(first[k])));
+  const numericKeys = keys.filter((k) => columnIsNumeric(list, k));
+  const nameKeys = keys.filter((k) => !numericKeys.includes(k) && !Array.isArray(first[k]));
   const timeKey = keys.find((k) => KEY.time.test(k) && (isDateish(first[k]) || e.tool === 'trend'));
 
   const hasDeltas = keys.some((k) => KEY.delta.test(k) && list.some((r) => { const n = toNum(r[k]); return Number.isFinite(n) && n !== 0; }))
