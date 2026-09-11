@@ -101,8 +101,16 @@ function Table({ a, ev }: { a: any; ev: Ev }) {
     </table></Card>;
 }
 
-/** signed number out of a formatted string — "-₹4,400" and "₹4,400" both matter here */
+/** signed magnitude out of a value — "-₹4,400" and 440000 both matter here */
 const num = (v: any) => { const n = Number(String(v ?? '').replace(/[^\d.-]/g, '')); return Number.isFinite(n) ? n : 0; };
+/** Evidence carries money two ways: summaries are pre-formatted strings ("₹2,750"), raw rows are
+ *  integers in paise. Running fmtValue over a string that is already rupees converts it a second
+ *  time and shows ₹28 for ₹2,750 — a hundredfold understatement that typechecks perfectly. */
+const isFormatted = (v: any) => typeof v === 'string' && /[₹%]/.test(v);
+const disp = (v: any, unit?: any) => isFormatted(v) ? v : fmtValue(num(v), unit);
+/** a total derived from values that were already rupees must not be re-converted either */
+const dispSum = (n: number, anyFormatted: boolean, unit?: any) =>
+  anyFormatted ? `${n < 0 ? '-' : ''}₹${Math.abs(Math.round(n)).toLocaleString('en-IN')}` : fmtValue(n, unit);
 
 /**
  * WATERFALL — what moved, and which way. Every "why did X change" answer is a start, a set of
@@ -111,8 +119,9 @@ const num = (v: any) => { const n = Number(String(v ?? '').replace(/[^\d.-]/g, '
  */
 function Waterfall({ a, ev }: { a: any; ev: Ev }) {
   const parts = ev.summary?.parts || ev.summary?.byBranch || [];
-  const items = parts.map((p: any) => ({ name: p.name, d: num(p.change ?? p.delta) }))
+  const items = parts.map((p: any) => ({ name: p.name, d: num(p.change ?? p.delta), raw: p.change ?? p.delta }))
     .filter((i: any) => i.d !== 0).sort((x: any, y: any) => Math.abs(y.d) - Math.abs(x.d)).slice(0, 8);
+  const fmtd = items.some((i: any) => isFormatted(i.raw));
   if (!items.length) return null;
   const max = Math.max(...items.map((i: any) => Math.abs(i.d)), 1);
   const net = items.reduce((t: number, i: any) => t + i.d, 0);
@@ -128,12 +137,12 @@ function Waterfall({ a, ev }: { a: any; ev: Ev }) {
               style={i.d < 0 ? { right: '50%', width: `${w}%` } : { left: '50%', width: `${w}%` }} />
           </span>
           <span className={`w-[22%] shrink-0 tabular-nums text-right text-[11.5px] ${i.d < 0 ? 'pulse-down' : 'pulse-up'}`}>
-            {i.d > 0 ? '+' : ''}{fmtValue(i.d, ev.unit)}</span>
+            {i.d > 0 ? '+' : ''}{disp(i.raw, ev.unit)}</span>
         </div>); })}
     </div>
     <div className="mt-2.5 flex justify-between border-t pt-2 text-[11.5px]">
       <span className="text-muted-foreground">Net change</span>
-      <span className={`font-semibold tabular-nums ${net < 0 ? 'pulse-down' : 'pulse-up'}`}>{net > 0 ? '+' : ''}{fmtValue(net, ev.unit)}</span>
+      <span className={`font-semibold tabular-nums ${net < 0 ? 'pulse-down' : 'pulse-up'}`}>{net > 0 ? '+' : ''}{dispSum(net, fmtd, ev.unit)}</span>
     </div></Card>;
 }
 
@@ -175,10 +184,10 @@ function Distribution({ a, ev }: { a: any; ev: Ev }) {
  */
 function Pareto({ a, ev }: { a: any; ev: Ev }) {
   const src = ev.summary?.parts || ev.summary?.top || ev.data?.rows || [];
-  const items = src.map((p: any) => ({
-    name: p.name ?? p.k ?? p.reason ?? p.branch ?? Object.values(p)[0],
-    v: Math.abs(num(p.value ?? p.v ?? Object.values(p).find((x: any) => typeof x === 'number'))),
-  })).filter((i: any) => i.v > 0).sort((x: any, y: any) => y.v - x.v).slice(0, 12);
+  const items = src.map((p: any) => {
+    const rawV = p.value ?? p.v ?? Object.values(p).find((x: any) => typeof x === 'number' || isFormatted(x));
+    return { name: p.name ?? p.k ?? p.reason ?? p.branch ?? Object.values(p)[0], v: Math.abs(num(rawV)), raw: rawV };
+  }).filter((i: any) => i.v > 0).sort((x: any, y: any) => y.v - x.v).slice(0, 12);
   if (items.length < 3) return null;
   const total = items.reduce((t: number, i: any) => t + i.v, 0);
   if (!total) return null;
@@ -193,7 +202,7 @@ function Pareto({ a, ev }: { a: any; ev: Ev }) {
           <span className="w-[34%] truncate pr-1 text-right">{i.name}</span>
           <span className="h-3 flex-1 rounded-sm bg-muted">
             <span className="block h-3 rounded-sm bg-foreground/70" style={{ width: `${Math.max(2, i.v / max * 100)}%` }} /></span>
-          <span className="w-[16%] shrink-0 text-right tabular-nums text-[11.5px]">{fmtValue(i.v, ev.unit)}</span>
+          <span className="w-[16%] shrink-0 text-right tabular-nums text-[11.5px]">{disp(i.raw, ev.unit)}</span>
           <span className="w-[13%] shrink-0 text-right tabular-nums text-[10.5px] text-muted-foreground">{i.cum.toFixed(0)}%</span>
         </div>))}
     </div>
