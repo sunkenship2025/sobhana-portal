@@ -251,6 +251,23 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promis
   }
   if (ex.err) return { ok: false, error: ex.err, sql };
   if (!ex.rows?.length) return { ok: false, error: 'no rows matched', sql };
+  // A due is the computed balance, never the paymentStatus flag. The flag disagrees with the
+  // arithmetic on live rows — 48 bills carry a non-PAID status while 10 actually owe anything —
+  // so the wrong one overstates the debtor count nearly fivefold. This was written into the
+  // conventions and the generator still reached for the flag on the next run: a prompt rule is
+  // guidance, not enforcement, and money needs enforcement.
+  const duesQ = /\b(due|dues|outstanding|owes?|owing|unpaid|receivab)/i.test(q);
+  const badDue = () => duesQ && /"Bill"/.test(sql) && (/"paymentStatus"/.test(sql) || !/paidAmountInPaise/.test(sql));
+  if (badDue()) {
+    try {
+      const f = await llmJson<{ sql?: string }>(
+        `Repair PostgreSQL. FAILURE CLASS: DUE_DEFINITION. A due is the arithmetic, never the status flag. Filter on (b."totalAmountInPaise" - b."discountAmountInPaise" - b."couponDiscountInPaise" - b."reversedChargeInPaise" - b."paidAmountInPaise") > 0 and remove any "paymentStatus" condition. Counting PATIENTS means COUNT(DISTINCT v."patientId") via "Visit", not a count of bills. Change nothing else. Return JSON {"sql":"..."}.`,
+        `${gen.ctx}\n\nSQL\n${sql}`, { maxTokens: 900 });
+      const s2 = repairIdents(k, f.sql || '');
+      if (s2 && !validate(s2) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; } }
+    } catch { /* keep what we had */ }
+  }
+
   // A money figure whose column name does not say "paise" cannot be formatted safely, and an
   // unformatted paise figure reaches the owner as a hundredfold overstatement. Repair once,
   // then refuse — a silently wrong rupee number is worse than no answer.
@@ -502,8 +519,11 @@ export const TOOLS: Record<string, (a: any, k: Knowledge) => Promise<Partial<Evi
 };
 
 const TRANSIENT = /connection pool|timed out|ECONNRESET|terminating connection/i;
-/** Columns that carry a branch code across the tools. */
-const BRANCH_COL = /^(k|branch|branch_code|code)$/i;
+/** Columns that carry a branch code across the tools. `name` matters as much as `k`: breakdown
+ *  keys data.rows by `k` but summary.parts by `name`, and the waterfall renders parts — so a
+ *  filter that only knew `k` left JGG on the chart while appearing to work. Matching is on the
+ *  VALUE being exactly a test branch code, so a doctor or test called `name` is never touched. */
+const BRANCH_COL = /^(k|name|branch|branch_code|code|who)$/i;
 
 /**
  * Test branches never reach a rendered row. CENTRAL on purpose: six tools build branch-keyed
