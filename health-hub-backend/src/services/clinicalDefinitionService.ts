@@ -28,7 +28,6 @@ import { TestDefinitionStatus, InterpretationMode, ComparisonOperator, Interpret
 export interface CreateTestDefinitionInput {
   name: string;
   code: string;
-  sampleType?: string;
   method?: string;
   referenceUnit?: string;
   departmentId?: string;
@@ -102,7 +101,6 @@ export async function createTestDefinition(input: CreateTestDefinitionInput) {
         status: 'ACTIVE',
         name: input.name,
         code: normalizedCode,
-        sampleType: input.sampleType,
         method: input.method,
         referenceUnit: input.referenceUnit,
         departmentId: input.departmentId,
@@ -256,7 +254,6 @@ export async function createNewVersion(
         status: 'ACTIVE',
         name: updates.name ?? current.name,
         code: newCode,
-        sampleType: pick('sampleType', current.sampleType),
         method: pick('method', current.method),
         referenceUnit: pick('referenceUnit', current.referenceUnit),
         departmentId: pick('departmentId', current.departmentId),

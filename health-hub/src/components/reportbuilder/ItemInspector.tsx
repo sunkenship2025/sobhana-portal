@@ -27,7 +27,6 @@ import {
 import {
   TestInputConfigEditor, defaultInputConfig, type TestInputConfigPayload,
 } from '@/components/diagnostics/TestInputConfigEditor';
-import { SAMPLE_TYPES } from '@/pages/owner/reportBuilderShared';
 
 const INTERP_MODES = ['NONE', 'RANGE_BASED', 'TEXT_MATCH', 'FORMULA'];
 const YEAR = 365;
@@ -43,7 +42,7 @@ export interface CanonicalPatch {
   testDefinitionId: string;
   referenceUnit: string | null; referenceMin: number | null; referenceMax: number | null;
   referenceText: string | null; criticalMin: number | null; criticalMax: number | null;
-  method: string | null; sampleType: string | null;
+  method: string | null;
 }
 
 interface RangeRow {
@@ -74,7 +73,7 @@ export function ItemInspectorBody({
   const [canon, setCanon] = useState({
     referenceUnit: '', referenceMin: '', referenceMax: '', referenceText: '',
     criticalMin: '', criticalMax: '', formulaExpression: '', dependsOnCodes: '',
-    interpretationMode: 'NONE', method: '', sampleType: '',
+    interpretationMode: 'NONE', method: '',
   });
   const [ranges, setRanges] = useState<RangeRow[]>([]);
   const [canonDirty, setCanonDirty] = useState(false);
@@ -106,7 +105,7 @@ export function ItemInspectorBody({
           formulaExpression: d.formulaExpression ?? '',
           dependsOnCodes: Array.isArray(d.dependsOnCodes) ? d.dependsOnCodes.join(', ') : '',
           interpretationMode: d.interpretationMode ?? 'NONE',
-          method: d.method ?? '', sampleType: d.sampleType ?? '',
+          method: d.method ?? '',
         });
         setRanges((d.ranges ?? []).map((r: any) => ({
           category: r.category ?? null, gender: r.gender ?? null,
@@ -164,7 +163,6 @@ export function ItemInspectorBody({
         dependsOnCodes: canon.dependsOnCodes ? canon.dependsOnCodes.split(',').map((s) => s.trim()).filter(Boolean) : [],
         interpretationMode: canon.interpretationMode,
         method: canon.method || null,
-        sampleType: canon.sampleType || null,
         // ranges: full array (add/edit/delete honored). interpretationRules OMITTED → preserved.
         ranges: ranges.map((r) => ({
           minAgeDays: r.minAgeDays, maxAgeDays: r.maxAgeDays,
@@ -190,7 +188,7 @@ export function ItemInspectorBody({
         referenceMin: nd.referenceMin ?? null, referenceMax: nd.referenceMax ?? null,
         referenceText: nd.referenceText ?? null,
         criticalMin: nd.criticalMin ?? null, criticalMax: nd.criticalMax ?? null,
-        method: nd.method ?? null, sampleType: nd.sampleType ?? null,
+        method: nd.method ?? null,
       });
     } catch (e) {
       toast.error((e as Error).message || 'Save failed');
@@ -287,15 +285,7 @@ export function ItemInspectorBody({
                   <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" /> This is a {def.status} version — canonical edits are locked. It should re-point to the active latest on save.
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1.5"><Label className="text-xs">Method</Label><Input value={canon.method} onChange={(e) => setC({ method: e.target.value })} disabled={!isActive} placeholder="e.g. ECLIA / GOD-POD" /></div>
-                <div className="space-y-1.5"><Label className="text-xs">Sample type</Label>
-                  <Select value={canon.sampleType || '__none__'} onValueChange={(v) => setC({ sampleType: v === '__none__' ? '' : v })} disabled={!isActive}>
-                    <SelectTrigger className="h-9"><SelectValue placeholder="Select…" /></SelectTrigger>
-                    <SelectContent><SelectItem value="__none__">None</SelectItem>{SAMPLE_TYPES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-              </div>
+              <div className="space-y-1.5"><Label className="text-xs">Method</Label><Input value={canon.method} onChange={(e) => setC({ method: e.target.value })} disabled={!isActive} placeholder="e.g. ECLIA / GOD-POD" /></div>
               <div className="grid grid-cols-3 gap-2">
                 <div className="space-y-1.5"><Label className="text-xs">Unit</Label><Input value={canon.referenceUnit} onChange={(e) => setC({ referenceUnit: e.target.value })} disabled={!isActive} /></div>
                 <div className="space-y-1.5"><Label className="text-xs">Ref min</Label><Input value={canon.referenceMin} onChange={(e) => setC({ referenceMin: e.target.value })} disabled={!isActive} /></div>

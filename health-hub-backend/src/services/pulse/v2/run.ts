@@ -11,6 +11,7 @@ import { runStep, type Evidence } from './tools';
 import { completeSpec, lineage, type AnalysisSpec } from './spec';
 import { askPlan, askInsight, askResponse } from './analyst';
 import { deriveShape, CONTRACTS, checkAnswer, simplify } from './shape';
+import { renderOptions } from './capability';
 import { buildTurnArtifacts, artifactContext, hasArtifactReference, type LastTurn } from './artifacts';
 
 /* Limits are a safety net against unproductive wandering, not a latency ceiling. A hard stop at
@@ -25,7 +26,7 @@ export interface V2Answer {
   state: any;
 }
 
-const ARTIFACT_TYPES = new Set(['kpi', 'kpis', 'compare', 'chart', 'breakdown', 'ranking', 'table']);
+const ARTIFACT_TYPES = new Set(['kpi', 'kpis', 'compare', 'chart', 'breakdown', 'ranking', 'table', 'waterfall', 'distribution', 'funnel', 'pareto']);
 
 export async function analyse(q: string, state: any = {}): Promise<any> {
   const t0 = Date.now(); let calls = 0, rounds = 0;
@@ -104,11 +105,19 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
   // change" is a figure even when the query returned a row per branch — with the plan and the
   // evidence corroborating, and a bare follow-up inheriting the shape of the turn before it.
   const shape = deriveShape(q, plan, evidence, { lastShape: last?.shape ?? null, isFollowUp: !!state?.lastQ });
-  const contract = CONTRACTS[shape];
+  // What can truthfully be drawn from what came back — computed from the rows, not the wording.
+  // A renderer whose requirements the evidence does not meet is not an option at all, which is
+  // what stops a "required" waterfall from shipping with nothing in it.
+  const options = renderOptions(usable, plan.job, q);
+  const allowed = options.map((o) => o.type);
+  const contract = { ...CONTRACTS[shape], canShow: allowed };
 
   const byIdx = new Map(evidence.map((e) => [e.step, e]));
   const keepArtifacts = (list: any[]) => (list || []).filter((a: any) => {
     if (!a || !ARTIFACT_TYPES.has(a.type)) return false;
+    // A type the evidence cannot support is dropped, not merely discouraged. Asking for a
+    // waterfall over rows with no deltas renders an empty card and calls itself an answer.
+    if (allowed.length && !allowed.includes(String(a.type))) return false;
     const idx = Array.isArray(a.evidence) ? a.evidence : a.evidence != null ? [a.evidence] : [];
     return idx.length > 0 && idx.every((i: any) => byIdx.get(Number(i))?.ok);   // never render a failed step
   }).slice(0, 4);
@@ -120,21 +129,20 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
   // Generate → validate → repair once → deterministic simplify. An answer that violates its
   // contract is never shipped as written: a wall of serialised rows is a wrong answer even when
   // every number in it is right.
-  let check = checkAnswer(contract, text, artifacts);
+  let check = checkAnswer(contract, text, artifacts, allowed);
   if (!check.ok) {
     try {
       const again = await askResponse(q, plan.goal || '', usable, findings, contract, check.note); calls++;
       const a2 = keepArtifacts(again.artifacts || []), t2 = String(again.text || '').trim();
-      if (t2 && checkAnswer(contract, t2, a2).ok) { res = again; text = t2; artifacts = a2; check = { ok: true, violations: [] }; }
+      if (t2 && checkAnswer(contract, t2, a2, allowed).ok) { res = again; text = t2; artifacts = a2; check = { ok: true, violations: [] }; }
       else if (t2 && a2.length >= artifacts.length) { res = again; text = t2; artifacts = a2; }
     } catch { /* keep the first attempt */ }
-    if (!checkAnswer(contract, text, artifacts).ok) {
-      // still over budget: force the required artifact on from the best-matching step, then keep
-      // the sentences that carry the conclusion and drop the ones reciting detail
-      if (contract.require.length && !artifacts.some((a: any) => contract.require.includes(a.type))) {
-        const src = usable.find((e) => Array.isArray((e.data as any)?.rows) && (e.data as any).rows.length > 1)
-          || usable.find((e) => Array.isArray((e.summary as any)?.parts));
-        if (src) artifacts = [{ type: contract.require[0], label: src.label || 'detail', evidence: src.step }, ...artifacts].slice(0, 4);
+    if (!checkAnswer(contract, text, artifacts, allowed).ok) {
+      // still over budget: force on the best-scoring renderer the evidence actually supports,
+      // then keep the sentences carrying the conclusion and drop the ones reciting detail
+      if (contract.needsArtifact && options.length && !artifacts.some((a: any) => allowed.includes(a.type))) {
+        const best = options[0];
+        artifacts = [{ type: best.type, label: byIdx.get(best.step)?.label || 'detail', evidence: best.step }, ...artifacts].slice(0, 4);
       }
       const simple = simplify(contract, text, artifacts);
       if (simple.dropped) text = simple.text;
@@ -142,7 +150,7 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
   }
 
   const turnArtifacts = buildTurnArtifacts(artifacts, evidence);
-  return { kind: 'analysis', goal: plan.goal || '', spec, shape, text, artifacts, findings,
+  return { kind: 'analysis', goal: plan.goal || '', spec, shape, job: plan.job ?? null, text, artifacts, findings,
     chips: (res.suggest || []).filter((c: any) => c?.label && c?.q).slice(0, 4),
     evidence: evidence.map((e) => ({ step: e.step, tool: e.tool, label: e.label, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, detail: e.detail, summary: e.summary, data: e.data, sql: e.sql, error: e.error })),
     meta: { calls, ms: Date.now() - t0, steps: evidence.length, rounds },

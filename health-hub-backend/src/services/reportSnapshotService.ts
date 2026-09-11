@@ -1345,7 +1345,7 @@ function buildPanelsAndDepartments(
           referenceText: resolvedRanges.get(test.id)?.referenceText ?? testDef.referenceText ?? test.referenceText ?? null,
           criticalMin: resolvedRanges.get(test.id)?.criticalMin ?? testDef.criticalMin ?? null,
           criticalMax: resolvedRanges.get(test.id)?.criticalMax ?? testDef.criticalMax ?? null,
-          sampleType: panel.sampleType ?? testDef.sampleType ?? test.sampleType ?? null,
+          sampleType: panel.sampleType ?? test.sampleType ?? null,
           showMethod: panelItem.showMethod ?? false,
           methodText: panelItem.showMethod
             ? (panelItem.methodText ?? testDef.method ?? null)
@@ -2023,7 +2023,6 @@ export interface DraftPanelPreviewInput {
       code: string;
       name: string;
       method?: string | null;
-      sampleType?: string | null;
       referenceMin?: number | null;
       referenceMax?: number | null;
       referenceUnit?: string | null;
@@ -2124,7 +2123,6 @@ export async function buildDraftPanelSnapshot(input: DraftPanelPreviewInput): Pr
       code: td.code,
       name: td.name,
       method: td.method ?? null,
-      sampleType: td.sampleType ?? null,
       referenceMin: td.referenceMin ?? null,
       referenceMax: td.referenceMax ?? null,
       referenceUnit: td.referenceUnit ?? null,
@@ -2142,7 +2140,6 @@ export async function buildDraftPanelSnapshot(input: DraftPanelPreviewInput): Pr
       referenceMax: td.referenceMax ?? null,
       referenceUnit: td.referenceUnit ?? null,
       referenceText: td.referenceText ?? null,
-      sampleType: td.sampleType ?? null,
       displayOrder: item.displayOrder ?? idx,
       panelItems: [],
     };

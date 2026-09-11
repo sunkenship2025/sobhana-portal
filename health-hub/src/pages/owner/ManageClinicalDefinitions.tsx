@@ -78,7 +78,6 @@ interface TestDefinition {
   status: 'ACTIVE' | 'LOCKED' | 'DEPRECATED' | 'ARCHIVED';
   name: string;
   code: string;
-  sampleType: string | null;
   method: string | null;
   referenceUnit: string | null;
   departmentId: string | null;
@@ -112,26 +111,6 @@ const STATUS_COLORS: Record<string, string> = {
   DEPRECATED: 'bg-orange-100 text-orange-800',
   ARCHIVED: 'bg-muted text-foreground',
 };
-
-const SAMPLE_COLORS: Record<string, string> = {
-  blood: 'bg-destructive/100',
-  serum: 'bg-amber-500',
-  urine: 'bg-yellow-400',
-  plasma: 'bg-orange-400',
-  csf: 'bg-blue-400',
-  stool: 'bg-amber-700',
-  swab: 'bg-teal-400',
-  sputum: 'bg-lime-500',
-};
-
-function sampleDotColor(sampleType: string | null) {
-  if (!sampleType) return 'bg-gray-300';
-  const lower = sampleType.toLowerCase();
-  for (const [key, cls] of Object.entries(SAMPLE_COLORS)) {
-    if (lower.includes(key)) return cls;
-  }
-  return 'bg-gray-400';
-}
 
 function formatRange(def: TestDefinition) {
   if (def.referenceText) return def.referenceText;
@@ -261,7 +240,6 @@ export default function ManageClinicalDefinitions() {
   const [formShowCritical, setFormShowCritical] = useState(false);
   const [formGeneralCriticalMin, setFormGeneralCriticalMin] = useState('');
   const [formGeneralCriticalMax, setFormGeneralCriticalMax] = useState('');
-  const [formSampleType, setFormSampleType] = useState('');
   const [formMethod, setFormMethod] = useState('');
   const [formDepartmentId, setFormDepartmentId] = useState('');
 
@@ -362,7 +340,6 @@ export default function ManageClinicalDefinitions() {
     setFormFormula(def.formulaExpression || '');
     setFormDependsOn(def.dependsOnCodes ? def.dependsOnCodes.join(', ') : '');
     setFormInterpMode(def.interpretationMode || 'NONE');
-    setFormSampleType(def.sampleType || '');
     setFormMethod(def.method || '');
     setFormDepartmentId(def.departmentId || '');
 
@@ -448,7 +425,6 @@ export default function ManageClinicalDefinitions() {
       const body: any = {
         name: formName.trim(),
         code: formCode.trim(),
-        sampleType: formSampleType || null,
         method: formMethod || null,
         departmentId: formDepartmentId || null,
         referenceUnit: formUnit || null,
@@ -780,7 +756,6 @@ export default function ManageClinicalDefinitions() {
                 <TableHead>Code</TableHead>
                 <TableHead>Test Name</TableHead>
                 <TableHead>Department</TableHead>
-                <TableHead>Sample</TableHead>
                 <TableHead>Default Range</TableHead>
                 <TableHead className="text-center">Ranges</TableHead>
                 <TableHead>Status</TableHead>
@@ -824,18 +799,6 @@ export default function ManageClinicalDefinitions() {
                     {/* Department */}
                     <TableCell className="text-sm">
                       {def.department?.name || <span className="text-muted-foreground">—</span>}
-                    </TableCell>
-
-                    {/* Sample type with colored dot */}
-                    <TableCell>
-                      {def.sampleType ? (
-                        <div className="flex items-center gap-1.5">
-                          <span className={`inline-block h-2 w-2 rounded-full ${sampleDotColor(def.sampleType)}`} />
-                          <span className="text-sm">{def.sampleType}</span>
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground text-sm">—</span>
-                      )}
                     </TableCell>
 
                     {/* Default range */}
@@ -991,10 +954,6 @@ export default function ManageClinicalDefinitions() {
                   <div className="space-y-1.5">
                     <Label>Test Name *</Label>
                     <Input value={formName} onChange={e => setFormName(e.target.value)} placeholder="e.g., Haemoglobin" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Sample Type</Label>
-                    <Input value={formSampleType} onChange={e => setFormSampleType(e.target.value)} placeholder="e.g., Serum" />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Method</Label>

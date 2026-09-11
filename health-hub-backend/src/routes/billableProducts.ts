@@ -327,7 +327,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
                     testDefinition: {
                       select: {
                         id: true, name: true, code: true,
-                        version: true, status: true, sampleType: true, method: true,
+                        version: true, status: true, method: true,
                       },
                     },
                   },

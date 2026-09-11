@@ -199,7 +199,6 @@ export interface TestDefinition {
   version: number;
   isLatest: boolean;
   status: DefinitionStatus;
-  sampleType: string | null;
   method: string | null;
   referenceUnit: string | null;
   referenceMin: number | null;

@@ -101,6 +101,130 @@ function Table({ a, ev }: { a: any; ev: Ev }) {
     </table></Card>;
 }
 
+/** signed number out of a formatted string — "-₹4,400" and "₹4,400" both matter here */
+const num = (v: any) => { const n = Number(String(v ?? '').replace(/[^\d.-]/g, '')); return Number.isFinite(n) ? n : 0; };
+
+/**
+ * WATERFALL — what moved, and which way. Every "why did X change" answer is a start, a set of
+ * signed contributions, and an end; prose flattens that into a list of numbers. Contributions
+ * run out from a centre line so a fall reads as a fall.
+ */
+function Waterfall({ a, ev }: { a: any; ev: Ev }) {
+  const parts = ev.summary?.parts || ev.summary?.byBranch || [];
+  const items = parts.map((p: any) => ({ name: p.name, d: num(p.change ?? p.delta) }))
+    .filter((i: any) => i.d !== 0).sort((x: any, y: any) => Math.abs(y.d) - Math.abs(x.d)).slice(0, 8);
+  if (!items.length) return null;
+  const max = Math.max(...items.map((i: any) => Math.abs(i.d)), 1);
+  const net = items.reduce((t: number, i: any) => t + i.d, 0);
+  return <Card><K>{a.label || `What moved${ev.dimension ? ` — by ${lbl(ev.dimension)}` : ''}`}</K>
+    <div className="mt-2.5 space-y-1.5">
+      {items.map((i: any, n: number) => {
+        const w = Math.max(2, Math.abs(i.d) / max * 50);
+        return (<div key={n} className="flex items-center gap-2 text-[12.5px]">
+          <span className="w-[38%] truncate pr-1 text-right">{i.name}</span>
+          <span className="relative h-3 flex-1">
+            <span className="absolute inset-y-0 left-1/2 w-px bg-border" />
+            <span className={`absolute top-0 h-3 rounded-sm ${i.d < 0 ? 'pulse-down-bg' : 'pulse-up-bg'}`}
+              style={i.d < 0 ? { right: '50%', width: `${w}%` } : { left: '50%', width: `${w}%` }} />
+          </span>
+          <span className={`w-[22%] shrink-0 tabular-nums text-right text-[11.5px] ${i.d < 0 ? 'pulse-down' : 'pulse-up'}`}>
+            {i.d > 0 ? '+' : ''}{fmtValue(i.d, ev.unit)}</span>
+        </div>); })}
+    </div>
+    <div className="mt-2.5 flex justify-between border-t pt-2 text-[11.5px]">
+      <span className="text-muted-foreground">Net change</span>
+      <span className={`font-semibold tabular-nums ${net < 0 ? 'pulse-down' : 'pulse-up'}`}>{net > 0 ? '+' : ''}{fmtValue(net, ev.unit)}</span>
+    </div></Card>;
+}
+
+/**
+ * DISTRIBUTION — the tail, which an average hides. "Median turnaround 6h" says nothing about the
+ * 5% sitting at 48h, and that 5% is what the complaints are about. Buckets are computed here so
+ * any query returning a numeric column can be shown this way.
+ */
+function Distribution({ a, ev }: { a: any; ev: Ev }) {
+  const rows: any[] = ev.data?.rows || ev.summary?.rows || [];
+  if (rows.length < 4) return null;
+  const col = Object.keys(rows[0]).find((c) => typeof rows[0][c] === 'number' && !/^(id|count|n)$/i.test(c));
+  if (!col) return null;
+  const vals = rows.map((r) => Number(r[col])).filter((v) => Number.isFinite(v)).sort((x, y) => x - y);
+  if (vals.length < 4) return null;
+  const lo = vals[0], hi = vals[vals.length - 1];
+  if (hi === lo) return null;
+  const B = 10, step = (hi - lo) / B;
+  const buckets = Array.from({ length: B }, () => 0);
+  vals.forEach((v) => { buckets[Math.min(B - 1, Math.floor((v - lo) / step))]++; });
+  const peak = Math.max(...buckets, 1);
+  const p = (f: number) => vals[Math.min(vals.length - 1, Math.floor(f * vals.length))];
+  return <Card><K>{a.label || `Spread of ${lbl(col)}`}</K>
+    <div className="mt-2 flex h-16 items-end gap-[3px]">
+      {buckets.map((c, i) => <div key={i} title={`${fmtValue(lo + i * step, ev.unit, col)} – ${fmtValue(lo + (i + 1) * step, ev.unit, col)}: ${c}`}
+        className="pulse-bar flex-1" style={{ height: `${Math.max(3, c / peak * 100)}%` }} />)}
+    </div>
+    <div className="mt-2 flex justify-between border-t pt-2 text-[11px] text-muted-foreground">
+      <span>median {fmtValue(p(0.5), ev.unit, col)}</span>
+      <span>90th {fmtValue(p(0.9), ev.unit, col)}</span>
+      <span>worst {fmtValue(hi, ev.unit, col)}</span>
+    </div></Card>;
+}
+
+/**
+ * PARETO — concentration. "What is driving this?" is the commonest question an owner asks, and
+ * the answer is almost never "everything equally". Bars descending with a cumulative line shows
+ * in one glance how few things account for most of it.
+ */
+function Pareto({ a, ev }: { a: any; ev: Ev }) {
+  const src = ev.summary?.parts || ev.summary?.top || ev.data?.rows || [];
+  const items = src.map((p: any) => ({
+    name: p.name ?? p.k ?? p.reason ?? p.branch ?? Object.values(p)[0],
+    v: Math.abs(num(p.value ?? p.v ?? Object.values(p).find((x: any) => typeof x === 'number'))),
+  })).filter((i: any) => i.v > 0).sort((x: any, y: any) => y.v - x.v).slice(0, 12);
+  if (items.length < 3) return null;
+  const total = items.reduce((t: number, i: any) => t + i.v, 0);
+  if (!total) return null;
+  const max = items[0].v;
+  let run = 0;
+  const withCum = items.map((i: any) => { run += i.v; return { ...i, cum: run / total * 100 }; });
+  const vital = withCum.findIndex((i: any) => i.cum >= 80) + 1;
+  return <Card><K>{a.label || 'What accounts for most of it'}</K>
+    <div className="mt-2 space-y-1.5">
+      {withCum.map((i: any, n: number) => (
+        <div key={n} className="flex items-center gap-2 text-[12.5px]">
+          <span className="w-[34%] truncate pr-1 text-right">{i.name}</span>
+          <span className="h-3 flex-1 rounded-sm bg-muted">
+            <span className="block h-3 rounded-sm bg-foreground/70" style={{ width: `${Math.max(2, i.v / max * 100)}%` }} /></span>
+          <span className="w-[16%] shrink-0 text-right tabular-nums text-[11.5px]">{fmtValue(i.v, ev.unit)}</span>
+          <span className="w-[13%] shrink-0 text-right tabular-nums text-[10.5px] text-muted-foreground">{i.cum.toFixed(0)}%</span>
+        </div>))}
+    </div>
+    {vital > 0 && <div className="mt-2.5 border-t pt-2 text-[11.5px] text-muted-foreground">
+      The top {vital} of {withCum.length} account for {withCum[vital - 1].cum.toFixed(0)}% of the total.</div>}
+  </Card>;
+}
+
+/** FUNNEL — how much survives each stage. Sending is not delivering. */
+function Funnel({ a, ev }: { a: any; ev: Ev }) {
+  const st = ev.summary?.stages || [];
+  const stages = Array.isArray(st) && st.length ? st
+    : ev.summary?.finalized != null ? [{ name: 'Reports finalised', value: ev.summary.finalized },
+      { name: 'Opened by the patient', value: ev.summary.openedByPatient }] : [];
+  if (stages.length < 2) return null;
+  const top = Math.max(num(stages[0].value), 1);
+  return <Card><K>{a.label || 'Reaching the patient'}</K>
+    <div className="mt-2 space-y-2">
+      {stages.map((s: any, i: number) => { const v = num(s.value), sharePct = v / top * 100; return (
+        <div key={i}>
+          <div className="flex items-baseline justify-between text-[12.5px]">
+            <span className="truncate pr-3">{s.name}</span>
+            <span className="shrink-0 font-medium tabular-nums">{s.value}
+              {i > 0 && <span className="ml-2 text-[11px] text-muted-foreground">{sharePct.toFixed(0)}%</span>}</span>
+          </div>
+          <div className="mt-1 h-2 rounded-full bg-muted">
+            <div className="h-2 rounded-full bg-foreground/70" style={{ width: `${Math.max(2, sharePct)}%` }} /></div>
+        </div>); })}
+    </div></Card>;
+}
+
 export function Artifact({ a, evidence }: { a: any; evidence: Ev[] }) {
   const byIdx = new Map(evidence.map((e) => [e.step, e]));
   const one = (i: any) => byIdx.get(Number(i));
@@ -114,6 +238,10 @@ export function Artifact({ a, evidence }: { a: any; evidence: Ev[] }) {
     case 'ranking': return <Ranking a={a} ev={ev} />;
     case 'chart': return <Chart a={a} ev={ev} />;
     case 'table': return <Table a={a} ev={ev} />;
+    case 'waterfall': return <Waterfall a={a} ev={ev} />;
+    case 'distribution': return <Distribution a={a} ev={ev} />;
+    case 'funnel': return <Funnel a={a} ev={ev} />;
+    case 'pareto': return <Pareto a={a} ev={ev} />;
     default: return null;
   }
 }

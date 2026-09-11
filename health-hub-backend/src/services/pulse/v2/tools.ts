@@ -412,6 +412,51 @@ async function t_worklist(a: any): Promise<Partial<Evidence>> {
   return { ok: false, error: `unknown work list '${kind}'. Available: dues, pending_reports, not_returned` };
 }
 
+/** Did the work actually reach the patient? Finalising a report and sending a WhatsApp were both
+ *  countable; whether anyone OPENED it was not, because ReportAccessLog was never granted. The
+ *  centre logs 11,628 accesses, most of them a patient following the link we sent. */
+async function t_delivery(a: any): Promise<Partial<Evidence>> {
+  const days = Math.min(Math.max(Number(a.days) || 30, 1), 365);
+  const br = a.branch ? String(a.branch).replace(/'/g, "''") : null;
+  const W = `${IST} >= CURRENT_DATE - ${days} AND ${IST} < CURRENT_DATE`;
+  const brW = br ? ` AND br.code = '${br}'` : '';
+  const ex = await query(`
+    WITH finalized AS (
+      SELECT rv.id AS rvid, br.code AS branch
+      FROM "ReportVersion" rv
+      JOIN "DiagnosticReport" dr ON dr.id = rv."reportId"
+      JOIN "Visit" v ON v.id = dr."visitId"
+      JOIN "Branch" br ON br.id = v."branchId"
+      WHERE rv.status = 'FINALIZED' AND (rv."finalizedAt" ${IST}) >= CURRENT_DATE - ${days}
+        AND (rv."finalizedAt" ${IST}) < CURRENT_DATE${brW}
+    ), opened AS (
+      SELECT DISTINCT ral."reportVersionId" AS rvid
+      FROM "ReportAccessLog" ral
+      WHERE ral."accessType" = 'VIEW' AND ral."accessedVia" IN ('TOKEN','PATIENT_PORTAL')
+    ), sent AS (
+      SELECT COUNT(*)::int n, COUNT(*) FILTER (WHERE ml.status = 'FAILED')::int failed
+      FROM "MessageLog" ml WHERE (ml."createdAt" ${IST}) >= CURRENT_DATE - ${days}
+        AND (ml."createdAt" ${IST}) < CURRENT_DATE
+    )
+    SELECT f.branch,
+           COUNT(*)::int AS reports_finalized,
+           COUNT(o.rvid)::int AS reports_opened_by_patient,
+           ROUND(100.0 * COUNT(o.rvid) / NULLIF(COUNT(*),0), 1) AS open_rate_pct
+    FROM finalized f LEFT JOIN opened o ON o.rvid = f.rvid
+    GROUP BY f.branch ORDER BY reports_finalized DESC`, [], 200);
+  if (ex.err) return { ok: false, error: ex.err };
+  if (!ex.rows?.length) return { ok: false, error: 'no finalized reports in that window' };
+  const tot = ex.rows.reduce((acc: { f: number; o: number }, r: any) => ({ f: acc.f + Number(r.reports_finalized || 0), o: acc.o + Number(r.reports_opened_by_patient || 0) }), { f: 0, o: 0 });
+  return { ok: true, unit: 'count', dimension: 'branch',
+    means: `reports finalised in the last ${days} whole days, and how many were opened by the patient through the link we sent`,
+    detail: `report delivery, last ${days} days${br ? ` at ${br}` : ''}`,
+    summary: { window: `${days} days`, finalized: tot.f, openedByPatient: tot.o,
+      openRatePct: tot.f ? Number((100 * tot.o / tot.f).toFixed(1)) : null,
+      stages: [{ name: 'Reports finalised', value: tot.f }, { name: 'Opened by the patient', value: tot.o }],
+      byBranch: writerRows(ex.rows, 10) },
+    data: { rows: ex.rows } };
+}
+
 /** Staff actions the centre already flags: edits, voids, discounts, deletions, identity changes.
  *  This is the Audit & Anomalies feed — 44k events with an actor, a role and a severity. Pulse
  *  used to answer "which staff makes most mistakes" by denying the data existed. */
@@ -451,7 +496,7 @@ export const TOOLS: Record<string, (a: any, k: Knowledge) => Promise<Partial<Evi
   metric: t_metric, compare: t_compare, breakdown: t_breakdown, rank: t_rank,
   trend: t_trend, baseline: t_baseline, anomaly: t_anomaly, derive: t_derive, query: t_query,
   receivables: t_receivables, pending_reports: t_pending_reports, quiet_doctors: t_quiet_doctors, leakage: t_leakage,
-  worklist: t_worklist, resolve: t_resolve, anomalies: t_anomalies,
+  worklist: t_worklist, resolve: t_resolve, anomalies: t_anomalies, delivery: t_delivery,
 };
 
 const TRANSIENT = /connection pool|timed out|ECONNRESET|terminating connection/i;

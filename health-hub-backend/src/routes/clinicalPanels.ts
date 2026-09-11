@@ -240,7 +240,6 @@ router.get('/:id', async (req: AuthRequest, res) => {
                 referenceUnit: true,
                 referenceText: true,
                 method: true,
-                sampleType: true,
                 interpretationMode: true,
               },
             },

@@ -35,12 +35,16 @@ export interface Contract {
   prose: string;
   /** what the artifact is FOR, in this shape */
   artifact: string;
-  /** artifact types that must be present; the response is invalid without one of them */
-  require: string[];
+  /** does this shape owe the owner something on screen? WHICH type is not decided here —
+   *  the evidence decides what can truthfully be drawn (see capability.ts). */
+  needsArtifact: boolean;
   /** ceiling on numbers carried in prose — the axis that actually failed, unlike sentence count */
   maxNumbers: number;
   /** may individual rows be spelled out in prose? */
   rowsInProse: boolean;
+  /** filled at runtime from capability.ts: the artifact types this evidence can truthfully
+   *  support. Deliberately NOT a constant — it depends on the data, not on the question. */
+  canShow?: string[];
 }
 
 /** Prose is for the conclusion. The artifact is for the evidence behind it. */
@@ -48,56 +52,56 @@ export const CONTRACTS: Record<AnswerShape, Contract> = {
   figure: {
     shape: 'figure',
     prose: 'The number, its scope and its period, in one sentence. A second sentence only if the figure needs a caveat (partial period, unusual definition).',
-    artifact: 'Nothing. The sentence already is the answer.',
-    require: [], maxNumbers: 3, rowsInProse: true,
+    artifact: 'Usually nothing — the sentence is the answer. A distribution only when the figure is an average or median whose tail matters.',
+    needsArtifact: false, maxNumbers: 3, rowsInProse: true,
   },
   comparison: {
     shape: 'comparison',
     prose: 'Both figures, the direction and the size of the change. Then what it means.',
-    artifact: 'Optional. A compare card when seeing the two side by side helps.',
-    require: [], maxNumbers: 5, rowsInProse: true,
+    artifact: 'Optional. A compare card for the two figures, or a waterfall when the change breaks down into contributors.',
+    needsArtifact: false, maxNumbers: 5, rowsInProse: true,
   },
   ranking: {
     shape: 'ranking',
     prose: 'The conclusion: who is top and by how much, and what that implies. Name the runner-up ONLY if the gap matters. The rest of the order does not belong in prose.',
     artifact: 'Every member, in order, with values. This is where the list lives.',
-    require: ['ranking', 'table', 'breakdown'], maxNumbers: 6, rowsInProse: false,
+    needsArtifact: true, maxNumbers: 6, rowsInProse: false,
   },
   breakdown: {
     shape: 'breakdown',
     prose: 'The total, and the one or two parts that carry it. Say what the split shows — never recite every part.',
     artifact: 'All parts with their shares. Required: this is the shape whose information IS the table.',
-    require: ['breakdown', 'ranking', 'table', 'chart'], maxNumbers: 6, rowsInProse: false,
+    needsArtifact: true, maxNumbers: 6, rowsInProse: false,
   },
   trend: {
     shape: 'trend',
     prose: 'Direction, size of the move, and the turning point if there is one. Not every bucket.',
     artifact: 'The series. Required — a shape over time is what words cannot carry.',
-    require: ['chart', 'table'], maxNumbers: 5, rowsInProse: false,
+    needsArtifact: true, maxNumbers: 5, rowsInProse: false,
   },
   list: {
     shape: 'list',
-    prose: 'How many, the total, how it is sorted, and anything the owner should notice about the set. Individual rows NEVER go in prose.',
+    prose: 'You MUST state two figures: how many there are, and what they come to in total. Then how it is sorted, and anything the owner should notice about the set as a whole. Individual rows NEVER go in prose — a count without a total is half an answer.',
     artifact: 'The rows themselves, with names, numbers and amounts. Required.',
-    require: ['table', 'ranking'], maxNumbers: 4, rowsInProse: false,
+    needsArtifact: true, maxNumbers: 5, rowsInProse: false,
   },
   diagnosis: {
     shape: 'diagnosis',
     prose: 'A real explanation, in an analyst\'s voice: what moved, by how much, and what drove it. Prose is the right answer here — do not compress it into a card. Lead with the finding, then the driver, then what it means. Keep supporting detail out of the sentences; put it in an artifact if it is worth showing.',
-    artifact: 'Optional. Attach one when the contributing split is worth seeing.',
-    require: [], maxNumbers: 8, rowsInProse: false,
+    artifact: 'Optional but usually earned: a waterfall showing what moved and which way is the shape of an explanation. Attach one when the contributing split is worth seeing.',
+    needsArtifact: false, maxNumbers: 8, rowsInProse: false,
   },
   definition: {
     shape: 'definition',
     prose: 'What the term means in THIS business, and what it includes and excludes. Plain words.',
     artifact: 'Optional. The member list when the definition is a set.',
-    require: [], maxNumbers: 4, rowsInProse: true,
+    needsArtifact: false, maxNumbers: 4, rowsInProse: true,
   },
   prose: {
     shape: 'prose',
     prose: 'Answer plainly. Put the conclusion first.',
     artifact: 'Attach one only when the shape carries something words cannot.',
-    require: [], maxNumbers: 8, rowsInProse: true,
+    needsArtifact: false, maxNumbers: 8, rowsInProse: true,
   },
 };
 
@@ -109,8 +113,11 @@ function fromQuestion(q: string): AnswerShape | null {
   if (/\b(what do you mean|what does .* mean|what is meant|what all (is|are) included|what counts as|define)\b/.test(s)) return 'definition';
   if (/\b(list|names? and numbers?|name number|phone|contact|who owes|pull (out |up )?(a |the )?list)\b/.test(s)) return 'list';
   if (/\b(top \d+|top five|highest|lowest|best|worst|most|least|biggest|largest|rank|where am i losing|which branch|which doctor|which staff|which test)\b/.test(s)) return 'ranking';
-  if (/\b(trend|over time|day by day|month by month|daily|weekly|monthly|trajectory|last \d+ (days|weeks|months))\b/.test(s)) return 'trend';
-  if (/\b(break ?down|split|by branch|by doctor|by department|by type|by category|by payment|branch wise|doctor wise|wise)\b/.test(s)) return 'breakdown';
+  // A dimension split is checked BEFORE a time series: "in the last 30 days" is the window the
+  // question runs over, not a request to see it day by day. Reading a period as a trend turned
+  // "break down discounts in the last 30 days by reason" into the wrong shape entirely.
+  if (/\b(break ?down|split|by branch|by doctor|by department|by reason|by type|by category|by payment|branch wise|doctor wise|wise)\b/.test(s)) return 'breakdown';
+  if (/\b(trend|over time|day by day|month by month|week by week|daily|weekly|monthly|trajectory|each (day|week|month)|per (day|week|month))\b/.test(s)) return 'trend';
   if (/\b(vs|versus|compared to|compare|against last|than last|more than last|change from)\b/.test(s)) return 'comparison';
   if (/\b(how much|how many|what is the total|whats the total|total)\b/.test(s)) return 'figure';
   return null;
@@ -124,7 +131,7 @@ function fromEvidence(ev: Evidence[]): AnswerShape | null {
   if (tools.has('worklist')) return 'list';
   if (tools.has('trend')) return 'trend';
   if (tools.has('rank') || tools.has('quiet_doctors')) return 'ranking';
-  if (tools.has('breakdown') || tools.has('leakage') || tools.has('receivables')) return 'breakdown';
+  if (tools.has('breakdown') || tools.has('leakage') || tools.has('receivables') || tools.has('delivery')) return 'breakdown';
   if (tools.has('anomalies')) return 'ranking';
   if (tools.has('compare') || tools.has('baseline')) return 'comparison';
   // a free query that came back with many rows over a named dimension is a breakdown in disguise
@@ -212,7 +219,7 @@ const sentencesOf = (t: string) => String(t).split(/(?<=[.!?])\s+/).filter((s) =
  * than length: too many numbers serialised into prose, rows recited instead of shown, or a
  * required artifact missing.
  */
-export function checkAnswer(c: Contract, text: string, artifacts: any[]): ShapeCheck {
+export function checkAnswer(c: Contract, text: string, artifacts: any[], allowed?: string[]): ShapeCheck {
   const v: string[] = [];
   const t = String(text || '');
   const arts = Array.isArray(artifacts) ? artifacts : [];
@@ -224,8 +231,12 @@ export function checkAnswer(c: Contract, text: string, artifacts: any[]): ShapeC
   const worst = sentencesOf(t).reduce((m, s) => Math.max(m, countNumbers(s)), 0);
   if (worst > 3) v.push(`one sentence carries ${worst} numbers; no sentence should carry more than 3`);
 
-  if (c.require.length && !arts.some((a) => c.require.includes(String(a?.type)))) {
-    v.push(`this answer must show a ${c.require.slice(0, 2).join(' or ')} — the detail belongs there, not in the sentences`);
+  // An artifact is owed only when the shape wants one AND the evidence can actually support one.
+  // If nothing is renderable, saying so is honest; demanding a chart that cannot be drawn is how
+  // a "required" waterfall used to ship rendering nothing.
+  const ok = allowed && allowed.length ? allowed : null;
+  if (c.needsArtifact && ok && !arts.some((a) => ok.includes(String(a?.type)))) {
+    v.push(`this answer must show a ${ok.slice(0, 2).join(' or ')} — the detail belongs there, not in the sentences`);
   }
   return { ok: v.length === 0, violations: v, note: v.join('; ') };
 }

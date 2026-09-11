@@ -12,7 +12,7 @@
  * its rows. "Who has the highest discount in that table?" then needs no rediscovery of what the
  * table was, and "why is the second one so high?" resolves to a row, not to a database lookup.
  */
-import type { Evidence } from './tools';
+import { writerRows, type Evidence } from './tools';
 import type { AnswerShape } from './shape';
 
 export interface ArtifactMeaning {
@@ -59,8 +59,10 @@ export function buildTurnArtifacts(specs: any[], evidence: Evidence[]): TurnArti
         scope: (e?.summary as any)?.scope ?? null,
         means: e?.means ?? e?.detail ?? null,
       },
+      // formatted here too: these rows are what the table renders and what "the second one"
+      // resolves against, and a raw 2807500 is not a number anyone can read or reason about
       columns: Array.isArray(rows) && rows.length && typeof rows[0] === 'object' ? Object.keys(rows[0]) : [],
-      rows: Array.isArray(rows) ? rows.slice(0, 50) : [],
+      rows: writerRows(rows, 50) ?? [],
       provenance: { step: e?.step, tool: e?.tool },
     });
   });

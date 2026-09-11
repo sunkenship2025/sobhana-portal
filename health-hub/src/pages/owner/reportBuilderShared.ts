@@ -19,7 +19,7 @@ export interface TestDef {
   id: string; rootDefinitionId?: string; code: string; name: string;
   referenceUnit: string | null; referenceMin: number | null; referenceMax: number | null;
   referenceText: string | null; criticalMin: number | null; criticalMax: number | null;
-  method: string | null; sampleType: string | null;
+  method: string | null;
 }
 
 export interface BuilderItem {
@@ -28,7 +28,7 @@ export interface BuilderItem {
   code: string; name: string;
   referenceUnit: string | null; referenceMin: number | null; referenceMax: number | null;
   referenceText: string | null; criticalMin: number | null; criticalMax: number | null;
-  method: string | null; sampleType: string | null;
+  method: string | null;
   // ClinicalPanelItem (presentation)
   displayLabel: string | null;
   subGroup: string | null;
@@ -78,7 +78,7 @@ export const itemFromDef = (d: TestDef): BuilderItem => ({
   code: d.code, name: d.name,
   referenceUnit: d.referenceUnit ?? null, referenceMin: d.referenceMin ?? null, referenceMax: d.referenceMax ?? null,
   referenceText: d.referenceText ?? null, criticalMin: d.criticalMin ?? null, criticalMax: d.criticalMax ?? null,
-  method: d.method ?? null, sampleType: d.sampleType ?? null,
+  method: d.method ?? null,
   displayLabel: null, subGroup: null, indentLevel: 0, isBold: false, isItalic: false,
   methodText: null, showMethod: false, joinPrevious: false, gridWidth: null,
   mockValue: null, mockTextValue: null,
@@ -87,7 +87,7 @@ export const itemFromDef = (d: TestDef): BuilderItem => ({
 export const blankItem = (): BuilderItem => ({
   _uid: uid(), testDefinitionId: '', code: '', name: '',
   referenceUnit: null, referenceMin: null, referenceMax: null, referenceText: null,
-  criticalMin: null, criticalMax: null, method: null, sampleType: null,
+  criticalMin: null, criticalMax: null, method: null,
   displayLabel: null, subGroup: null, indentLevel: 0, isBold: false, isItalic: false,
   methodText: null, showMethod: false, joinPrevious: false, gridWidth: null,
   mockValue: null, mockTextValue: null, isNew: true,

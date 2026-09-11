@@ -85,6 +85,11 @@
 .pulse-evidence summary:hover{color:var(--pulse-ink)}
 .pulse-evidence[open] summary{color:var(--pulse-ink)}
 
+
+/* waterfall bars: the same restrained teal/clay as a figure that moved */
+.pulse-up-bg{background:var(--pulse-up);opacity:.8}
+.pulse-down-bg{background:var(--pulse-down);opacity:.8}
+
 /* a figure that moved, in the answer body and in cards */
 .pulse-up{color:var(--pulse-up)}
 .pulse-down{color:var(--pulse-down)}

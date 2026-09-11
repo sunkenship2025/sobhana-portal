@@ -12,6 +12,7 @@ import { langOf, todayIST } from '../db';
 import { METRICS, METRIC_DIMS } from '../catalog';
 import { KNOWN_DIMS, writerRows } from './tools';
 import type { Contract } from './shape';
+import { JOBS, type AnalyticalJob } from './capability';
 import { conceptSummary } from '../knowledge';
 import type { Evidence } from './tools';
 
@@ -55,6 +56,11 @@ OPERATIONAL TOOLS — states of the business, not metrics. These are what an own
   pending_reports  {hours}                           work sitting unfinished, by branch
   quiet_doctors    {period, priorDays}               referrers who used to send work and stopped
   leakage          {period}                          discount, cancellation and refund rates
+  delivery         {days, branch}
+      Reports finalised versus reports the PATIENT actually opened through the link we sent, by
+      branch. Use for "are patients getting their reports", open rates, and whether sending more
+      messages is reaching anyone. Sending is not delivering.
+
   anomalies        {by:"staff|category", days, severity, category, branch}
       The centre's Audit & Anomalies feed — flagged staff actions with an actor, a role and a
       severity: edits, voids, deletions, discounts, identity changes. THIS is where questions
@@ -151,9 +157,18 @@ FIRST WRITE THE SPEC — what the owner asked for, before any tool is chosen
 The spec is a contract: the query is checked against it, and anything you leave out of scope is
 something the answer will silently include. A question with no qualifiers has an empty scope.
 
-Return JSON {"goal":"one sentence","spec":{"measure":{"concept":"...","metric":null},
+Return JSON {"goal":"one sentence","job":"<one of the list below>",
+"spec":{"measure":{"concept":"...","metric":null},
 "scope":[{"term":"...","dimension":"...","value":"..."}],"time":{"period":"...","phrase":"..."}},
-"steps":[{"tool":"...","label":"<=6 words","args":{...}}]}.`;
+"steps":[{"tool":"...","label":"<=6 words","args":{...}}]}.
+
+"job" is what the owner is trying to UNDERSTAND, exactly one of:
+  ${JOBS.join(' · ')}
+This is not a chart choice — never pick it by how the question is worded. It is the analytical
+question underneath. "Where am I losing money" is concentration. "Why did revenue fall" is
+attribution when you will quantify the contributors, explanation when the answer is a narrative.
+"How much did we collect" is magnitude. "Who owes me" is enumeration. What can actually be drawn
+is decided later, from the evidence.`;
 
 export const INSIGHT_SYS = () => `You are reading the evidence from an analysis you planned, for a
 diagnostic centre's owner. Today is ${todayIST()} (IST).
@@ -181,7 +196,18 @@ const ARTIFACTS = `ARTIFACT TYPES — attach one only when it genuinely helps:
   {"type":"chart","label":"...","evidence":<step>,"chart":"bar|line"}   a trend step
   {"type":"breakdown","label":"...","evidence":<step>}    parts of a total, with shares
   {"type":"ranking","label":"...","evidence":<step>}      ordered members
-  {"type":"table","label":"...","evidence":<step>}        rows from a query step`;
+  {"type":"table","label":"...","evidence":<step>}        rows from a query step
+  {"type":"waterfall","label":"...","evidence":<step>}    what moved and which way, from a
+      breakdown step that carries per-part CHANGE. This is the shape of an explanation — prefer
+      it over a plain breakdown whenever the question is why something rose or fell.
+  {"type":"distribution","label":"...","evidence":<step>} the spread of a numeric column from a
+      query step. Use when an average or median hides a tail worth seeing — turnaround times,
+      bill values, waiting times.
+  {"type":"funnel","label":"...","evidence":<step>}       how much survives each stage, e.g. a
+      delivery step: reports finalised versus reports the patient actually opened.
+  {"type":"pareto","label":"...","evidence":<step>}       concentration: which few members
+      account for most of a total, with a running cumulative share. The natural answer to
+      "what is driving this" when the parts add up to a whole.`;
 
 export const RESPOND_SYS = (c: Contract) => `You are answering a diagnostic centre's owner, as their analyst.
 You have the evidence and what it showed.
@@ -198,7 +224,8 @@ a bad answer even in one sentence. Write "revenue rose 21%, driven mainly by Bra
 the artifact carry the four rows.
 ${c.rowsInProse ? '' : ' · Do NOT recite individual rows one after another in the text.\n'}\
  · At most ${c.maxNumbers} numbers in the whole answer, and never more than 3 in one sentence.
-${c.require.length ? ` · You MUST attach one of: ${c.require.join(', ')} — the detail belongs there.\n` : ''}\
+${c.needsArtifact && (c.canShow || []).length ? ` · You MUST attach one of: ${(c.canShow || []).join(', ')} — the detail belongs there.\n` : ''}\
+${(c.canShow || []).length ? ` · Only these can truthfully represent this evidence: ${(c.canShow || []).join(', ')}. Nothing else is available, because nothing else fits the data.\n` : ' · No artifact fits this evidence. Answer in words.\n'}\
  · Never attach an artifact that only repeats a single figure the sentence already gave.
  · Say which denominator a percentage uses. "98.7% of the change" and "72.6% of the total" are
    different claims; never put one where the owner asked for the other.
@@ -222,7 +249,7 @@ RULES
 Return JSON {"text":"the answer","artifacts":[...],"suggest":[{"label":"<=4 words","q":"full question"}]}.
 "suggest" is 2 to 4 follow-ups a real owner would ask next, from what the evidence shows.`;
 
-export interface Plan { goal?: string; spec?: any; steps?: any[]; outOfScope?: boolean; why?: string; phi?: boolean; }
+export interface Plan { goal?: string; spec?: any; steps?: any[]; outOfScope?: boolean; why?: string; phi?: boolean; job?: AnalyticalJob; }
 
 /** "for all branches" / "overall" widens the scope — it drops the filter. Read as an exclusion
  *  ("everything except JGG") it inverts the owner's meaning, which is what used to happen. */
@@ -234,7 +261,7 @@ export const SCOPE_RULE = `FOLLOW-UPS THAT CHANGE SCOPE
 
 export const askPlan = (q: string, ctx: string) =>
   llmJson<Plan>(`${PLAN_SYS()}\n\n${SCOPE_RULE}`, `${ctx}QUESTION\n${q}`,
-    { maxTokens: ctx.length > 1200 ? 1200 : 700 });
+    { maxTokens: ctx.length > 1200 ? 1400 : 900 });
 
 export const askInsight = (q: string, goal: string, ev: Evidence[]) =>
   llmJson<{ enough?: boolean; why?: string; steps?: any[]; findings?: any[] }>(INSIGHT_SYS(),
