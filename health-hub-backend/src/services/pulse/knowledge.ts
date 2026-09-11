@@ -108,7 +108,29 @@ COUNTING A PARENT THROUGH A ONE-TO-MANY CHILD
   multiplies it by the number of children.
 `;
 
+/**
+ * Things only the owner can tell us, which no amount of reading the data reveals. These must
+ * reach the ANALYST as well as the SQL generator: asked which branch was worst, Pulse ranked a
+ * test branch bottom and then invented a reason for it ("its first visit was 5 Aug, so it has
+ * just opened") because the fact lived in the SQL prompt where the narrator never saw it.
+ */
+export const BUSINESS_FACTS = `WHICH BRANCHES ARE REAL — the owner told us this; the row counts alone do not say it
+  LIVE, and the whole business:  CNT (Sobhana - Chintal) and BLN (Sobhana - Balanagar).
+  NOT IN USE:  JGG (Jagathgiri Gutta - Kidcare) and IDPL (IDPL - Kidcare). Both Kidcare branches
+  exist only for TESTING. Their rows are test entries, not trade.
+  · Never present a movement at JGG or IDPL as a business finding, and never explain one. "JGG
+    revenue fell 24%" on twenty-nine lifetime visits is noise reported as news.
+  · Keep them out of rankings, "which branch is worst", quiet-doctor lists and anomalies unless
+    the owner names the branch.
+  · Do NOT silently drop them from a centre-wide total — they are a rounding error either way,
+    and silently changing what a total covers is worse than including it.
+  · If the owner asks about them directly, answer, and say plainly that the branch is only used
+    for testing so the numbers are not real trade.`;
+
 export const ONTOLOGY = `BUSINESS ONTOLOGY — how the business concepts relate
+
+${BUSINESS_FACTS}
+
 
 WHAT COUNTS AS A SCAN — a definition, not a guess
   A "scan" is an IMAGING order. It is identified by TestOrder."payoutCategorySnapshot" being
@@ -164,6 +186,12 @@ scan / imaging    NOT a test-name match — no test is literally called "ultraso
                     ultrasound   o."payoutCategorySnapshot" IN ('Ultrasound','Ultrasound Tiffa','2D Echo')
                     x-ray        o."payoutCategorySnapshot" IN ('X-Ray','Dental X-Ray')
                     lab work     o."payoutCategorySnapshot" = 'Laboratory'
+                  A CANCELLED ORDER WAS NOT PERFORMED. Any count of tests or scans done — "how
+                  many scans", "how many x-rays", workload, throughput — must carry
+                  o."cancelledAt" IS NULL. The metric registry already does this, so a generated
+                  query that omits it disagrees with the registry on the same question: 230
+                  x-rays instead of 227, the three being cancellations. Only include cancelled
+                  orders when the question is ABOUT cancellations.
 branch            Branch."code" (CNT/BLN/JGG/IDPL); Branch."name" is the long form
 product           TestOrder."productId" → BillableProduct.name
 referring doctor  ReferralDoctor_Visit (deletedAt IS NULL) → ReferralDoctor.name
@@ -171,6 +199,15 @@ clinic doctor     ClinicVisit."clinicDoctorId" → ClinicDoctor.name
 patient           Visit."patientId"  (ReportVersion has no patientId — go via DiagnosticReport→Visit)
 bill value        NET: Bill."totalAmountInPaise" - "discountAmountInPaise" - "couponDiscountInPaise"
                   - "reversedChargeInPaise". Never the raw totalAmountInPaise on its own.
+due / outstanding THE ARITHMETIC IS THE DEBT, never the paymentStatus flag:
+                    (b."totalAmountInPaise" - b."discountAmountInPaise" - b."couponDiscountInPaise"
+                     - b."reversedChargeInPaise" - b."paidAmountInPaise") > 0
+                  paymentStatus is denormalised and DISAGREES with the balance on live rows —
+                  48 bills carry paymentStatus <> 'PAID' while only 10 actually owe anything, so
+                  filtering on the flag overstates the debtor count nearly fivefold and gets the
+                  money wrong in the other direction (₹4,752 against a true ₹5,552). One source
+                  of truth for money. "How many PATIENTS owe" is COUNT(DISTINCT v."patientId"),
+                  not a count of bills — a patient may hold several.
 report grain      ReportVersion.id is ONE VERSION; a report can have several. Count versions,
                   not "reportId", unless the question asks about reports as documents.
 `;

@@ -48,7 +48,7 @@ function isFragment(q: string, namesKnown: boolean): boolean {
   return true;
 }
 
-export async function ask(rawQ: string, state: PulseState = {}, opts: { v2?: boolean } = {}): Promise<Answer> {
+export async function ask(rawQ: string, state: PulseState = {}, opts: { v2?: boolean; onProgress?: (t: string, kind?: string) => void } = {}): Promise<Answer> {
   // V2: one general analyst that plans the analysis, instead of a router that picks a fixed path.
   // The guards below (picker, entity card) still run first — they are cheaper and exact.
   const useV2 = opts.v2 ?? process.env.PULSE_V2 !== '0';
@@ -100,7 +100,7 @@ export async function ask(rawQ: string, state: PulseState = {}, opts: { v2?: boo
     // V2 carries the previous QUESTION and PLAN, so the analyst decides what a follow-up changes.
     // The V1 fragment rewriting was for a path with no such memory; splicing "— only balanagar"
     // onto the last question here loses the subject and the analyst answers something else.
-    try { return await analyse(rawFollowUp || q, { ...state, lastQ: state.lastQ || null }); }
+    try { return await analyse(rawFollowUp || q, { ...state, lastQ: state.lastQ || null }, opts.onProgress); }
     catch (e) {
       console.warn('[pulse] v2 failed:', (e as any)?.message);
       // V1 has no idea what "the second one" points at, so it answers a DIFFERENT question with

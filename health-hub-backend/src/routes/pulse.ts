@@ -53,4 +53,38 @@ router.post('/ask', async (req: AuthRequest, res) => {
     res.status(502).json({ kind: 'refuse', reason: 'error', text: 'Pulse could not answer that just now. Try again in a moment.', detail: String(e?.message || e).slice(0, 200) });
   }
 });
+/**
+ * The same question, but the work is visible while it happens. A deep investigation can take a
+ * couple of minutes, and the panel was showing a canned three-line rotation on a timer with no
+ * relationship to the work — so it looked like a hang. Here every step, every hypothesis settled
+ * and every rule-out is sent as it happens, and the answer arrives last on the same connection.
+ */
+router.post('/ask/stream', async (req: AuthRequest, res) => {
+  const q = String(req.body?.q || '').trim();
+  if (!q) { res.status(400).json({ error: 'q required' }); return; }
+  const t0 = Date.now();
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',     // a proxy that buffers this defeats the whole point
+  });
+  const send = (event: string, data: any) => {
+    try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
+  };
+  let alive = true;
+  req.on('close', () => { alive = false; });
+  const beat = setInterval(() => alive && res.write(': keep-alive\n\n'), 15_000);
+  try {
+    const answer = await ask(q, req.body?.state || {}, { onProgress: (text, kind) => { if (alive) send('progress', { text, kind: kind || 'step' }); } });
+    logAction({ userId: req.user!.id, branchId: req.branchId || '', actionType: 'REPORT_ACCESS', entityType: 'Pulse', entityId: String(answer.kind || 'unknown'),
+      newValues: { q: q.slice(0, 300), kind: answer.kind, job: (answer as any).job, sql: answer.provenance?.sql?.slice(0, 1000), ms: Date.now() - t0,
+        reason: (answer as any).reason, text: String((answer as any).text || '').slice(0, 600),
+        steps: (answer as any).meta?.steps, calls: (answer as any).meta?.calls, streamed: true } }).catch(() => {});
+    send('answer', answer);
+  } catch (e: any) {
+    send('answer', { kind: 'refuse', reason: 'error', text: 'Pulse could not answer that just now. Try again in a moment.', detail: String(e?.message || e).slice(0, 200) });
+  } finally { clearInterval(beat); res.end(); }
+});
+
 export default router;

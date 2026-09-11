@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { Step } from './usePulse';
 import { Artifact } from './PulseArtifacts';
 import { rupees } from './format';
 import type { usePulse, Turn } from './usePulse';
@@ -16,11 +17,73 @@ const Chips = ({ chips, onAsk }: { chips?: { label: string; q: string }[]; onAsk
     </div>);
 
 /** The wait shows the analysis, not a spinner — the plan is the most reassuring thing we have. */
-function Thinking({ steps }: { steps?: string[] }) {
+/**
+ * The work, as it happens. This used to be three canned lines on a 1.4s timer with nothing behind
+ * them, so a two-minute investigation sat on "Putting it together…" and read as a hang. The
+ * backend now streams what it is measuring and what it has ruled out; the trail stays on screen
+ * so the owner can see the reasoning rather than a spinner.
+ */
+export function Thinking({ steps }: { steps?: Step[] }) {
   const [n, setN] = useState(0);
-  useEffect(() => { const t = setInterval(() => setN((x) => x + 1), 1400); return () => clearInterval(t); }, []);
-  const line = steps?.length ? steps[Math.min(n, steps.length - 1)] : ['Working out what to look at…', 'Reading the numbers…', 'Putting it together…'][Math.min(n, 2)];
-  return <div className="pulse-step py-1"><i /><span>{line}</span></div>;
+  const [secs, setSecs] = useState(0);
+  const live = steps?.length ? steps : null;
+  useEffect(() => { const t = setInterval(() => { setN((x) => x + 1); setSecs((s) => s + 1); }, 1000); return () => clearInterval(t); }, []);
+  const tailRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { tailRef.current?.scrollIntoView({ block: 'nearest' }); }, [steps?.length]);
+
+  if (!live) {
+    const line = ['Working out what to look at…', 'Reading the numbers…', 'Putting it together…'][Math.min(Math.floor(n / 1.4), 2)];
+    return <div className="pulse-step py-1"><i /><span>{line}</span></div>;
+  }
+  const objective = live.find((s) => s.kind === 'objective');
+  const all = live.filter((s) => s.kind === 'confirmed' || s.kind === 'rejected');
+  // The animated line is what Pulse is DOING. When the last event was a verdict it was being
+  // echoed there as well as in the list above, reading as if the same thing happened twice.
+  const tail = [...live].reverse().find((s) => s.kind === 'phase' || s.kind === 'step')
+    ?? { text: 'Working through it', kind: 'phase' as const };
+  const recent = live.filter((s) => s.kind === 'step').slice(-3);
+  // Bounded, not accumulating. A deep investigation settles eight or nine claims and the block
+  // was growing until it pushed the question off screen. Past three, the older ones collapse to
+  // a count and only the two most recent stay spelled out — the trail stays a fixed size.
+  const many = all.length > 3;
+  const verdicts = many ? all.slice(-2) : all;
+  const nOk = all.filter((v) => v.kind === 'confirmed').length;
+  const nNo = all.length - nOk;
+
+  return (
+    <div className="space-y-1.5 py-0.5">
+      {objective && (
+        <div className="flex gap-2 text-[12px] leading-snug">
+          <span className="mt-[3px] h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: 'var(--pulse-ink)' }} />
+          <span className="font-medium">{objective.text}</span>
+        </div>)}
+
+      {many && (
+        <div className="flex gap-3 pl-[14px] text-[11px] text-muted-foreground/80">
+          {nOk > 0 && <span><span className="pulse-up font-semibold">✓</span> {nOk} established</span>}
+          {nNo > 0 && <span><span className="pulse-down font-semibold">✗</span> {nNo} ruled out</span>}
+        </div>)}
+
+      {verdicts.length > 0 && (
+        <div className="space-y-0.5 pl-[14px]">
+          {verdicts.map((v, i) => (
+            <div key={i} className="flex gap-1.5 text-[11.5px] leading-snug">
+              <span className={`shrink-0 font-semibold ${v.kind === 'confirmed' ? 'pulse-up' : 'pulse-down'}`}>
+                {v.kind === 'confirmed' ? '✓' : '✗'}</span>
+              <span className="text-muted-foreground">{v.text}</span>
+            </div>))}
+        </div>)}
+
+      {recent.length > 1 && tail.kind !== 'step' && (
+        <div className="flex flex-wrap gap-x-2 gap-y-0.5 pl-[14px] text-[11px] text-muted-foreground/70">
+          {recent.map((s, i) => <span key={i}>{s.text}{i < recent.length - 1 && ' ·'}</span>)}
+        </div>)}
+
+      <div ref={tailRef} className="pulse-step py-0.5">
+        <i /><span>{tail.text}</span>
+        {secs > 6 && <span className="ml-auto shrink-0 text-[10.5px] tabular-nums text-muted-foreground/60">{secs}s</span>}
+      </div>
+    </div>);
 }
 
 function TurnView({ t, onAsk, onExpand }: { t: Turn; onAsk: (q: string) => void; onExpand: () => void }) {

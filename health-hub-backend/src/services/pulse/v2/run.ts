@@ -45,7 +45,15 @@ export interface V2Answer {
 
 const ARTIFACT_TYPES = new Set(['kpi', 'kpis', 'compare', 'chart', 'breakdown', 'ranking', 'table', 'waterfall', 'distribution', 'funnel', 'pareto']);
 
-export async function analyse(q: string, state: any = {}): Promise<any> {
+/** What Pulse is doing, as it does it. The panel showed a canned three-line rotation on a timer
+ *  with no relationship to the work, so a two-minute investigation looked like a hang. The loop
+ *  already knows what it is measuring and what it has ruled out; this just says so out loud. */
+export type ProgressKind = 'phase' | 'objective' | 'step' | 'confirmed' | 'rejected';
+/** The UI should not have to sniff a tick out of a string to know what a line means — that is
+ *  the same string-matching that this codebase spent a day removing everywhere else. */
+export type Progress = (text: string, kind?: ProgressKind) => void;
+
+export async function analyse(q: string, state: any = {}, say: Progress = () => {}): Promise<any> {
   const t0 = Date.now(); let calls = 0, rounds = 0;
   const k = await ensureKnowledge();
   const last: LastTurn | null = state?.lastTurn || null;
@@ -55,7 +63,9 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
       + `The question below may be a follow-up that changes one thing about that — the order, the period,\nthe branch, how many rows. Keep everything it does not change.\n\n`
     : '');
 
+  say('Working out what to measure', 'phase');
   const plan = await askPlan(q, ctx); calls++;
+  if (plan.goal) say(String(plan.goal).slice(0, 140), 'objective');
   const spec: AnalysisSpec | null = completeSpec(plan.spec ? { goal: plan.goal || '', ...plan.spec } : null);
   if (plan.phi) return { kind: 'refuse', reason: 'patient_level',
     text: "I can give you totals and counts, never a list of patients with names or phone numbers — Pulse has no access to those columns. For a working list, open Money → Bills and filter; it has the names, numbers and amounts, and it can be exported.",
@@ -97,6 +107,7 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
   const evidence: Evidence[] = [];
   let findings: any[] = [];
   let inv: Investigation | null = null;
+  const announced = new Set<string>();   // a verdict is news once, not once per round
   for (rounds = 1; rounds <= MAX_ROUNDS; rounds++) {
     // the deadline is checked HERE, before the work, not only after a round has already overrun
     if (rounds > 1 && Date.now() - t0 > MAX_MS) break;
@@ -111,6 +122,7 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
     // steps is six model calls spent before any budget check gets to run.
     let budget = Math.max(1, Math.min(3, Math.floor((MAX_CALLS - calls - 2) / 1)));
     steps = steps.filter((s: any) => s?.tool !== 'query' || budget-- > 0);
+    for (const s of steps) if (s?.label) say(String(s.label).slice(0, 70), 'step');
     const base = evidence.length;
     const got = await pool(3, steps.map((s, i) => () => runStep(s, base + i, k, spec)));
     for (const e of got) if (e.ok && !e.means) e.means = lineage(spec, e.detail);
@@ -123,9 +135,18 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
     // Another round costs a model call, the steps it asks for, and delays the answer. Past this
     // point the answer we already have beats a better one the owner is still waiting for.
     if (Date.now() - t0 > NEW_ROUND_BY) break;
+    say('Checking what that rules out', 'phase');
     const ins = await askInvestigate(q, plan.goal || '', evidence, brief(inv)); calls++;
     findings = ins.findings || findings;
+    const before = new Map((inv?.hypotheses || []).map((h) => [h.id, h.status]));
     inv = merge(inv, normalise(ins, plan.goal || ''));
+    // say what just got settled — this is the part worth watching
+    for (const h of inv.hypotheses) {
+      if (h.status === 'open' || before.get(h.id) === h.status) continue;
+      const line = h.claim.slice(0, 110);
+      if (announced.has(line)) continue;
+      announced.add(line); say(line, h.status === 'confirmed' ? 'confirmed' : 'rejected');
+    }
     // Continue because something MATERIAL is still open, not because the model wants to keep
     // going — and stop when nothing cheap is left that would change what the owner is told.
     if (resolved(inv)) break;
@@ -167,6 +188,7 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
     return idx.length > 0 && idx.every((i: any) => byIdx.get(Number(i))?.ok);   // never render a failed step
   }).slice(0, 4);
 
+  say('Writing it up', 'phase');
   let res = await askResponse(q, plan.goal || '', usable, findings, contract, undefined, brief(inv)); calls++;
   let artifacts = keepArtifacts(res.artifacts || []);
   let text = String(res.text || findings[0]?.detail || '').trim();

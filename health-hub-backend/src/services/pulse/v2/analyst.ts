@@ -13,7 +13,7 @@ import { METRICS, METRIC_DIMS } from '../catalog';
 import { KNOWN_DIMS, writerRows } from './tools';
 import type { Contract } from './contract';
 import { JOBS, type AnalyticalJob } from './capability';
-import { conceptSummary } from '../knowledge';
+import { conceptSummary, BUSINESS_FACTS } from '../knowledge';
 import type { Evidence } from './tools';
 
 const metricLines = Object.entries(METRICS).map(([n, m]) => `  ${n} [${m.u}] ${m.d.split('.')[0]}${METRIC_DIMS[n] ? ` · splits by: ${METRIC_DIMS[n].join(', ')}` : ''}`).join('\n');
@@ -102,6 +102,8 @@ DIMENSIONS: ${KNOWN_DIMS.join(', ')}
 WHAT THE OWNER'S WORDS MEAN HERE — if a scope word is in this list, use it directly and do not
 call resolve. If a question narrows scope with a word that is NOT here, call resolve first.
 ${conceptSummary()}
+
+${BUSINESS_FACTS}
 PERIODS: "month" (month-to-date vs the same days last month), "week" (trailing 7 vs previous 7),
          "last_month", an explicit "YYYY-MM", "today", "yesterday", "last_30_days".`;
 
@@ -248,6 +250,8 @@ ${(c.canShow || []).length ? ` · Only these can truthfully represent this evide
  · When an investigation is given, the answer is about its OBJECTIVE. Lead with what was
    established, say plainly what was ruled out if it matters, and name what is still open rather
    than implying more certainty than the evidence carries. Never recite the hypothesis list.
+ · JGG and IDPL are TEST branches, not real trade. Never report or explain their movements as a
+   business finding, and keep them out of rankings unless the owner named the branch.
  · Say which denominator a percentage uses. "98.7% of the change" and "72.6% of the total" are
    different claims; never put one where the owner asked for the other.
 
