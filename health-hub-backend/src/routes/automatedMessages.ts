@@ -7,7 +7,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { branchContextMiddleware } from '../middleware/branch';
 import { requireRole } from '../middleware/rbac';
 import { logAction } from '../services/auditService';
-import { listAutomatedMessages, saveAutomatedMessage } from '../services/automatedMessageService';
+import { listAutomatedMessages, saveAutomatedMessage, sendNow } from '../services/automatedMessageService';
 
 const router = Router();
 router.use(authMiddleware);
@@ -25,10 +25,7 @@ router.get('/', async (_req: AuthRequest, res) => {
 
 router.put('/', async (req: AuthRequest, res) => {
   try {
-    const { branchId, domain, enabled, sendAtMinutes } = req.body ?? {};
-    if (typeof branchId !== 'string' || !branchId) {
-      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'branchId is required' });
-    }
+    const { domain, enabled, sendAtMinutes, branchIds } = req.body ?? {};
     if (domain !== 'DIAGNOSTICS' && domain !== 'CLINIC') {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'domain must be DIAGNOSTICS or CLINIC' });
     }
@@ -39,20 +36,53 @@ router.put('/', async (req: AuthRequest, res) => {
     if (!Number.isFinite(minutes) || minutes < 0 || minutes > 1439) {
       return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'sendAtMinutes must be 0-1439' });
     }
+    if (!Array.isArray(branchIds) || branchIds.some((b) => typeof b !== 'string')) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'branchIds must be an array of ids' });
+    }
+    if (enabled && branchIds.length === 0) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Pick at least one branch, or turn the automation off' });
+    }
 
-    const saved = await saveAutomatedMessage({ branchId, domain, enabled, sendAtMinutes: minutes });
+    await saveAutomatedMessage({ domain, enabled, sendAtMinutes: minutes, branchIds });
     await logAction({
       branchId: req.branchId!,
       actionType: 'UPDATE',
       entityType: 'ScheduledMessage',
-      entityId: saved.id,
+      entityId: `DAY_SHEET:${domain}`,
       userId: req.user?.id,
-      newValues: { kind: saved.kind, branchId, domain, enabled, sendAtMinutes: minutes },
+      newValues: { domain, enabled, sendAtMinutes: minutes, branchIds },
     });
-    return res.json({ data: saved });
+    return res.json(await listAutomatedMessages());
   } catch (err) {
     console.error('Save automated message error:', err);
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to save' });
+  }
+});
+
+// POST /api/automated-messages/send-now — fire one automation immediately.
+// Writes no run row, so testing now never cancels tonight's scheduled send.
+router.post('/send-now', async (req: AuthRequest, res) => {
+  try {
+    const { domain, branchIds } = req.body ?? {};
+    if (domain !== 'DIAGNOSTICS' && domain !== 'CLINIC') {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'domain must be DIAGNOSTICS or CLINIC' });
+    }
+    if (!Array.isArray(branchIds) || branchIds.length === 0) {
+      return res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Pick at least one branch first' });
+    }
+    const result = await sendNow(domain, branchIds);
+    await logAction({
+      branchId: req.branchId!,
+      actionType: 'UPDATE',
+      entityType: 'ScheduledMessage',
+      entityId: `DAY_SHEET:${domain}`,
+      userId: req.user?.id,
+      newValues: { action: 'SEND_NOW', domain, branchIds, ...result },
+    });
+    return res.json(result);
+  } catch (err) {
+    console.error('Send now error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to send' });
   }
 });
 

@@ -10,6 +10,11 @@ export interface PulseState { lastQ?: string | null; metric?: string | null; per
 export interface Answer { kind: string; [k: string]: any; state?: PulseState; }
 export type StepKind = 'phase' | 'objective' | 'step' | 'confirmed' | 'rejected';
 export interface Step { text: string; kind: StepKind }
+export interface Opportunity {
+  title: string; problem?: string; evidence?: string; lever?: string;
+  impact: string; causality: 'observed' | 'modeled' | 'causal';
+  confidence: 'low' | 'medium' | 'high'; weight: number;
+}
 export interface Segments { verdict?: string; points?: { label?: string; text: string }[]; caveat?: string; action?: string }
 export interface Turn { id: number; q: string; answer?: Answer; error?: string; pending?: boolean; collapsed?: boolean; steps?: Step[]; }
 export interface Today { date: string; sofar?: boolean; collectionToday: number; vsUsual: number | null; cases: number; due: number; lateReports: number; chips: Chip[]; }

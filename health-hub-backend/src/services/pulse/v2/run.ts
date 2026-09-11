@@ -14,7 +14,7 @@ import { normalise, merge, resolved, openMaterial, brief, enforce, conclude, typ
 import { contractFor, inferJob, checkAnswer, simplify } from './contract';
 import { renderOptions, describeEvidence, JOBS } from './capability';
 import { buildTurnArtifacts, artifactContext, hasArtifactReference, type LastTurn } from './artifacts';
-import { rank as rankOpportunities } from './opportunity';
+import { rank as rankOpportunities, honestImpact } from './opportunity';
 import { groundNumbers } from './grounding';
 
 /* Limits are a safety net against unproductive wandering, not a latency ceiling. A hard stop at
@@ -258,7 +258,7 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
       admissible: options, chosen: artifacts.map((a: any) => ({ type: a.type, step: a.evidence })) },
     contract: { job: contract.job, maxNumbers: contract.maxNumbers, needsArtifact: contract.needsArtifact,
       rowsInProse: contract.rowsInProse, canShow: allowed },
-    validation: { violations: firstViolations, stillBroken: checkAnswer(contract, text, artifacts, allowed, usable).violations, repaired, simplified },
+    validation: { violations: firstViolations, stillBroken: checkAnswer(contract, text, artifacts, allowed, usable, brief(inv)).violations, repaired, simplified },
     // where every figure in the shipped answer came from — exact, derived, ordinary, or nowhere
     grounding: groundNumbers(text, usable).map((g) => ({ n: g.text, kind: g.provenance.kind,
       how: (g.provenance as any).how ?? (g.provenance as any).why ?? (g.provenance as any).fact?.label })),
@@ -271,8 +271,11 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     caveat: (res as any).caveat, action: (res as any).action };
   // Ranked HERE, not by the model: impact first, confidence second, and the weighting is shown
   // so the owner can disagree with the order rather than just receive it.
-  const opportunities = job === 'opportunity' ? rankOpportunities((res as any).opportunities || []) : null;
-  return { kind: 'analysis', goal: plan.goal || '', spec, job, investigation: brief(inv), trace, text, segments, opportunities, artifacts, findings,
+  const ranked = job === 'opportunity' ? rankOpportunities((res as any).opportunities || []) : null;
+  const opportunities = ranked?.recommended?.map((o) => ({ ...o, impact: honestImpact(o) })) ?? null;
+  // named, but never presented as advice — you may not recommend what you have not measured
+  const consideredNotSized = ranked?.considered?.length ? ranked.considered.map((o) => o.title) : null;
+  return { kind: 'analysis', goal: plan.goal || '', spec, job, investigation: brief(inv), trace, text, segments, opportunities, consideredNotSized, artifacts, findings,
     chips: (res.suggest || []).filter((c: any) => c?.label && c?.q).slice(0, 4),
     evidence: evidence.map((e) => ({ step: e.step, tool: e.tool, label: e.label, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, detail: e.detail, summary: e.summary, data: e.data, sql: e.sql, error: e.error })),
     meta: { calls, ms: Date.now() - t0, steps: evidence.length, rounds },

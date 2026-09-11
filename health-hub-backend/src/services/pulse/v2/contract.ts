@@ -195,12 +195,15 @@ export function isMaterial(value: number, total: number, largest: number, questi
 
 export interface ContractCheck { ok: boolean; violations: string[]; note?: string }
 
+/** Language that actually tells the owner something was not established. */
+const DISCLOSED = /could not|couldn't|not established|unproven|untested|unverified|still open|cannot say|can't say|do not know|don't know|no evidence|not confirmed|remains? unclear|would need|not been (tested|measured|established)|incomplete/i;
+
 const NUM = /₹\s?[\d,]+(?:\.\d+)?|\b\d+(?:\.\d+)?\s?%|\b\d[\d,]*(?:\.\d+)?\b/g;
 const countNumbers = (t: string) => (String(t).match(NUM) || []).length;
 const sentencesOf = (t: string) => String(t).split(/(?<=[.!?])\s+/).filter((s) => s.trim().length > 1);
 
 /** Did the response honour its contract? About information allocation, not length. */
-export function checkAnswer(c: Contract, text: string, artifacts: any[], allowed?: string[], evidence?: any[]): ContractCheck {
+export function checkAnswer(c: Contract, text: string, artifacts: any[], allowed?: string[], evidence?: any[], investigation?: any): ContractCheck {
   const v: string[] = [];
   const t = String(text || '');
   const arts = Array.isArray(artifacts) ? artifacts : [];
@@ -213,6 +216,15 @@ export function checkAnswer(c: Contract, text: string, artifacts: any[], allowed
 
   // Not "does this number appear somewhere in the pile" — does it come from a step, or follow
   // from two of them by arithmetic an analyst would actually write.
+  // An investigation that could not settle a material claim has to say so. This was a rule in
+  // the prompt and the writer forgot it, which is how a conclusion gets presented as settled
+  // when the question underneath it was never closed. Like the dues definition: an invariant
+  // that costs the owner money is enforced, not described.
+  if (investigation && investigation.complete === false && !DISCLOSED.test(t)) {
+    const open = (investigation.stillOpen || [])[0];
+    v.push(`the investigation did not close${open ? ` "${String(open).slice(0, 70)}"` : ' a material question'} — say so in the VERDICT itself, not a caveat, before presenting any conclusion`);
+  }
+
   const invented = evidence ? unsupported(groundNumbers(t, evidence)) : [];
   if (invented.length) v.push(`these figures do not come from any step, and cannot be derived from two that do: ${invented.join(', ')} — state only what the analysis produced`);
 

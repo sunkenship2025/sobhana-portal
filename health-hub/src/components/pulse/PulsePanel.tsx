@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Step, Segments } from './usePulse';
+import type { Step, Segments, Opportunity } from './usePulse';
 import { Artifact } from './PulseArtifacts';
 import { rupees } from './format';
 import type { usePulse, Turn } from './usePulse';
@@ -29,6 +29,35 @@ const Chips = ({ chips, onAsk }: { chips?: { label: string; q: string }[]; onAsk
  * and an action, and the contract decides which of those a given job may carry. The model picks
  * the content, the contract picks the shape, this picks the typography.
  */
+/**
+ * What is worth doing, in the order the evidence supports — not the order that sounds most
+ * actionable. That ordering is why a ₹7,400 idea once outranked a ₹1,05,035 one. A modelled
+ * figure is never shown as money in hand, and anything that could not be sized sits below the
+ * line as considered rather than recommended: you may not recommend what you have not measured.
+ */
+export function Opportunities({ list, considered }: { list: Opportunity[]; considered?: string[] | null }) {
+  return (
+    <div className="space-y-2 pt-0.5">
+      {list.map((o, i) => (
+        <div key={i} className="rounded-xl border bg-card px-3.5 py-2.5">
+          <div className="flex items-baseline gap-2">
+            <span className="text-[11px] tabular-nums text-muted-foreground">{i + 1}</span>
+            <span className="flex-1 text-[13.5px] font-semibold">{o.title}</span>
+            <span className="shrink-0 text-[10px] uppercase tracking-[.07em]"
+              style={{ color: o.causality === 'modeled' ? 'var(--pulse-down)' : 'var(--pulse-up)' }}>
+              {o.causality === 'modeled' ? 'scenario' : o.causality}
+            </span>
+          </div>
+          <div className="mt-1 pl-[18px] text-[12.5px]">{o.impact}</div>
+          {o.lever && <div className="mt-1 pl-[18px] text-[11.5px] text-muted-foreground">{o.lever}</div>}
+        </div>))}
+      {!!considered?.length && (
+        <p className="pl-1 text-[11.5px] text-muted-foreground">
+          Also considered, but not sized: {considered.join(', ')} — not ready to recommend.
+        </p>)}
+    </div>);
+}
+
 export function Answer({ s }: { s: Segments }) {
   return (
     <div className="pulse-answer space-y-2.5">
@@ -132,6 +161,7 @@ function TurnView({ t, onAsk, onExpand }: { t: Turn; onAsk: (q: string) => void;
         {a.segments?.verdict
           ? <Answer s={a.segments} />
           : a.text && <p className="pulse-answer whitespace-pre-line text-[13.5px] leading-[1.65]">{a.text}</p>}
+        {!!a.opportunities?.length && <Opportunities list={a.opportunities} considered={a.consideredNotSized} />}
         {(a.artifacts || []).map((x: any, i: number) => <Artifact key={i} a={x} evidence={a.evidence || []} />)}
         {a.kind === 'refuse' && !a.text && <p className="text-[13.5px]">I couldn't answer that.</p>}
         <Chips chips={a.chips} onAsk={onAsk} />

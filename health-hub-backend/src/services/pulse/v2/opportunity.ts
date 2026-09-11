@@ -70,19 +70,28 @@ export interface RankedOpportunity extends Opportunity {
  * Impact first, confidence second. The weight is shown, not hidden, because a ranking the owner
  * cannot argue with is a ranking they cannot trust.
  */
-export function rank(list: Opportunity[]): RankedOpportunity[] {
-  return (list || [])
-    .filter((o) => o && o.title)
+export interface Ranked { recommended: RankedOpportunity[]; considered: Opportunity[] }
+
+/**
+ * Sized and unsized are different kinds of thing and do not belong in one ordered list. An
+ * unsized candidate ranked at zero still LOOKS like a recommendation sitting at the bottom of
+ * the recommendations — and the whole point of sizing is that you may not recommend what you
+ * have not measured. It stays visible as something that was considered, which is information
+ * the owner wants, without pretending to be advice.
+ */
+export function rank(list: Opportunity[]): Ranked {
+  const valued = (o: Opportunity) => rupees(o.estimatedImpact) || rupees(o.currentValue);
+  const considered = (list || []).filter((o) => o && o.title && !valued(o)).slice(0, 4);
+  const recommended = rankAll((list || []).filter((o) => o && o.title && valued(o)));
+  return { recommended, considered };
+}
+
+function rankAll(list: Opportunity[]): RankedOpportunity[] {
+  return list
     .map((o) => {
       const rupeeValue = rupees(o.estimatedImpact) || rupees(o.currentValue);
       const conf = CONF[o.confidence] ?? 0.3;
       const cause = CAUSE[o.causality] ?? 0.35;
-      // An unsized candidate is not ready to be recommended. It keeps its place in the list so
-      // the owner knows it was considered, but it is never allowed to outrank a measured one.
-      if (!rupeeValue) {
-        return { ...o, rupeeValue: 0, weight: 0,
-          why: 'not sized — considered, but not ready to recommend until someone puts a number on it' };
-      }
       const why = o.causality === 'modeled'
         ? `${o.estimatedImpact || 'unsized'} — modelled, so treat as an upper bound, not money you will receive`
         : `${o.estimatedImpact || o.currentValue || 'unsized'} — ${o.causality}, ${o.confidence} confidence`;

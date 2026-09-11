@@ -79,7 +79,7 @@ async function ownerPhones(): Promise<string[]> {
   return [...new Set(owners.map((o) => (o.phone ?? '').trim()).filter(Boolean))];
 }
 
-async function sendDaySheet(
+export async function sendDaySheet(
   schedule: { branchId: string; domain: string },
   dateKey: string,
 ): Promise<{ status: string; detail: string | null }> {
@@ -204,9 +204,32 @@ export async function runDueAutomatedMessages(now: Date = new Date()): Promise<v
   }
 }
 
-/** Every configured row plus its last run, for the Config Center. */
+/**
+ * The Config Center lists AUTOMATIONS, not rows. Storage stays one row per
+ * (branch, domain) — that is what makes two branches two messages with two
+ * links — but a branch is a property OF an automation, not the thing you
+ * manage. One "Daily Diagnostic Report" across 30 branches is one line here,
+ * not thirty cards.
+ */
+const AUTOMATIONS = [
+  {
+    domain: 'DIAGNOSTICS',
+    name: 'Daily Diagnostic Report',
+    group: 'Reports',
+    content: 'Diagnostic day sheet',
+    triggerNote: "After the day's billing",
+  },
+  {
+    domain: 'CLINIC',
+    name: 'Daily OP Report',
+    group: 'Reports',
+    content: 'OP day sheet',
+    triggerNote: "After the day's billing",
+  },
+] as const;
+
 export async function listAutomatedMessages() {
-  const [branches, schedules, runs] = await Promise.all([
+  const [branches, schedules, runs, recipients] = await Promise.all([
     prisma.branch.findMany({
       where: { isActive: true },
       select: { id: true, name: true, code: true },
@@ -216,50 +239,84 @@ export async function listAutomatedMessages() {
     prisma.scheduledMessageRun.findMany({
       where: { kind: DAY_SHEET },
       orderBy: { sentAt: 'desc' },
-      take: 200,
+      take: 400,
     }),
+    ownerPhones(),
   ]);
 
-  const rows = [];
-  for (const b of branches) {
-    for (const domain of ['DIAGNOSTICS', 'CLINIC'] as const) {
-      const cfg = schedules.find((s) => s.branchId === b.id && s.domain === domain);
-      const last = runs.find((r) => r.branchId === b.id && r.domain === domain);
-      rows.push({
-        branchId: b.id,
-        branchName: b.name,
-        branchCode: b.code,
-        domain,
-        enabled: cfg?.enabled ?? false,
-        sendAtMinutes: cfg?.sendAtMinutes ?? 1350,
-        lastRun: last
-          ? { runDate: last.runDate, status: last.status, detail: last.detail, sentAt: last.sentAt }
-          : null,
-      });
-    }
-  }
-  const recipients = await ownerPhones();
-  return { rows, recipients };
+  const automations = AUTOMATIONS.map((a) => {
+    const rows = schedules.filter((s) => s.domain === a.domain);
+    const on = rows.filter((r) => r.enabled);
+    const last = runs.find((r) => r.domain === a.domain) ?? null;
+    return {
+      ...a,
+      channel: 'WhatsApp',
+      audience: 'Owner',
+      enabled: on.length > 0,
+      // One time for the automation. Rows can differ if they were set before
+      // this screen existed; show the one most branches actually use.
+      sendAtMinutes:
+        on[0]?.sendAtMinutes ?? rows[0]?.sendAtMinutes ?? 1350,
+      branchIds: on.map((r) => r.branchId).filter((id) => branches.some((b) => b.id === id)),
+      lastRun: last
+        ? { runDate: last.runDate, status: last.status, detail: last.detail, sentAt: last.sentAt }
+        : null,
+      failing: runs.some((r) => r.domain === a.domain && r.status === 'FAILED'),
+    };
+  });
+
+  return { automations, branches, recipients };
 }
 
 export async function saveAutomatedMessage(input: {
-  branchId: string;
   domain: string;
   enabled: boolean;
   sendAtMinutes: number;
+  branchIds: string[];
 }) {
   const minutes = Math.min(1439, Math.max(0, Math.round(input.sendAtMinutes)));
-  return prisma.scheduledMessage.upsert({
-    where: {
-      kind_branchId_domain: { kind: DAY_SHEET, branchId: input.branchId, domain: input.domain },
-    },
-    create: {
-      kind: DAY_SHEET,
-      branchId: input.branchId,
-      domain: input.domain,
-      enabled: input.enabled,
-      sendAtMinutes: minutes,
-    },
-    update: { enabled: input.enabled, sendAtMinutes: minutes },
-  });
+  const selected = new Set(input.branchIds);
+  const branches = await prisma.branch.findMany({ where: { isActive: true }, select: { id: true } });
+
+  // A branch that is not selected is switched OFF rather than deleted, so its
+  // run history stays attached to something.
+  await Promise.all(
+    branches.map((b) =>
+      prisma.scheduledMessage.upsert({
+        where: {
+          kind_branchId_domain: { kind: DAY_SHEET, branchId: b.id, domain: input.domain },
+        },
+        create: {
+          kind: DAY_SHEET,
+          branchId: b.id,
+          domain: input.domain,
+          enabled: input.enabled && selected.has(b.id),
+          sendAtMinutes: minutes,
+        },
+        update: { enabled: input.enabled && selected.has(b.id), sendAtMinutes: minutes },
+      }),
+    ),
+  );
+}
+
+/**
+ * Send immediately, for one automation's selected branches.
+ *
+ * Deliberately writes NO run row. A run row is the scheduler's claim on a
+ * night; writing one here would mean testing at 3pm silently cancels the 10:30pm
+ * send — the exact failure a "Send now" button is supposed to protect you from.
+ */
+export async function sendNow(domain: string, branchIds: string[]) {
+  const { date } = istParts(new Date());
+  const results = [];
+  for (const branchId of branchIds) {
+    let outcome: { status: string; detail: string | null };
+    try {
+      outcome = await sendDaySheet({ branchId, domain }, date);
+    } catch (err) {
+      outcome = { status: 'FAILED', detail: (err as Error)?.message?.slice(0, 300) ?? 'unknown error' };
+    }
+    results.push({ branchId, ...outcome });
+  }
+  return { runDate: date, results };
 }
