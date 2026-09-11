@@ -9,6 +9,9 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 ## [Unreleased]
 
 ### Added
+- **Confirm Bill Dialog:** Added a confirm bill dialog to the clinic and diagnostic visit keyboard flow.
+- **New-Patient Title-First Flow:** Implemented a title-first flow for new patient entry to improve UX and speed.
+- **Unified Keyboard Focus Flow:** Hardened keyboard focus flow for diagnostic visit entry.
 - **New Visit Flow UI/UX Improvements:** Redesigned the diagnostics and clinic new visit pages with a cleaner single-column layout, improved "sticky" bottom bar, focused keyboard navigation, and portalled `Radix Popover` drop-downs to prevent collision and cut-offs.
 - **Shared UI Components:** Extracted repeated structural and state-representing elements into new shared components: `PageHeader`, `LoadingState`, and `EmptyState`.
 - **Visit Defaults Persistence:** Added `visitDefaultsStore` Zustand store to automatically persist the front-desk operator's last choices (e.g., payment mode, consulting doctor) for seamless repetitive data entry.
@@ -22,6 +25,7 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 - **Bill Payment Status:** The generated bill PDFs now display the payment status (e.g. PAID, PENDING) matching the actual bill transaction state.
 
 ### Changed
+- **Unified Owner Money Formatting:** Consolidated money (rupee) formatting into a shared `lib/payoutFormatters.ts` utility and applied it across owner dashboards, money pages, and payout details.
 - **Owner Dashboard / Payouts Money Formatting:** Consolidated rupee formatting logic across owner dashboard and payout sections into a single `formatRupees` helper inside `src/lib/payoutFormatters.ts`.
 - **Theme Color Tokenization:** Tokenized hard-coded background, text, and border colors (destructive red, gray/slate) in owner interfaces into a single source-of-truth `TOKENS` object.
 - **Diagnostics New Visit Navigation:** Improved keyboard navigation flow and UI stability (fixed crash/event stealing bugs on Patient selection) in the Diagnostics New Visit form.
