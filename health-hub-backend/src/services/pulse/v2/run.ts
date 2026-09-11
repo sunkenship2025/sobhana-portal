@@ -10,6 +10,8 @@ import { pool } from '../db';
 import { runStep, type Evidence } from './tools';
 import { completeSpec, lineage, type AnalysisSpec } from './spec';
 import { askPlan, askInsight, askResponse } from './analyst';
+import { deriveShape, CONTRACTS, checkAnswer, simplify } from './shape';
+import { buildTurnArtifacts, artifactContext, hasArtifactReference, type LastTurn } from './artifacts';
 
 /* Limits are a safety net against unproductive wandering, not a latency ceiling. A hard stop at
    3 queries produced shallow answers to questions that deserved a real investigation; the loop
@@ -28,11 +30,12 @@ const ARTIFACT_TYPES = new Set(['kpi', 'kpis', 'compare', 'chart', 'breakdown', 
 export async function analyse(q: string, state: any = {}): Promise<any> {
   const t0 = Date.now(); let calls = 0, rounds = 0;
   const k = await ensureKnowledge();
-  const ctx = state?.lastQ
+  const last: LastTurn | null = state?.lastTurn || null;
+  const ctx = (last ? artifactContext(last) : '') + (state?.lastQ
     ? `THE PREVIOUS QUESTION IN THIS CONVERSATION\n${state.lastQ}\n`
       + (state.lastPlan?.length ? `THE PREVIOUS PLAN (reissue it with the change applied)\n${JSON.stringify(state.lastPlan)}\n` : '')
       + `The question below may be a follow-up that changes one thing about that — the order, the period,\nthe branch, how many rows. Keep everything it does not change.\n\n`
-    : '';
+    : '');
 
   const plan = await askPlan(q, ctx); calls++;
   const spec: AnalysisSpec | null = completeSpec(plan.spec ? { goal: plan.goal || '', ...plan.spec } : null);
@@ -97,18 +100,53 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
     text: 'Nothing came back for that. If it is something the centre does not record, the answer is that we do not have it — not that it is zero.',
     provenance: { sql: evidence.find((e) => e.sql)?.sql, tables: [], rowCount: 0 }, state: { ...state, lastQ: q } };
 
-  const res = await askResponse(q, plan.goal || '', usable, findings); calls++;
+  // What KIND of answer does this question deserve? The question leads — "how much did revenue
+  // change" is a figure even when the query returned a row per branch — with the plan and the
+  // evidence corroborating, and a bare follow-up inheriting the shape of the turn before it.
+  const shape = deriveShape(q, plan, evidence, { lastShape: last?.shape ?? null, isFollowUp: !!state?.lastQ });
+  const contract = CONTRACTS[shape];
+
   const byIdx = new Map(evidence.map((e) => [e.step, e]));
-  const artifacts = (res.artifacts || []).filter((s: any) => {
-    if (!s || !ARTIFACT_TYPES.has(s.type)) return false;
-    const idx = Array.isArray(s.evidence) ? s.evidence : s.evidence != null ? [s.evidence] : [];
+  const keepArtifacts = (list: any[]) => (list || []).filter((a: any) => {
+    if (!a || !ARTIFACT_TYPES.has(a.type)) return false;
+    const idx = Array.isArray(a.evidence) ? a.evidence : a.evidence != null ? [a.evidence] : [];
     return idx.length > 0 && idx.every((i: any) => byIdx.get(Number(i))?.ok);   // never render a failed step
   }).slice(0, 4);
-  const text = String(res.text || findings[0]?.detail || '').trim();
 
-  return { kind: 'analysis', goal: plan.goal || '', spec, text, artifacts, findings,
+  let res = await askResponse(q, plan.goal || '', usable, findings, contract); calls++;
+  let artifacts = keepArtifacts(res.artifacts || []);
+  let text = String(res.text || findings[0]?.detail || '').trim();
+
+  // Generate → validate → repair once → deterministic simplify. An answer that violates its
+  // contract is never shipped as written: a wall of serialised rows is a wrong answer even when
+  // every number in it is right.
+  let check = checkAnswer(contract, text, artifacts);
+  if (!check.ok) {
+    try {
+      const again = await askResponse(q, plan.goal || '', usable, findings, contract, check.note); calls++;
+      const a2 = keepArtifacts(again.artifacts || []), t2 = String(again.text || '').trim();
+      if (t2 && checkAnswer(contract, t2, a2).ok) { res = again; text = t2; artifacts = a2; check = { ok: true, violations: [] }; }
+      else if (t2 && a2.length >= artifacts.length) { res = again; text = t2; artifacts = a2; }
+    } catch { /* keep the first attempt */ }
+    if (!checkAnswer(contract, text, artifacts).ok) {
+      // still over budget: force the required artifact on from the best-matching step, then keep
+      // the sentences that carry the conclusion and drop the ones reciting detail
+      if (contract.require.length && !artifacts.some((a: any) => contract.require.includes(a.type))) {
+        const src = usable.find((e) => Array.isArray((e.data as any)?.rows) && (e.data as any).rows.length > 1)
+          || usable.find((e) => Array.isArray((e.summary as any)?.parts));
+        if (src) artifacts = [{ type: contract.require[0], label: src.label || 'detail', evidence: src.step }, ...artifacts].slice(0, 4);
+      }
+      const simple = simplify(contract, text, artifacts);
+      if (simple.dropped) text = simple.text;
+    }
+  }
+
+  const turnArtifacts = buildTurnArtifacts(artifacts, evidence);
+  return { kind: 'analysis', goal: plan.goal || '', spec, shape, text, artifacts, findings,
     chips: (res.suggest || []).filter((c: any) => c?.label && c?.q).slice(0, 4),
     evidence: evidence.map((e) => ({ step: e.step, tool: e.tool, label: e.label, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, detail: e.detail, summary: e.summary, data: e.data, sql: e.sql, error: e.error })),
     meta: { calls, ms: Date.now() - t0, steps: evidence.length, rounds },
-    state: { ...state, lastQ: q, kind: 'analysis', lastPlan: steps.map((s: any) => ({ tool: s.tool, args: s.args })) } } as V2Answer;
+    state: { ...state, lastQ: q, kind: 'analysis', lastPlan: steps.map((s: any) => ({ tool: s.tool, args: s.args })),
+      // the answer survives the turn as an object the next question can point at
+      lastTurn: { question: q, shape, text, artifacts: turnArtifacts } as LastTurn } } as V2Answer;
 }

@@ -11,6 +11,7 @@ import { llmJson } from '../llm';
 import { langOf, todayIST } from '../db';
 import { METRICS, METRIC_DIMS } from '../catalog';
 import { KNOWN_DIMS, writerRows } from './tools';
+import type { Contract } from './shape';
 import { conceptSummary } from '../knowledge';
 import type { Evidence } from './tools';
 
@@ -182,19 +183,25 @@ const ARTIFACTS = `ARTIFACT TYPES — attach one only when it genuinely helps:
   {"type":"ranking","label":"...","evidence":<step>}      ordered members
   {"type":"table","label":"...","evidence":<step>}        rows from a query step`;
 
-export const RESPOND_SYS = () => `You are answering a diagnostic centre's owner, as their analyst.
+export const RESPOND_SYS = (c: Contract) => `You are answering a diagnostic centre's owner, as their analyst.
 You have the evidence and what it showed.
 
-WRITE THE ANSWER AS TEXT. That is the response. Say what is true, in plain sentences, with the
-numbers in the sentences where they belong.
+THIS ANSWER IS A ${c.shape.toUpperCase()}. Allocate the information accordingly.
 
-Then decide whether anything is worth SHOWING alongside it. Usually nothing is.
- · A single figure needs no artifact — the sentence already says it.
- · A short comparison needs no artifact — say both numbers in the text.
- · Attach an artifact when the shape carries information words cannot: a series over time, a split
-   across many members, a ranking, a table of rows.
- · Never attach an artifact that repeats what the text already said.
- · An empty artifacts list is a good answer, not a lazy one.
+  PROSE     — ${c.prose}
+  ARTIFACT  — ${c.artifact}
+
+Prose carries the conclusion, the interpretation, and what it implies for the business. The
+artifact carries the detailed rows and the supporting numbers. Serialising a table into
+sentences is the worst thing you can do: "Branch A contributed ₹83K, B ₹61K, C ₹43K, D ₹31K" is
+a bad answer even in one sentence. Write "revenue rose 21%, driven mainly by Branch A" and let
+the artifact carry the four rows.
+${c.rowsInProse ? '' : ' · Do NOT recite individual rows one after another in the text.\n'}\
+ · At most ${c.maxNumbers} numbers in the whole answer, and never more than 3 in one sentence.
+${c.require.length ? ` · You MUST attach one of: ${c.require.join(', ')} — the detail belongs there.\n` : ''}\
+ · Never attach an artifact that only repeats a single figure the sentence already gave.
+ · Say which denominator a percentage uses. "98.7% of the change" and "72.6% of the total" are
+   different claims; never put one where the owner asked for the other.
 
 ${ARTIFACTS}
 
@@ -209,7 +216,7 @@ RULES
  · Money arrives already formatted with ₹. Never print a bare number for money, and never
    divide or multiply a figure you were given — a stray 100x lands as a real rupee claim.
  · If a trend's current bucket is marked in progress, never compare it with whole periods.
- · 2 to 5 sentences unless the question genuinely needs more. No preamble, no consultant filler.
+ · No preamble, no consultant filler. Lead with the conclusion, never with the method.
  · Write in the LANGUAGE given. Never switch languages on your own.
 
 Return JSON {"text":"the answer","artifacts":[...],"suggest":[{"label":"<=4 words","q":"full question"}]}.
@@ -226,14 +233,15 @@ export const SCOPE_RULE = `FOLLOW-UPS THAT CHANGE SCOPE
  · Carry the measure and the period forward; replace only the scope the owner changed.`;
 
 export const askPlan = (q: string, ctx: string) =>
-  llmJson<Plan>(`${PLAN_SYS()}\n\n${SCOPE_RULE}`, `${ctx}QUESTION\n${q}`, { maxTokens: 700 });
+  llmJson<Plan>(`${PLAN_SYS()}\n\n${SCOPE_RULE}`, `${ctx}QUESTION\n${q}`,
+    { maxTokens: ctx.length > 1200 ? 1200 : 700 });
 
 export const askInsight = (q: string, goal: string, ev: Evidence[]) =>
   llmJson<{ enough?: boolean; why?: string; steps?: any[]; findings?: any[] }>(INSIGHT_SYS(),
     JSON.stringify({ question: q, goal, evidence: ev.map((e) => ({ step: e.step, label: e.label, tool: e.tool, ok: e.ok, result: e.summary, error: e.error })) }), { maxTokens: 700 });
 
-export const askResponse = (q: string, goal: string, ev: Evidence[], findings: any[]) =>
-  llmJson<{ text?: string; artifacts?: any[]; suggest?: any[] }>(RESPOND_SYS(),
+export const askResponse = (q: string, goal: string, ev: Evidence[], findings: any[], c: Contract, repair?: string) =>
+  llmJson<{ text?: string; artifacts?: any[]; suggest?: any[] }>(RESPOND_SYS(c) + (repair ? `\n\nYOUR LAST ATTEMPT WAS REJECTED: ${repair}\nRewrite it. Move the detail into the artifact and keep the conclusion in the sentences.` : ''),
     JSON.stringify({ LANGUAGE: langOf(q), question: q, goal, findings,
       evidence: ev.map((e) => ({ step: e.step, label: e.label, tool: e.tool, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, result: e.summary,
         rows: writerRows(e.data?.rows ?? (e.summary as any)?.rows) })) }), { maxTokens: 900 });

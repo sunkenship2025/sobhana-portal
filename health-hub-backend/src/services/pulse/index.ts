@@ -12,6 +12,7 @@ import { entityCard } from './entity';
 import { guessMetric } from './shapes';
 export { todayPack } from './today';
 import { analyse } from './v2/run';
+import { hasArtifactReference } from './v2/artifacts';
 
 export interface PulseState { lastQ?: string | null; lastSql?: string | null; metric?: string | null; period?: string | null; kind?: string | null; }
 export type Answer = any;
@@ -55,11 +56,21 @@ export async function ask(rawQ: string, state: PulseState = {}, opts: { v2?: boo
   if (!q) return { kind: 'refuse', reason: 'empty', text: 'Ask me something about the business.', state };
   const chat = smallTalk(q, state); if (chat) return chat;
   const k = await ensureKnowledge();
+
+  // PRECEDENCE. Entity resolution is no longer a universal first gate. "in that table" is a
+  // conversation problem, not an entity problem — it used to reach ambiguousEntity(), which
+  // matched "MBBS" across several doctor names and replied "Which mbbs?" twice without ever
+  // running an analysis. A question that points at what is already on screen goes straight to
+  // the analyst, which is given the artifact and its meaning.
+  const refersToArtifact = useV2 && hasArtifactReference(q, (state as any).lastTurn);
+  // A pasted block is not an entity mention either. Someone pasting a table back in is quoting
+  // it, and every doctor name in it should not become a disambiguation prompt.
+  const pasted = q.length > 180 || (q.match(/₹/g) || []).length >= 3 || /\t|\n.*\n/.test(rawQ || '');
   // FOLLOW-UP: a short fragment ("and kompally?", "branch wise", "vs july") inherits the last
   // question — the model sees both, the card family stays, one field changes.
   let followUp = false, forceSql = false;
   const rawFollowUp = String(rawQ || '').trim().slice(0, 500);   // what the owner actually typed
-  if (state.lastQ && isFragment(q, mentionsKnown(k, q))) {
+  if (!refersToArtifact && state.lastQ && isFragment(q, mentionsKnown(k, q))) {
     const frag = q.replace(/^(and|aur|what about|kya)\s+/i, '').replace(/\?+$/, '').trim();
     // "and kompally?" — a place or name we do not know cannot be filtered on; say so instead of guessing
     const tok = frag.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').trim();
@@ -79,10 +90,10 @@ export async function ask(rawQ: string, state: PulseState = {}, opts: { v2?: boo
   }
   const next: PulseState = { lastQ: q, lastSql: null, metric: guessMetric(q) || state.metric || null, period: state.period || null, kind: null };
 
-  const amb = ambiguousEntity(k, q);
+  const amb = refersToArtifact || pasted ? null : ambiguousEntity(k, q);
   if (amb) return { kind: 'pick', term: amb.term, options: amb.options.slice(0, 20).map((o) => ({ id: o.id, name: o.name, kind: o.kind })), text: `Which ${amb.term}?`, state: { ...state, lastQ: q } };
 
-  const ent = followUp ? null : await entityCard(k, q);
+  const ent = followUp || refersToArtifact ? null : await entityCard(k, q);
   if (ent) return { ...ent, state: { ...next, kind: 'entity' } };
 
   if (useV2 && !forceSql) {
@@ -90,7 +101,14 @@ export async function ask(rawQ: string, state: PulseState = {}, opts: { v2?: boo
     // The V1 fragment rewriting was for a path with no such memory; splicing "— only balanagar"
     // onto the last question here loses the subject and the analyst answers something else.
     try { return await analyse(rawFollowUp || q, { ...state, lastQ: state.lastQ || null }); }
-    catch (e) { console.warn('[pulse] v2 failed, falling back:', (e as any)?.message); }
+    catch (e) {
+      console.warn('[pulse] v2 failed:', (e as any)?.message);
+      // V1 has no idea what "the second one" points at, so it answers a DIFFERENT question with
+      // full confidence. For a question about what is already on screen, saying so beats that.
+      if (refersToArtifact) return { kind: 'refuse', reason: 'reference_failed',
+        text: "I lost track of what you were pointing at there. Ask it again naming the row — the doctor, the branch or the test — and I'll pick it up.",
+        state: { ...state, lastQ: q } };
+    }
   }
   const r = forceSql ? null : await routeIntent(q, mentionsKnown(k, q));
   if (r?.mode === 'OUT_OF_SCOPE') return { kind: 'refuse', reason: 'out_of_scope', text: "I can't see that — only what happens inside your centre is recorded. I didn't run a query, so there's no number to give you.",

@@ -16,6 +16,12 @@ const IST = (c: string) => `(${c} AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata'
 const COLL = `SUM(CASE WHEN pt."transactionType"='REFUND' THEN -pt."amountInPaise" ELSE pt."amountInPaise" END)`;
 const DUE = `(b."totalAmountInPaise"-b."discountAmountInPaise"-b."couponDiscountInPaise"-b."reversedChargeInPaise"-b."paidAmountInPaise")`;
 const PAY = `"PaymentTransaction" pt JOIN "Bill" b ON b.id=pt."billId" JOIN "Branch" br ON br.id=b."branchId"`;
+
+/** Pulse counts WHOLE days — today is still running, so it is excluded from a trailing window,
+ *  deliberately, so a comparison is like-for-like. Three times now a window that included today
+ *  made a correct answer look wrong. Every trailing window in this file goes through here. */
+const lastDays = (col: string, n: number) =>
+  `${IST(col)} >= CURRENT_DATE - ${n} AND ${IST(col)} < CURRENT_DATE`;
 const IMG = `('Ultrasound','Ultrasound Tiffa','2D Echo','X-Ray','Dental X-Ray','CT / MRI')`;
 const ORD = `"TestOrder" o JOIN "Branch" br ON br.id=o."branchId"`;
 const AUG = `${IST('o."createdAt"')}>='2026-08-01' AND ${IST('o."createdAt"')}<'2026-09-01'`;
@@ -27,7 +33,7 @@ const N = (n: any) => Number(n).toLocaleString('en-IN');
 const CASES: Array<{ id: string; q: string; truth: () => Promise<string>; note: string }> = [
   { id: 'LAB_SCOPE', note: 'the qualifier that used to be dropped silently',
     q: 'what was last week collection chintal only lab',
-    truth: async () => R((await q(`SELECT ${COLL} p FROM ${PAY} JOIN "Visit" v ON v.id=b."visitId" WHERE br.code='CNT' AND v.domain='DIAGNOSTICS' AND ${IST('pt."transactionDate"')} >= CURRENT_DATE - 7 AND ${IST('pt."transactionDate"')} < CURRENT_DATE`))[0].p) },
+    truth: async () => R((await q(`SELECT ${COLL} p FROM ${PAY} JOIN "Visit" v ON v.id=b."visitId" WHERE br.code='CNT' AND v.domain='DIAGNOSTICS' AND ${lastDays('pt."transactionDate"', 7)}`))[0].p) },
 
   { id: 'BRANCH_DAY', note: 'branch + single day',
     q: 'how much collection yesterday chintal',
@@ -59,7 +65,7 @@ const CASES: Array<{ id: string; q: string; truth: () => Promise<string>; note: 
 
   { id: 'DISCOUNT_REASON', note: 'the top discount reason by value',
     q: 'break down discounts at chintal in the last 30 days by reason',
-    truth: async () => R((await q(`SELECT SUM(b."discountAmountInPaise") p FROM "Bill" b JOIN "Branch" br ON br.id=b."branchId" WHERE br.code='CNT' AND b."discountAmountInPaise">0 AND ${IST('b."createdAt"')} >= CURRENT_DATE - 30 GROUP BY TRIM(b."discountReason") ORDER BY 1 DESC LIMIT 1`))[0].p) },
+    truth: async () => R((await q(`SELECT SUM(b."discountAmountInPaise") p FROM "Bill" b JOIN "Branch" br ON br.id=b."branchId" WHERE br.code='CNT' AND b."discountAmountInPaise">0 AND ${lastDays('b."createdAt"', 30)} GROUP BY TRIM(b."discountReason") ORDER BY 1 DESC LIMIT 1`))[0].p) },
 
   { id: 'STAFF', note: 'answered "no field anywhere records mistakes" — 44k rows say otherwise',
     q: 'which staff makes most mistakes',
@@ -80,8 +86,15 @@ const CASES: Array<{ id: string; q: string; truth: () => Promise<string>; note: 
     const want = await c.truth();
     const t = Date.now();
     let txt = '';
-    try { txt = String(((await ask(c.q, {}, { v2: true })) as any).text ?? ''); }
-    catch (e: any) { txt = `THREW ${e?.message}`; }
+    try {
+      const a: any = await ask(c.q, {}, { v2: true });
+      // The answer is text PLUS artifacts. Shapes that push detail onto the screen (breakdown,
+      // ranking, list) deliberately keep per-row numbers OUT of the prose, so asserting on text
+      // alone marks a correct answer wrong — the figure is in the table, which is where the
+      // contract says it belongs.
+      const rows = JSON.stringify(a.state?.lastTurn?.artifacts ?? a.artifacts ?? []);
+      txt = `${a.text ?? ''} ${rows}`;
+    } catch (e: any) { txt = `THREW ${e?.message}`; }
     // accept the figure with or without thousands separators, since prose varies
     const ok = txt.includes(want) || txt.replace(/,/g, '').includes(want.replace(/,/g, ''));
     if (ok) pass++; else fails.push(`${c.id}: wanted ${want} — ${c.note}\n      got: ${txt.replace(/\s+/g, ' ').slice(0, 150)}`);
