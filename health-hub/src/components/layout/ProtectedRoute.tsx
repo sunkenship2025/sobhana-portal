@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { useAuthStore, UserRole, defaultRouteForRole } from '@/store/authStore';
 
@@ -9,6 +9,7 @@ interface ProtectedRouteProps {
 
 export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
   const { isAuthenticated, user, token, isHydrating } = useAuthStore();
+  const location = useLocation();
 
   // After a page refresh, persisted state says we're authenticated but the
   // in-memory token isn't restored yet (it's not stored in localStorage —
@@ -24,7 +25,13 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
   }
 
   if (!isAuthenticated || !user) {
-    return <Navigate to="/login" replace />;
+    // Carry where they were heading. Without this every deep link — a day-sheet
+    // link off a WhatsApp message, a shared filter URL — dies at the login
+    // screen and lands them on their dashboard instead, which is exactly the
+    // case those links exist for (a phone, at night, session expired).
+    // `from` comes from router state, never from a query param, so it cannot be
+    // pointed at an external origin.
+    return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
   if (!allowedRoles.includes(user.role)) {

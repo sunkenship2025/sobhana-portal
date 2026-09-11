@@ -93,7 +93,12 @@ const DOMAIN_LABEL: Record<DaySheetResponse['domain'], string> = {
 };
 
 /** Build a self-contained printable HTML document for the day sheet. */
-export function buildDaySheetHtml(data: DaySheetResponse): string {
+/**
+ * @param autoPrint  true for the print popup (default). false when the sheet is
+ *   shown inline — an iframe that prints itself on load would ambush anyone
+ *   arriving from the nightly WhatsApp link.
+ */
+export function buildDaySheetHtml(data: DaySheetResponse, autoPrint = true): string {
   const scope = data.branchScope.branchName ?? 'All branches';
   const heading = DOMAIN_LABEL[data.domain];
   const rowsHtml = data.rows
@@ -184,7 +189,7 @@ export function buildDaySheetHtml(data: DaySheetResponse): string {
       </tr>
     </tfoot>
   </table>
-  <script>window.onload = function () { window.print(); };</script>
+  ${autoPrint ? '<script>window.onload = function () { window.print(); };</script>' : ''}
 </body>
 </html>`;
 }

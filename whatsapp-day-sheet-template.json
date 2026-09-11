@@ -1,0 +1,34 @@
+{
+  "_note": "Nightly automated day sheet to the centre owner. UTILITY: it is an account/transaction summary sent to the business's own owner, not marketing. The URL button is DYNAMIC — Meta bakes in the prefix at approval, the suffix carries sheet=day&date=..&domain=..&branch=.. so one template serves every branch and every night.",
+  "templates": [
+    {
+      "name": "owner_day_sheet",
+      "language": "en",
+      "category": "UTILITY",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Day sheet · {{1}} · {{2}}\n{{3}} bills · ₹{{4}} collected · ₹{{5}} due\nOpen the full sheet below. You will be asked to sign in.",
+          "example": {
+            "body_text": [["Chintal", "11 Sept 2026", "42", "38,450", "1,200"]]
+          }
+        },
+        {
+          "type": "FOOTER",
+          "text": "Automated nightly summary"
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "Open day sheet",
+              "url": "https://sobhanaportal.com/owner/money?{{1}}",
+              "example": ["https://sobhanaportal.com/owner/money?sheet=day&date=2026-09-11&domain=DIAGNOSTICS&branch=cmm508ml30000he8phuwm3qxc"]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

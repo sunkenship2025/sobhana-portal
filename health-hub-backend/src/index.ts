@@ -73,6 +73,7 @@ import signingLabInchargeRoutes from './routes/signingLabIncharges';
 import labInchargeRuleRoutes from './routes/labInchargeRules';
 import ownerDashboardRoutes from './routes/ownerDashboard';
 import userRoutes from './routes/users';
+import automatedMessageRoutes from './routes/automatedMessages';
 import appSettingsRoutes from './routes/appSettings';
 import smartReportRoutes from './routes/smartReports';
 // LEGACY — superseded by /api/clinical-panels pipeline
@@ -385,6 +386,7 @@ app.use('/api/doctors', doctorSearchRoutes); // Cross-search endpoint
 app.use('/api/referral-doctors', referralDoctorRoutes);
 app.use('/api/clinic-doctors', clinicDoctorRoutes);
 app.use('/api/users', userRoutes); // Owner-only team/role management
+app.use('/api/automated-messages', automatedMessageRoutes); // Owner-only scheduled sends
 app.use('/api/app-settings', appSettingsRoutes); // Org-wide settings (report cloud-sync default)
 app.use('/api/smart-reports', smartReportRoutes); // Smart Reports: staff preview, regenerate, config
 app.use('/api/visits/diagnostic', diagnosticVisitRoutes);
@@ -412,6 +414,14 @@ app.use('/api/pulse', pulseRoutes); // Pulse: owner AI analytics over the analyt
 // Pulse knowledge (schema shape, coverage, value index) takes ~30s to build; do it at boot,
 // not on the owner's first question. Fire-and-forget; a failure only means a slow first ask.
 if (process.env.ANALYTICS_DATABASE_URL) {
+  // Scheduled sends (nightly day sheet). Every 5 minutes is plenty for a
+  // time-of-day trigger, and correctness lives in the run row's unique key, not
+  // in this interval — see automatedMessageService.
+  import('./services/automatedMessageService').then((m) => {
+    const tick = () => m.runDueAutomatedMessages().catch((e) => console.warn('[automated-messages]', e?.message));
+    tick();
+    setInterval(tick, 5 * 60 * 1000).unref();
+  });
   import('./services/pulse/knowledge').then((m) => { m.ensureKnowledge().catch((e) => console.warn('[pulse] warm-up failed:', e?.message)); setInterval(() => m.ensureKnowledge().catch(() => {}), 6 * 3600 * 1000).unref(); });
 }
 // LEGACY — superseded by /api/clinical-panels

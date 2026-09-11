@@ -24,6 +24,8 @@ interface TeamMember {
   name: string;
   email: string;
   role: UserRole;
+  /** 10-digit mobile. Automated messages send here — see Config > Automated messages. */
+  phone?: string | null;
   isActive: boolean;
   activeBranch?: { id: string; name: string } | null;
 }
@@ -59,6 +61,20 @@ export default function ManageRoles() {
 
   // Optimistic role change — the card jumps to its new lane immediately and
   // rolls back if the request fails.
+  // Phone is what automated messages send to. The column always existed but
+  // nothing ever wrote it, so every member had none.
+  const phoneMutation = useMutation<TeamMember, Error, { id: string; phone: string | null; name: string }>({
+    mutationFn: ({ id, phone }) =>
+      apiCall<{ data: TeamMember }>(`/users/${id}/phone`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+      }).then((r) => r.data),
+    onError: (err, vars) => toast.error(err.message || `Couldn't save ${vars.name}'s number`),
+    onSuccess: (u) => toast.success(u.phone ? `${u.name}: +91 ${u.phone}` : `${u.name}'s number cleared`),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
+
   const roleMutation = useMutation<
     TeamMember,
     Error,
@@ -235,6 +251,22 @@ export default function ManageRoles() {
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-sm font-medium">{m.name}</p>
                               <p className="text-muted-foreground truncate text-xs">{m.email}</p>
+                              <input
+                                type="tel"
+                                inputMode="numeric"
+                                defaultValue={m.phone ?? ''}
+                                placeholder="Add mobile"
+                                aria-label={`${m.name} mobile number`}
+                                className="text-muted-foreground w-full border-0 bg-transparent p-0 text-xs outline-none placeholder:italic focus:text-foreground"
+                                onBlur={(e) => {
+                                  const next = e.target.value.trim();
+                                  if (next === (m.phone ?? '')) return;
+                                  phoneMutation.mutate({ id: m.id, phone: next || null, name: m.name });
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                                }}
+                              />
                               {m.activeBranch?.name && (
                                 <p className="text-muted-foreground/80 truncate text-xs">
                                   {m.activeBranch.name}

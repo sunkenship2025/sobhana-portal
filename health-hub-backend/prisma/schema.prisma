@@ -2364,3 +2364,51 @@ model HealthContentRule {
   @@index([testCode, direction])
   @@index([isActive])
 }
+
+// ============================================================================
+// Automated messages — scheduled WhatsApp sends the centre configures itself.
+// ============================================================================
+
+/// ScheduledMessage: one configured automatic send. Today the only kind is the
+/// nightly day sheet, one row per (branch, domain) so a centre can have the
+/// diagnostic sheet on and the OP sheet off, at different times, per branch.
+///
+/// branchId is a plain scalar rather than a relation, matching ReportAccessLog:
+/// this is configuration ABOUT a branch, not data owned by it, and a row for a
+/// branch that no longer exists is inert (the tick skips it) rather than a
+/// migration hazard.
+model ScheduledMessage {
+  id            String   @id @default(cuid())
+  kind          String // 'DAY_SHEET' — the only kind today
+  branchId      String
+  domain        String // 'DIAGNOSTICS' | 'CLINIC'
+  enabled       Boolean  @default(false)
+  /// Send time as minutes past midnight IST. 1350 = 22:30. Stored as minutes
+  /// rather than a DateTime because it is a time-of-day, not an instant, and
+  /// IST has no DST to complicate it.
+  sendAtMinutes Int      @default(1350)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([kind, branchId, domain])
+}
+
+/// ScheduledMessageRun: one row per send that has been attempted, keyed by the
+/// DAY the sheet covers. This is what makes the ticker safe: the unique key
+/// means a redeploy, a restart, a slow tick or a second instance cannot send
+/// the same night's sheet twice, and a box that was asleep at the send time
+/// still sends on wake instead of silently skipping.
+model ScheduledMessageRun {
+  id       String   @id @default(cuid())
+  kind     String
+  branchId String
+  domain   String
+  /// IST calendar date the sheet covers, 'YYYY-MM-DD'.
+  runDate  String
+  status   String // SENT | FAILED | SKIPPED
+  detail   String? // failure reason, or why it was skipped
+  sentAt   DateTime @default(now())
+
+  @@unique([kind, branchId, domain, runDate])
+  @@index([sentAt])
+}

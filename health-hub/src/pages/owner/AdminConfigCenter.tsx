@@ -5,7 +5,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { LoadingState } from '@/components/ui/loading-state';
 import { useAuthStore, UserRole } from '@/store/authStore';
 import {
-  FlaskConical, LayoutGrid, Package, Building2, UserCheck, Users, ShieldCheck, FileText, Tv, Sparkles,
+  FlaskConical, LayoutGrid, Package, Building2, UserCheck, Users, ShieldCheck, FileText, Tv, Sparkles, Send,
 } from 'lucide-react';
 
 const ManageDepartments = lazy(() => import('./ManageDepartments'));
@@ -18,6 +18,7 @@ const ReportBuilder = lazy(() => import('./ReportBuilder'));
 const ManageBillableProducts = lazy(() => import('./ManageBillableProducts'));
 const ManageRoles = lazy(() => import('./ManageRoles'));
 const ManageSmartReports = lazy(() => import('./ManageSmartReports'));
+const ManageAutomatedMessages = lazy(() => import('./ManageAutomatedMessages'));
 
 // Each tab lists the roles that may see it. Staff are scoped to Products +
 // Referrals; Sales sees only Referrals; Lab Incharge sees the full clinical
@@ -32,6 +33,7 @@ const TABS = [
   { value: 'signing', label: 'Signers & Rules', icon: UserCheck, roles: ['owner', 'lab_incharge'] },
   { value: 'referrals', label: 'Referrals', icon: Users, roles: ['owner', 'lab_incharge', 'staff', 'sales'] },
   { value: 'signage', label: 'Waiting Room Display', icon: Tv, roles: ['owner'] },
+  { value: 'automated', label: 'Automated messages', icon: Send, roles: ['owner'] },
   { value: 'roles', label: 'Roles', icon: ShieldCheck, roles: ['owner'] },
 ] as const satisfies readonly { value: string; label: string; icon: unknown; roles: readonly UserRole[] }[];
 
@@ -78,6 +80,14 @@ export default function AdminConfigCenter() {
               );
             })}
           </TabsList>
+
+          {canSee('automated') && (
+            <TabsContent value="automated">
+              <Suspense fallback={<Loading />}>
+                <ManageAutomatedMessages />
+              </Suspense>
+            </TabsContent>
+          )}
 
           {canSee('report-builder') && (
             <TabsContent value="report-builder">

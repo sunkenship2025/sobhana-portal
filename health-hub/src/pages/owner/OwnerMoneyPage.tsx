@@ -10,7 +10,7 @@
  *   - cash vs online by branch (50%) + collected by user (50%)
  *   - discount log (60%) + refunds summary (40%)
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -748,6 +748,12 @@ export default function OwnerMoneyPage() {
 
   const [agingFilter, setAgingFilter] = useState<AgingKey | null>(null);
   const [daySheetBusy, setDaySheetBusy] = useState<null | 'print' | 'excel'>(null);
+  // Arriving from the nightly WhatsApp link: ?sheet=day with the period/branch/
+  // domain filters already in the URL. Rendered INLINE rather than popped open —
+  // a window.open() after the login redirect is not a user gesture and the
+  // blocker eats it, which is the one moment this link has to work.
+  const wantsDaySheet = searchParams.get('sheet') === 'day';
+  const [inlineSheetHtml, setInlineSheetHtml] = useState<string | null>(null);
   // Day sheet reuses the page's params — the register slicer already lives in them.
   const daySheetParams = moneyParams;
 
@@ -774,6 +780,22 @@ export default function OwnerMoneyPage() {
       setDaySheetBusy(null);
     }
   };
+
+  useEffect(() => {
+    if (!wantsDaySheet) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await apiRequest<DaySheetResponse>(`${API_BASE}/owner/money/day-sheet?${daySheetParams}`);
+        if (!cancelled) setInlineSheetHtml(buildDaySheetHtml(data, false));
+      } catch {
+        if (!cancelled) toast.error('Failed to load the day sheet');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [wantsDaySheet, daySheetParams]);
 
   const exportDaySheetExcel = async () => {
     if (daySheetBusy) return;
@@ -876,6 +898,44 @@ export default function OwnerMoneyPage() {
             </>
           }
         />
+
+      {inlineSheetHtml && (
+        <div className="mb-4 overflow-hidden rounded-lg border bg-white" style={{ borderColor: TOKENS.border }}>
+          <div
+            className="flex items-center justify-between border-b px-4 py-2"
+            style={{ borderColor: TOKENS.border }}
+          >
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Day sheet</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={printDaySheet}
+                className="inline-flex items-center gap-1.5 rounded-md border bg-white px-3 py-1.5"
+                style={{ fontSize: 12, borderColor: TOKENS.border, color: TOKENS.textSecondary }}
+              >
+                <Printer className="h-3.5 w-3.5" /> Print
+              </button>
+              <button
+                onClick={() => {
+                  setInlineSheetHtml(null);
+                  const next = new URLSearchParams(searchParams);
+                  next.delete('sheet');
+                  setSearchParams(next, { replace: true });
+                }}
+                className="rounded-md border bg-white px-3 py-1.5"
+                style={{ fontSize: 12, borderColor: TOKENS.border, color: TOKENS.textSecondary }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+          <iframe
+            title="Day sheet"
+            srcDoc={inlineSheetHtml}
+            className="w-full"
+            style={{ height: '70vh', border: 0 }}
+          />
+        </div>
+      )}
 
         {query.isLoading && <FullPageSkeleton />}
         {query.isError && <ErrorCard onRetry={() => query.refetch()} />}

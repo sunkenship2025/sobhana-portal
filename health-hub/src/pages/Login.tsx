@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore, defaultRouteForRole } from '@/store/authStore';
 import { toast } from 'sonner';
 import { Mail, Lock, LogIn } from 'lucide-react';
 
 const Login = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -25,7 +26,11 @@ const Login = () => {
     if (result.success) {
       const role = useAuthStore.getState().user?.role;
       toast.success('Welcome back');
-      navigate(defaultRouteForRole(role));
+      // Back to whatever they were trying to open, else their home page. If
+      // their role is not allowed there, ProtectedRoute bounces them onward —
+      // so this never needs its own permission check.
+      const from = (location.state as { from?: { pathname: string; search: string } } | null)?.from;
+      navigate(from ? `${from.pathname}${from.search}` : defaultRouteForRole(role), { replace: true });
     } else {
       toast.error(result.error || 'Login failed');
     }

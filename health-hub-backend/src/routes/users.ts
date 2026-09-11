@@ -33,6 +33,7 @@ router.get('/', async (_req: AuthRequest, res) => {
         name: true,
         email: true,
         role: true,
+        phone: true,
         isActive: true,
         activeBranch: { select: { id: true, name: true } },
       },
@@ -41,6 +42,58 @@ router.get('/', async (_req: AuthRequest, res) => {
   } catch (err) {
     console.error('List users error:', err);
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to list users' });
+  }
+});
+
+// ===========================================================================
+// PATCH /api/users/:id/phone — set a member's WhatsApp number (owner only)
+// Body: { phone: string | null }  — 10 digits, or null to clear.
+//
+// The column existed from the start but nothing ever wrote it, so every user
+// had phone = null. Automated messages send to the OWNER's number, so this is
+// where that number comes from.
+// ===========================================================================
+router.patch('/:id/phone', async (req: AuthRequest, res) => {
+  try {
+    const raw = (req.body as { phone?: string | null })?.phone;
+    let phone: string | null = null;
+    if (raw !== null && raw !== undefined && String(raw).trim() !== '') {
+      // Accept what people actually type — spaces, +91, hyphens — and store the
+      // bare 10 digits, which is what formatPhoneForWhatsApp expects.
+      const digits = String(raw).replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
+      if (digits.length !== 10) {
+        return res.status(400).json({
+          error: 'VALIDATION_ERROR',
+          message: 'Enter a 10-digit mobile number',
+        });
+      }
+      phone = digits;
+    }
+
+    const existing = await prisma.user.findUnique({ where: { id: req.params.id }, select: { phone: true } });
+    if (!existing) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'User not found' });
+    }
+
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data: { phone },
+      select: { id: true, name: true, email: true, role: true, phone: true, isActive: true },
+    });
+    await logAction({
+      branchId: req.branchId!,
+      actionType: 'UPDATE',
+      entityType: 'User',
+      entityId: user.id,
+      userId: req.user?.id,
+      oldValues: { phone: existing.phone },
+      newValues: { phone },
+    });
+    invalidateAuthUser(user.id);
+    return res.json({ data: user });
+  } catch (err) {
+    console.error('Update user phone error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to update phone' });
   }
 });
 
