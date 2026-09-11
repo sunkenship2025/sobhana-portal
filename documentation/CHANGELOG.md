@@ -9,6 +9,10 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 ## [Unreleased]
 
 ### Added
+- **Payouts Redesign & External Labs:** Introduced outside lab payouts via a new `ExternalLab` entity and configuration page. Redesigned the Pay-Run worklist with hero totals (commissions vs. lab payables) and updated categorization logic using `BillableProduct.payoutCategory`. Added public tokenized payout statement links (`GET /statements/view/:token`) secured by `StatementAccessToken` for WhatsApp delivery to payees.
+- **Patient 360 Redesign:** Overhauled the patient detail page with a paginated timeline, new summary endpoints, inline bill previews, and WhatsApp bill delivery.
+- **Owner Dashboard Upgrade:** Upgraded the Owner Account dashboard with a full-width trend chart, audit fields, trend deltas, and parallelized backend queries for performance.
+- **Visit Queue & Entry Improvements:** Added optimistic state updates (Mark Done / Start) for snappy OP/IP queue status changes and redesigned visit entry forms with progress strips and optional email collection.
 - **New Visit Flow UI/UX Improvements:** Redesigned the diagnostics and clinic new visit pages with a cleaner single-column layout, improved "sticky" bottom bar, focused keyboard navigation, and portalled `Radix Popover` drop-downs to prevent collision and cut-offs.
 - **Shared UI Components:** Extracted repeated structural and state-representing elements into new shared components: `PageHeader`, `LoadingState`, and `EmptyState`.
 - **Visit Defaults Persistence:** Added `visitDefaultsStore` Zustand store to automatically persist the front-desk operator's last choices (e.g., payment mode, consulting doctor) for seamless repetitive data entry.
@@ -22,6 +26,7 @@ For *why* a change was made (not just what), see [`DECISIONS.md`](DECISIONS.md).
 - **Bill Payment Status:** The generated bill PDFs now display the payment status (e.g. PAID, PENDING) matching the actual bill transaction state.
 
 ### Changed
+- **Database Schema Updates:** Added `ExternalLab`, `ExternalLabProductRule`, and `StatementAccessToken` models. Updated `TestOrder` and `DoctorPayoutLedger` with `externalLabId`. Modified `MessageLog` to support non-patient recipients (nullable `patientId`) and added `branchId`.
 - **Owner Dashboard / Payouts Money Formatting:** Consolidated rupee formatting logic across owner dashboard and payout sections into a single `formatRupees` helper inside `src/lib/payoutFormatters.ts`.
 - **Theme Color Tokenization:** Tokenized hard-coded background, text, and border colors (destructive red, gray/slate) in owner interfaces into a single source-of-truth `TOKENS` object.
 - **Diagnostics New Visit Navigation:** Improved keyboard navigation flow and UI stability (fixed crash/event stealing bugs on Patient selection) in the Diagnostics New Visit form.
