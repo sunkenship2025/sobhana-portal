@@ -67,7 +67,7 @@ export function PulsePanel({ p, onClose }: { p: P; onClose: () => void }) {
   const empty = p.turns.length === 0;
 
   return (
-    <div className={`pulse-panel fixed bottom-6 right-6 z-50 flex flex-col overflow-hidden rounded-2xl border bg-card ${p.expanded ? 'h-[min(760px,calc(100vh-48px))] w-[min(600px,calc(100vw-48px))]' : 'h-[min(600px,calc(100vh-48px))] w-[min(420px,calc(100vw-48px))]'}`}
+    <div className={`pulse-panel fixed bottom-9 right-9 z-50 print:hidden flex flex-col overflow-hidden rounded-2xl border bg-card ${p.expanded ? 'h-[min(760px,calc(100vh-48px))] w-[min(600px,calc(100vw-48px))]' : 'h-[min(600px,calc(100vh-48px))] w-[min(420px,calc(100vw-48px))]'}`}
       role="dialog" aria-label="Pulse">
 
       <div className="flex items-center gap-2.5 border-b px-4 py-3">

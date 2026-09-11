@@ -15,7 +15,7 @@ import { validate } from '../validator';
 import { repairIdents, type Knowledge } from '../knowledge';
 
 export interface Evidence {
-  step: number; tool: string; label: string; ok: boolean;
+  step: number; tool: string; label: string; ok: boolean; detail?: string;
   /** compact, model-facing summary — formatted strings, never raw paise */
   summary: any;
   /** full rows for the UI to render */
@@ -309,12 +309,13 @@ async function t_worklist(a: any): Promise<Partial<Evidence>> {
       JOIN "Patient" p ON p.id = v."patientId"
       JOIN "Branch" br ON br.id = b."branchId"
       LEFT JOIN "PatientPhone" ph ON ph."patientId" = p.id
-      WHERE ${w.join(' AND ')} ORDER BY due_paise DESC LIMIT ${limit}`, [], LIST_CAP);
+      WHERE ${w.join(' AND ')} ORDER BY ${/old|oldest|earliest|age|ageing|aging/i.test(String(a.sort || '')) ? 'b."billedAt" ASC' : /new|newest|recent|latest/i.test(String(a.sort || '')) ? 'b."billedAt" DESC' : /name/i.test(String(a.sort || '')) ? 'p.name ASC' : 'due_paise DESC'} LIMIT ${limit}`, [], LIST_CAP);
     if (ex.err) return { ok: false, error: ex.err };
     const rows = ex.rows || [];
     const total = rows.reduce((s, r: any) => s + Number(r.due_paise || 0), 0);
     return { ok: true, unit: 'paise', phi: true,
-      summary: { list: 'patients with dues', shown: rows.length, limit, totalShown: fmt(total, 'paise'),
+      detail: `unpaid bills${br ? ` at ${br}` : ''}${olderDays ? `, billed over ${olderDays} days ago` : ''}${minP ? `, due over ${fmt(minP, 'paise')}` : ''}, ${a.sort ? String(a.sort) : 'largest first'}, up to ${limit}`,
+      summary: { list: 'patients with dues', sortedBy: a.sort || 'largest amount first', shown: rows.length, limit, totalShown: fmt(total, 'paise'),
         note: rows.length === limit ? `capped at ${limit} — ask for a branch or a minimum amount to narrow it` : 'complete list' },
       data: { rows, total } } as any;
   }
@@ -363,9 +364,19 @@ export async function runStep(step: any, i: number, k: Knowledge): Promise<Evide
   const label = String(step?.label || tool);
   const fn = TOOLS[tool];
   if (!fn) return { step: i, tool, label, ok: false, summary: null, error: `unknown tool '${tool}'` };
+  // Say in words what the step asked the database, so "how this was worked out" is readable
+  // to someone who will never open the SQL.
+  const args = step.args || {};
+  const bits = [args.metric, args.dimension && `by ${args.dimension}`, args.period && `for ${args.period}`,
+    args.filter && Object.keys(args.filter).length && `where ${Object.entries(args.filter).map(([x, y]) => `${x} is ${y}`).join(' and ')}`,
+    args.kind, args.sort && `sorted ${args.sort}`, args.limit && `up to ${args.limit}`, args.bucket && `by ${args.bucket}`,
+    args.numerator && `${args.numerator} per ${args.denominator}`, args.hours && `over ${args.hours}h`, args.days && `${args.days} days`,
+    args.question && `"${String(args.question).slice(0, 90)}"`,
+  ].filter(Boolean).join(', ');
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const r = await fn(step.args || {}, k);
+      const r = await fn(args, k);
+      if (!r.detail && bits) (r as any).detail = bits;
       if (!r.ok && TRANSIENT.test(String(r.error || '')) && attempt === 0) { await new Promise((s) => setTimeout(s, 400)); continue; }
       return { step: i, tool, label, ok: !!r.ok, summary: r.summary ?? null, ...r } as Evidence;
     } catch (e: any) {

@@ -2,9 +2,9 @@
    Halo × emissive in the sidebar navy, a shade darker. One fixed colour on every
    branch. Idle breathes at 5.5s; thinking is the same motion at 1.1s — no spinner,
    no shape change, so the object never becomes a loading indicator. */
-.pulse-orb{width:52px;height:52px;border-radius:50%;position:relative;
+.pulse-orb{width:50px;height:50px;border-radius:50%;position:relative;
   background:radial-gradient(circle at 50% 46%,#fff 0%,#dbe2f7 10%,#4c63ad 33%,#1f3068 66%,#0b1129 100%);
-  box-shadow:0 0 16px 3px rgba(48,72,146,.42),0 0 0 8px rgba(27,43,88,.10),0 0 0 17px rgba(27,43,88,.055),0 0 0 27px rgba(27,43,88,.028),0 10px 24px rgba(11,17,41,.34),inset 0 0 9px rgba(255,255,255,.5);
+  box-shadow:0 0 15px 3px rgba(48,72,146,.40),0 0 0 7px rgba(27,43,88,.10),0 0 0 15px rgba(27,43,88,.05),0 0 0 22px rgba(27,43,88,.025),0 8px 20px rgba(11,17,41,.30),inset 0 0 9px rgba(255,255,255,.5);
   animation:pulse-breath 5.5s ease-in-out infinite,pulse-halo 5.5s ease-in-out infinite;
   transition:transform .18s cubic-bezier(.2,.8,.3,1)}
 .pulse-orb:hover{transform:scale(1.07)}
@@ -15,8 +15,8 @@
 .pulse-orb.is-small.is-thinking{animation:pulse-breath 1.1s ease-in-out infinite}
 @keyframes pulse-breath{0%,100%{transform:scale(1)}50%{transform:scale(1.045)}}
 @keyframes pulse-halo{
-  0%,100%{box-shadow:0 0 16px 3px rgba(48,72,146,.42),0 0 0 8px rgba(27,43,88,.10),0 0 0 17px rgba(27,43,88,.055),0 0 0 27px rgba(27,43,88,.028),0 10px 24px rgba(11,17,41,.34),inset 0 0 9px rgba(255,255,255,.5)}
-  50%{box-shadow:0 0 26px 7px rgba(48,72,146,.52),0 0 0 10px rgba(27,43,88,.13),0 0 0 21px rgba(27,43,88,.07),0 0 0 33px rgba(27,43,88,.035),0 10px 24px rgba(11,17,41,.34),inset 0 0 12px rgba(255,255,255,.66)}}
+  0%,100%{box-shadow:0 0 15px 3px rgba(48,72,146,.40),0 0 0 7px rgba(27,43,88,.10),0 0 0 15px rgba(27,43,88,.05),0 0 0 22px rgba(27,43,88,.025),0 8px 20px rgba(11,17,41,.30),inset 0 0 9px rgba(255,255,255,.5)}
+  50%{box-shadow:0 0 22px 6px rgba(48,72,146,.50),0 0 0 9px rgba(27,43,88,.13),0 0 0 18px rgba(27,43,88,.065),0 0 0 26px rgba(27,43,88,.03),0 8px 20px rgba(11,17,41,.30),inset 0 0 12px rgba(255,255,255,.64)}}
 .pulse-badge{position:absolute;top:0;right:0;width:13px;height:13px;border-radius:50%;
   background:#D91C2B;border:2.5px solid hsl(var(--background));box-shadow:0 1px 3px rgba(0,0,0,.25)}
 .pulse-label{font-size:9.5px;font-weight:700;letter-spacing:.2em;color:#25397a}

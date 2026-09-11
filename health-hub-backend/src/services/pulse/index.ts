@@ -17,6 +17,26 @@ export interface PulseState { lastQ?: string | null; lastSql?: string | null; me
 export type Answer = any;
 
 const FRAGMENT = /^(and|aur|what about|kya)?\s*[a-z0-9 .'-]{2,40}\??$/i;
+
+/* Someone saying hello is not a failed analysis. Answered here, instantly, for nothing. */
+const GREETING = /^(hi|hey|hello+|yo|hola|namaste|namaskar|salaam|good (morning|afternoon|evening)|gm|ge)\b[\s!.,]*$/i;
+const THANKS = /^(thanks|thank you|thx|ty|shukriya|dhanyavad|nice|good|great|cool|ok|okay|got it|perfect)\b[\s!.,]*$/i;
+const CAPABILITY = /what can (you|u) do|what do (you|u) do|how do (i|you) (use|work)|help me|^help\b|who are (you|u)|what are (you|u)/i;
+const OPENERS = [
+  { label: 'Collection today', q: 'how much have we collected today' },
+  { label: 'Where am I losing money', q: 'where am i losing money' },
+  { label: 'Who owes money', q: 'list of patients with dues' },
+  { label: 'Top doctors', q: 'doctor wise how many cases last month top 5' },
+];
+function smallTalk(q: string, state: PulseState): Answer | null {
+  const t = q.trim();
+  if (GREETING.test(t)) return { kind: 'chat', text: 'Hello. Ask me anything about the centre — money, cases, referrals, reports, or what needs attention.', chips: OPENERS, state: { ...state, lastQ: null } };
+  if (THANKS.test(t) && state.lastQ) return { kind: 'chat', text: 'Anytime.', chips: [], state };
+  if (CAPABILITY.test(t)) return { kind: 'chat', state: { ...state, lastQ: null },
+    text: 'I read your centre\'s data and answer in plain words. Money — collection, billing, dues, discounts, doctor payouts. Volume — cases, tests, patients, reports and turnaround. Why a number moved, and what is worth your attention. I can also pull a working list of who owes money or whose report is late, with names and phone numbers. Ask the way you would say it out loud; Hinglish is fine.',
+    chips: OPENERS };
+  return null;
+}
 const DIM_PHRASE = /\b(branch|doctor|payment|test|department|category|month|day|week)[- ]?wise\b|\bby (branch|doctor|payment( mode)?|test|department|category|month|day|week)\b|\bper (branch|doctor|test|department)\b/gi;
 /** A fragment is a continuation, not a question: no metric noun, no question word, or an explicit "and …". */
 function isFragment(q: string, namesKnown: boolean): boolean {
@@ -28,15 +48,17 @@ function isFragment(q: string, namesKnown: boolean): boolean {
 }
 
 export async function ask(rawQ: string, state: PulseState = {}, opts: { v2?: boolean } = {}): Promise<Answer> {
-  const k = await ensureKnowledge();
   // V2: one general analyst that plans the analysis, instead of a router that picks a fixed path.
   // The guards below (picker, entity card) still run first — they are cheaper and exact.
   const useV2 = opts.v2 ?? process.env.PULSE_V2 !== '0';
   let q = String(rawQ || '').trim().slice(0, 500);
   if (!q) return { kind: 'refuse', reason: 'empty', text: 'Ask me something about the business.', state };
+  const chat = smallTalk(q, state); if (chat) return chat;
+  const k = await ensureKnowledge();
   // FOLLOW-UP: a short fragment ("and kompally?", "branch wise", "vs july") inherits the last
   // question — the model sees both, the card family stays, one field changes.
   let followUp = false, forceSql = false;
+  const rawFollowUp = String(rawQ || '').trim().slice(0, 500);   // what the owner actually typed
   if (state.lastQ && isFragment(q, mentionsKnown(k, q))) {
     const frag = q.replace(/^(and|aur|what about|kya)\s+/i, '').replace(/\?+$/, '').trim();
     // "and kompally?" — a place or name we do not know cannot be filtered on; say so instead of guessing
@@ -64,7 +86,10 @@ export async function ask(rawQ: string, state: PulseState = {}, opts: { v2?: boo
   if (ent) return { ...ent, state: { ...next, kind: 'entity' } };
 
   if (useV2 && !forceSql) {
-    try { return await analyse(q, { ...state, lastQ: q === state.lastQ ? state.lastQ : (followUp ? state.lastQ : null) }); }
+    // V2 carries the previous QUESTION and PLAN, so the analyst decides what a follow-up changes.
+    // The V1 fragment rewriting was for a path with no such memory; splicing "— only balanagar"
+    // onto the last question here loses the subject and the analyst answers something else.
+    try { return await analyse(rawFollowUp || q, { ...state, lastQ: state.lastQ || null }); }
     catch (e) { console.warn('[pulse] v2 failed, falling back:', (e as any)?.message); }
   }
   const r = forceSql ? null : await routeIntent(q, mentionsKnown(k, q));

@@ -24,7 +24,11 @@ const ARTIFACT_TYPES = new Set(['kpi', 'kpis', 'compare', 'chart', 'breakdown', 
 export async function analyse(q: string, state: any = {}): Promise<any> {
   const t0 = Date.now(); let calls = 0, rounds = 0;
   const k = await ensureKnowledge();
-  const ctx = state?.lastQ ? `THE PREVIOUS QUESTION IN THIS CONVERSATION\n${state.lastQ}\nThe question below may be a follow-up that changes one thing about it — keep everything it does not change.\n\n` : '';
+  const ctx = state?.lastQ
+    ? `THE PREVIOUS QUESTION IN THIS CONVERSATION\n${state.lastQ}\n`
+      + (state.lastPlan?.length ? `THE PREVIOUS PLAN (reissue it with the change applied)\n${JSON.stringify(state.lastPlan)}\n` : '')
+      + `The question below may be a follow-up that changes one thing about that — the order, the period,\nthe branch, how many rows. Keep everything it does not change.\n\n`
+    : '';
 
   const plan = await askPlan(q, ctx); calls++;
   if (plan.phi) return { kind: 'refuse', reason: 'patient_level',
@@ -46,7 +50,10 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
   // analyst's paraphrase drops qualifiers ("in August", "excluding cancelled") often enough to
   // matter, and the SQL is then written for a subtly different question.
   if (steps.length === 1 && steps[0]?.tool === 'query') steps[0].args = { ...steps[0].args, question: q };
-  if (!steps.length) return { kind: 'refuse', reason: 'no_plan', text: "I couldn't work out what to measure for that. Try naming the number you want — collection, cases, due, referrals.", state: { ...state, lastQ: q } };
+  if (!steps.length) return { kind: 'refuse', reason: 'no_plan',
+    text: "I'm not sure what to measure for that. I can look at money — collection, billing, dues, discounts, payouts — or volume, referrals, reports and turnaround, and tell you why something moved.",
+    chips: [{ label: 'How is the business', q: 'how is the business doing this month' }, { label: 'Where am I losing money', q: 'where am i losing money' }, { label: 'Who owes money', q: 'list of patients with dues' }],
+    state: { ...state, lastQ: null } };
 
   const evidence: Evidence[] = [];
   let findings: any[] = [];
@@ -84,5 +91,5 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
     chips: (res.suggest || []).filter((c: any) => c?.label && c?.q).slice(0, 4),
     evidence: evidence.map((e) => ({ step: e.step, tool: e.tool, label: e.label, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, summary: e.summary, data: e.data, sql: e.sql, error: e.error })),
     meta: { calls, ms: Date.now() - t0, steps: evidence.length, rounds },
-    state: { ...state, lastQ: q, kind: 'analysis' } } as V2Answer;
+    state: { ...state, lastQ: q, kind: 'analysis', lastPlan: steps.map((s: any) => ({ tool: s.tool, args: s.args })) } } as V2Answer;
 }

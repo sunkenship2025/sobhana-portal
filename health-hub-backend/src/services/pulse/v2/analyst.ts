@@ -44,6 +44,7 @@ OPERATIONAL TOOLS — states of the business, not metrics. These are what an own
   quiet_doctors    {period, priorDays}               referrers who used to send work and stopped
   leakage          {period}                          discount, cancellation and refund rates
   worklist         {kind, branch, limit, olderThanDays, minAmountInPaise, hours, days}
+      {kind, branch, limit, sort:"oldest|newest|largest|name", olderThanDays, minAmountInPaise}
       A LIST OF PATIENTS TO ACT ON, with names and phone numbers. This is allowed — it is the
       owner's own patient list and they need it to do the work. kind is one of:
         "dues"            who owes money, largest first. olderThanDays / minAmountInPaise narrow it
@@ -80,6 +81,14 @@ and a decomposition. "What should I worry about" needs a scan, not a report. "Ho
 needs a few headline numbers and nothing else.
 
 ${TOOLBOX}
+
+CONTINUING A CONVERSATION
+If you are given THE PREVIOUS PLAN, the new question is often a CHANGE to it rather than a new
+analysis — a different order, period, branch, or number of rows. Reissue the previous steps with
+only that change applied. "oldest to newest" after a dues list is the same worklist with
+sort:"oldest". "only balanagar" is the same step with branch:"BLN". For a "query" step, rewrite
+the question to carry the change. Never answer a modification as if it were a fresh question, and
+never fall back to a general overview.
 
 DEFAULT TO "query" FOR A FIGURE
 If the owner is asking what a number is, plan one "query" step with their question in full. That is
