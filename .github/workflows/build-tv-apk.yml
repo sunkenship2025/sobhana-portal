@@ -1,0 +1,41 @@
+name: Build TV APK
+
+# Builds the Sobhana waiting-room display Android APK. Runs on push to the
+# sobhana-tv/ folder and can be run manually. Download the APK from the run's
+# "Artifacts" section, then sideload it on the TV.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'sobhana-tv/**'
+      - '.github/workflows/build-tv-apk.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build debug APK
+        working-directory: sobhana-tv
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sobhana-display-apk
+          path: sobhana-tv/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
