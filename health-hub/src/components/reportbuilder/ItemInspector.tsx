@@ -303,8 +303,8 @@ export function ItemInspectorBody({
               </div>
               <div className="space-y-1.5"><Label className="text-xs">…or text range (e.g. Negative)</Label><Input value={canon.referenceText} onChange={(e) => setC({ referenceText: e.target.value })} disabled={!isActive} /></div>
               <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1.5"><Label className="text-xs">Critical low</Label><Input value={canon.criticalMin} onChange={(e) => setC({ criticalMin: e.target.value })} disabled={!isActive} /></div>
-                <div className="space-y-1.5"><Label className="text-xs">Critical high</Label><Input value={canon.criticalMax} onChange={(e) => setC({ criticalMax: e.target.value })} disabled={!isActive} /></div>
+                <div className="space-y-1.5"><Label className="text-xs">Critical low (optional)</Label><Input value={canon.criticalMin} onChange={(e) => setC({ criticalMin: e.target.value })} disabled={!isActive} /></div>
+                <div className="space-y-1.5"><Label className="text-xs">Critical high (optional)</Label><Input value={canon.criticalMax} onChange={(e) => setC({ criticalMax: e.target.value })} disabled={!isActive} /></div>
               </div>
 
               {/* Age / gender variants */}
