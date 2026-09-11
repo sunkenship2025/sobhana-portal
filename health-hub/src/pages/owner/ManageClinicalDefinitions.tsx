@@ -322,7 +322,6 @@ export default function ManageClinicalDefinitions() {
     setFormRanges([]); setFormRules([]);
     setFormShowCritical(false);
     setFormGeneralCriticalMin(''); setFormGeneralCriticalMax('');
-    setFormSampleType('');
     setFormMethod(''); setFormDepartmentId('');
     setFormInputConfig(null);
     setInputConfigDirty(false);

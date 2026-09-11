@@ -810,6 +810,10 @@ export interface DaySheetRow {
   patientName: string;
   patientTitle: string | null;
   branchCode: string;
+  // Referring doctor, matching the printed bill: the name, or 'SELF' when a
+  // diagnostic visit has none. Null for clinic visits — the Tests column
+  // already names the consulting doctor there.
+  referredBy: string | null;
   domain: 'DIAGNOSTICS' | 'CLINIC';
   tests: string; // comma-joined test/consultation names
   testCount: number;
@@ -888,6 +892,13 @@ export async function getMoneyDaySheet(
               select: { testNameSnapshot: true },
             },
             clinicVisit: { select: { clinicDoctor: { select: { name: true } } } },
+            // Same shape the bill PDF uses (billPdfService.ts:178) — soft-deleted
+            // referrals are history, not the current referrer.
+            referrals: {
+              where: { deletedAt: null },
+              take: 1,
+              select: { referralDoctor: { select: { name: true } } },
+            },
           },
         },
         transactions: {
@@ -934,6 +945,9 @@ export async function getMoneyDaySheet(
       patientName: b.visit.patient.name,
       patientTitle: b.visit.patient.title,
       branchCode: b.branch.code,
+      referredBy:
+        b.visit.referrals[0]?.referralDoctor?.name ??
+        (b.visit.domain === 'DIAGNOSTICS' ? 'SELF' : null),
       domain: b.visit.domain as DaySheetRow['domain'],
       tests: testNames.join(', '),
       testCount: b.visit.domain === 'CLINIC' ? 1 : b.visit.testOrders.length,

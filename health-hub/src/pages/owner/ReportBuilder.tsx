@@ -145,7 +145,7 @@ export default function ReportBuilder() {
           code: it.testDefinition?.code ?? d?.code ?? '', name: it.testDefinition?.name ?? d?.name ?? '',
           referenceUnit: d?.referenceUnit ?? null, referenceMin: d?.referenceMin ?? null, referenceMax: d?.referenceMax ?? null,
           referenceText: d?.referenceText ?? null, criticalMin: d?.criticalMin ?? null, criticalMax: d?.criticalMax ?? null,
-          method: d?.method ?? null, sampleType: d?.sampleType ?? null,
+          method: d?.method ?? null,
           displayLabel: it.displayLabel ?? null, subGroup: it.subGroup ?? null, indentLevel: it.indentLevel ?? 0,
           isBold: !!it.isBold, isItalic: !!it.isItalic, methodText: it.methodText ?? null, showMethod: !!it.showMethod,
           joinPrevious: !!it.joinPrevious, gridWidth: it.gridWidth ?? null, mockValue: null, mockTextValue: null,
@@ -182,7 +182,7 @@ export default function ReportBuilder() {
     },
     items: renderedItems.map((it, idx) => ({
       testDefinition: {
-        code: it.code, name: it.name, method: it.method, sampleType: it.sampleType,
+        code: it.code, name: it.name, method: it.method,
         referenceMin: it.referenceMin, referenceMax: it.referenceMax, referenceUnit: it.referenceUnit,
         referenceText: it.referenceText, criticalMin: it.criticalMin, criticalMax: it.criticalMax,
       },

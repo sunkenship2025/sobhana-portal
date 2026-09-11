@@ -12,6 +12,7 @@ export interface DaySheetRow {
   patientName: string;
   patientTitle: string | null;
   branchCode: string;
+  referredBy: string | null;
   domain: 'DIAGNOSTICS' | 'CLINIC';
   tests: string;
   testCount: number;
@@ -104,6 +105,7 @@ export function buildDaySheetHtml(data: DaySheetResponse): string {
         <td>${esc(istDateTime(r.billedAtIso))}</td>
         <td>${esc(r.billNumber)}</td>
         <td>${esc(patient)}</td>
+        <td>${esc(r.referredBy ?? '—')}</td>
         <td>${esc(r.branchCode)}</td>
         <td class="tests">${esc(r.tests)}</td>
         <td class="amt">${rupees(r.grossInPaise)}</td>
@@ -154,6 +156,7 @@ export function buildDaySheetHtml(data: DaySheetResponse): string {
         <th>Date &amp; time</th>
         <th>Bill No</th>
         <th>Patient</th>
+        <th>Referred by</th>
         <th>Branch</th>
         <th>Tests / service</th>
         <th class="amt">Gross</th>
@@ -170,7 +173,7 @@ export function buildDaySheetHtml(data: DaySheetResponse): string {
     </tbody>
     <tfoot>
       <tr>
-        <td colspan="6" class="amt">Total</td>
+        <td colspan="7" class="amt">Total</td>
         <td class="amt">${rupees(t.grossInPaise)}</td>
         <td class="amt">${rupees(t.discountInPaise)}</td>
         <td class="amt">${rupees(t.cashInPaise)}</td>
