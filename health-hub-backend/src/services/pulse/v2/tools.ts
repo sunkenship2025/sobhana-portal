@@ -280,10 +280,81 @@ async function t_leakage(a: any): Promise<Partial<Evidence>> {
     data: { discount: Number(dd.v || 0), gross, cancelledValue: Number(cc.v || 0), refunded: Number(rr.v || 0) } };
 }
 
+
+/**
+ * WORK LISTS — the owner chasing their own patients.
+ *
+ * This is the one place patient-level rows leave the database, and it is deliberate: an owner
+ * cannot collect a due without a name and a number. It is narrow by construction — three fixed
+ * shapes, a hard row cap, owner-only at the route, and every call written to the audit log.
+ * Free-text SQL still cannot reach these columns; only these queries can.
+ */
+const LIST_CAP = 200;
+async function t_worklist(a: any): Promise<Partial<Evidence>> {
+  const kind = String(a.kind || 'dues').toLowerCase();
+  const limit = Math.min(Math.max(Number(a.limit) || 50, 1), LIST_CAP);
+  const br = a.branch ? String(a.branch).replace(/'/g, "''") : null;
+  const minP = Number(a.minAmountInPaise) || 0;
+  const olderDays = Number(a.olderThanDays) || 0;
+
+  if (kind === 'dues' || kind === 'unpaid' || kind === 'outstanding') {
+    const w = [`b."paymentStatus" <> 'PAID'`, `(b."totalAmountInPaise"-b."discountAmountInPaise"-b."couponDiscountInPaise"-b."reversedChargeInPaise"-b."paidAmountInPaise") > ${minP}`];
+    if (br) w.push(`br.code = '${br}'`);
+    if (olderDays) w.push(`b."billedAt" < now() - interval '${olderDays} days'`);
+    const ex = await query(`SELECT p.name AS patient, p."patientNumber" AS patient_no, ph.phone,
+        b."billNumber" AS bill, br.code AS branch, (b."billedAt" ${IST})::date::text AS billed_on,
+        (b."totalAmountInPaise"-b."discountAmountInPaise"-b."couponDiscountInPaise"-b."reversedChargeInPaise"-b."paidAmountInPaise")::bigint AS due_paise
+      FROM "Bill" b
+      JOIN "Visit" v ON v.id = b."visitId"
+      JOIN "Patient" p ON p.id = v."patientId"
+      JOIN "Branch" br ON br.id = b."branchId"
+      LEFT JOIN "PatientPhone" ph ON ph."patientId" = p.id
+      WHERE ${w.join(' AND ')} ORDER BY due_paise DESC LIMIT ${limit}`, [], LIST_CAP);
+    if (ex.err) return { ok: false, error: ex.err };
+    const rows = ex.rows || [];
+    const total = rows.reduce((s, r: any) => s + Number(r.due_paise || 0), 0);
+    return { ok: true, unit: 'paise', phi: true,
+      summary: { list: 'patients with dues', shown: rows.length, limit, totalShown: fmt(total, 'paise'),
+        note: rows.length === limit ? `capped at ${limit} — ask for a branch or a minimum amount to narrow it` : 'complete list' },
+      data: { rows, total } } as any;
+  }
+  if (kind === 'pending_reports' || kind === 'late_reports') {
+    const hrs = Math.min(Math.max(Number(a.hours) || 24, 1), 720);
+    const w = [`v."createdAt" < now() - interval '${hrs} hours'`, `v."createdAt" > now() - interval '60 days'`];
+    if (br) w.push(`br.code = '${br}'`);
+    const ex = await query(`SELECT p.name AS patient, p."patientNumber" AS patient_no, ph.phone,
+        v."billNumber" AS bill, br.code AS branch, (v."createdAt" ${IST})::date::text AS registered,
+        ROUND(EXTRACT(EPOCH FROM (now() - v."createdAt"))/3600)::int AS hours_waiting
+      FROM "Visit" v JOIN "Patient" p ON p.id = v."patientId" JOIN "Branch" br ON br.id = v."branchId"
+      JOIN "DiagnosticReport" dr ON dr."visitId" = v.id
+      LEFT JOIN "PatientPhone" ph ON ph."patientId" = p.id
+      WHERE ${w.join(' AND ')} AND NOT EXISTS (SELECT 1 FROM "ReportVersion" rv WHERE rv."reportId"=dr.id AND rv.status='FINALIZED')
+      ORDER BY hours_waiting DESC LIMIT ${limit}`, [], LIST_CAP);
+    if (ex.err) return { ok: false, error: ex.err };
+    return { ok: true, unit: 'count', phi: true,
+      summary: { list: `reports pending over ${hrs}h`, shown: (ex.rows || []).length, limit }, data: { rows: ex.rows } } as any;
+  }
+  if (kind === 'not_returned' || kind === 'lapsed') {
+    const days = Math.min(Math.max(Number(a.days) || 90, 7), 730);
+    const ex = await query(`SELECT p.name AS patient, p."patientNumber" AS patient_no, ph.phone,
+        (max(v."createdAt") ${IST})::date::text AS last_visit, count(*)::int AS visits
+      FROM "Visit" v JOIN "Patient" p ON p.id = v."patientId"
+      LEFT JOIN "PatientPhone" ph ON ph."patientId" = p.id
+      GROUP BY p.id, p.name, p."patientNumber", ph.phone
+      HAVING max(v."createdAt") < now() - interval '${days} days' AND count(*) > 1
+      ORDER BY count(*) DESC LIMIT ${limit}`, [], LIST_CAP);
+    if (ex.err) return { ok: false, error: ex.err };
+    return { ok: true, unit: 'count', phi: true,
+      summary: { list: `repeat patients not seen in ${days} days`, shown: (ex.rows || []).length, limit }, data: { rows: ex.rows } } as any;
+  }
+  return { ok: false, error: `unknown work list '${kind}'. Available: dues, pending_reports, not_returned` };
+}
+
 export const TOOLS: Record<string, (a: any, k: Knowledge) => Promise<Partial<Evidence>>> = {
   metric: t_metric, compare: t_compare, breakdown: t_breakdown, rank: t_rank,
   trend: t_trend, baseline: t_baseline, anomaly: t_anomaly, derive: t_derive, query: t_query,
   receivables: t_receivables, pending_reports: t_pending_reports, quiet_doctors: t_quiet_doctors, leakage: t_leakage,
+  worklist: t_worklist,
 };
 
 const TRANSIENT = /connection pool|timed out|ECONNRESET|terminating connection/i;

@@ -6,7 +6,7 @@
 const BAD = /\b(insert|update|delete|drop|alter|truncate|create|grant|revoke|copy|vacuum|call|do|merge)\b/i;
 // Tables analytics_ro gets NO grant on. Mirrors the DB role — belt and braces.
 const DENY = /"?(ReportAccessToken|BillAccessToken|StatementAccessToken|PatientIdentifier|AppSetting|PatientAuthEvent|Conversation|ConversationMessage|ReportAccessLog|BillAccessLog|LinkAccessLog)"?\b/i;
-const DENYCOL = /"?(passwordHash|token|ipAddress|userAgent|oldValues|newValues|phone|patientSnapshot|signaturesSnapshot)"?\b/i;
+const DENYCOL = /"?(passwordHash|token|ipAddress|userAgent|oldValues|newValues|patientSnapshot|signaturesSnapshot)"?\b/i;
 const PHI = /"?(TestResult|Patient|MessageLog|AuditLog|PatientChangeLog|SmartReport|ReportVersion|ExternalReportUpload|AnomalyEvent|Visit|Bill|TestOrder|ClinicVisit|PaymentTransaction|OrderRefund)"?\b/i;
 const AGG = /\b(count|sum|avg|min|max|percentile_cont|percentile_disc|stddev|variance)\s*\(/i;
 

@@ -43,9 +43,27 @@ OPERATIONAL TOOLS — states of the business, not metrics. These are what an own
   pending_reports  {hours}                           work sitting unfinished, by branch
   quiet_doctors    {period, priorDays}               referrers who used to send work and stopped
   leakage          {period}                          discount, cancellation and refund rates
+  worklist         {kind, branch, limit, olderThanDays, minAmountInPaise, hours, days}
+      A LIST OF PATIENTS TO ACT ON, with names and phone numbers. This is allowed — it is the
+      owner's own patient list and they need it to do the work. kind is one of:
+        "dues"            who owes money, largest first. olderThanDays / minAmountInPaise narrow it
+        "pending_reports" whose report is still unfinished, longest wait first. hours (default 24)
+        "not_returned"    repeat patients not seen in a while. days (default 90)
+      Use it whenever the owner asks to see, list, pull out, call, follow up or chase people.
+      Pair it with "receivables" or a metric when they also want the total.
 
 METRICS — the house definitions, used by the tools above and available to "query" too
 ${metricLines}
+
+THE OWNER'S WORDS FOR THESE — "cases" is not "tests"
+  collection / collected / kitna aaya / paisa   -> revenue        (money RECEIVED)
+  billing / billed                              -> net_billed     (value INVOICED, not collection)
+  cases / footfall / patients came / kitne aaye -> visits         (NOT test_orders)
+  tests / investigations / profiles             -> test_orders
+  due / pending / outstanding / baaki           -> outstanding
+  referral amount / commission / kitna dena hai -> commission
+  "doctor wise", "which doctors", "who is sending" means the REFERRING doctor
+  (ReferralDoctor), never the clinic doctor who sees the patient.
 
 DIMENSIONS: ${KNOWN_DIMS.join(', ')}   (branch codes: CNT, BLN, JGG, IDPL)
 PERIODS: "month" (month-to-date vs the same days last month), "week" (trailing 7 vs previous 7),
@@ -80,8 +98,9 @@ RULES
    tools, not with headline growth. Growth going well does not mean nothing needs attention.
  · If the question cannot be answered from a diagnostic centre's own records (competitors,
    market share, where a patient went instead), return {"outOfScope": true, "why": "..."}.
- · If the question asks for patient names, phone numbers or a list of individuals, return
-   {"phi": true}.
+ · A request for a list of PATIENTS TO ACT ON is answered with the "worklist" tool, not refused.
+   Only return {"phi": true} if they want patient data for something the work lists do not cover
+   — clinical results, diagnoses, or a bulk export of the whole patient database.
 
 Return JSON {"goal":"one sentence, what we are establishing","steps":[{"tool":"...","label":"<=6 words","args":{...}}]}.`;
 
