@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Step } from './usePulse';
+import type { Step, Segments } from './usePulse';
 import { Artifact } from './PulseArtifacts';
 import { rupees } from './format';
 import type { usePulse, Turn } from './usePulse';
@@ -23,6 +23,35 @@ const Chips = ({ chips, onAsk }: { chips?: { label: string; q: string }[]; onAsk
  * backend now streams what it is measuring and what it has ruled out; the trail stays on screen
  * so the owner can see the reasoning rather than a spinner.
  */
+/**
+ * The answer, laid out by what each part IS. The model used to return one string and emitted a
+ * seven-sentence block whatever the question was; it now declares a verdict, findings, a caveat
+ * and an action, and the contract decides which of those a given job may carry. The model picks
+ * the content, the contract picks the shape, this picks the typography.
+ */
+export function Answer({ s }: { s: Segments }) {
+  return (
+    <div className="pulse-answer space-y-2.5">
+      <p className="text-[13.5px] leading-[1.6]">{s.verdict}</p>
+
+      {!!s.points?.length && (
+        <ul className="space-y-1.5">
+          {s.points.map((p, i) => (
+            <li key={i} className="flex gap-2 text-[13px] leading-[1.55]">
+              <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full" style={{ background: 'var(--pulse-line)' }} />
+              <span>{p.label && <span className="font-medium">{p.label}. </span>}
+                <span className="text-muted-foreground">{p.text}</span></span>
+            </li>))}
+        </ul>)}
+
+      {s.caveat && (
+        <p className="border-l-2 pl-2.5 text-[12.5px] leading-[1.5] text-muted-foreground"
+           style={{ borderColor: 'var(--pulse-line)' }}>{s.caveat}</p>)}
+
+      {s.action && <p className="text-[13px] font-medium leading-[1.55]">{s.action}</p>}
+    </div>);
+}
+
 export function Thinking({ steps }: { steps?: Step[] }) {
   const [n, setN] = useState(0);
   const [secs, setSecs] = useState(0);
@@ -100,7 +129,9 @@ function TurnView({ t, onAsk, onExpand }: { t: Turn; onAsk: (q: string) => void;
       {t.pending && <Thinking steps={t.steps} />}
       {t.error && <p className="text-[13px] text-[#D91C2B]">{t.error}</p>}
       {a && <>
-        {a.text && <p className="pulse-answer whitespace-pre-line text-[13.5px] leading-[1.65]">{a.text}</p>}
+        {a.segments?.verdict
+          ? <Answer s={a.segments} />
+          : a.text && <p className="pulse-answer whitespace-pre-line text-[13.5px] leading-[1.65]">{a.text}</p>}
         {(a.artifacts || []).map((x: any, i: number) => <Artifact key={i} a={x} evidence={a.evidence || []} />)}
         {a.kind === 'refuse' && !a.text && <p className="text-[13.5px]">I couldn't answer that.</p>}
         <Chips chips={a.chips} onAsk={onAsk} />

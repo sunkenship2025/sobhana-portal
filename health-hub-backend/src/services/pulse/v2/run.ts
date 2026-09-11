@@ -190,9 +190,14 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   }).slice(0, 4);
 
   say('Writing it up', 'phase');
+  /** Segments composed into one string for validation, the audit and any client that wants prose. */
+  const compose = (r: any): string => [r?.verdict,
+    ...(Array.isArray(r?.points) ? r.points.map((p: any) => p?.label ? `${p.label}: ${p.text}` : p?.text) : []),
+    r?.caveat, r?.action].filter((x) => typeof x === 'string' && x.trim()).join(' ');
+
   let res = await askResponse(q, plan.goal || '', usable, findings, contract, undefined, brief(inv), options); calls++;
   let artifacts = keepArtifacts(res.artifacts || []);
-  let text = String(res.text || findings[0]?.detail || '').trim();
+  let text = String(res.text || compose(res) || findings[0]?.detail || '').trim();
 
   // Generate → validate → repair once → deterministic simplify. An answer that violates its
   // contract is never shipped as written: a wall of serialised rows is a wrong answer even when
@@ -204,7 +209,7 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   if (!check.ok) {
     try {
       const again = await askResponse(q, plan.goal || '', usable, findings, contract, check.note, brief(inv), options); calls++;
-      const a2 = keepArtifacts(again.artifacts || []), t2 = String(again.text || '').trim();
+      const a2 = keepArtifacts(again.artifacts || []), t2 = String(again.text || compose(again) || '').trim();
       repaired = true;
       if (t2 && checkAnswer(contract, t2, a2, allowed, usable).ok) { res = again; text = t2; artifacts = a2; check = { ok: true, violations: [] }; }
       else if (t2 && a2.length >= artifacts.length) { res = again; text = t2; artifacts = a2; }
@@ -246,7 +251,11 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     answer: { text, artifacts: artifacts.map((a: any) => a.type), chips: (res.suggest || []).map((c: any) => c?.label) },
     timing: { toEvidence: tRender - t0, toAnswer: Date.now() - tRender },
   };
-  return { kind: 'analysis', goal: plan.goal || '', spec, job, investigation: brief(inv), trace, text, artifacts, findings,
+  // the segments travel alongside the composed text, so the panel can lay them out and an older
+  // client still gets a readable paragraph
+  const segments = simplified ? null : { verdict: (res as any).verdict, points: (res as any).points,
+    caveat: (res as any).caveat, action: (res as any).action };
+  return { kind: 'analysis', goal: plan.goal || '', spec, job, investigation: brief(inv), trace, text, segments, artifacts, findings,
     chips: (res.suggest || []).filter((c: any) => c?.label && c?.q).slice(0, 4),
     evidence: evidence.map((e) => ({ step: e.step, tool: e.tool, label: e.label, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, detail: e.detail, summary: e.summary, data: e.data, sql: e.sql, error: e.error })),
     meta: { calls, ms: Date.now() - t0, steps: evidence.length, rounds },

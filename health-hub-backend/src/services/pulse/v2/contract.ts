@@ -33,6 +33,11 @@ export interface Contract {
   rowsInProse: boolean;
   /** filled at runtime: the artifact types this evidence can truthfully support */
   canShow?: string[];
+  /** the prose SEGMENTS this job is allowed, and how many points it may carry. The model chooses
+   *  what goes in them; the contract chooses which exist and the UI chooses the typography —
+   *  the same division that works for artifacts. Left to itself the writer emits one block of
+   *  seven sentences whatever the question was. */
+  segments: { verdict: true; points: number; caveat: boolean; action: boolean };
 }
 
 type Base = Omit<Contract, 'job' | 'canShow'>;
@@ -42,61 +47,73 @@ const BASE: Record<AnalyticalJob, Base> = {
     prose: 'The number, its scope and its period, in one sentence. A second sentence only if it needs a caveat — a partial period, an unusual definition.',
     artifact: 'Usually nothing; the sentence is the answer.',
     needsArtifact: false, maxNumbers: 3, rowsInProse: true,
+    segments: { verdict: true, points: 0, caveat: true,  action: false },
   },
   comparison: {
     prose: 'Both figures, the direction, the size of the change, and then what it means for the business.',
     artifact: 'Optional — the two side by side, or the contributors if the change breaks down.',
     needsArtifact: false, maxNumbers: 5, rowsInProse: true,
+    segments: { verdict: true, points: 2, caveat: true,  action: false },
   },
   composition: {
     prose: 'The total, and the one or two parts that carry it. Say what the split SHOWS. Never recite every part.',
     artifact: 'All the parts with their shares. This is where the detail lives.',
     needsArtifact: true, maxNumbers: 6, rowsInProse: false,
+    segments: { verdict: true, points: 2, caveat: false, action: false },
   },
   concentration: {
     prose: 'How few things account for how much — name the top one and what it implies. The rest of the order is not prose.',
     artifact: 'Every member in order, with the running share.',
     needsArtifact: true, maxNumbers: 6, rowsInProse: false,
+    segments: { verdict: true, points: 2, caveat: false, action: true },
   },
   attribution: {
     prose: 'What moved, by how much, and what drove it. At most three drivers, largest first. Anything immaterial beside the headline stays out of the sentences entirely.',
     artifact: 'The signed contributions, so the direction and the size are visible at a glance.',
     needsArtifact: true, maxNumbers: 8, rowsInProse: false,
+    segments: { verdict: true, points: 3, caveat: true,  action: false },
   },
   progression: {
     prose: 'The direction, the size of the move, and the turning point if there is one. Not every bucket.',
     artifact: 'The series. Required — a shape over time is exactly what words cannot carry.',
     needsArtifact: true, maxNumbers: 5, rowsInProse: false,
+    segments: { verdict: true, points: 2, caveat: true,  action: false },
   },
   variability: {
     prose: 'The typical value AND the tail. An average alone hides what the owner needs to act on.',
     artifact: 'The spread.',
     needsArtifact: true, maxNumbers: 5, rowsInProse: false,
+    segments: { verdict: true, points: 2, caveat: true,  action: false },
   },
   conversion: {
     prose: 'How many entered, how many came through, and where the loss is concentrated.',
     artifact: 'The stages.',
     needsArtifact: true, maxNumbers: 5, rowsInProse: false,
+    segments: { verdict: true, points: 2, caveat: false, action: true },
   },
   relationship: {
     prose: 'Whether the two move together, how strongly, and which members break the pattern.',
     artifact: 'The pairs, when seeing the outliers matters.',
     needsArtifact: false, maxNumbers: 6, rowsInProse: false,
+    segments: { verdict: true, points: 2, caveat: true,  action: false },
   },
   ranking: {
     prose: 'Who is top and by how much, and what that implies. Name the runner-up ONLY when the gap matters.',
     artifact: 'The full order with values.',
     needsArtifact: true, maxNumbers: 6, rowsInProse: false,
+    segments: { verdict: true, points: 2, caveat: false, action: false },
   },
   enumeration: {
     prose: 'You MUST state two figures: how many there are, and what they come to in total. Then how it is sorted and anything worth noticing about the set. Individual rows NEVER go in prose — a count without a total is half an answer.',
     artifact: 'The rows themselves, with names, numbers and amounts.',
     needsArtifact: true, maxNumbers: 5, rowsInProse: false,
+    segments: { verdict: true, points: 1, caveat: false, action: false },
   },
   explanation: {
     prose: "A real explanation, in an analyst's voice: what happened, what drove it, what it means. Prose IS the right answer here — do not compress it into a card. Lead with the conclusion, then at most three drivers, then the implication. Only material numbers; supporting detail belongs in an artifact if it is worth showing at all.",
     artifact: 'Optional, and often earned: the contributing split, when seeing it adds something the sentences cannot say.',
     needsArtifact: false, maxNumbers: 8, rowsInProse: false,
+    segments: { verdict: true, points: 3, caveat: true,  action: true  },
   },
 };
 

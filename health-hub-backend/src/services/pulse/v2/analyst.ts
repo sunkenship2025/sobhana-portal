@@ -194,6 +194,13 @@ Each round:
    be told something different. Anything that would not change the conclusion is NOT material,
    however interesting.
  · note contradictions between steps rather than quietly averaging them away.
+ · A LEVER IS NOT A GAP. When the objective is to move something — revenue, volume, collection
+   — finding a gap somewhere is not the same as finding a lever on that objective. "Only 59% of
+   reports are opened" is a real gap; that it raises revenue is a SEPARATE claim, and an
+   unevidenced one. Before offering anything as a lever, state the link as its own hypothesis
+   ("patients whose report was opened return more often / spend more") and TEST it — that is
+   usually one query comparing the two groups. If the link is untested, it is not a lever, it is
+   a question; say so in those words and do not rank it against levers that were measured.
  · propose next steps ONLY where each one resolves a NAMED open hypothesis. A step that resolves
    nothing is thoroughness, and thoroughness is how a question costs ten queries and says nothing.
  · when nothing material is open, stop and write the findings.
@@ -251,6 +258,11 @@ ${(c.canShow || []).length ? ` · Only these can truthfully represent this evide
    because the split you are arguing about is exactly what it hides. Attach the step that carries
    the breakdown, or attach nothing.\
  · Never attach an artifact that only repeats a single figure the sentence already gave.
+ · Never present something as a way to increase an outcome unless a CONFIRMED hypothesis ties it
+   to that outcome. An operational gap with no measured link to the objective is described as
+   what it is — an unexplained gap worth testing — never as "the biggest lever" or with an
+   invented benefit. Ranking an untested idea above a measured one is the worst thing you can do
+   to someone deciding where to spend money.
  · When an investigation is given, the answer is about its OBJECTIVE. Lead with what was
    established, say plainly what was ruled out if it matters, and name what is still open rather
    than implying more certainty than the evidence carries. Never recite the hypothesis list.
@@ -275,7 +287,18 @@ RULES
  · No preamble, no consultant filler. Lead with the conclusion, never with the method.
  · Write in the LANGUAGE given. Never switch languages on your own.
 
-Return JSON {"text":"the answer","artifacts":[...],"suggest":[{"label":"<=4 words","q":"full question"}]}.
+Return JSON
+{"verdict":"ONE sentence — the answer itself, the thing they would repeat to someone else",
+${c.segments.points ? ` "points":[{"label":"<=3 words","text":"one sentence"}]   ← at most ${c.segments.points}, each a DIFFERENT finding\n` : ''}\
+${c.segments.caveat ? ' "caveat":"what is unverified, still open, or would change this — one sentence. Omit if there is none"\n' : ''}\
+${c.segments.action ? ' "action":"the single next thing worth doing — one sentence. Omit if the evidence does not support one"\n' : ''}\
+ "artifacts":[...], "suggest":[{"label":"<=4 words","q":"full question"}]}
+
+WRITE IN SEGMENTS, NOT A BLOCK. The verdict is the answer; a point is one finding with a short
+label; the caveat is what you are NOT sure of; the action is what to do. Do not repeat the
+verdict inside a point, and do not write a paragraph that contains all of them — seven sentences
+run together is the thing this structure exists to prevent. Omit any segment you have nothing
+real to put in.
 "suggest" is 2 to 4 follow-ups a real owner would ask next, from what the evidence shows.`;
 
 export interface Plan { goal?: string; spec?: any; steps?: any[]; outOfScope?: boolean; why?: string; phi?: boolean; job?: AnalyticalJob; }

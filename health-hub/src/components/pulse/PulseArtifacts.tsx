@@ -37,8 +37,30 @@ function Compare({ a, ev }: { a: any; ev: Ev }) {
     </div>
     {s.comparison && <div className="mt-2 text-[11px] text-muted-foreground">{s.comparison}</div>}</Card>;
 }
+/**
+ * Rows can arrive under any of these. A `query` step puts them in summary.rows while the registry
+ * tools use `parts`, so a breakdown bound to a query step found nothing, drew zero bars, and
+ * still painted its card and title — an empty box captioned "WALK-IN REVENUE BY SERVICE LINE".
+ * Capability had said the step was drawable; the renderer disagreed, and nothing reconciled them.
+ */
+function seriesOf(ev: Ev): any[] {
+  const s = ev.summary || {};
+  const pick = s.parts || s.byBranch || s.top || s.doctors || s.rows || ev.data?.rows || [];
+  if (!Array.isArray(pick) || !pick.length) return [];
+  // normalise a raw row {reason, discount} into the {name, value} the bars expect
+  if (pick[0] && typeof pick[0] === 'object' && !('name' in pick[0]) && !('k' in pick[0])) {
+    const cols = Object.keys(pick[0]);
+    const label = cols.find((c) => typeof pick[0][c] === 'string');
+    const val = cols.find((c) => c !== label && (typeof pick[0][c] === 'number' || /₹|%/.test(String(pick[0][c]))));
+    if (label && val) return pick.map((r: any) => ({ name: r[label], value: r[val] }));
+    return [];
+  }
+  return pick.map((r: any) => ({ ...r, name: r.name ?? r.k }));
+}
+
 function Breakdown({ a, ev }: { a: any; ev: Ev }) {
-  const parts = ev.summary?.parts || ev.summary?.byBranch || ev.summary?.top || [];
+  const parts = seriesOf(ev);
+  if (!parts.length) return null;                 // never a titled empty box
   const max = Math.max(...parts.map((p: any) => Math.abs(Number(String(p.value).replace(/[^\d.-]/g, '')) || 0)), 1);
   return <Card><K>{a.label || `${lbl(ev.metric || '')}${ev.dimension ? ` by ${lbl(ev.dimension)}` : ''}`}</K>
     <div className="mt-2 space-y-1.5">
@@ -56,7 +78,8 @@ function Breakdown({ a, ev }: { a: any; ev: Ev }) {
     {ev.summary?.total && <div className="mt-2.5 border-t pt-2 text-[11.5px] text-muted-foreground">Total {ev.summary.total}</div>}</Card>;
 }
 function Ranking({ a, ev }: { a: any; ev: Ev }) {
-  const rows = ev.summary?.top || ev.summary?.doctors || ev.summary?.parts || [];
+  const rows = seriesOf(ev);
+  if (!rows.length) return null;
   return <Card><K>{a.label || `Top ${lbl(ev.dimension || '')}`}</K>
     <div className="mt-1.5 divide-y divide-dashed">
       {rows.slice(0, 8).map((r: any, i: number) => (
@@ -118,7 +141,7 @@ const dispSum = (n: number, anyFormatted: boolean, unit?: any) =>
  * run out from a centre line so a fall reads as a fall.
  */
 function Waterfall({ a, ev }: { a: any; ev: Ev }) {
-  const parts = ev.summary?.parts || ev.summary?.byBranch || [];
+  const parts = seriesOf(ev);
   const items = parts.map((p: any) => ({ name: p.name, d: num(p.change ?? p.delta), raw: p.change ?? p.delta }))
     .filter((i: any) => i.d !== 0).sort((x: any, y: any) => Math.abs(y.d) - Math.abs(x.d)).slice(0, 8);
   const fmtd = items.some((i: any) => isFormatted(i.raw));
@@ -183,7 +206,7 @@ function Distribution({ a, ev }: { a: any; ev: Ev }) {
  * in one glance how few things account for most of it.
  */
 function Pareto({ a, ev }: { a: any; ev: Ev }) {
-  const src = ev.summary?.parts || ev.summary?.top || ev.data?.rows || [];
+  const src = seriesOf(ev);
   const items = src.map((p: any) => {
     const rawV = p.value ?? p.v ?? Object.values(p).find((x: any) => typeof x === 'number' || isFormatted(x));
     return { name: p.name ?? p.k ?? p.reason ?? p.branch ?? Object.values(p)[0], v: Math.abs(num(rawV)), raw: rawV };
