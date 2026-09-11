@@ -388,7 +388,9 @@ export const askInvestigate = (q: string, goal: string, ev: Evidence[], prior?: 
       // summaries of every step, so the prompt grew with the investigation and so did the
       // latency of the call that decides whether to continue it.
       evidence: ev.filter((e) => e.ok).map((e) => ({ step: e.step, label: e.label, tool: e.tool, result: clip(e.summary) })) }),
-    { maxTokens: 1800 });
+    // hypotheses + requirements + next + findings + contradictions in one object. At 1800 it
+    // truncated mid-array at 6,532 characters and took the whole turn down with it.
+    { maxTokens: 3000 });
 
 export const askResponse = (q: string, goal: string, ev: Evidence[], findings: any[], c: Contract, repair?: string, investigation?: any, ranked?: any[]) =>
   llmJson<{ text?: string; artifacts?: any[]; suggest?: any[] }>(RESPOND_SYS(c) + (repair ? `\n\nYOUR LAST ATTEMPT WAS REJECTED: ${repair}\nRewrite it. Move the detail into the artifact and keep the conclusion in the sentences.` : ''),
@@ -397,4 +399,6 @@ export const askResponse = (q: string, goal: string, ev: Evidence[], findings: a
         rows: writerRows(e.data?.rows ?? (e.summary as any)?.rows) })) }),
     // Sized opportunities are long objects — at 900 the array truncated mid-element and the
     // whole turn fell through to V1, which answered with the old dues definition.
-    { maxTokens: c.job === 'opportunity' ? 3000 : 1000 });
+    // An opportunity write-up carries sized objects AND the prose; 3000 still truncated on a
+    // question with eight hypotheses, and a truncated write-up costs the entire investigation.
+    { maxTokens: c.job === 'opportunity' ? 4000 : 1200 });

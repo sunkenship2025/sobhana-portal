@@ -133,7 +133,53 @@ export function parseLoose(raw: string): unknown {
   const first = text.indexOf('{');
   const last = text.lastIndexOf('}');
   if (first !== -1 && last > first) {
-    return JSON.parse(text.slice(first, last + 1));
+    try { return JSON.parse(text.slice(first, last + 1)); } catch { /* fall through to salvage */ }
   }
+  if (first !== -1) { const s = salvage(text.slice(first)); if (s) return s; }
   throw new Error('model response was not JSON');
+}
+
+/**
+ * A response cut off at max_tokens. This has killed whole turns repeatedly — one truncated
+ * hypothesis array and the entire analysis falls back to a path that answers a different
+ * question — so the parseable PREFIX is worth keeping.
+ *
+ * The one thing it must never do is close a truncated string. `{"sql":"SELECT x FROM bill WHERE
+ * branch='CNT'` cut before ` AND month = ...` would close into SQL that runs and returns a
+ * confidently wrong number. So a value the model was still writing is dropped, not completed:
+ * we rewind to the last position that was definitely between values, and close only structure.
+ */
+function salvage(text: string): unknown | null {
+  const closers: string[] = [], starts: number[] = [];
+  let inStr = false, esc = false, safe = -1;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') { inStr = true; continue; }
+    else if (c === '{' || c === '[') { closers.push(c === '{' ? '}' : ']'); starts.push(i); }
+    else if (c === '}' || c === ']') { closers.pop(); starts.pop(); }
+    else if (c === ',') safe = i - 1;               // everything before the comma is complete
+  }
+  if (!closers.length) return null;                 // it was not truncated; nothing to salvage
+  // The outermost object is unclosed in EVERY truncated response, so closing it is the point.
+  // A deeper unclosed container is a half-written element — drop it rather than close it, or a
+  // hypothesis with no claim (or worse, half a WHERE clause) survives looking complete.
+  const cut = closers.length > 1 ? starts[starts.length - 1] : safe + 1;
+  if (cut <= 0) return null;
+  const head = text.slice(0, cut).replace(/[,\s]+$/, '');
+  const open: string[] = [];
+  let s2 = false, e2 = false;
+  for (const c of head) {
+    if (s2) { if (e2) e2 = false; else if (c === '\\') e2 = true; else if (c === '"') s2 = false; continue; }
+    if (c === '"') s2 = true;
+    else if (c === '{') open.push('}');
+    else if (c === '[') open.push(']');
+    else if (c === '}' || c === ']') open.pop();
+  }
+  try { return JSON.parse(head + open.reverse().join('')); } catch { return null; }
 }

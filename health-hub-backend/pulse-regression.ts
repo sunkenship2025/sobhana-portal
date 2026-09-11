@@ -13,6 +13,16 @@ import { PrismaClient } from '@prisma/client';
 const db = new PrismaClient({ datasources: { db: { url: process.env.ANALYTICS_DATABASE_URL } } });
 const q = (s: string) => db.$queryRawUnsafe<any[]>(s);
 const IST = (c: string) => `(${c} AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')`;
+/* Today in IST, not the database's UTC date. The columns were being converted and the BOUNDARIES
+   were not, so between 18:30 UTC and midnight the harness compared a window one day behind the
+   one Pulse had correctly used, and failed two cases that were right. Half a timezone conversion
+   is worse than none: it looks converted. */
+/* NOT the double conversion used for columns above. A Prisma DateTime column is a NAIVE
+   timestamp, so it needs `AT TIME ZONE 'UTC'` first to say what it is; CURRENT_TIMESTAMP already
+   knows its zone, and converting it twice lands a day early — which is how the first attempt at
+   this fix took the suite from 10/12 to 8/12. Verified against the database: at 00:01 IST,
+   CURRENT_DATE and the double conversion both say the 11th; this says the 12th. */
+const TODAY = `(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date`;
 const COLL = `SUM(CASE WHEN pt."transactionType"='REFUND' THEN -pt."amountInPaise" ELSE pt."amountInPaise" END)`;
 const DUE = `(b."totalAmountInPaise"-b."discountAmountInPaise"-b."couponDiscountInPaise"-b."reversedChargeInPaise"-b."paidAmountInPaise")`;
 const PAY = `"PaymentTransaction" pt JOIN "Bill" b ON b.id=pt."billId" JOIN "Branch" br ON br.id=b."branchId"`;
@@ -25,7 +35,7 @@ const LIVE = `br.code NOT IN ('JGG','IDPL')`;
  *  deliberately, so a comparison is like-for-like. Three times now a window that included today
  *  made a correct answer look wrong. Every trailing window in this file goes through here. */
 const lastDays = (col: string, n: number) =>
-  `${IST(col)} >= CURRENT_DATE - ${n} AND ${IST(col)} < CURRENT_DATE`;
+  `${IST(col)} >= ${TODAY} - ${n} AND ${IST(col)} < ${TODAY}`;
 const IMG = `('Ultrasound','Ultrasound Tiffa','2D Echo','X-Ray','Dental X-Ray','CT / MRI')`;
 const ORD = `"TestOrder" o JOIN "Branch" br ON br.id=o."branchId"`;
 const AUG = `${IST('o."createdAt"')}>='2026-08-01' AND ${IST('o."createdAt"')}<'2026-09-01'`;
@@ -41,7 +51,7 @@ const CASES: Array<{ id: string; q: string; truth: () => Promise<string>; note: 
 
   { id: 'BRANCH_DAY', note: 'branch + single day',
     q: 'how much collection yesterday chintal',
-    truth: async () => R((await q(`SELECT ${COLL} p FROM ${PAY} WHERE br.code='CNT' AND ${IST('pt."transactionDate"')} >= CURRENT_DATE - 1 AND ${IST('pt."transactionDate"')} < CURRENT_DATE`))[0].p) },
+    truth: async () => R((await q(`SELECT ${COLL} p FROM ${PAY} WHERE br.code='CNT' AND ${IST('pt."transactionDate"')} >= ${TODAY} - 1 AND ${IST('pt."transactionDate"')} < ${TODAY}`))[0].p) },
 
   { id: 'DUES_TOTAL', note: 'the list that reported 10/₹5,002 where 11 owed ₹5,802',
     q: 'give me list of all dues with name number amt from oldest to newest',
@@ -65,7 +75,7 @@ const CASES: Array<{ id: string; q: string; truth: () => Promise<string>; note: 
 
   { id: 'TURNOVER', note: 'turnover must mean collected, not billed',
     q: 'what is turnover of this month',
-    truth: async () => R((await q(`SELECT ${COLL} p FROM ${PAY} WHERE ${LIVE} AND ${IST('pt."transactionDate"')} >= date_trunc('month', CURRENT_DATE) AND ${IST('pt."transactionDate"')} < CURRENT_DATE`))[0].p) },
+    truth: async () => R((await q(`SELECT ${COLL} p FROM ${PAY} WHERE ${LIVE} AND ${IST('pt."transactionDate"')} >= date_trunc('month', ${TODAY}) AND ${IST('pt."transactionDate"')} < ${TODAY}`))[0].p) },
 
   { id: 'DISCOUNT_REASON', note: 'the top discount reason by value',
     q: 'break down discounts at chintal in the last 30 days by reason',

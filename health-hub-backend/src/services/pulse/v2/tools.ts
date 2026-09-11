@@ -27,6 +27,13 @@ export interface Evidence {
   /** how long this step took, for the trace */
   ms?: number;
   sql?: string; error?: string;
+  /** model calls this step actually spent — a generated query is one call plus any repairs, and
+   *  counting only the generation is how a 30-call ceiling was passed at 31. */
+  calls?: number;
+  /** a failure this step recovered from on its own. Recovery is PROGRESS, not stagnation — a
+   *  query that fails, gets told what it dropped, and comes back with the evidence has advanced
+   *  the investigation. The detector needs to be able to see the difference. */
+  recovered?: string;
 }
 
 /** The one projection into the writer's hands. `summary` promised "never raw paise" and
@@ -225,6 +232,8 @@ async function t_derive(a: any): Promise<Partial<Evidence>> {
 async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promise<Partial<Evidence>> {
   const q = String(a.question || '').slice(0, 300);
   if (!q) return { ok: false, error: 'no question given' };
+  let recovered: string | undefined;
+  let spent = 1;                       // the generation itself
   const gen = await generate(k, q);
   let sql = repairIdents(k, gen.sql);
   let bad = validate(sql);
@@ -234,12 +243,12 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promis
   let check = verifySpec(spec, sql);
   if (!check.ok && !ex.err) {
     try {
-      const f = await llmJson<{ sql?: string }>(`Repair PostgreSQL. The query answers a WIDER question than was asked. ${specRepairHint(check)} Return JSON {"sql":"..."}.`,
+      spent++; const f = await llmJson<{ sql?: string }>(`Repair PostgreSQL. The query answers a WIDER question than was asked. ${specRepairHint(check)} Return JSON {"sql":"..."}.`,
         `${gen.ctx}\n\nSQL\n${sql}\n\nPROBLEM\n${check.note}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
-      if (s2 && !validate(s2) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; check = { ok: true, missing: [] }; } }
+      if (s2 && !validate(s2) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; check = { ok: true, missing: [] }; recovered = 'DROPPED_CONSTRAINT'; } }
     } catch { /* fall through to the rejection below */ }
-    if (!check.ok) return { ok: false, sql, error: `dropped a constraint the owner asked for — ${check.note}` };
+    if (!check.ok) return { ok: false, sql, calls: spent, error: `dropped a constraint the owner asked for — ${check.note}` };
   }
   // Typed repair, one attempt — the same contract the single-call path has always had. A query
   // that errors or comes back empty is told WHICH way it failed and rewritten. Without this the
@@ -248,15 +257,15 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promis
     const kind = bad ? 'BLOCKED_BY_POLICY' : ex.err && /does not exist/.test(ex.err) ? 'MISSING_IDENTIFIER'
       : ex.err && /syntax/i.test(ex.err) ? 'SYNTAX' : ex.err ? 'RUNTIME' : 'EMPTY_RESULT';
     try {
-      const f = await llmJson<{ sql?: string }>(
+      spent++; const f = await llmJson<{ sql?: string }>(
         `Repair PostgreSQL. FAILURE CLASS: ${kind}. ${kind === 'BLOCKED_BY_POLICY' ? 'The query violated a safety rule; rewrite it to satisfy the rule.' : kind === 'EMPTY_RESULT' ? 'It ran but matched nothing — the filter, the period or the join is probably wrong.' : ''} Return JSON {"sql":"..."}.`,
         `${gen.ctx}\n\nSQL\n${sql}\n\nOUTCOME\n${ex.err || '0 rows'}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
-      if (s2 && !validate(s2)) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; } }
+      if (s2 && !validate(s2)) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = kind; } }
     } catch { /* keep the first outcome */ }
   }
-  if (ex.err) return { ok: false, error: ex.err, sql };
-  if (!ex.rows?.length) return { ok: false, error: 'no rows matched', sql };
+  if (ex.err) return { ok: false, error: ex.err, sql, calls: spent };
+  if (!ex.rows?.length) return { ok: false, error: 'no rows matched', sql, calls: spent };
   // A due is the computed balance, never the paymentStatus flag. The flag disagrees with the
   // arithmetic on live rows — 48 bills carry a non-PAID status while 10 actually owe anything —
   // so the wrong one overstates the debtor count nearly fivefold. This was written into the
@@ -266,11 +275,11 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promis
   const badDue = () => duesQ && /"Bill"/.test(sql) && (/"paymentStatus"/.test(sql) || !/paidAmountInPaise/.test(sql));
   if (badDue()) {
     try {
-      const f = await llmJson<{ sql?: string }>(
+      spent++; const f = await llmJson<{ sql?: string }>(
         `Repair PostgreSQL. FAILURE CLASS: DUE_DEFINITION. A due is the arithmetic, never the status flag. Filter on (b."totalAmountInPaise" - b."discountAmountInPaise" - b."couponDiscountInPaise" - b."reversedChargeInPaise" - b."paidAmountInPaise") > 0 and remove any "paymentStatus" condition. Counting PATIENTS means COUNT(DISTINCT v."patientId") via "Visit", not a count of bills. Change nothing else. Return JSON {"sql":"..."}.`,
         `${gen.ctx}\n\nSQL\n${sql}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
-      if (s2 && !validate(s2) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; } }
+      if (s2 && !validate(s2) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'DUE_DEFINITION'; } }
     } catch { /* keep what we had */ }
   }
 
@@ -282,15 +291,15 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promis
     && !Object.keys(ex.rows[0] || {}).some((c) => /paise/i.test(c));
   if (unlabelled()) {
     try {
-      const f = await llmJson<{ sql?: string }>(
+      spent++; const f = await llmJson<{ sql?: string }>(
         `Repair PostgreSQL. FAILURE CLASS: MONEY_ALIAS. The query reads paise columns but no output column is named "*_paise", so the caller cannot tell paise from rupees. Re-alias every money output column to end in "_paise", through any CTE. Change nothing else. Return JSON {"sql":"..."}.`,
         `${gen.ctx}\n\nSQL\n${sql}\n\nCOLUMNS\n${cols0.join(', ')}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
-      if (s2 && !validate(s2) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; } }
+      if (s2 && !validate(s2) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'MONEY_ALIAS'; } }
     } catch { /* fall through */ }
     if (unlabelled()) return { ok: false, sql, error: 'money columns are not labelled in paise, so the figure cannot be shown safely' };
   }
-  return { ok: true, sql, summary: { question: q, rowCount: ex.rows.length,
+  return { ok: true, sql, recovered, calls: spent, summary: { question: q, rowCount: ex.rows.length,
     rows: writerRows(ex.rows, 12, moneyCols(sql, Object.keys(ex.rows[0] || {}))) }, data: { rows: ex.rows } };
 }
 

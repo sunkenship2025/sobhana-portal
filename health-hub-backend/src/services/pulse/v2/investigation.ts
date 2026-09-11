@@ -211,6 +211,9 @@ export interface RoundProgress {
   newEvidence: number;
   duplicates: number;
   failed: number;
+  /** failures a step recovered from by itself — a repaired query that then returned evidence.
+   *  Counted separately because recovery is progress and must never read as thrashing. */
+  recoveries: number;
   requirementsSatisfied: number;
   resolvedMaterial: number;
   openedMaterial: number;
@@ -259,9 +262,10 @@ export function measure(o: {
   inv: Investigation;
   evidence: any[];
 }): RoundProgress {
-  let newEvidence = 0, duplicates = 0, failed = 0, newDimensions = 0;
+  let newEvidence = 0, duplicates = 0, failed = 0, newDimensions = 0, recoveries = 0;
   for (const e of o.got) {
     if (!e?.ok) { failed++; continue; }
+    if (e.recovered) recoveries++;
     const sig = evidenceSignature(e);
     if (o.seen.has(sig)) duplicates++; else { o.seen.add(sig); newEvidence++; }
     const d = `${e.tool}:${e.dimension ?? ''}:${e.metric ?? ''}`;
@@ -277,7 +281,7 @@ export function measure(o: {
   const requirementsSatisfied = Math.max(0, o.missingBefore - missingRequirements(o.inv, o.evidence));
   const gain = 5 * newEvidence + 10 * resolvedMaterial + 4 * requirementsSatisfied
     + 3 * newDimensions - 5 * duplicates - 3 * failed;
-  return { newEvidence, duplicates, failed, requirementsSatisfied, resolvedMaterial,
+  return { newEvidence, duplicates, failed, recoveries, requirementsSatisfied, resolvedMaterial,
     openedMaterial, newDimensions, gain, state: stateSignature(o.inv) };
 }
 
@@ -294,5 +298,11 @@ export function stagnating(history: RoundProgress[], window = 3): boolean {
   if (history.length < window) return false;
   const last = history.slice(-window);
   if (last.every((p) => p.gain <= 0)) return true;
-  return last.every((p) => p.state === last[0].state) && last.every((p) => p.resolvedMaterial === 0);
+  if (last.every((p) => p.state === last[0].state) && last.every((p) => p.resolvedMaterial === 0)) return true;
+  // The case the first two signals miss, and it is the common one. A query succeeds, returns rows
+  // nobody asked for, satisfies no requirement, settles nothing — and scores POSITIVE, because
+  // novelty earns. Five real runs never once looked stagnant on gain alone while doing exactly
+  // this. Novelty is not progress: a round that neither satisfies a requirement nor settles a
+  // material claim has not advanced the investigation, whatever it returned.
+  return last.every((p) => p.requirementsSatisfied === 0 && p.resolvedMaterial === 0);
 }

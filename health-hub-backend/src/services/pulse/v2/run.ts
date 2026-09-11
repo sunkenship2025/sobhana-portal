@@ -151,7 +151,7 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     const missingBefore = missingRequirements(inv, evidence);
     const got = await pool(3, steps.map((s, i) => () => runStep(s, base + i, k, spec)));
     for (const e of got) if (e.ok && !e.means) e.means = lineage(spec, e.detail);
-    calls += got.filter((e) => e.tool === 'query').length;      // only query steps cost a call (repairs may add one more)
+    calls += got.reduce((n, e) => n + (e.calls ?? (e.tool === 'query' ? 1 : 0)), 0);   // generation AND every repair
     evidence.push(...got);
     // A one-step plan that worked has nothing to interpret — go straight to the answer. This is
     // the common case ("last month collection how much") and it saves a whole round trip.
@@ -249,7 +249,19 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     ...(Array.isArray(r?.points) ? r.points.map((p: any) => p?.label ? `${p.label}: ${p.text}` : p?.text) : []),
     r?.caveat, r?.action].filter((x) => typeof x === 'string' && x.trim()).join(' ');
 
-  let res = await askResponse(q, plan.goal || '', usable, findings, contract, undefined, brief(inv), options); calls++;
+  // The single worst failure mode in the system: the whole investigation completes, the write-up
+  // truncates mid-JSON, V2 throws, and V1 answers a DIFFERENT question with none of this evidence.
+  // Everything above is thrown away for a formatting hiccup. One retry, told to keep it short.
+  let res: any;
+  try { res = await askResponse(q, plan.goal || '', usable, findings, contract, undefined, brief(inv), options); }
+  catch (e: any) {
+    say('Tightening the write-up', 'phase');
+    res = await askResponse(q, plan.goal || '', usable, findings, contract,
+      'Your last reply was cut off before it was valid JSON. Say the same thing in fewer words.',
+      brief(inv), options);
+    calls++;
+  }
+  calls++;
   let artifacts = keepArtifacts(res.artifacts || []);
   let text = String(res.text || compose(res) || findings[0]?.detail || '').trim();
 
@@ -305,7 +317,7 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
       proposed: (plan.steps || []).map((s: any) => ({ tool: s?.tool, label: s?.label, args: s?.args })) },
     executed: evidence.map((e) => ({ i: e.step, tool: e.tool, label: e.label, ok: e.ok, ms: e.ms ?? null,
       rows: Array.isArray((e.data as any)?.rows) ? (e.data as any).rows.length : null,
-      error: e.error, sql: e.sql?.slice(0, 600), means: e.means })),
+      error: e.error, recovered: e.recovered, sql: e.sql?.slice(0, 600), means: e.means })),
     investigation: inv ? { objective: inv.objective, confidence: inv.confidence,
       complete: inv.complete, stoppingReason: inv.stoppingReason, progress: history,
       hypotheses: inv.hypotheses.map((h) => ({ id: h.id, status: h.status, material: h.material, claim: h.claim })),
