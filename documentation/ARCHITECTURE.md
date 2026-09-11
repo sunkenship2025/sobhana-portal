@@ -274,6 +274,7 @@ Repeated ~150 times across pages. Centralizing it in a `lib/apiClient.ts` + reac
 | `PatientIdentifier` | Phone / email / Aadhaar / other. *Indexed not unique* — multiple patients may share a phone (family). |
 | `Visit` | Anchor row for diagnostic OR clinic activity |
 | `Bill` + `PaymentTransaction` | Per-visit billing + payments ledger |
+| `OrderRefund` | Reverses portions of a `TestOrder` charge, linking back to the `Bill` for precise net due tracking. |
 
 ### Diagnostics
 
@@ -284,6 +285,7 @@ Repeated ~150 times across pages. Centralizing it in a `lib/apiClient.ts` + reac
 | `DiagnosticReport` → `ReportVersion` | Versioned report container. `status: DRAFT \| FINALIZED`. `finalizedAt` set on finalize. |
 | `ReportAccessToken` | SHA-256 hashed bearer token → `ReportVersion`. Used in patient-facing URLs. |
 | `BillAccessToken` | Secure public access tokens for bill PDF links sent via WhatsApp |
+| `StatementAccessToken` | Secure public access token for payout statements sent via WhatsApp |
 | `ReportAccessLog` | Append-only — every view/download/print event |
 
 ### Clinical catalog (new architecture)
@@ -322,6 +324,8 @@ Repeated ~150 times across pages. Centralizing it in a `lib/apiClient.ts` + reac
 | `AuditLog` | Append-only — login, finalize, payout, edit. Insert-only by convention (no UPDATE/DELETE in code). |
 | `MessageLog` | WhatsApp / SMS delivery log |
 | `DoctorPayoutLedger` | Payout snapshots per period |
+| `ExternalLab` + `ExternalLabProductRule` | Vendor labs we outsource to and the per-product rates we owe them |
+| `CouponCampaign` + `Coupon` | Event-participation products that mint single-use discount codes |
 | `ExternalReportUpload` | PDFs uploaded for `EXTERNAL_UPLOAD` workflow, stored in R2, soft-deleted via `deletedAt` |
 
 ### Key constraints
