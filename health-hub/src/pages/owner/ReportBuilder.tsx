@@ -74,7 +74,14 @@ export default function ReportBuilder() {
   const setItems = useCallback((updater: (xs: BuilderItem[]) => BuilderItem[]) => { setItemsRaw(updater); touch(); }, [touch]);
   const setP = useCallback((patch: Partial<PanelForm>) => { setPanel((p) => ({ ...p, ...patch })); touch(); }, [touch]);
   const setPReload = (patch: Partial<PanelForm>) => { setP(patch); bumpReload(); };
-  const patchItem = (uid_: string, patch: Partial<BuilderItem>) => setItems((xs) => xs.map((x) => (x._uid === uid_ ? { ...x, ...patch } : x)));
+  // showMethod is not an independent choice — it is "is there method text", and
+  // the renderer draws the line only when BOTH are set. Deriving it here stops
+  // every caller having to remember the second half of the pair; the inspector
+  // field forgot, so a typed method silently never appeared.
+  const patchItem = (uid_: string, patch: Partial<BuilderItem>) =>
+    setItems((xs) => xs.map((x) => (x._uid === uid_
+      ? { ...x, ...patch, ...('methodText' in patch ? { showMethod: !!patch.methodText } : {}) }
+      : x)));
 
   const loadAll = useCallback(async () => {
     try {
@@ -208,7 +215,7 @@ export default function ReportBuilder() {
   const onItemEdit = (index: number, field: 'label' | 'value' | 'refRange' | 'method', value: string) => {
     const it = renderedItems[index]; if (!it) return;
     if (field === 'label') { patchItem(it._uid, { displayLabel: value.trim() || null }); return; }
-    if (field === 'method') { patchItem(it._uid, { methodText: value.trim() || null, showMethod: !!value.trim() }); return; }
+    if (field === 'method') { patchItem(it._uid, { methodText: value.trim() || null }); return; }
     if (field === 'refRange') { saveRefRange(it, value); return; }
     const num = Number(value);
     if (value.trim() !== '' && !Number.isNaN(num)) patchItem(it._uid, { mockValue: num, mockTextValue: null });
