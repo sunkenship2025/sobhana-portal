@@ -7,7 +7,7 @@
  * things before deciding what matters.
  */
 import { query, IST, todayIST, pool } from '../db';
-import { METRICS, METRIC_DIMS, DIMS, dimJoin, dimOk, FROMS, TEST_BRANCHES } from '../catalog';
+import { METRICS, METRIC_DIMS, DIMS, dimJoin, dimOk, FROMS, TEST_BRANCHES, DUE, OWES } from '../catalog';
 import { scalar, periods, baseline as baselineOf, addDays, fmt, windowLabel } from '../diagnostic';
 import { generate } from '../sqlPath';
 import { llmJson } from '../llm';
@@ -296,15 +296,16 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promis
 
 /** money already earned and not collected */
 async function t_receivables(a: any): Promise<Partial<Evidence>> {
-  const r = await query(`SELECT COALESCE(SUM(b."totalAmountInPaise"-b."discountAmountInPaise"-b."couponDiscountInPaise"-b."reversedChargeInPaise"-b."paidAmountInPaise"),0)::bigint v, count(*)::int n,
-      COALESCE(SUM(CASE WHEN b."billedAt" < now() - interval '30 days' THEN b."totalAmountInPaise"-b."discountAmountInPaise"-b."couponDiscountInPaise"-b."reversedChargeInPaise"-b."paidAmountInPaise" ELSE 0 END),0)::bigint old
-    FROM "Bill" b WHERE b."paymentStatus" <> 'PAID'`);
+  const r = await query(`SELECT COALESCE(SUM(${DUE()}),0)::bigint v, count(*)::int n,
+      COUNT(DISTINCT v."patientId")::int patients,
+      COALESCE(SUM(CASE WHEN b."billedAt" < now() - interval '30 days' THEN ${DUE()} ELSE 0 END),0)::bigint old
+    FROM "Bill" b JOIN "Visit" v ON v.id = b."visitId" WHERE ${OWES()}`);
   if (r.err) return { ok: false, error: r.err };
   const row: any = r.rows![0];
-  const byBranch = await query(`SELECT br.code k, COALESCE(SUM(b."totalAmountInPaise"-b."discountAmountInPaise"-b."couponDiscountInPaise"-b."reversedChargeInPaise"-b."paidAmountInPaise"),0)::bigint v
-    FROM "Bill" b JOIN "Branch" br ON br.id=b."branchId" WHERE b."paymentStatus" <> 'PAID' GROUP BY 1 HAVING SUM(b."totalAmountInPaise"-b."paidAmountInPaise") > 0 ORDER BY 2 DESC`);
+  const byBranch = await query(`SELECT br.code k, COALESCE(SUM(${DUE()}),0)::bigint v
+    FROM "Bill" b JOIN "Branch" br ON br.id=b."branchId" WHERE ${OWES()} GROUP BY 1 ORDER BY 2 DESC`);
   return { ok: true, unit: 'paise',
-    summary: { uncollected: fmt(Number(row.v), 'paise'), openBills: Number(row.n), olderThan30Days: fmt(Number(row.old), 'paise'),
+    summary: { uncollected: fmt(Number(row.v), 'paise'), openBills: Number(row.n), patientsOwing: Number(row.patients), olderThan30Days: fmt(Number(row.old), 'paise'),
       byBranch: (byBranch.rows || []).map((x: any) => ({ name: x.k, value: fmt(Number(x.v), 'paise') })) },
     data: { total: Number(row.v), bills: Number(row.n), old: Number(row.old), rows: (byBranch.rows || []).map((x: any) => ({ k: x.k, v: Number(x.v) })) } };
 }
@@ -378,7 +379,7 @@ async function t_worklist(a: any): Promise<Partial<Evidence>> {
     // The computed balance IS the debt. paymentStatus is a denormalised flag that disagrees with
     // it on real rows — trusting both dropped a patient who genuinely owed money, under a
     // "complete list" headline. One source of truth for money.
-    const w = [`(b."totalAmountInPaise"-b."discountAmountInPaise"-b."couponDiscountInPaise"-b."reversedChargeInPaise"-b."paidAmountInPaise") > ${minP}`];
+    const w = [`${DUE()} > ${minP}`];
     if (br) w.push(`br.code = '${br}'`);
     if (olderDays) w.push(`b."billedAt" < now() - interval '${olderDays} days'`);
     const ex = await query(`SELECT p.name AS patient, p."patientNumber" AS patient_no, ph.phone,

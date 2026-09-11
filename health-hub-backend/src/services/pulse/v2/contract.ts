@@ -115,6 +115,12 @@ const BASE: Record<AnalyticalJob, Base> = {
     needsArtifact: false, maxNumbers: 8, rowsInProse: false,
     segments: { verdict: true, points: 3, caveat: true,  action: true  },
   },
+  opportunity: {
+    prose: 'The ranked opportunities, largest realistic value first — each one line saying what it is worth and how sure you are. Say plainly when a figure is a scenario rather than money in hand. Do NOT lead with whatever sounds easiest to act on; that is how a ₹7,400 idea got ranked above a ₹1,05,035 one.',
+    artifact: 'Optional — the split behind the biggest one.',
+    needsArtifact: false, maxNumbers: 10, rowsInProse: false,
+    segments: { verdict: true, points: 0, caveat: true,  action: false },
+  },
 };
 
 /**

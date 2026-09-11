@@ -20,8 +20,14 @@
 
 export type HypothesisStatus = 'open' | 'confirmed' | 'rejected';
 
+/** A named piece of analysis a claim depends on. Structured, so coverage is checkable rather
+ *  than a matter of trusting that the model meant it. */
+export interface Requirement { tool: string; metric?: string; dimension?: string; note?: string }
+
 export interface Hypothesis {
   id: string;
+  /** what this claim needs before it may be called settled */
+  requires?: Requirement[];
   /** a claim that could be true or false, not a topic — "the fall is volume, not price" */
   claim: string;
   status: HypothesisStatus;
@@ -58,6 +64,10 @@ export function normalise(raw: any, fallbackObjective = ''): Investigation {
     evidence: Array.isArray(h?.evidence) ? h.evidence.map(Number).filter(Number.isFinite).slice(0, 8) : [],
     note: h?.note ? String(h.note).slice(0, 240) : undefined,
     material: h?.material !== false,
+    requires: (Array.isArray(h?.requires) ? h.requires : []).slice(0, 4)
+      .map((r: any) => ({ tool: String(r?.tool || ''), metric: r?.metric ? String(r.metric) : undefined,
+        dimension: r?.dimension ? String(r.dimension) : undefined }))
+      .filter((r: Requirement) => r.tool),
   })).filter((h: Hypothesis) => h.claim);
   inv.unresolved = (Array.isArray(raw?.unresolved) ? raw.unresolved : []).map((u: any) => String(u).slice(0, 200)).filter(Boolean).slice(0, 6);
   inv.contradictions = (Array.isArray(raw?.contradictions) ? raw.contradictions : []).map((c: any) => String(c).slice(0, 240)).filter(Boolean).slice(0, 4);
@@ -90,13 +100,46 @@ export function merge(prev: Investigation | null, next: Investigation): Investig
 export const openMaterial = (inv: Investigation | null): Hypothesis[] =>
   (inv?.hypotheses || []).filter((h) => h.status === 'open' && h.material !== false);
 
+/** Which of a claim's requirements the evidence actually satisfies. */
+export function coverage(h: Hypothesis, evidence: { ok: boolean; tool: string; metric?: any; dimension?: any }[]) {
+  const reqs = h.requires || [];
+  const missing = reqs.filter((r) => !evidence.some((e) => e.ok
+    && String(e.tool) === String(r.tool)
+    && (!r.metric || String(e.metric || '') === String(r.metric))
+    && (!r.dimension || String(e.dimension || '') === String(r.dimension))));
+  return { total: reqs.length, missing };
+}
+
+/**
+ * The deterministic gate. The prompt tells the model it is not deciding whether it FEELS
+ * finished — but the loop then stopped because the model returned an empty "next", which is the
+ * same judgment wearing a structured coat. A claim may only be called settled when the analysis
+ * it said it needed actually ran; otherwise it goes back to open, and the loop cannot stop.
+ *
+ * This is what turns "CNT gives ₹76k in discounts" into "CNT gives ₹76k, of which ₹X is
+ * realistically recoverable" — the second requires a step the first never had to take.
+ */
+export function enforce(inv: Investigation, evidence: { ok: boolean; tool: string; metric?: any; dimension?: any }[]):
+  { inv: Investigation; downgraded: { id: string; missing: Requirement[] }[] } {
+  const downgraded: { id: string; missing: Requirement[] }[] = [];
+  const hypotheses = inv.hypotheses.map((h) => {
+    if (h.status === 'open' || !h.requires?.length) return h;
+    const { missing } = coverage(h, evidence);
+    if (!missing.length) return h;
+    downgraded.push({ id: h.id, missing });
+    return { ...h, status: 'open' as const, note: `unsupported: ${missing.map((m) => m.tool + (m.dimension ? ` by ${m.dimension}` : '')).join(', ')} never ran` };
+  });
+  return { inv: { ...inv, hypotheses }, downgraded };
+}
+
 /**
  * Is the objective answered? Not "does the model feel done" — nothing material is still open, or
  * the evidence already supports a confident conclusion.
  */
 export function resolved(inv: Investigation | null): boolean {
   if (!inv) return true;
-  if (inv.confidence === 'high' && !inv.contradictions.length) return true;
+  // Confidence is the model's opinion and cannot on its own end an investigation with a material
+  // claim still open — that was the loophole: high confidence short-circuited everything.
   return openMaterial(inv).length === 0 && inv.unresolved.length === 0;
 }
 

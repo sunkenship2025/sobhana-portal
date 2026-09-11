@@ -10,10 +10,11 @@ import { pool } from '../db';
 import { runStep, type Evidence } from './tools';
 import { completeSpec, lineage, type AnalysisSpec } from './spec';
 import { askPlan, askInvestigate, askResponse } from './analyst';
-import { normalise, merge, resolved, openMaterial, brief, type Investigation } from './investigation';
+import { normalise, merge, resolved, openMaterial, brief, enforce, type Investigation } from './investigation';
 import { contractFor, inferJob, checkAnswer, simplify } from './contract';
 import { renderOptions, describeEvidence, JOBS } from './capability';
 import { buildTurnArtifacts, artifactContext, hasArtifactReference, type LastTurn } from './artifacts';
+import { rank as rankOpportunities } from './opportunity';
 
 /* Limits are a safety net against unproductive wandering, not a latency ceiling. A hard stop at
    3 queries produced shallow answers to questions that deserved a real investigation; the loop
@@ -140,6 +141,12 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     findings = ins.findings || findings;
     const before = new Map((inv?.hypotheses || []).map((h) => [h.id, h.status]));
     inv = merge(inv, normalise(ins, plan.goal || ''));
+    // THE GATE. A claim is settled only when the analysis it said it needed actually ran.
+    // Without this the loop still stopped on the model's own say-so — an empty "next" is the same
+    // judgment as "enough: true", just wearing a structured coat.
+    const gated = enforce(inv, evidence);
+    inv = gated.inv;
+    for (const d of gated.downgraded) say(`Still unproven: ${inv.hypotheses.find((h) => h.id === d.id)?.claim?.slice(0, 80)}`, 'phase');
     // say what just got settled — this is the part worth watching
     for (const h of inv.hypotheses) {
       if (h.status === 'open' || before.get(h.id) === h.status) continue;
@@ -255,7 +262,10 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   // client still gets a readable paragraph
   const segments = simplified ? null : { verdict: (res as any).verdict, points: (res as any).points,
     caveat: (res as any).caveat, action: (res as any).action };
-  return { kind: 'analysis', goal: plan.goal || '', spec, job, investigation: brief(inv), trace, text, segments, artifacts, findings,
+  // Ranked HERE, not by the model: impact first, confidence second, and the weighting is shown
+  // so the owner can disagree with the order rather than just receive it.
+  const opportunities = job === 'opportunity' ? rankOpportunities((res as any).opportunities || []) : null;
+  return { kind: 'analysis', goal: plan.goal || '', spec, job, investigation: brief(inv), trace, text, segments, opportunities, artifacts, findings,
     chips: (res.suggest || []).filter((c: any) => c?.label && c?.q).slice(0, 4),
     evidence: evidence.map((e) => ({ step: e.step, tool: e.tool, label: e.label, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, detail: e.detail, summary: e.summary, data: e.data, sql: e.sql, error: e.error })),
     meta: { calls, ms: Date.now() - t0, steps: evidence.length, rounds },

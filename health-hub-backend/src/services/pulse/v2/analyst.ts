@@ -165,6 +165,9 @@ Return JSON {"goal":"one sentence","job":"<one of the list below>",
 "steps":[{"tool":"...","label":"<=6 words","args":{...}}]}.
 
 "job" is what the owner is trying to UNDERSTAND, exactly one of:
+  · use "opportunity" when the question is what to FIX, improve, optimise or spend on. That job,
+    and only that job, owes an economic estimate for each thing it proposes. "Which doctor saw
+    the most patients" is informational and needs no rupee figure — inventing one there is noise.
   ${JOBS.join(' · ')}
 This is not a chart choice — never pick it by how the question is worded. It is the analytical
 question underneath. "Where am I losing money" is concentration. "Why did revenue fall" is
@@ -194,6 +197,19 @@ Each round:
    be told something different. Anything that would not change the conclusion is NOT material,
    however interesting.
  · note contradictions between steps rather than quietly averaging them away.
+ · IF THE JOB IS "opportunity", EVERY MONEY THE CENTRE ALREADY SPENDS OR LOSES IS A CANDIDATE,
+   and each must be sized in rupees before you judge it. That means at minimum: discount given,
+   commission paid to referrers, refunds, cancelled work, and uncollected dues. You may conclude
+   one is not worth acting on — but you may NOT dismiss it as a percentage without stating the
+   rupee figure first. "Discounting is only 4.9% of billing" hides that it is ₹1,05,035, which is
+   fifteen times the next idea on the list. Rate tells you whether it is unusual; rupees tell you
+   whether it is worth your morning.
+ · IF THE JOB IS "opportunity", DO NOT STOP UNTIL EACH CANDIDATE IS SIZED IN RUPEES. That is the
+   commercial purpose of investigating further — not to think harder, but to know whether the
+   thing you are about to recommend is worth doing. The chain is: how big is it → where is it
+   concentrated → why → is that abnormal against another branch or an earlier period → how much
+   of it could realistically be recovered. An unsized candidate is not ready to be recommended,
+   and "it sounds actionable" is not a size.
  · A LEVER IS NOT A GAP. When the objective is to move something — revenue, volume, collection
    — finding a gap somewhere is not the same as finding a lever on that objective. "Only 59% of
    reports are opened" is a real gap; that it raises revenue is a SEPARATE claim, and an
@@ -209,7 +225,16 @@ ${TOOLBOX}
 
 Return JSON
 {"objective":"what this investigation has to establish",
- "hypotheses":[{"id":"h1","claim":"...","status":"open|confirmed|rejected","evidence":[0,2],"material":true,"note":"..."}],
+ "hypotheses":[{"id":"h1","claim":"...","status":"open|confirmed|rejected","evidence":[0,2],"material":true,
+   "requires":[{"tool":"breakdown","dimension":"branch"},{"tool":"metric","metric":"discount_total"}]}],
+ · "requires" is what this claim NEEDS before it may be called settled, named as the steps that
+   would establish it. It is checked: if you mark a claim confirmed and a requirement never ran,
+   it is put back to open and the investigation continues whether you wanted it to or not. Declare
+   what you actually need — under-declaring to finish early only means the claim reads as
+   unproven in the answer.
+ · For an "opportunity" job, every candidate needs a recoverability claim of its own, and that
+   claim requires a step. "CNT gives ₹76k in discounts" is diagnosis; "of which ₹X is realistically
+   recoverable" is advice, and the difference is one more piece of analysis.
  "unresolved":["..."], "contradictions":["..."], "confidence":"low|medium|high",
  "next":[{"tool":"...","label":"<=6 words","args":{...},"resolves":"h1"}],
  "findings":[{"title":"<=7 words","detail":"one or two sentences, with the numbers"}]}
@@ -288,10 +313,27 @@ RULES
  · Write in the LANGUAGE given. Never switch languages on your own.
 
 Return JSON
-{"verdict":"ONE sentence — the answer itself, the thing they would repeat to someone else",
+{"verdict":"ONE sentence — the answer itself, the thing they would repeat to someone else. ALWAYS present, whatever else you return",
 ${c.segments.points ? ` "points":[{"label":"<=3 words","text":"one sentence"}]   ← at most ${c.segments.points}, each a DIFFERENT finding\n` : ''}\
 ${c.segments.caveat ? ' "caveat":"what is unverified, still open, or would change this — one sentence. Omit if there is none"\n' : ''}\
 ${c.segments.action ? ' "action":"the single next thing worth doing — one sentence. Omit if the evidence does not support one"\n' : ''}\
+${c.job === 'opportunity' ? ` "opportunities":[   ← AT MOST FOUR, the four biggest by rupees
+  {
+   "title":"<=5 words", "problem":"one line", "evidence":"the figure that shows it is real",
+   "lever":"what would be changed", "currentValue":"₹...", "estimatedImpact":"₹...",
+   "impactPeriod":"30 days", "impactMethod":"one line — how you got that number",
+   "causality":"observed|modeled|causal", "confidence":"low|medium|high"}]
+ · SIZE EVERY ONE. If you cannot size it, say so in impactMethod and set confidence low — do not
+   omit the figure and let it be ranked as though it were free.
+ · "causality" is the honest bit, and it is about the MONEY, not about how sure you are of the
+   figure. "observed" = this money is already leaving or already owed, and stopping it is a
+   decision the owner can take — discount given, dues outstanding, commission paid. "modeled" =
+   you multiplied an association by a population to get a scenario; it is NOT money the owner
+   will receive. "causal" = the link was actually tested and held.
+   Flagged staff activity is NOT observed money: nothing is recoverable from a review, so it is
+   an operational risk, not an opportunity — leave it out unless the owner asked about conduct.
+ · Ranking is done for you, deterministically, by value and confidence. Do not order them
+   yourself and do not lead with whatever is easiest to act on.\n` : ''}\
  "artifacts":[...], "suggest":[{"label":"<=4 words","q":"full question"}]}
 
 WRITE IN SEGMENTS, NOT A BLOCK. The verdict is the answer; a point is one finding with a short
@@ -341,4 +383,7 @@ export const askResponse = (q: string, goal: string, ev: Evidence[], findings: a
   llmJson<{ text?: string; artifacts?: any[]; suggest?: any[] }>(RESPOND_SYS(c) + (repair ? `\n\nYOUR LAST ATTEMPT WAS REJECTED: ${repair}\nRewrite it. Move the detail into the artifact and keep the conclusion in the sentences.` : ''),
     JSON.stringify({ LANGUAGE: langOf(q), question: q, goal, findings, investigation, artifactOptions: ranked,
       evidence: ev.map((e) => ({ step: e.step, label: e.label, tool: e.tool, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, result: e.summary,
-        rows: writerRows(e.data?.rows ?? (e.summary as any)?.rows) })) }), { maxTokens: 900 });
+        rows: writerRows(e.data?.rows ?? (e.summary as any)?.rows) })) }),
+    // Sized opportunities are long objects — at 900 the array truncated mid-element and the
+    // whole turn fell through to V1, which answered with the old dues definition.
+    { maxTokens: c.job === 'opportunity' ? 3000 : 1000 });

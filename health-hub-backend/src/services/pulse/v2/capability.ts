@@ -36,11 +36,12 @@ export type AnalyticalJob =
   | 'relationship'    // does this move with that
   | 'ranking'         // who is top
   | 'enumeration'     // give me the rows
-  | 'explanation';    // why — a narrative, which may need no artifact at all
+  | 'explanation'     // why — a narrative, which may need no artifact at all
+  | 'opportunity';    // what should I fix — the only job that owes an economic estimate
 
 export const JOBS: AnalyticalJob[] = ['magnitude', 'comparison', 'composition', 'concentration',
   'attribution', 'progression', 'variability', 'conversion', 'relationship', 'ranking',
-  'enumeration', 'explanation'];
+  'enumeration', 'explanation', 'opportunity'];
 
 /** The shape of what came back, read off the rows themselves. */
 export interface EvidenceStructure {

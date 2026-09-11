@@ -99,6 +99,17 @@ export const FROMS: Record<string, [string, string]> = {
  *  where silently changing what a total covers would be the worse sin. */
 export const TEST_BRANCHES = ['JGG', 'IDPL'];
 
+/**
+ * What a patient still owes, as one expression. Written down once because writing it per tool
+ * meant fixing it three times: the worklist filtered on paymentStatus, then generated SQL did,
+ * then receivables was still doing it after both. The flag disagrees with the arithmetic on live
+ * rows — 48 bills carry a non-PAID status while 10 actually owe anything — so every place that
+ * trusted the flag reported nearly five times too many debtors and the wrong money.
+ */
+export const DUE = (b = 'b') =>
+  `(${b}."totalAmountInPaise" - ${b}."discountAmountInPaise" - ${b}."couponDiscountInPaise" - ${b}."reversedChargeInPaise" - ${b}."paidAmountInPaise")`;
+export const OWES = (b = 'b') => `${DUE(b)} > 0`;
+
 export const DIMS: Record<string, string> = {
   branch: 'br.code',
   domain: 'v.domain::text',
