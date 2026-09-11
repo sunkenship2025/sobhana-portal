@@ -255,7 +255,8 @@ function pageAnalysis(d: RenderInput): string {
     })
     .join('');
 
-  const tiles = d.panels.map((p) => {
+  const tileHtml = new Map<string, string>();
+  d.panels.forEach((p) => {
     const ic = iconFor(p.name, p.icon);
     const n = bodyNum.get(p.name);
     const pills = [
@@ -264,10 +265,30 @@ function pageAnalysis(d: RenderInput): string {
       p.borderline ? `<span class="pill p-bor">${p.borderline} Borderline</span>` : '',
       p.notScored && !p.withinRange && !p.outOfRange ? `<span class="pill p-pen">Descriptive</span>` : '',
     ].join('');
-    return `<div class="tile"><span class="ico"><svg class="hi" style="color:${ic.tint}" width="26" height="26"><use href="#${ic.id}"/></svg></span>
-      <div class="tx"><b>${n ? `<span class="n">${n}</span>` : ''}${esc(p.name)}</b><div class="bd">${pills}</div></div></div>`;
+    tileHtml.set(p.name, `<div class="tile"><span class="ico"><svg class="hi" style="color:${ic.tint}" width="26" height="26"><use href="#${ic.id}"/></svg></span>
+      <div class="tx"><b>${n ? `<span class="n">${n}</span>` : ''}${esc(p.name)}</b><div class="bd">${pills}</div></div></div>`);
   });
-  const half = Math.ceil(tiles.length / 2);
+
+  // Each tile hangs off the side its dot is on, ordered down the body, so the
+  // two columns read as callouts from the figure. They used to be an arbitrary
+  // half-and-half split: Vitamin D sat top-right while its dot was the bottom-left
+  // hip, which made the numbers the only thing tying tile to body. A centre-line
+  // anchor (or a panel with no anatomical site) fills whichever column is shorter,
+  // so the sides stay even.
+  const colLs: { name: string; y: number }[] = [];
+  const colRs: { name: string; y: number }[] = [];
+  for (const x of anchored) {
+    const col = x.a.x < 90 ? colLs : x.a.x > 90 ? colRs : (colLs.length <= colRs.length ? colLs : colRs);
+    col.push({ name: x.p.name, y: x.a.y });
+  }
+  for (const p of d.panels) {
+    if (anchored.some((x) => x.p.name === p.name)) continue;
+    (colLs.length <= colRs.length ? colLs : colRs).push({ name: p.name, y: Number.MAX_SAFE_INTEGER });
+  }
+  const bySite = (a: { y: number }, b: { y: number }) => a.y - b.y;
+  const colL = colLs.sort(bySite).map((x) => tileHtml.get(x.name) ?? '');
+  const colR = colRs.sort(bySite).map((x) => tileHtml.get(x.name) ?? '');
+
 
   return `<section class="page">${head(d)}
   <div class="content">
@@ -283,12 +304,12 @@ function pageAnalysis(d: RenderInput): string {
         Please read it together with your doctor.</p>
     </div>
     <div class="bodywrap">
-      <div class="tcol">${tiles.slice(0, half).join('')}</div>
-      <div class="figure"><svg class="bodyfig" viewBox="0 0 180 190" aria-hidden="true">
+      <div class="tcol">${colL.join('')}</div>
+      <div class="figure"><svg class="bodyfig" viewBox="0 0 180 262" aria-hidden="true">
         <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">
           <circle cx="90" cy="23" r="16"/><path d="${BODY_CONTOUR}"/>
         </g>${dots}</svg></div>
-      <div class="tcol">${tiles.slice(half).join('')}</div>
+      <div class="tcol tcol-r">${colR.join('')}</div>
     </div>
   </div>
   ${foot(addr(d))}

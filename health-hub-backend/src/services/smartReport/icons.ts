@@ -15,14 +15,14 @@
 type Anchor = { x: number; y: number } | null;
 const RULES: [RegExp, string, string, Anchor][] = [
   [/cbc|blood pic|haemogram|hemogram|iron|ferritin|anaemia|anemia/i, 'i-blood', '#D93025', { x: 90, y: 70 }],
-  [/sugar|glucose|hba1c|diabet|gtt/i, 'i-sugar', '#7E57C2', { x: 90, y: 108 }],
-  [/lipid|cholesterol|cardiac|heart/i, 'i-heart', '#E53935', { x: 108, y: 86 }],
-  [/liver|lft|hepatic/i, 'i-liver', '#B5651D', { x: 72, y: 92 }],
+  [/sugar|glucose|hba1c|diabet|gtt/i, 'i-sugar', '#7E57C2', { x: 90, y: 106 }],
+  [/lipid|cholesterol|cardiac|heart/i, 'i-heart', '#E53935', { x: 104, y: 86 }],
+  [/liver|lft|hepatic/i, 'i-liver', '#B5651D', { x: 74, y: 92 }],
   [/kidney|renal|kft|rft/i, 'i-kidney', '#8E44AD', { x: 108, y: 112 }],
   [/thyroid|tsh|\bt3\b|\bt4\b/i, 'i-thyroid', '#1E88E5', { x: 90, y: 48 }],
-  [/vitamin\s*d|calcium|bone/i, 'i-vitd', '#F9A825', { x: 70, y: 140 }],
+  [/vitamin\s*d|calcium|bone/i, 'i-vitd', '#F9A825', { x: 74, y: 136 }],
   [/b12|folate|vitamin/i, 'i-b12', '#E57373', null],
-  [/urine|stool|motion/i, 'i-urine', '#F9A825', { x: 90, y: 140 }],
+  [/urine|stool|motion/i, 'i-urine', '#F9A825', { x: 90, y: 126 }],
   [/usg|ultraso|x-?ray|scan|\bct\b|\bmri\b|doppler/i, 'i-usg', '#0288D1', null],
   [/lung|pulmon|pft|spiro/i, 'i-thyroid', '#26A69A', { x: 72, y: 74 }],
 ];
