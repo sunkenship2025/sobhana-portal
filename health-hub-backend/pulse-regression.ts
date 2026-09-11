@@ -96,7 +96,14 @@ const CASES: Array<{ id: string; q: string; truth: () => Promise<string>; note: 
       txt = `${a.text ?? ''} ${rows}`;
     } catch (e: any) { txt = `THREW ${e?.message}`; }
     // accept the figure with or without thousands separators, since prose varies
-    const ok = txt.includes(want) || txt.replace(/,/g, '').includes(want.replace(/,/g, ''));
+    // A small count is often spelled out — "Nine patients currently have outstanding dues" is
+    // the right answer and the digit never appears. The assertion is about the VALUE, not how
+    // the sentence happens to render it; without this the case passes or fails by coin toss.
+    const WORDS = ['zero','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve'];
+    const asInt = Number(want.replace(/[^0-9]/g, ''));
+    const spelled = !want.startsWith('\u20b9') && Number.isInteger(asInt) && asInt < WORDS.length
+      && new RegExp('\\b' + WORDS[asInt] + '\\b', 'i').test(txt);
+    const ok = txt.includes(want) || txt.replace(/,/g, '').includes(want.replace(/,/g, '')) || spelled;
     if (ok) pass++; else fails.push(`${c.id}: wanted ${want} — ${c.note}\n      got: ${txt.replace(/\s+/g, ' ').slice(0, 150)}`);
     console.log(`${ok ? '✓' : '✗'} ${c.id.padEnd(16)} want ${want.padEnd(12)} ${Date.now() - t}ms`);
   }

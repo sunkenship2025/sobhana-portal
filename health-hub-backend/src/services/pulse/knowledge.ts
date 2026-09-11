@@ -77,6 +77,14 @@ MONEY COLUMN NAMING — not optional
   ₹43,59,54,453 — a hundred times the true ₹43,59,544.53. The suffix is what prevents that.
   Never divide by 100 yourself; return paise and let the caller format it.
 
+  THE NAME MUST MATCH THE METRIC. The column name is what the owner reads as the
+  label on the card, so it has to say which number it is:
+    collection / collected / revenue  ->  "net_collected_paise"
+    value invoiced                    ->  "net_billed_paise"
+  Do not answer a COLLECTION question with a column called "net_billed_paise".
+  Billed and collected are different numbers — a fully discounted bill is billed
+  and never collected — and the label is the only thing telling them apart.
+
 
 TWO DIFFERENT QUESTIONS ABOUT THE SAME DIMENSION — read which one is being asked
 
