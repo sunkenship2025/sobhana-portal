@@ -27,6 +27,32 @@ export interface Evidence {
   sql?: string; error?: string;
 }
 
+/** The one projection into the writer's hands. `summary` promised "never raw paise" and
+ *  t_query broke it — a bare 435854453 reached the owner as "435,854,453". Money is formatted
+ *  here, once, and list rows are carried through so a list question can actually be answered. */
+export function writerRows(rows: any[] | undefined, cap = 25, money?: Set<string>): any[] | undefined {
+  if (!Array.isArray(rows) || !rows.length) return undefined;
+  return rows.slice(0, cap).map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => {
+    const n = typeof v === 'bigint' ? Number(v) : v;
+    if ((!/paise/i.test(k) && !money?.has(k)) || n == null || !Number.isFinite(Number(n))) return [k, n];
+    return [k.replace(/_?in_?paise|_?paise/i, '') || 'amount', fmt(Number(n), 'paise')];
+  })));
+}
+
+/** Which output columns are money, read off the SQL that produced them. Column NAMES are not
+ *  reliable — "netBilledAfterDiscount" is paise with nothing in the name to say so. The select
+ *  item that built it does say so, because it has to reference an *InPaise column. */
+export function moneyCols(sql: string, cols: string[]): Set<string> {
+  const out = new Set<string>();
+  for (const c of cols) {
+    const m = new RegExp(`AS\\s+"?${c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"?`, 'i').exec(sql || '');
+    if (!m) continue;
+    const item = sql.slice(Math.max(0, sql.lastIndexOf(',', m.index)), m.index);
+    if (/InPaise/i.test(item) && !/count|::int\b/i.test(item)) out.add(c);
+  }
+  return out;
+}
+
 const P = (spec: string) => periods(spec || 'month');
 
 /**
@@ -223,7 +249,24 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promis
   }
   if (ex.err) return { ok: false, error: ex.err, sql };
   if (!ex.rows?.length) return { ok: false, error: 'no rows matched', sql };
-  return { ok: true, sql, summary: { question: q, rowCount: ex.rows.length, rows: ex.rows.slice(0, 12) }, data: { rows: ex.rows } };
+  // A money figure whose column name does not say "paise" cannot be formatted safely, and an
+  // unformatted paise figure reaches the owner as a hundredfold overstatement. Repair once,
+  // then refuse — a silently wrong rupee number is worse than no answer.
+  const cols0 = Object.keys(ex.rows[0] || {});
+  const unlabelled = () => /InPaise/i.test(sql) && !moneyCols(sql, Object.keys(ex.rows[0] || {})).size
+    && !Object.keys(ex.rows[0] || {}).some((c) => /paise/i.test(c));
+  if (unlabelled()) {
+    try {
+      const f = await llmJson<{ sql?: string }>(
+        `Repair PostgreSQL. FAILURE CLASS: MONEY_ALIAS. The query reads paise columns but no output column is named "*_paise", so the caller cannot tell paise from rupees. Re-alias every money output column to end in "_paise", through any CTE. Change nothing else. Return JSON {"sql":"..."}.`,
+        `${gen.ctx}\n\nSQL\n${sql}\n\nCOLUMNS\n${cols0.join(', ')}`, { maxTokens: 900 });
+      const s2 = repairIdents(k, f.sql || '');
+      if (s2 && !validate(s2) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; } }
+    } catch { /* fall through */ }
+    if (unlabelled()) return { ok: false, sql, error: 'money columns are not labelled in paise, so the figure cannot be shown safely' };
+  }
+  return { ok: true, sql, summary: { question: q, rowCount: ex.rows.length,
+    rows: writerRows(ex.rows, 12, moneyCols(sql, Object.keys(ex.rows[0] || {}))) }, data: { rows: ex.rows } };
 }
 
 
@@ -313,7 +356,10 @@ async function t_worklist(a: any): Promise<Partial<Evidence>> {
   const olderDays = Number(a.olderThanDays) || 0;
 
   if (kind === 'dues' || kind === 'unpaid' || kind === 'outstanding') {
-    const w = [`b."paymentStatus" <> 'PAID'`, `(b."totalAmountInPaise"-b."discountAmountInPaise"-b."couponDiscountInPaise"-b."reversedChargeInPaise"-b."paidAmountInPaise") > ${minP}`];
+    // The computed balance IS the debt. paymentStatus is a denormalised flag that disagrees with
+    // it on real rows — trusting both dropped a patient who genuinely owed money, under a
+    // "complete list" headline. One source of truth for money.
+    const w = [`(b."totalAmountInPaise"-b."discountAmountInPaise"-b."couponDiscountInPaise"-b."reversedChargeInPaise"-b."paidAmountInPaise") > ${minP}`];
     if (br) w.push(`br.code = '${br}'`);
     if (olderDays) w.push(`b."billedAt" < now() - interval '${olderDays} days'`);
     const ex = await query(`SELECT p.name AS patient, p."patientNumber" AS patient_no, ph.phone,
@@ -323,7 +369,7 @@ async function t_worklist(a: any): Promise<Partial<Evidence>> {
       JOIN "Visit" v ON v.id = b."visitId"
       JOIN "Patient" p ON p.id = v."patientId"
       JOIN "Branch" br ON br.id = b."branchId"
-      LEFT JOIN "PatientPhone" ph ON ph."patientId" = p.id
+      LEFT JOIN LATERAL (SELECT phone FROM "PatientPhone" WHERE "patientId" = p.id LIMIT 1) ph ON true
       WHERE ${w.join(' AND ')} ORDER BY ${/old|oldest|earliest|age|ageing|aging/i.test(String(a.sort || '')) ? 'b."billedAt" ASC' : /new|newest|recent|latest/i.test(String(a.sort || '')) ? 'b."billedAt" DESC' : /name/i.test(String(a.sort || '')) ? 'p.name ASC' : 'due_paise DESC'} LIMIT ${limit}`, [], LIST_CAP);
     if (ex.err) return { ok: false, error: ex.err };
     const rows = ex.rows || [];
@@ -366,6 +412,31 @@ async function t_worklist(a: any): Promise<Partial<Evidence>> {
   return { ok: false, error: `unknown work list '${kind}'. Available: dues, pending_reports, not_returned` };
 }
 
+/** Staff actions the centre already flags: edits, voids, discounts, deletions, identity changes.
+ *  This is the Audit & Anomalies feed — 44k events with an actor, a role and a severity. Pulse
+ *  used to answer "which staff makes most mistakes" by denying the data existed. */
+async function t_anomalies(a: any): Promise<Partial<Evidence>> {
+  const days = Math.min(Math.max(Number(a.days) || 30, 1), 365);
+  const by = /staff|actor|who|person|user/i.test(String(a.by || 'staff')) ? 'staff' : /categ|type|kind/i.test(String(a.by)) ? 'category' : 'staff';
+  const w = [`ae."occurredAt" > now() - interval '${days} days'`];
+  if (a.severity) w.push(`ae.severity = '${String(a.severity).replace(/'/g, "''")}'`);
+  if (a.category) w.push(`ae.category = '${String(a.category).replace(/'/g, "''")}'`);
+  if (a.branch) w.push(`br.code = '${String(a.branch).replace(/'/g, "''")}'`);
+  const sel = by === 'staff' ? `COALESCE(ae."actorName",'(unattributed)') AS who, ae."actorRole" AS role` : `ae.category AS who, ae.severity AS role`;
+  const ex = await query(`SELECT ${sel}, COUNT(*)::int AS events,
+      COUNT(*) FILTER (WHERE ae.severity='high')::int AS high,
+      COUNT(*) FILTER (WHERE ae.category='money')::int AS money_events,
+      SUM(COALESCE(ae."amountInPaise",0))::bigint AS amount_paise
+    FROM "AnomalyEvent" ae LEFT JOIN "Branch" br ON br.id = ae."branchId"
+    WHERE ${w.join(' AND ')} GROUP BY 1,2 ORDER BY events DESC LIMIT 15`, [], 200);
+  if (ex.err) return { ok: false, error: ex.err };
+  if (!ex.rows?.length) return { ok: false, error: 'no flagged events in that window' };
+  return { ok: true, unit: 'count',
+    means: `flagged actions from the Audit & Anomalies feed, last ${days} days — activity that was reviewed, not proven error`,
+    detail: `anomaly events by ${by}, last ${days} days`,
+    summary: { by, window: `${days} days`, rows: writerRows(ex.rows, 15) }, data: { rows: ex.rows } };
+}
+
 /** What does this word mean in this business? Deterministic lookup, no model call. */
 async function t_resolve(a: any): Promise<Partial<Evidence>> {
   const terms = (Array.isArray(a.terms) ? a.terms : [a.term ?? a.terms]).filter(Boolean).map(String).slice(0, 6);
@@ -380,7 +451,7 @@ export const TOOLS: Record<string, (a: any, k: Knowledge) => Promise<Partial<Evi
   metric: t_metric, compare: t_compare, breakdown: t_breakdown, rank: t_rank,
   trend: t_trend, baseline: t_baseline, anomaly: t_anomaly, derive: t_derive, query: t_query,
   receivables: t_receivables, pending_reports: t_pending_reports, quiet_doctors: t_quiet_doctors, leakage: t_leakage,
-  worklist: t_worklist, resolve: t_resolve,
+  worklist: t_worklist, resolve: t_resolve, anomalies: t_anomalies,
 };
 
 const TRANSIENT = /connection pool|timed out|ECONNRESET|terminating connection/i;

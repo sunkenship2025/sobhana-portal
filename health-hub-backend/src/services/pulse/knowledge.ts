@@ -67,6 +67,17 @@ COMPARISONS
 
 export const CONVENTIONS = `JOIN AND GRAIN CONVENTIONS — follow these exactly
 
+MONEY COLUMN NAMING — not optional
+  Every money value in this database is stored in PAISE (1 rupee = 100 paise). Whatever you
+  name a money output column, the name MUST end in "_paise" — "net_billed_paise",
+  "collected_paise", "due_paise". This holds through CTEs: if an outer SELECT re-aliases a
+  money column, the new alias ends in "_paise" too.
+  Nothing downstream can tell paise from rupees by looking at the number. A column named
+  "netBilledAfterDiscount" holding 435954453 was read as rupees and shown to the owner as
+  ₹43,59,54,453 — a hundred times the true ₹43,59,544.53. The suffix is what prevents that.
+  Never divide by 100 yourself; return paise and let the caller format it.
+
+
 TWO DIFFERENT QUESTIONS ABOUT THE SAME DIMENSION — read which one is being asked
 
   (a) BREAKING A TOTAL DOWN: "by department", "branch wise", "per doctor", "split by".

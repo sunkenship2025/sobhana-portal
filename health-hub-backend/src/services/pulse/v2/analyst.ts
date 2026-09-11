@@ -10,7 +10,7 @@
 import { llmJson } from '../llm';
 import { langOf, todayIST } from '../db';
 import { METRICS, METRIC_DIMS } from '../catalog';
-import { KNOWN_DIMS } from './tools';
+import { KNOWN_DIMS, writerRows } from './tools';
 import { conceptSummary } from '../knowledge';
 import type { Evidence } from './tools';
 
@@ -23,6 +23,10 @@ const TOOLBOX = `TOOLS
       is not a known concept. Free and instant. Use it when the question narrows the scope with
       a word you do not recognise from the list below, BEFORE planning the analysis around it.
       Never guess a scope word; a total that includes what the owner excluded is a wrong answer.
+      A term that does not resolve means THIS LOOKUP did not know the word — it is NEVER evidence
+      that the centre does not record the thing. Before telling an owner their system cannot
+      track something, check the tools above and the schema; they built this system and they
+      know what is in it. Denying a feature that exists is the worst answer you can give.
 
   query       {question}
       Writes SQL for exactly the question you give it, against the full schema, with the house
@@ -50,6 +54,11 @@ OPERATIONAL TOOLS — states of the business, not metrics. These are what an own
   pending_reports  {hours}                           work sitting unfinished, by branch
   quiet_doctors    {period, priorDays}               referrers who used to send work and stopped
   leakage          {period}                          discount, cancellation and refund rates
+  anomalies        {by:"staff|category", days, severity, category, branch}
+      The centre's Audit & Anomalies feed — flagged staff actions with an actor, a role and a
+      severity: edits, voids, deletions, discounts, identity changes. THIS is where questions
+      about staff conduct, mistakes, errors, who changed what, and who to review are answered.
+      Say plainly that a flagged action is reviewed activity, not a proven error.
   worklist         {kind, branch, limit, olderThanDays, minAmountInPaise, hours, days}
       {kind, branch, limit, sort:"oldest|newest|largest|name", olderThanDays, minAmountInPaise}
       A LIST OF PATIENTS TO ACT ON, with names and phone numbers. This is allowed — it is the
@@ -195,6 +204,10 @@ RULES
    nothing wider. A figure that means "diagnostics only" must never be called total collection.
    If the evidence is scoped, say the scope in the sentence.
  · Every "evidence" index must exist in the evidence you were given.
+ · When evidence carries "rows", the owner asked for a LIST — print the rows. Never tell them
+   to go and fetch the rows themselves; the rows are in front of you.
+ · Money arrives already formatted with ₹. Never print a bare number for money, and never
+   divide or multiply a figure you were given — a stray 100x lands as a real rupee claim.
  · If a trend's current bucket is marked in progress, never compare it with whole periods.
  · 2 to 5 sentences unless the question genuinely needs more. No preamble, no consultant filler.
  · Write in the LANGUAGE given. Never switch languages on your own.
@@ -204,8 +217,16 @@ Return JSON {"text":"the answer","artifacts":[...],"suggest":[{"label":"<=4 word
 
 export interface Plan { goal?: string; spec?: any; steps?: any[]; outOfScope?: boolean; why?: string; phi?: boolean; }
 
+/** "for all branches" / "overall" widens the scope — it drops the filter. Read as an exclusion
+ *  ("everything except JGG") it inverts the owner's meaning, which is what used to happen. */
+export const SCOPE_RULE = `FOLLOW-UPS THAT CHANGE SCOPE
+ · "overall", "for all branches", "switch out from X", "consider everything", "across the board"
+   REMOVE the narrowing filter and re-run the SAME measure on the whole business.
+   They never mean "exclude X". Only an explicit "excluding X" / "without X" excludes.
+ · Carry the measure and the period forward; replace only the scope the owner changed.`;
+
 export const askPlan = (q: string, ctx: string) =>
-  llmJson<Plan>(PLAN_SYS(), `${ctx}QUESTION\n${q}`, { maxTokens: 700 });
+  llmJson<Plan>(`${PLAN_SYS()}\n\n${SCOPE_RULE}`, `${ctx}QUESTION\n${q}`, { maxTokens: 700 });
 
 export const askInsight = (q: string, goal: string, ev: Evidence[]) =>
   llmJson<{ enough?: boolean; why?: string; steps?: any[]; findings?: any[] }>(INSIGHT_SYS(),
@@ -214,4 +235,5 @@ export const askInsight = (q: string, goal: string, ev: Evidence[]) =>
 export const askResponse = (q: string, goal: string, ev: Evidence[], findings: any[]) =>
   llmJson<{ text?: string; artifacts?: any[]; suggest?: any[] }>(RESPOND_SYS(),
     JSON.stringify({ LANGUAGE: langOf(q), question: q, goal, findings,
-      evidence: ev.map((e) => ({ step: e.step, label: e.label, tool: e.tool, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, result: e.summary })) }), { maxTokens: 900 });
+      evidence: ev.map((e) => ({ step: e.step, label: e.label, tool: e.tool, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, result: e.summary,
+        rows: writerRows(e.data?.rows ?? (e.summary as any)?.rows) })) }), { maxTokens: 900 });
