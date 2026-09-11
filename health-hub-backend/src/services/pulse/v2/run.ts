@@ -5,12 +5,16 @@
  * typical question costs 3 model calls (plan, insight, respond) regardless of how many things it
  * looks at. Only "query" steps add a call each.
  */
-import { ensureKnowledge, mentionsKnown } from '../knowledge';
+import { ensureKnowledge, mentionsKnown, scopeTermsIn } from '../knowledge';
 import { pool } from '../db';
 import { runStep, type Evidence } from './tools';
+import { completeSpec, lineage, type AnalysisSpec } from './spec';
 import { askPlan, askInsight, askResponse } from './analyst';
 
-const MAX_STEPS = 8, MAX_ROUNDS = 2;
+/* Limits are a safety net against unproductive wandering, not a latency ceiling. A hard stop at
+   3 queries produced shallow answers to questions that deserved a real investigation; the loop
+   now continues while the analyst says the next step is worth taking, within a generous budget. */
+const MAX_STEPS = 16, MAX_ROUNDS = 4, MAX_MS = 45_000;
 
 export interface V2Answer {
   kind: 'analysis'; goal: string; text: string; artifacts: any[]; chips: { label: string; q: string }[];
@@ -31,6 +35,7 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
     : '';
 
   const plan = await askPlan(q, ctx); calls++;
+  const spec: AnalysisSpec | null = completeSpec(plan.spec ? { goal: plan.goal || '', ...plan.spec } : null);
   if (plan.phi) return { kind: 'refuse', reason: 'patient_level',
     text: "I can give you totals and counts, never a list of patients with names or phone numbers — Pulse has no access to those columns. For a working list, open Money → Bills and filter; it has the names, numbers and amounts, and it can be exported.",
     chips: [{ label: 'total due', q: 'total due how much' }, { label: 'due branch wise', q: 'due branch wise' }], state: { ...state, lastQ: q } };
@@ -44,6 +49,19 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
   // the "Chintal billed 14,111 tests" failure. Send those to query, which sees the whole sentence.
   const QUALIFIED = /\bmedian\b|\bpercentile\b|\baverage\b|\bper\b|\bnever\b|\bmore than\b|\bat least\b|\beach\b|\bdistinct\b|\bunique\b|\bboth\b|\bwithout\b|\bexcept\b|\bonly\b|\bcame back\b|\breturn(ed)?\b|\brepeat\b|\bfirst[- ]?(ever|time|visit)\b|\bstopped\b|\bnot\b|\bno\b |\bwhich day\b|\bhighest\b.*\bday\b/i;
   const REGISTRY = new Set(['metric', 'compare', 'derive']);
+  // A qualifier the plan never carries is the silent-drop failure: "only lab" answered with the
+  // total including OP fees, labelled "lab collection". Validated filters catch a WRONG filter;
+  // nothing caught a MISSING one. If the question scopes it and no step does, send it to query,
+  // which sees the whole sentence.
+  // Any qualifier in the question the SPEC failed to capture is the silent-drop failure. Trust
+  // the spec when it has one; fall back to the semantic index when the analyst wrote none.
+  const declared = new Set((spec?.scope || []).map((c) => c.dimension));
+  const found = scopeTermsIn(q);
+  const uncaptured = found.filter((c) => c.dimension && !declared.has(c.dimension));
+  const covered = (c: { dimension: string | null }) => steps.some((st: any) =>
+    (c.dimension && st?.args?.filter?.[c.dimension] != null) || st?.args?.dimension === c.dimension || st?.tool === 'query');
+  if (uncaptured.length && !uncaptured.every(covered))
+    steps = [{ tool: 'query', label: 'answer the question as asked', args: { question: q } }];
   if (steps.length === 1 && REGISTRY.has(steps[0]?.tool) && QUALIFIED.test(q))
     steps = [{ tool: 'query', label: steps[0].label || 'answer the question', args: { question: q } }];
   // A single query step answers the whole question, so it gets the owner's words verbatim. The
@@ -59,13 +77,14 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
   let findings: any[] = [];
   for (rounds = 1; rounds <= MAX_ROUNDS; rounds++) {
     const base = evidence.length;
-    const got = await pool(3, steps.map((s, i) => () => runStep(s, base + i, k)));
+    const got = await pool(3, steps.map((s, i) => () => runStep(s, base + i, k, spec)));
+    for (const e of got) if (e.ok && !e.means) e.means = lineage(spec, e.detail);
     calls += got.filter((e) => e.tool === 'query').length;      // only query steps cost a call (repairs may add one more)
     evidence.push(...got);
     // A one-step plan that worked has nothing to interpret — go straight to the answer. This is
     // the common case ("last month collection how much") and it saves a whole round trip.
     if (rounds === 1 && evidence.length === 1 && evidence[0].ok) break;
-    if (evidence.length >= MAX_STEPS || rounds === MAX_ROUNDS) break;
+    if (evidence.length >= MAX_STEPS || rounds === MAX_ROUNDS || Date.now() - t0 > MAX_MS) break;
     const ins = await askInsight(q, plan.goal || '', evidence); calls++;
     findings = ins.findings || findings;
     if (ins.enough !== false || !ins.steps?.length) break;
@@ -87,9 +106,9 @@ export async function analyse(q: string, state: any = {}): Promise<any> {
   }).slice(0, 4);
   const text = String(res.text || findings[0]?.detail || '').trim();
 
-  return { kind: 'analysis', goal: plan.goal || '', text, artifacts, findings,
+  return { kind: 'analysis', goal: plan.goal || '', spec, text, artifacts, findings,
     chips: (res.suggest || []).filter((c: any) => c?.label && c?.q).slice(0, 4),
-    evidence: evidence.map((e) => ({ step: e.step, tool: e.tool, label: e.label, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, summary: e.summary, data: e.data, sql: e.sql, error: e.error })),
+    evidence: evidence.map((e) => ({ step: e.step, tool: e.tool, label: e.label, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, detail: e.detail, summary: e.summary, data: e.data, sql: e.sql, error: e.error })),
     meta: { calls, ms: Date.now() - t0, steps: evidence.length, rounds },
     state: { ...state, lastQ: q, kind: 'analysis', lastPlan: steps.map((s: any) => ({ tool: s.tool, args: s.args })) } } as V2Answer;
 }

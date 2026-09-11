@@ -12,10 +12,13 @@ import { scalar, periods, baseline as baselineOf, addDays, fmt } from '../diagno
 import { generate } from '../sqlPath';
 import { llmJson } from '../llm';
 import { validate } from '../validator';
-import { repairIdents, type Knowledge } from '../knowledge';
+import { repairIdents, resolveTerm, type Knowledge } from '../knowledge';
+import { verifySpec, specRepairHint, type AnalysisSpec } from './spec';
 
 export interface Evidence {
   step: number; tool: string; label: string; ok: boolean; detail?: string;
+  /** exactly what this number represents — travels with it to the response */
+  means?: string;
   /** compact, model-facing summary — formatted strings, never raw paise */
   summary: any;
   /** full rows for the UI to render */
@@ -185,13 +188,25 @@ async function t_derive(a: any): Promise<Partial<Evidence>> {
     summary: { derived: `${num} ÷ ${den}`, value: unit === 'paise' ? fmt(v, 'paise') : unit === 'ratio' ? (v * 100).toFixed(1) + '%' : v.toFixed(2), basis: `${fmt(n, U(num))} ÷ ${fmt(d, U(den))}` }, data: { value: v, numerator: n, denominator: d } };
 }
 /** anything the registry cannot express — one generated SELECT, validated like any other */
-async function t_query(a: any, k: Knowledge): Promise<Partial<Evidence>> {
+async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null): Promise<Partial<Evidence>> {
   const q = String(a.question || '').slice(0, 300);
   if (!q) return { ok: false, error: 'no question given' };
   const gen = await generate(k, q);
   let sql = repairIdents(k, gen.sql);
   let bad = validate(sql);
   let ex = bad ? { err: `blocked: ${bad}` } as any : await query(sql, [], 200);
+  // The spec is a contract. A scope the analyst committed to that never reached the SQL is a
+  // rejection, not a warning — this is the check that "only lab" needed.
+  let check = verifySpec(spec, sql);
+  if (!check.ok && !ex.err) {
+    try {
+      const f = await llmJson<{ sql?: string }>(`Repair PostgreSQL. The query answers a WIDER question than was asked. ${specRepairHint(check)} Return JSON {"sql":"..."}.`,
+        `${gen.ctx}\n\nSQL\n${sql}\n\nPROBLEM\n${check.note}`, { maxTokens: 900 });
+      const s2 = repairIdents(k, f.sql || '');
+      if (s2 && !validate(s2) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; check = { ok: true, missing: [] }; } }
+    } catch { /* fall through to the rejection below */ }
+    if (!check.ok) return { ok: false, sql, error: `dropped a constraint the owner asked for — ${check.note}` };
+  }
   // Typed repair, one attempt — the same contract the single-call path has always had. A query
   // that errors or comes back empty is told WHICH way it failed and rewritten. Without this the
   // analyst path silently loses every question whose first draft misses.
@@ -351,15 +366,25 @@ async function t_worklist(a: any): Promise<Partial<Evidence>> {
   return { ok: false, error: `unknown work list '${kind}'. Available: dues, pending_reports, not_returned` };
 }
 
+/** What does this word mean in this business? Deterministic lookup, no model call. */
+async function t_resolve(a: any): Promise<Partial<Evidence>> {
+  const terms = (Array.isArray(a.terms) ? a.terms : [a.term ?? a.terms]).filter(Boolean).map(String).slice(0, 6);
+  if (!terms.length) return { ok: false, error: 'no terms given' };
+  const found = terms.map((t: string) => ({ term: t, matches: resolveTerm(t).map((c) => ({ filter: c.dimension ? { [c.dimension]: c.value } : null, means: c.meaning, from: c.source })) }));
+  return { ok: true, detail: terms.join(', '),
+    summary: { resolved: found.map((f: any) => f.matches.length ? { term: f.term, ...f.matches[0], alternatives: f.matches.slice(1, 3) } : { term: f.term, means: 'not a known concept — treat it as ordinary English or ask' }) },
+    data: found };
+}
+
 export const TOOLS: Record<string, (a: any, k: Knowledge) => Promise<Partial<Evidence>>> = {
   metric: t_metric, compare: t_compare, breakdown: t_breakdown, rank: t_rank,
   trend: t_trend, baseline: t_baseline, anomaly: t_anomaly, derive: t_derive, query: t_query,
   receivables: t_receivables, pending_reports: t_pending_reports, quiet_doctors: t_quiet_doctors, leakage: t_leakage,
-  worklist: t_worklist,
+  worklist: t_worklist, resolve: t_resolve,
 };
 
 const TRANSIENT = /connection pool|timed out|ECONNRESET|terminating connection/i;
-export async function runStep(step: any, i: number, k: Knowledge): Promise<Evidence> {
+export async function runStep(step: any, i: number, k: Knowledge, spec?: AnalysisSpec | null): Promise<Evidence> {
   const tool = String(step?.tool || '');
   const label = String(step?.label || tool);
   const fn = TOOLS[tool];
@@ -375,7 +400,7 @@ export async function runStep(step: any, i: number, k: Knowledge): Promise<Evide
   ].filter(Boolean).join(', ');
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const r = await fn(args, k);
+      const r = tool === 'query' ? await t_query(args, k, spec) : await fn(args, k);
       if (!r.detail && bits) (r as any).detail = bits;
       if (!r.ok && TRANSIENT.test(String(r.error || '')) && attempt === 0) { await new Promise((s) => setTimeout(s, 400)); continue; }
       return { step: i, tool, label, ok: !!r.ok, summary: r.summary ?? null, ...r } as Evidence;

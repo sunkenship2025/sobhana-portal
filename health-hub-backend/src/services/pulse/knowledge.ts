@@ -42,7 +42,13 @@ export const GLOSSARY = () => { const t = todayIST(); const [Y, M] = t.split('-'
   "repeat patient"                             a patient with more than one visit
   "new patient"                                a Patient RECORD created in the period (Patient.createdAt).
                                                Not "first visit in the period" — that is a different number.
-  "OP"                                         clinic visit;  "IP" = inpatient clinic visit
+  "lab", "diagnostics", "tests", "scans"       Visit.domain = 'DIAGNOSTICS' — the lab side of the
+                                               business. "lab collection" EXCLUDES consultation fees.
+  "OP", "IP", "clinic", "consultation",        Visit.domain = 'CLINIC' — the doctor-consultation side.
+  "doctor visit", "consultation fee"           "IP" is an inpatient clinic visit (ClinicVisit.visitType).
+                                               A centre-wide total is BOTH domains added together, so a
+                                               question about one of them MUST filter v.domain. Reporting
+                                               the combined figure as "lab" is wrong by the OP fees.
   "test", "investigation", "profile"           the 'test_orders' metric (excludes cancelled)
 
 RELATIVE TIME — today is ${t} (IST)
@@ -339,6 +345,7 @@ ${hollow.join('\n')}
 If a question needs one of these, say the business does not record it and ask the owner for
 the figure. Do NOT substitute a different column and label it as the thing they asked for.` : '';
   const { vidx, names } = await buildNames();
+  CONCEPTS = await buildConcepts();
   const registryHealth = await checkRegistry();
   console.log(`[pulse] knowledge built in ${Date.now() - t0}ms — ${fact.length} fact, ${dim.length} dim tables, ${hollow.length} hollow columns, ${Object.keys(vidx).length} value terms, ${Object.values(registryHealth).filter((v) => v !== 'ok').length} broken metrics`);
   return { builtAt: Date.now(), namesAt: Date.now(), fingerprint: await fingerprint(), registryHealth, enums, graphSchema, coverage, vidx, idents: [...idents], names };
@@ -361,8 +368,86 @@ async function buildNames(): Promise<{ vidx: Knowledge['vidx']; names: Knowledge
   return { vidx, names };
 }
 
+
+/* ── SEMANTIC INDEX ──────────────────────────────────────────────────────────
+   Every term the business actually uses, mapped to what it means in the data: enum values,
+   department and test names, branch codes, payout categories, doctor names, plus the owner's
+   synonyms. Built from live data at startup, so a new department or test is resolvable the day
+   it is created. The analyst carries a compact summary of it and calls resolve() only for a
+   term it does not recognise — semantic context is always available, semantic reasoning is not
+   always run. */
+export interface Concept { term: string; dimension: string | null; value: string | null; meaning: string; source: string; }
+let CONCEPTS: Concept[] = [];
+export const concepts = () => CONCEPTS;
+
+/** The owner's words that are not literal data values — synonyms a lookup cannot discover. */
+const SYNONYMS: Concept[] = [
+  { term: 'lab', dimension: 'domain', value: 'DIAGNOSTICS', meaning: 'the lab side — tests and scans, excluding consultation fees', source: 'glossary' },
+  { term: 'diagnostics', dimension: 'domain', value: 'DIAGNOSTICS', meaning: 'the lab side of the business', source: 'glossary' },
+  { term: 'tests', dimension: 'domain', value: 'DIAGNOSTICS', meaning: 'lab work', source: 'glossary' },
+  { term: 'scans', dimension: 'domain', value: 'DIAGNOSTICS', meaning: 'imaging, part of the lab side', source: 'glossary' },
+  { term: 'op', dimension: 'domain', value: 'CLINIC', meaning: 'outpatient doctor consultation', source: 'glossary' },
+  { term: 'ip', dimension: 'domain', value: 'CLINIC', meaning: 'inpatient clinic visit', source: 'glossary' },
+  { term: 'clinic', dimension: 'domain', value: 'CLINIC', meaning: 'the consultation side of the business', source: 'glossary' },
+  { term: 'consultation', dimension: 'domain', value: 'CLINIC', meaning: 'doctor consultation fees', source: 'glossary' },
+  { term: 'consultations', dimension: 'domain', value: 'CLINIC', meaning: 'doctor consultation fees', source: 'glossary' },
+  { term: 'collection', dimension: null, value: 'revenue', meaning: 'money RECEIVED — the revenue metric', source: 'glossary' },
+  { term: 'billing', dimension: null, value: 'net_billed', meaning: 'value INVOICED, not collected', source: 'glossary' },
+  { term: 'cases', dimension: null, value: 'visits', meaning: 'visits, not tests', source: 'glossary' },
+  { term: 'footfall', dimension: null, value: 'visits', meaning: 'visits', source: 'glossary' },
+  { term: 'due', dimension: null, value: 'outstanding', meaning: 'unpaid balance', source: 'glossary' },
+  { term: 'referral amount', dimension: null, value: 'commission', meaning: 'doctor payout from the ledger', source: 'glossary' },
+];
+
+async function buildConcepts(): Promise<Concept[]> {
+  const out: Concept[] = [...SYNONYMS];
+  const add = (term: unknown, dimension: string | null, value: string, meaning: string, source: string) => {
+    const t = String(term || '').toLowerCase().trim();
+    if (t.length < 2 || out.some((c) => c.term === t)) return;
+    out.push({ term: t, dimension, value, meaning, source });
+  };
+  // enum values are literal filters: DIAGNOSTICS, CLINIC, CASH, ONLINE, FINALIZED…
+  for (const [dim, sql] of [['domain', `SELECT DISTINCT domain::text v FROM "Visit"`],
+    ['payment_type', `SELECT DISTINCT "paymentType"::text v FROM "PaymentTransaction"`],
+    ['payout_category', `SELECT DISTINCT "payoutCategorySnapshot" v FROM "TestOrder" WHERE "payoutCategorySnapshot" IS NOT NULL`]] as [string, string][]) {
+    for (const r of (await query(sql, [], 300)).rows || []) add(r.v, dim, String(r.v), `${dim} = ${r.v}`, 'enum');
+  }
+  for (const r of (await query('SELECT code, name FROM "Branch"', [], 100)).rows || []) {
+    add(r.code, 'branch', String(r.code), `the ${r.name} branch`, 'branch');
+    for (const w of String(r.name).split(/[^A-Za-z0-9]+/)) if (w.length > 3 && !/sobhana|kidcare/i.test(w)) add(w, 'branch', String(r.code), `the ${r.name} branch`, 'branch');
+  }
+  for (const r of (await query('SELECT name FROM "Department" WHERE "isActive"', [], 100)).rows || [])
+    add(r.name, null, String(r.name), `a department — filter tests by TestDefinition.departmentId`, 'department');
+  for (const r of (await query('SELECT DISTINCT "testCodeSnapshot" c, "testNameSnapshot" n FROM "TestOrder" WHERE "testCodeSnapshot" IS NOT NULL', [], 2000)).rows || [])
+    add(r.c, 'test', String(r.c), `test ${r.n}`, 'test');
+  return out;
+}
+
+/** What does this word mean here? Deterministic, no model call. */
+export function resolveTerm(term: string): Concept[] {
+  const t = String(term || '').toLowerCase().trim();
+  if (!t) return [];
+  const exact = CONCEPTS.filter((c) => c.term === t);
+  if (exact.length) return exact;
+  return CONCEPTS.filter((c) => c.term.includes(t) || t.includes(c.term)).slice(0, 6);
+}
+/** Scope terms the question uses, whatever they are — no hardcoded list. */
+export function scopeTermsIn(q: string): Concept[] {
+  const words = String(q).toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((w) => w.length >= 2);
+  const hits: Concept[] = [];
+  for (const w of words) { if (VSTOP.has(w)) continue;
+    for (const c of CONCEPTS) if (c.term === w && c.dimension && !hits.some((h) => h.term === c.term)) hits.push(c); }
+  return hits;
+}
+/** The compact list the analyst always carries, so a known term costs no lookup. */
+export function conceptSummary(): string {
+  const byDim: Record<string, string[]> = {};
+  for (const c of CONCEPTS) { if (!c.dimension) continue; (byDim[c.dimension] ||= []).push(`${c.term}→${c.value}`); }
+  return Object.entries(byDim).map(([d, xs]) => `  ${d}: ${xs.slice(0, 14).join('  ')}${xs.length > 14 ? `  …+${xs.length - 14}` : ''}`).join('\n');
+}
+
 // ── question-time helpers ──────────────────────────────────────────────────
-const VSTOP = new Set(('the and for how many much what which show list top all last this our we us in on of by per each with from at as it that did do does are was were test tests volume order orders compare between total count revenue value rate share average number report reports result results patient patients visit visits branch department bill bills month year week day time high low new').split(' '));
+export const VSTOP = new Set(('the and for how many much what which show list top all last this our we us in on of by per each with from at as it that did do does are was were test tests volume order orders compare between total count revenue value rate share average number report reports result results patient patients visit visits branch department bill bills month year week day time high low new').split(' '));
 export function resolveValues(k: Knowledge, q: string): string {
   const seen = new Map<string, Set<string>>();
   for (const raw of String(q).toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ')) {

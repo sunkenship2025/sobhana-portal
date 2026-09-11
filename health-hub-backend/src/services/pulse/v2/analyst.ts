@@ -11,11 +11,18 @@ import { llmJson } from '../llm';
 import { langOf, todayIST } from '../db';
 import { METRICS, METRIC_DIMS } from '../catalog';
 import { KNOWN_DIMS } from './tools';
+import { conceptSummary } from '../knowledge';
 import type { Evidence } from './tools';
 
 const metricLines = Object.entries(METRICS).map(([n, m]) => `  ${n} [${m.u}] ${m.d.split('.')[0]}${METRIC_DIMS[n] ? ` · splits by: ${METRIC_DIMS[n].join(', ')}` : ''}`).join('\n');
 
 const TOOLBOX = `TOOLS
+
+  resolve     {terms:["lab","radiology",...]}
+      What a word means in THIS business, from live data — which filter it becomes, or that it
+      is not a known concept. Free and instant. Use it when the question narrows the scope with
+      a word you do not recognise from the list below, BEFORE planning the analysis around it.
+      Never guess a scope word; a total that includes what the owner excluded is a wrong answer.
 
   query       {question}
       Writes SQL for exactly the question you give it, against the full schema, with the house
@@ -66,7 +73,19 @@ THE OWNER'S WORDS FOR THESE — "cases" is not "tests"
   "doctor wise", "which doctors", "who is sending" means the REFERRING doctor
   (ReferralDoctor), never the clinic doctor who sees the patient.
 
-DIMENSIONS: ${KNOWN_DIMS.join(', ')}   (branch codes: CNT, BLN, JGG, IDPL)
+SCOPE WORDS — these narrow the question and MUST become a filter, never be ignored
+  lab / diagnostics / tests / scans / investigations  -> filter {domain:"DIAGNOSTICS"}
+  OP / IP / clinic / consultation / doctor visit      -> filter {domain:"CLINIC"}
+  chintal CNT / balanagar BLN / jagadgirigutta JGG / idpl IDPL -> filter {branch:"<code>"}
+  cash / online / cheque                              -> filter {payment_type:"CASH|ONLINE|CHEQUE"}
+  "only", "just", "excluding", "without" always signal one of these.
+  A total that includes what the owner excluded is a WRONG ANSWER, however confident the label.
+
+DIMENSIONS: ${KNOWN_DIMS.join(', ')}
+
+WHAT THE OWNER'S WORDS MEAN HERE — if a scope word is in this list, use it directly and do not
+call resolve. If a question narrows scope with a word that is NOT here, call resolve first.
+${conceptSummary()}
 PERIODS: "month" (month-to-date vs the same days last month), "week" (trailing 7 vs previous 7),
          "last_month", an explicit "YYYY-MM", "today", "yesterday", "last_30_days".`;
 
@@ -111,7 +130,20 @@ RULES
    Only return {"phi": true} if they want patient data for something the work lists do not cover
    — clinical results, diagnoses, or a bulk export of the whole patient database.
 
-Return JSON {"goal":"one sentence, what we are establishing","steps":[{"tool":"...","label":"<=6 words","args":{...}}]}.`;
+FIRST WRITE THE SPEC — what the owner asked for, before any tool is chosen
+ · measure: the quantity in their words, and the registry metric if one matches exactly
+ · scope:   EVERY qualifier that narrows the question. Keep their word in "term" and the
+            resolved filter in "dimension"/"value". "only lab" -> {term:"lab",
+            dimension:"domain", value:"DIAGNOSTICS"}. "at chintal" -> {term:"chintal",
+            dimension:"branch", value:"CNT"}. If you cannot resolve a qualifier, still list it
+            with dimension null and plan a resolve step.
+ · time:    the period, plus the phrase they used
+The spec is a contract: the query is checked against it, and anything you leave out of scope is
+something the answer will silently include. A question with no qualifiers has an empty scope.
+
+Return JSON {"goal":"one sentence","spec":{"measure":{"concept":"...","metric":null},
+"scope":[{"term":"...","dimension":"...","value":"..."}],"time":{"period":"...","phrase":"..."}},
+"steps":[{"tool":"...","label":"<=6 words","args":{...}}]}.`;
 
 export const INSIGHT_SYS = () => `You are reading the evidence from an analysis you planned, for a
 diagnostic centre's owner. Today is ${todayIST()} (IST).
@@ -159,6 +191,9 @@ ${ARTIFACTS}
 
 RULES
  · Use ONLY the formatted values in the evidence. Never compute or invent a number.
+ · Every number carries a "means" line saying exactly what it represents. Describe it as that and
+   nothing wider. A figure that means "diagnostics only" must never be called total collection.
+   If the evidence is scoped, say the scope in the sentence.
  · Every "evidence" index must exist in the evidence you were given.
  · If a trend's current bucket is marked in progress, never compare it with whole periods.
  · 2 to 5 sentences unless the question genuinely needs more. No preamble, no consultant filler.
@@ -167,7 +202,7 @@ RULES
 Return JSON {"text":"the answer","artifacts":[...],"suggest":[{"label":"<=4 words","q":"full question"}]}.
 "suggest" is 2 to 4 follow-ups a real owner would ask next, from what the evidence shows.`;
 
-export interface Plan { goal?: string; steps?: any[]; outOfScope?: boolean; why?: string; phi?: boolean; }
+export interface Plan { goal?: string; spec?: any; steps?: any[]; outOfScope?: boolean; why?: string; phi?: boolean; }
 
 export const askPlan = (q: string, ctx: string) =>
   llmJson<Plan>(PLAN_SYS(), `${ctx}QUESTION\n${q}`, { maxTokens: 700 });
@@ -179,4 +214,4 @@ export const askInsight = (q: string, goal: string, ev: Evidence[]) =>
 export const askResponse = (q: string, goal: string, ev: Evidence[], findings: any[]) =>
   llmJson<{ text?: string; artifacts?: any[]; suggest?: any[] }>(RESPOND_SYS(),
     JSON.stringify({ LANGUAGE: langOf(q), question: q, goal, findings,
-      evidence: ev.map((e) => ({ step: e.step, label: e.label, tool: e.tool, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, result: e.summary })) }), { maxTokens: 900 });
+      evidence: ev.map((e) => ({ step: e.step, label: e.label, tool: e.tool, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, result: e.summary })) }), { maxTokens: 900 });
