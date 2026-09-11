@@ -237,6 +237,18 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     }
   }
 
+  /**
+   * Incompleteness travels as DATA, not as a sentence the writer might forget. The contract
+   * violation nudges the prose, and on the run that failed the suite the prose happened to
+   * disclose it — but that is luck, and the guarantee cannot depend on a regex recognising
+   * whatever words the model chose. If the investigation did not close, the ANSWER is marked
+   * incomplete and the panel says so, whatever the prose does.
+   */
+  const incomplete = inv && inv.complete === false ? {
+    reason: inv.stoppingReason ?? 'insufficient_evidence',
+    open: openMaterial(inv).map((h) => h.claim).slice(0, 3),
+  } : null;
+
   const turnArtifacts = buildTurnArtifacts(artifacts, evidence);
 
   // THE TRACE — every decision this turn made, so the architecture can be researched rather
@@ -275,7 +287,7 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   const opportunities = ranked?.recommended?.map((o) => ({ ...o, impact: honestImpact(o) })) ?? null;
   // named, but never presented as advice — you may not recommend what you have not measured
   const consideredNotSized = ranked?.considered?.length ? ranked.considered.map((o) => o.title) : null;
-  return { kind: 'analysis', goal: plan.goal || '', spec, job, investigation: brief(inv), trace, text, segments, opportunities, consideredNotSized, artifacts, findings,
+  return { kind: 'analysis', goal: plan.goal || '', spec, job, investigation: brief(inv), trace, text, segments, incomplete, opportunities, consideredNotSized, artifacts, findings,
     chips: (res.suggest || []).filter((c: any) => c?.label && c?.q).slice(0, 4),
     evidence: evidence.map((e) => ({ step: e.step, tool: e.tool, label: e.label, ok: e.ok, metric: e.metric, unit: e.unit, dimension: e.dimension, means: e.means, detail: e.detail, summary: e.summary, data: e.data, sql: e.sql, error: e.error })),
     meta: { calls, ms: Date.now() - t0, steps: evidence.length, rounds },

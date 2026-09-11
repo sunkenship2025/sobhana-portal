@@ -130,8 +130,12 @@ export const BUSINESS_FACTS = `WHICH BRANCHES ARE REAL — the owner told us thi
     revenue fell 24%" on twenty-nine lifetime visits is noise reported as news.
   · Keep them out of rankings, "which branch is worst", quiet-doctor lists and anomalies unless
     the owner names the branch.
-  · Do NOT silently drop them from a centre-wide total — they are a rounding error either way,
-    and silently changing what a total covers is worse than including it.
+  · EXCLUDE THEM FROM EVERY FIGURE unless the owner names the branch: add
+    br.code NOT IN ('JGG','IDPL') wherever the query touches Branch. I had this the other way
+    round and it was wrong. Test entries inside a revenue total are not a rounding error, they
+    are wrong money — the owner asked what the business EARNED, and a test transaction is not
+    earnings. Hiding them from a chart while still summing them into the total was the worst of
+    both: the number was wrong and the reason was invisible.
   · If the owner asks about them directly, answer, and say plainly that the branch is only used
     for testing so the numbers are not real trade.`;
 

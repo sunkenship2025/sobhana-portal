@@ -4,7 +4,7 @@
  * is generated deterministically from the registry — the model never writes SQL, it narrates.
  */
 import { query, todayIST, IST, langOf, pool } from './db';
-import { METRICS, FROMS, DIMS, dimJoin, dimOk } from './catalog';
+import { METRICS, FROMS, DIMS, dimJoin, dimOk, TEST_BRANCHES } from './catalog';
 import { llmJson } from './llm';
 import type { Route } from './router';
 
@@ -14,6 +14,12 @@ export const fmt = (v: number | null | undefined, u?: string | null) => v == nul
 export async function scalar(metric: string, from: string, to: string, extraJoin = '', dimExpr: string | null = null, where: string[] = []): Promise<any> {
   const M = METRICS[metric], F = FROMS[metric]; if (!M || !F) return null;
   const [fromClause, timeCol] = F; const w: string[] = [...where]; if (M.filt) w.push(M.filt);
+  // Kidcare branches are test entries, not trade. Hiding them from a CHART was not enough — they
+  // were still being summed into every total, so "this month's revenue" carried test money.
+  // Excluded unless the caller named a branch, in which case it was asked for deliberately.
+  if (/"Branch"\s+br\b/.test(fromClause + extraJoin) && !where.some((c) => /br\."?code"?/i.test(c))) {
+    w.push(`br.code NOT IN (${TEST_BRANCHES.map((b) => `'${b}'`).join(', ')})`);
+  }
   if (timeCol) { w.push(`(${timeCol} ${IST}) >= '${from}'`); w.push(`(${timeCol} ${IST}) < '${to}'`); }
   const sel = dimExpr ? `${dimExpr} AS k, ${M.sql} AS v` : `${M.sql} AS v`;
   const ex = await query(`SELECT ${sel} FROM ${fromClause}${extraJoin}${w.length ? ` WHERE ${w.join(' AND ')}` : ''}${dimExpr ? ' GROUP BY 1' : ''}`);

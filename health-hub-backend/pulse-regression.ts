@@ -16,6 +16,10 @@ const IST = (c: string) => `(${c} AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata'
 const COLL = `SUM(CASE WHEN pt."transactionType"='REFUND' THEN -pt."amountInPaise" ELSE pt."amountInPaise" END)`;
 const DUE = `(b."totalAmountInPaise"-b."discountAmountInPaise"-b."couponDiscountInPaise"-b."reversedChargeInPaise"-b."paidAmountInPaise")`;
 const PAY = `"PaymentTransaction" pt JOIN "Bill" b ON b.id=pt."billId" JOIN "Branch" br ON br.id=b."branchId"`;
+/* The owner says JGG and IDPL exist only for testing, so their rows are not trade and do not
+   belong in "what the business earned". Ground truth has to hold the same definition the product
+   does, or the suite reports a correct answer as a failure — which is what it just did. */
+const LIVE = `br.code NOT IN ('JGG','IDPL')`;
 
 /** Pulse counts WHOLE days — today is still running, so it is excluded from a trailing window,
  *  deliberately, so a comparison is like-for-like. Three times now a window that included today
@@ -57,11 +61,11 @@ const CASES: Array<{ id: string; q: string; truth: () => Promise<string>; note: 
 
   { id: 'NET_BILLED', note: 'reached the owner as a bare 435,854,453 — 100x the truth',
     q: 'what is our total net billed all time',
-    truth: async () => R((await q(`SELECT SUM(b."totalAmountInPaise"-b."discountAmountInPaise"-b."couponDiscountInPaise"-b."reversedChargeInPaise") p FROM "Bill" b`))[0].p) },
+    truth: async () => R((await q(`SELECT SUM(b."totalAmountInPaise"-b."discountAmountInPaise"-b."couponDiscountInPaise"-b."reversedChargeInPaise") p FROM "Bill" b JOIN "Branch" br ON br.id=b."branchId" WHERE ${LIVE}`))[0].p) },
 
   { id: 'TURNOVER', note: 'turnover must mean collected, not billed',
     q: 'what is turnover of this month',
-    truth: async () => R((await q(`SELECT ${COLL} p FROM ${PAY} WHERE ${IST('pt."transactionDate"')} >= date_trunc('month', CURRENT_DATE) AND ${IST('pt."transactionDate"')} < CURRENT_DATE`))[0].p) },
+    truth: async () => R((await q(`SELECT ${COLL} p FROM ${PAY} WHERE ${LIVE} AND ${IST('pt."transactionDate"')} >= date_trunc('month', CURRENT_DATE) AND ${IST('pt."transactionDate"')} < CURRENT_DATE`))[0].p) },
 
   { id: 'DISCOUNT_REASON', note: 'the top discount reason by value',
     q: 'break down discounts at chintal in the last 30 days by reason',
@@ -73,7 +77,7 @@ const CASES: Array<{ id: string; q: string; truth: () => Promise<string>; note: 
 
   { id: 'REFUNDS', note: 'operational table that was never reached',
     q: 'how many refunds did we process in total',
-    truth: async () => N((await q(`SELECT COUNT(*)::int n FROM "OrderRefund"`))[0].n) },
+    truth: async () => N((await q(`SELECT COUNT(*)::int n FROM "OrderRefund" orf JOIN "Visit" v ON v.id=orf."visitId" JOIN "Branch" br ON br.id=v."branchId" WHERE ${LIVE}`))[0].n) },
 
   { id: 'WHATSAPP', note: 'message delivery',
     q: 'how many whatsapp messages did we send last month',

@@ -58,6 +58,23 @@ export function Opportunities({ list, considered }: { list: Opportunity[]; consi
     </div>);
 }
 
+/**
+ * Said before the answer, because it changes how the answer should be read. The writer is also
+ * told to disclose it, but this does not depend on the writer remembering — an investigation
+ * that could not close a material question must not present a settled-looking conclusion.
+ */
+function Incomplete({ i }: { i: { reason: string; open: string[] } }) {
+  const why = i.reason === 'resource_limit'
+    ? 'This was cut short before the analysis finished.'
+    : 'I could not establish everything this answer depends on.';
+  return (
+    <div className="rounded-lg border-l-2 bg-muted/40 px-3 py-2 text-[12.5px] leading-[1.5]"
+      style={{ borderColor: 'var(--pulse-down)' }}>
+      <span className="font-medium">{why}</span>
+      {!!i.open?.length && <span className="text-muted-foreground"> Still open: {i.open.join('; ')}</span>}
+    </div>);
+}
+
 export function Answer({ s }: { s: Segments }) {
   return (
     <div className="pulse-answer space-y-2.5">
@@ -158,6 +175,7 @@ function TurnView({ t, onAsk, onExpand }: { t: Turn; onAsk: (q: string) => void;
       {t.pending && <Thinking steps={t.steps} />}
       {t.error && <p className="text-[13px] text-[#D91C2B]">{t.error}</p>}
       {a && <>
+        {a.incomplete && <Incomplete i={a.incomplete} />}
         {a.segments?.verdict
           ? <Answer s={a.segments} />
           : a.text && <p className="pulse-answer whitespace-pre-line text-[13.5px] leading-[1.65]">{a.text}</p>}
