@@ -589,7 +589,13 @@ async function buildConcepts(): Promise<Concept[]> {
  * 14, so even as a clean prefix it scores 0.107 and never commits. A short code cannot outrank a
  * long name it happens to begin with.
  */
-export type ResolutionMethod = 'exact' | 'normalized' | 'prefix' | 'word' | 'substring';
+/* `prefix` and `partial` are both "one starts with the other", and collapsing them was wrong.
+   The direction decides whether the OWNER'S WORDS are fully accounted for:
+     prefix   the concept extends the phrase — "external" against EXTERNAL_UPLOAD. Nothing the
+              owner said is left unexplained; they simply used the short form.
+     partial  the phrase extends the concept — "ct referral" against REFERRAL. "ct" is left over,
+              and it is the word that mattered. */
+export type ResolutionMethod = 'exact' | 'normalized' | 'prefix' | 'partial' | 'word' | 'substring';
 export interface Resolution extends Concept { score: number; how: ResolutionMethod }
 
 const flat = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -600,7 +606,8 @@ function scoreMatch(term: string, q: string): { score: number; how: ResolutionMe
   if (!a || !b) return null;
   if (a === b) return { score: 0.95, how: 'normalized' };
   const r = Math.min(a.length, b.length) / Math.max(a.length, b.length);
-  if (b.startsWith(a) || a.startsWith(b)) return { score: 0.75 * r, how: 'prefix' };
+  if (a.startsWith(b)) return { score: 0.75 * r, how: 'prefix' };     // concept extends phrase
+  if (b.startsWith(a)) return { score: 0.75 * r, how: 'partial' };    // phrase has leftover
   if (` ${b} `.includes(` ${a} `) || ` ${a} `.includes(` ${b} `)) return { score: 0.7 * r, how: 'word' };
   if (b.includes(a) || a.includes(b)) return { score: 0.4 * r, how: 'substring' };
   return null;
@@ -624,7 +631,10 @@ export function resolveRanked(term: string): Resolution[] {
        loosely they become noise that looks authoritative: "ct referral" resolved to
        DoctorPayoutLedger.doctorType = REFERRAL and sent an ROI question to the one table that
        cannot scope commission to CT. So an enum must be NAMED, not merely brushed against. */
-    if (c.source === 'schema-enum' && m.how !== 'exact' && m.how !== 'normalized') continue;
+    /* An enum must ACCOUNT FOR the words used, not merely be brushed against. "external" is the
+       short form of EXTERNAL_UPLOAD and explains everything the owner said; "ct referral" leaves
+       "ct" unexplained and sent an ROI question to the payout ledger. */
+    if (c.source === 'schema-enum' && !['exact', 'normalized', 'prefix'].includes(m.how)) continue;
     out.push({ ...c, ...m });
   }
   return out.sort((x, y) => y.score - x.score || x.term.length - y.term.length).slice(0, 8);

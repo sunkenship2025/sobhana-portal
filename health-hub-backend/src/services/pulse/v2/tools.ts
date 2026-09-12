@@ -289,7 +289,18 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null, policy:
   let check = verifySpec(spec, sql);
   if (!check.ok && !ex.err) {
     try {
-      spent++; const f = await llmJson<{ sql?: string }>(`Repair PostgreSQL. The query answers a WIDER question than was asked. ${specRepairHint(check)} Return JSON {"sql":"..."}.`,
+      /* WHY it cannot be narrowed, when we know. A constraint on a test, category or modality can
+         never be satisfied by a sum over DoctorPayoutLedger: that table records what a doctor was
+         PAID and carries no link to a test order, so filtering orders in a CTE and summing the
+         ledger beside it counts commission for work outside the filter. Told only "you dropped a
+         constraint", the repair rewrites the same impossible query. This is what made a CT scanner
+         look loss-making — commission 4.5x the revenue it was supposedly derived from. */
+      const ledgerScoped = /"DoctorPayoutLedger"/.test(sql)
+        && check.missing.some((m) => ['test', 'payout_category', 'modality', 'service_kind'].includes(String(m.dimension)));
+      const why = ledgerScoped
+        ? ` "DoctorPayoutLedger" CANNOT be scoped to a test or category — it has no link to a test order. Drop it entirely and use the commission frozen on the order: SUM(CASE WHEN o."referralCommissionType" = 'PERCENTAGE' THEN ROUND(o."priceInPaise" * COALESCE(o."referralCommissionPercentage",0) / 100.0) ELSE COALESCE(o."referralCommissionAmountInPaise",0) END) over "TestOrder" o.`
+        : '';
+      spent++; const f = await llmJson<{ sql?: string }>(`Repair PostgreSQL. The query answers a WIDER question than was asked. ${specRepairHint(check)}${why} Return JSON {"sql":"..."}.`,
         `${gen.ctx}\n\nSQL\n${sql}\n\nPROBLEM\n${check.note}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
       if (s2 && !validate(s2, policy) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; check = { ok: true, missing: [] }; recovered = 'DROPPED_CONSTRAINT'; } }
@@ -352,6 +363,30 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null, policy:
         `${gen.ctx}\n\nSQL\n${sql}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
       if (s2 && !validate(s2, policy) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'TEST_GRAIN'; } }
+    } catch { /* keep what we had */ }
+  }
+
+  /* COMMISSION SCOPED TO A TEST CANNOT COME FROM THE PAYOUT LEDGER.
+     DoctorPayoutLedger has no testOrderId — it records what a doctor was paid, not which orders
+     it was paid for — so any query that filters to a test or category and then sums
+     derivedAmountInPaise is summing commission for every order those doctors ever sent. Asked
+     whether a ₹50 lakh CT scanner pays back, that produced commission figures 4.5x and 6.6x the
+     CT revenue they were supposedly derived from, an impossible margin, four rounds spent trying
+     to reconcile it, and no answer. The commission on an order is frozen ON the order. */
+  const scopedToWork = (spec?.scope || []).some((c: any) => ['test', 'payout_category', 'modality', 'service_kind'].includes(c?.dimension))
+    || /\bcommission|referral (fee|rate|amount|payout)|per[- ]scan|margin|payback|roi\b/i.test(q);
+  const ledgerCommission = () => /"DoctorPayoutLedger"/.test(sql) && /SUM\s*\([^)]*derivedAmountInPaise/i.test(sql);
+  if (scopedToWork && ledgerCommission()) {
+    spent++;
+    try {
+      const f = await llmJson<{ sql?: string }>(
+        `Repair PostgreSQL. FAILURE CLASS: COMMISSION_BASIS. "DoctorPayoutLedger" records what a doctor was PAID; it carries no link to a test order, so it cannot be scoped to a test, category or modality — summing it against a filtered set of orders counts commission for work outside that set. The commission for an order is frozen on the order itself: SUM(CASE WHEN o."referralCommissionType" = 'PERCENTAGE' THEN ROUND(o."priceInPaise" * COALESCE(o."referralCommissionPercentage",0) / 100.0) ELSE COALESCE(o."referralCommissionAmountInPaise",0) END) over "TestOrder" o. Rewrite using that, keep every other filter. Return JSON {"sql":"..."}.`,
+        `${gen.ctx}\n\nSQL\n${sql}`, { maxTokens: 2200 });
+      const s2 = repairIdents(k, f.sql || '');
+      if (s2 && !validate(s2, policy) && !/"DoctorPayoutLedger"/.test(s2)) {
+        const ex2 = await query(s2, [], 200);
+        if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'COMMISSION_BASIS'; }
+      }
     } catch { /* keep what we had */ }
   }
 
