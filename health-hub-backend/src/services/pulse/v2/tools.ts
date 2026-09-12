@@ -14,6 +14,7 @@ import { llmJson } from '../llm';
 import { validate, type SqlPolicy } from '../validator';
 import { repairIdents, resolveTerm, resolveRanked, type Knowledge } from '../knowledge';
 import { verifySpec, specRepairHint, type AnalysisSpec } from './spec';
+import { compileBindings, formatBindings } from './binding';
 
 export interface Evidence {
   step: number; tool: string; label: string; ok: boolean; detail?: string;
@@ -236,7 +237,12 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null, policy:
   if (!q) return { ok: false, error: 'no question given' };
   let recovered: string | undefined;
   let spent = 1;                       // the generation itself
-  const gen = await generate(k, q);
+  /* THE FIX THIS PHASE EXISTS FOR. The spec was resolved before any SQL existed and then thrown
+     away here; the generator re-derived meaning from English and the verifier tried to recognise
+     whatever came back. Phase 1 binds TIME only — the cheapest test of whether a typed binding
+     survives the generator at all. */
+  const bindings = compileBindings(spec);
+  const gen = await generate(k, q, { bindings: formatBindings(bindings) || undefined });
   let sql = repairIdents(k, gen.sql);
   let bad = validate(sql, policy);
   let ex = bad ? { err: `blocked: ${bad}` } as any : await query(sql, [], 200);

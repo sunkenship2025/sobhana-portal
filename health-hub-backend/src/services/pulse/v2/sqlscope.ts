@@ -23,7 +23,10 @@
  */
 import { parse } from 'pgsql-ast-parser';
 
-export interface Predicate { column: string; values: string[] }
+/** How strongly a predicate pins a value down. `contains` is a real restriction but a looser one
+ *  than `exact`, and the difference decides whether it proves a scope constraint. */
+export type MatchMode = 'exact' | 'set' | 'contains' | 'prefix' | 'suffix' | 'range';
+export interface Predicate { column: string; operator: string; values: string[]; mode: MatchMode }
 export interface Scope {
   /** false when the SQL did not parse — the caller must fall back, not reject */
   parsed: boolean;
@@ -33,18 +36,55 @@ export interface Scope {
   tables: Set<string>;
 }
 
-/** Every `col = 'x'` and `col IN ('x','y')` inside one expression. */
+/** The column a comparison is about, through whatever wrapping it carries. A time column is
+ *  usually buried: (b."billedAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') >= '2026-08-01'
+ *  nests the ref two binaries deep. */
+function firstRef(n: any, depth = 0): any {
+  if (!n || typeof n !== 'object' || depth > 12) return null;
+  if (n.type === 'ref' && n.name) return n;
+  for (const v of Object.values(n)) {
+    if (Array.isArray(v)) { for (const x of v) { const r = firstRef(x, depth + 1); if (r) return r; } }
+    else if (v && typeof v === 'object') { const r = firstRef(v, depth + 1); if (r) return r; }
+  }
+  return null;
+}
+const RANGE_OP = /^(>=|>|<|<=)$/;
+
+/** Every `col = 'x'`, `col IN ('x','y')` and range comparison inside one expression. */
 function predicatesIn(expr: any, out: Predicate[], depth = 0): void {
   if (!expr || typeof expr !== 'object' || depth > 24) return;
-  if (expr.type === 'binary' && expr.op === '=') {
+  // = and LIKE/ILIKE both restrict. A name match is usually written ILIKE '%CT-BRAIN PLAIN%',
+  // and reading only `=` meant a correct filter looked like no filter at all.
+  if (expr.type === 'binary' && /^(=|i?like)$/i.test(String(expr.op || ''))) {
     const [ref, lit] = expr.left?.type === 'ref' ? [expr.left, expr.right] : [expr.right, expr.left];
-    if (ref?.type === 'ref' && ref.name && (lit?.type === 'string' || lit?.type === 'integer'))
-      out.push({ column: String(ref.name), values: [String(lit.value)] });
+    if (ref?.type === 'ref' && ref.name && (lit?.type === 'string' || lit?.type === 'integer')) {
+      const raw = String(lit.value);
+      const op = String(expr.op);
+      const mode: MatchMode = /^=$/.test(op) ? 'exact'
+        : raw.startsWith('%') && raw.endsWith('%') ? 'contains'
+        : raw.endsWith('%') ? 'prefix' : raw.startsWith('%') ? 'suffix' : 'exact';
+      out.push({ column: String(ref.name), operator: op, values: [raw], mode });
+    }
+  }
+  /* RANGE comparisons — added for time bindings. Additive: equality and IN behave exactly as
+     before, and `verifyConstraint` ignores mode 'range' so no scope check changes. A relative
+     bound (CURRENT_DATE - 30) has an expression on the right rather than a literal, so nothing is
+     recorded — which is correct: there is no literal to adhere to. */
+  if (expr.type === 'binary' && RANGE_OP.test(String(expr.op || ''))) {
+    const ref = firstRef(expr.left);
+    const lit = expr.right;
+    if (ref && (lit?.type === 'string' || lit?.type === 'integer'))
+      out.push({ column: String(ref.name), operator: String(expr.op), values: [String(lit.value)], mode: 'range' });
+  }
+  if (expr.type === 'ternary' && /^between$/i.test(String(expr.op || ''))) {
+    const ref = firstRef(expr.value);
+    if (ref && expr.lo?.type === 'string' && expr.hi?.type === 'string')
+      out.push({ column: String(ref.name), operator: 'BETWEEN', values: [String(expr.lo.value), String(expr.hi.value)], mode: 'range' });
   }
   // IN is a binary node with a `list` on the right, not a node type of its own
   if (expr.type === 'binary' && /^in$/i.test(String(expr.op || '')) && expr.left?.type === 'ref'
       && expr.right?.type === 'list' && Array.isArray(expr.right.expressions))
-    out.push({ column: String(expr.left.name),
+    out.push({ column: String(expr.left.name), operator: 'IN', mode: 'set',
       values: expr.right.expressions.filter((x: any) => x?.type === 'string' || x?.type === 'integer').map((x: any) => String(x.value)) });
   for (const v of Object.values(expr)) {
     if (Array.isArray(v)) for (const x of v) predicatesIn(x, out, depth + 1);
@@ -103,8 +143,36 @@ export function scopeOf(sql: string): Scope {
 }
 
 /** Is this literal used to restrict the rows the answer is computed from? */
-export const restrictsBy = (s: Scope, value: string): boolean =>
-  s.effective.some((p) => p.values.some((v) => v.toLowerCase() === String(value).toLowerCase()));
+/**
+ * Does this SQL enforce the scope constraint strongly enough?
+ *
+ * Not "does an equality predicate for this literal appear" — that was the old contract and it
+ * refused `testName ILIKE '%CT-BRAIN PLAIN%'`, which restricts to exactly the rows asked for. But
+ * a pattern is not automatically equality either: `ILIKE '%CT%'` also restricts, to a much wider
+ * set, and must NOT prove a constraint of CT-BRAIN PLAIN. The test is whether the pattern, minus
+ * its wildcards, IS the value — a contains-match on the whole value is bounded by it; a
+ * contains-match on a fragment of it is broader than what was asked for.
+ */
+const bare = (v: string) => String(v).replace(/%/g, '').trim().toLowerCase();
+
+export interface Verification { verified: boolean; mode?: MatchMode; predicate?: Predicate; reason?: string }
+
+export function verifyConstraint(s: Scope, value: string): Verification {
+  const want = bare(value);
+  if (!want) return { verified: false, reason: 'no value to verify' };
+  for (const p of s.effective) {
+    if (p.mode === 'range') continue;        // ranges answer time, never scope identity
+    for (const v of p.values) if (bare(v) === want) return { verified: true, mode: p.mode, predicate: p };
+  }
+  // nothing matched — say whether something NEARLY did, because "broader than you asked" is a
+  // different problem from "not filtered at all" and they need different repairs
+  const broader = s.effective.find((p) => p.values.some((v) => bare(v) && want.includes(bare(v))));
+  if (broader) return { verified: false, predicate: broader, mode: broader.mode,
+    reason: `${broader.column} ${broader.operator} '${broader.values[0]}' is broader than the value asked for` };
+  return { verified: false, reason: 'no predicate restricts this value on the rows the answer is computed from' };
+}
+
+export const restrictsBy = (s: Scope, value: string): boolean => verifyConstraint(s, value).verified;
 
 /* ── WHAT THE QUERY WOULD ACTUALLY EXPOSE ────────────────────────────────────────────────────
  *
@@ -186,4 +254,23 @@ export function exposedIdentifiers(sql: string): { parsed: boolean; exposed: str
   };
   selectLists(root);
   return { parsed: true, exposed: [...exposed] };
+}
+
+/**
+ * Did the query restrict its time column to the bound window — using the bound literals?
+ *
+ * This is ADHERENCE, deliberately strict: the dates we handed the generator must appear in a
+ * predicate on the relation the answer is computed from. A semantically identical relative form
+ * (CURRENT_DATE - 30, date_trunc('month', ...)) is NOT adherence — it is the generator reaching
+ * the right window by its own reasoning, which is a different fact and is measured separately as
+ * correctness. Conflating them would let a generator that ignores the binding entirely score as
+ * if it obeyed one.
+ */
+export function verifyTimeWindow(s: Scope, start: string, end: string):
+  { adherent: boolean; sawStart: boolean; sawEnd: boolean; ranges: Predicate[] } {
+  const ranges = s.effective.filter((p) => p.mode === 'range');
+  const day = (v: string) => String(v).trim().slice(0, 10);
+  const has = (d: string) => ranges.some((p) => p.values.some((v) => day(v) === day(d)));
+  const sawStart = has(start), sawEnd = has(end);
+  return { adherent: sawStart && sawEnd, sawStart, sawEnd, ranges };
 }

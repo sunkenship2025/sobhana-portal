@@ -14,7 +14,7 @@
 import { DIMS, METRICS } from '../catalog';
 import { resolveRanked, resolveTerm, concepts, MIN_CONFIDENCE } from '../knowledge';
 import { periods } from '../diagnostic';
-import { scopeOf, restrictsBy } from './sqlscope';
+import { scopeOf, restrictsBy, verifyConstraint } from './sqlscope';
 
 export interface ScopeConstraint {
   /** what the owner said — "lab", "chintal", "only cash" */
@@ -30,6 +30,11 @@ export interface ScopeConstraint {
    *  confident resolution may gate one. */
   how?: string;
   confidence?: number;
+  /** other literals that express the SAME identity. A test is both a code and a name, and a
+   *  query filtering on either has honoured the constraint — the spec resolves "CT-BRAIN PLAIN"
+   *  to CTBP, the generator writes the name about half the time, and a validator that knows only
+   *  the code rejects a correct query. That was the whole of this question's nondeterminism. */
+  aliases?: string[];
   /** when the term covers several literals — "my business" is CNT and BLN, not a branch called
    *  "CNT,BLN". Defaults to [value]; every one of them must survive into the SQL. */
   values?: string[];
@@ -65,7 +70,10 @@ const COLUMNS: Record<string, RegExp> = {
   branch: /\bbr\."?(code|id)"?|"?Branch"?\b|"?branchId"?/i,
   payment_type: /"?paymentType"?/i,
   referring_doctor: /"?ReferralDoctor"?|"?referralDoctorId"?/i,
-  test: /"?testCodeSnapshot"?|"?testDefinitionId"?/i,
+  // A test is identified by its code OR its name — both are columns on TestOrder, and the
+  // generator picks between them at random. Listing only the code rejected every query that
+  // filtered by name, which is what made this question answer correctly about half the time.
+  test: /"?testCodeSnapshot"?|"?testNameSnapshot"?|"?testDefinitionId"?/i,
   payout_category: /"?payoutCategorySnapshot"?/i,
   modality: /"?payoutCategorySnapshot"?/i,
   service_kind: /"?payoutCategorySnapshot"?/i,
@@ -93,8 +101,8 @@ export interface SpecCheck { ok: boolean; missing: ScopeConstraint[]; timeMissin
  * this accepts any of them, and only fails when the SQL restricts NO time column at all or
  * restricts one to a window that is plainly not the one asked for.
  */
-const PERIOD_WORD = /\b(today|yesterday|now|week|weeks|month|months|quarter|year|years|day|days|period|fortnight|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|q[1-4]|ytd|mtd|since|until|between|last|past|previous|this|current|recent|so far)\b|\d{4}-\d{2}|\d{1,2}\/\d{1,2}/i;
-const ALL_TIME = /\b(all[- ]?time|ever|lifetime|in total|overall|to date|since (we |the )?(start|beginning|opening)|entire history)\b/i;
+export const PERIOD_WORD = /\b(today|yesterday|now|week|weeks|month|months|quarter|year|years|day|days|period|fortnight|jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|jun(e)?|jul(y)?|aug(ust)?|sep(t|tember)?|oct(ober)?|nov(ember)?|dec(ember)?|q[1-4]|ytd|mtd|since|until|between|last|past|previous|this|current|recent|so far)\b|\d{4}-\d{2}|\d{1,2}\/\d{1,2}/i;
+export const ALL_TIME = /\b(all[- ]?time|ever|lifetime|in total|overall|to date|since (we |the )?(start|beginning|opening)|entire history)\b/i;
 
 function timeHonoured(t: TimeConstraint | undefined, sql: string): boolean {
   if (!t || (!t.from && !t.days)) return true;
@@ -156,16 +164,27 @@ export function verifySpec(spec: AnalysisSpec | null | undefined, sql: string): 
     // was checked as one string: the SQL said IN ('CNT','BLN') and the check looked for the
     // literal 'CNT,BLN', so five correct queries were rejected for dropping a constraint they
     // had honoured. A validator that rejects correct work is worse than no validator.
-    const hasVal = (c.values?.length ? c.values : [c.value]).every((one) =>
-      scope.parsed ? restrictsBy(scope, String(one)) : (() => {
-        const v = String(one).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        return new RegExp(`'${v}'`, 'i').test(s) || new RegExp(`\\b${v}\\b`, 'i').test(s);
+    // one identity, any of its literals: the code OR the name, either honours the constraint
+    const satisfied = (one: string) => [one, ...(c.aliases || [])].some((lit) =>
+      scope.parsed ? restrictsBy(scope, String(lit)) : (() => {
+        const v = String(lit).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`'%?${v}%?'`, 'i').test(s) || new RegExp(`\\b${v}\\b`, 'i').test(s);
       })());
+    const hasVal = (c.values?.length ? c.values : [c.value]).every((one) => satisfied(String(one)));
     return !(hasCol && hasVal);
   });
+  /* WHY it failed, not just that it did. "does not restrict to test = CTBP" sent me through five
+     reproduction runs and a plan diff; "testNameSnapshot ILIKE '%CT%' is broader than the value
+     asked for" names the defect and tells the repair exactly what to tighten. */
+  const detail = missing.map((m) => {
+    if (!scope.parsed) return null;
+    const v = verifyConstraint(scope, String(m.value));
+    return v.reason ? `${m.dimension}: ${v.reason}` : null;
+  }).filter(Boolean);
   const notes = [
     missing.length ? `the query does not restrict to ${missing.map((m) => `${m.dimension} = ${m.value} (the owner said "${m.term}")`).join(' and ')}` : '',
     timeMissing ? `the query does not restrict to ${timeMissing.phrase || timeMissing.period}${timeMissing.from ? ` (${timeMissing.from} up to ${timeMissing.to})` : ''} — a figure for the wrong period is a wrong answer even when every other filter is right` : '',
+    ...detail,
   ].filter(Boolean);
   return { ok: missing.length === 0 && !timeMissing, missing, timeMissing,
     note: notes.length ? notes.join('; ') : undefined };
@@ -185,6 +204,11 @@ export function specRepairHint(check: SpecCheck): string {
     + `The owner asked for ${check.missing.map((m) => `"${m.term}"`).join(' and ')}, so a total that includes anything else is the wrong answer. Add the filter and keep everything else.`;
 }
 
+/** Every term that resolves to this same literal — a test's code and its name both do. */
+const aliasesFor = (dim: string, value: string): string[] =>
+  [...new Set(concepts().filter((c) => c.dimension === dim && c.value === value)
+    .map((c) => c.term).filter((t) => t && t.length > 2))].slice(0, 6);
+
 /** The literals a dimension actually takes, from the live semantic index. */
 const valuesFor = (dim: string) =>
   new Set(concepts().filter((c) => c.dimension === dim && c.value).map((c) => String(c.value)));
@@ -202,7 +226,11 @@ export function completeSpec(spec: AnalysisSpec | null | undefined): AnalysisSpe
     // reached the SQL will happily enforce a wrong one; the constraint itself has to be grounded
     // first. Only fall back to what the planner wrote when the term resolves to nothing.
     const hit = resolveRanked(c?.term || '').find((r) => r.score >= MIN_CONFIDENCE && r.dimension && r.value);
-    if (hit) { scope.push({ term: c.term, dimension: hit.dimension!, value: hit.value!, how: hit.how, confidence: hit.score }); continue; }
+    if (hit) {
+      scope.push({ term: c.term, dimension: hit.dimension!, value: hit.value!, how: hit.how,
+        confidence: hit.score, aliases: aliasesFor(hit.dimension!, hit.value!) });
+      continue;
+    }
     // The same bug wearing a new costume. "ultrasound" got through because the DIMENSION name was
     // valid; so did branch = "CNT,BLN", which is not a branch but two, and which then became a
     // hard gate every correct query failed. A valid dimension is not a grounded constraint — the
@@ -214,7 +242,8 @@ export function completeSpec(spec: AnalysisSpec | null | undefined): AnalysisSpe
     if (!values.length) continue;
     // The planner's own guess. It may be right, and it may be "CT" for a question about
     // CT-BRAIN PLAIN. It gets to shape the query; it does not get to gate it.
-    scope.push({ term: c.term, dimension: c.dimension, value: values[0], values, how: 'planner', confidence: 0.25 });
+    scope.push({ term: c.term, dimension: c.dimension, value: values[0], values, how: 'planner',
+      confidence: 0.25, aliases: aliasesFor(c.dimension, values[0]) });
   }
   const metric = spec.measure?.metric && METRICS[spec.measure.metric] ? spec.measure.metric : null;
 
