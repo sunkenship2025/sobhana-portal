@@ -1643,15 +1643,6 @@ const DiagnosticsNewVisit = () => {
                       if (e.repeat || e.key !== 'Enter') return;
                       e.preventDefault();
                       if (phone.length < 10) return;
-                      // Already pinned to this number (arrived from Patient 360):
-                      // move on. handleSearch below clears the selection before it
-                      // re-queries, so searching again for the patient we are
-                      // already holding just unselects them. Only skip while the
-                      // number is untouched — edit it and this is a real search.
-                      if (selectedPatient && primaryPhoneOf(selectedPatient) === phone) {
-                        goToStep(30);
-                        return;
-                      }
                       // Search, then branch on the FRESH result (handleSearch
                       // returns the matches) — no stale closure / setTimeout race.
                       const matches = await handleSearch();
