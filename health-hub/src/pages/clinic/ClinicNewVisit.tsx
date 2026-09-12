@@ -395,9 +395,12 @@ const ClinicNewVisit = () => {
     // 1. A concrete patient (from the detail page) — select it directly.
     if (state.prefillPatient) {
       consumedPrefill.current = true;
-      // Phone-first form, and `phone` is submitted with the visit — carry the
-      // patient's number over or the visit is filed without one.
+      // Land in the SAME state a normal search ends in: number in the box, the
+      // patient in the match list, that patient selected. Setting only the phone
+      // leaves the match card rendering an empty list (it shows on any 10-digit
+      // number), which reads as a broken screen.
       setPhone(primaryPhoneOf(state.prefillPatient));
+      setMatchingPatients([state.prefillPatient]);
       handleSelectPatient(state.prefillPatient);
       return;
     }

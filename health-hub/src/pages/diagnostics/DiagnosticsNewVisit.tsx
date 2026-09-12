@@ -613,10 +613,15 @@ const DiagnosticsNewVisit = () => {
     const p = prefillState?.prefillPatient;
     if (!p) return;
     prefilledRef.current = true;
-    // The form is phone-first and submits `phone`; without this the visit would
-    // be filed with an empty number.
+    // Land in the SAME state a normal search ends in: number in the box, the
+    // patient in the match list, that patient selected, focus on referrals.
+    // Setting only the phone left "Matching Patients" rendering an empty list
+    // with nothing but Create New Patient — the card shows whenever the number
+    // is 10 digits, so a prefilled number with no results looks broken.
+    const asResult = { patient: p, historySnapshot: [] } as PatientSearchResult;
     setPhone(primaryPhoneOf(p));
-    handleSelectPatient({ patient: p } as PatientSearchResult);
+    setMatchingPatients([asResult]);
+    handleSelectPatient(asResult);
     // Drop it from history so a refresh or Back does not re-prefill.
     navigate(location.pathname, { replace: true, state: null });
   }, [prefillState, navigate, location.pathname]);
