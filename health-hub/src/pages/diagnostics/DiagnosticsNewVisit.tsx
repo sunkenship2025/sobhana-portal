@@ -87,6 +87,9 @@ const DiagnosticsNewVisit = () => {
   const { confirm, ConfirmDialog } = useConfirm();
   const printRef = useRef<HTMLDivElement>(null);
   const phoneInputRef = useRef<HTMLInputElement>(null);
+  // Declared up here with the other refs: the autofocus effect below reads it,
+  // and a const declared further down would be in the temporal dead zone.
+  const prefilledRef = useRef(false);
   const testSelectorRef = useRef<HTMLDivElement>(null);
   const submitButtonRef = useRef<HTMLButtonElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
@@ -299,11 +302,17 @@ const DiagnosticsNewVisit = () => {
     };
   }, [successData, token]);
 
-  // Auto-focus phone input on page load
+  // Auto-focus phone input on page load — but not when we arrived with the
+  // patient already chosen, where the phone box is a finished step and focus
+  // belongs further down the form.
   useEffect(() => {
     if (!successData) {
       // Small delay to ensure DOM is ready after any transitions
       const timer = setTimeout(() => {
+        // Checked HERE, not above: effects run in declaration order, so this one
+        // is scheduled before the prefill effect further down has set the flag.
+        // Testing it at schedule time would always see false and steal focus back.
+        if (prefilledRef.current) return;
         phoneInputRef.current?.focus();
       }, 100);
       return () => clearTimeout(timer);
@@ -607,7 +616,6 @@ const DiagnosticsNewVisit = () => {
   // skip the search step instead of making them look up someone they were just
   // looking at. Runs once — re-running would yank focus back on every render.
   const prefillState = location.state as { prefillPatient?: Patient } | null;
-  const prefilledRef = useRef(false);
   useEffect(() => {
     if (prefilledRef.current) return;
     const p = prefillState?.prefillPatient;
@@ -1635,6 +1643,15 @@ const DiagnosticsNewVisit = () => {
                       if (e.repeat || e.key !== 'Enter') return;
                       e.preventDefault();
                       if (phone.length < 10) return;
+                      // Already pinned to this number (arrived from Patient 360):
+                      // move on. handleSearch below clears the selection before it
+                      // re-queries, so searching again for the patient we are
+                      // already holding just unselects them. Only skip while the
+                      // number is untouched — edit it and this is a real search.
+                      if (selectedPatient && primaryPhoneOf(selectedPatient) === phone) {
+                        goToStep(30);
+                        return;
+                      }
                       // Search, then branch on the FRESH result (handleSearch
                       // returns the matches) — no stale closure / setTimeout race.
                       const matches = await handleSearch();

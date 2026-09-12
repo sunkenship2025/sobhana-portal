@@ -355,6 +355,14 @@ const ClinicNewVisit = () => {
   // so the operator doesn't have to press Enter twice to "Create New Patient".
   const handlePhoneEnter = async () => {
     if (!guardPhone()) return;
+    // Already pinned to this number (arrived from Patient 360): move on. Searching
+    // again for the patient we are already holding drops to the no-match branch
+    // and calls handleCreateNewPatient, which unselects them. Only skip while the
+    // number is untouched — edit it and this is a real search again.
+    if (selectedPatient && primaryPhoneOf(selectedPatient) === phone) {
+      goToStep(30);
+      return;
+    }
     const patients = await runPatientSearch(phone);
     setMatchingPatients(patients);
     setHighlightedPatientIndex(0);
