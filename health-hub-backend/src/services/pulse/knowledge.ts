@@ -595,7 +595,7 @@ async function buildConcepts(): Promise<Concept[]> {
               owner said is left unexplained; they simply used the short form.
      partial  the phrase extends the concept — "ct referral" against REFERRAL. "ct" is left over,
               and it is the word that mattered. */
-export type ResolutionMethod = 'exact' | 'normalized' | 'prefix' | 'partial' | 'word' | 'substring';
+export type ResolutionMethod = 'exact' | 'normalized' | 'inflection' | 'prefix' | 'partial' | 'word' | 'substring';
 export interface Resolution extends Concept { score: number; how: ResolutionMethod }
 
 const flat = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -606,6 +606,25 @@ function scoreMatch(term: string, q: string): { score: number; how: ResolutionMe
   if (!a || !b) return null;
   if (a === b) return { score: 0.95, how: 'normalized' };
   const r = Math.min(a.length, b.length) / Math.max(a.length, b.length);
+  /* AN ENGLISH SUFFIX IS NOT A WEAKER MATCH — IT IS THE SAME WORD.
+     "scanner" against the concept "scan" scored 0.75 x 4/7 = 0.43, so the family pass — which
+     only trusts a signal at 0.90 — never learned the question was about IMAGING, and "CT" went
+     to CLOTTING TIME on an exact match against a lab code. The owner was asking about a ₹50 lakh
+     scanner and being quoted a blood test: every CT figure came back 0, and the payback question
+     was unanswerable for a reason that had nothing to do with payback.
+     Length ratio is the wrong instrument for inflection. "scans", "scanning", "scanner" are the
+     concept, and the suffix is grammar, not evidence against it. Scored just under a normalized
+     match: strong enough to settle a family, never strong enough to outrank the word itself. */
+  /* One word against one word, and the phrase must actually BEGIN with the concept — checking
+     only the tail meant b.slice(a.length) sliced an arbitrary offset of an unrelated string, and
+     "much has" matched imaging while "is the clotting" matched Dental X-Ray. Inflection is a
+     property of a single word, so a phrase containing a space is not one. */
+  const SUFFIX = /^(s|es|er|ers|or|ors|ing|ed|ion|ions)$/;
+  const oneWord = !a.includes(' ') && !b.includes(' ') && a.length >= 4 && b.length > a.length;
+  // scan -> scanner doubles the final consonant, so the tail is "ner", not "er"
+  const inflected = oneWord && b.startsWith(a)
+    && (SUFFIX.test(b.slice(a.length)) || (b[a.length] === a[a.length - 1] && SUFFIX.test(b.slice(a.length + 1))));
+  if (inflected) return { score: 0.9, how: 'inflection' };
   if (a.startsWith(b)) return { score: 0.75 * r, how: 'prefix' };     // concept extends phrase
   if (b.startsWith(a)) return { score: 0.75 * r, how: 'partial' };    // phrase has leftover
   if (` ${b} `.includes(` ${a} `) || ` ${a} `.includes(` ${b} `)) return { score: 0.7 * r, how: 'word' };
@@ -751,6 +770,59 @@ function inFamily(c: Resolution, families: Set<string>): boolean {
   return c.dimension === 'service_kind' && families.has(String(c.value));
 }
 
+/** The families a question has already COMMITTED to, from its unambiguous words alone.
+ *  Exported because the `resolve` TOOL needs exactly the same rule: it was answering "CT" with
+ *  "test CLOTTING TIME" in the middle of a question about a ₹50 lakh scanner, because it called
+ *  the resolver bare while termsIn applied the family. One question, two disagreeing answers,
+ *  and the investigation believed the tool. */
+export function familiesIn(q: string): Set<string> {
+  const families = new Set<string>();
+  for (const w of String(q || '').toLowerCase().split(/[^a-z0-9-]+/).filter(Boolean).slice(0, 40)) {
+    if (VSTOP.has(w) || w.length < 3) continue;
+    const r = resolveRanked(w).find((x) => x.score >= 0.9);
+    if (!r) continue;
+    if (r.dimension === 'service_kind' && r.value) families.add(String(r.value));
+    else if (r.family) families.add(r.family);
+  }
+  /* FOLLOW THE CHAIN. A test's family is its payout category; a category's family is the service
+     kind. The question commits to IMAGING, but no TEST is ever labelled IMAGING — it is labelled
+     "CT / MRI", whose family is IMAGING. Holding only the committed level meant nothing downstream
+     could ever match it, so the family filter excluded every candidate and fell back to the wrong
+     one. Walk down: IMAGING admits the categories under it, and those admit their tests. */
+  for (let depth = 0; depth < 3; depth++) {
+    const before = families.size;
+    for (const c of CONCEPTS) if (c.value && c.family && families.has(c.family)) families.add(String(c.value));
+    if (families.size === before) break;
+  }
+  return families;
+}
+
+/** resolveRanked, settled by the question it was asked in. The bare resolver appeared in THREE
+ *  places — termsIn, the resolve tool, and the spec builder — and only the first knew about
+ *  families. So the spec gated every CT query on `test = CT` (Clotting Time, exact, 1.00) while
+ *  the tool beside it correctly said CT-BRAIN PLAIN. One rule, three callers. */
+export function rankedIn(term: string, q?: string): Resolution[] {
+  const all = resolveRanked(term);
+  if (!q) return all;
+  const fams = familiesIn(q);
+  if (!fams.size) return all;
+  const keep = all.filter((r: any) => inFamily(r, fams));
+  return keep.length ? keep : all.filter((r: any) => !r.family);
+}
+
+/** resolveTerm, but settled by the question it was asked in. */
+export function resolveTermIn(term: string, q?: string): Concept[] {
+  const all = resolveTerm(term);
+  if (!q) return all;
+  const fams = familiesIn(q);
+  if (!fams.size || all.length < 2) return all;
+  /* No fallback. If the question has committed to a family and nothing resolves inside it, the
+     honest result is "not found" with the near misses shown — which is what the caller does with
+     an empty list. Handing back the out-of-family candidate anyway is how "CT" came back as
+     "test CLOTTING TIME, confidence 1.00" inside a question about a ₹50 lakh scanner. */
+  return all.filter((c: any) => inFamily(c as any, fams));
+}
+
 export function termsIn(q: string): Resolution[] {
   const words = String(q || '').toLowerCase().split(/[^a-z0-9-]+/).filter(Boolean).slice(0, 40);
   const out = new Map<string, Resolution>();
@@ -758,14 +830,7 @@ export function termsIn(q: string): Resolution[] {
   /* First pass, unambiguous terms only: what families has the question already committed to?
      Only high-confidence single-family signals count — a guess cannot be allowed to steer the
      rest of the sentence. */
-  const families = new Set<string>();
-  for (const w of words) {
-    if (VSTOP.has(w) || w.length < 3) continue;
-    const r = resolveRanked(w).find((x) => x.score >= 0.9);
-    if (!r) continue;
-    if (r.dimension === 'service_kind' && r.value) families.add(String(r.value));
-    else if (r.family) families.add(r.family);
-  }
+  const families = familiesIn(q);
   for (let n = Math.min(4, words.length); n >= 1; n--) {
     for (let i = 0; i + n <= words.length; i++) {
       if (covered.slice(i, i + n).some(Boolean)) continue;       // a longer phrase already claimed these

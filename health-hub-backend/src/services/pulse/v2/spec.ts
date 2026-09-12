@@ -12,7 +12,7 @@
  * a warning — and the repair is told exactly which one went missing.
  */
 import { DIMS, METRICS } from '../catalog';
-import { resolveRanked, resolveTerm, concepts, MIN_CONFIDENCE } from '../knowledge';
+import { resolveRanked, rankedIn, resolveTerm, concepts, MIN_CONFIDENCE } from '../knowledge';
 import { periods } from '../diagnostic';
 import { scopeOf, restrictsBy, verifyConstraint } from './sqlscope';
 
@@ -158,7 +158,7 @@ export function verifySpec(spec: AnalysisSpec | null | undefined, sql: string): 
     // Only a resolution we stand behind may reject a query. An unconfident one is a hint.
     if (c.confidence != null && c.confidence < MIN_CONFIDENCE) return false;
     const col = COLUMNS[c.dimension];
-    const hasCol = col ? col.test(s) : new RegExp(`"?${c.dimension}"?`, 'i').test(s);
+    const hasCol = col ? col.test(s) : new RegExp(`"?${c.dimension}"?`, 'i').test(s);   // still decides DERIVED
     if (DERIVED.has(c.dimension)) return !hasCol;
     // every literal, case-insensitively, in a quoted or IN-list form. A multi-value constraint
     // was checked as one string: the SQL said IN ('CNT','BLN') and the check looked for the
@@ -171,7 +171,16 @@ export function verifySpec(spec: AnalysisSpec | null | undefined, sql: string): 
         return new RegExp(`'%?${v}%?'`, 'i').test(s) || new RegExp(`\\b${v}\\b`, 'i').test(s);
       })());
     const hasVal = (c.values?.length ? c.values : [c.value]).every((one) => satisfied(String(one)));
-    return !(hasCol && hasVal);
+    /* THE VALUE IS WHAT THE OWNER SAID. THE COLUMN IS OUR GUESS, AND IT CAN BE WRONG.
+       "CT" resolved to test = CT. There is no test called CT — it is a MODALITY — so every
+       correct route to the answer was refused for dropping a constraint it had honoured:
+       breakdown by modality, a LIKE on the test name, the metric filtered by modality. Nineteen
+       of twenty-four steps failed, the operands were never measured, and the answer was "I could
+       not establish it" on a question the data answers. A guard that enforces our own inference
+       against the evidence that disproves it does not protect the owner, it silences the data.
+       So: restricting the rows to the VALUE honours the constraint, whatever column carries it.
+       Naming the wrong column is our error to correct, never the query's to be punished for. */
+    return !hasVal;
   });
   /* WHY it failed, not just that it did. "does not restrict to test = CTBP" sent me through five
      reproduction runs and a plan diff; "testNameSnapshot ILIKE '%CT%' is broader than the value
@@ -214,7 +223,7 @@ const valuesFor = (dim: string) =>
   new Set(concepts().filter((c) => c.dimension === dim && c.value).map((c) => String(c.value)));
 
 /** Fill in scope the analyst named but did not resolve, from the live semantic index. */
-export function completeSpec(spec: AnalysisSpec | null | undefined): AnalysisSpec | null {
+export function completeSpec(spec: AnalysisSpec | null | undefined, q?: string): AnalysisSpec | null {
   if (!spec) return null;
   const scope: ScopeConstraint[] = [];
   for (const c of spec.scope || []) {
@@ -225,7 +234,7 @@ export function completeSpec(spec: AnalysisSpec | null | undefined): AnalysisSpe
     // the owner got a confident 0 instead of 265. A validator that can only check a constraint
     // reached the SQL will happily enforce a wrong one; the constraint itself has to be grounded
     // first. Only fall back to what the planner wrote when the term resolves to nothing.
-    const hit = resolveRanked(c?.term || '').find((r) => r.score >= MIN_CONFIDENCE && r.dimension && r.value);
+    const hit = rankedIn(c?.term || '', q).find((r) => r.score >= MIN_CONFIDENCE && r.dimension && r.value);
     if (hit) {
       scope.push({ term: c.term, dimension: hit.dimension!, value: hit.value!, how: hit.how,
         confidence: hit.score, aliases: aliasesFor(hit.dimension!, hit.value!) });

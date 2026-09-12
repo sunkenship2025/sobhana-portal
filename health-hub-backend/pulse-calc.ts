@@ -138,18 +138,41 @@ const CASES: Case[] = [
     } },
 ];
 
-const digits = (s: string) => (String(s).match(/[\d,]+(?:\.\d+)?/g) || []).map((x) => Number(x.replace(/,/g, ''))).filter(Number.isFinite);
+const ONLY = process.argv.slice(2).filter((x) => !x.startsWith('-'));
+/* NUMBERS THAT CARRY THE RIGHT UNIT, not every number in the prose.
+   Matching bare digits scored "₹1,260 across 920 scans" as CORRECT against a truth of ₹950,
+   because the SCAN COUNT 920 is within 12% of a RUPEE figure. The instrument was reporting a
+   pass on a coincidence of magnitude between two different kinds of quantity. A grader that
+   cannot tell rupees from scans cannot grade a calculation.
+   "21.9 lakh" and "₹21,71,277" are the same money written two ways, so lakh/crore are scaled. */
+function digitsWithUnit(s: string, unit: string): number[] {
+  const txt = String(s);
+  const out: number[] = [];
+  const push = (raw: string, mult = 1) => { const n = Number(raw.replace(/,/g, '')) * mult; if (Number.isFinite(n)) out.push(n); };
+  if (unit === 'rupees') {
+    for (const m of txt.matchAll(/₹\s*([\d,]+(?:\.\d+)?)\s*(lakhs?|crores?|k\b)?/gi))
+      push(m[1], /lakh/i.test(m[2] || '') ? 1e5 : /crore/i.test(m[2] || '') ? 1e7 : /^k$/i.test(m[2] || '') ? 1e3 : 1);
+  } else if (unit === 'months') {
+    for (const m of txt.matchAll(/([\d,]+(?:\.\d+)?)\s*(months?|years?)/gi)) push(m[1], /year/i.test(m[2]) ? 12 : 1);
+  } else if (unit === 'pct') {
+    for (const m of txt.matchAll(/([\d,]+(?:\.\d+)?)\s*%/g)) push(m[1]);
+  } else {
+    for (const m of txt.matchAll(/[\d,]+(?:\.\d+)?/g)) push(m[0]);
+  }
+  return out;
+}
 const near = (a: number, b: number, tol = 0.12) => Math.abs(a - b) / Math.max(Math.abs(b), 1) <= tol;
 
 (async () => {
   const tally: Record<Klass, number> = { CORRECT:0, CALCULATION:0, OPERAND:0, SCOPE:0, PROVENANCE:0, INVESTIGATION:0, PRESENTATION:0 };
   for (const c of CASES) {
+    if (ONLY.length && !ONLY.includes(c.id)) continue;
     const t = await c.truth();
     let a: any; const t0 = Date.now();
     try { a = await ask(c.q, {}); } catch (e: any) { console.log(`✗ THREW ${c.id}`); continue; }
     const text = String(a.segments?.verdict ? [a.segments.verdict, ...(a.segments.points||[]).map((p:any)=>p.text), a.segments.caveat, a.segments.action].filter(Boolean).join(' ') : a.text || '');
     const tr = a.trace || {};
-    const nums = digits(text);
+    const nums = digitsWithUnit(text, String(t.unit || 'number'));
     const got = nums.some((n) => near(n, t.value));
     const cantSay = /could not establish|cannot (give|say|quote)|would be invented|not.*established|unresolved|no .*figure/i.test(text);
     const contradictions = (tr.investigation?.contradictions || []).length;

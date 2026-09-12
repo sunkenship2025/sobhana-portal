@@ -103,7 +103,7 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     + `  thing is changing the subject, not answering the question.\n\n` : '';
   const plan = await askPlan(q, subjectBlock + termsBlock(q) + ctx); calls++;
   if (plan.goal) say(String(plan.goal).slice(0, 140), 'objective');
-  const spec: AnalysisSpec | null = completeSpec(plan.spec ? { goal: plan.goal || '', ...plan.spec } : null);
+  const spec: AnalysisSpec | null = completeSpec(plan.spec ? { goal: plan.goal || '', ...plan.spec } : null, q);
   /* BIND THE ROW, NOT JUST ITS TYPE. Naming the dimension stopped "name him" answering about a
      doctor; it did not stop it re-querying and landing on a DIFFERENT patient, then failing to
      reconcile the two. The row the owner pointed at is already known — it is on screen — so it
@@ -193,7 +193,7 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     for (const s of steps) if (s?.label) say(String(s.label).slice(0, 70), 'step');
     const base = evidence.length;
     const missingBefore = missingRequirements(inv, evidence);
-    const got = await pool(3, steps.map((s, i) => () => runStep(s, base + i, k, spec, policy)));
+    const got = await pool(3, steps.map((s, i) => () => runStep(s, base + i, k, spec, policy, evidence, q)));
     for (const e of got) if (e.ok && !e.means) e.means = lineage(spec, e.detail);
     calls += got.reduce((n, e) => n + (e.calls ?? (e.tool === 'query' ? 1 : 0)), 0);   // generation AND every repair
     evidence.push(...got);

@@ -13,9 +13,11 @@ import { generate } from '../sqlPath';
 import { llmJson } from '../llm';
 import { validate, type SqlPolicy } from '../validator';
 import { groupedBy, periodOf, filtersOf, orderedBy } from './sqlscope';
-import { repairIdents, resolveTerm, resolveRanked, type Knowledge } from '../knowledge';
+import { repairIdents, resolveTerm, resolveTermIn, resolveRanked, type Knowledge } from '../knowledge';
 import { verifySpec, specRepairHint, type AnalysisSpec } from './spec';
 import { compileBindings, formatBindings } from './binding';
+
+import { t_compute } from './calc';
 
 export interface Evidence {
   step: number; tool: string; label: string; ok: boolean; detail?: string;
@@ -87,7 +89,12 @@ function buildFilter(metric: string, f: any): { where: string[]; join: string } 
   for (const [dim, rawVal] of Object.entries(f)) {
     if (rawVal == null || rawVal === '') continue;
     if (!DIMS[dim]) return { error: `cannot filter by '${dim}' — filterable dimensions are ${Object.keys(DIMS).join(', ')}` };
-    if (!dimOk(metric, dim)) return { error: `'${metric}' cannot be filtered by '${dim}'` };
+    /* SAY WHERE TO GO NEXT. A dead-end error is retried: the planner asked for revenue filtered
+       by modality, was told it cannot be, and asked again the next round, and the next — ten of
+       nineteen steps in one investigation were this same refusal, and the CT payback question
+       ran out of budget without ever measuring CT revenue. The registry cannot express every
+       dimension and never will; naming the tool that can turns a wall into a direction. */
+    if (!dimOk(metric, dim)) return { error: `'${metric}' cannot be filtered by '${dim}' — it only filters on ${(METRIC_DIMS[metric] || []).join(', ') || 'nothing'}. Use the "query" tool to express this one; do not ask a registry tool for it again.` };
     const j = dimJoin(metric, dim); if (j && !join.includes(j)) join += j;
     const vals = filterValues(rawVal).map((v) => v.replace(/'/g, "''"));
     where.push(`${DIMS[dim]} IN (${vals.map((v) => `'${v}'`).join(', ')})`);
@@ -687,13 +694,13 @@ async function t_anomalies(a: any): Promise<Partial<Evidence>> {
  * and points at where the answer may still live. The catalogue is an accelerator, never the
  * authority on what exists.
  */
-async function t_resolve(a: any): Promise<Partial<Evidence>> {
+async function t_resolve(a: any, _k?: any, q?: string): Promise<Partial<Evidence>> {
   const terms = (Array.isArray(a.terms) ? a.terms : [a.term ?? a.terms]).filter(Boolean).map(String).slice(0, 6);
   if (!terms.length) return { ok: false, error: 'no terms given' };
   const one = (c: any) => ({ filter: c.dimension ? { [c.dimension]: c.value } : null, value: c.value,
     means: c.meaning, from: c.source, how: c.how, confidence: Number(c.score?.toFixed?.(2) ?? c.score) });
   const found = terms.map((t: string) => {
-    const committed = resolveTerm(t).map(one);
+    const committed = resolveTermIn(t, q).map(one);
     if (committed.length) return { term: t, ...committed[0], alternatives: committed.slice(1, 3) };
     // nothing confident. Show the near misses — including per-word, because "external reports"
     // misses as a phrase while "external" lands squarely on EXTERNAL_UPLOAD.
@@ -713,6 +720,7 @@ export const TOOLS: Record<string, (a: any, k: Knowledge) => Promise<Partial<Evi
   trend: t_trend, baseline: t_baseline, anomaly: t_anomaly, derive: t_derive, query: t_query,
   receivables: t_receivables, pending_reports: t_pending_reports, quiet_doctors: t_quiet_doctors, leakage: t_leakage,
   worklist: t_worklist, resolve: t_resolve, anomalies: t_anomalies, delivery: t_delivery,
+  compute: t_compute as any,
 };
 
 const TRANSIENT = /connection pool|timed out|ECONNRESET|terminating connection/i;
@@ -755,7 +763,7 @@ function hideTestBranches(e: Evidence, args: any): Evidence {
 /** the registry tools whose scope travels in args.filter, and which buildFilter validates */
 const FILTERABLE = new Set(['metric', 'compare', 'breakdown', 'rank', 'trend', 'baseline']);
 
-export async function runStep(step: any, i: number, k: Knowledge, spec?: AnalysisSpec | null, policy: SqlPolicy = {}): Promise<Evidence> {
+export async function runStep(step: any, i: number, k: Knowledge, spec?: AnalysisSpec | null, policy: SqlPolicy = {}, prior: Evidence[] = [], q?: string): Promise<Evidence> {
   const t0 = Date.now();
   const tool = String(step?.tool || '');
   const label = String(step?.label || tool);
@@ -772,7 +780,10 @@ export async function runStep(step: any, i: number, k: Knowledge, spec?: Analysi
   ].filter(Boolean).join(', ');
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const r = tool === 'query' ? await t_query(args, k, spec, policy) : await fn(args, k);
+      const r = tool === 'query' ? await t_query(args, k, spec, policy)
+        : tool === 'compute' ? await t_compute(args, k, prior)
+        : tool === 'resolve' ? await t_resolve(args, k, q)
+        : await fn(args, k);
       /* THE SPEC BINDS REGISTRY STEPS TOO. verifySpec guards generated SQL and nothing guarded
          the registry, so a question scoped to one test could be answered by the net_billed metric
          with that scope silently dropped: "how much has CT-BRAIN PLAIN been billed for" came back
@@ -788,11 +799,15 @@ export async function runStep(step: any, i: number, k: Knowledge, spec?: Analysi
       if (r.ok && FILTERABLE.has(tool)) {
         const asked = (spec?.scope || []).filter((c: any) => (c.confidence ?? 1) >= 0.5 && c.dimension && c.value);
         const applied = (args?.filter && typeof args.filter === 'object') ? args.filter : {};
+        /* Match on the VALUE, across every filter key — not under the one dimension we inferred.
+           `test = CT` is a guess about which column carries "CT"; filtering by modality = CT
+           honours exactly what the owner asked for, and rejecting it blocked every route to a
+           CT figure at once. See the same correction in verifySpec. */
         const dropped = asked.filter((c: any) => {
-          const got = (applied as any)[c.dimension];
-          if (got == null) return true;
-          const vals = (Array.isArray(got) ? got : String(got).split(',')).map((x: any) => String(x).trim().toLowerCase());
-          return ![c.value, ...(c.values || []), ...(c.aliases || [])].some((v: any) => vals.includes(String(v).toLowerCase()));
+          const wanted = [c.value, ...(c.values || []), ...(c.aliases || [])].map((v: any) => String(v).trim().toLowerCase());
+          const vals = Object.values(applied as any).flatMap((got: any) =>
+            got == null ? [] : (Array.isArray(got) ? got : String(got).split(',')).map((x: any) => String(x).trim().toLowerCase()));
+          return !wanted.some((v) => vals.includes(v));
         });
         if (dropped.length) return { step: i, tool, label, ok: false, summary: null, ms: Date.now() - t0,
           error: `dropped a constraint the owner asked for — ${tool} cannot express ${dropped.map((c: any) => `${c.dimension} = ${c.value}`).join(' and ')}; use query` } as Evidence;
