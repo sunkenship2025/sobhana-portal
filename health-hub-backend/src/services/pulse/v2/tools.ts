@@ -354,7 +354,14 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null, policy:
     } catch { /* keep what we had */ }
   }
   // money for a NAMED test comes from that test's order lines, never from whole-bill totals
-  const testScoped = (spec?.scope || []).some((c: any) => c?.dimension === 'test');
+  /* Any question narrowed to a KIND OF WORK has this problem, not just one named test: a bill
+     containing a CT scan also contains everything else on that visit, so summing bill totals
+     answers "what were those visits worth", never "what has this test billed". Triggering only on
+     dimension === 'test' meant the guard never fired through ask(), where the same question
+     resolves to a category — and the flagship case answered ₹15,150 against ₹1,03,400, four runs
+     out of four. */
+  const testScoped = (spec?.scope || []).some((c: any) => ['test', 'payout_category', 'modality', 'service_kind'].includes(String(c?.dimension)))
+    || /\b(ct|mri|x-?ray|ultrasound|usg|scan|test)\b/i.test(q) && (spec?.scope || []).length > 0;
   if (testScoped && /"Bill"/.test(sql) && /b\."?(totalAmountInPaise|paidAmountInPaise)"?/i.test(sql) && !/o\."?priceInPaise"?/i.test(sql)) {
     spent++;
     try {
@@ -363,7 +370,11 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null, policy:
         `${gen.ctx}\n\nSQL\n${sql}`, { maxTokens: 2200 });
       const s2 = repairIdents(k, f.sql || '');
       if (s2 && !validate(s2, policy) && verifySpec(spec, s2).ok) { const ex2 = await query(s2, [], 200); if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'TEST_GRAIN'; } }
-    } catch { /* keep what we had */ }
+    } catch { /* fall through to the refusal below */ }
+    // A total at the wrong grain is not a smaller answer to the same question; it is an answer to
+    // a different one. Better to say the figure could not be produced than to ship it.
+    if (recovered !== 'TEST_GRAIN') return { ok: false, sql, calls: spent,
+      error: 'this sums whole-bill totals for bills that also contain other tests — the figure would not be what was asked for' };
   }
 
   /* COMMISSION SCOPED TO A TEST CANNOT COME FROM THE PAYOUT LEDGER.
