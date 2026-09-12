@@ -399,9 +399,36 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null, policy:
      whether a ₹50 lakh CT scanner pays back, that produced commission figures 4.5x and 6.6x the
      CT revenue they were supposedly derived from, an impossible margin, four rounds spent trying
      to reconcile it, and no answer. The commission on an order is frozen ON the order. */
-  const scopedToWork = (spec?.scope || []).some((c: any) => ['test', 'payout_category', 'modality', 'service_kind'].includes(c?.dimension))
-    || /\bcommission|referral (fee|rate|amount|payout)|per[- ]scan|margin|payback|roi\b/i.test(q);
+  const scopedToWork = workScoped(spec, q);
   const ledgerCommission = () => /"DoctorPayoutLedger"/.test(sql) && /SUM\s*\([^)]*derivedAmountInPaise/i.test(sql);
+  /* AND THE OTHER HALF OF THE SAME MISTAKE. Commission frozen on the orders billed in a window,
+     divided by the cash COLLECTED in that window, is a ratio over two different populations —
+     collection includes payments against bills raised months earlier, which is why the
+     denominator came back LARGER than everything imaging billed in the period. Both figures are
+     individually correct and the share is wrong: 18.4% against a true 21.4%. The denominator of
+     a commission share is what those same orders were billed. */
+  /* Cash is attached to PAYMENTS, not to orders. Scoping it by a property of test orders — a
+     category, a modality, a commission — silently mixes two populations: collection inside a
+     window includes payments against bills raised before it, which is why "imaging revenue
+     collected" came back LARGER than everything imaging was BILLED in the same 90 days.
+     Per scan that reads ₹1,273 where the truth is ₹950; as a commission share, 18.4% where the
+     truth is 21.4%. Both numbers individually correct, both answers wrong.
+     Whenever cash is being scoped by test-order properties, the order-aligned measure is what
+     those orders were BILLED. */
+  const mixesCashWithOrders = /"PaymentTransaction"/.test(sql) && /amountInPaise/i.test(sql) && /"TestOrder"/.test(sql);
+  if (mixesCashWithOrders) {
+    spent++;
+    try {
+      const f = await llmJson<{ sql?: string }>(
+        `Repair PostgreSQL. FAILURE CLASS: CASH_SCOPED_BY_ORDERS. This query sums cash from "PaymentTransaction" while scoping by "TestOrder" properties. Those are two different populations: a payment inside the window may settle a bill raised long before it, and an order inside the window may not be paid yet — so any per-order or share figure built from them is wrong even though both totals are individually right. When a money figure is scoped by test, category, modality or commission, use what those orders were BILLED: SUM(o."priceInPaise") over exactly that order set. Rewrite using that, drop the "PaymentTransaction" join, keep every other filter and the same time window. Return JSON {"sql":"..."}.`,
+        `${gen.ctx}\n\nSQL\n${sql}`, { maxTokens: 2200 });
+      const s2 = repairIdents(k, f.sql || '');
+      if (s2 && !validate(s2, policy) && !/"PaymentTransaction"/.test(s2)) {
+        const ex2 = await query(s2, [], 200);
+        if (!ex2.err && ex2.rows?.length) { sql = s2; ex = ex2; recovered = 'CASH_SCOPED_BY_ORDERS'; }
+      }
+    } catch { /* keep what we had */ }
+  }
   if (scopedToWork && ledgerCommission()) {
     spent++;
     try {
@@ -761,6 +788,13 @@ function hideTestBranches(e: Evidence, args: any): Evidence {
 }
 
 /** the registry tools whose scope travels in args.filter, and which buildFilter validates */
+/** Is this question about the commission on WORK, rather than about what a doctor was paid?
+ *  One predicate, both paths — t_query's COMMISSION_BASIS repair and the registry guard below.
+ *  They were separate, so the registry path answered a question the SQL path would have repaired. */
+export const workScoped = (spec: AnalysisSpec | null | undefined, q?: string): boolean =>
+  (spec?.scope || []).some((c: any) => ['test', 'payout_category', 'modality', 'service_kind'].includes(c?.dimension))
+  || /\bcommission|referral (fee|rate|amount|payout)|per[- ]scan|margin|payback|roi\b/i.test(String(q || ''));
+
 const FILTERABLE = new Set(['metric', 'compare', 'breakdown', 'rank', 'trend', 'baseline']);
 
 export async function runStep(step: any, i: number, k: Knowledge, spec?: AnalysisSpec | null, policy: SqlPolicy = {}, prior: Evidence[] = [], q?: string): Promise<Evidence> {
@@ -796,6 +830,18 @@ export async function runStep(step: any, i: number, k: Knowledge, spec?: Analysi
          spec had any scope at all: "how many patients have dues" came back "No patients currently
          have outstanding dues, ₹0" against a true 11 and ₹7,002. A guard that refuses correct
          work is worse than the gap it closes. */
+      /* THE SAME INVARIANT ON BOTH PATHS. The COMMISSION_BASIS repair lives inside t_query, so it
+         only ever protected generated SQL. Asked for commission on a question scoped to imaging,
+         the analyst called the REGISTRY metric instead — which reads DoctorPayoutLedger, carries
+         no link to a test order, and therefore returned a centre-wide figure that was then
+         reported as imaging commission: "roughly 16%" against a true 21.4%. It could not even be
+         filtered to imaging, so nothing looked wrong; it simply answered a wider question.
+         A rule enforced on one path is a rule the next caller walks around. */
+      if (r.ok && String(args?.metric || '') === 'commission'
+          && workScoped(spec, q)) {
+        return { step: i, tool, label, ok: false, summary: null, ms: Date.now() - t0,
+          error: 'the "commission" metric reads DoctorPayoutLedger — what a doctor was PAID — which carries no link to a test order and cannot be scoped to a test, category or modality. Use "commission_on_orders", the commission frozen on the orders themselves. Its denominator for a share is net_billed over the same orders, never revenue collected.' } as Evidence;
+      }
       if (r.ok && FILTERABLE.has(tool)) {
         const asked = (spec?.scope || []).filter((c: any) => (c.confidence ?? 1) >= 0.5 && c.dimension && c.value);
         const applied = (args?.filter && typeof args.filter === 'object') ? args.filter : {};

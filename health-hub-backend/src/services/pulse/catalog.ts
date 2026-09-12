@@ -8,6 +8,10 @@ export interface Metric {
   k: string; sql: string; tables: string[]; t: string | null; u: 'paise' | 'count' | 'ratio' | 'minutes';
   filt?: string; d: string;
 }
+/** The commission frozen on one order — a percentage of its billed price, or a flat amount.
+ *  Shared so the metric, the repair prompt and the benchmark cannot drift apart. */
+export const COMMISSION_ON_ORDER = `SUM(CASE WHEN o."referralCommissionType" = 'PERCENTAGE' THEN ROUND(o."priceInPaise" * COALESCE(o."referralCommissionPercentage",0) / 100.0) ELSE COALESCE(o."referralCommissionAmountInPaise",0) END)`;
+
 export const METRICS: Record<string, Metric> = {
   revenue: { k: 'revenue net income earned turnover sales money made collected cash received collection realised',
     sql: `SUM(CASE WHEN pt."transactionType"='REFUND' THEN -pt."amountInPaise" ELSE pt."amountInPaise" END)`,
@@ -47,6 +51,21 @@ export const METRICS: Record<string, Metric> = {
     tables: ['Bill'], t: 'b."billedAt"', u: 'paise', d: 'Manual discount + coupon.' },
   refund_total: { k: 'refund refunds refunded money back', sql: 'SUM(orf."amountInPaise")',
     tables: ['OrderRefund'], t: 'orf."createdAt"', u: 'paise', d: 'Money returned to patients.' },
+  /* TWO DIFFERENT REAL QUANTITIES, ONE NAME. What a doctor WAS PAID lives in the ledger and is
+     scopeable by doctor, branch and period — and by nothing else, because a ledger row carries no
+     link to a test order. Commission ATTRIBUTABLE TO WORK is frozen on each order and is scopeable
+     by test, category, modality and service kind.
+     Collapsed into one metric, "what share of imaging revenue goes out as commission" had no way
+     to be asked: the only commission metric refused every imaging filter, so the analyst answered
+     "at least 16.4%, and the true share is higher" against a true 21.4%. Naming them apart is the
+     whole fix — each is exact within its own scope, and neither pretends to the other's reach. */
+  commission_on_orders: { k: 'commission on orders referral payable attributable per test per category imaging commission',
+    sql: COMMISSION_ON_ORDER,
+    tables: ['TestOrder'], t: 'o."createdAt"', u: 'paise',
+    d: 'Referral commission frozen on the test orders themselves. USE THIS whenever commission is '
+       + 'scoped to a test, payout category, modality or service kind, and as the numerator of any '
+       + 'commission share — its denominator is net_billed over the SAME orders, never revenue '
+       + 'collected. The ledger metric "commission" cannot be filtered this way at all.' },
   commission: { k: 'commission payout doctor owed payable', sql: 'SUM(pl."derivedAmountInPaise")',
     tables: ['DoctorPayoutLedger'], t: 'pl."periodStartDate"', u: 'paise', filt: 'pl."deletedAt" IS NULL',
     d: 'Derived doctor commission. SOFT DELETE guarded. A RATIO MUST SHARE A BASIS: commission is '
@@ -71,6 +90,7 @@ export const METRIC_DIMS: Record<string, string[]> = {
   discount_total: ['branch'],
   refund_total: ['branch'],
   commission: ['referring_doctor', 'branch'],
+  commission_on_orders: ['branch', 'test', 'payout_category', 'modality', 'service_kind', 'referring_doctor'],
 };
 export const DIM_LABEL: Record<string, string> = {
   branch: 'branch wise', payment_type: 'by payment mode', referring_doctor: 'doctor wise',
@@ -91,6 +111,7 @@ export const FROMS: Record<string, [string, string]> = {
   discount_total: ['"Bill" b JOIN "Visit" v ON v.id=b."visitId" JOIN "Branch" br ON br.id=b."branchId"', 'b."billedAt"'],
   refund_total: ['"OrderRefund" orf JOIN "Visit" v ON v.id=orf."visitId" JOIN "Branch" br ON br.id=orf."branchId"', 'orf."createdAt"'],
   commission: ['"DoctorPayoutLedger" pl JOIN "Branch" br ON br.id=pl."branchId"', 'pl."periodStartDate"'],
+  commission_on_orders: ['"TestOrder" o JOIN "Visit" v ON v.id=o."visitId" JOIN "Branch" br ON br.id=o."branchId"', 'o."createdAt"'],
   // rate metrics: no Branch join, so no breakdowns — but the formula is still exercised by the self-check
   abnormal_rate: ['"TestResult" r', ''],
   cancellation_rate: ['"TestOrder" o', 'o."createdAt"'],

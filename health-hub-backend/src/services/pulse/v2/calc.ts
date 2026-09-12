@@ -22,6 +22,8 @@
  * established the operand is refused rather than assumed.
  */
 
+import { comparable } from './investigation';
+
 export type Operand = { step?: number; field?: string; value?: number; unit?: string; means?: string };
 
 /* ── a restricted evaluator ────────────────────────────────────────────────────────────────
@@ -141,6 +143,19 @@ export async function t_compute(a: any, _k: any, prior: any[] = []): Promise<any
     vars[name] = v;
     basis.push(`${name} = ${MONEY(unit) ? rupees(v) : Number(v).toLocaleString('en-IN')} (${where})`);
   }
+
+  /* A RATIO'S OPERANDS MUST SHARE A SCOPE. Commission over imaging orders divided by billing over
+     ALL orders is 18.4% where the truth is 21.4% — and it is invisible, because both figures are
+     individually correct. Saying so in the metric description did not hold; the same sentence has
+     been true in a prompt all along. It is checked here, against the identity each step already
+     carries, by the same gate that screens contradictions between steps. */
+  const fromSteps = inputs.map((x) => prior.find((e) => e?.step === x.step)).filter(Boolean) as any[];
+  for (let x = 0; x < fromSteps.length; x++)
+    for (let y = x + 1; y < fromSteps.length; y++) {
+      const v = comparable(fromSteps[x], fromSteps[y]);
+      if (v.verdict === 'different')
+        return { ok: false, error: `steps ${fromSteps[x].step} and ${fromSteps[y].step} are not on the same basis (${v.why}), so combining them answers neither question — measure both over the same scope and period first` };
+    }
 
   let value: number;
   try { value = evaluate(formula, vars); } catch (err: any) { return { ok: false, error: String(err?.message || err) }; }

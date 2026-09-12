@@ -69,15 +69,19 @@ export function windowLabel(cur: { from: string; to: string }, partial?: boolean
 export function periods(kind: string, today = todayIST()) {
   const [Y, M, D] = today.split('-').map(Number);
   const k0 = String(kind || 'month').toLowerCase().trim().replace(/[\s_]+/g, '-');
-  // Accept the shapes an analyst actually writes; anything unrecognised falls back to
-  // month-to-date rather than producing NaN dates and an empty result nobody can explain.
+  /* Accept the shapes an analyst actually writes. The fallback to month-to-date keeps an
+     unrecognised phrase from producing NaN dates — but it is the dangerous kind of safe: "90d"
+     silently became a TWELVE day window, and the figure that came back looked entirely
+     reasonable. The trailing-N forms are spelled generously for that reason: last, past,
+     previous, trailing, rolling, with or without separators, "90d" as well as "last-90-days".
+     What cannot be parsed still falls back — but far less now reaches it. */
   if (k0 === 'today') { return { cur: { from: today, to: addDays(today, 1) }, prev: { from: addDays(today, -1), to: today }, partial: true, days: 1, note: 'today vs yesterday' }; }
   if (k0 === 'yesterday') { const y = addDays(today, -1); return { cur: { from: y, to: today }, prev: { from: addDays(y, -1), to: y }, partial: false, days: 1, note: 'yesterday vs the day before' }; }
   if (k0 === 'last-month' || k0 === 'previous-month') { const pm = M === 1 ? 12 : M - 1, py = M === 1 ? Y - 1 : Y; kind = `${py}-${String(pm).padStart(2, '0')}`; }
   else if (k0 === 'this-month' || k0 === 'month-to-date' || k0 === 'mtd') kind = 'month';
   else if (k0 === 'last-week' || k0 === 'this-week' || k0 === 'week-to-date') kind = 'week';
-  else if (/^last-(\d+)-days?$/.test(k0)) { const n = Math.min(Number(k0.match(/\d+/)![0]), 180); const from = addDays(today, -n); return { cur: { from, to: today }, prev: { from: addDays(from, -n), to: from }, partial: false, days: n, note: `trailing ${n} days vs the ${n} before` }; }
-  else if (/^last-(\d+)-months?$/.test(k0)) { const n = Math.min(Number(k0.match(/\d+/)![0]), 24); const sm = ((M - n - 1) % 12 + 12) % 12 + 1, sy = Y + Math.floor((M - n - 1) / 12); const from = dstr(sy, sm, 1), to = dstr(Y, M, 1); const pn = dstr(sy - (sm - n <= 0 ? 1 : 0), ((sm - n - 1) % 12 + 12) % 12 + 1, 1); return { cur: { from, to }, prev: { from: pn, to: from }, partial: false, days: n * 30, note: `${n} whole months vs the ${n} before` }; }
+  else if (/^(last|past|previous|trailing|rolling)?-?(\d+)-?d(ays?)?$/.test(k0)) { const n = Math.min(Number(k0.match(/\d+/)![0]), 180); const from = addDays(today, -n); return { cur: { from, to: today }, prev: { from: addDays(from, -n), to: from }, partial: false, days: n, note: `trailing ${n} days vs the ${n} before` }; }
+  else if (/^(last|past|previous|trailing|rolling)?-?(\d+)-?months?$/.test(k0)) { const n = Math.min(Number(k0.match(/\d+/)![0]), 24); const sm = ((M - n - 1) % 12 + 12) % 12 + 1, sy = Y + Math.floor((M - n - 1) / 12); const from = dstr(sy, sm, 1), to = dstr(Y, M, 1); const pn = dstr(sy - (sm - n <= 0 ? 1 : 0), ((sm - n - 1) % 12 + 12) % 12 + 1, 1); return { cur: { from, to }, prev: { from: pn, to: from }, partial: false, days: n * 30, note: `${n} whole months vs the ${n} before` }; }
   else if (k0 !== 'month' && k0 !== 'week' && !/^\d{4}-\d{2}$/.test(k0)) kind = 'month';
   if (kind === 'week') { const curFrom = addDays(today, -7); return { cur: { from: curFrom, to: today }, prev: { from: addDays(curFrom, -7), to: curFrom }, partial: false, days: 7, note: 'trailing 7 days vs the 7 before' }; }
   if (kind === 'month') {

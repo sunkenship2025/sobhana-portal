@@ -260,6 +260,20 @@ export function completeSpec(spec: AnalysisSpec | null | undefined, q?: string):
   // window is. periods() is the same resolver the registry tools use, so the free-SQL path and
   // the deterministic path cannot disagree about what the owner's words meant.
   let time = spec.time;
+  /* THE OWNER'S WINDOW BEATS THE PLANNER'S. Asked for imaging commission "last 90 days", the plan
+     came back scoped to 30, and every figure under it was a correct answer to a question nobody
+     asked — 19.11% of a month, reported as the 90-day share. Nothing downstream could catch it:
+     verifySpec checks the SQL against the SPEC, and the spec itself carried the wrong window, so
+     the query honoured it perfectly. The same correction as naming the wrong column for a value —
+     when the question states a window in plain words, that is the window. */
+  const said = String(q || '').match(/\b(?:last|past|previous|trailing|rolling)\s+(\d+)\s*(day|week|month|year)s?\b/i);
+  if (said) {
+    const n = Number(said[1]), unit = said[2].toLowerCase();
+    const asDays = unit === 'day' ? n : unit === 'week' ? n * 7 : null;   // months/years keep calendar shape
+    const want = asDays != null ? `last-${asDays}-days` : `last-${n}-${unit}s`;
+    if (!time?.period || String(time.period).replace(/[\s_]+/g, '-').toLowerCase() !== want)
+      time = { ...(time || {}), period: want, phrase: said[0] } as any;
+  }
   if (time?.period) {
     try {
       const p = periods(time.period);
