@@ -81,7 +81,7 @@ router.post('/ask', async (req: AuthRequest, res) => {
         // 100x too large, a "complete" list missing a debtor, a feature reported as non-existent.
         // Without the answer and the refusal reason none of that was visible after the fact.
         reason: (answer as any).reason, text: String((answer as any).text || '').slice(0, 600),
-        why: (answer as any).why,
+        why: (answer as any).why, refusal: (answer as any).refusal,
         steps: (answer as any).meta?.steps, calls: (answer as any).meta?.calls } }).catch(() => {});
     logTrace(req, answer, Date.now() - t0);
     const { trace: _t, ...clean } = answer as any;   // the trace is for the log, not the wire
@@ -118,7 +118,7 @@ router.post('/ask/stream', async (req: AuthRequest, res) => {
     logAction({ userId: req.user!.id, branchId: req.branchId || '', actionType: 'REPORT_ACCESS', entityType: 'Pulse', entityId: String(answer.kind || 'unknown'),
       newValues: { q: q.slice(0, 300), kind: answer.kind, job: (answer as any).job, sql: answer.provenance?.sql?.slice(0, 1000), ms: Date.now() - t0,
         reason: (answer as any).reason, text: String((answer as any).text || '').slice(0, 600),
-        why: (answer as any).why,
+        why: (answer as any).why, refusal: (answer as any).refusal,
         steps: (answer as any).meta?.steps, calls: (answer as any).meta?.calls, streamed: true } }).catch(() => {});
     logTrace(req, answer, Date.now() - t0);
     const { trace: _t, ...clean } = answer as any;

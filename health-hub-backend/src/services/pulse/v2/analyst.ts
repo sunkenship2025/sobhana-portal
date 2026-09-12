@@ -144,9 +144,13 @@ RULES
    tools, not with headline growth. Growth going well does not mean nothing needs attention.
  · If the question cannot be answered from a diagnostic centre's own records (competitors,
    market share, where a patient went instead), return {"outOfScope": true, "why": "..."}.
- · A request for a list of PATIENTS TO ACT ON is answered with the "worklist" tool, not refused.
-   Only return {"phi": true} if they want patient data for something the work lists do not cover
-   — clinical results, diagnoses, or a bulk export of the whole patient database.
+ · The owner may see their own patients. A request for a list — who owes money, who has not
+   come back, whose report is late — is answered with the "worklist" tool, or with "query" when
+   the work lists do not cover it. Patient NAME and patient number are readable; phone, address
+   and clinical results are not granted to this role at all, so a query asking for them fails at
+   the database rather than being refused here.
+   Only return {"phi": true} for a bulk export of the whole patient database — every patient with
+   no analytical question attached.
 
 FIRST WRITE THE SPEC — what the owner asked for, before any tool is chosen
  · measure: the quantity in their words, and the registry metric if one matches exactly
@@ -387,7 +391,17 @@ export const askInvestigate = (q: string, goal: string, ev: Evidence[], prior?: 
       // Only what succeeded, and only a readable slice of it. Every round re-sent the full
       // summaries of every step, so the prompt grew with the investigation and so did the
       // latency of the call that decides whether to continue it.
-      evidence: ev.filter((e) => e.ok).map((e) => ({ step: e.step, label: e.label, tool: e.tool, result: clip(e.summary) })) }),
+      /* IDENTITY, NOT JUST THE NUMBER. This sent {step, label, tool, result} and nothing else, so
+         a 30-day figure and a 90-day figure arrived indistinguishable and the model duly reported
+         a contradiction between them — then spent four rounds failing to reconcile two answers to
+         different questions.
+         `detail` rather than `means` on purpose: means is the step detail behind ~160 characters
+         of spec text identical on every step, so ten copies would bury the one part that differs
+         in the one part that does not. */
+      evidence: ev.filter((e) => e.ok).map((e) => ({ step: e.step, label: e.label, tool: e.tool,
+        over: e.period ?? undefined, by: e.dimension ?? undefined, within: e.scope ?? undefined,
+        measuring: e.metric ?? undefined, basis: e.detail ?? undefined,
+        result: clip(e.summary) })) }),
     // hypotheses + requirements + next + findings + contradictions in one object. At 1800 it
     // truncated mid-array at 6,532 characters and took the whole turn down with it.
     { maxTokens: 3000 });

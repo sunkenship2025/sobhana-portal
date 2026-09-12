@@ -77,6 +77,14 @@ const DEICTIC = new RegExp([
   String.raw`\b(those|these)\s+(doctors|branches|tests|patients|names|rows)\b`,
   String.raw`\bthe\s+(previous|earlier|last)\s+(table|chart|list|breakdown|result|answer)\b`,
   String.raw`\b(above|shown above|you (just )?showed|you (just )?gave)\b`,
+  /* PRONOUNS. "name him" pointed at the patient on screen and matched none of the patterns
+     above, so the reference path never engaged, a fresh analysis ran, and the answer came back
+     "Dr.K.RAMASWAMY MD" — a doctor, for a question about a patient. A pronoun is the commonest
+     way anyone points at what they are already looking at, and it was the one form missing. */
+  String.raw`\b(name|who is|who was|call|contact|number for)\s+(him|her|them|it|that one|this one)\b`,
+  String.raw`\b(is|was|does|did|has|had|are|were)\s+(he|she|they|it)\b`,
+  String.raw`\b(his|her|their|its)\s+(name|number|phone|total|visits|revenue|share|amount)\b`,
+  String.raw`^\s*(name|who is|who was)\s+(him|her|them|it)\s*\??$`,
 ].join('|'), 'i');
 
 const ORDINAL: Record<string, number> = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5 };
@@ -111,6 +119,9 @@ export function resolveReference(q: string, last?: LastTurn | null): ArtifactRef
     return false;
   });
   const artifact = byType || last.artifacts[last.artifacts.length - 1];
+  // the entity TYPE carries through. "name him" after a patient ranking is about that patient;
+  // an answer naming a doctor has changed the subject, which is worse than not answering.
+
 
   let rowIndex: number | undefined;
   const ord = s.match(/\b(first|second|third|fourth|fifth)\b/);

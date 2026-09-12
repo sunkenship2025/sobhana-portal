@@ -12,6 +12,7 @@ import { scalar, periods, baseline as baselineOf, addDays, fmt, windowLabel } fr
 import { generate } from '../sqlPath';
 import { llmJson } from '../llm';
 import { validate, type SqlPolicy } from '../validator';
+import { groupedBy } from './sqlscope';
 import { repairIdents, resolveTerm, resolveRanked, type Knowledge } from '../knowledge';
 import { verifySpec, specRepairHint, type AnalysisSpec } from './spec';
 import { compileBindings, formatBindings } from './binding';
@@ -28,6 +29,8 @@ export interface Evidence {
   /** how long this step took, for the trace */
   ms?: number;
   sql?: string; error?: string;
+  /** what the asker is permitted to see narrowed this to — "branch=CNT, domain=DIAGNOSTICS" */
+  scope?: string;
   /** model calls this step actually spent — a generated query is one call plus any repairs, and
    *  counting only the generation is how a 30-call ceiling was passed at 31. */
   calls?: number;
@@ -231,6 +234,41 @@ async function t_derive(a: any): Promise<Partial<Evidence>> {
 }
 const summedOrdersIn = (sql: string) => /SUM\s*\(\s*\w*\.?"?priceInPaise"?/i.test(sql);
 
+/* WHAT KIND OF THING EACH ROW IS. Registry tools declare their dimension; a generated query
+   never did, so the artifact carried rows with dimension=null — and "name him" after a patient
+   ranking came back with a doctor, because nothing on screen said the rows were patients.
+   Read from the column the query GROUPED BY, which is the only place that fact exists. */
+const ENTITY: [RegExp, RegExp | null, string][] = [
+  [/^Patient/i,               null,                              'patient'],
+  [/^ReferralDoctor/i,        null,                              'referring_doctor'],
+  [/^Branch$/i,               null,                              'branch'],
+  [/^Department$/i,           null,                              'department'],
+  [/^AnomalyEvent$/i,         /actor/i,                          'staff'],
+  [/^User$/i,                 null,                              'staff'],
+  [/^TestOrder$/i,            /testName|testCode|testDefinition/i,'test'],
+  [/^TestOrder$/i,            /payoutCategory/i,                 'payout_category'],
+  [/^Visit$/i,                /domain/i,                         'domain'],
+  [/^PaymentTransaction$/i,   /paymentType/i,                    'payment_type'],
+];
+/** column-name fallback for the common case where the table is behind a CTE we cannot see */
+const BY_COLUMN: [RegExp, string][] = [
+  [/^patient(Number|Id|_no|_id)?$|^patient_?name$/i, 'patient'],
+  [/^(referring_?)?doctor(_?name)?$|^referrer/i,     'referring_doctor'],
+  [/^branch(_?code|_?name)?$/i,                      'branch'],
+  [/^test(_?name|_?code)?$/i,                        'test'],
+  [/^(month|week|day|period|date)$/i,                'period'],
+  [/^actor(_?name)?$|^staff(_?name)?$/i,             'staff'],
+  [/^reason$|^discount_?reason$/i,                   'discount_reason'],
+];
+export function dimensionOf(sql: string): string | null {
+  for (const g of groupedBy(sql)) {
+    if (g.table) for (const [t, c, dim] of ENTITY)
+      if (t.test(g.table) && (!c || c.test(g.column))) return dim;
+    for (const [c, dim] of BY_COLUMN) if (c.test(g.column)) return dim;
+  }
+  return null;
+}
+
 /** anything the registry cannot express — one generated SELECT, validated like any other */
 async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null, policy: SqlPolicy = {}): Promise<Partial<Evidence>> {
   const q = String(a.question || '').slice(0, 300);
@@ -345,7 +383,15 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null, policy:
     } catch { /* fall through */ }
     if (unlabelled()) return { ok: false, sql, error: 'money columns are not labelled in paise, so the figure cannot be shown safely' };
   }
-  return { ok: true, sql, recovered, calls: spent, summary: { question: q, rowCount: ex.rows.length,
+  /* IDENTITY TRAVELS WITH THE NUMBER. The dimension comes from the SQL because only the SQL
+     knows it; the period and scope come from the spec, which resolved them before any SQL
+     existed. Without these the same figure is indistinguishable from one over a different window
+     or population — which is how a 30-day total and a 90-day total became a "contradiction". */
+  const scopeLabel = (spec?.scope || []).map((c: any) => `${c.dimension}=${c.value}`).join(', ') || undefined;
+  const periodLabel = spec?.time?.from ? `${spec.time.from}…${spec.time.to}` : undefined;
+  return { ok: true, sql, recovered, calls: spent,
+    dimension: dimensionOf(sql), period: periodLabel, scope: scopeLabel,
+    summary: { question: q, rowCount: ex.rows.length, period: periodLabel, scope: scopeLabel,
     rows: writerRows(ex.rows, 12, moneyCols(sql, Object.keys(ex.rows[0] || {}))) }, data: { rows: ex.rows } };
 }
 

@@ -306,3 +306,55 @@ export function stagnating(history: RoundProgress[], window = 3): boolean {
   // material claim has not advanced the investigation, whatever it returned.
   return last.every((p) => p.requirementsSatisfied === 0 && p.resolvedMaterial === 0);
 }
+
+/* ── COMPARABILITY ───────────────────────────────────────────────────────────────────────────
+ *
+ * A contradiction is a claim ABOUT TWO NUMBERS, and it is only meaningful if those numbers were
+ * ever comparable. The loop trusted the model's word for it, and the model cannot check: asked
+ * whether a CT scanner pays back, it compared ₹1,97,815 of CT collection against ₹13,14,953 of
+ * centre-wide commission, called the 6.6x ratio a contradiction, spent four rounds failing to
+ * reconcile it, and concluded the per-scan margin could not be established. The two figures were
+ * never in conflict. They were answers to different questions.
+ *
+ * So comparability is checked in code, before a contradiction is allowed to mean anything. And
+ * it is checked in three states, not two — because "I cannot tell" is not "they agree". A gate
+ * that silently drops what it cannot verify would hide real conflicts while looking like a fix,
+ * which is the same shape as a validator that rejects SQL it merely failed to parse.
+ */
+export type Comparability = 'comparable' | 'different' | 'unknown';
+export interface Identity { period?: any; dimension?: any; scope?: any; metric?: any; unit?: any }
+
+const norm2 = (v: any) => v == null || v === '' ? null : String(v).toLowerCase().trim();
+
+export function comparable(a: Identity, b: Identity): { verdict: Comparability; why?: string } {
+  const fields: (keyof Identity)[] = ['period', 'dimension', 'scope', 'metric'];
+  let known = 0;
+  for (const f of fields) {
+    const x = norm2(a?.[f]), y = norm2(b?.[f]);
+    if (x == null || y == null) continue;              // one side silent — proves nothing
+    known++;
+    if (x !== y) return { verdict: 'different', why: `${f}: "${x}" vs "${y}"` };
+  }
+  return known >= 2 ? { verdict: 'comparable' } : { verdict: 'unknown', why: 'too little identity on either side to compare them' };
+}
+
+/**
+ * Keep only the contradictions between figures we can show were comparable. The rest are not
+ * discarded — a conflict we cannot verify becomes an UNRESOLVED question, which the loop may act
+ * on and the answer may disclose, rather than a finding it treats as established.
+ */
+export function screenContradictions(list: string[], evidence: { step: number; period?: any; dimension?: any; scope?: any; metric?: any }[]):
+  { kept: string[]; dropped: { text: string; why: string }[]; unresolved: string[] } {
+  const byStep = new Map(evidence.map((e) => [Number(e.step), e]));
+  const kept: string[] = [], dropped: { text: string; why: string }[] = [], unresolved: string[] = [];
+  for (const text of list || []) {
+    const steps = [...new Set([...String(text).matchAll(/\bstep\s+(\d+)/gi)].map((m) => Number(m[1])))];
+    const pair = steps.map((i) => byStep.get(i)).filter(Boolean) as any[];
+    if (pair.length < 2) { unresolved.push(`${text} (could not identify which steps this compares)`); continue; }
+    const c = comparable(pair[0], pair[1]);
+    if (c.verdict === 'comparable') kept.push(text);
+    else if (c.verdict === 'different') dropped.push({ text, why: c.why! });
+    else unresolved.push(`${text} (${c.why})`);
+  }
+  return { kept, dropped, unresolved };
+}

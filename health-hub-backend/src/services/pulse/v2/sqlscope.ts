@@ -274,3 +274,44 @@ export function verifyTimeWindow(s: Scope, start: string, end: string):
   const sawStart = has(start), sawEnd = has(end);
   return { adherent: sawStart && sawEnd, sawStart, sawEnd, ranges };
 }
+
+/* ── WHAT A ROW IS ───────────────────────────────────────────────────────────────────────────
+ *
+ * The spec knows the scope and the period; it does not know the dimension. Asked "who is the most
+ * repeating customer" the spec's scope is EMPTY — nothing is being filtered — so nothing in it
+ * says "patient". What makes the answer a patient is the column the query grouped by, and that
+ * lives only in the SQL.
+ *
+ * Which is why `name him` came back with a doctor: the artifact carried rows and a null
+ * dimension, so the analyst saw patientNumber=P-000594 with nothing saying what kind of thing
+ * that was, went looking for a name, and found one belonging to somebody else entirely.
+ */
+export interface GroupKey { column: string; table?: string }
+
+/** The non-aggregated columns the result is grouped by — the thing each row IS. */
+export function groupedBy(sql: string): GroupKey[] {
+  let stmts: any[];
+  try { stmts = parse(String(sql)); } catch { return []; }
+  const root = stmts?.[0];
+  if (!root) return [];
+  const stmt = root.type === 'with' ? root.in : root;
+  const alias = new Map<string, string>();
+  aliasMap(root, alias);
+  const out: GroupKey[] = [];
+  const push = (n: any) => {
+    const ref = n?.type === 'ref' ? n : firstRef(n);
+    if (!ref?.name || ref.name === '*') return;
+    const table = ref.table?.name ? alias.get(String(ref.table.name).toLowerCase()) : undefined;
+    if (!out.some((g) => g.column === String(ref.name))) out.push({ column: String(ref.name), table });
+  };
+  // an explicit GROUP BY says it outright
+  for (const g of stmt?.groupBy || []) push(g);
+  if (out.length) return out;
+  // otherwise the projected columns that are not aggregates
+  for (const c of stmt?.columns || []) {
+    const e = c?.expr;
+    if (!e || (e.type === 'call' && /^(count|sum|avg|min|max|percentile_cont|percentile_disc|stddev|variance)$/i.test(String(e.function?.name || '')))) continue;
+    push(e);
+  }
+  return out.slice(0, 3);
+}

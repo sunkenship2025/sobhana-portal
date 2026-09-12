@@ -11,11 +11,11 @@ import { runStep, type Evidence } from './tools';
 import type { SqlPolicy } from '../validator';
 import { completeSpec, lineage, recheckScope, type AnalysisSpec } from './spec';
 import { askPlan, askInvestigate, askResponse } from './analyst';
-import { normalise, merge, resolved, openMaterial, brief, enforce, conclude, measure, stagnating, coverage,
+import { normalise, merge, resolved, openMaterial, brief, enforce, conclude, measure, stagnating, coverage, screenContradictions,
   missingRequirements, type Investigation, type RoundProgress } from './investigation';
 import { contractFor, inferJob, checkAnswer, simplify } from './contract';
 import { renderOptions, describeEvidence, JOBS } from './capability';
-import { buildTurnArtifacts, artifactContext, hasArtifactReference, type LastTurn } from './artifacts';
+import { buildTurnArtifacts, artifactContext, hasArtifactReference, resolveReference, type LastTurn } from './artifacts';
 import { rank as rankOpportunities, honestImpact } from './opportunity';
 import { groundNumbers } from './grounding';
 
@@ -84,11 +84,28 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   // Resolve the question's own words BEFORE planning. Doing it afterwards meant only terms the
   // planner nominated got looked up, so anything it failed to notice was reported as a concept
   // the business does not have.
-  const plan = await askPlan(q, termsBlock(q) + ctx); calls++;
+  /* WHO THE QUESTION IS ABOUT. "name him" after a patient ranking came back with a doctor, then
+     with a staff member — the analyst could see the rows and was told to answer from them, and
+     planned a fresh lookup anyway. The subject is stated as a binding, and enforced below. */
+  const ref = last && hasArtifactReference(q, last) ? resolveReference(q, last) : null;
+  const subject = ref?.artifact?.meaning?.dimension || null;
+  const subjectBlock = ref ? `THE SUBJECT OF THIS QUESTION IS ALREADY ON SCREEN\n`
+    + `  ${subject ? `a ${subject}` : 'a row'} from "${ref.artifact.title}"`
+    + `${ref.row ? `: ${Object.entries(ref.row).slice(0, 4).map(([k, v]) => `${k}=${v}`).join(', ')}` : ''}\n`
+    + `  Every step you plan must be about THAT ${subject || 'row'}. Looking up a different kind of\n`
+    + `  thing is changing the subject, not answering the question.\n\n` : '';
+  const plan = await askPlan(q, subjectBlock + termsBlock(q) + ctx); calls++;
   if (plan.goal) say(String(plan.goal).slice(0, 140), 'objective');
   const spec: AnalysisSpec | null = completeSpec(plan.spec ? { goal: plan.goal || '', ...plan.spec } : null);
-  if (plan.phi) return { kind: 'refuse', reason: 'patient_level',
-    text: "I can give you totals and counts, never a list of patients with names or phone numbers — Pulse has no access to those columns. For a working list, open Money → Bills and filter; it has the names, numbers and amounts, and it can be exported.",
+  /* A blanket refusal here was wrong. The route is requireRole('owner') — the only person who
+     can reach this is the one who owns the records, and asking for their own patients by name is
+     ordinary clinic work that every other page in the portal supports. Authorization is decided
+     at the door and travels as policy; it is not re-litigated by a flag the planner sets from
+     the wording of a question.
+     Where the asker may NOT see people, the refusal stays, and it now says what is actually true:
+     a limit on this surface, never a claim that the records do not exist. */
+  if (plan.phi && policy.rowLevel === false) return { kind: 'refuse', reason: 'patient_level',
+    text: "This surface can return totals and counts, not lists that identify patients. The records exist — open Money → Bills and filter; it has the names and amounts, and it can be exported.",
     chips: [{ label: 'total due', q: 'total due how much' }, { label: 'due branch wise', q: 'due branch wise' }], state: { ...state, lastQ: q } };
   if (plan.outOfScope && !mentionsKnown(k, q)) return { kind: 'refuse', reason: 'out_of_scope',
     text: plan.why || "I can't see that — only what happens inside your centre is recorded. I didn't run a query, so there's no number to give you.",
@@ -160,6 +177,16 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     // If this round resolved a term better than the spec had, amend it and withdraw whatever was
     // built on the old literal. A correction the owner has to read in a paragraph, while the wrong
     // figure is still rendered above it, is not a correction.
+    /* THE GUARD. A step whose rows are a different kind of thing from the one the owner pointed
+       at has changed the subject. That is worse than not answering: "name him" produced a
+       doctor, and then a staff member, each stated with complete confidence. Withdrawn, the same
+       way evidence built on a disowned resolution is. */
+    if (subject) for (const e of got) {
+      if (!e.ok || !e.dimension || e.dimension === subject) continue;
+      e.ok = false;
+      e.error = `withdrawn — the owner is asking about a ${subject}, and this returns ${e.dimension} rows`;
+      say(`That would have answered about a ${e.dimension}, not the ${subject} you meant`, 'phase');
+    }
     for (const f of recheckScope(spec, got, evidence))
       say(`Correcting "${f.term}": ${f.from} → ${f.to}, and dropping what was built on it`, 'phase');
     // A one-step plan that worked has nothing to interpret — go straight to the answer. This is
@@ -191,6 +218,19 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
     // judgment as "enough: true", just wearing a structured coat.
     const gated = enforce(inv, evidence);
     inv = gated.inv;
+    /* A contradiction is a claim about two numbers, and it means nothing unless they were
+       comparable. Verified in code before the loop may act on it: a conflict between figures we
+       can show came from different periods or populations is dropped, and one we cannot verify
+       becomes an open question rather than an established finding. */
+    const screened = screenContradictions(inv.contradictions, evidence.filter((e) => e.ok) as any);
+    if (screened.dropped.length) {
+      for (const d of screened.dropped) say(`Not a contradiction — ${d.why}`, 'phase');
+      inv = { ...inv, contradictions: screened.kept,
+        unresolved: [...new Set([...inv.unresolved, ...screened.unresolved])].slice(0, 6) };
+    } else if (screened.unresolved.length) {
+      inv = { ...inv, contradictions: screened.kept,
+        unresolved: [...new Set([...inv.unresolved, ...screened.unresolved])].slice(0, 6) };
+    }
     for (const d of gated.downgraded) say(`Still unproven: ${inv.hypotheses.find((h) => h.id === d.id)?.claim?.slice(0, 80)}`, 'phase');
     // say what just got settled — this is the part worth watching
     for (const h of inv.hypotheses) {
@@ -248,11 +288,24 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
           { label: 'open Money → Bills', q: '/money/bills' }],
         provenance: { sql: evidence.find((e) => e.sql)?.sql, tables: [], rowCount: 0 }, state: { ...state, lastQ: q } };
     /* A refusal that cannot say why is the same failure as an index miss reported as an absence:
-       it looks like a fact about the business and is actually a fact about us. The reasons were
-       being discarded here, so diagnosing one cost five reproduction runs. They travel now. */
+       it reads as a fact about the business and is actually a fact about us. Diagnosing one cost
+       five reproduction runs and then a plan diff — and what finally named the bug was the guard
+       result next to the resolved spec: "does not restrict to test = CTBP" beside
+       {value: CTBP, aliases: [ctbp, ct-brain plain]} says immediately that the query filtered on
+       the name and the validator only knew the code. So the refusal carries the decision, not
+       just the outcome. */
+    const refusal = {
+      goal: plan.goal || '',
+      rowLevel: policy.rowLevel !== false,
+      spec: (spec?.scope || []).map((c) => ({ term: c.term, dimension: c.dimension, value: c.value,
+        how: c.how, confidence: c.confidence, aliases: c.aliases })),
+      steps: evidence.map((e) => ({ step: e.step, tool: e.tool, ok: e.ok, guard: e.error?.slice(0, 160), sql: !!e.sql })),
+      stopped: inv?.stoppingReason ?? null, rounds, calls,
+    };
     return { kind: 'refuse', reason: 'no_data',
       text: 'Nothing came back for that. If it is something the centre does not record, the answer is that we do not have it — not that it is zero.',
       why: evidence.filter((e) => e.error).map((e) => `${e.tool}: ${String(e.error).slice(0, 120)}`).slice(0, 4),
+      refusal,
       provenance: { sql: evidence.find((e) => e.sql)?.sql, tables: [], rowCount: 0 }, state: { ...state, lastQ: q } };
   }
 
