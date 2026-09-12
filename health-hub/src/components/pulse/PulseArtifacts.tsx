@@ -3,21 +3,56 @@
  * something words cannot. Each maps to one artifact type the analyst may request.
  */
 import { fmtValue, pct, label as lbl } from './format';
+import { deriveView, pctOf, type View } from './deriveView';
 
 type Ev = any;
 const Card = ({ children, className = '' }: { children: React.ReactNode; className?: string }) =>
   <div className={`rounded-xl border bg-card px-4 py-3 ${className}`}>{children}</div>;
 const K = ({ children }: { children: React.ReactNode }) =>
   <div className="text-[10.5px] font-medium uppercase tracking-[.08em] text-muted-foreground">{children}</div>;
+/**
+ * What the figures ARE. `means` reaches the browser on every step — lineage() sets it — and was
+ * displayed nowhere: the top missing field in all six artifact types when measured. It is the
+ * sentence that answers "what am I looking at", which is exactly what a card showing `9` with no
+ * denominator, period or scope cannot answer.
+ */
+const Context = ({ v }: { v: View }) => {
+  const line = [...v.context].filter(Boolean).join(' · ');
+  if (!line && !v.means) return null;
+  return <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+    {line}{line && v.means ? ' — ' : ''}{v.means}</div>;
+};
+/** The tail and the concentration: stated, because slice(8) dropped them in silence. */
+const Tail = ({ v }: { v: View }) => {
+  const bits = [
+    v.total && `Total ${v.total}`,
+    v.hidden && `${v.hidden.count} more${v.hidden.value ? ` · ${v.hidden.value}` : ''}`,
+    v.concentration && `top ${v.concentration.topN} = ${pctOf(v.concentration.share)}`,
+  ].filter(Boolean) as string[];
+  if (!bits.length) return null;
+  return <div className="mt-2.5 flex flex-wrap justify-between gap-x-4 gap-y-1 border-t pt-2 text-[11.5px] text-muted-foreground">
+    {bits.map((b, i) => <span key={i}>{b}</span>)}</div>;
+};
 const Delta = ({ v }: { v: number | null | undefined }) => v == null ? null :
   <span className={`ml-2 text-xs font-semibold ${v < 0 ? 'text-[#D91C2B]' : v > 0 ? 'text-green-700' : 'text-muted-foreground'}`}>{pct(v)}</span>;
 
+/* A single number with no period, no scope and no statement of what it measures is the artifact
+   that prompted "what exactly am I looking at". It scored worst of every type on both axes —
+   40% of material fields, 29% of useful — while carrying all of them on the wire. */
+const evContext = (ev: Ev): string => {
+  const s = ev.summary || {};
+  const period = ev.period ?? s.period;
+  return [period && (typeof period === 'object' ? `${period.from} to ${period.to}` : String(period)),
+    ev.scope ?? s.scope, ev.means].filter(Boolean).join(' · ');
+};
 function Kpi({ a, ev }: { a: any; ev: Ev }) {
   const s = ev.summary || {};
   const value = s.value ?? s.now ?? s.latestComplete ?? '—';
+  const ctx = evContext(ev);
   return <Card><K>{a.label || lbl(ev.metric || ev.label)}</K>
     <div className="mt-1 text-[26px] font-semibold leading-none tracking-tight">{value}<Delta v={s.changePct} /></div>
-    {s.comparison && <div className="mt-1.5 text-[11px] text-muted-foreground">{s.comparison}</div>}</Card>;
+    {s.comparison && <div className="mt-1.5 text-[11px] text-muted-foreground">{s.comparison}</div>}
+    {ctx && <div className="mt-1.5 text-[11px] leading-snug text-muted-foreground">{ctx}</div>}</Card>;
 }
 function Kpis({ a, evs }: { a: any; evs: Ev[] }) {
   return <Card><div className="grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-3">
@@ -35,7 +70,8 @@ function Compare({ a, ev }: { a: any; ev: Ev }) {
       <div className="pb-1 text-muted-foreground">→</div>
       <div><div className="text-[10.5px] text-muted-foreground">now</div><div className="text-[20px] font-semibold">{s.now}<Delta v={s.changePct} /></div></div>
     </div>
-    {s.comparison && <div className="mt-2 text-[11px] text-muted-foreground">{s.comparison}</div>}</Card>;
+    {s.comparison && <div className="mt-2 text-[11px] text-muted-foreground">{s.comparison}</div>}
+    {evContext(ev) && <div className="mt-1 text-[11px] leading-snug text-muted-foreground">{evContext(ev)}</div>}</Card>;
 }
 /**
  * Rows can arrive under any of these. A `query` step puts them in summary.rows while the registry
@@ -59,37 +95,43 @@ function seriesOf(ev: Ev): any[] {
 }
 
 function Breakdown({ a, ev }: { a: any; ev: Ev }) {
-  const parts = seriesOf(ev);
-  if (!parts.length) return null;                 // never a titled empty box
-  const max = Math.max(...parts.map((p: any) => Math.abs(Number(String(p.value).replace(/[^\d.-]/g, '')) || 0)), 1);
+  const v = deriveView(ev, 8);
+  if (!v) return null;                            // never a titled empty box
+  const max = Math.max(...v.rows.map((r) => r.n), 1);
   return <Card><K>{a.label || `${lbl(ev.metric || '')}${ev.dimension ? ` by ${lbl(ev.dimension)}` : ''}`}</K>
+    <Context v={v} />
     <div className="mt-2 space-y-1.5">
-      {parts.slice(0, 8).map((p: any, i: number) => {
-        const n = Math.abs(Number(String(p.value).replace(/[^\d.-]/g, '')) || 0);
-        return (<div key={i}>
-          <div className="flex items-baseline justify-between text-[13px]">
-            <span className="truncate pr-3">{p.name}</span>
-            <span className="shrink-0 font-medium tabular-nums">{p.value}
-              {p.change && p.change !== '—' && <span className="ml-2 text-[11px] text-muted-foreground">{p.change}</span>}</span>
+      {v.rows.map((r, i) => (
+        <div key={i}>
+          <div className="flex items-baseline justify-between gap-3 text-[13px]">
+            <span className="truncate">{r.label}</span>
+            <span className="shrink-0 font-medium tabular-nums">{r.value}
+              {r.share != null && <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">{pctOf(r.share)}</span>}
+              {r.change && <span className="ml-2 text-[11px] font-normal text-muted-foreground">{r.change}</span>}</span>
           </div>
-          <div className="mt-1 h-1 rounded-full bg-muted"><div className="h-1 rounded-full bg-foreground/70" style={{ width: `${Math.max(2, n / max * 100)}%` }} /></div>
-        </div>); })}
+          <div className="mt-1 h-1 rounded-full bg-muted"><div className="h-1 rounded-full bg-foreground/70"
+            style={{ width: `${Math.max(2, r.n / max * 100)}%` }} /></div>
+        </div>))}
     </div>
-    {ev.summary?.total && <div className="mt-2.5 border-t pt-2 text-[11.5px] text-muted-foreground">Total {ev.summary.total}</div>}</Card>;
+    <Tail v={v} /></Card>;
 }
 function Ranking({ a, ev }: { a: any; ev: Ev }) {
-  const rows = seriesOf(ev);
-  if (!rows.length) return null;
+  const v = deriveView(ev, 8);
+  if (!v) return null;
   return <Card><K>{a.label || `Top ${lbl(ev.dimension || '')}`}</K>
+    <Context v={v} />
     <div className="mt-1.5 divide-y divide-dashed">
-      {rows.slice(0, 8).map((r: any, i: number) => (
-        <div key={i} className={`flex items-center justify-between py-1.5 text-[13px] ${i === 0 ? 'font-semibold' : ''}`}>
+      {v.rows.map((r, i) => (
+        <div key={i} className={`flex items-center justify-between gap-3 py-1.5 text-[13px] ${i === 0 ? 'font-semibold' : ''}`}>
           <span className="flex min-w-0 items-baseline gap-2.5">
             <span className="w-3 shrink-0 text-[11px] tabular-nums text-muted-foreground">{i + 1}</span>
-            <span className="truncate">{r.name}</span></span>
-          <span className="shrink-0 tabular-nums">{r.value ?? r.referralsBefore}</span>
+            <span className="truncate">{r.label}</span></span>
+          <span className="shrink-0 tabular-nums">{r.value}
+            {r.share != null && <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">{pctOf(r.share)}</span>}
+            {r.change && <span className="ml-2 text-[11px] font-normal text-muted-foreground">{r.change}</span>}</span>
         </div>))}
-    </div></Card>;
+    </div>
+    <Tail v={v} /></Card>;
 }
 function Chart({ a, ev }: { a: any; ev: Ev }) {
   const rows: any[] = ev.data?.rows || [];
@@ -107,21 +149,34 @@ function Chart({ a, ev }: { a: any; ev: Ev }) {
         style={{ height: `${Math.max(4, Math.abs(r.v) / max * 100)}%` }} />)}
     </div>
     <div className="mt-1.5 flex justify-between text-[10px] text-muted-foreground"><span>{rows[0]?.k}</span><span>{last?.k}</span></div>
-    {ev.summary?.currentIncomplete && <div className="mt-1.5 text-[11px] text-muted-foreground">Latest bar is still in progress.</div>}</Card>;
+    {ev.summary?.currentIncomplete && <div className="mt-1.5 text-[11px] text-muted-foreground">Latest bar is still in progress.</div>}
+    {ev.means && <div className="mt-1 text-[11px] leading-snug text-muted-foreground">{ev.means}</div>}</Card>;
 }
 function Table({ a, ev }: { a: any; ev: Ev }) {
   const rows: any[] = ev.data?.rows || ev.summary?.rows || [];
   if (!rows.length) return null;
   const cols = Object.keys(rows[0]);
+  const shown = rows.slice(0, 15);
+  /* The most-used artifact in production, and it stated no period, no scope, no units and no row
+     count — 0 of 4 useful fields when measured. It showed fifteen rows of twenty-seven without
+     saying so, which reads as the whole answer. */
+  const v = deriveView(ev, 15);
+  const ctx = [...(v?.context ?? []), v?.means].filter(Boolean).join(' · ');
   return <Card className="overflow-x-auto px-0 py-0">
-    {a.label && <div className="border-b px-4 py-2"><K>{a.label}</K></div>}
+    {(a.label || ctx) && <div className="border-b px-4 py-2">
+      {a.label && <K>{a.label}</K>}
+      {ctx && <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{ctx}</div>}
+    </div>}
     <table className="w-full text-[12.5px]">
       <thead><tr className="border-b text-left text-[10px] uppercase tracking-wider text-muted-foreground">
         {cols.map((c) => <th key={c} className="px-4 py-2 font-medium">{lbl(c)}</th>)}</tr></thead>
-      <tbody>{rows.slice(0, 15).map((r, i) => <tr key={i} className="border-b last:border-0">
+      <tbody>{shown.map((r, i) => <tr key={i} className="border-b last:border-0">
         {cols.map((c) => <td key={c} className={`px-4 py-1.5 ${typeof r[c] === 'number' ? 'tabular-nums' : ''}`}>
           {typeof r[c] === 'number' ? fmtValue(r[c], ev.unit, c) : String(r[c] ?? '')}</td>)}</tr>)}</tbody>
-    </table></Card>;
+    </table>
+    {rows.length > shown.length && <div className="border-t px-4 py-1.5 text-[11.5px] text-muted-foreground">
+      Showing {shown.length} of {rows.length}</div>}
+  </Card>;
 }
 
 /** signed magnitude out of a value — "-₹4,400" and 440000 both matter here */
@@ -149,6 +204,7 @@ function Waterfall({ a, ev }: { a: any; ev: Ev }) {
   const max = Math.max(...items.map((i: any) => Math.abs(i.d)), 1);
   const net = items.reduce((t: number, i: any) => t + i.d, 0);
   return <Card><K>{a.label || `What moved${ev.dimension ? ` — by ${lbl(ev.dimension)}` : ''}`}</K>
+    {evContext(ev) && <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{evContext(ev)}</div>}
     <div className="mt-2.5 space-y-1.5">
       {items.map((i: any, n: number) => {
         const w = Math.max(2, Math.abs(i.d) / max * 50);
@@ -164,7 +220,8 @@ function Waterfall({ a, ev }: { a: any; ev: Ev }) {
         </div>); })}
     </div>
     <div className="mt-2.5 flex justify-between border-t pt-2 text-[11.5px]">
-      <span className="text-muted-foreground">Net change</span>
+      <span className="text-muted-foreground">Net change{(ev.data as any)?.total != null
+        ? ` · ends at ${dispSum(Math.abs(Number((ev.data as any).total)), fmtd, ev.unit)}` : ''}</span>
       <span className={`font-semibold tabular-nums ${net < 0 ? 'pulse-down' : 'pulse-up'}`}>{net > 0 ? '+' : ''}{dispSum(net, fmtd, ev.unit)}</span>
     </div></Card>;
 }
@@ -189,6 +246,8 @@ function Distribution({ a, ev }: { a: any; ev: Ev }) {
   const peak = Math.max(...buckets, 1);
   const p = (f: number) => vals[Math.min(vals.length - 1, Math.floor(f * vals.length))];
   return <Card><K>{a.label || `Spread of ${lbl(col)}`}</K>
+    <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+      {[`${vals.length} ${lbl(col).toLowerCase()} values`, evContext(ev)].filter(Boolean).join(' · ')}</div>
     <div className="mt-2 flex h-16 items-end gap-[3px]">
       {buckets.map((c, i) => <div key={i} title={`${fmtValue(lo + i * step, ev.unit, col)} – ${fmtValue(lo + (i + 1) * step, ev.unit, col)}: ${c}`}
         className="pulse-bar flex-1" style={{ height: `${Math.max(3, c / peak * 100)}%` }} />)}
