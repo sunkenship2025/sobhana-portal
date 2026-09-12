@@ -415,8 +415,16 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null, policy:
      truth is 21.4%. Both numbers individually correct, both answers wrong.
      Whenever cash is being scoped by test-order properties, the order-aligned measure is what
      those orders were BILLED. */
-  const mixesCashWithOrders = /"PaymentTransaction"/.test(sql) && /amountInPaise/i.test(sql) && /"TestOrder"/.test(sql);
-  if (mixesCashWithOrders) {
+  /* ONLY WHEN THE CASH IS AN OPERAND, NEVER WHEN IT IS THE ANSWER. Firing on any query that
+     touched both tables rewrote "what was last week's collection, Chintal, lab only" into a
+     BILLED figure — the owner asked what came in, and got what was invoiced. A total scoped by
+     test-order properties is a perfectly good question and the honest answer is the cash.
+     The defect is only ever a RATIO: cash divided by a count of orders, or set against
+     commission frozen on them. That is where two populations get silently mixed. */
+  const cashWithOrders = /"PaymentTransaction"/.test(sql) && /amountInPaise/i.test(sql) && /"TestOrder"/.test(sql);
+  const isRatio = /\/\s*NULLIF|\)\s*\/\s*|COUNT\s*\(/i.test(sql);
+  const withCommission = /referralCommission(Type|Percentage|AmountInPaise)/i.test(sql);
+  if (cashWithOrders && (isRatio || withCommission)) {
     spent++;
     try {
       const f = await llmJson<{ sql?: string }>(

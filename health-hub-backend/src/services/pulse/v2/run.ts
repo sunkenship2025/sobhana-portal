@@ -386,7 +386,7 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
   // contract is never shipped as written: a wall of serialised rows is a wrong answer even when
   // every number in it is right.
   let repaired = false, simplified = false;
-  let check = checkAnswer(contract, text, artifacts, allowed, usable);
+  let check = checkAnswer(contract, text, artifacts, allowed, usable, undefined, spec);
   // what was wrong BEFORE the repair — recording the post-repair state says nothing
   const firstViolations = check.violations;
   if (!check.ok) {
@@ -394,10 +394,10 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
       const again = await askResponse(q, plan.goal || '', usable, findings, contract, check.note, brief(inv), options); calls++;
       const a2 = keepArtifacts(again.artifacts || []), t2 = String(again.text || compose(again) || '').trim();
       repaired = true;
-      if (t2 && checkAnswer(contract, t2, a2, allowed, usable).ok) { res = again; text = t2; artifacts = a2; check = { ok: true, violations: [] }; }
+      if (t2 && checkAnswer(contract, t2, a2, allowed, usable, undefined, spec).ok) { res = again; text = t2; artifacts = a2; check = { ok: true, violations: [] }; }
       else if (t2 && a2.length >= artifacts.length) { res = again; text = t2; artifacts = a2; }
     } catch { /* keep the first attempt */ }
-    if (!checkAnswer(contract, text, artifacts, allowed, usable).ok) {
+    if (!checkAnswer(contract, text, artifacts, allowed, usable, undefined, spec).ok) {
       // still over budget: force on the best-scoring renderer the evidence actually supports,
       // then keep the sentences carrying the conclusion and drop the ones reciting detail
       if (contract.needsArtifact && options.length && !artifacts.some((a: any) => allowed.includes(a.type))) {
@@ -444,7 +444,7 @@ export async function analyse(q: string, state: any = {}, say: Progress = () => 
       admissible: options, chosen: artifacts.map((a: any) => ({ type: a.type, step: a.evidence })) },
     contract: { job: contract.job, maxNumbers: contract.maxNumbers, needsArtifact: contract.needsArtifact,
       rowsInProse: contract.rowsInProse, canShow: allowed },
-    validation: { violations: firstViolations, stillBroken: checkAnswer(contract, text, artifacts, allowed, usable, brief(inv)).violations, repaired, simplified },
+    validation: { violations: firstViolations, stillBroken: checkAnswer(contract, text, artifacts, allowed, usable, brief(inv), spec).violations, repaired, simplified },
     // where every figure in the shipped answer came from — exact, derived, ordinary, or nowhere
     grounding: groundNumbers(text, usable).map((g) => ({ n: g.text, kind: g.provenance.kind,
       how: (g.provenance as any).how ?? (g.provenance as any).why ?? (g.provenance as any).fact?.label })),

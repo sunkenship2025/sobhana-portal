@@ -288,6 +288,17 @@ has not run yet. Money you supply is in rupees; the conversion is done for you. 
 a SPLIT has no single figure, so measure the one number you need first. Result units: rupees,
 percent, months, years, days, number.
 
+A PAYBACK OR ROI PERIOD DIVIDES CAPITAL BY CONTRIBUTION, NEVER BY GROSS REVENUE. Contribution is
+what the stream earns MINUS the direct costs you measured on it — referral commission first, and
+any discount or refund figure you established for the same stream. If you went and measured a
+commission figure, it belongs in the denominator; measuring it and then dividing by gross says
+the machine pays for itself twice as fast as it does, which is the single most expensive thing
+you can get wrong on a capital question.
+
+Every operand must be on the SAME BASIS. Cash collected in a window and orders billed in that
+window are different populations — a payment may settle a bill raised months earlier. When a
+money figure is scoped to a test, a category or a modality, use what those orders were BILLED.
+
 An unmeasured operand is a reason to measure it. An UNCOMPUTED one is not a reason to withhold
 the answer — it is a step you forgot to emit.`;
 

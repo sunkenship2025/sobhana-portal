@@ -203,7 +203,7 @@ const countNumbers = (t: string) => (String(t).match(NUM) || []).length;
 const sentencesOf = (t: string) => String(t).split(/(?<=[.!?])\s+/).filter((s) => s.trim().length > 1);
 
 /** Did the response honour its contract? About information allocation, not length. */
-export function checkAnswer(c: Contract, text: string, artifacts: any[], allowed?: string[], evidence?: any[], investigation?: any): ContractCheck {
+export function checkAnswer(c: Contract, text: string, artifacts: any[], allowed?: string[], evidence?: any[], investigation?: any, spec?: any): ContractCheck {
   const v: string[] = [];
   const t = String(text || '');
   const arts = Array.isArray(artifacts) ? artifacts : [];
@@ -224,6 +224,25 @@ export function checkAnswer(c: Contract, text: string, artifacts: any[], allowed
   if (!anyPeriod) {
     const claimed = t.match(/\b(?:for |over |during |in )?(?:the )?(?:period |month of |week of )?(?:\d{1,2}\s*[–-]\s*\d{1,2}\s+)?(?:January|February|March|April|May|June|July|August|September|October|November|December)\s*\d{0,4}\b|\bthis (?:month|week|quarter|year)\b|\blast (?:month|week|quarter|year|\d+ days)\b|\bmonth[- ]to[- ]date\b|\byear[- ]to[- ]date\b/i);
     if (claimed) v.push(`the answer says "${claimed[0].trim()}" but no step restricted a time column — state the figure without a period, or compute it for one`);
+  }
+
+  /* A SCOPE THE EVIDENCE DOES NOT HAVE. The twin of the period check above, and it costs more.
+     "At the current CT run-rate of ₹18,93,725 a month" — that figure is the CENTRE'S revenue for
+     August. The revenue metric cannot be filtered by category at all, so the step returned
+     everything, and the sentence put the owner's word back on the front of it. A payback period
+     built on it said 2.6 months where the truth is 76.
+     It happens when a constraint is too weak to enforce: the spec guard skips a low-confidence
+     resolution, and the step runs unscoped. But a constraint too weak to FILTER on is also too
+     weak to LABEL with — either a step restricted the rows, or the sentence may not claim it. */
+  const scopeWords = (spec?.scope || [])
+    .map((c: any) => String(c?.term || c?.value || '').trim())
+    .filter((w: string) => w.length > 1);
+  if (scopeWords.length) {
+    const scoped = (evidence || []).some((e: any) => e?.ok !== false && (e?.scope || e?.summary?.scope));
+    if (!scoped) {
+      const said = scopeWords.find((w: string) => new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(t));
+      if (said) v.push(`the answer attributes a figure to "${said}" but no step restricted the rows to it — the number covers everything, so either scope it or stop calling it ${said}`);
+    }
   }
 
   // Not "does this number appear somewhere in the pile" — does it come from a step, or follow
