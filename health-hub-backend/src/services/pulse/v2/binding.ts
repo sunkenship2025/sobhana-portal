@@ -82,16 +82,16 @@ export function compileBindings(spec: AnalysisSpec | null | undefined): QueryBin
  */
 export function formatBindings(bindings: QueryBinding[]): string {
   if (!bindings.length) return '';
+  /* ONLY WHAT THE OWNER SAID. Advisory bindings were being printed under "ASSUMED PERIOD — use
+     it unless the question implies otherwise", and the generator did exactly that: asked how
+     much CT-BRAIN PLAIN had been billed — a question naming no period at all — it restricted to
+     the planner's default fortnight and answered ₹17,600 against a true ₹1,03,400.
+     A planner default is not a commitment. That distinction is the entire reason authority
+     exists, and stating the guess in the prompt destroys it: a binding in the context IS an
+     instruction, whatever hedge is printed beside it. So an advisory binding is carried in the
+     spec, where verifySpec knows not to gate on it, and is not spoken aloud. */
   const hard = bindings.filter((b) => b.authority === 'authoritative');
-  const soft = bindings.filter((b) => b.authority === 'advisory');
-  const lines: string[] = [];
-  if (hard.length) {
-    lines.push('AUTHORITATIVE BINDINGS — already resolved against live data. Use these literals exactly.');
-    for (const b of hard) lines.push(`  the owner said "${b.phrase}" — restrict the time column to >= '${b.start}' AND < '${b.end}' in ${b.timezone}`);
-  }
-  if (soft.length) {
-    lines.push('ASSUMED PERIOD — not stated by the owner. Use it unless the question implies otherwise.');
-    for (const b of soft) lines.push(`  ${b.period}: >= '${b.start}' AND < '${b.end}' in ${b.timezone}`);
-  }
-  return lines.join('\n');
+  if (!hard.length) return '';
+  return ['AUTHORITATIVE BINDINGS — already resolved against live data. Use these literals exactly.',
+    ...hard.map((b) => `  the owner said "${b.phrase}" — restrict the time column to >= '${b.start}' AND < '${b.end}' in ${b.timezone}`)].join('\n');
 }

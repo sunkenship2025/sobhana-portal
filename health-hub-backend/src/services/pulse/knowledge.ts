@@ -461,7 +461,12 @@ async function buildNames(): Promise<{ vidx: Knowledge['vidx']; names: Knowledge
    it is created. The analyst carries a compact summary of it and calls resolve() only for a
    term it does not recognise — semantic context is always available, semantic reasoning is not
    always run. */
-export interface Concept { term: string; dimension: string | null; value: string | null; meaning: string; source: string; }
+export interface Concept { term: string; dimension: string | null; value: string | null; meaning: string; source: string;
+  /** the family this concept sits in — a test's payout category, a category's service kind.
+   *  Two terms in one question disambiguate each other through it: "ct scan machine" resolves
+   *  `scan` to IMAGING, and only then is it decidable that `ct` means the CT / MRI category and
+   *  not CT, the live test code for Clotting Time. */
+  family?: string | null; }
 let CONCEPTS: Concept[] = [];
 export const concepts = () => CONCEPTS;
 
@@ -502,18 +507,26 @@ const SYNONYMS: Concept[] = [
   { term: 'rate', dimension: null, value: 'price', meaning: 'the PER-UNIT rate one test is sold at — "BillableProduct"."basePriceInPaise". Never SUM it', source: 'glossary' },
 ];
 
+/** the payout categories that are imaging rather than lab — the same set catalog.ts rolls up */
+const IMAGING_CATS = new Set(['Ultrasound', 'Ultrasound Tiffa', '2D Echo', 'X-Ray', 'Dental X-Ray', 'CT / MRI', 'ECG / Cardiology']);
+
 async function buildConcepts(): Promise<Concept[]> {
   const out: Concept[] = [...SYNONYMS];
+  let fam: string | null = null;      // the family the current batch belongs to
   const add = (term: unknown, dimension: string | null, value: string, meaning: string, source: string) => {
     const t = String(term || '').toLowerCase().trim();
     if (t.length < 2 || out.some((c) => c.term === t)) return;
-    out.push({ term: t, dimension, value, meaning, source });
+    out.push({ term: t, dimension, value, meaning, source, family: fam });
   };
   // enum values are literal filters: DIAGNOSTICS, CLINIC, CASH, ONLINE, FINALIZED…
   for (const [dim, sql] of [['domain', `SELECT DISTINCT domain::text v FROM "Visit"`],
     ['payment_type', `SELECT DISTINCT "paymentType"::text v FROM "PaymentTransaction"`],
     ['payout_category', `SELECT DISTINCT "payoutCategorySnapshot" v FROM "TestOrder" WHERE "payoutCategorySnapshot" IS NOT NULL`]] as [string, string][]) {
-    for (const r of (await query(sql, [], 300)).rows || []) add(r.v, dim, String(r.v), `${dim} = ${r.v}`, 'enum');
+    for (const r of (await query(sql, [], 300)).rows || []) {
+      fam = dim === 'payout_category' ? (IMAGING_CATS.has(String(r.v)) ? 'IMAGING' : 'LABORATORY') : null;
+      add(r.v, dim, String(r.v), `${dim} = ${r.v}`, 'enum');
+      fam = null;
+    }
   }
   for (const r of (await query('SELECT code, name FROM "Branch"', [], 100)).rows || []) {
     add(r.code, 'branch', String(r.code), `the ${r.name} branch`, 'branch');
@@ -521,12 +534,14 @@ async function buildConcepts(): Promise<Concept[]> {
   }
   for (const r of (await query('SELECT name FROM "Department" WHERE "isActive"', [], 100)).rows || [])
     add(r.name, null, String(r.name), `a department — filter tests by TestDefinition.departmentId`, 'department');
-  for (const r of (await query('SELECT DISTINCT "testCodeSnapshot" c, "testNameSnapshot" n FROM "TestOrder" WHERE "testCodeSnapshot" IS NOT NULL', [], 2000)).rows || []) {
+  for (const r of (await query('SELECT DISTINCT "testCodeSnapshot" c, "testNameSnapshot" n, "payoutCategorySnapshot" p FROM "TestOrder" WHERE "testCodeSnapshot" IS NOT NULL', [], 2000)).rows || []) {
+    fam = r.p ? String(r.p) : null;
     add(r.c, 'test', String(r.c), `test ${r.n}`, 'test');
     // The NAME, not only the code. "CT-BRAIN PLAIN" was never a term in this index, so an exact
     // match could not fire and the two-letter code CT won on substring — which is how a brain
     // scan was answered with a clotting-time figure.
     add(r.n, 'test', String(r.c), `test ${r.n} (code ${r.c})`, 'test');
+    fam = null;
   }
 
   /* EVERY enum the schema declares, not the three columns someone remembered to list.
@@ -602,7 +617,15 @@ export function resolveRanked(term: string): Resolution[] {
   const out: Resolution[] = [];
   for (const c of CONCEPTS) {
     const m = scoreMatch(c.term, t);
-    if (m && m.score >= 0.04) out.push({ ...c, ...m });
+    if (!m || m.score < 0.04) continue;
+    /* A SCHEMA ENUM IS A TECHNICAL LABEL, NOT BUSINESS VOCABULARY. Indexing every enum was right
+       — it is how "reportable", "bill only" and "external" stopped being denied — but several
+       labels are ordinary English: REFERRAL, BILL, REPORT, PERCENTAGE, EVENT, OTHER. Matched
+       loosely they become noise that looks authoritative: "ct referral" resolved to
+       DoctorPayoutLedger.doctorType = REFERRAL and sent an ROI question to the one table that
+       cannot scope commission to CT. So an enum must be NAMED, not merely brushed against. */
+    if (c.source === 'schema-enum' && m.how !== 'exact' && m.how !== 'normalized') continue;
+    out.push({ ...c, ...m });
   }
   return out.sort((x, y) => y.score - x.score || x.term.length - y.term.length).slice(0, 8);
 }
@@ -700,30 +723,78 @@ export { METRICS };
  * Longest n-gram first, so "ct-brain plain" is tried before "ct" and the short code never gets
  * the chance to win.
  */
+/**
+ * CONTEXT DISAMBIGUATES. A term is resolved against the question it sits in, not on its own.
+ *
+ * "ct scan machine" was resolving `ct` to CT — a live test code for Clotting Time, exact match,
+ * confidence 1.00 — because nothing looked at the word standing next to it. `scan` resolves to
+ * IMAGING, and once that is known it is decidable: of the candidates for `ct`, the one in the
+ * IMAGING family is the one the owner meant, and a lab code is not.
+ *
+ * This is not a threshold. Raising the bar until the wrong answer falls below it would have left
+ * the collision intact and broken something else; the question already contained the information
+ * needed to settle it.
+ */
+function inFamily(c: Resolution, families: Set<string>): boolean {
+  if (!families.size) return false;
+  if (c.family && families.has(c.family)) return true;
+  return c.dimension === 'service_kind' && families.has(String(c.value));
+}
+
 export function termsIn(q: string): Resolution[] {
   const words = String(q || '').toLowerCase().split(/[^a-z0-9-]+/).filter(Boolean).slice(0, 40);
   const out = new Map<string, Resolution>();
   const covered: boolean[] = words.map(() => false);
+  /* First pass, unambiguous terms only: what families has the question already committed to?
+     Only high-confidence single-family signals count — a guess cannot be allowed to steer the
+     rest of the sentence. */
+  const families = new Set<string>();
+  for (const w of words) {
+    if (VSTOP.has(w) || w.length < 3) continue;
+    const r = resolveRanked(w).find((x) => x.score >= 0.9);
+    if (!r) continue;
+    if (r.dimension === 'service_kind' && r.value) families.add(String(r.value));
+    else if (r.family) families.add(r.family);
+  }
   for (let n = Math.min(4, words.length); n >= 1; n--) {
     for (let i = 0; i + n <= words.length; i++) {
       if (covered.slice(i, i + n).some(Boolean)) continue;       // a longer phrase already claimed these
       /* TRIM THE EDGES FIRST. Longest-n-gram-first exists so "ct-brain plain" beats "ct" — but it
-         also let "at chintal in" (0.38) claim the tokens before "chintal" (1.00 exact) was ever
-         tried, and handed the planner "at ct referral" → DoctorPayoutLedger.doctorType, which is
-         the one table CT commission cannot come from. Half of every term block was segmentation
-         artifacts of this kind. A phrase that begins or ends on a stopword is not a phrase. */
-      let slice = words.slice(i, i + n);
-      while (slice.length > 1 && VSTOP.has(slice[0])) slice = slice.slice(1);
-      while (slice.length > 1 && VSTOP.has(slice[slice.length - 1])) slice = slice.slice(0, -1);
-      const phrase = slice.join(' ');
-      if (slice.length === 1 && (VSTOP.has(phrase) || phrase.length < 3)) continue;
-      /* And a HIGHER bar than a filter needs. 0.30 answers "may I restrict on this"; the planner
-         reads this block as fact, under a heading that says already resolved against live data,
-         and acts on it. Every term fed before this change scored 0.45 or below — not one
-         confident resolution among them. */
-      const hit = resolveRanked(phrase).find((r) => r.score >= 0.5);
-      if (!hit) continue;
-      for (let j = i; j < i + n; j++) covered[j] = true;
+      /* TRIM ONLY WHEN TRIMMING IS BETTER.
+         Longest-n-gram-first exists so "ct-brain plain" beats "ct". It also let "at chintal in"
+         (0.38) claim those tokens before "chintal" (1.00, exact) was ever tried — half of every
+         term block was segmentation artifacts of that kind.
+         Stripping edges that fail to resolve ALONE fixed those and broke something worse: it
+         deleted "ct-brain" from "ct-brain plain", because that token means nothing by itself, and
+         the question resolved to nothing at all.
+         So every trim of the window is offered as a candidate and the best-scoring one wins.
+         Trimming can then only ever improve a match, never destroy one. */
+      const win = words.slice(i, i + n);
+      /* Each variant remembers WHERE it sits, because only the tokens it actually matched may be
+         marked as claimed. Marking the whole window let a three-word span win on a one-word trim
+         and swallow the other two: "collection chintal only" resolved via "collection" and took
+         "chintal" — a 1.00 exact branch match — down with it. */
+      const variants = new Map<string, { from: number; to: number }>();
+      for (let a = 0; a < Math.min(3, win.length); a++)
+        for (let b = 0; b + a < win.length && b < 3; b++) {
+          const sl = win.slice(a, win.length - b);
+          if (!sl.length || (sl.length === 1 && (VSTOP.has(sl[0]) || sl[0].length < 3))) continue;
+          const key = sl.join(' ');
+          if (!variants.has(key)) variants.set(key, { from: i + a, to: i + win.length - b });
+        }
+      /* A HIGHER BAR THAN A FILTER NEEDS. 0.30 answers "may I restrict a query on this"; the
+         planner reads this block as fact, under a heading saying already resolved against live
+         data, and acts on it. */
+      const cands = [...variants.entries()]
+        .flatMap(([v, at]) => resolveRanked(v).filter((r) => r.score >= 0.5).map((r) => ({ ...r, phrase: v, ...at })))
+        .sort((x, y) => y.score - x.score || (y.to - y.from) - (x.to - x.from));
+      if (!cands.length) continue;
+      // the question's own families settle a collision: an exact-matching lab code loses to the
+      // imaging category the owner is plainly asking about
+      const hit = (families.size && cands.find((c) => inFamily(c, families))) || cands[0];
+      const phrase = hit.phrase;
+      // claim only what was matched, so the rest of the window stays available to shorter n-grams
+      for (let j = hit.from; j < hit.to; j++) covered[j] = true;
       const key = `${hit.dimension}=${hit.value}`;
       if (!out.has(key)) out.set(key, { ...hit, term: phrase });
     }
