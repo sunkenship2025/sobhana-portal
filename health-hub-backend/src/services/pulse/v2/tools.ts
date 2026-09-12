@@ -12,7 +12,7 @@ import { scalar, periods, baseline as baselineOf, addDays, fmt, windowLabel } fr
 import { generate } from '../sqlPath';
 import { llmJson } from '../llm';
 import { validate, type SqlPolicy } from '../validator';
-import { groupedBy, periodOf, filtersOf } from './sqlscope';
+import { groupedBy, periodOf, filtersOf, orderedBy } from './sqlscope';
 import { repairIdents, resolveTerm, resolveRanked, type Knowledge } from '../knowledge';
 import { verifySpec, specRepairHint, type AnalysisSpec } from './spec';
 import { compileBindings, formatBindings } from './binding';
@@ -396,6 +396,7 @@ async function t_query(a: any, k: Knowledge, spec?: AnalysisSpec | null, policy:
   return { ok: true, sql, recovered, calls: spent,
     dimension: dimensionOf(sql), period: periodLabel, scope: scopeLabel,
     summary: { question: q, rowCount: ex.rows.length, period: periodLabel, scope: scopeLabel,
+      orderedBy: (() => { const o = orderedBy(sql); return o ? `${o.column} ${o.desc ? 'high to low' : 'low to high'}` : undefined; })(),
     rows: writerRows(ex.rows, 12, moneyCols(sql, Object.keys(ex.rows[0] || {}))) }, data: { rows: ex.rows } };
 }
 

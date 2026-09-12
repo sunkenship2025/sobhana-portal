@@ -353,3 +353,28 @@ export function filtersOf(sql: string): string | undefined {
   if (!eq.length) return undefined;
   return eq.slice(0, 4).map((p) => `${p.column}=${p.values.slice(0, 3).join('|')}`).join(', ');
 }
+
+/**
+ * What the result is ordered by. A table shows rows in an order it never states, so the owner
+ * cannot tell whether the top row is the LARGEST or merely the first the database returned —
+ * and "these are the top discount reasons" and "these are some discount reasons" are different
+ * claims. The parser already knows; nothing was asking it.
+ */
+export function orderedBy(sql: string): { column: string; desc: boolean } | null {
+  let stmts: any[];
+  try { stmts = parse(String(sql)); } catch { return null; }
+  const root = stmts?.[0];
+  const stmt = root?.type === 'with' ? root.in : root;
+  const ob = stmt?.orderBy?.[0];
+  if (!ob) return null;
+  const desc = /desc/i.test(String(ob.order || ''));
+  const ref = ob.by?.type === 'ref' ? ob.by : firstRef(ob.by);
+  if (ref?.name) return { column: String(ref.name), desc };
+  // ORDER BY 2 — the ordinal points at a projected column
+  if (ob.by?.type === 'integer') {
+    const col = stmt.columns?.[Number(ob.by.value) - 1];
+    const r = col?.alias?.name || firstRef(col?.expr)?.name;
+    if (r) return { column: String(r), desc };
+  }
+  return null;
+}

@@ -174,8 +174,10 @@ function Table({ a, ev }: { a: any; ev: Ev }) {
         {cols.map((c) => <td key={c} className={`px-4 py-1.5 ${typeof r[c] === 'number' ? 'tabular-nums' : ''}`}>
           {typeof r[c] === 'number' ? fmtValue(r[c], ev.unit, c) : String(r[c] ?? '')}</td>)}</tr>)}</tbody>
     </table>
-    {rows.length > shown.length && <div className="border-t px-4 py-1.5 text-[11.5px] text-muted-foreground">
-      Showing {shown.length} of {rows.length}</div>}
+    {(rows.length > shown.length || ev.summary?.orderedBy) && <div className="flex flex-wrap justify-between gap-x-4 border-t px-4 py-1.5 text-[11.5px] text-muted-foreground">
+      {rows.length > shown.length && <span>Showing {shown.length} of {rows.length}</span>}
+      {ev.summary?.orderedBy && <span>sorted by {lbl(String(ev.summary.orderedBy).split(' ')[0])} {String(ev.summary.orderedBy).split(' ').slice(1).join(' ')}</span>}
+    </div>}
   </Card>;
 }
 

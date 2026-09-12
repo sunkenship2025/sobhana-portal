@@ -54,6 +54,8 @@ export interface EvidenceStructure {
   isTimeSeries: boolean;
   hasStages: boolean;
   numericSpread: boolean;
+  /** the numeric column takes many distinct values — a measurement, not a per-category count */
+  continuous: boolean;
   seriesPerEntity: boolean;
   hasTarget: boolean;
 }
@@ -118,15 +120,25 @@ export function describeEvidence(e: Evidence): EvidenceStructure {
   const hasStages = Array.isArray(s.stages) && s.stages.length > 1;
   const seriesPerEntity = keys.some((k) => Array.isArray(first[k]) && (first[k] as any[]).length > 2);
 
-  // a numeric column worth showing the spread of: enough rows, and actual variance
-  let numericSpread = false;
+  /* A numeric column worth showing the SPREAD of. Variance alone is not enough, and believing it
+     was produced the worst artifact this system has drawn: "CT ORDERS BY TEST TYPE (90 DAYS)"
+     rendered as a ten-bucket histogram with no category labels — because a histogram has no
+     categories — footed with "median 2 · 90th 22 · worst 22". The title promised a breakdown and
+     the picture showed the frequency of a count column. Nothing reconciled them.
+     Ten test types with counts of 22, 2, 2, 1, 1, 1 are a COMPOSITION. A distribution needs many
+     observations of one measure — bill values, turnaround hours — where the tail is the story.
+     The test is distinctness: a measurement takes many different values, a per-category count
+     takes few. */
+  let numericSpread = false, continuous = false;
   if (rowCount >= 6) {
     for (const k of numericKeys) {
       if (KEY.share.test(k) || KEY.delta.test(k)) continue;
       const vals = list.map((r) => toNum(r[k])).filter(Number.isFinite);
       if (vals.length < 6) continue;
       const lo = Math.min(...vals), hi = Math.max(...vals);
-      if (hi > lo && (hi - lo) / (Math.abs(hi) || 1) > 0.15) { numericSpread = true; break; }
+      if (!(hi > lo && (hi - lo) / (Math.abs(hi) || 1) > 0.15)) continue;
+      numericSpread = true;
+      if (new Set(vals).size / vals.length >= 0.5) { continuous = true; break; }
     }
   }
 
@@ -135,7 +147,7 @@ export function describeEvidence(e: Evidence): EvidenceStructure {
     cardinality: rowCount <= 1 ? 'one' : rowCount <= 7 ? 'few' : 'many',
     dimensions: (nameKeys.length > 1 ? 2 : nameKeys.length === 1 ? 1 : 0) as 0 | 1 | 2,
     measures: Math.max(numericKeys.filter((k) => !KEY.delta.test(k) && !KEY.share.test(k)).length, s.value != null ? 1 : 0),
-    hasDeltas, partsOfWhole, isTimeSeries, hasStages, numericSpread, seriesPerEntity,
+    hasDeltas, partsOfWhole, isTimeSeries, hasStages, numericSpread, continuous, seriesPerEntity,
     hasTarget: s.target != null || s.expected != null || s.baseline != null,
   };
 }
@@ -199,7 +211,8 @@ export const CAPABILITIES: RendererCapability[] = [
   { type: 'funnel', requires: { hasStages: true }, expresses: ['conversion'], prefers: ['hasStages'], rows: [0, 8],
     buildable: (e) => { const n = ((e.summary as any)?.stages || []).length; return n >= 2 ? n : null; } },
 
-  { type: 'distribution', requires: { numericSpread: true }, expresses: ['variability'], prefers: ['numericSpread'], rows: [6, 5000],
+  // `continuous`, not merely `numericSpread` — see describeEvidence
+  { type: 'distribution', requires: { continuous: true }, expresses: ['variability'], prefers: ['numericSpread'], rows: [6, 5000],
     buildable: (e) => { const n = rowsOf(e).length; return n >= 6 ? n : null; } },
 
   { type: 'table', requires: { dimensions: 1 }, expresses: ['enumeration', 'comparison', 'composition'], rows: [1, 200],

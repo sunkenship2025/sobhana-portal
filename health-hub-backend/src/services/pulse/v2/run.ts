@@ -45,7 +45,13 @@ const MAX_STEPS = 40, MAX_ROUNDS = 12, MAX_MS = 180_000, MAX_CALLS = 30;
 const STAGNATION_WINDOW = 3;
 /* Reserved for the investigate call plus the round it would buy plus the final response. Without
    it the deadline passes at 55s, then an unbounded model call and another round run anyway. */
-const ROUND_RESERVE = 30_000;
+/* MEASURED, not guessed. The write-up was assumed to need thirty seconds; across the logged
+   traces it takes five at the median and ten at the worst, on any job — and not one turn has ever
+   exceeded the 180s ceiling. The reserve was three times what it protects, and every second of it
+   was taken from the analysis: the loop stopped at 150s to leave room for something that finishes
+   in ten. Fifteen is 1.5x the worst observed write-up, and hands the investigation back twenty
+   seconds it should always have had. */
+const ROUND_RESERVE = 15_000;
 /* A query step is its own model call plus a database round trip — reckon on this much each. */
 const STEP_COST = 12_000;
 /* A per-step timeout was tried here and removed. It did not move the worst case at all — 114s
